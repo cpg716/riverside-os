@@ -2040,26 +2040,182 @@ async fn get_customer_rms_charge_account_transactions(
     Ok(Json(response))
 }
 
-#[cfg(false)]
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct RmsChargeRecordDetail {
+    pub id: Uuid,
+    pub record_kind: String,
+    pub created_at: DateTime<Utc>,
+    pub transaction_id: Uuid,
+    pub register_session_id: Uuid,
+    pub customer_id: Option<Uuid>,
+    pub payment_method: String,
+    pub amount: Decimal,
+    pub operator_staff_id: Option<Uuid>,
+    pub payment_transaction_id: Option<Uuid>,
+    pub customer_display: Option<String>,
+    pub order_short_ref: Option<String>,
+    pub tender_family: Option<String>,
+    pub program_code: Option<String>,
+    pub program_label: Option<String>,
+    pub masked_account: Option<String>,
+    pub linked_corecredit_customer_id: Option<String>,
+    pub linked_corecredit_account_id: Option<String>,
+    pub resolution_status: Option<String>,
+    pub external_transaction_id: Option<String>,
+    pub external_auth_code: Option<String>,
+    pub posting_status: String,
+    pub posting_error_code: Option<String>,
+    pub posting_error_message: Option<String>,
+    pub posted_at: Option<DateTime<Utc>>,
+    pub reversed_at: Option<DateTime<Utc>>,
+    pub refunded_at: Option<DateTime<Utc>>,
+    pub idempotency_key: Option<String>,
+    pub external_transaction_type: Option<String>,
+    pub host_reference: Option<String>,
+    pub source_mode: String,
+    pub r2s_reporting_required: bool,
+    pub r2s_report_status: String,
+    pub r2s_report_due_at: DateTime<Utc>,
+    pub r2s_reported_at: Option<DateTime<Utc>>,
+    pub r2s_reported_by_staff_id: Option<Uuid>,
+    pub r2s_reported_by_name: Option<String>,
+    pub r2s_report_note: Option<String>,
+    pub metadata_json: Value,
+    pub host_metadata_json: Value,
+    pub request_snapshot_json: Value,
+    pub response_snapshot_json: Value,
+    pub customer_name: Option<String>,
+    pub customer_code: Option<String>,
+    pub operator_name: Option<String>,
+}
+
+async fn fetch_rms_charge_record_detail(
+    db: &sqlx::PgPool,
+    record_id: Uuid,
+    r2s_cutoff: DateTime<Utc>,
+) -> Result<RmsChargeRecordDetail, CustomerError> {
+    let row = sqlx::query_as::<_, RmsChargeRecordDetail>(
+        r#"
+        SELECT
+            r.id,
+            r.record_kind,
+            r.created_at,
+            r.transaction_id,
+            r.register_session_id,
+            r.customer_id,
+            r.payment_method,
+            r.amount,
+            r.operator_staff_id,
+            r.payment_transaction_id,
+            r.customer_display,
+            r.order_short_ref,
+            r.tender_family,
+            r.program_code,
+            r.program_label,
+            r.masked_account,
+            r.linked_corecredit_customer_id,
+            r.linked_corecredit_account_id,
+            r.resolution_status,
+            r.external_transaction_id,
+            r.external_auth_code,
+            r.posting_status,
+            r.posting_error_code,
+            r.posting_error_message,
+            r.posted_at,
+            r.reversed_at,
+            r.refunded_at,
+            r.idempotency_key,
+            r.external_transaction_type,
+            r.host_reference,
+            COALESCE(
+                r.metadata_json->>'rms_charge_source',
+                r.metadata_json->>'source_mode',
+                CASE
+                    WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'corecard_live'
+                    ELSE 'manual'
+                END
+            ) AS source_mode,
+            r2s.reporting_required AS r2s_reporting_required,
+            r2s.report_status AS r2s_report_status,
+            r2s.due_at AS r2s_report_due_at,
+            (NULLIF(r.metadata_json->>'r2s_reported_at', ''))::timestamptz AS r2s_reported_at,
+            CASE
+                WHEN (r.metadata_json->>'r2s_reported_by_staff_id') ~* '^[0-9a-f-]{36}$'
+                THEN (r.metadata_json->>'r2s_reported_by_staff_id')::uuid
+                ELSE NULL
+            END AS r2s_reported_by_staff_id,
+            rs.full_name AS r2s_reported_by_name,
+            NULLIF(r.metadata_json->>'r2s_report_note', '') AS r2s_report_note,
+            r.metadata_json,
+            r.host_metadata_json,
+            r.request_snapshot_json,
+            r.response_snapshot_json,
+            NULLIF(TRIM(BOTH FROM CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '') AS customer_name,
+            c.customer_code,
+            s.full_name AS operator_name
+        FROM pos_rms_charge_record r
+        LEFT JOIN customers c ON c.id = r.customer_id
+        LEFT JOIN staff s ON s.id = r.operator_staff_id
+        LEFT JOIN staff rs ON rs.id = CASE
+            WHEN (r.metadata_json->>'r2s_reported_by_staff_id') ~* '^[0-9a-f-]{36}$'
+            THEN (r.metadata_json->>'r2s_reported_by_staff_id')::uuid
+            ELSE NULL
+        END
+        CROSS JOIN LATERAL (
+            SELECT
+                (
+                    lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                    OR r.metadata_json ? 'r2s_report_status'
+                    OR r.created_at >= $2
+                ) AS reporting_required,
+                CASE
+                    WHEN (
+                        lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                        OR r.metadata_json ? 'r2s_report_status'
+                        OR r.created_at >= $2
+                    )
+                    THEN COALESCE(NULLIF(r.metadata_json->>'r2s_report_status', ''), 'unreported')
+                    ELSE 'not_required'
+                END AS report_status,
+                CASE
+                    WHEN (
+                        lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                        OR r.metadata_json ? 'r2s_report_status'
+                        OR r.created_at >= $2
+                    )
+                    THEN COALESCE((NULLIF(r.metadata_json->>'r2s_report_due_at', ''))::timestamptz, r.created_at + interval '1 day')
+                    ELSE r.created_at
+                END AS due_at
+        ) r2s
+        WHERE r.id = $1
+        "#,
+    )
+    .bind(record_id)
+    .bind(r2s_cutoff)
+    .fetch_optional(db)
+    .await?
+    .ok_or(CustomerError::NotFound)?;
+
+    Ok(row)
+}
+
 async fn get_rms_charge_record(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(record_id): Path<Uuid>,
-) -> Result<Json<corecard::RmsChargeRecordDetail>, CustomerError> {
+) -> Result<Json<RmsChargeRecordDetail>, CustomerError> {
     require_rms_charge_view_staff(&state, &headers).await?;
-    let row = corecard::get_rms_charge_record_detail(&state.db, record_id)
-        .await
-        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    let r2s_cutoff = rms_r2s_reporting_activation_cutoff();
+    let row = fetch_rms_charge_record_detail(&state.db, record_id, r2s_cutoff).await?;
     Ok(Json(row))
 }
 
-#[cfg(false)]
 async fn mark_rms_charge_record_reported_to_r2s(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(record_id): Path<Uuid>,
     Json(body): Json<RmsChargeMarkReportedBody>,
-) -> Result<Json<corecard::RmsChargeRecordDetail>, CustomerError> {
+) -> Result<Json<RmsChargeRecordDetail>, CustomerError> {
     let staff = require_rms_charge_report_staff(&state, &headers).await?;
     let existing: Option<Value> =
         sqlx::query_scalar("SELECT metadata_json FROM pos_rms_charge_record WHERE id = $1")
@@ -2122,9 +2278,8 @@ async fn mark_rms_charge_record_reported_to_r2s(
     )
     .await;
 
-    let row = corecard::get_rms_charge_record_detail(&state.db, record_id)
-        .await
-        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    let r2s_cutoff = rms_r2s_reporting_activation_cutoff();
+    let row = fetch_rms_charge_record_detail(&state.db, record_id, r2s_cutoff).await?;
     Ok(Json(row))
 }
 
@@ -2453,7 +2608,6 @@ async fn get_rms_charge_sync_health(
     Ok(Json(health))
 }
 
-#[cfg(false)]
 async fn list_rms_charge_records(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2982,6 +3136,15 @@ pub fn router() -> Router<AppState> {
         .route(
             "/podium/conversations/{conversation_id}/assignees",
             get(get_podium_conversation_assignees).patch(patch_podium_conversation_assignee),
+        )
+        .route("/rms-charge/records", get(list_rms_charge_records))
+        .route(
+            "/rms-charge/records/{record_id}",
+            get(get_rms_charge_record),
+        )
+        .route(
+            "/rms-charge/records/{record_id}/r2s-report",
+            post(mark_rms_charge_record_reported_to_r2s),
         )
         .route("/groups", get(list_customer_groups))
         .route(

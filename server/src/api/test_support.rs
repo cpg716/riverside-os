@@ -1136,7 +1136,6 @@ async fn get_transaction_artifacts(
             Option<String>,
             String,
             Option<String>,
-            String,
             Option<String>,
             Value,
         ),
@@ -1152,7 +1151,6 @@ async fn get_transaction_artifacts(
             linked_corecredit_account_id,
             posting_status,
             host_reference,
-            source_mode,
             external_transaction_id,
             metadata_json
         FROM pos_rms_charge_record
@@ -1177,10 +1175,21 @@ async fn get_transaction_artifacts(
                 linked_corecredit_account_id,
                 posting_status,
                 host_reference,
-                source_mode,
                 external_transaction_id,
                 metadata_json,
             )| {
+                let source_mode = metadata_json
+                    .get("rms_charge_source")
+                    .or_else(|| metadata_json.get("source_mode"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| {
+                        if external_transaction_id.is_some() || host_reference.is_some() {
+                            "corecard_live".to_string()
+                        } else {
+                            "manual".to_string()
+                        }
+                    });
                 json!({
                     "id": id,
                     "record_kind": record_kind,
