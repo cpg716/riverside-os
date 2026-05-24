@@ -226,7 +226,7 @@ pub async fn ensure_core_pos_products(pool: &PgPool) -> Result<()> {
                 0.00, 0.00, 0.00, '{}', '{}',
                 true, NOW(), NULL, true,
                 false, false, $6, NULL, 'clothing',
-                0.00, NULL
+                0.00, 0.00
             )
             ON CONFLICT (id) DO NOTHING
             "#,
