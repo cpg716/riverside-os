@@ -374,12 +374,12 @@ async fn get_postgres_status() -> Result<serde_json::Value, String> {
             .unwrap_or("riverside_os")
             .to_string();
         let user = db
-            .and_then(|d| d.get("appUser"))
+            .and_then(|d| d.get("adminUser"))
             .and_then(|v| v.as_str())
-            .unwrap_or("riverside_app")
+            .unwrap_or("postgres")
             .to_string();
         let password = db
-            .and_then(|d| d.get("appPassword"))
+            .and_then(|d| d.get("adminPassword"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -394,7 +394,7 @@ async fn get_postgres_status() -> Result<serde_json::Value, String> {
             "127.0.0.1".into(),
             5432,
             "riverside_os".into(),
-            "riverside_app".into(),
+            "postgres".into(),
             String::new(),
             String::new(),
         )
@@ -417,7 +417,12 @@ if ($svc) {{
 $psqlPath = '{psql_hint}'
 if (-not $psqlPath -or -not (Test-Path $psqlPath)) {{
     $psqlCmd = Get-Command psql.exe -ErrorAction SilentlyContinue
-    if ($psqlCmd) {{ $psqlPath = $psqlCmd.Source }}
+    if ($psqlCmd) {{
+        $psqlPath = $psqlCmd.Source
+    }} else {{
+        $found = Get-ChildItem "C:\Program Files\PostgreSQL" -Recurse -Filter psql.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) {{ $psqlPath = $found.FullName }}
+    }}
 }}
 $out['psql_found'] = [bool]($psqlPath -and (Test-Path $psqlPath))
 
