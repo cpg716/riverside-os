@@ -61,10 +61,28 @@ The integration utilizes a dedicated **`NuorderClient`** in the server backend, 
 
 ---
 
+## API Surface
+
+| Method | Path | Permission | Description |
+|--------|------|------------|-------------|
+| `GET` | `/api/settings/nuorder/config` | `settings.admin` | Read config + last 20 sync logs |
+| `PATCH` | `/api/settings/nuorder/config` | `settings.admin` | Save credentials |
+| `GET` | `/api/settings/nuorder/health` | `nuorder.sync` | **New** Live connectivity + latency check |
+| `POST` | `/api/settings/nuorder/sync/catalog` | `nuorder.sync` | Pull products & variants |
+| `POST` | `/api/settings/nuorder/sync/orders` | `nuorder.sync` | Import approved orders as POs |
+| `POST` | `/api/settings/nuorder/sync/inventory` | `nuorder.sync` | Push ATS levels to NuORDER |
+
+## Hardening (v0.70.x)
+
+- **Retry Logic**: All NuORDER API calls (`fetch_products`, `fetch_approved_orders`, `update_inventory`) retry up to **3 times** with exponential backoff (500ms → 1000ms → 2000ms) on network timeouts, connection errors, and HTTP 5xx responses.
+- **Timeouts**: `reqwest` client configured with 15s connect timeout and 60s request timeout.
+- **Response Body Capture**: Non-2xx responses now include the full response body in error messages for easier debugging.
+- **Health Check**: Lightweight `GET /api/settings/nuorder/health` endpoint performs a single-product probe against `api.nuorder.com` without triggering a sync.
+
 ## Related docs
 
 - **[`docs/INTEGRATIONS_SCOPE.md`](INTEGRATIONS_SCOPE.md)** — Canonical posture list.
 - **[`docs/CATALOG_IMPORT.md`](CATALOG_IMPORT.md)** — Universal CSV importer posture.
 - **[`DEVELOPER.md`](../DEVELOPER.md)** — Overall system architecture.
 
-**Last reviewed:** 2026-04-08
+**Last reviewed:** 2026-05-23

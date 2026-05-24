@@ -907,12 +907,35 @@ async fn trigger_nuorder_inventory_sync(
     }
 }
 
+async fn get_nuorder_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, SettingsError> {
+    middleware::require_staff_with_permission(
+        &state,
+        &headers,
+        crate::auth::permissions::NUORDER_SYNC,
+    )
+    .await
+    .map_err(map_set_perm)?;
+
+    let client = nuorder_client_from_credentials(&state.db).await?;
+    let health = client.health_check().await;
+    Ok(Json(json!({
+        "configured": true,
+        "reachable": health.reachable,
+        "latency_ms": health.latency_ms,
+        "message": health.message,
+    })))
+}
+
 pub fn build_nuorder_router() -> Router<AppState> {
     Router::new()
         .route(
             "/config",
             get(get_nuorder_config).patch(patch_nuorder_config),
         )
+        .route("/health", get(get_nuorder_health))
         .route("/sync/catalog", post(trigger_nuorder_catalog_sync))
         .route("/sync/orders", post(trigger_nuorder_orders_sync))
         .route("/sync/inventory", post(trigger_nuorder_inventory_sync))

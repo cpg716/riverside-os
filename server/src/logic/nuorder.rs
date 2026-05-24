@@ -4,8 +4,16 @@ use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
+
+const NUORDER_MAX_RETRIES: u32 = 3;
+const NUORDER_BASE_RETRY_DELAY_MS: u64 = 500;
+
+fn nuorder_retry_delay(attempt: u32) -> Duration {
+    Duration::from_millis(NUORDER_BASE_RETRY_DELAY_MS * 2_u64.pow(attempt))
+}
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -64,8 +72,13 @@ pub struct NuorderOrderItem {
 
 impl NuorderClient {
     pub fn new(creds: NuorderCredentials) -> Self {
+        let http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(60))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            http: reqwest::Client::new(),
+            http,
             creds,
             semaphore: Arc::new(Semaphore::new(5)), // NuORDER strict 5-concurrent limit
         }
@@ -122,67 +135,167 @@ impl NuorderClient {
     }
 
     pub async fn fetch_products(&self) -> anyhow::Result<Vec<NuorderProduct>> {
-        let _permit = self.semaphore.acquire().await?;
-        let url = "https://api.nuorder.com/api/v1/products";
-        let auth = self.get_oauth_header("GET", url);
+        let mut last_error = String::new();
+        for attempt in 0..=NUORDER_MAX_RETRIES {
+            if attempt > 0 {
+                tokio::time::sleep(nuorder_retry_delay(attempt - 1)).await;
+                tracing::info!(attempt, "Retrying NuORDER fetch_products");
+            }
+            let _permit = self.semaphore.acquire().await?;
+            let url = "https://api.nuorder.com/api/v1/products";
+            let auth = self.get_oauth_header("GET", url);
 
-        let resp = self
-            .http
-            .get(url)
-            .header(AUTHORIZATION, auth)
-            .send()
-            .await?;
+            let resp = match self.http.get(url).header(AUTHORIZATION, &auth).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    if e.is_timeout() || e.is_connect() {
+                        last_error = format!("NuORDER network error: {e}");
+                        continue;
+                    }
+                    return Err(e.into());
+                }
+            };
 
-        if !resp.status().is_success() {
-            anyhow::bail!("NuORDER API error: {}", resp.status());
+            let status = resp.status();
+            if status.is_success() {
+                let products = resp.json::<Vec<NuorderProduct>>().await?;
+                return Ok(products);
+            }
+
+            let body = resp.text().await.unwrap_or_default();
+            if status.is_server_error() && attempt < NUORDER_MAX_RETRIES {
+                last_error = format!("NuORDER HTTP {status}: {body}");
+                continue;
+            }
+            anyhow::bail!("NuORDER API error: {status} — {body}");
         }
-
-        let products = resp.json::<Vec<NuorderProduct>>().await?;
-        Ok(products)
+        anyhow::bail!("NuORDER fetch_products failed after retries: {last_error}")
     }
 
     pub async fn fetch_approved_orders(&self) -> anyhow::Result<Vec<NuorderOrder>> {
-        let _permit = self.semaphore.acquire().await?;
-        // nuorder often filters by status
-        let url = "https://api.nuorder.com/api/v1/orders?status=Approved";
-        let auth = self.get_oauth_header("GET", url);
+        let mut last_error = String::new();
+        for attempt in 0..=NUORDER_MAX_RETRIES {
+            if attempt > 0 {
+                tokio::time::sleep(nuorder_retry_delay(attempt - 1)).await;
+                tracing::info!(attempt, "Retrying NuORDER fetch_approved_orders");
+            }
+            let _permit = self.semaphore.acquire().await?;
+            let url = "https://api.nuorder.com/api/v1/orders?status=Approved";
+            let auth = self.get_oauth_header("GET", url);
 
-        let resp = self
-            .http
-            .get(url)
-            .header(AUTHORIZATION, auth)
-            .send()
-            .await?;
+            let resp = match self.http.get(url).header(AUTHORIZATION, &auth).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    if e.is_timeout() || e.is_connect() {
+                        last_error = format!("NuORDER network error: {e}");
+                        continue;
+                    }
+                    return Err(e.into());
+                }
+            };
 
-        if !resp.status().is_success() {
-            anyhow::bail!("NuORDER API error: {}", resp.status());
+            let status = resp.status();
+            if status.is_success() {
+                let orders = resp.json::<Vec<NuorderOrder>>().await?;
+                return Ok(orders);
+            }
+
+            let body = resp.text().await.unwrap_or_default();
+            if status.is_server_error() && attempt < NUORDER_MAX_RETRIES {
+                last_error = format!("NuORDER HTTP {status}: {body}");
+                continue;
+            }
+            anyhow::bail!("NuORDER API error: {status} — {body}");
         }
-
-        let orders = resp.json::<Vec<NuorderOrder>>().await?;
-        Ok(orders)
+        anyhow::bail!("NuORDER fetch_approved_orders failed after retries: {last_error}")
     }
 
     pub async fn update_inventory(&self, sku: &str, ats: i32) -> anyhow::Result<()> {
-        let _permit = self.semaphore.acquire().await?;
-        let url = format!("https://api.nuorder.com/api/v1/inventory/{sku}");
-        let auth = self.get_oauth_header("PUT", &url);
+        let mut last_error = String::new();
+        for attempt in 0..=NUORDER_MAX_RETRIES {
+            if attempt > 0 {
+                tokio::time::sleep(nuorder_retry_delay(attempt - 1)).await;
+                tracing::info!(attempt, sku, "Retrying NuORDER update_inventory");
+            }
+            let _permit = self.semaphore.acquire().await?;
+            let url = format!("https://api.nuorder.com/api/v1/inventory/{sku}");
+            let auth = self.get_oauth_header("PUT", &url);
 
-        let body = serde_json::json!({
-            "available_to_sell": ats
-        });
+            let body = serde_json::json!({
+                "available_to_sell": ats
+            });
 
-        let resp = self
-            .http
-            .put(&url)
-            .header(AUTHORIZATION, auth)
-            .json(&body)
-            .send()
-            .await?;
+            let resp = match self
+                .http
+                .put(&url)
+                .header(AUTHORIZATION, &auth)
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    if e.is_timeout() || e.is_connect() {
+                        last_error = format!("NuORDER network error: {e}");
+                        continue;
+                    }
+                    return Err(e.into());
+                }
+            };
 
-        if !resp.status().is_success() {
-            anyhow::bail!("NuORDER Inventory update error: {}", resp.status());
+            let status = resp.status();
+            if status.is_success() {
+                return Ok(());
+            }
+
+            let body = resp.text().await.unwrap_or_default();
+            if status.is_server_error() && attempt < NUORDER_MAX_RETRIES {
+                last_error = format!("NuORDER HTTP {status}: {body}");
+                continue;
+            }
+            anyhow::bail!("NuORDER Inventory update error: {status} — {body}");
         }
-
-        Ok(())
+        anyhow::bail!("NuORDER update_inventory failed after retries: {last_error}")
     }
+
+    /// Lightweight health check: attempts to list products with a small page.
+    pub async fn health_check(&self) -> crate::logic::nuorder::NuorderHealth {
+        let start = std::time::Instant::now();
+        let _permit = match self.semaphore.acquire().await {
+            Ok(p) => p,
+            Err(_) => {
+                return crate::logic::nuorder::NuorderHealth {
+                    reachable: false,
+                    latency_ms: 0,
+                    message: "Could not acquire NuORDER rate-limit semaphore".to_string(),
+                };
+            }
+        };
+        let url = "https://api.nuorder.com/api/v1/products?page=1&per_page=1";
+        let auth = self.get_oauth_header("GET", url);
+        match self.http.get(url).header(AUTHORIZATION, &auth).send().await {
+            Ok(resp) if resp.status().is_success() => crate::logic::nuorder::NuorderHealth {
+                reachable: true,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: "NuORDER API is reachable".to_string(),
+            },
+            Ok(resp) => crate::logic::nuorder::NuorderHealth {
+                reachable: false,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: format!("NuORDER returned HTTP {}", resp.status()),
+            },
+            Err(e) => crate::logic::nuorder::NuorderHealth {
+                reachable: false,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: format!("NuORDER health check failed: {e}"),
+            },
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct NuorderHealth {
+    pub reachable: bool,
+    pub latency_ms: u64,
+    pub message: String,
 }
