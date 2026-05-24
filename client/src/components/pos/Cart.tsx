@@ -65,10 +65,10 @@ import PromptModal from "../ui/PromptModal";
 export type { CheckoutPayload } from "./types";
 
 // --- POS Modularization ---
-import { 
-  type ResolvedSkuItem, 
-  type CartLineItem, 
-  type FulfillmentKind, 
+import {
+  type ResolvedSkuItem,
+  type CartLineItem,
+  type FulfillmentKind,
   type PosStaffRow,
   type ActiveDiscountEvent,
   type RmsPaymentLineMeta,
@@ -300,8 +300,8 @@ export default function Cart({
       ? receiptTimezoneProp.trim()
       : "America/New_York";
   const { toast } = useToast();
-  const { 
-    backofficeHeaders, 
+  const {
+    backofficeHeaders,
     staffRole,
     staffPin,
     staffCode,
@@ -700,7 +700,7 @@ export default function Cart({
       if (line) {
         const nextAmtCents = parseMoneyToCents(keypadBuffer);
         const originalAmtCents = parseMoneyToCents(line.original_unit_price || line.standard_retail_price);
-        
+
         if (nextAmtCents < originalAmtCents) {
           const discountPct = ((originalAmtCents - nextAmtCents) / originalAmtCents) * 100;
           if (discountPct > roleMaxDiscountPct && !hasAccess) {
@@ -1170,9 +1170,9 @@ export default function Cart({
   }, [backofficeHeaders, checkoutOperator?.staffId]);
 
   // --- Checkout Hook ---
-  const { 
-    executeCheckout, 
-    checkoutBusy, 
+  const {
+    executeCheckout,
+    checkoutBusy,
     lastTransactionId: checkoutTransactionId,
     lastCashChangeDueCents,
   } = useCartCheckout({
@@ -1319,7 +1319,7 @@ export default function Cart({
       if (!res.ok) throw new Error("API error");
       const data = await res.json();
       const items = Array.isArray(data.items) ? data.items : [];
-      const txn = items.find((i: { transaction_id: string; display_id: string; status: string; customer_id?: string }) => 
+      const txn = items.find((i: { transaction_id: string; display_id: string; status: string; customer_id?: string }) =>
         (i.transaction_id || "").toLowerCase().startsWith(shortId.toLowerCase()) ||
         (i.display_id || "").toLowerCase().includes(shortId.toLowerCase())
       );
@@ -1359,7 +1359,7 @@ export default function Cart({
       toast("Failed to look up receipt barcode", "error");
     }
   }, [baseUrl, apiAuth, toast, setSelectedCustomer]);
-  
+
   // --- Staff PIN Verification Logic ---
   const [salePinBusy, setSalePinBusy] = useState(false);
 
@@ -1375,7 +1375,7 @@ export default function Cart({
       const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           pin: salePinCredential,
           staff_id: selectedStaffId || undefined
         }),
@@ -1405,7 +1405,7 @@ export default function Cart({
   const [showWalkinConfirm, setShowWalkinConfirm] = useState(false);
   const [activeVariationSelection, setActiveVariationSelection] = useState<ProductWithVariants | null>(null);
   const [variantSwapCartRowId, setVariantSwapCartRowId] = useState<string | null>(null);
-  
+
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showVoidAllConfirm, setShowVoidAllConfirm] = useState(false);
   const [discountPrompt, setDiscountPrompt] = useState<{
@@ -2088,17 +2088,33 @@ export default function Cart({
               <button
                 type="button"
                 data-testid="pos-action-rms-payment"
-                onClick={() => {
+                onClick={async () => {
                   if (!ensureSaleCashier()) return;
-                  if (!rmsPaymentMeta) {
-                    toast("RMS payment line is not available. Ensure layout POS products are created.", "error");
-                    return;
+                  let meta = rmsPaymentMeta;
+                  if (!meta) {
+                    try {
+                      const res = await fetch(`${baseUrl}/api/pos/rms-payment-line-meta`, { headers: apiAuth() });
+                      if (!res.ok) {
+                        toast("RMS payment line is not available. Sign in or run migrations.", "error");
+                        return;
+                      }
+                      const payload = (await res.json()) as RmsPaymentLineMeta | null;
+                      if (!payload) {
+                        toast("RMS payment line is not available. Ensure layout POS products are created.", "error");
+                        return;
+                      }
+                      meta = payload;
+                      setRmsPaymentMeta(meta);
+                    } catch {
+                      toast("RMS payment line is not available. Ensure layout POS products are created.", "error");
+                      return;
+                    }
                   }
                   addItem({
-                    product_id: rmsPaymentMeta.product_id,
-                    variant_id: rmsPaymentMeta.variant_id,
-                    sku: rmsPaymentMeta.sku,
-                    name: rmsPaymentMeta.name,
+                    product_id: meta.product_id,
+                    variant_id: meta.variant_id,
+                    sku: meta.sku,
+                    name: meta.name,
                     standard_retail_price: 0,
                     unit_cost: 0,
                     state_tax: 0,
@@ -2706,8 +2722,8 @@ export default function Cart({
 
         {/* ── Pay button ── */}
         <div className="sticky bottom-0 z-10 shrink-0 border-t border-app-border/70 bg-app-surface/95 p-2.5 shadow-[0_-10px_40px_-18px_rgba(0,0,0,0.15)] backdrop-blur-sm">
-           <button 
-             type="button" 
+           <button
+             type="button"
              data-testid="pos-pay-button"
              disabled={!hasCheckoutWork || checkoutBusy}
              onClick={() => {
@@ -3347,9 +3363,9 @@ export default function Cart({
                           );
                           return;
                         }
-                        // Use the merged headers logic to resolve actor if possible, 
+                        // Use the merged headers logic to resolve actor if possible,
                         // but the original code used resolveActorStaffId() which I should keep if it exists.
-                        const actor = await resolveActorStaffId(); 
+                        const actor = await resolveActorStaffId();
                         if (!actor) {
                           toast(
                             "Sign in to Back Office or verify cashier to delete parked sales.",
@@ -3587,8 +3603,8 @@ export default function Cart({
             const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
               method: "POST",
               headers: { "Content-Type": "application/json", ...apiAuth() },
-              body: JSON.stringify({ 
-                pin, 
+              body: JSON.stringify({
+                pin,
                 role: "Admin",
                 authorize_action: "pos_sale_void_all",
                 authorize_metadata: {
@@ -3637,7 +3653,7 @@ export default function Cart({
         apiAuth={() => ({ ...apiAuth() })}
       />
 
-      <WeddingLookupDrawer 
+      <WeddingLookupDrawer
         isOpen={weddingDrawerOpen}
         onClose={() => {
           setWeddingDrawerOpen(false);
@@ -3658,7 +3674,7 @@ export default function Cart({
           setActiveWeddingPartyName(partyName);
           setWeddingDrawerOpen(false);
           toast(`Linked ${m.first_name} ${m.last_name}`, "success");
-          
+
           try {
             const res = await fetch(`${baseUrl}/api/customers/${m.customer_id}`, {
               headers: { ...apiAuth() },
@@ -3731,8 +3747,8 @@ export default function Cart({
             const res = await fetch(`${baseUrl}/api/auth/verify-pin`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
-                pin, 
+              body: JSON.stringify({
+                pin,
                 role: "Admin",
                 authorize_action: "pos_price_override",
                 authorize_metadata: {
