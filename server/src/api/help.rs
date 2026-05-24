@@ -1987,6 +1987,7 @@ pub fn router() -> Router<AppState> {
             post(admin_ops_capture_screenshots),
         )
         .route("/admin/ops/reindex-search", post(admin_ops_reindex_search))
+        .route("/admin/ops/meilisearch-health", get(admin_ops_meilisearch_health))
 }
 
 async fn rosie_product_catalog_analysis(
@@ -3385,4 +3386,32 @@ async fn admin_ops_reindex_search(
             }
         }
     }
+}
+
+async fn admin_ops_meilisearch_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Response> {
+    let _staff = middleware::require_staff_with_permission(&state, &headers, HELP_MANAGE)
+        .await
+        .map_err(|e| e.into_response())?;
+
+    let Some(client) = state.meilisearch.as_ref() else {
+        return Ok(Json(serde_json::json!({
+            "configured": false,
+            "reachable": false,
+            "indexing": false,
+            "latency_ms": 0,
+            "message": "Meilisearch is not configured (RIVERSIDE_MEILISEARCH_URL unset)",
+        })));
+    };
+
+    let health = crate::logic::meilisearch_client::health_check(client).await;
+    Ok(Json(serde_json::json!({
+        "configured": true,
+        "reachable": health.reachable,
+        "indexing": health.indexing,
+        "latency_ms": health.latency_ms,
+        "message": health.message,
+    })))
 }

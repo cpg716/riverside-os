@@ -1041,6 +1041,13 @@ async fn prepare_temp_index(
     Ok(client.index(temp_uid))
 }
 
+const MEILI_MAX_RETRIES: u32 = 3;
+const MEILI_BASE_RETRY_DELAY_MS: u64 = 300;
+
+fn meili_retry_delay(attempt: u32) -> std::time::Duration {
+    std::time::Duration::from_millis(MEILI_BASE_RETRY_DELAY_MS * 2_u64.pow(attempt))
+}
+
 async fn enqueue_documents<T: Serialize + Send + Sync>(
     index: &Index,
     documents: &[T],
@@ -1049,8 +1056,37 @@ async fn enqueue_documents<T: Serialize + Send + Sync>(
     if documents.is_empty() {
         return Ok(());
     }
-    pending_tasks.push(index.add_documents(documents, Some("id")).await?);
-    Ok(())
+    let mut last_error = None;
+    for attempt in 0..=MEILI_MAX_RETRIES {
+        if attempt > 0 {
+            tokio::time::sleep(meili_retry_delay(attempt - 1)).await;
+            tracing::info!(attempt, "Retrying Meilisearch add_documents");
+        }
+        match index.add_documents(documents, Some("id")).await {
+            Ok(task) => {
+                pending_tasks.push(task);
+                return Ok(());
+            }
+            Err(e) => {
+                let is_retryable = matches!(
+                    &e,
+                    meilisearch_sdk::errors::Error::Meilisearch(_)
+                        | meilisearch_sdk::errors::Error::HttpError(_)
+                );
+                if is_retryable && attempt < MEILI_MAX_RETRIES {
+                    last_error = Some(e);
+                    continue;
+                }
+                return Err(e);
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        meilisearch_sdk::errors::Error::Other(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Meilisearch add_documents failed after retries",
+        )))
+    }))
 }
 
 async fn wait_pending_tasks(

@@ -30,10 +30,23 @@ The Metabase integration provides Riverside OS with "Big Data" analytics capabil
 - **Report Basis**: Metabase is configured to read directly from the PostgreSQL read-replica (or main DB), providing real-time access to the **Recognition Clock** (Booked vs. Fulfilled).
 - **Exporting**: Because of the streaming proxy, staff can export 100k+ row spreadsheets directly from the iframe without impacting application stability.
 
-## 5. Findings & Recommendations
+## 5. Hardening Applied (v0.70.x)
+
+### 5.1 Shared-Auth Retry Logic
+- The silent shared-auth login POST to `/api/session` now retries up to **3 times** with exponential backoff (500ms → 1000ms).
+- Retries are triggered on network timeouts, connection errors, and HTTP 5xx responses.
+- Non-retryable errors (4xx, parse failures) fail fast to avoid delaying the JWT fallback path.
+
+### 5.2 Metabase Health Check Endpoint
+- New `GET /api/insights/metabase-health` endpoint verifies upstream reachability.
+- Returns JSON with `status` (`connected` | `degraded` | `unreachable` | `disabled`), `message`, and `latency_ms`.
+- Requires `insights.view` permission.
+- Respects `RIVERSIDE_METABASE_UPSTREAM` disabled states (`0`, `off`, `false`, `disabled`).
+
+## 6. Findings & Recommendations
 1. **Security Excellence**: The proxy-level header stripping is a "Best Practice" for embedding third-party BI tools while maintaining staff session cookies.
 2. **SSO Reliability**: Synthetic email generation (`code@domain`) ensures that even seasonal staff without dedicated emails can use the BI tools.
 3. **Observation**: Metabase updates can occasionally change internal CSS classes. **Recommendation**: Avoid deep CSS overrides of the iframe content; rely on Metabase's "Appearance" settings for branding color sync (`#059669`).
 
-## 6. Conclusion
+## 7. Conclusion
 The Metabase integration is a **mature, production-grade BI bridge**. It bypasses the "iframe security wall" through clever proxying while keeping staff identities perfectly synced between the retail terminal and the analytic dashboards.

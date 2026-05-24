@@ -3305,19 +3305,34 @@ async fn metabase_launch_resolve(
                 .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
             let login_url = format!("{}/api/session", upstream.trim_end_matches('/'));
 
-            let login_res = state
-                .http_client
-                .post(&login_url)
-                .json(&serde_json::json!({ "username": email, "password": pass }))
-                .send()
-                .await;
-
-            if let Ok(res) = login_res {
-                if res.status().is_success() {
+            let mut last_error = String::new();
+            for attempt in 0..=2 {
+                if attempt > 0 {
+                    let delay = std::time::Duration::from_millis(500 * 2_u64.pow(attempt - 1));
+                    tokio::time::sleep(delay).await;
+                    tracing::info!(attempt, "Retrying Metabase shared-auth login");
+                }
+                let res = match state
+                    .http_client
+                    .post(&login_url)
+                    .json(&serde_json::json!({ "username": &email, "password": &pass }))
+                    .send()
+                    .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        if e.is_timeout() || e.is_connect() {
+                            last_error = format!("Metabase login network error: {e}");
+                            continue;
+                        }
+                        tracing::warn!(error = %e, "Metabase shared-auth login request failed");
+                        break;
+                    }
+                };
+                let status = res.status();
+                if status.is_success() {
                     if let Ok(data) = res.json::<serde_json::Value>().await {
                         if let Some(session_id) = data.get("id").and_then(|id| id.as_str()) {
-                            // We return the session ID. The frontend shell or proxy will ensure it's used.
-                            // To make it seamless, we return a special launch source that the proxy recognizes.
                             let rt = urlencoding::encode(return_to);
                             let iframe_src = format!(
                                 "/metabase/?metabase_session_id={session_id}&return_to={rt}"
@@ -3329,7 +3344,18 @@ async fn metabase_launch_resolve(
                             })));
                         }
                     }
+                } else if status.is_server_error() && attempt < 2 {
+                    last_error = format!("Metabase login returned HTTP {status}");
+                    continue;
                 }
+                tracing::warn!(
+                    status = %status,
+                    "Metabase shared-auth login returned non-success"
+                );
+                break;
+            }
+            if !last_error.is_empty() {
+                tracing::warn!(error = %last_error, "Metabase shared-auth login failed after retries");
             }
         }
     }
@@ -3387,6 +3413,58 @@ async fn post_metabase_launch(
     Json(body): Json<MetabaseLaunchBody>,
 ) -> Result<Json<serde_json::Value>, InsightsError> {
     metabase_launch_resolve(&state, &headers, &body.return_to).await
+}
+
+async fn get_metabase_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, InsightsError> {
+    require_staff_with_permission(&state, &headers, INSIGHTS_VIEW)
+        .await
+        .map_err(|(s, _)| {
+            if s == StatusCode::FORBIDDEN {
+                InsightsError::Forbidden("insights.view permission required".to_string())
+            } else {
+                InsightsError::Unauthorized(
+                    "staff credentials required (x-riverside-staff-code and PIN if set)"
+                        .to_string(),
+                )
+            }
+        })?;
+
+    let upstream = std::env::var("RIVERSIDE_METABASE_UPSTREAM")
+        .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
+    let upstream = upstream.trim();
+    if upstream.eq_ignore_ascii_case("0")
+        || upstream.eq_ignore_ascii_case("off")
+        || upstream.eq_ignore_ascii_case("false")
+        || upstream.eq_ignore_ascii_case("disabled")
+    {
+        return Ok(Json(json!({
+            "status": "disabled",
+            "message": "Metabase proxy is disabled (RIVERSIDE_METABASE_UPSTREAM is off).",
+        })));
+    }
+
+    let start = std::time::Instant::now();
+    let health_url = format!("{}/api/health", upstream.trim_end_matches('/'));
+    match state.http_client.get(&health_url).send().await {
+        Ok(res) if res.status().is_success() => Ok(Json(json!({
+            "status": "connected",
+            "message": "Metabase upstream is reachable and healthy.",
+            "latency_ms": start.elapsed().as_millis() as u64,
+        }))),
+        Ok(res) => Ok(Json(json!({
+            "status": "degraded",
+            "message": format!("Metabase upstream returned HTTP {}", res.status()),
+            "latency_ms": start.elapsed().as_millis() as u64,
+        }))),
+        Err(e) => Ok(Json(json!({
+            "status": "unreachable",
+            "message": format!("Could not reach Metabase upstream: {e}"),
+            "latency_ms": start.elapsed().as_millis() as u64,
+        }))),
+    }
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -3600,6 +3678,7 @@ pub fn router() -> Router<AppState> {
             "/metabase-launch",
             get(get_metabase_launch).post(post_metabase_launch),
         )
+        .route("/metabase-health", get(get_metabase_health))
         .route("/wedding-health", get(wedding_health_summary))
         .route(
             "/wedding-saved-views",

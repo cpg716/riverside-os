@@ -4,6 +4,7 @@ use meilisearch_sdk::client::Client;
 use meilisearch_sdk::errors::Error as MeiliError;
 use meilisearch_sdk::task_info::TaskInfo;
 use meilisearch_sdk::tasks::Task;
+use serde::Serialize;
 use std::time::Duration;
 
 /// Variant-level inventory / control-board index.
@@ -469,5 +470,38 @@ pub async fn is_indexing(client: &Client) -> bool {
             tracing::error!(error = %e, "Failed to check Meilisearch indexing status");
             false
         }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct MeilisearchHealth {
+    pub reachable: bool,
+    pub indexing: bool,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+/// Lightweight health check: attempts to list tasks and measures latency.
+pub async fn health_check(client: &Client) -> MeilisearchHealth {
+    let start = std::time::Instant::now();
+    match client.get_tasks().await {
+        Ok(tasks) => {
+            let indexing = tasks
+                .results
+                .iter()
+                .any(|t| matches!(t, Task::Enqueued { .. } | Task::Processing { .. }));
+            MeilisearchHealth {
+                reachable: true,
+                indexing,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: "Meilisearch is reachable".to_string(),
+            }
+        }
+        Err(e) => MeilisearchHealth {
+            reachable: false,
+            indexing: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            message: format!("Meilisearch health check failed: {e}"),
+        },
     }
 }
