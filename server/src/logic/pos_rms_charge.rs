@@ -28,9 +28,6 @@ pub struct RmsChargeSelectionMetadata {
     pub program_code: Option<String>,
     pub program_label: Option<String>,
     pub masked_account: Option<String>,
-    pub linked_corecredit_customer_id: Option<String>,
-    pub linked_corecredit_account_id: Option<String>,
-    pub linked_corecredit_card_id: Option<String>,
     pub resolution_status: Option<String>,
     pub metadata_json: Value,
 }
@@ -104,7 +101,6 @@ pub fn extract_selection_from_metadata(metadata: &Value) -> Option<RmsChargeSele
     let family = clean_text(metadata.get("tender_family")).or_else(|| {
         if metadata.get("program_code").is_some()
             || metadata.get("program_label").is_some()
-            || metadata.get("linked_corecredit_account_id").is_some()
         {
             Some(RMS_TENDER_FAMILY.to_string())
         } else {
@@ -117,9 +113,6 @@ pub fn extract_selection_from_metadata(metadata: &Value) -> Option<RmsChargeSele
         program_code: clean_text(metadata.get("program_code")),
         program_label: clean_text(metadata.get("program_label")),
         masked_account: clean_text(metadata.get("masked_account")),
-        linked_corecredit_customer_id: clean_text(metadata.get("linked_corecredit_customer_id")),
-        linked_corecredit_account_id: clean_text(metadata.get("linked_corecredit_account_id")),
-        linked_corecredit_card_id: clean_text(metadata.get("linked_corecredit_card_id")),
         resolution_status: clean_text(metadata.get("resolution_status")),
         metadata_json: metadata.clone(),
     })
@@ -183,9 +176,6 @@ where
                         "program_code": selection.program_code,
                         "program_label": selection.program_label,
                         "masked_account": selection.masked_account,
-                        "linked_corecredit_customer_id": selection.linked_corecredit_customer_id,
-                        "linked_corecredit_account_id": selection.linked_corecredit_account_id,
-                        "linked_corecredit_card_id": selection.linked_corecredit_card_id,
                         "resolution_status": selection.resolution_status,
                         "posting_status": clean_text(normalized.get("posting_status")),
                         "external_transaction_id": clean_text(normalized.get("external_transaction_id")),
@@ -204,8 +194,6 @@ where
                 "rms_charge_payment_collection": {
                     "tender_family": clean_text(normalized.get("tender_family")).unwrap_or_else(|| RMS_TENDER_FAMILY.to_string()),
                     "masked_account": clean_text(normalized.get("masked_account")),
-                    "linked_corecredit_customer_id": clean_text(normalized.get("linked_corecredit_customer_id")),
-                    "linked_corecredit_account_id": clean_text(normalized.get("linked_corecredit_account_id")),
                     "resolution_status": clean_text(normalized.get("resolution_status")),
                     "posting_status": clean_text(normalized.get("posting_status")),
                     "external_transaction_id": clean_text(normalized.get("external_transaction_id")),
@@ -428,12 +416,6 @@ where
     let masked_account = selection
         .as_ref()
         .and_then(|value| value.masked_account.clone());
-    let linked_corecredit_customer_id = selection
-        .as_ref()
-        .and_then(|value| value.linked_corecredit_customer_id.clone());
-    let linked_corecredit_account_id = selection
-        .as_ref()
-        .and_then(|value| value.linked_corecredit_account_id.clone());
     let resolution_status = selection
         .as_ref()
         .and_then(|value| value.resolution_status.clone());
@@ -472,8 +454,8 @@ where
     .bind(program_code)
     .bind(program_label)
     .bind(masked_account)
-    .bind(linked_corecredit_customer_id)
-    .bind(linked_corecredit_account_id)
+    .bind(None::<Option<String>>)
+    .bind(None::<Option<String>>)
     .bind(resolution_status)
     .bind(metadata_json.clone())
     .bind(clean_text(metadata_json.get("external_transaction_id")))
@@ -647,8 +629,6 @@ mod tests {
                 "program_code": "rms90",
                 "program_label": "RMS 90",
                 "masked_account": "••••4455",
-                "linked_corecredit_customer_id": "cust-1",
-                "linked_corecredit_account_id": "acct-2",
                 "resolution_status": "selected"
             }),
         )]);

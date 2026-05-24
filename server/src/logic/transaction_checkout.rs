@@ -422,11 +422,6 @@ fn rms_source_mode(metadata: &Value) -> String {
         .unwrap_or_else(|| "manual".to_string())
 }
 
-#[cfg(false)]
-fn rms_source_is_corecard_live(metadata: &Value) -> bool {
-    rms_source_mode(metadata).eq_ignore_ascii_case("corecard_live")
-}
-
 fn apply_manual_rms_tracking_metadata(metadata: &mut Value) {
     let mut object = metadata.as_object().cloned().unwrap_or_default();
     object.insert(

@@ -27,6 +27,8 @@ pub async fn recalc_staff_commissions_from(
     effective_start_date: NaiveDate,
 ) -> Result<u64, sqlx::Error> {
     let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    // SAFETY: `rec` is a crate-local `pub const` — never user input. This format! embeds a
+    // complex CASE expression that must be repeated four times inside the query.
     let sql = format!(
         r#"
         SELECT
@@ -110,6 +112,7 @@ pub async fn recalc_transaction_line_commission(
     salesperson_id: Option<Uuid>,
 ) -> Result<Option<Decimal>, sqlx::Error> {
     let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    // SAFETY: `rec` is a crate-local `pub const` — never user input.
     let sql = format!(
         r#"
         SELECT
@@ -180,6 +183,7 @@ pub async fn recalc_transaction_commissions_after_fulfillment(
     delivered_item_ids: &[Uuid],
 ) -> Result<u64, sqlx::Error> {
     let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    // SAFETY: `rec` is a crate-local `pub const` — never user input.
     let filter_sql = if delivered_item_ids.is_empty() {
         String::new()
     } else {

@@ -281,6 +281,8 @@ async fn get_gift_card_by_code(
         FROM gift_cards gc
         LEFT JOIN customers c ON c.id = gc.customer_id
         WHERE gc.code = $1
+          AND gc.card_status = 'active'::gift_card_status
+          AND (gc.expires_at IS NULL OR gc.expires_at > now())
         "#,
     )
     .bind(code.trim())
@@ -375,14 +377,19 @@ async fn issue_loyalty_load(
 
     let mut tx = state.db.begin().await?;
 
-    let existing: Option<(Uuid, Decimal)> = sqlx::query_as(
-        "SELECT id, current_balance FROM gift_cards WHERE code = $1 AND card_status = 'active'::gift_card_status FOR UPDATE"
+    let existing: Option<(Uuid, Decimal, String)> = sqlx::query_as(
+        "SELECT id, current_balance, card_kind::text FROM gift_cards WHERE code = $1 AND card_status = 'active'::gift_card_status AND (expires_at IS NULL OR expires_at > now()) FOR UPDATE"
     )
     .bind(&code)
     .fetch_optional(&mut *tx)
     .await?;
 
-    let id = if let Some((existing_id, balance)) = existing {
+    let id = if let Some((existing_id, balance, card_kind)) = existing {
+        if !card_kind.eq_ignore_ascii_case("loyalty_reward") {
+            return Err(GiftCardError::InvalidPayload(
+                "This code belongs to a different gift card type. Use a loyalty reward card code instead.".to_string(),
+            ));
+        }
         let new_balance = balance + body.amount;
         sqlx::query(
             "UPDATE gift_cards SET current_balance = $1, expires_at = GREATEST(expires_at, $2) WHERE id = $3"

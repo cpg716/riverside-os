@@ -150,7 +150,9 @@ pub async fn credit_gift_card_in_tx(
         r#"
         SELECT id, current_balance, card_kind::text
         FROM gift_cards
-        WHERE code = $1 AND card_status = 'active'::gift_card_status
+        WHERE code = $1
+          AND card_status = 'active'::gift_card_status
+          AND (expires_at IS NULL OR expires_at > now())
         FOR UPDATE
         "#,
     )
@@ -160,7 +162,7 @@ pub async fn credit_gift_card_in_tx(
 
     let Some((card_id, old_balance, card_kind)) = row else {
         return Err(GiftCardOpError::BadRequest(
-            "gift card not found or inactive".into(),
+            "gift card not found, inactive, or expired".into(),
         ));
     };
 
@@ -250,7 +252,7 @@ pub async fn pos_load_purchased_in_tx(
                     card_status = 'active'::gift_card_status,
                     expires_at = $2,
                     is_liability = TRUE,
-                    original_value = $1,
+                    original_value = original_value + $1,
                     issued_session_id = COALESCE($3, issued_session_id),
                     customer_id = COALESCE($4, customer_id)
                 WHERE id = $5

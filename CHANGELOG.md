@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Schema drift: missing columns**: Added migration `037_backfill_missing_columns.sql` to reconcile columns that were added to earlier migration files after they had already been applied — `store_media_asset.deleted_at/alt_text/usage_note` and `categories.variation_axis_presets`. Resolves 500 errors on the Store Dashboard and Categories API endpoints.
 - **ROSIE on Server PC**: Windows server install now packages `llama-server.exe`, registers a **Riverside OS LLM Host** startup task on port 8080, and adds **Start-RiversideLlama.cmd** / Deployment Manager **Start ROSIE LLM Host** for repair.
+- **RMS Charge race condition**: `reverse_rms_record_manual` now reads `host_reference` inside the same database transaction before commit, eliminating a read-after-commit race.
+- **Gift Card lookup filtering**: `GET /api/gift-cards/{code}` now correctly restricts results to `active` non-expired cards, preventing POS use of void or expired cards.
+- **Gift Card credit expiration check**: `credit_gift_card_in_tx` now verifies `expires_at > now()` before applying a refund credit.
+- **Gift Card depleted reload liability**: Reloading a depleted purchased card now accumulates `original_value = original_value + amount` instead of overwriting it, preserving total liability history.
+- **Loyalty monthly eligible filter**: The `monthly_eligible` endpoint now actually uses the `year` and `month` query parameters when provided, filtering to customers with positive ledger activity in that month.
+- **Loyalty customer summary NULL safety**: `loyalty_customer_summary` now uses `COALESCE(..., 'Unknown')` to prevent deserialization panics when a customer has no name.
+- **Loyalty redemption config validation**: `redeem_reward` now validates that `loyalty_point_threshold > 0` and `loyalty_reward_amount > 0` before processing, preventing point burns against an unconfigured program.
+- **Commission recalc SQL safety**: Added explicit `SAFETY` comments to `format!` usages in `commission_recalc.rs` documenting that `ORDER_RECOGNITION_TS_SQL` is a compile-time constant with no injection risk.
+
+### Changed
+- **RMS metadata cleanup**: Removed `linked_corecredit_*` fields from `RmsChargeSelectionMetadata` and RMS JSON metadata output. DB columns are preserved for backward compatibility but bound as `NULL` in new inserts.
 
 ### Removed
 - **CoreCard / CoreCredit Integration**: Removed the entire CoreCard module (`server/src/logic/corecard/`) and all associated API routes, background workers, and test fixtures. The built-in RMS Charge workflow with Helcim as the sole payment provider now handles all charge account operations. This eliminates a deprecated third-party dependency and simplifies the payment architecture.

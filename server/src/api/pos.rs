@@ -372,15 +372,16 @@ async fn reverse_rms_record_manual(
     pos_rms_charge::update_record_host_result(&mut *tx, record_id, &metadata)
         .await
         .map_err(PosMetaError::Database)?;
-    tx.commit().await.map_err(PosMetaError::Database)?;
 
     let host_reference: Option<String> = sqlx::query_scalar(
         "SELECT host_reference FROM pos_rms_charge_record WHERE id = $1",
     )
     .bind(record_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(PosMetaError::Database)?;
+
+    tx.commit().await.map_err(PosMetaError::Database)?;
 
     Ok(RmsMutationResult {
         operation_type: if status == "refunded" {

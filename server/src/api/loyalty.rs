@@ -211,7 +211,7 @@ pub struct EligibleCustomerRow {
 async fn monthly_eligible(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(_q): Query<MonthlyEligibleQuery>,
+    Query(q): Query<MonthlyEligibleQuery>,
 ) -> Result<Json<Vec<EligibleCustomerRow>>, LoyaltyError> {
     require_staff_or_pos_session(&state, &headers).await?;
     let threshold: i32 =
@@ -219,21 +219,52 @@ async fn monthly_eligible(
             .fetch_one(&state.db)
             .await?;
 
-    let rows = sqlx::query_as::<_, EligibleCustomerRow>(
-        r#"
-        SELECT
-            id, first_name, last_name, email, phone,
-            address_line1, city, state, postal_code AS zip,
-            loyalty_points
-        FROM customers
-        WHERE loyalty_points >= $1
-          AND is_active = TRUE
-        ORDER BY loyalty_points DESC, last_name, first_name
-        "#,
-    )
-    .bind(threshold)
-    .fetch_all(&state.db)
-    .await?;
+    let use_month_filter = q.year.is_some() && q.month.is_some();
+
+    let rows = if use_month_filter {
+        let year = q.year.unwrap_or(0);
+        let month = q.month.unwrap_or(0);
+        sqlx::query_as::<_, EligibleCustomerRow>(
+            r#"
+            SELECT
+                c.id, c.first_name, c.last_name, c.email, c.phone,
+                c.address_line1, c.city, c.state, c.postal_code AS zip,
+                c.loyalty_points
+            FROM customers c
+            WHERE c.loyalty_points >= $1
+              AND c.is_active = TRUE
+              AND EXISTS (
+                  SELECT 1 FROM loyalty_point_ledger l
+                  WHERE l.customer_id = c.id
+                    AND l.delta_points > 0
+                    AND EXTRACT(YEAR FROM l.created_at)::int = $2
+                    AND EXTRACT(MONTH FROM l.created_at)::int = $3
+              )
+            ORDER BY c.loyalty_points DESC, c.last_name, c.first_name
+            "#,
+        )
+        .bind(threshold)
+        .bind(year)
+        .bind(month)
+        .fetch_all(&state.db)
+        .await?
+    } else {
+        sqlx::query_as::<_, EligibleCustomerRow>(
+            r#"
+            SELECT
+                id, first_name, last_name, email, phone,
+                address_line1, city, state, postal_code AS zip,
+                loyalty_points
+            FROM customers
+            WHERE loyalty_points >= $1
+              AND is_active = TRUE
+            ORDER BY loyalty_points DESC, last_name, first_name
+            "#,
+        )
+        .bind(threshold)
+        .fetch_all(&state.db)
+        .await?
+    };
 
     Ok(Json(rows))
 }
@@ -455,6 +486,12 @@ async fn redeem_reward(
     )
     .fetch_one(&state.db)
     .await?;
+
+    if threshold <= 0 || reward_amount_per_threshold <= Decimal::ZERO {
+        return Err(LoyaltyError::InvalidPayload(
+            "Loyalty program is not configured for redemptions.".to_string(),
+        ));
+    }
 
     let points_to_deduct = body.points_to_redeem.unwrap_or(threshold);
     if points_to_deduct <= 0 {
@@ -678,7 +715,7 @@ async fn loyalty_customer_summary(
         r#"
         SELECT
             id,
-            NULLIF(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), '') AS display_name,
+            COALESCE(NULLIF(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), ''), 'Unknown') AS display_name,
             couple_primary_id
         FROM customers
         WHERE id = $1
@@ -696,7 +733,7 @@ async fn loyalty_customer_summary(
         r#"
         SELECT
             id,
-            NULLIF(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), '') AS display_name,
+            COALESCE(NULLIF(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), ''), 'Unknown') AS display_name,
             loyalty_points
         FROM customers
         WHERE id = $1
@@ -900,7 +937,7 @@ async fn get_recent_issuances(
     let rows = sqlx::query_as::<_, IssuanceRow>(
         r#"
         SELECT
-            lri.id, lri.customer_id, lri.remainder_card_id as card_id, 
+            lri.id, lri.customer_id, lri.remainder_card_id as card_id,
             gc.code as card_code,
             c.first_name, c.last_name, c.address_line1, c.city, c.state, c.postal_code as zip,
             lri.reward_amount, lri.points_deducted, lri.applied_to_sale,
