@@ -805,7 +805,7 @@ function Install-RosieStack($PackageRoot) {
 
   Write-Host "ROSIE: Installing sherpa-onnx Python runtime via uv..."
   try {
-    & $uvCmd tool install sherpa-onnx 2>&1 | Write-Host
+    & $uvCmd tool install --python 3.12 sherpa-onnx 2>&1 | Write-Host
     if ($LASTEXITCODE -ne 0) { throw "uv tool install sherpa-onnx exited $LASTEXITCODE" }
     Write-Host "ROSIE: sherpa-onnx installed."
   } catch {
