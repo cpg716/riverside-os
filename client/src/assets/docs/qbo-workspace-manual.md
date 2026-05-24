@@ -4,7 +4,7 @@ title: "QBO Workspace"
 order: 1082
 summary: "Review QuickBooks Online staging, balanced proposals, drilldown evidence, and liability tender treatment."
 source: client/src/components/qbo/QboWorkspace.tsx
-last_scanned: 2026-05-15
+last_scanned: 2026-05-23
 tags: qbo, quickbooks, accounting, journal, staging, finance
 status: approved
 ---
@@ -34,7 +34,13 @@ QBO Workspace is the review and staging area for QuickBooks Online journal propo
 
 Review the proposal date, totals, journal lines, balance status, and drilldown evidence before syncing.
 
-After a register is closed for the day, ROS stages the daily journal for that store-local business date. If the day is already staged but still pending, staging refreshes the same row with the latest facts. If the day was already approved or synced and later sales, returns, deposits, or payment-date corrections change the day, ROS creates a revision proposal for the same business date.
+After a register is closed for the day, ROS stages the daily journal for that store-local business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a pending row when accounting opens. If the day is already staged but still pending, staging refreshes the same row with the latest facts. If the day was already approved or synced and later sales, returns, deposits, or payment-date corrections change the day, ROS creates a revision proposal for the same business date.
+
+### Connection health
+
+Before syncing, confirm the QBO connection is healthy:
+- **Company Info** validates the live connection against Intuit and shows the QBO company name.
+- **Token Health** shows whether the access token is valid, refreshable, or expired, and how many minutes remain before expiry. The system auto-refreshes tokens in the background when within 10 minutes of expiry.
 
 Backdated corrections keep two dates clear:
 
@@ -60,6 +66,10 @@ Manual store-credit adjustments are audit-sensitive and should only post to QBO 
 Customer-charged shipping posts to the mapped Shipping income account on the same completed business date as the sale. Alteration service lines, refund queue clearing, forfeited deposit income, RMS clearing, and cash rounding each require their own mapped accounts before syncing days that contain that activity.
 
 QBO posts use the staging row as the retry identity. Re-sending the same approved staging row uses the same request id so retry behavior stays recoverable.
+
+### Approval audit trail
+
+Every approved staging row records the **approver staff member** and the **approval timestamp** in the History detail. This creates an auditable chain: who reviewed the journal, when they approved it, and when it synced to QBO. Do not approve on behalf of another staff member.
 
 ## Gift card subtypes
 

@@ -76,3 +76,16 @@ See also **[`SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md`](./SUIT_OUTFIT_COMPONENT_SWA
 `activity_date` is the store-local business date from `store_settings.receipt_config.timezone` through `reporting.effective_store_timezone()`. QBO uses the same recognition basis as reporting: pickup / in-store takeaway recognizes from fulfillment timestamps, and shipped transactions recognize from the earliest qualifying shipment event (`label_purchased`, `in_transit`, or `delivered`). Re-running **propose** for an older `activity_date` after returns restates that day’s recognition nets. Return-day contra lines appear on the **return** business date. Align with your accountant on recognition policy.
 
 QBO API posts use a deterministic Riverside request id per staging row. If a JournalEntry call is retried after an ambiguous network failure, the same staging row reuses the same request id instead of intentionally creating a second accounting record.
+
+## Connection health checks
+
+Before relying on sync:
+- [ ] **Company Info** returns the expected QBO company name (live Intuit validation)
+- [ ] **Token Health** shows `valid` with > 10 minutes remaining, or `refreshable` with a healthy refresh token
+- [ ] After token refresh, **Token Health** updates to `valid` with new expiry
+
+## Automation checks
+
+- [ ] Auto-propose worker creates a pending row for the previous business date after 2 AM local time
+- [ ] Approval captures `approved_by_staff_id` and `approved_at` visible in History detail
+- [ ] Re-sync of an already-synced approved row does not create a duplicate JournalEntry (same request id)

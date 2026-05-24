@@ -346,6 +346,8 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | Method | Path | Notes |
 |--------|------|--------|
 | GET | `/api/qbo/integration` | Connection status. |
+| GET | `/api/qbo/company-info` | Live QBO CompanyInfo validation. |
+| GET | `/api/qbo/token-health` | Token status, expiry, minutes remaining. |
 | GET | `/api/qbo/credentials` | Masked / status (sensitive). |
 | GET | `/api/qbo/accounts-cache` | Cached QBO account list. |
 | GET | `/api/qbo/mappings` | Saved mappings. |
@@ -610,10 +612,11 @@ Additional **structured** audit may live on **order lines** (e.g. **price_overri
 | Source | Route area | Typical permission | Notes |
 |--------|------------|-------------------|--------|
 | Integration / credentials | `GET /api/qbo/integration`, `/credentials` | **`qbo.view`** | Connection health (credentials are sensitive). |
+| Company info / token health | `GET /api/qbo/company-info`, `/token-health` | **`qbo.view`** | Live Intuit validation + token expiry status. |
 | Accounts / mappings | `GET /api/qbo/accounts-cache`, `/mappings` | **`qbo.view`** | Cached CoA + saved maps. |
 | Staging | `GET /api/qbo/staging`, `/staging/{id}/drilldown` | **`qbo.view`** | Pending journals + line drilldown. |
 
-**NL examples:** “What is in QBO staging?”, “Last mapping change” — only via these GETs, never raw SQL.
+**NL examples:** “What is in QBO staging?”, “Last mapping change”, “Is QBO connected?”, “When does the QBO token expire?” — only via these GETs, never raw SQL.
 
 **Docs:** [**`docs/QBO_JOURNAL_TEST_MATRIX.md`**](QBO_JOURNAL_TEST_MATRIX.md).
 

@@ -4,7 +4,7 @@ title: "QBO Mapping Matrix (qbo)"
 order: 1081
 summary: "Guide to linking Riverside OS accounts (Revenue, Inventory, Tenders) to your QuickBooks Online Chart of Accounts."
 source: client/src/components/qbo/QboMappingMatrix.tsx
-last_scanned: 2026-04-11
+last_scanned: 2026-05-23
 tags: qbo, mapping, accounting, chart-of-accounts, coa, setup
 ---
 
@@ -65,3 +65,9 @@ These are safety accounts used when a specific mapping is missing or for global 
 ## What happens next
 
 After you save the matrix, future journal proposals use the updated mappings the next time Riverside prepares QBO posting data.
+
+## Connection health
+
+Before relying on automated or manual sync, confirm the QBO connection is healthy:
+- **Company Info** validates the live Intuit connection and displays the QBO company name.
+- **Token Health** shows whether the access token is valid, refreshable, or expired, and the minutes remaining before expiry. The system auto-refreshes tokens in the background when within 10 minutes of expiry.
