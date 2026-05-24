@@ -1,4 +1,4 @@
-# Release Operational Signoff — Riverside OS v0.2.1
+# Release Operational Signoff — Riverside OS v0.80.0
 
 This checklist is for the final human go/no-go review after the code RC gate has passed.
 
@@ -6,7 +6,7 @@ This checklist is for the final human go/no-go review after the code RC gate has
 
 - Operational signoff status: **APPROVED**
 - Approved by: **Christopher Garcia**
-- Date: **2026-04-19**
+- Date: **2026-05-24**
 - Approved scope:
   - Environment verified
   - Core workflows verified
@@ -16,7 +16,7 @@ This checklist is for the final human go/no-go review after the code RC gate has
 
 ## Code signoff already completed
 
-- RC branch under signoff: **`release/rc-gate-blocker-fixes`**
+- RC branch under signoff: **`main`**
 - Code RC gate status: **passed**
 - Build validation completed:
   - **`cargo fmt --check --manifest-path server/Cargo.toml`**
