@@ -5406,8 +5406,6 @@ async fn checkout(
     let outcome = execute_checkout(
         &state.db,
         &state.http_client,
-        &state.corecard_config,
-        &state.corecard_token_cache,
         state.global_employee_markup,
         payload,
     )

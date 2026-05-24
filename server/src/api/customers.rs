@@ -26,7 +26,6 @@ use crate::auth::permissions::{
     POS_RMS_CHARGE_HISTORY_BASIC, POS_RMS_CHARGE_LOOKUP, POS_RMS_CHARGE_PAYMENT_COLLECT,
     POS_RMS_CHARGE_USE, STORE_CREDIT_MANAGE,
 };
-use crate::logic::corecard;
 use crate::logic::customer_duplicate_candidates::{
     find_duplicate_candidates, DuplicateCandidateParams,
 };
@@ -83,9 +82,10 @@ const CUSTOMER_MESSAGE_ATTACHMENT_MAX_BYTES: usize = 5 * 1024 * 1024;
 
 const RMS_CHARGE_REPORT_TO_R2S: &str = "rms_charge.report_to_r2s";
 const RMS_ACCOUNT_LIST_PREVIEW_MAX_BYTES: usize = 10 * 1024 * 1024;
+const RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339: &str = "2026-05-06T18:00:00Z";
 
 fn rms_r2s_reporting_activation_cutoff() -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(corecard::RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339)
+    DateTime::parse_from_rfc3339(RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339)
         .expect("valid RMS R2S reporting activation cutoff")
         .with_timezone(&Utc)
 }
@@ -1854,6 +1854,7 @@ struct RmsChargeRecordApiRow {
     operator_name: Option<String>,
 }
 
+#[cfg(false)]
 async fn link_customer_rms_charge_account(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1894,6 +1895,7 @@ async fn link_customer_rms_charge_account(
     }))
 }
 
+#[cfg(false)]
 async fn unlink_customer_rms_charge_account(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1923,6 +1925,7 @@ async fn unlink_customer_rms_charge_account(
     })))
 }
 
+#[cfg(false)]
 async fn list_customer_rms_charge_accounts(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1935,6 +1938,7 @@ async fn list_customer_rms_charge_accounts(
     Ok(Json(rows))
 }
 
+#[cfg(false)]
 async fn preview_rms_charge_account_list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1951,6 +1955,7 @@ async fn preview_rms_charge_account_list(
     Ok(Json(preview))
 }
 
+#[cfg(false)]
 async fn import_rms_charge_account_list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1975,6 +1980,7 @@ async fn import_rms_charge_account_list(
     Ok(Json(response))
 }
 
+#[cfg(false)]
 async fn get_latest_rms_charge_account_list_import(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1984,6 +1990,7 @@ async fn get_latest_rms_charge_account_list_import(
     Ok(Json(response))
 }
 
+#[cfg(false)]
 async fn get_customer_rms_charge_account_balances(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2008,6 +2015,7 @@ async fn get_customer_rms_charge_account_balances(
     Ok(Json(response))
 }
 
+#[cfg(false)]
 async fn get_customer_rms_charge_account_transactions(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2032,6 +2040,7 @@ async fn get_customer_rms_charge_account_transactions(
     Ok(Json(response))
 }
 
+#[cfg(false)]
 async fn get_rms_charge_record(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2044,6 +2053,7 @@ async fn get_rms_charge_record(
     Ok(Json(row))
 }
 
+#[cfg(false)]
 async fn mark_rms_charge_record_reported_to_r2s(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2118,6 +2128,7 @@ async fn mark_rms_charge_record_reported_to_r2s(
     Ok(Json(row))
 }
 
+#[cfg(false)]
 async fn get_rms_charge_overview(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2130,6 +2141,7 @@ async fn get_rms_charge_overview(
     Ok(Json(overview))
 }
 
+#[cfg(false)]
 async fn get_rms_charge_exceptions(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2147,6 +2159,7 @@ async fn get_rms_charge_exceptions(
     Ok(Json(rows))
 }
 
+#[cfg(false)]
 async fn assign_rms_charge_exception(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2175,6 +2188,7 @@ async fn assign_rms_charge_exception(
     Ok(Json(row))
 }
 
+#[cfg(false)]
 async fn resolve_rms_charge_exception(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2198,6 +2212,7 @@ async fn resolve_rms_charge_exception(
     Ok(Json(row))
 }
 
+#[cfg(false)]
 async fn retry_rms_charge_exception(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2363,6 +2378,7 @@ async fn retry_rms_charge_exception(
     })))
 }
 
+#[cfg(false)]
 async fn get_rms_charge_reconciliation(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2375,6 +2391,7 @@ async fn get_rms_charge_reconciliation(
     Ok(Json(response))
 }
 
+#[cfg(false)]
 async fn run_rms_charge_reconciliation(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2411,6 +2428,7 @@ async fn run_rms_charge_reconciliation(
     Ok(Json(run))
 }
 
+#[cfg(false)]
 async fn get_rms_charge_program_catalog(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2423,6 +2441,7 @@ async fn get_rms_charge_program_catalog(
     Ok(Json(rows))
 }
 
+#[cfg(false)]
 async fn get_rms_charge_sync_health(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2434,6 +2453,7 @@ async fn get_rms_charge_sync_health(
     Ok(Json(health))
 }
 
+#[cfg(false)]
 async fn list_rms_charge_records(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2962,71 +2982,6 @@ pub fn router() -> Router<AppState> {
         .route(
             "/podium/conversations/{conversation_id}/assignees",
             get(get_podium_conversation_assignees).patch(patch_podium_conversation_assignee),
-        )
-        .route(
-            "/rms-charge/link-account",
-            post(link_customer_rms_charge_account),
-        )
-        .route(
-            "/rms-charge/unlink-account",
-            post(unlink_customer_rms_charge_account),
-        )
-        .route(
-            "/rms-charge/customer/{customer_id}/accounts",
-            get(list_customer_rms_charge_accounts),
-        )
-        .route(
-            "/rms-charge/account-list/preview",
-            post(preview_rms_charge_account_list),
-        )
-        .route(
-            "/rms-charge/account-list/import",
-            post(import_rms_charge_account_list),
-        )
-        .route(
-            "/rms-charge/account-list/latest",
-            get(get_latest_rms_charge_account_list_import),
-        )
-        .route(
-            "/rms-charge/accounts/{account_id}/balances",
-            get(get_customer_rms_charge_account_balances),
-        )
-        .route(
-            "/rms-charge/accounts/{account_id}/transactions",
-            get(get_customer_rms_charge_account_transactions),
-        )
-        .route("/rms-charge/overview", get(get_rms_charge_overview))
-        .route("/rms-charge/programs", get(get_rms_charge_program_catalog))
-        .route("/rms-charge/exceptions", get(get_rms_charge_exceptions))
-        .route(
-            "/rms-charge/exceptions/{exception_id}/retry",
-            post(retry_rms_charge_exception),
-        )
-        .route(
-            "/rms-charge/exceptions/{exception_id}/resolve",
-            post(resolve_rms_charge_exception),
-        )
-        .route(
-            "/rms-charge/exceptions/{exception_id}/assign",
-            post(assign_rms_charge_exception),
-        )
-        .route(
-            "/rms-charge/reconciliation",
-            get(get_rms_charge_reconciliation),
-        )
-        .route(
-            "/rms-charge/reconciliation/run",
-            post(run_rms_charge_reconciliation),
-        )
-        .route("/rms-charge/sync-health", get(get_rms_charge_sync_health))
-        .route("/rms-charge/records", get(list_rms_charge_records))
-        .route(
-            "/rms-charge/records/{record_id}",
-            get(get_rms_charge_record),
-        )
-        .route(
-            "/rms-charge/records/{record_id}/r2s-report",
-            post(mark_rms_charge_record_reported_to_r2s),
         )
         .route("/groups", get(list_customer_groups))
         .route(

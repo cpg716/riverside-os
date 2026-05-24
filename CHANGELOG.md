@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Schema drift: missing columns**: Added migration `037_backfill_missing_columns.sql` to reconcile columns that were added to earlier migration files after they had already been applied — `store_media_asset.deleted_at/alt_text/usage_note` and `categories.variation_axis_presets`. Resolves 500 errors on the Store Dashboard and Categories API endpoints.
 - **ROSIE on Server PC**: Windows server install now packages `llama-server.exe`, registers a **Riverside OS LLM Host** startup task on port 8080, and adds **Start-RiversideLlama.cmd** / Deployment Manager **Start ROSIE LLM Host** for repair.
 
+### Removed
+- **CoreCard / CoreCredit Integration**: Removed the entire CoreCard module (`server/src/logic/corecard/`) and all associated API routes, background workers, and test fixtures. The built-in RMS Charge workflow with Helcim as the sole payment provider now handles all charge account operations. This eliminates a deprecated third-party dependency and simplifies the payment architecture.
+
+### Changed
+- **Health Check Worker Heartbeats**: The `/api/ready` endpoint now validates actual worker heartbeats from background tasks (backup, notification, weather, email, podium) instead of returning hardcoded `true`. Each worker reports its liveness via `WorkerHealth::mark_heartbeat()`, enabling accurate readiness detection for orchestration systems.
+
 ## [0.70.1] - 2026-05-20
 ### Added
 - **Inventory tag print date**: Tag Designer footer text is followed automatically by the print date on every inventory tag (HTML preview and Zebra/ZPL).

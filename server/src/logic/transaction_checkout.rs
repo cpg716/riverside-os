@@ -12,7 +12,6 @@ use uuid::Uuid;
 
 use crate::auth::pins::log_staff_access;
 use crate::logic::checkout_validate;
-use crate::logic::corecard;
 use crate::logic::custom_orders::{
     canonical_custom_order_details, known_custom_item_type_for_sku, known_custom_subtype_for_sku,
 };
@@ -347,6 +346,7 @@ async fn canonical_custom_item_type_for_variant(
         .map(str::to_string))
 }
 
+#[cfg(false)]
 fn corecard_error_to_checkout(error: corecard::CoreCardError) -> CheckoutError {
     if let Some(failure) = error.as_host_failure() {
         CheckoutError::CoreCardHostFailure(failure.message)
@@ -358,6 +358,7 @@ fn corecard_error_to_checkout(error: corecard::CoreCardError) -> CheckoutError {
     }
 }
 
+#[cfg(false)]
 fn apply_corecard_result_to_metadata(
     metadata: &mut Value,
     idempotency_key: &str,
@@ -421,6 +422,7 @@ fn rms_source_mode(metadata: &Value) -> String {
         .unwrap_or_else(|| "manual".to_string())
 }
 
+#[cfg(false)]
 fn rms_source_is_corecard_live(metadata: &Value) -> bool {
     rms_source_mode(metadata).eq_ignore_ascii_case("corecard_live")
 }
@@ -1772,6 +1774,7 @@ async fn validate_helcim_payment_splits(
     Ok(())
 }
 
+#[cfg(false)]
 async fn prepare_live_corecard_postings(
     pool: &PgPool,
     http: &reqwest::Client,
@@ -2029,8 +2032,6 @@ async fn prepare_live_corecard_postings(
 pub async fn execute_checkout(
     pool: &PgPool,
     http: &reqwest::Client,
-    corecard_config: &corecard::CoreCardConfig,
-    corecard_token_cache: &Arc<Mutex<corecard::CoreCardTokenCache>>,
     global_employee_markup: Decimal,
     mut payload: CheckoutRequest,
 ) -> Result<CheckoutDone, CheckoutError> {
@@ -2491,16 +2492,6 @@ pub async fn execute_checkout(
     let has_rms_charge = payment_splits
         .iter()
         .any(|s| pos_rms_charge::is_rms_method(&s.method));
-    prepare_live_corecard_postings(
-        pool,
-        http,
-        corecard_config,
-        corecard_token_cache,
-        &payload,
-        &mut payment_splits,
-        is_rms_payment_collection,
-    )
-    .await?;
     let (checkout_booked_at_local, checkout_business_date) =
         resolve_checkout_booked_at(pool, payload.booked_at_local.as_deref()).await?;
 
@@ -3964,19 +3955,7 @@ pub async fn execute_checkout(
                     Some(&split.metadata),
                 )
                 .await?;
-                if let Some(idempotency_key) =
-                    metadata_optional_text(&split.metadata, "idempotency_key")
-                {
-                    corecard::attach_posting_event_refs(
-                        &mut *tx,
-                        &idempotency_key,
-                        Some(transaction_id),
-                        Some(payment_tx_id),
-                        Some(rms_record_id),
-                    )
-                    .await
-                    .map_err(corecard_error_to_checkout)?;
-                }
+                // CoreCard posting event refs removed with CoreCard integration
                 rms_notifications.push(pos_rms_charge::RmsChargeNotify {
                     payment_transaction_id: payment_tx_id,
                     amount: split.amount,
@@ -3999,19 +3978,7 @@ pub async fn execute_checkout(
                     Some(&split.metadata),
                 )
                 .await?;
-                if let Some(idempotency_key) =
-                    metadata_optional_text(&split.metadata, "idempotency_key")
-                {
-                    corecard::attach_posting_event_refs(
-                        &mut *tx,
-                        &idempotency_key,
-                        Some(transaction_id),
-                        Some(payment_tx_id),
-                        Some(rms_record_id),
-                    )
-                    .await
-                    .map_err(corecard_error_to_checkout)?;
-                }
+                // CoreCard posting event refs removed with CoreCard integration
             }
 
             if let Some(slot) = payment_tx_ids_by_split.get_mut(split_index) {
@@ -4651,8 +4618,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_corecard_result_to_metadata, build_payment_allocation_plan,
-        corecard_error_to_checkout, evaluate_combo_incentives, execute_checkout,
+        build_payment_allocation_plan, evaluate_combo_incentives, execute_checkout,
         fetch_variant_pos_line_kind, helcim_attempt_comparison_cents, parse_combo_reward_amount,
         resolve_payment_splits, validate_checkout_alteration_intakes,
         validate_checkout_item_quantity, validate_order_payment_against_target,
@@ -4660,8 +4626,6 @@ mod tests {
         CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget,
         ResolvedOrderPayment, ResolvedPaymentSplit, WeddingDisbursement,
     };
-    use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
-    use crate::logic::corecard::{CoreCardFailureCode, CoreCardHostMutationResult};
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
     use crate::models::{DbFulfillmentType, DbOrderStatus};
     use rust_decimal::Decimal;
@@ -5737,8 +5701,6 @@ mod tests {
         let result = execute_checkout(
             &pool,
             &reqwest::Client::new(),
-            &CoreCardConfig::from_env(),
-            &Arc::new(Mutex::new(CoreCardTokenCache::default())),
             Decimal::ZERO,
             payload,
         )
@@ -6066,8 +6028,6 @@ mod tests {
         let order_transaction_id = match execute_checkout(
             &pool,
             &reqwest::Client::new(),
-            &CoreCardConfig::from_env(),
-            &Arc::new(Mutex::new(CoreCardTokenCache::default())),
             Decimal::ZERO,
             order_payload,
         )
@@ -6137,8 +6097,6 @@ mod tests {
         let group_pay_transaction_id = match execute_checkout(
             &pool,
             &reqwest::Client::new(),
-            &CoreCardConfig::from_env(),
-            &Arc::new(Mutex::new(CoreCardTokenCache::default())),
             Decimal::ZERO,
             group_pay_payload,
         )
@@ -6210,54 +6168,5 @@ mod tests {
         .expect("cleanup wedding group pay checkout test");
     }
 
-    #[test]
-    fn apply_corecard_result_to_metadata_persists_host_reference() {
-        let mut metadata = json!({
-            "tender_family": "rms_charge",
-            "program_code": "rms90"
-        });
-        apply_corecard_result_to_metadata(
-            &mut metadata,
-            "idem-1",
-            &CoreCardHostMutationResult {
-                operation_type: "purchase".to_string(),
-                posting_status: "posted".to_string(),
-                external_transaction_id: Some("host-tx-1".to_string()),
-                external_auth_code: Some("AUTH".to_string()),
-                external_transaction_type: Some("purchase".to_string()),
-                host_reference: Some("REF-1".to_string()),
-                posted_at: None,
-                reversed_at: None,
-                refunded_at: None,
-                metadata: json!({ "status": "posted" }),
-            },
-        );
-        assert_eq!(
-            metadata
-                .get("host_reference")
-                .and_then(|value| value.as_str()),
-            Some("REF-1")
-        );
-        assert_eq!(
-            metadata
-                .get("posting_status")
-                .and_then(|value| value.as_str()),
-            Some("posted")
-        );
-    }
-
-    #[test]
-    fn corecard_host_failure_maps_to_checkout_block() {
-        let err = corecard_error_to_checkout(crate::logic::corecard::CoreCardError::host_failure(
-            CoreCardFailureCode::HostUnavailable,
-            "Host unavailable",
-            true,
-        ));
-        match err {
-            super::CheckoutError::CoreCardHostFailure(message) => {
-                assert!(message.contains("Host unavailable"));
-            }
-            other => panic!("expected CoreCardHostFailure, got {other:?}"),
-        }
-    }
+    // CoreCard-specific tests removed with CoreCard integration
 }

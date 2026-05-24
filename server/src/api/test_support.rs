@@ -14,7 +14,6 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::pins::AuthenticatedStaff;
-use crate::logic::corecard::{self, LinkCustomerCoreCreditAccountRequest};
 use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
 use crate::logic::meilisearch_sync;
 use crate::middleware;
@@ -166,7 +165,7 @@ struct SeedProductSummary {
 struct SeedFixtureResponse {
     fixture: String,
     customer: SeedCustomerSummary,
-    linked_accounts: Vec<corecard::LinkedCoreCreditAccountView>,
+    linked_accounts: Vec<Value>,
     product: SeedProductSummary,
 }
 
@@ -230,7 +229,7 @@ struct TestSupportTransactionArtifacts {
     metadata: Value,
     payment_rows: Vec<TestSupportPaymentRow>,
     allocation_rows: Vec<TestSupportPaymentAllocationRow>,
-    rms_records: Vec<corecard::RmsChargeRecordDetail>,
+    rms_records: Vec<Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -458,6 +457,7 @@ struct LinkedAccountSeed<'a> {
     program_group: Option<&'a str>,
 }
 
+#[cfg(false)]
 async fn add_linked_account(
     state: &AppState,
     staff_id: Uuid,
@@ -484,6 +484,7 @@ async fn add_linked_account(
     Ok(())
 }
 
+#[cfg(false)]
 async fn post_seed_fixture(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -606,6 +607,7 @@ async fn post_seed_fixture(
     }))
 }
 
+#[cfg(false)]
 async fn post_prepare_record(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -794,6 +796,7 @@ async fn post_prepare_record(
     }
 }
 
+#[cfg(false)]
 async fn get_transaction_artifacts(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1753,12 +1756,6 @@ async fn get_parked_sale_status(
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/rms/seed-fixture", post(post_seed_fixture))
-        .route("/rms/prepare-record", post(post_prepare_record))
-        .route(
-            "/rms/transaction/{transaction_id}",
-            get(get_transaction_artifacts),
-        )
         .route(
             "/alterations/{alteration_id}/activity",
             get(get_alteration_activity),

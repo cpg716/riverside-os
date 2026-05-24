@@ -31,12 +31,13 @@ const PAYMENTS_DEPOSIT_REVIEW: &str = "payments.deposit.review";
 const RMS_CHARGE_REPORT_TO_R2S: &str = "rms_charge.report_to_r2s";
 const CUSTOMERS_RMS_CHARGE_REPORTING: &str = "customers.rms_charge.reporting";
 
+const RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339: &str = "2026-05-06T18:00:00Z";
+const RMS_ACCOUNT_LIST_FRESH_DAYS: i64 = 7;
+
 fn rms_r2s_reporting_activation_cutoff() -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(
-        crate::logic::corecard::RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339,
-    )
-    .expect("valid RMS R2S reporting activation cutoff")
-    .with_timezone(&Utc)
+    DateTime::parse_from_rfc3339(RMS_R2S_REPORTING_ACTIVATION_CUTOFF_RFC3339)
+        .expect("valid RMS R2S reporting activation cutoff")
+        .with_timezone(&Utc)
 }
 
 fn env_archive_hours() -> i64 {
@@ -294,7 +295,7 @@ pub async fn run_rms_account_list_stale_upload_reminder(pool: &PgPool) -> Result
 
     let dedupe = "rms_account_list_weekly_upload";
     let fresh_cutoff =
-        Utc::now() - ChronoDuration::days(crate::logic::corecard::RMS_ACCOUNT_LIST_FRESH_DAYS);
+        Utc::now() - ChronoDuration::days(RMS_ACCOUNT_LIST_FRESH_DAYS);
     if latest_uploaded_at
         .map(|uploaded_at| uploaded_at >= fresh_cutoff)
         .unwrap_or(false)

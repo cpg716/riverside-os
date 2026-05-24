@@ -20,7 +20,6 @@ use uuid::Uuid;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::api::AppState;
-use crate::logic::corecard;
 use crate::logic::helcim;
 use crate::logic::podium_inbound;
 use crate::logic::podium_webhook::{
@@ -1122,78 +1121,6 @@ async fn mark_helcim_event_processed(
     Ok(())
 }
 
-fn verify_corecard_webhook_headers(
-    config: &corecard::CoreCardConfig,
-    headers: &HeaderMap,
-) -> Result<Option<String>, StatusCode> {
-    let supplied_secret = headers
-        .get("x-riverside-corecard-webhook-secret")
-        .or_else(|| headers.get("x-corecard-webhook-secret"))
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let bearer = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    match config.webhook_secret.as_deref() {
-        Some(secret) => {
-            if supplied_secret == Some(secret) || bearer == Some(secret) {
-                Ok(Some("shared_secret".to_string()))
-            } else {
-                Err(StatusCode::UNAUTHORIZED)
-            }
-        }
-        None if config.webhook_allow_unsigned => Ok(Some("unsigned_allowed".to_string())),
-        None => Err(StatusCode::BAD_REQUEST),
-    }
-}
-
-async fn post_corecard_webhook(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> impl IntoResponse {
-    let verification_result =
-        match verify_corecard_webhook_headers(&state.corecard_config, &headers) {
-            Ok(result) => result,
-            Err(status) => return status.into_response(),
-        };
-
-    let value: Value = match serde_json::from_slice(body.as_ref()) {
-        Ok(v) => v,
-        Err(error) => {
-            tracing::warn!(target = "corecard_webhook", error = %error, "invalid corecard webhook json");
-            return StatusCode::BAD_REQUEST.into_response();
-        }
-    };
-
-    match corecard::log_and_process_webhook_event(
-        &state.db,
-        &state.corecard_config,
-        &value,
-        verification_result.is_some(),
-        verification_result.as_deref(),
-    )
-    .await
-    {
-        Ok(result) => Json(serde_json::json!({
-            "ok": true,
-            "event_id": result.event_id,
-            "processing_status": result.processing_status,
-            "duplicate": result.duplicate,
-            "related_rms_record_id": result.related_rms_record_id,
-        }))
-        .into_response(),
-        Err(error) => {
-            tracing::error!(target = "corecard_webhook", error = %error, "corecard webhook processing failed");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
-    }
-}
-
 #[derive(serde::Deserialize)]
 struct FalWebhookPayload {
     request_id: String,
@@ -1341,14 +1268,11 @@ pub fn router() -> Router<AppState> {
         .route("/card-events", post(post_helcim_webhook))
         .route("/helcim", post(post_helcim_webhook))
         .route("/shippo", post(post_shippo_webhook))
-        .route("/corecard", post(post_corecard_webhook))
         .route("/fal", post(post_fal_webhook))
 }
 
 pub fn integrations_router() -> Router<AppState> {
-    Router::new()
-        .route("/corecard/webhooks", post(post_corecard_webhook))
-        .route("/shippo/webhook", post(post_shippo_webhook))
+    Router::new().route("/shippo/webhook", post(post_shippo_webhook))
 }
 
 #[cfg(test)]

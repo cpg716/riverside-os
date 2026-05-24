@@ -53,7 +53,6 @@ pub mod web_categories;
 pub mod webhooks;
 pub mod weddings;
 
-use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
 use crate::logic::wedding_push::WeddingEventBus;
 use crate::observability::ServerLogRing;
 use meilisearch_sdk::client::Client as MeilisearchClient;
@@ -93,10 +92,6 @@ pub struct AppState {
     pub store_account_authed_per_minute: u32,
     /// Optional Meilisearch sidecar (`RIVERSIDE_MEILISEARCH_URL`). When `None`, search uses PostgreSQL only.
     pub meilisearch: Option<MeilisearchClient>,
-    /// CoreCard / CoreCredit integration broker settings (server-side only).
-    pub corecard_config: CoreCardConfig,
-    /// Cached CoreCard bearer token for server-to-server requests.
-    pub corecard_token_cache: std::sync::Arc<tokio::sync::Mutex<CoreCardTokenCache>>,
     /// Shared host-machine ROSIE speech playback state for TTS start/stop/status.
     pub rosie_speech_state: crate::logic::rosie_speech::RosieSpeechState,
     /// Recent API server `tracing` lines (shared with [`ServerLogRingLayer`](crate::observability::ServerLogRingLayer)).

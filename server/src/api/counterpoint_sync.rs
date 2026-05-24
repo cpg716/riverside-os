@@ -1675,7 +1675,6 @@ mod tests {
     use super::*;
     use crate::api::store_account_rate::StoreAccountRateState;
     use crate::auth::pins::hash_pin;
-    use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
     use crate::logic::podium::PodiumTokenCache;
     use crate::logic::wedding_push::WeddingEventBus;
     use crate::observability::ServerLogRing;
@@ -1749,8 +1748,6 @@ mod tests {
             store_account_unauth_post_per_minute_ip: 0,
             store_account_authed_per_minute: 0,
             meilisearch: None,
-            corecard_config: CoreCardConfig::from_env(),
-            corecard_token_cache: Arc::new(Mutex::new(CoreCardTokenCache::default())),
             rosie_speech_state: Arc::new(Mutex::new(None)),
             server_log_ring: ServerLogRing::new(32, 512),
             cache: None,
