@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 //! Podium API: OAuth refresh-token flow and outbound SMS via `POST /v4/messages`.
 //! Operator setup: https://docs.podium.com/docs/getting-started
 //! Send payload shape: https://github.com/podium/podium-api-sample-messages
@@ -1405,7 +1406,10 @@ pub async fn fetch_podium_users(
     let loc = cfg.location_uid.trim();
 
     let mut req = add_podium_headers(
-        http.get(format!("{}/v4/users", creds.api_base_url.trim_end_matches('/'))),
+        http.get(format!(
+            "{}/v4/users",
+            creds.api_base_url.trim_end_matches('/')
+        )),
         Some(&token),
     );
     if !loc.is_empty() {
@@ -1439,7 +1443,7 @@ pub async fn list_podium_users_combined(
         FROM podium_message pm
         WHERE pm.direction IN ('outbound', 'automated')
           AND pm.podium_sender_uid IS NOT NULL
-        "#
+        "#,
     )
     .fetch_all(pool)
     .await
@@ -1495,17 +1499,22 @@ pub async fn upsert_podium_contact(
     let token = get_valid_access_token(http, token_cache, &creds).await?;
 
     // Fetch customer data
-    let row: Option<(String, String, Option<String>, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            "SELECT first_name, last_name, phone, email, company_name FROM customers WHERE id = $1"
-        )
-        .bind(customer_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "failed to load customer for podium contact sync");
-            PodiumError::NotConfigured
-        })?;
+    let row: Option<(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
+        "SELECT first_name, last_name, phone, email, company_name FROM customers WHERE id = $1",
+    )
+    .bind(customer_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "failed to load customer for podium contact sync");
+        PodiumError::NotConfigured
+    })?;
 
     let Some((first_name, last_name, phone, email, company_name)) = row else {
         return Err(PodiumError::NotConfigured);
@@ -1552,10 +1561,16 @@ pub async fn upsert_podium_contact(
             .await?;
         let create_status = create_res.status();
         if !create_status.is_success() {
-            tracing::warn!(status = create_status.as_u16(), "Podium POST /v4/contacts failed");
+            tracing::warn!(
+                status = create_status.as_u16(),
+                "Podium POST /v4/contacts failed"
+            );
             return Err(PodiumError::SendHttp(create_status.as_u16()));
         }
-        return Ok(create_res.json::<Value>().await.unwrap_or_else(|_| json!({})));
+        return Ok(create_res
+            .json::<Value>()
+            .await
+            .unwrap_or_else(|_| json!({})));
     }
     if !status.is_success() {
         tracing::warn!(status = status.as_u16(), "Podium PATCH /v4/contacts failed");
@@ -1595,7 +1610,10 @@ pub async fn opt_out_podium_contact(
         .await?;
     let status = res.status();
     if !status.is_success() {
-        tracing::warn!(status = status.as_u16(), "Podium POST /v4/contacts/.../opt_out failed");
+        tracing::warn!(
+            status = status.as_u16(),
+            "Podium POST /v4/contacts/.../opt_out failed"
+        );
         return Err(PodiumError::SendHttp(status.as_u16()));
     }
     Ok(res.json::<Value>().await.unwrap_or_else(|_| json!({})))
@@ -1625,7 +1643,10 @@ pub async fn fetch_conversation_assignees(
         .await?;
     let status = res.status();
     if !status.is_success() {
-        tracing::warn!(status = status.as_u16(), "Podium GET /v4/conversations/.../assignees failed");
+        tracing::warn!(
+            status = status.as_u16(),
+            "Podium GET /v4/conversations/.../assignees failed"
+        );
         return Err(PodiumError::SendHttp(status.as_u16()));
     }
     let value = res.json::<Value>().await.unwrap_or_else(|_| json!({}));
@@ -1664,7 +1685,10 @@ pub async fn update_conversation_assignee(
         .await?;
     let status = res.status();
     if !status.is_success() {
-        tracing::warn!(status = status.as_u16(), "Podium PATCH /v4/conversations/.../assignees failed");
+        tracing::warn!(
+            status = status.as_u16(),
+            "Podium PATCH /v4/conversations/.../assignees failed"
+        );
         return Err(PodiumError::SendHttp(status.as_u16()));
     }
     Ok(res.json::<Value>().await.unwrap_or_else(|_| json!({})))

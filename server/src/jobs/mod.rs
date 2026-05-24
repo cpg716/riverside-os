@@ -1,10 +1,10 @@
 //! Background job queue system for resilient async processing
 
+pub mod fal_download;
 pub mod job_types;
+pub mod qbo_sync;
 pub mod queue;
 pub mod worker;
-pub mod fal_download;
-pub mod qbo_sync;
 
 pub use job_types::{Job, JobPriority, JobStatus, JobType};
 pub use queue::{JobQueue, JobQueueConfig};

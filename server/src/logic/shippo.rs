@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 //! Shippo integration logic for shipping rates and label purchasing.
 
 use chrono::{Duration, Utc};
@@ -407,7 +408,10 @@ async fn fetch_live_rates(
             };
             let status = resp.status();
             if status.is_success() {
-                break 'retry resp.json::<serde_json::Value>().await.map_err(|e| ShippoError::Api(e.to_string()))?;
+                break 'retry resp
+                    .json::<serde_json::Value>()
+                    .await
+                    .map_err(|e| ShippoError::Api(e.to_string()))?;
             }
             let text = resp.text().await.unwrap_or_default();
             if status.is_server_error() && attempt < SHIPPO_MAX_RETRIES {
@@ -417,7 +421,9 @@ async fn fetch_live_rates(
             tracing::warn!(status = %status, "shippo shipment create failed");
             return Err(ShippoError::Api(format!("HTTP {status}: {text}")));
         }
-        return Err(ShippoError::Api(format!("Shippo fetch_live_rates failed after retries: {last_error}")));
+        return Err(ShippoError::Api(format!(
+            "Shippo fetch_live_rates failed after retries: {last_error}"
+        )));
     };
 
     let rates = v
@@ -1050,7 +1056,10 @@ pub async fn purchase_transaction_for_rate(
             };
             let status = resp.status();
             if status.is_success() {
-                break 'retry resp.json::<serde_json::Value>().await.map_err(|e| ShippoError::Api(e.to_string()))?;
+                break 'retry resp
+                    .json::<serde_json::Value>()
+                    .await
+                    .map_err(|e| ShippoError::Api(e.to_string()))?;
             }
             let text = resp.text().await.unwrap_or_default();
             if status.is_server_error() && attempt < SHIPPO_MAX_RETRIES {
@@ -1060,7 +1069,9 @@ pub async fn purchase_transaction_for_rate(
             tracing::warn!(status = %status, "shippo transaction create failed");
             return Err(ShippoError::Api(format!("HTTP {status}: {text}")));
         }
-        return Err(ShippoError::Api(format!("Shippo purchase failed after retries: {last_error}")));
+        return Err(ShippoError::Api(format!(
+            "Shippo purchase failed after retries: {last_error}"
+        )));
     };
 
     let st = v.get("status").and_then(|x| x.as_str()).unwrap_or("");

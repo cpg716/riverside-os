@@ -1,10 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::net::{IpAddr, SocketAddr, UdpSocket};
-use std::time::Duration;
-use std::sync::Arc;
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::Semaphore;
 
@@ -20,16 +20,16 @@ pub struct DiscoveredServer {
 
 #[tauri::command]
 fn save_secure_pin(profile_id: &str, pin: &str) -> Result<(), String> {
-    let entry = Entry::new("com.riverside.ros-dev-center", profile_id)
-        .map_err(|e| e.to_string())?;
+    let entry =
+        Entry::new("com.riverside.ros-dev-center", profile_id).map_err(|e| e.to_string())?;
     entry.set_password(pin).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 fn get_secure_pin(profile_id: &str) -> Result<String, String> {
-    let entry = Entry::new("com.riverside.ros-dev-center", profile_id)
-        .map_err(|e| e.to_string())?;
+    let entry =
+        Entry::new("com.riverside.ros-dev-center", profile_id).map_err(|e| e.to_string())?;
     match entry.get_password() {
         Ok(pin) => Ok(pin),
         Err(keyring::Error::NoEntry) => Ok("".to_string()),
@@ -39,8 +39,8 @@ fn get_secure_pin(profile_id: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn delete_secure_pin(profile_id: &str) -> Result<(), String> {
-    let entry = Entry::new("com.riverside.ros-dev-center", profile_id)
-        .map_err(|e| e.to_string())?;
+    let entry =
+        Entry::new("com.riverside.ros-dev-center", profile_id).map_err(|e| e.to_string())?;
     match entry.delete_password() {
         Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.to_string()),
@@ -71,16 +71,24 @@ async fn get_tailscale_ips() -> Vec<(String, String)> {
         Err(_) => return vec![],
     };
 
-    let res = client.get("http://100.100.100.100:8080/localapi/v0/status").send().await;
+    let res = client
+        .get("http://100.100.100.100:8080/localapi/v0/status")
+        .send()
+        .await;
     if let Ok(resp) = res {
         if let Ok(json) = resp.json::<serde_json::Value>().await {
             let mut list = vec![];
             if let Some(peers) = json.get("Peer").and_then(|p| p.as_array()) {
                 for peer in peers {
-                    let dns_name = peer.get("DNSName")
+                    let dns_name = peer
+                        .get("DNSName")
                         .and_then(|d| d.as_str())
                         .map(|s| s.trim_end_matches('.').to_string())
-                        .or_else(|| peer.get("HostName").and_then(|h| h.as_str()).map(|s| s.to_string()));
+                        .or_else(|| {
+                            peer.get("HostName")
+                                .and_then(|h| h.as_str())
+                                .map(|s| s.to_string())
+                        });
 
                     if let Some(ips_arr) = peer.get("TailscaleIPs").and_then(|i| i.as_array()) {
                         if let Some(ip) = ips_arr.get(0).and_then(|ip| ip.as_str()) {
@@ -95,7 +103,11 @@ async fn get_tailscale_ips() -> Vec<(String, String)> {
     vec![]
 }
 
-async fn scan_ip(ip_str: String, host_name: Option<String>, is_ts: bool) -> Option<DiscoveredServer> {
+async fn scan_ip(
+    ip_str: String,
+    host_name: Option<String>,
+    is_ts: bool,
+) -> Option<DiscoveredServer> {
     let start = std::time::Instant::now();
     let ip: IpAddr = ip_str.parse().ok()?;
     let addr = SocketAddr::new(ip, 3000);
@@ -111,13 +123,16 @@ async fn scan_ip(ip_str: String, host_name: Option<String>, is_ts: bool) -> Opti
                 Err(_) => return None,
             };
             let url = format!("http://{}:3000", ip_str);
-            let req = client.get(format!("{}/api/health", url))
+            let req = client
+                .get(format!("{}/api/health", url))
                 .header("x-riverside-staff-code", "");
 
             if let Ok(res) = req.send().await {
                 if res.status().is_success() {
                     let version = if let Ok(json) = res.json::<serde_json::Value>().await {
-                        json.get("version").and_then(|v| v.as_str()).map(|v| v.to_string())
+                        json.get("version")
+                            .and_then(|v| v.as_str())
+                            .map(|v| v.to_string())
                     } else {
                         None
                     };

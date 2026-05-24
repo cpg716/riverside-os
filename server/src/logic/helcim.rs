@@ -955,15 +955,12 @@ pub async fn fetch_card_transaction(
         "{}/card-transactions/{transaction_id}",
         config.api_base_url()
     );
-    let response = send_request_with_retry(
-        "Helcim transaction lookup",
-        || {
-            http.get(&url)
-                .header(reqwest::header::ACCEPT, "application/json")
-                .header("api-token", token)
-                .send()
-        },
-    )
+    let response = send_request_with_retry("Helcim transaction lookup", || {
+        http.get(&url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header("api-token", token)
+            .send()
+    })
     .await?;
     response
         .json::<HelcimCardTransaction>()
@@ -1027,15 +1024,12 @@ pub async fn ping_device(
         .api_token()
         .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!("{}/devices/{code}/ping", config.api_base_url());
-    let response = send_request_with_retry(
-        "Helcim device ping",
-        || {
-            http.get(&url)
-                .header(reqwest::header::ACCEPT, "application/json")
-                .header("api-token", token)
-                .send()
-        },
-    )
+    let response = send_request_with_retry("Helcim device ping", || {
+        http.get(&url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header("api-token", token)
+            .send()
+    })
     .await?;
     response
         .json::<Value>()
@@ -1119,15 +1113,12 @@ pub async fn delete_customer_card(
         "{}/customers/{customer_id}/cards/{card_id}",
         config.api_base_url()
     );
-    let _response = send_request_with_retry(
-        "Helcim delete customer card",
-        || {
-            http.delete(&url)
-                .header(reqwest::header::ACCEPT, "application/json")
-                .header("api-token", token)
-                .send()
-        },
-    )
+    let _response = send_request_with_retry("Helcim delete customer card", || {
+        http.delete(&url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header("api-token", token)
+            .send()
+    })
     .await?;
     Ok(())
 }
@@ -1145,15 +1136,12 @@ pub async fn set_customer_card_default(
         "{}/customers/{customer_id}/cards/{card_id}/default",
         config.api_base_url()
     );
-    let response = send_request_with_retry(
-        "Helcim set customer card default",
-        || {
-            http.patch(&url)
-                .header(reqwest::header::ACCEPT, "application/json")
-                .header("api-token", token)
-                .send()
-        },
-    )
+    let response = send_request_with_retry("Helcim set customer card default", || {
+        http.patch(&url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header("api-token", token)
+            .send()
+    })
     .await?;
     response.json::<Value>().await.map_err(|e| e.to_string())
 }
@@ -1256,18 +1244,15 @@ pub async fn start_terminal_refund(
         config.api_base_url()
     );
     let body = terminal_refund_request_body(&request)?;
-    let response = send_request_with_retry(
-        "Helcim terminal refund",
-        || {
-            http.post(&url)
-                .header(reqwest::header::ACCEPT, "application/json")
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .header("api-token", token)
-                .header("idempotency-key", idempotency_key)
-                .body(body.clone())
-                .send()
-        },
-    )
+    let response = send_request_with_retry("Helcim terminal refund", || {
+        http.post(&url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header("api-token", token)
+            .header("idempotency-key", idempotency_key)
+            .body(body.clone())
+            .send()
+    })
     .await?;
     if response.status() != reqwest::StatusCode::ACCEPTED {
         return Err(format!(
@@ -1290,17 +1275,14 @@ pub async fn initialize_helcim_pay(
         .api_token()
         .ok_or_else(|| "Helcim API token is not saved in Backoffice Settings.".to_string())?;
     let url = format!("{}/helcim-pay/initialize", config.api_base_url());
-    let response = send_request_with_retry(
-        "HelcimPay.js initialization",
-        || {
-            http.post(&url)
-                .header(reqwest::header::ACCEPT, "application/json")
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .header("api-token", token)
-                .json(&request)
-                .send()
-        },
-    )
+    let response = send_request_with_retry("HelcimPay.js initialization", || {
+        http.post(&url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header("api-token", token)
+            .json(&request)
+            .send()
+    })
     .await?;
     response
         .json::<HelcimPayInitializeResponse>()
@@ -1369,17 +1351,24 @@ async fn send_payment_request<T: Serialize + ?Sized>(
         if !status.is_success() {
             let raw_text = response.text().await.unwrap_or_default();
             if is_retryable_helcim_error(status, Some(&raw_text)) && attempt < HELCIM_MAX_RETRIES {
-                last_error = response_error_message_sync("Helcim payment request", status, &raw_text);
+                last_error =
+                    response_error_message_sync("Helcim payment request", status, &raw_text);
                 continue;
             }
-            return Err(response_error_message_sync("Helcim payment request", status, &raw_text));
+            return Err(response_error_message_sync(
+                "Helcim payment request",
+                status,
+                &raw_text,
+            ));
         }
         return response
             .json::<HelcimCardTransaction>()
             .await
             .map_err(|e| e.to_string());
     }
-    Err(format!("Helcim payment request failed after retries: {last_error}"))
+    Err(format!(
+        "Helcim payment request failed after retries: {last_error}"
+    ))
 }
 
 async fn send_get_request(
@@ -1423,15 +1412,26 @@ async fn send_get_request(
                 last_error = response_error_message_sync("Helcim GET request", status, &raw_text);
                 continue;
             }
-            return Err(response_error_message_sync("Helcim GET request", status, &raw_text));
+            return Err(response_error_message_sync(
+                "Helcim GET request",
+                status,
+                &raw_text,
+            ));
         }
         return response.json::<Value>().await.map_err(|e| e.to_string());
     }
-    Err(format!("Helcim GET request failed after retries: {last_error}"))
+    Err(format!(
+        "Helcim GET request failed after retries: {last_error}"
+    ))
 }
 
-fn response_error_message_sync(context: &str, status: reqwest::StatusCode, raw_text: &str) -> String {
-    let is_html = raw_text.trim().starts_with("<!DOCTYPE html>") || raw_text.trim().starts_with("<html");
+fn response_error_message_sync(
+    context: &str,
+    status: reqwest::StatusCode,
+    raw_text: &str,
+) -> String {
+    let is_html =
+        raw_text.trim().starts_with("<!DOCTYPE html>") || raw_text.trim().starts_with("<html");
     let message = redact_provider_text(raw_text);
     let mut detail = format!("{context} returned HTTP {status}");
     if is_html {

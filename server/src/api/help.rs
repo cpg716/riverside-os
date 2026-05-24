@@ -1987,7 +1987,10 @@ pub fn router() -> Router<AppState> {
             post(admin_ops_capture_screenshots),
         )
         .route("/admin/ops/reindex-search", post(admin_ops_reindex_search))
-        .route("/admin/ops/meilisearch-health", get(admin_ops_meilisearch_health))
+        .route(
+            "/admin/ops/meilisearch-health",
+            get(admin_ops_meilisearch_health),
+        )
 }
 
 async fn rosie_product_catalog_analysis(

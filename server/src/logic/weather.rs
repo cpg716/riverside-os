@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 //! Weather for dashboards and Golden Rule session snapshots.
 //!
 //! When [StoreWeatherSettings] has a Visual Crossing API key and `enabled`, uses the

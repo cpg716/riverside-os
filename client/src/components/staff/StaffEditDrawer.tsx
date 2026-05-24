@@ -57,6 +57,14 @@ interface ExceptionRow {
   shift_label?: string;
 }
 
+interface PodiumUser {
+  uid: string;
+  name?: string;
+  displayName?: string;
+  firstName?: string;
+  lastName?: string;
+}
+
 interface StaffEditDrawerProps {
   staff: HubRow;
   open: boolean;
@@ -129,7 +137,7 @@ export default function StaffEditDrawer({
   const [detachEmployeeCustomer, setDetachEmployeeCustomer] = useState(false);
   const [podiumUserUid, setPodiumUserUid] = useState("");
   const [podiumDisplayName, setPodiumDisplayName] = useState("");
-  const [podiumUsers, setPodiumUsers] = useState<any[]>([]);
+  const [podiumUsers, setPodiumUsers] = useState<PodiumUser[]>([]);
   const [loadingPodiumUsers, setLoadingPodiumUsers] = useState(false);
 
   // Attendance State

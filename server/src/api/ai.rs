@@ -12,8 +12,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::api::AppState;
-use crate::middleware::require_authenticated_staff_headers;
 use crate::logic::fal_sidecar::{dispatch_fal_task, FalError};
+use crate::middleware::require_authenticated_staff_headers;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AiApiError {
@@ -34,7 +34,9 @@ impl IntoResponse for AiApiError {
             AiApiError::NotFound(id) => (StatusCode::NOT_FOUND, format!("Job {id} not found")),
             AiApiError::Fal(ref e) => {
                 let status = match e {
-                    FalError::MissingApiKey | FalError::MissingBaseUrl => StatusCode::INTERNAL_SERVER_ERROR,
+                    FalError::MissingApiKey | FalError::MissingBaseUrl => {
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    }
                     FalError::Http(_) => StatusCode::BAD_GATEWAY,
                     FalError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
                     FalError::InvalidResponse(_) => StatusCode::BAD_GATEWAY,
@@ -43,7 +45,10 @@ impl IntoResponse for AiApiError {
             }
             AiApiError::Database(ref e) => {
                 tracing::error!(error = %e, "Database error in AI API");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal database error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal database error".to_string(),
+                )
             }
         };
         (status, Json(json!({ "error": msg }))).into_response()

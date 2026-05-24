@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [string]$InstallRoot = "C:\RiversideOS"
 )
@@ -126,9 +126,8 @@ if (-not $env.Contains("COUNTERPOINT_SYNC_TOKEN") -or -not (Test-UsableSecret "$
 }
 
 Write-EnvMap $envPath $env
-Set-MachineEnvironmentValue "RIVERSIDE_CREDENTIALS_KEY" "$($env["RIVERSIDE_CREDENTIALS_KEY"])"
-Set-MachineEnvironmentValue "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET" "$($env["RIVERSIDE_STORE_CUSTOMER_JWT_SECRET"])"
-Set-MachineEnvironmentValue "COUNTERPOINT_SYNC_TOKEN" "$($env["COUNTERPOINT_SYNC_TOKEN"])"
+# Machine-level environment variable writes removed for security hardening.
+# All secrets are loaded locally from the C:\RiversideOS\server\.env file.
 Restart-RiversideServer
 
 Write-Host ""

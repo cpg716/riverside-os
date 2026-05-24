@@ -111,6 +111,12 @@ export default function StorePageStudioEditor({
       addRosSafeBlocks(ed);
 
       if (studioAssetUpload) {
+        interface GjsMediaJob {
+          id: string;
+          status: string;
+          job_type: string;
+          local_asset_path?: string | null;
+        }
         const { apiBaseUrl, headers } = studioAssetUpload;
         fetch(`${apiBaseUrl.replace(/\/+$/, "")}/api/ai/visual/jobs`, {
           headers: headers(),
@@ -119,7 +125,7 @@ export default function StorePageStudioEditor({
             if (res.ok) return res.json();
             throw new Error("Failed to load assets");
           })
-          .then((jobs: any[]) => {
+          .then((jobs: GjsMediaJob[]) => {
             const completedAssets = jobs
               .filter((j) => j.status === "completed" && j.local_asset_path)
               .map((j) => ({

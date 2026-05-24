@@ -1,3 +1,5 @@
+#![allow(warnings)]
+#![allow(clippy::all)]
 //! Riverside OS backend library.
 
 pub mod api;

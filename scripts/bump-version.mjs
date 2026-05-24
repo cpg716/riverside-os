@@ -76,6 +76,27 @@ const filesToUpdate = [
     }
   },
   {
+    path: 'ros-dev/package.json',
+    replace: (content) => content.replace(/"version": ".*?"/, `"version": "${version}"`)
+  },
+  {
+    path: 'ros-dev/src-tauri/tauri.conf.json',
+    replace: (content) => content.replace(/"version": ".*?"/, `"version": "${version}"`)
+  },
+  {
+    path: 'ros-dev/src-tauri/Cargo.toml',
+    replace: (content) => {
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('version = "')) {
+          lines[i] = `version = "${version}"`;
+          break;
+        }
+      }
+      return lines.join('\n');
+    }
+  },
+  {
     path: 'deployment/windows/riverside-deployment.config.example.json',
     replace: (content) => content.replace(/"releaseVersion": ".*?"/, `"releaseVersion": "${version}"`)
   },

@@ -104,7 +104,14 @@ export default function OnlineStoreSettingsPanel({
     setCoupons(Array.isArray(j.coupons) ? j.coupons : []);
   }, [baseUrl, headers, toast]);
 
-  const [mediaJobs, setMediaJobs] = useState<any[]>([]);
+interface MediaJob {
+  id: string;
+  status: string;
+  job_type: string;
+  local_asset_path: string;
+}
+
+  const [mediaJobs, setMediaJobs] = useState<MediaJob[]>([]);
   const [loadingMedia, setLoadingMedia] = useState(false);
 
   const loadMediaJobs = useCallback(async () => {
@@ -114,8 +121,8 @@ export default function OnlineStoreSettingsPanel({
         headers: headers(),
       });
       if (res.ok) {
-        const data = await res.json();
-        setMediaJobs(data.filter((j: any) => j.job_type === "product_image" || j.job_type === "promo_image"));
+        const data = await res.json() as MediaJob[];
+        setMediaJobs(data.filter((j: MediaJob) => j.job_type === "product_image" || j.job_type === "promo_image"));
       }
     } catch (e) {
       console.error("Failed to load media jobs", e);
@@ -603,7 +610,7 @@ export default function OnlineStoreSettingsPanel({
             jobType="promo_image"
             title="AI Online Store Banner & Promo Generator"
             placeholder="A high-end modern aesthetic homepage banner, luxury dress salon interior with wedding dresses, soft warm light..."
-            onGenerated={(_url) => {
+            onGenerated={() => {
               toast("AI Promo Image generated and added to assets!", "success");
               void loadMediaJobs();
             }}

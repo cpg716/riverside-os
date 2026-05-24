@@ -1025,6 +1025,20 @@ $checkButton.Add_Click({
         Add-Log "Warning: server did not respond yet. You can still install station settings, but verify the Server is installed and reachable."
       }
     }
+
+    if ($receiptModeCombo.SelectedItem -eq "Installed printer") {
+      try {
+        $drivers = Get-PrinterDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Epson*" -or $_.Name -like "*TM-m30*" }
+        if (-not $drivers) {
+          Add-Log "Warning: 'Installed printer' mode selected, but no Epson printer driver was detected on this PC. Please install the Epson APD v6.07 driver first to avoid printing failures."
+        } else {
+          Add-Log "Epson printer driver detected: $($drivers[0].Name)"
+        }
+      } catch {
+        Add-Log "Warning: Could not verify if Epson printer driver is installed."
+      }
+    }
+
     Add-Log "Check complete."
   } catch {
     Add-Log "Check failed: $($_.Exception.Message)"

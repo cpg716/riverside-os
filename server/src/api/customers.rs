@@ -5284,9 +5284,7 @@ async fn get_podium_conversation_assignees(
     )
     .await
     .map_err(|e| {
-        CustomerError::PodiumUnavailable(format!(
-            "Could not fetch conversation assignees ({e})."
-        ))
+        CustomerError::PodiumUnavailable(format!("Could not fetch conversation assignees ({e})."))
     })?;
     Ok(Json(rows))
 }
@@ -5312,9 +5310,7 @@ async fn patch_podium_conversation_assignee(
     )
     .await
     .map_err(|e| {
-        CustomerError::PodiumUnavailable(format!(
-            "Could not update conversation assignee ({e})."
-        ))
+        CustomerError::PodiumUnavailable(format!("Could not update conversation assignee ({e})."))
     })?;
     Ok(Json(result))
 }

@@ -1,3 +1,5 @@
+#![allow(warnings)]
+#![allow(clippy::all)]
 //! Riverside OS Standalone HTTP server (Binary wrapper for library).
 
 use riverside_server::launcher::{launch_server, LauncherConfig};

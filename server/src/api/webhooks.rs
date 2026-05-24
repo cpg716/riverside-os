@@ -1239,7 +1239,7 @@ async fn post_fal_webhook(
         SELECT id, job_type, target_id
         FROM fal_generation_jobs
         WHERE pending_job_id = $1
-        "#
+        "#,
     )
     .bind(request_id)
     .fetch_optional(&state.db)
@@ -1275,7 +1275,7 @@ async fn post_fal_webhook(
                     "job_type": job_type,
                     "target_id": target_id
                 });
-                
+
                 if let Ok(queue) = crate::jobs::JobQueue::from_env() {
                     let job = crate::jobs::Job::new(
                         crate::jobs::JobType::DownloadFalAsset,
@@ -1304,7 +1304,8 @@ async fn post_fal_webhook(
                 }
             }
             None => {
-                let err_msg = "Fal.ai webhook completed but no image URL was found in the payload".to_string();
+                let err_msg = "Fal.ai webhook completed but no image URL was found in the payload"
+                    .to_string();
                 tracing::error!(job_id = %job_id, error = %err_msg);
                 let _ = sqlx::query(
                     "UPDATE fal_generation_jobs SET status = 'failed', error_message = $1 WHERE id = $2"
@@ -1316,10 +1317,13 @@ async fn post_fal_webhook(
             }
         }
     } else {
-        let err_msg = payload.error.clone().unwrap_or_else(|| "Unknown Fal.ai generation failure".to_string());
+        let err_msg = payload
+            .error
+            .clone()
+            .unwrap_or_else(|| "Unknown Fal.ai generation failure".to_string());
         tracing::error!(job_id = %job_id, error = %err_msg, "Fal.ai job execution failed");
         let _ = sqlx::query(
-            "UPDATE fal_generation_jobs SET status = 'failed', error_message = $1 WHERE id = $2"
+            "UPDATE fal_generation_jobs SET status = 'failed', error_message = $1 WHERE id = $2",
         )
         .bind(&err_msg)
         .bind(job_id)

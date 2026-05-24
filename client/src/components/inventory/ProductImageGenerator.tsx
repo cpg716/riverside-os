@@ -93,15 +93,17 @@ export default function ProductImageGenerator({
             setGenerating(false);
             setGenError(job.error_message || "Generation job failed");
           }
-        } catch (pollErr: any) {
+        } catch (pollErr) {
           clearInterval(interval);
           setGenerating(false);
-          setGenError(pollErr.message || "Error polling status");
+          const errorMsg = pollErr instanceof Error ? pollErr.message : "Error polling status";
+          setGenError(errorMsg);
         }
       }, 2000);
-    } catch (err: any) {
+    } catch (err) {
       setGenerating(false);
-      setGenError(err.message || "An error occurred");
+      const errorMsg = err instanceof Error ? err.message : "An error occurred";
+      setGenError(errorMsg);
     }
   };
 

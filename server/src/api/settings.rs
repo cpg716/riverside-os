@@ -2729,10 +2729,12 @@ async fn get_fal_billing(
     headers: HeaderMap,
 ) -> Result<Json<Value>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
-    let fal_key = std::env::var("FAL_KEY")
-        .map_err(|_| SettingsError::InvalidPayload("FAL_KEY is not configured in settings".to_string()))?;
+    let fal_key = std::env::var("FAL_KEY").map_err(|_| {
+        SettingsError::InvalidPayload("FAL_KEY is not configured in settings".to_string())
+    })?;
 
-    let res = state.http_client
+    let res = state
+        .http_client
         .get("https://api.fal.ai/v1/account/billing?expand=credits")
         .header("Authorization", format!("Key {}", fal_key))
         .send()
@@ -2742,10 +2744,16 @@ async fn get_fal_billing(
     if !res.status().is_success() {
         let status = res.status();
         let text = res.text().await.unwrap_or_default();
-        return Err(SettingsError::InvalidPayload(format!("Fal.ai error ({}): {}", status, text)));
+        return Err(SettingsError::InvalidPayload(format!(
+            "Fal.ai error ({}): {}",
+            status, text
+        )));
     }
 
-    let val: Value = res.json().await.map_err(|e| SettingsError::InvalidPayload(format!("Invalid JSON from Fal.ai: {e}")))?;
+    let val: Value = res
+        .json()
+        .await
+        .map_err(|e| SettingsError::InvalidPayload(format!("Invalid JSON from Fal.ai: {e}")))?;
     Ok(Json(val))
 }
 
@@ -2754,10 +2762,12 @@ async fn get_fal_usage(
     headers: HeaderMap,
 ) -> Result<Json<Value>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
-    let fal_key = std::env::var("FAL_KEY")
-        .map_err(|_| SettingsError::InvalidPayload("FAL_KEY is not configured in settings".to_string()))?;
+    let fal_key = std::env::var("FAL_KEY").map_err(|_| {
+        SettingsError::InvalidPayload("FAL_KEY is not configured in settings".to_string())
+    })?;
 
-    let res = state.http_client
+    let res = state
+        .http_client
         .get("https://api.fal.ai/v1/models/usage")
         .header("Authorization", format!("Key {}", fal_key))
         .send()
@@ -2767,10 +2777,16 @@ async fn get_fal_usage(
     if !res.status().is_success() {
         let status = res.status();
         let text = res.text().await.unwrap_or_default();
-        return Err(SettingsError::InvalidPayload(format!("Fal.ai error ({}): {}", status, text)));
+        return Err(SettingsError::InvalidPayload(format!(
+            "Fal.ai error ({}): {}",
+            status, text
+        )));
     }
 
-    let val: Value = res.json().await.map_err(|e| SettingsError::InvalidPayload(format!("Invalid JSON from Fal.ai: {e}")))?;
+    let val: Value = res
+        .json()
+        .await
+        .map_err(|e| SettingsError::InvalidPayload(format!("Invalid JSON from Fal.ai: {e}")))?;
     Ok(Json(val))
 }
 

@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [string]$InstallRoot = "C:\RiversideOS",
   [string]$Token = ""
@@ -84,8 +84,8 @@ if (-not (Test-Path $serverDir)) {
 $env = Read-EnvMap $envPath
 $env["COUNTERPOINT_SYNC_TOKEN"] = $cleanToken
 Write-EnvMap $envPath $env
-[Environment]::SetEnvironmentVariable("COUNTERPOINT_SYNC_TOKEN", $cleanToken, "Machine")
-Set-Item -Path "Env:\COUNTERPOINT_SYNC_TOKEN" -Value $cleanToken
+# Machine-level environment variable write removed for security hardening.
+# All secrets are loaded locally from the C:\RiversideOS\server\.env file.
 Restart-RiversideServer
 
 Write-Host ""

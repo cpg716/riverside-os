@@ -5,9 +5,7 @@
 //! - Syncing approved staging entries to QBO
 //! - Token health pre-refresh before expiry
 
-use crate::api::qbo::{
-    integration_row, refresh_access_token, qbo_base_url, QBO_MINOR_VERSION,
-};
+use crate::api::qbo::{integration_row, qbo_base_url, refresh_access_token, QBO_MINOR_VERSION};
 use crate::jobs::{JobContext, JobHandler};
 use chrono::{NaiveDate, Utc};
 use serde_json::json;
@@ -26,7 +24,10 @@ impl QboSyncHandler {
         }
     }
 
-    async fn handle_propose(&self, date: NaiveDate) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn handle_propose(
+        &self,
+        date: NaiveDate,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tracing::info!(activity_date = %date, "QBO job: proposing daily journal");
         let id = crate::logic::qbo_journal::ensure_pending_daily_journal(&self.pool, date).await?;
         tracing::info!(staging_id = %id, "QBO job: daily journal proposed");
@@ -175,8 +176,9 @@ impl QboSyncHandler {
             .bind(&err_msg)
             .execute(&self.pool)
             .await?;
-            let _ = crate::logic::notifications::emit_qbo_sync_failed(&self.pool, staging_id, &err_msg)
-                .await;
+            let _ =
+                crate::logic::notifications::emit_qbo_sync_failed(&self.pool, staging_id, &err_msg)
+                    .await;
             return Err(format!("QBO sync failed: {err_msg}").into());
         }
 
@@ -267,8 +269,15 @@ fn to_amount(v: &serde_json::Value) -> Option<String> {
 
 #[async_trait::async_trait]
 impl JobHandler for QboSyncHandler {
-    async fn handle(&self, ctx: JobContext) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let action = ctx.payload.get("action").and_then(|v| v.as_str()).unwrap_or("unknown");
+    async fn handle(
+        &self,
+        ctx: JobContext,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let action = ctx
+            .payload
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         match action {
             "propose" => {
                 let default_date = chrono::Local::now().naive_local().to_string();

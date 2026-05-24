@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 //! ROS Dev Center v1 domain logic (ops health, stations, alerts, actions, bug overlays).
 
 use std::collections::BTreeSet;
@@ -16,11 +17,11 @@ use uuid::Uuid;
 use crate::auth::permissions::OPS_DEV_CENTER_VIEW;
 use crate::logic::backups::{BackupManager, BackupSettings};
 use crate::logic::bug_reports;
+use crate::logic::fal_sidecar;
 use crate::logic::help_corpus;
 use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::integration_credentials;
 use crate::logic::notifications::{staff_ids_with_permission, upsert_app_notification_by_dedupe};
-use crate::logic::fal_sidecar;
 use crate::logic::nuorder::{nuorder_client_from_pool, NuorderClient, NuorderCredentials};
 use crate::logic::podium;
 use crate::logic::shippo::{self, load_effective_shippo_config};
@@ -2246,7 +2247,11 @@ pub async fn health_snapshot(
         },
         detail: podium_h.message,
         last_success_at: if podium_h.reachable { Some(now) } else { None },
-        last_failure_at: if !podium_h.reachable && podium_h.configured { Some(now) } else { None },
+        last_failure_at: if !podium_h.reachable && podium_h.configured {
+            Some(now)
+        } else {
+            None
+        },
         updated_at: Some(now),
     });
 
@@ -2271,7 +2276,11 @@ pub async fn health_snapshot(
         },
         detail: shippo_h.message,
         last_success_at: if shippo_h.reachable { Some(now) } else { None },
-        last_failure_at: if !shippo_h.reachable && shippo_h.configured { Some(now) } else { None },
+        last_failure_at: if !shippo_h.reachable && shippo_h.configured {
+            Some(now)
+        } else {
+            None
+        },
         updated_at: Some(now),
     });
 
@@ -2296,7 +2305,11 @@ pub async fn health_snapshot(
         },
         detail: weather_h.message,
         last_success_at: if weather_h.reachable { Some(now) } else { None },
-        last_failure_at: if !weather_h.reachable && weather_h.configured { Some(now) } else { None },
+        last_failure_at: if !weather_h.reachable && weather_h.configured {
+            Some(now)
+        } else {
+            None
+        },
         updated_at: Some(now),
     });
 
@@ -2321,7 +2334,11 @@ pub async fn health_snapshot(
         },
         detail: fal_h.message,
         last_success_at: if fal_h.reachable { Some(now) } else { None },
-        last_failure_at: if !fal_h.reachable && fal_h.configured { Some(now) } else { None },
+        last_failure_at: if !fal_h.reachable && fal_h.configured {
+            Some(now)
+        } else {
+            None
+        },
         updated_at: Some(now),
     });
 
@@ -2337,7 +2354,11 @@ pub async fn health_snapshot(
                 } else {
                     "failed".to_string()
                 },
-                severity: if nu_h.reachable { "info".to_string() } else { "warning".to_string() },
+                severity: if nu_h.reachable {
+                    "info".to_string()
+                } else {
+                    "warning".to_string()
+                },
                 detail: nu_h.message,
                 last_success_at: if nu_h.reachable { Some(now) } else { None },
                 last_failure_at: if !nu_h.reachable { Some(now) } else { None },

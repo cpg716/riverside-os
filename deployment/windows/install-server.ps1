@@ -409,7 +409,7 @@ function Invoke-Psql($PsqlPath, $DatabaseUrl, $Sql) {
 }
 
 function Invoke-PsqlFile($PsqlPath, $DatabaseUrl, $FilePath) {
-  $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-f", $FilePath)
+  $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-1", "-f", $FilePath)
   if ($exitCode -ne 0) {
     throw "psql failed with exit code $exitCode. $script:lastNativeCommandOutput"
   }
@@ -846,18 +846,8 @@ function Install-RosieStack($PackageRoot) {
 }
 
 function Set-MachineEnvironmentFromServerConfig($Config) {
-  $server = $Config.server
-  [Environment]::SetEnvironmentVariable("RIVERSIDE_CREDENTIALS_KEY", "$($server.storeCustomerJwtSecret)", "Machine")
-  [Environment]::SetEnvironmentVariable("RIVERSIDE_STORE_CUSTOMER_JWT_SECRET", "$($server.storeCustomerJwtSecret)", "Machine")
-  if ($server.environment) {
-    foreach ($prop in $server.environment.PSObject.Properties) {
-      $name = "$($prop.Name)"
-      $value = "$($prop.Value)"
-      if (($name -eq "COUNTERPOINT_SYNC_TOKEN") -and -not [string]::IsNullOrWhiteSpace($value)) {
-        [Environment]::SetEnvironmentVariable($name, $value, "Machine")
-      }
-    }
-  }
+  # Machine-level environment variable writes removed for security hardening.
+  # All secrets are loaded locally from the C:\RiversideOS\server\.env file.
 }
 
 function Get-MigrationSortKey($File) {
@@ -989,13 +979,37 @@ function Test-PlaceholderSecret([string]$Value) {
   if ([string]::IsNullOrWhiteSpace($Value)) { return $true }
   return $Value -match "replace-" -or $Value -eq "password" -or $Value -eq "placeholder"
 }
-
 $configModified = $false
 
 if (Test-PlaceholderSecret $config.server.storeCustomerJwtSecret) {
-  Set-SafeProperty $config.server "storeCustomerJwtSecret" (New-RiversideSecret 32)
-  $configModified = $true
-  Write-Host "Auto-generated secure JWT secret." -ForegroundColor Green
+  # Check if an existing key can be salvaged from server/.env first
+  $existingKey = $null
+  $tempInstallRoot = $config.server.installRoot
+  if ([string]::IsNullOrWhiteSpace($tempInstallRoot)) {
+    $tempInstallRoot = "C:\RiversideOS"
+  }
+  $tempEnvPath = Join-Path $tempInstallRoot "server\.env"
+  if (Test-Path $tempEnvPath) {
+    foreach ($line in Get-Content $tempEnvPath) {
+      if ($line -match '^RIVERSIDE_CREDENTIALS_KEY=(.+)$') {
+        $candidate = $Matches[1].Trim()
+        if (-not (Test-PlaceholderSecret $candidate)) {
+          $existingKey = $candidate
+          break
+        }
+      }
+    }
+  }
+
+  if ($existingKey) {
+    Set-SafeProperty $config.server "storeCustomerJwtSecret" $existingKey
+    $configModified = $true
+    Write-Host "Salvaged existing secure JWT secret from server .env." -ForegroundColor Green
+  } else {
+    Set-SafeProperty $config.server "storeCustomerJwtSecret" (New-RiversideSecret 32)
+    $configModified = $true
+    Write-Host "Auto-generated secure JWT secret." -ForegroundColor Green
+  }
 }
 
 if (Test-PlaceholderSecret $config.server.database.appPassword) {
@@ -1088,6 +1102,21 @@ $packageReleaseDocs = Join-Path $ScriptRoot "release-docs"
 
 foreach ($dir in @($installRoot, $serverDir, $clientDist, $releaseDir, $backupDir, $logDir)) {
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
+}
+
+# Lockdown C:\RiversideOS directory so only SYSTEM and Administrators have access
+try {
+  Write-Host "Locking down folder permissions for $installRoot..."
+  $acl = Get-Acl $installRoot
+  $acl.SetAccessRuleProtection($true, $false) # Remove inherited permissions
+  $ruleSystem = New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+  $ruleAdmins = New-Object System.Security.AccessControl.FileSystemAccessRule("Administrators", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+  $acl.SetAccessRule($ruleSystem)
+  $acl.SetAccessRule($ruleAdmins)
+  Set-Acl $installRoot $acl
+  Write-Host "Folder permissions locked down successfully." -ForegroundColor Green
+} catch {
+  Write-Warning "Could not lock down folder permissions on ${installRoot}: $($_.Exception.Message)"
 }
 
 if (-not (Test-Path $packageServerExe)) {

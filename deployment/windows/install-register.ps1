@@ -155,7 +155,7 @@ function Uninstall-ExistingRiversideApp {
 }
 
 function Clear-RiversideClientCaches {
-  $paths = @(
+  $basePaths = @(
     (Join-Path $env:LOCALAPPDATA "Riverside POS"),
     (Join-Path $env:APPDATA "Riverside POS"),
     (Join-Path $env:LOCALAPPDATA "RiversideOS"),
@@ -164,10 +164,25 @@ function Clear-RiversideClientCaches {
     (Join-Path $env:APPDATA "com.riverside.pos")
   )
 
-  foreach ($path in $paths) {
-    if ($path -and (Test-Path $path)) {
-      Write-Host "Clearing Riverside client cache $path"
-      Remove-Item $path -Recurse -Force -ErrorAction SilentlyContinue
+  $subPathsToClear = @(
+    "EBWebView\Default\Cache",
+    "EBWebView\Default\Code Cache",
+    "EBWebView\Default\GPUCache",
+    "EBWebView\Default\Service Worker\CacheStorage",
+    "EBWebView\Default\Service Worker\ScriptCache"
+  )
+
+  foreach ($base in $basePaths) {
+    if (-not $base -or -not (Test-Path $base)) {
+      continue
+    }
+    # Clear WebView2 cache subdirectories to preserve IndexedDB and Local Storage
+    foreach ($sub in $subPathsToClear) {
+      $target = Join-Path $base $sub
+      if (Test-Path $target) {
+        Write-Host "Clearing Riverside client cache $target"
+        Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
+      }
     }
   }
 }

@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [string]$ConfigPath = "",
   [string]$MigrationsDir = "",
@@ -39,7 +39,7 @@ function Invoke-PsqlText([string]$PsqlPath, [string]$DatabaseUrl, [string]$Sql) 
 }
 
 function Invoke-PsqlFile([string]$PsqlPath, [string]$DatabaseUrl, [string]$FilePath) {
-  & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -f $FilePath
+  & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -1 -f $FilePath
   if ($LASTEXITCODE -ne 0) {
     throw "Migration failed: $(Split-Path -Leaf $FilePath). psql exited with code $LASTEXITCODE."
   }

@@ -84,7 +84,7 @@ export default function FalSettingsPanel({ baseUrl }: FalSettingsPanelProps) {
         setBillingError(errJson.error ?? "Failed to fetch billing info");
         setBilling(null);
       }
-    } catch (err) {
+    } catch {
       setBillingError("Communication error with server");
       setBilling(null);
     } finally {
@@ -107,7 +107,7 @@ export default function FalSettingsPanel({ baseUrl }: FalSettingsPanelProps) {
         setUsageError(errJson.error ?? "Failed to fetch usage metrics");
         setUsage(null);
       }
-    } catch (err) {
+    } catch {
       setUsageError("Communication error with server");
       setUsage(null);
     } finally {

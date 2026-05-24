@@ -4,8 +4,8 @@
 use crate::api::AppState;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use uuid::Uuid;
 use thiserror::Error;
+use uuid::Uuid;
 
 const FAL_MAX_RETRIES: u32 = 2;
 const FAL_BASE_RETRY_DELAY_MS: u64 = 500;
@@ -18,7 +18,9 @@ fn fal_retry_delay(attempt: u32) -> Duration {
 pub enum FalError {
     #[error("Fal.ai key not configured (FAL_KEY must be set in environment)")]
     MissingApiKey,
-    #[error("Public base URL not configured (RIVERSIDE_PUBLIC_BASE_URL must be set in environment)")]
+    #[error(
+        "Public base URL not configured (RIVERSIDE_PUBLIC_BASE_URL must be set in environment)"
+    )]
     MissingBaseUrl,
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
@@ -44,7 +46,8 @@ pub async fn dispatch_fal_task(
     state: &AppState,
 ) -> Result<Uuid, FalError> {
     let fal_key = std::env::var("FAL_KEY").map_err(|_| FalError::MissingApiKey)?;
-    let base_url = std::env::var("RIVERSIDE_PUBLIC_BASE_URL").map_err(|_| FalError::MissingBaseUrl)?;
+    let base_url =
+        std::env::var("RIVERSIDE_PUBLIC_BASE_URL").map_err(|_| FalError::MissingBaseUrl)?;
 
     // 1. Insert pending job into database to get a local tracking ID
     let job_id: Uuid = sqlx::query_scalar(
@@ -52,7 +55,7 @@ pub async fn dispatch_fal_task(
         INSERT INTO fal_generation_jobs (job_type, target_id, status)
         VALUES ($1, $2, 'pending')
         RETURNING id
-        "#
+        "#,
     )
     .bind(job_type)
     .bind(target_id)
@@ -83,7 +86,8 @@ pub async fn dispatch_fal_task(
                 tokio::time::sleep(fal_retry_delay(attempt - 1)).await;
                 tracing::info!(attempt, job_id = %job_id, "Retrying Fal.ai queue submission");
             }
-            let response = match state.http_client
+            let response = match state
+                .http_client
                 .post(&queue_url)
                 .header("Authorization", format!("Key {}", &fal_key))
                 .header("Content-Type", "application/json")
@@ -134,7 +138,7 @@ pub async fn dispatch_fal_task(
         let err_msg = format!("Fal.ai queue submission failed after retries: {last_error}");
         tracing::error!(job_id = %job_id, error = %err_msg);
         sqlx::query(
-            "UPDATE fal_generation_jobs SET status = 'failed', error_message = $1 WHERE id = $2"
+            "UPDATE fal_generation_jobs SET status = 'failed', error_message = $1 WHERE id = $2",
         )
         .bind(&err_msg)
         .bind(job_id)
@@ -151,7 +155,7 @@ pub async fn dispatch_fal_task(
         UPDATE fal_generation_jobs
         SET pending_job_id = $1, status = 'processing'
         WHERE id = $2
-        "#
+        "#,
     )
     .bind(&pending_job_id)
     .bind(job_id)
