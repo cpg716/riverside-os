@@ -2393,4 +2393,29 @@ mod tests {
             assert!(decrypt_legacy_token("not-real").is_none());
         });
     }
+
+    async fn connect_test_db() -> PgPool {
+        let _ =
+            dotenvy::from_filename(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        PgPool::connect(&database_url)
+            .await
+            .expect("connect test database")
+    }
+
+    #[tokio::test]
+    async fn health_check_returns_not_configured_when_qbo_integration_missing() {
+        let pool = connect_test_db().await;
+        let http = reqwest::Client::new();
+        let health = health_check(&pool, &http).await;
+        assert!(!health.configured);
+        assert!(!health.reachable);
+        assert_eq!(health.latency_ms, 0);
+        assert!(
+            health.message.contains("not configured"),
+            "unexpected message: {}",
+            health.message
+        );
+    }
 }

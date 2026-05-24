@@ -103,7 +103,7 @@ async fn get_health_snapshot(
     let snapshot = match ops_dev_center::health_snapshot(
         &state.db,
         &state.http_client,
-        state.meilisearch.is_some(),
+        state.meilisearch.as_ref(),
         &server_log_snapshot,
     )
     .await

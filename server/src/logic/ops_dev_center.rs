@@ -1996,6 +1996,7 @@ pub async fn evaluate_alerts_from_health(
     let mut qbo_failed = false;
     let mut weather_failed = false;
     let mut counterpoint_failed = false;
+    let mut meilisearch_failed = false;
     let mut qbo_api_failed = false;
     let mut email_failed = false;
     let mut counterpoint_bridge_failed = false;
@@ -2203,6 +2204,26 @@ pub async fn evaluate_alerts_from_health(
                 opened_signals.push(signal);
             }
         }
+
+        if i.key == "meilisearch" && i.status == "failed" {
+            meilisearch_failed = true;
+            if let Some(signal) = upsert_open_alert(
+                pool,
+                "integration_meilisearch_failure",
+                "integration_meilisearch_failure",
+                "Meilisearch integration failure",
+                if i.detail.trim().is_empty() {
+                    "Meilisearch is unreachable"
+                } else {
+                    i.detail.as_str()
+                },
+                json!({ "integration": i.key }),
+            )
+            .await?
+            {
+                opened_signals.push(signal);
+            }
+        }
     }
     if !qbo_failed {
         let _ = resolve_rule_alerts(pool, "integration_qbo_failure", &[]).await?;
@@ -2233,6 +2254,9 @@ pub async fn evaluate_alerts_from_health(
     }
     if !counterpoint_bridge_failed {
         let _ = resolve_rule_alerts(pool, "integration_counterpoint_bridge_failure", &[]).await?;
+    }
+    if !meilisearch_failed {
+        let _ = resolve_rule_alerts(pool, "integration_meilisearch_failure", &[]).await?;
     }
 
     for s in stations.iter().filter(|s| !s.online && s.actionable) {
@@ -2293,13 +2317,39 @@ pub async fn evaluate_alerts_from_health(
 pub async fn health_snapshot(
     pool: &PgPool,
     http_client: &reqwest::Client,
-    meilisearch_configured: bool,
+    meilisearch: Option<&meilisearch_sdk::client::Client>,
     server_log_snapshot: &str,
 ) -> Result<OpsHealthSnapshot, sqlx::Error> {
+    let meilisearch_configured = meilisearch.is_some();
     let mut integrations = collect_integrations(pool, meilisearch_configured).await?;
 
     // Probe new integration health endpoints
     let now = Utc::now();
+
+    // Meilisearch (live probe when configured)
+    if let Some(client) = meilisearch {
+        let ms_h = crate::logic::meilisearch_client::health_check(client).await;
+        if let Some(idx) = integrations.iter().position(|i| i.key == "meilisearch") {
+            integrations[idx] = IntegrationHealthItem {
+                key: "meilisearch".to_string(),
+                title: "Meilisearch".to_string(),
+                status: if ms_h.reachable {
+                    "healthy".to_string()
+                } else {
+                    "failed".to_string()
+                },
+                severity: if ms_h.reachable {
+                    "info".to_string()
+                } else {
+                    "warning".to_string()
+                },
+                detail: ms_h.message,
+                last_success_at: if ms_h.reachable { Some(now) } else { None },
+                last_failure_at: if !ms_h.reachable { Some(now) } else { None },
+                updated_at: Some(now),
+            };
+        }
+    }
 
     // Podium
     let podium_h = podium::health_check(http_client).await;

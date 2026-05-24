@@ -14798,4 +14798,42 @@ mod tests {
 
         result.expect("counterpoint baseline reset assertions");
     }
+
+    #[tokio::test]
+    async fn health_check_returns_not_configured_when_token_missing() {
+        let previous = std::env::var("COUNTERPOINT_SYNC_TOKEN").ok();
+        std::env::remove_var("COUNTERPOINT_SYNC_TOKEN");
+        let pool = connect_test_db().await;
+        let health = health_check(&pool).await;
+        assert!(!health.configured);
+        assert!(!health.reachable);
+        assert_eq!(health.latency_ms, 0);
+        assert!(health.message.contains("COUNTERPOINT_SYNC_TOKEN"));
+        if let Some(v) = previous {
+            std::env::set_var("COUNTERPOINT_SYNC_TOKEN", v);
+        }
+    }
+
+    #[tokio::test]
+    async fn health_check_returns_offline_when_token_set_but_no_heartbeat() {
+        let previous = std::env::var("COUNTERPOINT_SYNC_TOKEN").ok();
+        std::env::set_var("COUNTERPOINT_SYNC_TOKEN", "test-token-for-health-check");
+        let pool = connect_test_db().await;
+        // Ensure no heartbeat row exists by deleting it if present
+        let _ = sqlx::query("DELETE FROM counterpoint_bridge_heartbeat WHERE id = 1")
+            .execute(&pool)
+            .await;
+        let health = health_check(&pool).await;
+        assert!(health.configured);
+        assert!(!health.reachable);
+        assert!(
+            health.message.contains("never sent a heartbeat")
+                || health.message.contains("heartbeat query failed")
+        );
+        if let Some(v) = previous {
+            std::env::set_var("COUNTERPOINT_SYNC_TOKEN", v);
+        } else {
+            std::env::remove_var("COUNTERPOINT_SYNC_TOKEN");
+        }
+    }
 }
