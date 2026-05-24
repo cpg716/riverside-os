@@ -107,6 +107,7 @@ function Find-RegisterInstaller {
   }
 
   $msi = Get-ChildItem $registerDir -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notmatch "deployment" -and $_.Name -notmatch "manager" } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
   if ($msi) {
@@ -114,6 +115,7 @@ function Find-RegisterInstaller {
   }
 
   $exe = Get-ChildItem $registerDir -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notmatch "deployment" -and $_.Name -notmatch "manager" } |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
   if ($exe) {

@@ -184,6 +184,9 @@ foreach ($doc in @(
 
 if (Test-Path $RegisterBundlePath) {
   Copy-Item "$RegisterBundlePath\*" "$packageRoot\register" -Recurse -Force
+  # Remove deployment manager installer from register directory to save space and prevent confusion
+  Get-ChildItem "$packageRoot\register" -Recurse -Filter "*deployment*" -ErrorAction SilentlyContinue | Remove-Item -Force
+  Get-ChildItem "$packageRoot\register" -Recurse -Filter "*manager*" -ErrorAction SilentlyContinue | Remove-Item -Force
 }
 
 if (Test-Path $UpdaterDistPath) {
