@@ -27,7 +27,7 @@ interface Props {
   onClose: () => void;
   getHeaders: () => HeadersInit;
   /** Adds internal POS gift card load line; server credits the card only when the sale is fully paid. */
-  onAddToCart: (code: string, amountCents: number) => void;
+  onAddToCart: (code: string, amountCents: number) => Promise<void>;
 }
 
 export default function RegisterGiftCardLoadModal({
@@ -143,7 +143,7 @@ export default function RegisterGiftCardLoadModal({
 
   const clearAmount = useCallback(() => setAmountBuffer(""), []);
 
-  const submit = () => {
+  const submit = async () => {
     const cents = parseMoneyToCents(amountBuffer.trim() || "0");
     if (!Number.isFinite(cents) || cents <= 0) {
       toast("Enter a load amount greater than zero.", "error");
@@ -164,7 +164,7 @@ export default function RegisterGiftCardLoadModal({
     }
     setBusy(true);
     try {
-      onAddToCart(code.toUpperCase(), cents);
+      await onAddToCart(code.toUpperCase(), cents);
       toast(
         "Added to cart. The card is credited only when this sale is fully paid.",
         "success",

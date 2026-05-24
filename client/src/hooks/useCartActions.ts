@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { 
-  type CartLineItem, 
-  type FulfillmentKind, 
-  type ResolvedSkuItem, 
-  type RmsPaymentLineMeta, 
+import {
+  type CartLineItem,
+  type FulfillmentKind,
+  type ResolvedSkuItem,
+  type RmsPaymentLineMeta,
   type GiftCardLoadLineMeta,
   type SearchResult,
   type AppliedPaymentLine,
@@ -114,6 +114,7 @@ interface UseCartActionsProps {
   setPendingCustomItem: (v: ResolvedSkuItem | null) => void;
   setCustomPromptOpen: (v: boolean) => void;
   setGiftCardLoadOpen: (v: boolean) => void;
+  setGiftCardLoadMeta: (v: GiftCardLoadLineMeta | null) => void;
   setPrimarySalespersonId: (v: string) => void;
   setCheckoutAppliedPayments: (v: AppliedPaymentLine[]) => void;
   setCheckoutDepositLedger: (v: string) => void;
@@ -140,6 +141,7 @@ export function useCartActions({
   setPendingCustomItem,
   setCustomPromptOpen,
   setGiftCardLoadOpen,
+  setGiftCardLoadMeta,
   setPrimarySalespersonId,
   setCheckoutAppliedPayments,
   setCheckoutDepositLedger,
@@ -202,15 +204,15 @@ export function useCartActions({
     setPrimarySalespersonId("");
     setPickupConfirmed(false);
   }, [
-    setSearch, 
-    setSearchResults, 
-    setActiveWeddingMember, 
-    setActiveWeddingPartyName, 
-    setDisbursementMembers, 
-    setCheckoutAppliedPayments, 
-    setCheckoutDepositLedger, 
-    setPosShipping, 
-    setPrimarySalespersonId, 
+    setSearch,
+    setSearchResults,
+    setActiveWeddingMember,
+    setActiveWeddingPartyName,
+    setDisbursementMembers,
+    setCheckoutAppliedPayments,
+    setCheckoutDepositLedger,
+    setPosShipping,
+    setPrimarySalespersonId,
     setPickupConfirmed,
   ]);
 
@@ -316,27 +318,43 @@ export function useCartActions({
     setSearchResults([]);
     playPosScanSuccess();
   }, [
-    checkoutOperator, giftCardLoadMeta, rmsPaymentMeta, lines, activeWeddingMember, 
-    employeeCustomerId, selectedCustomer, toast, setPendingCustomItem, 
-    setCustomPromptOpen, setActiveWeddingMember, setActiveWeddingPartyName, 
+    checkoutOperator, giftCardLoadMeta, rmsPaymentMeta, lines, activeWeddingMember,
+    employeeCustomerId, selectedCustomer, toast, setPendingCustomItem,
+    setCustomPromptOpen, setActiveWeddingMember, setActiveWeddingPartyName,
     setDisbursementMembers, setSearch, setSearchResults
   ]);
 
-  const addGiftCardLoadToCart = useCallback((code: string, amountCents: number) => {
+  const addGiftCardLoadToCart = useCallback(async (code: string, amountCents: number) => {
     if (!checkoutOperator) {
       toast("Sign in as cashier on the register sign-in screen before adding a gift card load.", "error");
       return;
     }
-    if (!giftCardLoadMeta) {
-      toast("Gift card load line is not configured. Run migrations or check API.", "error");
-      return;
+    let meta = giftCardLoadMeta;
+    if (!meta) {
+      try {
+        const res = await fetch(`${baseUrl}/api/pos/gift-card-load-line-meta`, { headers: apiAuth() });
+        if (!res.ok) {
+          toast("Gift card load line is not available. Sign in or run migrations.", "error");
+          return;
+        }
+        const payload = (await res.json()) as GiftCardLoadLineMeta | null;
+        if (!payload) {
+          toast("Gift card load line is not available. Ensure layout POS products are created.", "error");
+          return;
+        }
+        meta = payload;
+        setGiftCardLoadMeta(meta);
+      } catch {
+        toast("Gift card load line is not available. Ensure layout POS products are created.", "error");
+        return;
+      }
     }
     const rowId = newCartRowId();
     const line: CartLineItem = {
-      product_id: giftCardLoadMeta.product_id,
-      variant_id: giftCardLoadMeta.variant_id,
-      sku: giftCardLoadMeta.sku,
-      name: giftCardLoadMeta.name,
+      product_id: meta.product_id,
+      variant_id: meta.variant_id,
+      sku: meta.sku,
+      name: meta.name,
       standard_retail_price: centsToFixed2(amountCents),
       unit_cost: "0.00",
       state_tax: "0.00",
@@ -354,7 +372,7 @@ export function useCartActions({
     setSearchResults([]);
     setGiftCardLoadOpen(false);
     playPosScanSuccess();
-  }, [checkoutOperator, giftCardLoadMeta, toast, setSearch, setSearchResults, setGiftCardLoadOpen]);
+  }, [checkoutOperator, giftCardLoadMeta, toast, setSearch, setSearchResults, setGiftCardLoadOpen, baseUrl, apiAuth, setGiftCardLoadMeta]);
 
   const onExchangeContinue = useCallback(
     (args: { originalTransactionId: string; customer: Customer | null }) => {
@@ -413,10 +431,10 @@ export function useCartActions({
     },
     [ensureSaleCashier, setSearch, lines, setLines, setSearchResults, addItem],
   );
-  
+
   const handleSearchResultClick = useCallback((
-    item: SearchResult, 
-    searchResults: SearchResult[], 
+    item: SearchResult,
+    searchResults: SearchResult[],
     search: string,
     setActiveVariationSelection: (v: {
       product_id: string;
@@ -531,9 +549,9 @@ export function useCartActions({
         setLines(prev => prev.map(l => {
           if (l.cart_row_id !== selectedLineKey) return l;
           const oldPrice = parseMoneyToCents(l.original_unit_price || l.standard_retail_price);
-          
+
           const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(l.tax_category || "other", amt);
-          
+
           return {
             ...l,
             standard_retail_price: centsToFixed2(amt),
@@ -558,13 +576,13 @@ export function useCartActions({
       if (!selectedLineKey || !keypadBuffer) return;
       const line = lines.find(l => l.cart_row_id === selectedLineKey);
       if (!line) return;
-      
+
       const pct = parseFloat(keypadBuffer);
       if (isNaN(pct) || pct <= 0) {
         toast("Invalid discount percentage", "error");
         return;
       }
-      
+
       const baseCents = parseMoneyToCents(line.original_unit_price || line.standard_retail_price);
       const nextCents = Math.round(baseCents * (1 - pct / 100));
       const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", nextCents);

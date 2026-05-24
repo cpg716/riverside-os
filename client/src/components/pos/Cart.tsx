@@ -437,6 +437,7 @@ export default function Cart({
     setPendingCustomItem,
     setCustomPromptOpen,
     setGiftCardLoadOpen,
+    setGiftCardLoadMeta,
     setPrimarySalespersonId,
     setCheckoutAppliedPayments,
     setCheckoutDepositLedger,
