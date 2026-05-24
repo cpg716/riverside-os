@@ -2087,6 +2087,34 @@ export default function Cart({
               </button>
               <button
                 type="button"
+                data-testid="pos-action-rms-payment"
+                onClick={() => {
+                  if (!ensureSaleCashier()) return;
+                  if (!rmsPaymentMeta) {
+                    toast("RMS payment line is not available. Ensure layout POS products are created.", "error");
+                    return;
+                  }
+                  addItem({
+                    product_id: rmsPaymentMeta.product_id,
+                    variant_id: rmsPaymentMeta.variant_id,
+                    sku: rmsPaymentMeta.sku,
+                    name: rmsPaymentMeta.name,
+                    standard_retail_price: 0,
+                    unit_cost: 0,
+                    state_tax: 0,
+                    local_tax: 0,
+                    stock_on_hand: 0,
+                    vendor_sku: "",
+                  });
+                }}
+                title="Add an RMS Charge Payment to collect payment on customer account"
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-violet-500/35 bg-violet-500/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-violet-600 transition-all hover:bg-violet-600 hover:text-white"
+              >
+                <CreditCard size={16} className="shrink-0" aria-hidden />
+                Payment
+              </button>
+              <button
+                type="button"
                 onClick={() => setOrderReviewOpen(true)}
                 disabled={lines.length === 0}
                 title="Set rush and pickup/order details. Use Shipping to ship this current sale."
