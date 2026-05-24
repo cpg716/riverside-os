@@ -54,7 +54,7 @@ flowchart LR
 
 ### RMS payment collection
 
-1. POS adds the internal `RMS CHARGE PAYMENT` line by using the `PAYMENT` search workflow.
+1. POS adds the internal `RMS CHARGE PAYMENT` line by tapping the **Payment** button in the register toolbar (or by using the `PAYMENT` search workflow).
 2. POS requires a customer and resolves the linked account on the server.
 3. POS collects only the allowed in-store collection tenders for this flow.
 4. Riverside records the RMS Charge payment collection in manual mode with the selected account, payment tender, staff actor, timestamps, and reference number when supplied.

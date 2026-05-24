@@ -26,10 +26,9 @@ Important:
 
 ## RMS payment collection flow
 
-1. Search `PAYMENT`.
-2. Add the `RMS CHARGE PAYMENT` line.
-3. Attach the customer.
-4. Enter the payment amount.
+1. Tap the **Payment** button in the register functions (toolbar), or search **`PAYMENT`** in the product search to add the `RMS CHARGE PAYMENT` line.
+2. Attach the customer.
+3. Enter the payment amount.
 5. Use the allowed payment-collection tender flow.
 6. Complete the collection only after Riverside confirms the host post succeeded.
 

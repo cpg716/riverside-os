@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
+- **POS Register — Dedicated Payment Button**: A new **Payment** action button is available directly in the register toolbar under "Sale options" (next to **Gift Card**). Tapping it inserts the RMS Charge Payment line automatically, bypassing the need to search for "PAYMENT" in the product search. Cashier verification is enforced before the line is added.
 - **Production Hardening Suite**: Enterprise-grade production features for scalability, reliability, and observability
 - **Fal.ai Visual Sidecar Integration**: Centralized visual generation orchestration for staff avatars, catalog images, and promotional assets.
   - **Local-First Download Worker**: Downloads, crops, and caches generated images locally to comply with the offline-first contract.

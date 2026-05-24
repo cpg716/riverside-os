@@ -58,7 +58,7 @@ Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARK
 11. **Manager PIN Override**: If a discount exceeds your role's limit (e.g., >10%) or you attempt to **Void All** lines, the **Manager PIN** modal will appear. Have a manager select their name and enter their PIN; this authorizes the action for the current sale without changing your login.
 12. Confirm the **line total** matches what you told the customer.
 
-**RMS Charge payment (not a normal sale):** When the customer is paying down an RMS Charge private label credit balance, type **`PAYMENT`** in the product search. Select the RMS Charge payment line, attach the **customer**, enter the **amount** on the **Price** numpad (no tax on this line; no loyalty points on this transaction type). Complete the sale with **Cash** or **Check** only (other tenders are hidden for this flow). **Sales Support** gets a **task** to confirm the payment was posted — complete it per SOP. Details: **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
+**RMS Charge payment (not a sale):** When the customer is paying down an RMS Charge private label credit balance, tap the **Payment** button in the register toolbar (or search **`PAYMENT`** in the product search) to add the RMS Charge payment line. Attach the **customer**, enter the **amount** on the **Price** numpad (no tax on this line; no loyalty points on this transaction type). Complete the sale with **Cash** or **Check** only (other tenders are hidden for this flow). **Sales Support** gets a **task** to confirm the payment was posted — complete it per SOP. Details: **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
 
 **Fulfillment Orders:** Special, Custom, and Wedding lines are **Fulfillment Orders**. They typically do **not** reduce on-hand stock at checkout; **takeaway** items decrement stock at sale time. The system may allow **negative on-hand** when policy permits oversell. Do not promise same-day pickup unless the line type and notes say so. **Layaway** is separate from Orders and remains its own workflow.
 
@@ -138,7 +138,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 
 **RMS Charge workspace in POS:** Permitted staff can open the RMS Charge workspace in POS to review the current customer’s credit summary, available credit, recent RMS Charge history, reporting status, and reference numbers. Standard floor staff do **not** see Back Office exception or reconciliation controls there. Payment collection visibility depends on RMS Charge permissions.
 
-**RMS Charge payment collection:** Search **PAYMENT** to add the RMS Charge payment line. The register still only accepts **cash** or **check** for this flow, and POS checks the linked RMS Charge account before taking the tender.
+**RMS Charge payment collection:** Tap the **Payment** button in the register toolbar (or search **`PAYMENT`** in the product search) to add the RMS Charge payment line. The register still only accepts **cash** or **check** for this flow, and POS checks the linked RMS Charge account before taking the tender.
 
 ## Void line vs void sale
 
@@ -183,4 +183,4 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 - [../SEARCH_AND_PAGINATION.md](../SEARCH_AND_PAGINATION.md)
 - [../WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md)
 
-**Last reviewed:** 2026-05-14
+**Last reviewed:** 2026-05-24
