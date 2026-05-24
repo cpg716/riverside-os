@@ -20,8 +20,11 @@ use crate::logic::help_corpus;
 use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::integration_credentials;
 use crate::logic::notifications::{staff_ids_with_permission, upsert_app_notification_by_dedupe};
-use crate::logic::shippo::load_effective_shippo_config;
-use crate::logic::weather::load_store_weather_settings;
+use crate::logic::fal_sidecar;
+use crate::logic::nuorder::{nuorder_client_from_pool, NuorderClient, NuorderCredentials};
+use crate::logic::podium;
+use crate::logic::shippo::{self, load_effective_shippo_config};
+use crate::logic::weather::{self, load_store_weather_settings};
 use crate::observability::ServerLogRing;
 
 #[derive(Debug, Serialize, sqlx::FromRow, Clone)]
@@ -1989,6 +1992,10 @@ pub async fn evaluate_alerts_from_health(
     let mut qbo_failed = false;
     let mut weather_failed = false;
     let mut counterpoint_failed = false;
+    let mut podium_failed = false;
+    let mut shippo_failed = false;
+    let mut fal_ai_failed = false;
+    let mut nuorder_failed = false;
     for i in integrations {
         if i.key == "qbo_token_refresh" && i.status == "failed" {
             qbo_failed = true;
@@ -2049,6 +2056,86 @@ pub async fn evaluate_alerts_from_health(
                 opened_signals.push(signal);
             }
         }
+
+        if i.key == "podium" && i.status == "failed" {
+            podium_failed = true;
+            if let Some(signal) = upsert_open_alert(
+                pool,
+                "integration_podium_failure",
+                "integration_podium_failure",
+                "Podium integration failure",
+                if i.detail.trim().is_empty() {
+                    "Podium API is unreachable"
+                } else {
+                    i.detail.as_str()
+                },
+                json!({ "integration": i.key }),
+            )
+            .await?
+            {
+                opened_signals.push(signal);
+            }
+        }
+
+        if i.key == "shippo" && i.status == "failed" {
+            shippo_failed = true;
+            if let Some(signal) = upsert_open_alert(
+                pool,
+                "integration_shippo_failure",
+                "integration_shippo_failure",
+                "Shippo integration failure",
+                if i.detail.trim().is_empty() {
+                    "Shippo API is unreachable"
+                } else {
+                    i.detail.as_str()
+                },
+                json!({ "integration": i.key }),
+            )
+            .await?
+            {
+                opened_signals.push(signal);
+            }
+        }
+
+        if i.key == "fal_ai" && i.status == "failed" {
+            fal_ai_failed = true;
+            if let Some(signal) = upsert_open_alert(
+                pool,
+                "integration_fal_ai_failure",
+                "integration_fal_ai_failure",
+                "Fal.ai integration failure",
+                if i.detail.trim().is_empty() {
+                    "Fal.ai queue endpoint is unreachable"
+                } else {
+                    i.detail.as_str()
+                },
+                json!({ "integration": i.key }),
+            )
+            .await?
+            {
+                opened_signals.push(signal);
+            }
+        }
+
+        if i.key == "nuorder" && i.status == "failed" {
+            nuorder_failed = true;
+            if let Some(signal) = upsert_open_alert(
+                pool,
+                "integration_nuorder_failure",
+                "integration_nuorder_failure",
+                "NuORDER integration failure",
+                if i.detail.trim().is_empty() {
+                    "NuORDER API is unreachable"
+                } else {
+                    i.detail.as_str()
+                },
+                json!({ "integration": i.key }),
+            )
+            .await?
+            {
+                opened_signals.push(signal);
+            }
+        }
     }
     if !qbo_failed {
         let _ = resolve_rule_alerts(pool, "integration_qbo_failure", &[]).await?;
@@ -2058,6 +2145,18 @@ pub async fn evaluate_alerts_from_health(
     }
     if !counterpoint_failed {
         let _ = resolve_rule_alerts(pool, "counterpoint_sync_stale", &[]).await?;
+    }
+    if !podium_failed {
+        let _ = resolve_rule_alerts(pool, "integration_podium_failure", &[]).await?;
+    }
+    if !shippo_failed {
+        let _ = resolve_rule_alerts(pool, "integration_shippo_failure", &[]).await?;
+    }
+    if !fal_ai_failed {
+        let _ = resolve_rule_alerts(pool, "integration_fal_ai_failure", &[]).await?;
+    }
+    if !nuorder_failed {
+        let _ = resolve_rule_alerts(pool, "integration_nuorder_failure", &[]).await?;
     }
 
     for s in stations.iter().filter(|s| !s.online && s.actionable) {
@@ -2117,10 +2216,148 @@ pub async fn evaluate_alerts_from_health(
 
 pub async fn health_snapshot(
     pool: &PgPool,
+    http_client: &reqwest::Client,
     meilisearch_configured: bool,
     server_log_snapshot: &str,
 ) -> Result<OpsHealthSnapshot, sqlx::Error> {
-    let integrations = collect_integrations(pool, meilisearch_configured).await?;
+    let mut integrations = collect_integrations(pool, meilisearch_configured).await?;
+
+    // Probe new integration health endpoints
+    let now = Utc::now();
+
+    // Podium
+    let podium_h = podium::health_check(http_client).await;
+    integrations.push(IntegrationHealthItem {
+        key: "podium".to_string(),
+        title: "Podium".to_string(),
+        status: if !podium_h.configured {
+            "disabled".to_string()
+        } else if podium_h.reachable {
+            "healthy".to_string()
+        } else {
+            "failed".to_string()
+        },
+        severity: if !podium_h.configured {
+            "info".to_string()
+        } else if podium_h.reachable {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+        detail: podium_h.message,
+        last_success_at: if podium_h.reachable { Some(now) } else { None },
+        last_failure_at: if !podium_h.reachable && podium_h.configured { Some(now) } else { None },
+        updated_at: Some(now),
+    });
+
+    // Shippo
+    let shippo_h = shippo::health_check(http_client).await;
+    integrations.push(IntegrationHealthItem {
+        key: "shippo".to_string(),
+        title: "Shippo".to_string(),
+        status: if !shippo_h.configured {
+            "disabled".to_string()
+        } else if shippo_h.reachable {
+            "healthy".to_string()
+        } else {
+            "failed".to_string()
+        },
+        severity: if !shippo_h.configured {
+            "info".to_string()
+        } else if shippo_h.reachable {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+        detail: shippo_h.message,
+        last_success_at: if shippo_h.reachable { Some(now) } else { None },
+        last_failure_at: if !shippo_h.reachable && shippo_h.configured { Some(now) } else { None },
+        updated_at: Some(now),
+    });
+
+    // Weather
+    let weather_h = weather::health_check(http_client).await;
+    integrations.push(IntegrationHealthItem {
+        key: "weather".to_string(),
+        title: "Weather".to_string(),
+        status: if !weather_h.configured {
+            "disabled".to_string()
+        } else if weather_h.reachable {
+            "healthy".to_string()
+        } else {
+            "failed".to_string()
+        },
+        severity: if !weather_h.configured {
+            "info".to_string()
+        } else if weather_h.reachable {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+        detail: weather_h.message,
+        last_success_at: if weather_h.reachable { Some(now) } else { None },
+        last_failure_at: if !weather_h.reachable && weather_h.configured { Some(now) } else { None },
+        updated_at: Some(now),
+    });
+
+    // Fal.ai
+    let fal_h = fal_sidecar::health_check(http_client).await;
+    integrations.push(IntegrationHealthItem {
+        key: "fal_ai".to_string(),
+        title: "Fal.ai".to_string(),
+        status: if !fal_h.configured {
+            "disabled".to_string()
+        } else if fal_h.reachable {
+            "healthy".to_string()
+        } else {
+            "failed".to_string()
+        },
+        severity: if !fal_h.configured {
+            "info".to_string()
+        } else if fal_h.reachable {
+            "info".to_string()
+        } else {
+            "warning".to_string()
+        },
+        detail: fal_h.message,
+        last_success_at: if fal_h.reachable { Some(now) } else { None },
+        last_failure_at: if !fal_h.reachable && fal_h.configured { Some(now) } else { None },
+        updated_at: Some(now),
+    });
+
+    // NuORDER (requires credential load)
+    match nuorder_client_from_pool(pool).await {
+        Ok(client) => {
+            let nu_h = client.health_check().await;
+            integrations.push(IntegrationHealthItem {
+                key: "nuorder".to_string(),
+                title: "NuORDER".to_string(),
+                status: if nu_h.reachable {
+                    "healthy".to_string()
+                } else {
+                    "failed".to_string()
+                },
+                severity: if nu_h.reachable { "info".to_string() } else { "warning".to_string() },
+                detail: nu_h.message,
+                last_success_at: if nu_h.reachable { Some(now) } else { None },
+                last_failure_at: if !nu_h.reachable { Some(now) } else { None },
+                updated_at: Some(now),
+            });
+        }
+        Err(e) => {
+            integrations.push(IntegrationHealthItem {
+                key: "nuorder".to_string(),
+                title: "NuORDER".to_string(),
+                status: "disabled".to_string(),
+                severity: "info".to_string(),
+                detail: format!("Not configured: {e}"),
+                last_success_at: None,
+                last_failure_at: None,
+                updated_at: Some(now),
+            });
+        }
+    }
+
     let stations = list_stations(pool).await?;
     evaluate_alerts_from_health(pool, &integrations, &stations, server_log_snapshot).await?;
 

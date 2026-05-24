@@ -3,10 +3,13 @@ use hmac::{Hmac, Mac};
 use reqwest::header::AUTHORIZATION;
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
+use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
+
+use crate::logic::integration_credentials;
 
 const NUORDER_MAX_RETRIES: u32 = 3;
 const NUORDER_BASE_RETRY_DELAY_MS: u64 = 500;
@@ -298,4 +301,38 @@ pub struct NuorderHealth {
     pub reachable: bool,
     pub latency_ms: u64,
     pub message: String,
+}
+
+pub async fn nuorder_client_from_pool(pool: &PgPool) -> anyhow::Result<NuorderClient> {
+    let values = integration_credentials::load_integration_credentials(
+        pool,
+        "nuorder",
+        &[
+            "consumer_key",
+            "consumer_secret",
+            "user_token",
+            "user_secret",
+        ],
+    )
+    .await?;
+
+    let consumer_key = values.get("consumer_key").cloned().unwrap_or_default();
+    let consumer_secret = values.get("consumer_secret").cloned().unwrap_or_default();
+    let user_token = values.get("user_token").cloned().unwrap_or_default();
+    let user_secret = values.get("user_secret").cloned().unwrap_or_default();
+
+    if consumer_key.is_empty()
+        || consumer_secret.is_empty()
+        || user_token.is_empty()
+        || user_secret.is_empty()
+    {
+        anyhow::bail!("Missing NuORDER credentials");
+    }
+
+    Ok(NuorderClient::new(NuorderCredentials {
+        consumer_key,
+        consumer_secret,
+        user_token,
+        user_secret,
+    }))
 }

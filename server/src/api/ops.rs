@@ -102,6 +102,7 @@ async fn get_health_snapshot(
         .snapshot_text(MAX_SERVER_ERROR_LOG_SNAPSHOT_BYTES);
     let snapshot = match ops_dev_center::health_snapshot(
         &state.db,
+        &state.http_client,
         state.meilisearch.is_some(),
         &server_log_snapshot,
     )
