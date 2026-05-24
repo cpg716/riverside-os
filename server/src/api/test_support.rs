@@ -520,7 +520,7 @@ async fn add_linked_account(
             created_at,
             updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, now())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, now(), now())
         ON CONFLICT (customer_id, corecredit_account_id) DO UPDATE
         SET
             corecredit_customer_id = EXCLUDED.corecredit_customer_id,
