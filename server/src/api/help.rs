@@ -1895,30 +1895,23 @@ async fn resolve_help_viewer(
         let pin = headers
             .get("x-riverside-staff-pin")
             .and_then(|v| v.to_str().ok());
-        let auth = authenticate_pos_staff(&state.db, code, pin)
-            .await
-            .map_err(|_| {
-                (
-                    axum::http::StatusCode::UNAUTHORIZED,
-                    axum::Json(serde_json::json!({ "error": "invalid staff credentials" })),
-                )
-                    .into_response()
-            })?;
-        let staff_perms = effective_permissions_for_staff(&state.db, auth.id, auth.role)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "effective_permissions failed (help viewer)");
-                (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    axum::Json(serde_json::json!({ "error": "permission resolution failed" })),
-                )
-                    .into_response()
-            })?;
-        return Ok(HelpViewer {
-            pos_only_mode: false,
-            is_admin: auth.role == DbStaffRole::Admin,
-            staff_perms,
-        });
+        if let Ok(auth) = authenticate_pos_staff(&state.db, code, pin).await {
+            let staff_perms = effective_permissions_for_staff(&state.db, auth.id, auth.role)
+                .await
+                .map_err(|e| {
+                    tracing::error!(error = %e, "effective_permissions failed (help viewer)");
+                    (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        axum::Json(serde_json::json!({ "error": "permission resolution failed" })),
+                    )
+                        .into_response()
+                })?;
+            return Ok(HelpViewer {
+                pos_only_mode: false,
+                is_admin: auth.role == DbStaffRole::Admin,
+                staff_perms,
+            });
+        }
     }
 
     Ok(HelpViewer {

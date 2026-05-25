@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 use std::process::Command;
-use tauri::{AppHandle, command};
+use tauri::{command, AppHandle};
 
 #[derive(serde::Serialize)]
 pub struct ServerLocalStatus {
@@ -97,7 +97,7 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
             })?;
 
         let download_url = asset.browser_download_url;
-        
+
         // 2. Download the ZIP file to a temp directory
         let temp_dir = std::env::temp_dir().join(format!("riverside-update-{}", version));
         if temp_dir.exists() {
@@ -107,7 +107,7 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
             .map_err(|e| format!("Failed to create temp directory: {e}"))?;
 
         let zip_path = temp_dir.join("deployment.zip");
-        
+
         let mut response = client
             .get(&download_url)
             .send()
@@ -140,7 +140,13 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
         );
 
         let output = Command::new("powershell")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &extract_script])
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &extract_script,
+            ])
             .output()
             .map_err(|e| format!("Failed to run PowerShell extraction: {e}"))?;
 
@@ -153,9 +159,18 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
         let mut script_dir = extraction_dir.clone();
         if extraction_dir.join("install-server.ps1").exists() {
             // Root
-        } else if extraction_dir.join("windows").join("install-server.ps1").exists() {
+        } else if extraction_dir
+            .join("windows")
+            .join("install-server.ps1")
+            .exists()
+        {
             script_dir = extraction_dir.join("windows");
-        } else if extraction_dir.join("deployment").join("windows").join("install-server.ps1").exists() {
+        } else if extraction_dir
+            .join("deployment")
+            .join("windows")
+            .join("install-server.ps1")
+            .exists()
+        {
             script_dir = extraction_dir.join("deployment").join("windows");
         } else {
             // Scan for install-server.ps1 recursively
@@ -167,11 +182,22 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
                             found_dir = Some(entry.path());
                             break;
                         }
-                        if entry.path().join("windows").join("install-server.ps1").exists() {
+                        if entry
+                            .path()
+                            .join("windows")
+                            .join("install-server.ps1")
+                            .exists()
+                        {
                             found_dir = Some(entry.path().join("windows"));
                             break;
                         }
-                        if entry.path().join("deployment").join("windows").join("install-server.ps1").exists() {
+                        if entry
+                            .path()
+                            .join("deployment")
+                            .join("windows")
+                            .join("install-server.ps1")
+                            .exists()
+                        {
                             found_dir = Some(entry.path().join("deployment").join("windows"));
                             break;
                         }
@@ -181,14 +207,17 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
             if let Some(dir) = found_dir {
                 script_dir = dir;
             } else {
-                return Err("Failed to find install-server.ps1 in the extracted deployment package.".to_string());
+                return Err(
+                    "Failed to find install-server.ps1 in the extracted deployment package."
+                        .to_string(),
+                );
             }
         }
 
         let runner_script_path = temp_dir.join("update-runner.ps1");
-        
+
         let config_path = "C:\\RiversideOS\\riverside-deployment.config.json";
-        
+
         let runner_content = format!(
             r#"$ErrorActionPreference = 'Stop'
 Set-Location -Path '{script_dir}'
@@ -220,7 +249,13 @@ Read-Host
         );
 
         let status = Command::new("powershell")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &spawn_cmd])
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &spawn_cmd,
+            ])
             .status()
             .map_err(|e| format!("Failed to spawn elevated installer process: {e}"))?;
 

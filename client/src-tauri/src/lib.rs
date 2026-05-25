@@ -3,9 +3,9 @@ pub mod app_updates;
 pub mod hardware;
 pub mod llama_server;
 pub mod rosie_voice;
+pub mod server_updater;
 pub mod station_config;
 pub mod unified_server;
-pub mod server_updater;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

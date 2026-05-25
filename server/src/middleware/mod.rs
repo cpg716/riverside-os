@@ -383,8 +383,12 @@ pub async fn require_help_viewer(
         .trim();
 
     if !code.is_empty() {
-        require_authenticated_staff_headers(state, headers).await?;
-        return Ok(());
+        if require_authenticated_staff_headers(state, headers)
+            .await
+            .is_ok()
+        {
+            return Ok(());
+        }
     }
 
     if let Some((sid, tok)) = pos_session::pos_session_headers(headers) {
