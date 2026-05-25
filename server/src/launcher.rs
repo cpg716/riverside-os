@@ -238,6 +238,13 @@ async fn launch_server_inner(
 
     crate::db_startup_diag::log_postgres_startup_context(&pool).await;
 
+    tracing::info!("Unified Engine: Running database migrations...");
+    if let Err(e) = sqlx::migrate!("../migrations").run(&pool).await {
+        tracing::error!(error = %e, "Unified Engine: Database migrations failed to apply");
+        return Err(e.into());
+    }
+    tracing::info!("Unified Engine: Database migrations applied successfully.");
+
     if let Err(e) = crate::schema_bootstrap::ensure_core_schema(&pool).await {
         tracing::error!(error = %e, "Unified Engine: Schema contract validation failed");
         return Err(e.into());

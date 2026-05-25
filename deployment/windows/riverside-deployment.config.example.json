@@ -1,5 +1,5 @@
 {
-  "releaseVersion": "0.80.0",
+  "releaseVersion": "0.80.5",
   "server": {
     "installRoot": "C:\\RiversideOS",
     "httpBind": "0.0.0.0:3000",
