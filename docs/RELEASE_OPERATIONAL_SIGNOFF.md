@@ -1,4 +1,4 @@
-# Release Operational Signoff — Riverside OS v0.80.0
+# Release Operational Signoff — Riverside OS v0.80.6
 
 This checklist is for the final human go/no-go review after the code RC gate has passed.
 
@@ -6,7 +6,7 @@ This checklist is for the final human go/no-go review after the code RC gate has
 
 - Operational signoff status: **APPROVED**
 - Approved by: **Christopher Garcia**
-- Date: **2026-05-24**
+- Date: **2026-05-25**
 - Approved scope:
   - Environment verified
   - Core workflows verified
@@ -62,4 +62,4 @@ This checklist is for the final human go/no-go review after the code RC gate has
 ## Release tag reminder
 
 - This operational checklist is complete.
-- The release tag may be cut for **v0.2.1**.
+- The release tag may be cut for **v0.80.6**.

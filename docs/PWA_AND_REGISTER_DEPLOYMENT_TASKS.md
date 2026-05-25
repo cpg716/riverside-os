@@ -25,14 +25,14 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 
 ### A.1 Current release artifact status (2026-05-23)
 
-- [x] Target Riverside version is now **`v0.80.0`** across root, client/PWA, server, Tauri, and Deployment Manager metadata.
+- [x] Target Riverside version is now **`v0.80.6`** across root, client/PWA, server, Tauri, and Deployment Manager metadata.
 - [x] The Windows updater release workflow publishes `latest.json`, the Windows MSI, `.sig`, and an updater build manifest for the same Riverside version.
-- [x] The Windows deployment package workflow publishes `RiversideOS-v0.80.0-Windows-Deployment.zip` containing the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
+- [x] The Windows deployment package workflow publishes `RiversideOS-v0.80.6-Windows-Deployment.zip` containing the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
 - [x] The macOS Deployment Manager workflow publishes a universal Apple Silicon / Intel DMG for remote server management.
 - [x] Release workflows run `npm run check:version` so mismatched release metadata blocks packaging.
 - [ ] Before installing Windows stations, confirm the target GitHub release does not retain older Riverside MSI/signature assets beside the current release assets.
-- [ ] Latest `main` **Lint Checks** must be green on the `v0.80.0` release commit before calling the current head release-ready.
-- [ ] Latest `main` **Playwright E2E** must be green on the `v0.80.0` release commit before calling the current head release-ready. Use the release-certification evidence plus a fresh CI run after commit/push.
+- [ ] Latest `main` **Lint Checks** must be green on the `v0.80.6` release commit before calling the current head release-ready.
+- [ ] Latest `main` **Playwright E2E** must be green on the `v0.80.6` release commit before calling the current head release-ready. Use the release-certification evidence plus a fresh CI run after commit/push.
 
 ---
 

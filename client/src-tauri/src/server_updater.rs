@@ -49,7 +49,7 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
     #[cfg(not(windows))]
     {
         let _version = version;
-        return Err("Server updates can only be executed on a Windows Server Host PC.".to_string());
+        Err("Server updates can only be executed on a Windows Server Host PC.".to_string())
     }
 
     #[cfg(windows)]
