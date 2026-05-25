@@ -83,6 +83,95 @@ type RmsRecordDetail = RmsRecordRow & {
   external_transaction_type?: string | null;
 };
 
+interface AccountListBatchSummary {
+  id: string;
+  source_filename?: string | null;
+  source_file_hash: string;
+  institution_name?: string | null;
+  merchant_name?: string | null;
+  report_run_at?: string | null;
+  uploaded_by_staff_id?: string | null;
+  uploaded_at: string;
+  parsed_account_count: number;
+  footer_account_count?: number | null;
+  total_balance?: string | null;
+  total_minimum_due?: string | null;
+  total_past_due?: string | null;
+  total_open_to_buy?: string | null;
+  warning_summary: unknown;
+  status: string;
+  created_at: string;
+}
+
+interface AccountListLatestImportResponse {
+  latest: AccountListBatchSummary | null;
+  stale: boolean;
+  stale_after_days: number;
+  matched_count: number;
+  unmatched_count: number;
+}
+
+interface AccountListDataQualitySummary {
+  missing_phones: number;
+  invalid_phones: number;
+  missing_addresses: number;
+  active_balance_count: number;
+  past_due_count: number;
+  zero_open_to_buy_count: number;
+  duplicate_account_number_count: number;
+}
+
+interface AccountListPreviewAccount {
+  account_number: string;
+  account_year?: string | null;
+  name: string;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  phone?: string | null;
+  normalized_phone?: string | null;
+  high_balance: string;
+  previous_balance: string;
+  payments: string;
+  returns: string;
+  charges: string;
+  finance_charge: string;
+  balance: string;
+  minimum_due: string;
+  past_due: string;
+  aging_30: string;
+  aging_60: string;
+  aging_90_plus: string;
+  open_to_buy: string;
+  payment_history_codes: string[];
+  parser_warnings: string[];
+  raw_payload: unknown;
+}
+
+interface AccountListPreviewResponse {
+  source: string;
+  snapshot_label: string;
+  metadata: {
+    sheet_name: string;
+    report_title?: string | null;
+    institution_name?: string | null;
+    merchant_name?: string | null;
+    report_run_at?: string | null;
+    report_run_at_raw?: string | null;
+  };
+  parsed_account_count: number;
+  footer_count?: number | null;
+  total_balance: string;
+  total_minimum_due: string;
+  total_past_due: string;
+  total_open_to_buy: string;
+  warning_count: number;
+  warnings: string[];
+  data_quality: AccountListDataQualitySummary;
+  sample_accounts: AccountListPreviewAccount[];
+}
+
 export interface RmsChargeAdminSectionProps {
   surface: "pos" | "backoffice";
   onOpenTransactionInBackoffice?: (transactionId: string) => void;
@@ -134,11 +223,11 @@ export default function RmsChargeAdminSection({
   const [q, setQ] = useState("");
 
   const [activeTab, setActiveTab] = useState<"transactions" | "import">("transactions");
-  const [latestImport, setLatestImport] = useState<any>(null);
+  const [latestImport, setLatestImport] = useState<AccountListLatestImportResponse | null>(null);
   const [loadingLatest, setLoadingLatest] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [previewData, setPreviewData] = useState<any>(null);
+  const [previewData, setPreviewData] = useState<AccountListPreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   const fetchLatestImport = useCallback(async () => {
@@ -1102,7 +1191,7 @@ export default function RmsChargeAdminSection({
                         </tr>
                       </thead>
                       <tbody>
-                        {previewData.sample_accounts.map((acc: any, idx: number) => (
+                        {previewData.sample_accounts.map((acc: AccountListPreviewAccount, idx: number) => (
                           <tr key={idx} className="border-b border-app-border last:border-0">
                             <td className="p-2 font-mono">{acc.account_number}</td>
                             <td className="p-2 font-semibold text-app-text truncate max-w-[120px]" title={acc.name}>
