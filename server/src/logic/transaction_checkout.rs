@@ -346,8 +346,6 @@ async fn canonical_custom_item_type_for_variant(
         .map(str::to_string))
 }
 
-
-
 fn rms_source_mode(metadata: &Value) -> String {
     metadata_optional_text(metadata, "rms_charge_source")
         .or_else(|| metadata_optional_text(metadata, "source_mode"))
@@ -1709,8 +1707,6 @@ async fn validate_helcim_payment_splits(
 
     Ok(())
 }
-
-
 
 pub async fn execute_checkout(
     pool: &PgPool,
@@ -3998,9 +3994,7 @@ pub async fn execute_checkout(
             transaction_id = %transaction_id,
             "Commission event upsert failed after checkout commit"
         );
-        checkout_warnings.push(
-            "Commission calculation delayed — sale completed.".to_string(),
-        );
+        checkout_warnings.push("Commission calculation delayed — sale completed.".to_string());
     }
 
     // Post-commit: wedding activity log is audit fluff; must never block a sale.
@@ -4022,9 +4016,7 @@ pub async fn execute_checkout(
                 party_id = %activity.party_id,
                 "Wedding activity log failed after checkout commit"
             );
-            checkout_warnings.push(
-                "Wedding timeline update delayed — sale completed.".to_string(),
-            );
+            checkout_warnings.push("Wedding timeline update delayed — sale completed.".to_string());
         }
     }
 

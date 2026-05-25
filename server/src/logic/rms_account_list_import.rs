@@ -958,7 +958,10 @@ mod tests {
             assert_eq!(preview.total_open_to_buy, Decimal::new(294_981_180, 2));
             assert_eq!(preview.data_quality.duplicate_account_number_count, 0);
         } else {
-            println!("Successfully parsed {} accounts from weekly excel report!", preview.parsed_account_count);
+            println!(
+                "Successfully parsed {} accounts from weekly excel report!",
+                preview.parsed_account_count
+            );
             println!("Report title: {:?}", preview.metadata.report_title);
             println!("Total balance: {}", preview.total_balance);
         }

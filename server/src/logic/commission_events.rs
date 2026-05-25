@@ -240,10 +240,7 @@ pub async fn upsert_fulfilled_transaction_events_pool(
     );
 
     let res = if delivered_item_ids.is_empty() {
-        sqlx::query(&sql)
-            .bind(transaction_id)
-            .execute(pool)
-            .await?
+        sqlx::query(&sql).bind(transaction_id).execute(pool).await?
     } else {
         sqlx::query(&sql)
             .bind(transaction_id)

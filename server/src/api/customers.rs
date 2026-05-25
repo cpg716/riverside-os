@@ -1882,8 +1882,6 @@ struct RmsChargeRecordApiRow {
     operator_name: Option<String>,
 }
 
-
-
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct RmsChargeRecordDetail {
     pub id: Uuid,
@@ -2131,7 +2129,8 @@ async fn preview_rms_account_list_import(
     State(state): State<AppState>,
     headers: HeaderMap,
     mut multipart: Multipart,
-) -> Result<Json<crate::logic::rms_account_list_import::AccountListPreviewResponse>, CustomerError> {
+) -> Result<Json<crate::logic::rms_account_list_import::AccountListPreviewResponse>, CustomerError>
+{
     require_rms_charge_manage_staff(&state, &headers).await?;
     let mut file_bytes = None;
 
@@ -2151,10 +2150,13 @@ async fn preview_rms_account_list_import(
         }
     }
 
-    let bytes = file_bytes.ok_or_else(|| CustomerError::BadRequest("missing file field".to_string()))?;
+    let bytes =
+        file_bytes.ok_or_else(|| CustomerError::BadRequest("missing file field".to_string()))?;
 
     if bytes.len() > RMS_ACCOUNT_LIST_PREVIEW_MAX_BYTES {
-        return Err(CustomerError::BadRequest("file size exceeds limit".to_string()));
+        return Err(CustomerError::BadRequest(
+            "file size exceeds limit".to_string(),
+        ));
     }
 
     let preview = crate::logic::rms_account_list_import::preview_account_list_xlsx(&bytes)?;
@@ -2187,10 +2189,13 @@ async fn import_rms_account_list(
         }
     }
 
-    let bytes = file_bytes.ok_or_else(|| CustomerError::BadRequest("missing file field".to_string()))?;
+    let bytes =
+        file_bytes.ok_or_else(|| CustomerError::BadRequest("missing file field".to_string()))?;
 
     if bytes.len() > RMS_ACCOUNT_LIST_PREVIEW_MAX_BYTES {
-        return Err(CustomerError::BadRequest("file size exceeds limit".to_string()));
+        return Err(CustomerError::BadRequest(
+            "file size exceeds limit".to_string(),
+        ));
     }
 
     let response = crate::logic::rms_account_list_import::import_account_list_xlsx(
@@ -2207,7 +2212,10 @@ async fn import_rms_account_list(
 async fn get_latest_rms_account_list_import(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<crate::logic::rms_account_list_import::AccountListLatestImportResponse>, CustomerError> {
+) -> Result<
+    Json<crate::logic::rms_account_list_import::AccountListLatestImportResponse>,
+    CustomerError,
+> {
     require_rms_charge_view_staff(&state, &headers).await?;
     let response = crate::logic::rms_account_list_import::latest_account_list_import(&state.db)
         .await
