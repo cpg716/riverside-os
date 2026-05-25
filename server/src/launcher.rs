@@ -239,7 +239,7 @@ async fn launch_server_inner(
     crate::db_startup_diag::log_postgres_startup_context(&pool).await;
 
     tracing::info!("Unified Engine: Running database migrations...");
-    if let Err(e) = sqlx::migrate!("../migrations").run(&pool).await {
+    if let Err(e) = crate::db_migrations::run_migrations(&pool).await {
         tracing::error!(error = %e, "Unified Engine: Database migrations failed to apply");
         return Err(e.into());
     }
