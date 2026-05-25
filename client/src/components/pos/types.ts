@@ -165,9 +165,6 @@ export interface AppliedPaymentLine {
     program_code?: string;
     program_label?: string;
     masked_account?: string;
-    linked_corecredit_customer_id?: string;
-    linked_corecredit_account_id?: string;
-    linked_corecredit_card_id?: string;
     resolution_status?: string;
     rms_charge_collection?: boolean;
     posting_status?: string;

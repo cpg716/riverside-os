@@ -1008,6 +1008,10 @@ export default function ReceiptSummaryModal({
             <p className="shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
               Review invite choice already saved for this transaction.
             </p>
+          ) : transactionDetail?.store_review_invites_enabled === false && transactionDetail?.status === "fulfilled" && !!transactionDetail?.customer ? (
+            <p className="shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
+              Review invites are turned off in store settings. Enable them in Back Office → Settings → Reviews to collect feedback.
+            </p>
           ) : null}
 
           <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">

@@ -118,6 +118,16 @@ Copy-Item "$PSScriptRoot\reset-postgres-password.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Reset-PostgresPassword.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\remove-main-hub.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\remove-standalone-app.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Export-IntegrationCredentials.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Import-IntegrationCredentials.ps1" $packageRoot -Force
+
+# Include encrypted integration credentials if they were exported and committed
+$integrationCredsSource = Join-Path $repoRoot "integration-credentials.sql"
+if (Test-Path $integrationCredsSource) {
+  Copy-Item $integrationCredsSource $packageRoot -Force
+  Write-Host "Packaged integration-credentials.sql (encrypted credential dump)"
+}
+
 if (Test-Path $ManagerBinaryPath) {
   Copy-Item $ManagerBinaryPath "$packageRoot\RiversideOS-Deployment-Manager.exe" -Force
   Write-Host "Packaged RiversideOS-Deployment-Manager.exe"

@@ -195,6 +195,7 @@ export function useCartActions({
     setSelectedLineKey(null);
     setSearch("");
     setSearchResults([]);
+    setSelectedCustomer(null);
     setActiveWeddingMember(null);
     setActiveWeddingPartyName(null);
     setDisbursementMembers([]);
@@ -206,6 +207,7 @@ export function useCartActions({
   }, [
     setSearch,
     setSearchResults,
+    setSelectedCustomer,
     setActiveWeddingMember,
     setActiveWeddingPartyName,
     setDisbursementMembers,
@@ -300,14 +302,18 @@ export function useCartActions({
 
       if (priceOverride) {
         const overrideCents = parseMoneyToCents(priceOverride);
-        const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(item.tax_category || "other", overrideCents);
         newLine.standard_retail_price = centsToFixed2(overrideCents);
-        newLine.state_tax = stateTax;
-        newLine.local_tax = localTax;
         newLine.original_unit_price = centsToFixed2(
           parseMoneyToCents(item.standard_retail_price),
         );
         newLine.price_override_reason = "Manual override";
+        const isRmsLine = rmsPaymentMeta && item.sku === rmsPaymentMeta.sku;
+        const isGcLine = giftCardLoadMeta && item.sku === giftCardLoadMeta.sku;
+        if (!isRmsLine && !isGcLine) {
+          const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(item.tax_category || "other", overrideCents);
+          newLine.state_tax = stateTax;
+          newLine.local_tax = localTax;
+        }
       }
 
       setSelectedLineKey(newLine.cart_row_id);

@@ -1,5 +1,3 @@
-import coreCreditIcon from "../../assets/images/brands/CoreCredit_Icon.png";
-import coreCreditWordmark from "../../assets/images/brands/CoreCredit_Logo.png";
 import meilisearchIcon from "../../assets/images/brands/Meilisearch_Icon.svg";
 import meilisearchWordmark from "../../assets/images/brands/meilisearch-logo.png";
 import metabaseIcon from "../../assets/images/brands/Metabase_Icon.svg";
@@ -19,7 +17,6 @@ import helcimWordmark from "../../assets/images/brands/Helcim_Logo.png";
 import weatherIcon from "../../assets/images/brands/weather_icon.jpeg";
 
 export type IntegrationBrand =
-  | "corecredit"
   | "meilisearch"
   | "metabase"
   | "nuorder"
@@ -32,7 +29,6 @@ type IntegrationBrandKind = "icon" | "wordmark";
 type IntegrationBrandTheme = "light" | "dark";
 
 const BRAND_LABELS: Record<IntegrationBrand, string> = {
-  corecredit: "CoreCredit",
   meilisearch: "Meilisearch",
   metabase: "Metabase",
   nuorder: "NuORDER",
@@ -50,9 +46,6 @@ function resolveSrc(
 ): string {
   if (brand === "helcim") {
     return kind === "icon" ? helcimIcon : helcimWordmark;
-  }
-  if (brand === "corecredit") {
-    return kind === "icon" ? coreCreditIcon : coreCreditWordmark;
   }
   if (brand === "metabase") {
     return kind === "icon" ? metabaseIcon : metabaseWordmark;

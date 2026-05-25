@@ -1234,6 +1234,18 @@ if ($script:postgresReachable) {
     }
   }
 
+  # Import encrypted integration credentials shipped with the deployment package.
+  # Safe to commit to git because values are encrypted with RIVERSIDE_CREDENTIALS_KEY.
+  $packageCredentialsPath = Join-Path $ScriptRoot "integration-credentials.sql"
+  if (Test-Path $packageCredentialsPath) {
+    try {
+      Write-Host "Integration credentials file found in deployment package. Checking database..."
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $ScriptRoot "Import-IntegrationCredentials.ps1") -ConfigPath $ConfigPath -SqlPath $packageCredentialsPath 2>&1 | Write-Host
+    } catch {
+      Write-Warning "Integration credential import failed: $($_.Exception.Message). Continuing."
+    }
+  }
+
   try {
     $env:PGPASSWORD = $db.appPassword
     try {

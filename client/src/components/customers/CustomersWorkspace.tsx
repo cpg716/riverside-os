@@ -2290,6 +2290,10 @@ export function AddCustomerDrawer({
     resolvedEmail: string,
     skipEmailPrompt = false,
   ) => {
+    const trimmedEmail = resolvedEmail.trim();
+    if (trimmedEmail && form.email !== trimmedEmail) {
+      setForm((f) => ({ ...f, email: trimmedEmail }));
+    }
     setTouched({
       first_name: true,
       last_name: true,
@@ -2302,7 +2306,7 @@ export function AddCustomerDrawer({
       setErr("Please fix validation errors before saving.");
       return;
     }
-    if (!resolvedEmail.trim() && !skipEmailPrompt) {
+    if (!trimmedEmail && !skipEmailPrompt) {
       setEmailPromptValue(form.email.trim());
       setEmailPromptOpen(true);
       return;
@@ -2321,7 +2325,7 @@ export function AddCustomerDrawer({
       const payload: Record<string, unknown> = {
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
-        email: resolvedEmail.trim() || null,
+        email: trimmedEmail || null,
         phone: combinedPhone,
         address_line1: form.address_line1.trim() || null,
         address_line2: form.address_line2.trim() || null,
@@ -2850,6 +2854,7 @@ export function AddCustomerDrawer({
                 <div className="ui-modal-footer">
                   <button
                     type="button"
+                    disabled={busy}
                     className="ui-btn-secondary flex-1 py-3"
                     onClick={() => {
                       setEmailPromptOpen(false);
@@ -2860,10 +2865,16 @@ export function AddCustomerDrawer({
                   </button>
                   <button
                     type="button"
+                    disabled={busy || !emailPromptValue.trim()}
                     className="ui-btn-primary flex-1 py-3"
                     onClick={() => {
+                      const trimmed = emailPromptValue.trim();
+                      if (!EMAIL_RE.test(trimmed)) {
+                        toast("Enter a valid email address.", "error");
+                        return;
+                      }
                       setEmailPromptOpen(false);
-                      void submitToApi(emailPromptValue);
+                      void submitToApi(trimmed);
                     }}
                   >
                     Save with email

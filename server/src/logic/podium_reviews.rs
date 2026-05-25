@@ -124,9 +124,29 @@ pub async fn apply_post_sale_review_choice(
 ) -> Result<ReviewInviteChoiceResult, ReviewInviteError> {
     let policy = load_store_review_policy(pool).await?;
 
+    let has_review_opt_out: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'customers'
+              AND column_name = 'review_requests_opt_out'
+        )
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    let review_opt_out_expr = if has_review_opt_out {
+        "COALESCE(c.review_requests_opt_out, false) AS review_requests_opt_out"
+    } else {
+        "false AS review_requests_opt_out"
+    };
+
     let mut tx = pool.begin().await?;
 
-    let row: Option<OrderReviewGateRow> = sqlx::query_as(
+    let sql = format!(
         r#"
         SELECT
             t.customer_id,
@@ -137,7 +157,7 @@ pub async fn apply_post_sale_review_choice(
             t.status::text,
             c.phone,
             c.email,
-            COALESCE(c.review_requests_opt_out, false) AS review_requests_opt_out,
+            {review_opt_out_expr},
             EXISTS (
                 SELECT 1 FROM transaction_lines tl
                 WHERE tl.transaction_id = t.id
@@ -159,11 +179,13 @@ pub async fn apply_post_sale_review_choice(
         LEFT JOIN customers c ON c.id = t.customer_id
         WHERE t.id = $1
         FOR UPDATE OF t
-        "#,
-    )
-    .bind(transaction_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+        "#
+    );
+
+    let row: Option<OrderReviewGateRow> = sqlx::query_as(&sql)
+        .bind(transaction_id)
+        .fetch_optional(&mut *tx)
+        .await?;
 
     let Some((
         customer_id,

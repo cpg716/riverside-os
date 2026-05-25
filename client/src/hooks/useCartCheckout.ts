@@ -379,13 +379,35 @@ export function useCartCheckout({
         return null;
       }
 
-      const res = await fetch(`${baseUrl}/api/transactions/checkout`, {
+      let res = await fetch(`${baseUrl}/api/transactions/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...apiAuth() },
         body: JSON.stringify(payload),
       });
 
+      // Retry once on server errors; if still failing, treat as offline emergency.
+      if (!res.ok && res.status >= 500) {
+        await new Promise((r) => setTimeout(r, 1000));
+        res = await fetch(`${baseUrl}/api/transactions/checkout`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...apiAuth() },
+          body: JSON.stringify(payload),
+        });
+      }
+
       if (!res.ok) {
+        // 5xx after retry => emergency offline fallback so the register never bricks
+        if (res.status >= 500) {
+          await enqueueCheckout(payload, apiAuth());
+          toast("Server error — sale saved for sync. Print receipt for customer.", "error");
+          if (execution?.clearAfterCheckout !== false) {
+            clearCart();
+          }
+          if (execution?.emitSaleCompleted !== false) {
+            onSaleCompleted?.();
+          }
+          return null;
+        }
         const b = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(b.error || `Checkout failed (${res.status})`);
       }

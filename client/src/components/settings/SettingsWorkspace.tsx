@@ -65,7 +65,6 @@ import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
 import ShippoSettingsPanel from "./ShippoSettingsPanel";
 import HelcimSettingsPanel from "./HelcimSettingsPanel";
-import CoreCardSettingsPanel from "./CoreCardSettingsPanel";
 import FalSettingsPanel from "./FalSettingsPanel";
 import IntegrationBrandLogo, { type IntegrationBrand } from "../ui/IntegrationBrandLogo";
 import RemoteAccessPanel from "./RemoteAccessPanel";
@@ -185,7 +184,6 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   email: "IONOS mailbox setup, automated email, inbox sync, and staff signatures.",
   shippo: "Shipping account setup, carrier rates, and label configuration.",
   helcim: "Helcim payments, terminal readiness, and card processing setup.",
-  corecard: "CoreCard host credentials for RMS Charge and CoreCredit posting.",
   fal: "Fal.ai API key configuration, credit balance, and image queue logs.",
   quickbooks: "QuickBooks connection settings and accounting bridge controls.",
   counterpoint: "Counterpoint sync status, mappings, staging, and issue handling.",
@@ -215,7 +213,6 @@ const SETTINGS_HUB_INTEGRATION_BRANDS: Partial<
   podium: "podium",
   shippo: "shippo",
   helcim: "helcim",
-  corecard: "corecredit",
   quickbooks: "qbo",
   nuorder: "nuorder",
   weather: "weather",
@@ -239,7 +236,6 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   email: Mail,
   shippo: Plug,
   helcim: Plug,
-  corecard: Plug,
   quickbooks: Plug,
   counterpoint: Server,
   nuorder: Plug,
@@ -1417,10 +1413,6 @@ export default function SettingsWorkspace({
 
             {activeTab === "helcim" && hasPermission("settings.admin") && (
               <HelcimSettingsPanel />
-            )}
-
-            {activeTab === "corecard" && hasPermission("settings.admin") && (
-              <CoreCardSettingsPanel baseUrl={baseUrl} />
             )}
 
             {activeTab === "fal" && hasPermission("settings.admin") && (

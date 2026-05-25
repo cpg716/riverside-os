@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde_json::json;
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::logic::pricing::round_money_usd;
@@ -135,6 +135,120 @@ pub async fn upsert_fulfilled_transaction_events(
             .bind(transaction_id)
             .bind(delivered_item_ids)
             .execute(&mut **tx)
+            .await?
+    };
+    Ok(res.rows_affected())
+}
+
+/// Pool-specific version for post-checkout async processing.
+/// This avoids holding a Transaction reference after commit.
+pub async fn upsert_fulfilled_transaction_events_pool(
+    pool: &PgPool,
+    transaction_id: Uuid,
+    delivered_item_ids: &[Uuid],
+) -> Result<u64, sqlx::Error> {
+    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    let filter_sql = if delivered_item_ids.is_empty() {
+        String::new()
+    } else {
+        "AND oi.id = ANY($2)".to_string()
+    };
+    let sql = format!(
+        r#"
+        WITH line_rows AS (
+            SELECT
+                oi.id AS transaction_line_id,
+                oi.transaction_id,
+                oi.salesperson_id,
+                COALESCE(oi.is_internal, FALSE) AS is_internal,
+                COALESCE(oi.custom_item_type, '') AS custom_item_type,
+                oi.unit_price,
+                oi.quantity,
+                oi.calculated_commission,
+                COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) AS event_at,
+                COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8)) AS transaction_short_id,
+                p.name AS product_name,
+                st.full_name AS staff_name,
+                COALESCE((
+                    SELECT h.base_commission_rate
+                    FROM staff_commission_rate_history h
+                    WHERE h.staff_id = oi.salesperson_id
+                      AND h.effective_start_date <= COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at)::date
+                    ORDER BY h.effective_start_date DESC, h.created_at DESC
+                    LIMIT 1
+                ), st.base_commission_rate, 0) AS base_rate_used
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
+            LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN staff st ON st.id = oi.salesperson_id
+            WHERE oi.transaction_id = $1
+              AND o.status::text <> 'cancelled'
+              AND oi.is_fulfilled = TRUE
+              AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) IS NOT NULL
+              AND oi.salesperson_id IS NOT NULL
+              AND oi.calculated_commission <> 0
+              {filter_sql}
+        ),
+        prepared AS (
+            SELECT
+                *,
+                CASE WHEN is_internal THEN 'combo_incentive' ELSE 'sale_commission' END AS event_type,
+                CASE WHEN is_internal THEN 0 ELSE (unit_price * quantity)::numeric(14, 2) END AS commissionable_amount,
+                CASE
+                    WHEN is_internal THEN 0
+                    ELSE ROUND((unit_price * quantity) * base_rate_used, 2)
+                END AS base_commission_amount
+            FROM line_rows
+        )
+        INSERT INTO commission_events (
+            staff_id, transaction_id, transaction_line_id, source_event_id, event_type,
+            event_at, reporting_date, commissionable_amount, base_rate_used,
+            base_commission_amount, incentive_amount, adjustment_amount,
+            total_commission_amount, snapshot_json, note
+        )
+        SELECT
+            salesperson_id,
+            transaction_id,
+            transaction_line_id,
+            transaction_line_id,
+            event_type,
+            event_at,
+            event_at::date,
+            commissionable_amount,
+            base_rate_used,
+            base_commission_amount,
+            CASE
+                WHEN is_internal THEN calculated_commission
+                ELSE calculated_commission - base_commission_amount
+            END,
+            0,
+            calculated_commission,
+            jsonb_build_object(
+                'transaction_short_id', transaction_short_id,
+                'product_name', product_name,
+                'quantity', quantity,
+                'unit_price', unit_price,
+                'staff_name', staff_name,
+                'source', CASE WHEN is_internal THEN 'Combo incentive' ELSE 'Staff base rate plus fixed incentives' END
+            ),
+            CASE WHEN is_internal THEN 'Combo/SPIFF internal incentive event.' ELSE 'Sale commission event.' END
+        FROM prepared
+        ON CONFLICT (source_event_id, event_type)
+        WHERE source_event_id IS NOT NULL
+        DO NOTHING
+        "#,
+    );
+
+    let res = if delivered_item_ids.is_empty() {
+        sqlx::query(&sql)
+            .bind(transaction_id)
+            .execute(pool)
+            .await?
+    } else {
+        sqlx::query(&sql)
+            .bind(transaction_id)
+            .bind(delivered_item_ids)
+            .execute(pool)
             .await?
     };
     Ok(res.rows_affected())

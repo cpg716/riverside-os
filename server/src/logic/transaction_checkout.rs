@@ -346,75 +346,7 @@ async fn canonical_custom_item_type_for_variant(
         .map(str::to_string))
 }
 
-#[cfg(false)]
-fn corecard_error_to_checkout(error: corecard::CoreCardError) -> CheckoutError {
-    if let Some(failure) = error.as_host_failure() {
-        CheckoutError::CoreCardHostFailure(failure.message)
-    } else {
-        match error {
-            corecard::CoreCardError::Database(db) => CheckoutError::Database(db),
-            other => CheckoutError::CoreCardHostFailure(other.to_string()),
-        }
-    }
-}
 
-#[cfg(false)]
-fn apply_corecard_result_to_metadata(
-    metadata: &mut Value,
-    idempotency_key: &str,
-    result: &corecard::CoreCardHostMutationResult,
-) {
-    let mut object = metadata.as_object().cloned().unwrap_or_default();
-    object.insert(
-        "source_mode".to_string(),
-        Value::String("corecard_live".to_string()),
-    );
-    object.insert(
-        "rms_charge_source".to_string(),
-        Value::String("corecard_live".to_string()),
-    );
-    object.insert(
-        "posting_status".to_string(),
-        Value::String(result.posting_status.clone()),
-    );
-    object.insert(
-        "idempotency_key".to_string(),
-        Value::String(idempotency_key.to_string()),
-    );
-    if let Some(value) = &result.external_transaction_id {
-        object.insert(
-            "external_transaction_id".to_string(),
-            Value::String(value.clone()),
-        );
-    }
-    if let Some(value) = &result.external_auth_code {
-        object.insert(
-            "external_auth_code".to_string(),
-            Value::String(value.clone()),
-        );
-    }
-    if let Some(value) = &result.external_transaction_type {
-        object.insert(
-            "external_transaction_type".to_string(),
-            Value::String(value.clone()),
-        );
-    }
-    if let Some(value) = &result.host_reference {
-        object.insert("host_reference".to_string(), Value::String(value.clone()));
-    }
-    if let Some(value) = result.posted_at {
-        object.insert("posted_at".to_string(), Value::String(value.to_rfc3339()));
-    }
-    if let Some(value) = result.reversed_at {
-        object.insert("reversed_at".to_string(), Value::String(value.to_rfc3339()));
-    }
-    if let Some(value) = result.refunded_at {
-        object.insert("refunded_at".to_string(), Value::String(value.to_rfc3339()));
-    }
-    object.insert("host_metadata".to_string(), result.metadata.clone());
-    object.insert("response_snapshot".to_string(), result.metadata.clone());
-    *metadata = Value::Object(object);
-}
 
 fn rms_source_mode(metadata: &Value) -> String {
     metadata_optional_text(metadata, "rms_charge_source")
@@ -1174,6 +1106,15 @@ pub enum CheckoutDone {
     },
 }
 
+#[derive(Debug)]
+struct DeferredWeddingActivity {
+    party_id: Uuid,
+    member_id: Option<Uuid>,
+    actor: String,
+    description: String,
+    metadata: serde_json::Value,
+}
+
 async fn staff_id_active(pool: &PgPool, id: Uuid) -> Result<bool, CheckoutError> {
     let ok: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff WHERE id = $1 AND is_active = TRUE)")
@@ -1769,260 +1710,7 @@ async fn validate_helcim_payment_splits(
     Ok(())
 }
 
-#[cfg(false)]
-async fn prepare_live_corecard_postings(
-    pool: &PgPool,
-    http: &reqwest::Client,
-    config: &corecard::CoreCardConfig,
-    token_cache: &Arc<Mutex<corecard::CoreCardTokenCache>>,
-    payload: &CheckoutRequest,
-    payment_splits: &mut [ResolvedPaymentSplit],
-    is_rms_payment_collection: bool,
-) -> Result<(), CheckoutError> {
-    let has_rms_tender = payment_splits
-        .iter()
-        .any(|split| pos_rms_charge::is_rms_method(&split.method));
-    let Some(customer_id) = payload.customer_id else {
-        if has_rms_tender || is_rms_payment_collection {
-            return Err(CheckoutError::InvalidPayload(
-                "RMS Charge requires an active customer on the sale.".to_string(),
-            ));
-        }
-        return Ok(());
-    };
 
-    let has_live_rms_purchase = payment_splits.iter().any(|split| {
-        pos_rms_charge::is_rms_method(&split.method) && rms_source_is_corecard_live(&split.metadata)
-    });
-    let has_live_rms_collection = is_rms_payment_collection
-        && payment_splits
-            .iter()
-            .any(|split| rms_source_is_corecard_live(&split.metadata));
-    let checkout_client_id = if has_live_rms_purchase || has_live_rms_collection {
-        Some(payload.checkout_client_id.ok_or_else(|| {
-            CheckoutError::InvalidPayload(
-                "RMS Charge live posting requires checkout_client_id for idempotency.".to_string(),
-            )
-        })?)
-    } else {
-        payload.checkout_client_id
-    };
-
-    for (index, split) in payment_splits.iter_mut().enumerate() {
-        if !pos_rms_charge::is_rms_method(&split.method) {
-            continue;
-        }
-
-        let linked_corecredit_customer_id = metadata_required_text(
-            &split.metadata,
-            "linked_corecredit_customer_id",
-            "RMS Charge checkout could not resolve the linked CoreCredit customer.",
-        )?;
-        let linked_corecredit_account_id = metadata_required_text(
-            &split.metadata,
-            "linked_corecredit_account_id",
-            "RMS Charge checkout could not resolve the linked CoreCredit account.",
-        )?;
-        let program_code = metadata_required_text(
-            &split.metadata,
-            "program_code",
-            "RMS Charge requires a financing program selection before checkout can continue.",
-        )?;
-        let linked_corecredit_card_id =
-            metadata_optional_text(&split.metadata, "linked_corecredit_card_id");
-        if !rms_source_is_corecard_live(&split.metadata) {
-            apply_manual_rms_tracking_metadata(&mut split.metadata);
-            continue;
-        }
-        let checkout_client_id =
-            checkout_client_id.expect("live RMS posting requires checkout_client_id");
-        let stable_reference = format!("{checkout_client_id}:purchase:{index}");
-        let idempotency_key = corecard::build_idempotency_key(
-            corecard::CoreCardOperationType::Purchase,
-            &stable_reference,
-            &linked_corecredit_account_id,
-            split.amount,
-            Some(&program_code),
-        );
-        let request = corecard::CoreCardMutationRequest {
-            customer_id: Some(customer_id),
-            linked_corecredit_customer_id,
-            linked_corecredit_account_id,
-            linked_corecredit_card_id,
-            program_code: Some(program_code.clone()),
-            amount: split.amount,
-            idempotency_key: idempotency_key.clone(),
-            transaction_id: None,
-            payment_transaction_id: None,
-            pos_rms_charge_record_id: None,
-            reason: None,
-            reference_hint: Some(format!("ROS-CHECKOUT-{checkout_client_id}")),
-            metadata: json!({
-                "checkout_client_id": checkout_client_id.to_string(),
-                "program_label": metadata_optional_text(&split.metadata, "program_label"),
-                "masked_account": metadata_optional_text(&split.metadata, "masked_account"),
-            }),
-        };
-        let result = match corecard::post_purchase(pool, http, config, token_cache, &request).await
-        {
-            Ok(result) => result,
-            Err(error) => {
-                let _ = log_staff_access(
-                    pool,
-                    payload.operator_staff_id,
-                    "rms_charge_purchase_post_failed",
-                    json!({
-                        "checkout_client_id": checkout_client_id,
-                        "account_id": request.linked_corecredit_account_id,
-                        "program_code": request.program_code,
-                        "amount": request.amount,
-                        "error": error.to_string(),
-                    }),
-                )
-                .await;
-                return Err(corecard_error_to_checkout(error));
-            }
-        };
-        let _ = log_staff_access(
-            pool,
-            payload.operator_staff_id,
-            "rms_charge_purchase_posted",
-            json!({
-                "checkout_client_id": checkout_client_id,
-                "account_id": request.linked_corecredit_account_id,
-                "program_code": request.program_code,
-                "amount": request.amount,
-                "host_reference": result.host_reference,
-                "external_transaction_id": result.external_transaction_id,
-            }),
-        )
-        .await;
-        apply_corecard_result_to_metadata(&mut split.metadata, &idempotency_key, &result);
-    }
-
-    if is_rms_payment_collection {
-        let resolve = corecard::resolve_customer_account(
-            pool,
-            &corecard::PosResolveAccountRequest {
-                customer_id: Some(customer_id),
-                preferred_account_id: payment_splits.iter().find_map(|split| {
-                    metadata_optional_text(&split.metadata, "linked_corecredit_account_id")
-                }),
-            },
-        )
-        .await
-        .map_err(corecard_error_to_checkout)?;
-
-        let selected_account = resolve.selected_account.ok_or_else(|| {
-            let message = resolve
-                .blocking_error
-                .as_ref()
-                .map(|value| value.message.clone())
-                .unwrap_or_else(|| {
-                    "RMS Charge payment collection requires a single linked account.".to_string()
-                });
-            CheckoutError::InvalidPayload(message)
-        })?;
-
-        for split in payment_splits.iter_mut() {
-            let mut obj = split.metadata.as_object().cloned().unwrap_or_default();
-            obj.insert("rms_charge_collection".to_string(), Value::Bool(true));
-            obj.insert(
-                "tender_family".to_string(),
-                Value::String(pos_rms_charge::RMS_TENDER_FAMILY.to_string()),
-            );
-            obj.insert(
-                "linked_corecredit_customer_id".to_string(),
-                Value::String(selected_account.corecredit_customer_id.clone()),
-            );
-            obj.insert(
-                "linked_corecredit_account_id".to_string(),
-                Value::String(selected_account.corecredit_account_id.clone()),
-            );
-            obj.insert(
-                "masked_account".to_string(),
-                Value::String(selected_account.masked_account.clone()),
-            );
-            obj.insert(
-                "resolution_status".to_string(),
-                Value::String(resolve.resolution_status.clone()),
-            );
-            split.metadata = Value::Object(obj);
-            if !has_live_rms_collection {
-                apply_manual_rms_tracking_metadata(&mut split.metadata);
-            }
-        }
-        if !has_live_rms_collection {
-            return Ok(());
-        }
-
-        let checkout_client_id =
-            checkout_client_id.expect("live RMS posting requires checkout_client_id");
-        let stable_reference = format!("{checkout_client_id}:payment");
-        let idempotency_key = corecard::build_idempotency_key(
-            corecard::CoreCardOperationType::Payment,
-            &stable_reference,
-            &selected_account.corecredit_account_id,
-            payload.total_price,
-            None,
-        );
-        let request = corecard::CoreCardMutationRequest {
-            customer_id: Some(customer_id),
-            linked_corecredit_customer_id: selected_account.corecredit_customer_id.clone(),
-            linked_corecredit_account_id: selected_account.corecredit_account_id.clone(),
-            linked_corecredit_card_id: None,
-            program_code: None,
-            amount: payload.total_price,
-            idempotency_key: idempotency_key.clone(),
-            transaction_id: None,
-            payment_transaction_id: None,
-            pos_rms_charge_record_id: None,
-            reason: None,
-            reference_hint: Some(format!("ROS-RMS-PAYMENT-{checkout_client_id}")),
-            metadata: json!({
-                "checkout_client_id": checkout_client_id.to_string(),
-                "masked_account": selected_account.masked_account,
-                "resolution_status": resolve.resolution_status,
-            }),
-        };
-        let result = match corecard::post_payment(pool, http, config, token_cache, &request).await {
-            Ok(result) => result,
-            Err(error) => {
-                let _ = log_staff_access(
-                    pool,
-                    payload.operator_staff_id,
-                    "rms_charge_payment_post_failed",
-                    json!({
-                        "checkout_client_id": checkout_client_id,
-                        "account_id": request.linked_corecredit_account_id,
-                        "amount": request.amount,
-                        "error": error.to_string(),
-                    }),
-                )
-                .await;
-                return Err(corecard_error_to_checkout(error));
-            }
-        };
-        let _ = log_staff_access(
-            pool,
-            payload.operator_staff_id,
-            "rms_charge_payment_posted",
-            json!({
-                "checkout_client_id": checkout_client_id,
-                "account_id": request.linked_corecredit_account_id,
-                "amount": request.amount,
-                "host_reference": result.host_reference,
-                "external_transaction_id": result.external_transaction_id,
-            }),
-        )
-        .await;
-        for split in payment_splits.iter_mut() {
-            apply_corecard_result_to_metadata(&mut split.metadata, &idempotency_key, &result);
-        }
-    }
-
-    Ok(())
-}
 
 pub async fn execute_checkout(
     pool: &PgPool,
@@ -2792,6 +2480,7 @@ pub async fn execute_checkout(
 
     let mut price_override_audit: Vec<Value> = Vec::new();
     let mut checkout_warnings: Vec<String> = Vec::new();
+    let mut deferred_wedding_activities: Vec<DeferredWeddingActivity> = Vec::new();
 
     let mut tx = pool.begin().await?;
 
@@ -3271,7 +2960,7 @@ pub async fn execute_checkout(
                 ),
             )
         };
-        let line_is_internal = pos_kind.as_deref() == Some("rms_charge_payment");
+        let line_is_internal = false;
 
         let custom_item_type = canonical_custom_item_type_for_variant(
             &mut tx,
@@ -4129,20 +3818,17 @@ pub async fn execute_checkout(
                                 "Received disbursement payment of ${} from party group.",
                                 d.amount
                             );
-                            wedding_logic::insert_wedding_activity(
-                                &mut *tx,
-                                pid,
-                                Some(d.wedding_member_id),
-                                actor,
-                                "PAYMENT",
-                                &desc,
-                                json!({
+                            deferred_wedding_activities.push(DeferredWeddingActivity {
+                                party_id: pid,
+                                member_id: Some(d.wedding_member_id),
+                                actor: actor.to_string(),
+                                description: desc,
+                                metadata: json!({
                                     "source_payer_id": payload.wedding_member_id,
                                     "target_transaction_id": bene_transaction_id,
                                     "amount": d.amount
                                 }),
-                            )
-                            .await?;
+                            });
                         }
                     } else {
                         let bene: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
@@ -4253,21 +3939,18 @@ pub async fn execute_checkout(
                         "partial"
                     }
                 );
-                wedding_logic::insert_wedding_activity(
-                    &mut *tx,
+                deferred_wedding_activities.push(DeferredWeddingActivity {
                     party_id,
-                    Some(member_id),
-                    actor,
-                    "PAYMENT",
-                    &desc,
-                    json!({
+                    member_id: Some(member_id),
+                    actor: actor.to_string(),
+                    description: desc,
+                    metadata: json!({
                         "transaction_id": transaction_id,
                         "amount_paid": payload.amount_paid,
                         "payment_method": payment_activity_label,
                         "balance_due": balance_due,
                     }),
-                )
-                .await?;
+                });
             }
         }
     }
@@ -4292,13 +3975,6 @@ pub async fn execute_checkout(
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
         .map_err(CheckoutError::Database)?;
-    crate::logic::commission_events::upsert_fulfilled_transaction_events(
-        &mut tx,
-        transaction_id,
-        &[],
-    )
-    .await
-    .map_err(CheckoutError::Database)?;
 
     let operator_staff_id = payload.operator_staff_id;
     let customer_id = payload.customer_id;
@@ -4307,6 +3983,50 @@ pub async fn execute_checkout(
     let session_id_for_log = payload.session_id;
 
     tx.commit().await?;
+
+    // Post-commit: commission events are non-critical back-office concerns.
+    // If this fails, the sale is already committed; log and warn only.
+    if let Err(e) = crate::logic::commission_events::upsert_fulfilled_transaction_events_pool(
+        pool,
+        transaction_id,
+        &[],
+    )
+    .await
+    {
+        tracing::error!(
+            error = %e,
+            transaction_id = %transaction_id,
+            "Commission event upsert failed after checkout commit"
+        );
+        checkout_warnings.push(
+            "Commission calculation delayed — sale completed.".to_string(),
+        );
+    }
+
+    // Post-commit: wedding activity log is audit fluff; must never block a sale.
+    for activity in &deferred_wedding_activities {
+        if let Err(e) = wedding_logic::insert_wedding_activity(
+            pool,
+            activity.party_id,
+            activity.member_id,
+            &activity.actor,
+            "PAYMENT",
+            &activity.description,
+            activity.metadata.clone(),
+        )
+        .await
+        {
+            tracing::error!(
+                error = %e,
+                transaction_id = %transaction_id,
+                party_id = %activity.party_id,
+                "Wedding activity log failed after checkout commit"
+            );
+            checkout_warnings.push(
+                "Wedding timeline update delayed — sale completed.".to_string(),
+            );
+        }
+    }
 
     if !rms_notifications.is_empty() {
         if let Err(e) = pos_rms_charge::notify_sales_support_after_checkout(

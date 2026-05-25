@@ -281,6 +281,18 @@ try {
     Apply-SeedFiles $psql $databaseUrl (Join-Path (Split-Path -Parent $resolvedMigrationsDir) "seeds")
   }
 
+  # Import encrypted integration credentials shipped with the deployment package.
+  $packageCredentialsPath = Join-Path $ScriptRoot "integration-credentials.sql"
+  $importScriptPath = Join-Path $ScriptRoot "Import-IntegrationCredentials.ps1"
+  if ((Test-Path $packageCredentialsPath) -and (Test-Path $importScriptPath)) {
+    try {
+      Write-Host "Integration credentials file found in deployment package. Checking database..."
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $importScriptPath -ConfigPath $resolvedConfigPath -SqlPath $packageCredentialsPath 2>&1 | Write-Host
+    } catch {
+      Write-Warning "Integration credential import failed: $($_.Exception.Message). Continuing."
+    }
+  }
+
   Write-Host "Riverside migrations are current."
 } finally {
   Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue

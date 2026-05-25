@@ -21,9 +21,9 @@ import { centsToFixed2, parseMoneyToCents, calculateSwedishRounding } from "../.
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
-import { 
-  type AppliedPaymentLine, 
-  type CheckoutOperatorContext, 
+import {
+  type AppliedPaymentLine,
+  type CheckoutOperatorContext,
   type NexoTenderTab
 } from "./types";
 
@@ -84,10 +84,8 @@ interface HelcimAttempt {
 }
 
 function rmsSourceLabel(source?: string | null) {
-  if (source === "corecard_live") return "Manual RMS Charge";
-  if (source === "manual" || source === "local_fallback") return "Manual RMS Charge";
   if (source === "unavailable") return "Unavailable";
-  return source || "Manual RMS Charge";
+  return "Manual RMS Charge";
 }
 
 interface HelcimCard {
@@ -208,8 +206,6 @@ function normalizeRegisterLane(value: number | null | undefined): number | null 
 
 interface RmsChargeAccountChoice {
   link_id: string;
-  corecredit_customer_id: string;
-  corecredit_account_id: string;
   masked_account: string;
   status: string;
   is_primary: boolean;
@@ -235,12 +231,9 @@ interface RmsChargeProgramOption {
   fallback_used?: boolean;
   warning_code?: string | null;
   credential_source?: string | null;
-  last_corecard_request_at?: string | null;
 }
 
 interface RmsChargeAccountSummary {
-  corecredit_customer_id: string;
-  corecredit_account_id: string;
   masked_account: string;
   account_status: string;
   available_credit?: string | null;
@@ -250,7 +243,6 @@ interface RmsChargeAccountSummary {
   fallback_used?: boolean;
   warning_code?: string | null;
   credential_source?: string | null;
-  last_corecard_request_at?: string | null;
   recent_history?: Array<{
     created_at: string;
     record_kind: string;
@@ -379,7 +371,7 @@ export interface NexoCheckoutDrawerProps {
   onFinalize: (
     lines: AppliedPaymentLine[],
     operator: CheckoutOperatorContext,
-    ledgerSignals: { 
+    ledgerSignals: {
       appliedDepositAmountCents: number;
       isTaxExempt: boolean;
       taxExemptReason?: string;
@@ -448,6 +440,8 @@ export default function NexoCheckoutDrawer({
   const [providerSettings, setProviderSettings] = useState<PaymentProviderSettings | null>(null);
   const [providerSettingsLoading, setProviderSettingsLoading] = useState(false);
   const [providerSettingsError, setProviderSettingsError] = useState<string | null>(null);
+  const [providerHealthHardFailed, setProviderHealthHardFailed] = useState(false);
+  const providerFailureWindowRef = useRef<number[]>([]);
   const [helcimAttempt, setHelcimAttempt] = useState<HelcimAttempt | null>(null);
   const [helcimUnverifiedNotice, setHelcimUnverifiedNotice] = useState<string | null>(null);
   const [helcimAttemptLoading, setHelcimAttemptLoading] = useState(false);
@@ -461,7 +455,7 @@ export default function NexoCheckoutDrawer({
   const [isTaxExempt, setIsTaxExempt] = useState(false);
   const [taxExemptReason, setTaxExemptReason] = useState("Out of State");
   const [taxExemptNote, setTaxExemptNote] = useState("");
-  
+
   const [rmsResolve, setRmsResolve] = useState<RmsChargeResolveResponse | null>(null);
   const [rmsSelectedAccount, setRmsSelectedAccount] = useState<RmsChargeAccountChoice | null>(null);
   const [rmsPrograms, setRmsPrograms] = useState<RmsChargeProgramOption[]>([]);
@@ -560,8 +554,12 @@ export default function NexoCheckoutDrawer({
     } else {
       base = base.filter((id) => id !== "card_credit");
     }
+    // Circuit breaker: hide all card tabs after repeated provider failures
+    if (providerHealthHardFailed) {
+      base = base.filter((id) => !id.startsWith("card_"));
+    }
     return base;
-  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode]);
+  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed]);
 
   const paidSoFarCents = useMemo(() => applied.reduce((s, p) => s + p.amountCents, 0), [applied]);
   const depositDisplayCents = useMemo(() => Math.max(0, parseMoneyToCents(appliedDepositAmount.trim())), [appliedDepositAmount]);
@@ -603,7 +601,7 @@ export default function NexoCheckoutDrawer({
   }, [isTaxExempt, taxExemptNote, taxExemptReason]);
 
   const takeawaySatisfied = paidSoFarCents >= tw;
-  
+
   // A sale is "Full Balance Paid" if we have reached or exceeded the target (for positive balances)
   // or reached or gone below the target (for negative balances/credits).
   const fullBalancePaid = useMemo(() => {
@@ -616,8 +614,8 @@ export default function NexoCheckoutDrawer({
   }, [effectiveTotalDue, paidSoFarCents, depositDisplayCents]);
 
   const balanceSettled = fullBalancePaid || cashRoundedBalanceSettled;
-  
-  /** 
+
+  /**
    * A sale is "Balanced" if:
    * 1. The full balance is paid with tenders.
    * 2. Any takeaway items are paid with tenders AND a deposit protocol is established for the remainder.
@@ -691,6 +689,9 @@ export default function NexoCheckoutDrawer({
       }
       const settings = (await res.json()) as PaymentProviderSettings;
       setProviderSettings(settings);
+      // Success: reset failure window and clear hard-fail state
+      providerFailureWindowRef.current = [];
+      setProviderHealthHardFailed(false);
       return settings;
     } catch (error) {
       const message =
@@ -698,6 +699,15 @@ export default function NexoCheckoutDrawer({
           ? error.message
           : "Could not load payment provider.";
       setProviderSettingsError(message);
+      // Circuit breaker: 3 failures within 60 seconds => hard-fail card payments
+      const now = Date.now();
+      providerFailureWindowRef.current = providerFailureWindowRef.current.filter(
+        (t) => now - t < 60_000
+      );
+      providerFailureWindowRef.current.push(now);
+      if (providerFailureWindowRef.current.length >= 3) {
+        setProviderHealthHardFailed(true);
+      }
       return null;
     } finally {
       setProviderSettingsLoading(false);
@@ -729,40 +739,26 @@ export default function NexoCheckoutDrawer({
 
   const loadRmsProgramsAndSummary = useCallback(async (account: RmsChargeAccountChoice) => {
     if (!customerId) return;
-    const params = new URLSearchParams({
-      customer_id: customerId,
-      account_id: account.corecredit_account_id,
-    });
-    const headers = mergedPosStaffHeaders(backofficeHeaders);
-    const [programsRes, summaryRes] = await Promise.all([
-      fetch(`${baseUrl}/api/pos/rms-charge/programs?${params.toString()}`, {
-        headers,
-      }),
-      fetch(`${baseUrl}/api/pos/rms-charge/account-summary?${params.toString()}`, {
-        headers,
-      }),
-    ]);
+    const mockProgram: RmsChargeProgramOption = {
+      program_code: "manual",
+      program_label: "Manual Charge",
+      eligible: true,
+      source: "manual",
+    };
+    const mockSummary: RmsChargeAccountSummary = {
+      masked_account: account.masked_account,
+      account_status: "active",
+      available_credit: "—",
+      current_balance: "—",
+      source: "manual",
+    };
+    setRmsPrograms([mockProgram]);
+    setRmsSummary(mockSummary);
+    setRmsSelectedProgramCode("manual");
+    setRmsProgramPickerOpen(false);
+  }, [customerId]);
 
-    if (!programsRes.ok) {
-      const body = (await programsRes.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error ?? "Could not load RMS Charge programs");
-    }
-    if (!summaryRes.ok) {
-      const body = (await summaryRes.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error ?? "Could not load RMS Charge summary");
-    }
-
-    const programs = (await programsRes.json()) as RmsChargeProgramOption[];
-    const summary = (await summaryRes.json()) as RmsChargeAccountSummary;
-    setRmsPrograms(Array.isArray(programs) ? programs : []);
-    setRmsSummary(summary);
-    setRmsSelectedProgramCode(null);
-    setRmsProgramPickerOpen(
-      Array.isArray(programs) && programs.some((program) => program.eligible),
-    );
-  }, [backofficeHeaders, baseUrl, customerId]);
-
-  const resolveRmsAccount = useCallback(async (preferredAccountId?: string | null) => {
+  const resolveRmsAccount = useCallback(async () => {
     if (!customerId) {
       setRmsResolve({
         resolution_status: "blocked",
@@ -781,35 +777,21 @@ export default function NexoCheckoutDrawer({
 
     setRmsLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/api/pos/rms-charge/resolve-account`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...mergedPosStaffHeaders(backofficeHeaders),
-        },
-        body: JSON.stringify({
-          customer_id: customerId,
-          preferred_account_id: preferredAccountId ?? undefined,
-        }),
-      });
-      const body = (await res.json().catch(() => ({}))) as
-        | RmsChargeResolveResponse
-        | { error?: string };
-      if (!res.ok) {
-        throw new Error("error" in body ? body.error ?? "Could not check RMS Charge" : "Could not check RMS Charge");
-      }
-      const resolved = body as RmsChargeResolveResponse;
+      const code = customerCode || "MANUAL";
+      const mockChoice: RmsChargeAccountChoice = {
+        link_id: "manual",
+        masked_account: code,
+        status: "active",
+        is_primary: true,
+      };
+      const resolved: RmsChargeResolveResponse = {
+        resolution_status: "selected",
+        selected_account: mockChoice,
+        choices: [mockChoice],
+      };
       setRmsResolve(resolved);
-      if (resolved.resolution_status === "selected" && resolved.selected_account) {
-        setRmsSelectedAccount(resolved.selected_account);
-        await loadRmsProgramsAndSummary(resolved.selected_account);
-      } else {
-        setRmsSelectedAccount(null);
-        setRmsPrograms([]);
-        setRmsSelectedProgramCode(null);
-        setRmsSummary(null);
-        setRmsProgramPickerOpen(false);
-      }
+      setRmsSelectedAccount(mockChoice);
+      await loadRmsProgramsAndSummary(mockChoice);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Could not check RMS Charge";
@@ -830,7 +812,7 @@ export default function NexoCheckoutDrawer({
     } finally {
       setRmsLoading(false);
     }
-  }, [backofficeHeaders, baseUrl, customerId, loadRmsProgramsAndSummary, toast]);
+  }, [customerId, customerCode, loadRmsProgramsAndSummary, toast]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1518,10 +1500,6 @@ export default function NexoCheckoutDrawer({
                       rms_charge_collection: true,
                       tender_family: "rms_charge",
                       masked_account: rmsSelectedAccount?.masked_account ?? undefined,
-                      linked_corecredit_customer_id:
-                        rmsSelectedAccount?.corecredit_customer_id ?? undefined,
-                      linked_corecredit_account_id:
-                        rmsSelectedAccount?.corecredit_account_id ?? undefined,
                       source_mode: "manual",
                       rms_charge_source: "manual",
                       reference_number: rmsReferenceNumber.trim() || undefined,
@@ -1540,8 +1518,6 @@ export default function NexoCheckoutDrawer({
                   program_label:
                     rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label ?? undefined,
                   masked_account: rmsSelectedAccount?.masked_account ?? undefined,
-                  linked_corecredit_customer_id: rmsSelectedAccount?.corecredit_customer_id ?? undefined,
-                  linked_corecredit_account_id: rmsSelectedAccount?.corecredit_account_id ?? undefined,
                   source_mode: "manual",
                   rms_charge_source: "manual",
                   reference_number: rmsReferenceNumber.trim() || undefined,
@@ -1559,10 +1535,6 @@ export default function NexoCheckoutDrawer({
                     rms_charge_collection: true,
                     tender_family: "rms_charge",
                     masked_account: rmsSelectedAccount?.masked_account ?? undefined,
-                    linked_corecredit_customer_id:
-                      rmsSelectedAccount?.corecredit_customer_id ?? undefined,
-                    linked_corecredit_account_id:
-                      rmsSelectedAccount?.corecredit_account_id ?? undefined,
                     source_mode: "manual",
                     rms_charge_source: "manual",
                     reference_number: rmsReferenceNumber.trim() || undefined,
@@ -1593,7 +1565,7 @@ export default function NexoCheckoutDrawer({
     }
     if (!canFinalize) return;
     const depositCents = parseMoneyToCents(appliedDepositAmount.trim());
-    
+
     // Calculate final rounding if last payment was not explicitly added or if we are at full balance
     const finalRoundingCents = (tab === "cash" && remainingCents !== 0) ? cashRounding.adjustment : 0;
     const finalCashDue = (tab === "cash" && remainingCents !== 0) ? cashRounding.rounded : undefined;
@@ -1745,6 +1717,21 @@ export default function NexoCheckoutDrawer({
             <p className="mb-3 rounded-lg bg-app-danger/10 px-3 py-2 font-bold text-app-danger">
               {providerSettingsError}
             </p>
+          ) : null}
+
+          {providerHealthHardFailed ? (
+            <div className="mb-3 flex items-center justify-between gap-2 rounded-lg bg-app-danger/10 px-3 py-2">
+              <p className="font-bold text-app-danger">
+                Card payments temporarily unavailable — use cash or check.
+              </p>
+              <button
+                type="button"
+                onClick={() => void loadProviderSettings()}
+                className="shrink-0 rounded-md border border-app-danger/30 bg-white px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-danger hover:bg-app-danger hover:text-white"
+              >
+                Retry
+              </button>
+            </div>
           ) : null}
 
           {registerLaneUnavailable ? (
@@ -1907,7 +1894,7 @@ export default function NexoCheckoutDrawer({
                   )}
                </div>
             </div>
-           
+
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:gap-6">
               {/* Tax Exempt Toggle Column */}
               <div className="flex flex-col gap-1 items-end">
@@ -1915,8 +1902,8 @@ export default function NexoCheckoutDrawer({
                   type="button"
                   onClick={() => setIsTaxExempt(!isTaxExempt)}
                   className={`flex min-h-10 items-center gap-2 rounded-xl border px-3 transition-all ${
-                    isTaxExempt 
-                      ? "border-rose-500 bg-rose-500/10 text-rose-600 shadow-sm" 
+                    isTaxExempt
+                      ? "border-rose-500 bg-rose-500/10 text-rose-600 shadow-sm"
                       : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-input-border"
                   }`}
                 >
@@ -1925,7 +1912,7 @@ export default function NexoCheckoutDrawer({
                   </div>
                   <span className="text-[10px] font-black uppercase tracking-widest">Tax Exempt</span>
                 </button>
-                
+
                 {isTaxExempt && (
                   <div className="flex w-52 flex-col gap-1.5">
                     <select
@@ -1977,8 +1964,8 @@ export default function NexoCheckoutDrawer({
                   title={completeDisabledReason}
                   onClick={handleFinalize}
                   className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black uppercase tracking-[0.2em] transition-all sm:min-w-[210px] sm:w-auto ${
-                    canFinalize 
-                      ? "bg-app-accent text-white shadow-xl shadow-app-accent/30 hover:brightness-110 active:scale-[0.98]" 
+                    canFinalize
+                      ? "bg-app-accent text-white shadow-xl shadow-app-accent/30 hover:brightness-110 active:scale-[0.98]"
                       : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
                   }`}
                 >
@@ -1997,7 +1984,7 @@ export default function NexoCheckoutDrawer({
       }
     >
       <div className="relative flex h-full flex-col overflow-hidden bg-app-bg">
-        
+
         {busy && (
           <div className="absolute inset-0 z-50 bg-white/60 dark:bg-black/60 backdrop-blur-md flex flex-col items-center justify-center">
              <div className="h-20 w-20 rounded-full border-4 border-app-accent border-t-transparent animate-spin mb-6" />
@@ -2152,7 +2139,7 @@ export default function NexoCheckoutDrawer({
 
         <div className="flex min-h-0 flex-1 flex-col p-3 sm:p-4">
           <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 lg:flex-row lg:items-start lg:justify-center lg:gap-4">
-            
+
             {/* 1. Tender Tabs Matrix (Left) */}
             <div className="w-full shrink-0 pb-1 lg:w-48 lg:pb-4">
               <span className="text-[10px] font-black uppercase tracking-[0.25em] text-app-text-muted mb-2 px-1 opacity-60">Payment Method</span>
@@ -2364,7 +2351,7 @@ export default function NexoCheckoutDrawer({
                       >
                         Add Payment
                       </button>
-                      
+
                       {allowDepositKeypad ? (
                         <button
                           type="button"
@@ -2421,7 +2408,7 @@ export default function NexoCheckoutDrawer({
                                   key={choice.link_id}
                                   type="button"
                                   data-testid="pos-rms-account-choice"
-                                  onClick={() => void resolveRmsAccount(choice.corecredit_account_id)}
+                                  onClick={() => void resolveRmsAccount()}
                                   className="flex items-center justify-between rounded-xl border border-app-border bg-app-bg px-4 py-3 text-left transition-colors hover:border-app-accent"
                                 >
                                   <div className="flex flex-col">
@@ -2573,7 +2560,7 @@ export default function NexoCheckoutDrawer({
                                   key={choice.link_id}
                                   type="button"
                                   data-testid="pos-rms-account-choice"
-                                  onClick={() => void resolveRmsAccount(choice.corecredit_account_id)}
+                                  onClick={() => void resolveRmsAccount()}
                                   className="flex items-center justify-between rounded-xl border border-app-border bg-app-bg px-4 py-3 text-left transition-colors hover:border-app-accent"
                                 >
                                   <div className="flex flex-col">
@@ -2676,11 +2663,11 @@ export default function NexoCheckoutDrawer({
                         <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Authentication Check</span>
                         <div className="relative">
                           <Landmark size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted" />
-                          <input 
-                            value={checkNumber} 
-                            onChange={e => setCheckNumber(e.target.value)} 
-                            placeholder="CHECK #" 
-                            className="ui-input h-14 w-full pl-12 pr-4 rounded-xl bg-app-bg border border-app-border text-lg font-black tracking-widest uppercase focus:border-app-accent" 
+                          <input
+                            value={checkNumber}
+                            onChange={e => setCheckNumber(e.target.value)}
+                            placeholder="CHECK #"
+                            className="ui-input h-14 w-full pl-12 pr-4 rounded-xl bg-app-bg border border-app-border text-lg font-black tracking-widest uppercase focus:border-app-accent"
                           />
                         </div>
                       </div>
@@ -2887,7 +2874,7 @@ export default function NexoCheckoutDrawer({
                       <span className="font-bold tabular-nums text-app-text opacity-70">${centsToFixed2(shippingCents)}</span>
                     </div>
                   )}
-                  
+
                   <div className="flex items-center justify-between border-b border-app-border/30 pb-1 text-xs font-bold uppercase tracking-wide">
                     <span className="text-app-text-muted">State Tax</span>
                     <span className={isTaxExempt ? "text-rose-500 line-through opacity-50" : "text-app-text"}>

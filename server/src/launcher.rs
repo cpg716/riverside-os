@@ -234,42 +234,7 @@ async fn launch_server_inner(
         "Unified Engine: PostgreSQL pool configured"
     );
 
-    // Start connection pool monitoring
-    let monitor_pool = pool.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-        loop {
-            interval.tick().await;
-            let idle = monitor_pool.num_idle() as u32;
-            let max = monitor_pool.size();
-            let active = max.saturating_sub(idle);
-            let utilization = if max > 0 { (active * 100) / max } else { 0 };
-
-            if utilization >= 80 {
-                tracing::warn!(
-                    active_connections = active,
-                    max_connections = max,
-                    utilization_percent = utilization,
-                    "Database connection pool utilization critical (>80%)"
-                );
-
-                // Send notification to admins
-                if let Err(e) = crate::logic::notifications::broadcast_system_alert(
-                    &monitor_pool,
-                    &format!("Database pool utilization at {utilization}% ({active} active / {max} max)")
-                ).await {
-                    tracing::error!(error = %e, "Failed to send pool utilization alert");
-                }
-            } else if utilization >= 60 {
-                tracing::info!(
-                    active_connections = active,
-                    max_connections = max,
-                    utilization_percent = utilization,
-                    "Database connection pool utilization elevated"
-                );
-            }
-        }
-    });
+    // Connection pool monitoring will be started after database schema contracts are validated.
 
     crate::db_startup_diag::log_postgres_startup_context(&pool).await;
 
@@ -375,6 +340,43 @@ async fn launch_server_inner(
         rate_limit: crate::middleware::rate_limit::rate_limit_middleware(),
         github_token: std::env::var("RIVERSIDE_GITHUB_TOKEN").ok(),
     };
+
+    // Start connection pool monitoring
+    let monitor_pool = state.db.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            let idle = monitor_pool.num_idle() as u32;
+            let current_size = monitor_pool.size();
+            let active = current_size.saturating_sub(idle);
+            let utilization = if db_max_connections > 0 { (active * 100) / db_max_connections } else { 0 };
+
+            if utilization >= 80 {
+                tracing::warn!(
+                    active_connections = active,
+                    max_connections = db_max_connections,
+                    utilization_percent = utilization,
+                    "Database connection pool utilization critical (>80%)"
+                );
+
+                // Send notification to admins
+                if let Err(e) = crate::logic::notifications::broadcast_system_alert(
+                    &monitor_pool,
+                    &format!("Database pool utilization at {utilization}% ({active} active / {db_max_connections} max)")
+                ).await {
+                    tracing::error!(error = %e, "Failed to send pool utilization alert");
+                }
+            } else if utilization >= 60 {
+                tracing::info!(
+                    active_connections = active,
+                    max_connections = db_max_connections,
+                    utilization_percent = utilization,
+                    "Database connection pool utilization elevated"
+                );
+            }
+        }
+    });
 
     // Workers
     // Start background job worker if enabled

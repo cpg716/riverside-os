@@ -63,6 +63,7 @@ pub async fn ensure_core_schema(pool: &PgPool) -> Result<()> {
                 ('public', 'transactions', 'display_id'),
                 ('public', 'transactions', 'is_tax_exempt'),
                 ('public', 'transactions', 'tax_exempt_reason'),
+                ('public', 'customers', 'review_requests_opt_out'),
                 ('public', 'transaction_lines', 'transaction_id'),
                 ('public', 'transaction_lines', 'fulfillment_order_id'),
                 ('public', 'transaction_lines', 'fulfilled_at'),

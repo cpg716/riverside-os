@@ -1,13 +1,13 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import { useToast } from "../ui/ToastProviderLogic";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
-import ConfirmationModal from "../ui/ConfirmationModal";
+import type { Customer } from "../pos/CustomerSelector";
 import PromptModal from "../ui/PromptModal";
-import { ClipboardCheck, Link2, RefreshCw, ShieldCheck, Unlink, Upload, X as CloseIcon } from "lucide-react";
+import { ClipboardCheck, RefreshCw, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 
 const baseUrl = getBaseUrl();
 const PAGE = 100;
@@ -30,152 +30,15 @@ function fmtDateOnly(value?: string | null) {
   return new Date(value).toLocaleDateString();
 }
 
-function sourceLabel(source?: string | null) {
-  if (source === "corecard_live") return "Manual RMS Charge";
-  if (source === "manual" || source === "local_fallback") return "Manual RMS Charge";
-  if (source === "unavailable") return "Unavailable";
-  return source || "Manual RMS Charge";
-}
-
-function manualWorkflowCopy(warningCode?: string | null) {
-  switch (warningCode) {
-    case "corecard_config_missing":
-      return "Use the current manual RMS process. Riverside stores the account snapshot, reference, R2S follow-up, and audit notes only.";
-    case "corecard_live_empty_response":
-      return "Use the current manual RMS process. Confirm the RMS details outside Riverside before marking follow-up complete.";
-    case "corecard_live_request_failed":
-      return "Use the current manual RMS process. Do not treat this as automatic RMS account confirmation.";
-    case "program_catalog_from_riverside_history":
-      return "Program options are managed in Riverside for manual RMS Charge work and still require manual RMS/R2S handling.";
-    default:
-      return "Manual RMS Charge account details are ready for staff review; this does not update the RMS account automatically.";
-  }
-}
-
-function formatOperationalLabel(value?: string | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return "Unknown";
-  return raw
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function friendlyStaffOwnerLabel(
-  ownerStaffId: string | null | undefined,
-  currentStaffId: string | null | undefined,
-  currentStaffName: string | null | undefined,
-) {
-  const owner = String(ownerStaffId ?? "").trim();
-  if (!owner) return "No requesting staff loaded";
-  if (currentStaffId && owner === currentStaffId) {
-    return currentStaffName ? `Requested by you (${currentStaffName})` : "Requested by you";
-  }
-  return `Requested by staff ref ${owner.slice(0, 8).toUpperCase()}`;
-}
-
-function reconciliationSeverityBand(severity?: string | null): "blocking" | "warning" | "informational" {
-  const value = String(severity ?? "").toLowerCase();
-  if (["critical", "high", "blocking"].includes(value)) return "blocking";
-  if (["warning", "medium"].includes(value)) return "warning";
-  return "informational";
-}
-
-function reconciliationSeverityCopy(severity?: string | null) {
-  const band = reconciliationSeverityBand(severity);
-  if (band === "blocking") return "Blocking review";
-  if (band === "warning") return "Needs review";
-  return "Informational";
-}
-
-function reconciliationSeverityClass(severity?: string | null) {
-  const band = reconciliationSeverityBand(severity);
-  if (band === "blocking") return "border-app-danger/30 bg-app-danger/10 text-app-danger";
-  if (band === "warning") return "border-app-warning/40 bg-app-warning/10 text-app-warning";
-  return "border-app-border bg-app-surface text-app-text-muted";
-}
-
-function reconciliationItemGuidance(item: RmsReconciliationItem) {
-  switch (item.mismatch_type) {
-    case "posting_failed":
-      return {
-        changed: "An RMS Charge record did not complete cleanly.",
-        matters: "The customer payment or charge may not be visible as finished in every operational view.",
-        downstream: "May affect pickup/payment visibility until the record is reviewed.",
-        next: "Review the linked RMS issue, correct the manual RMS record or Riverside record, then safe-rerun reconciliation.",
-      };
-    case "posting_pending":
-      return {
-        changed: "An RMS Charge record is still pending.",
-        matters: "The sale or payment still needs manual RMS/R2S follow-up before it is trusted as finished.",
-        downstream: "May affect payment visibility while the manual follow-up remains unresolved.",
-        next: "If this is recent, assign the follow-up. If it persists, rerun reconciliation and escalate to support.",
-      };
-    case "missing_host_reference":
-      return {
-        changed: "An RMS Charge record is missing a reference number.",
-        matters: "Support may not be able to match Riverside activity to the manual RMS/R2S record quickly.",
-        downstream: "Usually not blocking for store work, but it weakens support traceability.",
-        next: "Check the RMS/R2S reference and add support notes before closing the issue.",
-      };
-    case "legacy_record_review":
-      return {
-        changed: "A legacy RMS Charge record needs review.",
-        matters: "Older records may not carry the same reference detail as current RMS Charge activity.",
-        downstream: "Informational unless staff are actively researching this customer or payment.",
-        next: "Confirm the historical record if needed. No immediate store action is required.",
-      };
-    case "posting_status_mismatch":
-      return {
-        changed: "Riverside and RMS support data disagree on posting status.",
-        matters: "Operators may see a charge or payment differently across customer and support views.",
-        downstream: "May affect pickup/payment visibility and clearing-account review.",
-        next: "Review the linked record, then safe-rerun reconciliation after the source status is corrected.",
-      };
-    default:
-      return {
-        changed: `${formatOperationalLabel(item.mismatch_type)} still needs review.`,
-        matters: "RMS Charge support data does not line up cleanly with the Riverside record.",
-        downstream: "Downstream effect depends on the linked record and severity shown here.",
-        next: "Review the record details, add support notes if needed, then rerun reconciliation after correction.",
-      };
-  }
-}
-
 function reportStatusLabel(
   row?: Pick<RmsRecordRow, "r2s_reporting_required" | "r2s_report_status" | "r2s_report_due_at"> | null,
 ) {
   if (!row) return "—";
   if (!row.r2s_reporting_required || row.r2s_report_status === "not_required") return "Not required";
   if (row.r2s_report_status === "reported") return "Reported";
-  if (new Date(row.r2s_report_due_at).getTime() < Date.now()) return "Overdue";
+  if (row.r2s_report_due_at && new Date(row.r2s_report_due_at).getTime() < Date.now()) return "Overdue";
   return "Unreported";
 }
-
-type CoreCardSourceFields = {
-  source?: string | null;
-  fallback_used?: boolean;
-  warning_code?: string | null;
-  credential_source?: string | null;
-  last_corecard_request_at?: string | null;
-};
-
-type RmsLinkedAccount = {
-  id: string;
-  customer_id: string;
-  corecredit_customer_id: string;
-  corecredit_account_id: string;
-  corecredit_card_id?: string | null;
-  masked_account: string;
-  status: string;
-  is_primary: boolean;
-  program_group?: string | null;
-  last_verified_at?: string | null;
-  verified_by_staff_id?: string | null;
-  verification_source?: string | null;
-  notes?: string | null;
-  created_at: string;
-  updated_at: string;
-};
 
 type RmsRecordRow = {
   id: string;
@@ -189,29 +52,25 @@ type RmsRecordRow = {
   operator_staff_id: string | null;
   payment_transaction_id: string | null;
   customer_display: string | null;
+  customer_name?: string | null;
+  customer_code?: string | null;
   order_short_ref: string | null;
   tender_family?: string | null;
   program_code?: string | null;
   program_label?: string | null;
   masked_account?: string | null;
-  linked_corecredit_customer_id?: string | null;
-  linked_corecredit_account_id?: string | null;
   resolution_status?: string | null;
   posting_status: string;
-  posting_error_code?: string | null;
   host_reference?: string | null;
   external_transaction_id?: string | null;
-  source_mode?: string | null;
-  r2s_reporting_required: boolean;
-  r2s_report_status: "unreported" | "reported" | string;
-  r2s_report_due_at: string;
+  r2s_reporting_required?: boolean | null;
+  r2s_report_status?: string | null;
+  r2s_report_due_at?: string | null;
   r2s_reported_at?: string | null;
   r2s_reported_by_staff_id?: string | null;
   r2s_reported_by_name?: string | null;
   r2s_report_note?: string | null;
-  customer_name: string | null;
-  customer_code: string | null;
-  operator_name: string | null;
+  operator_name?: string | null;
 };
 
 type RmsRecordDetail = RmsRecordRow & {
@@ -222,502 +81,174 @@ type RmsRecordDetail = RmsRecordRow & {
   refunded_at?: string | null;
   idempotency_key?: string | null;
   external_transaction_type?: string | null;
-  metadata_json?: Record<string, unknown> | null;
-  host_metadata_json?: Record<string, unknown> | null;
-  request_snapshot_json?: Record<string, unknown> | null;
-  response_snapshot_json?: Record<string, unknown> | null;
-};
-
-type PosAccountSummary = CoreCardSourceFields & {
-  corecredit_customer_id: string;
-  corecredit_account_id: string;
-  masked_account: string;
-  account_status: string;
-  available_credit?: string | null;
-  current_balance?: string | null;
-  resolution_status?: string | null;
-  recent_history?: Array<{
-    created_at: string;
-    record_kind: string;
-    amount: string;
-    payment_method: string;
-    program_label?: string | null;
-    masked_account?: string | null;
-    order_short_ref?: string | null;
-  }>;
-};
-
-type PosProgramOption = CoreCardSourceFields & {
-  program_code: string;
-  program_label: string;
-  eligible: boolean;
-  disclosure?: string | null;
-};
-
-type AccountTransactionRow = {
-  occurred_at: string;
-  kind: string;
-  amount: string;
-  status: string;
-  program_label?: string | null;
-  masked_account?: string | null;
-  order_short_ref?: string | null;
-  external_reference?: string | null;
-};
-
-type AccountTransactionsResponse = CoreCardSourceFields & {
-  rows?: AccountTransactionRow[];
-};
-
-type RmsOverviewResponse = {
-  totals: {
-    charge_count?: number;
-    payment_count?: number;
-    failed_count?: number;
-    pending_count?: number;
-    charge_amount?: string;
-    payment_amount?: string;
-  };
-  recent_activity?: RmsRecordDetail[];
-  failed_host_actions?: RmsExceptionRow[];
-  pending_exceptions?: RmsExceptionRow[];
-  program_mix?: Array<{
-    program_code: string;
-    program_label: string;
-    row_count: number;
-    total_amount: string;
-  }>;
-  accounts?: Array<RmsLinkedAccount & {
-    available_credit_snapshot?: string | null;
-    current_balance_snapshot?: string | null;
-    past_due_snapshot?: string | null;
-    restrictions_snapshot_json?: Record<string, unknown>;
-    last_balance_sync_at?: string | null;
-    last_status_sync_at?: string | null;
-    last_transactions_sync_at?: string | null;
-    last_sync_error?: string | null;
-  }>;
-  sync_health?: {
-    last_repair_poll_at?: string | null;
-    active_exception_count?: number;
-    pending_webhook_count?: number;
-    failed_webhook_count?: number;
-    stale_account_count?: number;
-  };
-};
-
-type RmsExceptionRow = {
-  id: string;
-  rms_record_id?: string | null;
-  account_id?: string | null;
-  exception_type: string;
-  severity: string;
-  status: string;
-  assigned_to_staff_id?: string | null;
-  opened_at: string;
-  resolved_at?: string | null;
-  notes?: string | null;
-  resolution_notes?: string | null;
-  retry_count: number;
-  last_retry_at?: string | null;
-  metadata_json?: Record<string, unknown>;
-};
-
-type RmsReconciliationRun = {
-  id: string;
-  run_scope: string;
-  status: string;
-  started_at: string;
-  completed_at?: string | null;
-  requested_by_staff_id?: string | null;
-  date_from?: string | null;
-  date_to?: string | null;
-  summary_json?: {
-    mismatch_count?: number;
-    retryable_count?: number;
-  };
-  error_message?: string | null;
-};
-
-type RmsReconciliationItem = {
-  id: string;
-  run_id: string;
-  rms_record_id?: string | null;
-  account_id?: string | null;
-  mismatch_type: string;
-  severity: string;
-  status: string;
-  riverside_value_json?: Record<string, unknown>;
-  host_value_json?: Record<string, unknown>;
-  qbo_value_json?: Record<string, unknown>;
-  notes?: string | null;
-  created_at: string;
-};
-
-type RmsReconciliationResponse = {
-  runs?: RmsReconciliationRun[];
-  items?: RmsReconciliationItem[];
-};
-
-type RmsAccountListPreview = {
-  source: "r2s_account_list_report";
-  snapshot_label: "report snapshot";
-  metadata: {
-    sheet_name: string;
-    report_title?: string | null;
-    institution_name?: string | null;
-    merchant_name?: string | null;
-    report_run_at?: string | null;
-    report_run_at_raw?: string | null;
-  };
-  parsed_account_count: number;
-  footer_count?: number | null;
-  total_balance: string;
-  total_minimum_due: string;
-  total_past_due: string;
-  total_open_to_buy: string;
-  warning_count: number;
-  warnings: string[];
-  data_quality: {
-    missing_phones: number;
-    invalid_phones: number;
-    missing_addresses: number;
-    active_balance_count: number;
-    past_due_count: number;
-    zero_open_to_buy_count: number;
-    duplicate_account_number_count: number;
-  };
-  sample_accounts: Array<{
-    account_number: string;
-    name: string;
-    city?: string | null;
-    state?: string | null;
-    zip?: string | null;
-    phone?: string | null;
-    balance: string;
-    minimum_due: string;
-    past_due: string;
-    open_to_buy: string;
-    parser_warnings: string[];
-  }>;
-};
-
-type RmsAccountListBatchSummary = {
-  id: string;
-  source_filename?: string | null;
-  source_file_hash: string;
-  institution_name?: string | null;
-  merchant_name?: string | null;
-  report_run_at?: string | null;
-  uploaded_by_staff_id?: string | null;
-  uploaded_at: string;
-  parsed_account_count: number;
-  footer_account_count?: number | null;
-  total_balance?: string | null;
-  total_minimum_due?: string | null;
-  total_past_due?: string | null;
-  total_open_to_buy?: string | null;
-  warning_summary?: {
-    warnings?: string[];
-    data_quality?: RmsAccountListPreview["data_quality"];
-  } | null;
-  status: string;
-  created_at: string;
-};
-
-type RmsAccountListLatestStatus = {
-  latest?: RmsAccountListBatchSummary | null;
-  stale: boolean;
-  stale_after_days: number;
-  matched_count: number;
-  unmatched_count: number;
-};
-
-type RmsAccountListImportResponse = {
-  batch: RmsAccountListBatchSummary;
-  inserted_snapshot_count: number;
-  warning_count: number;
-  data_quality: RmsAccountListPreview["data_quality"];
 };
 
 export interface RmsChargeAdminSectionProps {
-  onOpenTransactionInBackoffice?: (orderId: string) => void;
-  surface?: "backoffice" | "pos";
+  surface: "pos" | "backoffice";
+  onOpenTransactionInBackoffice?: (transactionId: string) => void;
 }
 
 export default function RmsChargeAdminSection({
+  surface,
   onOpenTransactionInBackoffice,
-  surface = "backoffice",
 }: RmsChargeAdminSectionProps) {
-  const { backofficeHeaders, hasPermission, staffId, staffDisplayName } = useBackofficeAuth();
+  const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
-  const apiAuth = useCallback(
-    () => mergedPosStaffHeaders(backofficeHeaders),
-    [backofficeHeaders],
-  );
 
   const canLegacyView =
     hasPermission("customers.rms_charge") || hasPermission("customers.rms_charge.view");
-  const canManageLinks =
-    hasPermission("customers.rms_charge") ||
-    hasPermission("customers.rms_charge.manage_links");
-  const canPosLookup =
-    hasPermission("pos.rms_charge.lookup") || canManageLinks;
-  const canPosUse = hasPermission("pos.rms_charge.use") || canManageLinks;
-  const canPosHistory =
-    hasPermission("pos.rms_charge.history_basic") || canPosLookup;
-  const canPosPaymentCollect =
-    hasPermission("pos.rms_charge.payment_collect") || canManageLinks;
-  const canResolveExceptions =
-    hasPermission("customers.rms_charge.resolve_exceptions") || canManageLinks;
-  const canReconcile =
-    hasPermission("customers.rms_charge.reconcile") ||
-    hasPermission("customers.rms_charge.reporting") ||
-    canManageLinks;
-  const canReporting =
-    hasPermission("customers.rms_charge.reporting") || canLegacyView;
+
   const canReportToR2s =
     hasPermission("rms_charge.report_to_r2s") ||
     hasPermission("customers.rms_charge.reporting") ||
     hasPermission("customers.rms_charge");
 
+  const apiAuth = useCallback(
+    () => mergedPosStaffHeaders(backofficeHeaders),
+    [backofficeHeaders],
+  );
+
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [selectedCustomerLabel, setSelectedCustomerLabel] = useState("");
-  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<
-    "overview" | "accounts" | "transactions" | "programs" | "exceptions" | "reconciliation"
-  >("overview");
-  const [accounts, setAccounts] = useState<RmsLinkedAccount[]>([]);
-  const [activeAccountId, setActiveAccountId] = useState("");
-  const [accountSummary, setAccountSummary] = useState<PosAccountSummary | null>(null);
-  const [programs, setPrograms] = useState<PosProgramOption[]>([]);
+
   const [records, setRecords] = useState<RmsRecordRow[]>([]);
+  const [loadingRecords, setLoadingRecords] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
+
   const [recordDetail, setRecordDetail] = useState<RmsRecordDetail | null>(null);
   const [loadingRecordDetail, setLoadingRecordDetail] = useState(false);
-  const [accountTransactions, setAccountTransactions] = useState<AccountTransactionRow[]>([]);
-  const [overview, setOverview] = useState<RmsOverviewResponse | null>(null);
-  const [exceptions, setExceptions] = useState<RmsExceptionRow[]>([]);
-  const [reconciliation, setReconciliation] = useState<RmsReconciliationResponse | null>(null);
-  const [resolvingException, setResolvingException] = useState<RmsExceptionRow | null>(null);
+
   const [reportingRecord, setReportingRecord] = useState<RmsRecordDetail | null>(null);
-  const [confirmUnlinkAccount, setConfirmUnlinkAccount] = useState<RmsLinkedAccount | null>(null);
-  const [loadingOverview, setLoadingOverview] = useState(false);
-  const [loadingExceptions, setLoadingExceptions] = useState(false);
-  const [loadingReconciliation, setLoadingReconciliation] = useState(false);
-  const [overviewError, setOverviewError] = useState("");
-  const [exceptionsError, setExceptionsError] = useState("");
-  const [reconciliationError, setReconciliationError] = useState("");
-  const [loadingRecords, setLoadingRecords] = useState(false);
-  const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const [previewingAccountList, setPreviewingAccountList] = useState(false);
-  const [importingAccountList, setImportingAccountList] = useState(false);
-  const [selectedAccountListFile, setSelectedAccountListFile] = useState<File | null>(null);
-  const [accountListPreview, setAccountListPreview] = useState<RmsAccountListPreview | null>(null);
-  const [accountListImportResult, setAccountListImportResult] = useState<RmsAccountListImportResponse | null>(null);
-  const [latestAccountListStatus, setLatestAccountListStatus] = useState<RmsAccountListLatestStatus | null>(null);
-  const [loadingAccountListStatus, setLoadingAccountListStatus] = useState(false);
-  const [assigningExceptionId, setAssigningExceptionId] = useState("");
-  const [retryingExceptionId, setRetryingExceptionId] = useState("");
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
+
   const [from, setFrom] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 90);
-    return d.toISOString().slice(0, 10);
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split("T")[0];
   });
-  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState(() => new Date().toISOString().split("T")[0]);
   const [kind, setKind] = useState<"" | "charge" | "payment">("");
-  const [reportStatus, setReportStatus] = useState<"all" | "unreported" | "reported" | "overdue">("all");
+  const [reportStatus, setReportStatus] = useState<
+    "all" | "unreported" | "reported" | "overdue"
+  >("all");
   const [q, setQ] = useState("");
-  const [linkForm, setLinkForm] = useState({
-    corecredit_customer_id: "",
-    corecredit_account_id: "",
-    status: "active",
-    is_primary: false,
-    program_group: "",
-    verification_source: "manual_backoffice",
-    notes: "",
-  });
-  const activeAccount = useMemo(
-    () => accounts.find((account) => account.corecredit_account_id === activeAccountId) ?? null,
-    [accounts, activeAccountId],
-  );
-  const liveReadConfirmed = false;
-  const manualInfoCodes = [
-    accountSummary?.source !== "corecard_live" ? accountSummary?.warning_code : null,
-    ...programs.map((program) => (program.source !== "corecard_live" ? program.warning_code : null)),
-  ].filter((value): value is string => Boolean(value));
-  const reconciliationScopeMessage = useMemo(() => {
-    if (selectedCustomerId) {
-      return "Reconciliation reviews all RMS Charge activity across customers. Customer lookup does not filter mismatch results on this tab.";
-    }
-    return "Reconciliation reviews all RMS Charge activity across customers. Use this tab for support and finance review, not customer-by-customer browsing.";
-  }, [selectedCustomerId]);
-  const reconciliationItems = useMemo(() => reconciliation?.items ?? [], [reconciliation?.items]);
-  const reconciliationRuns = useMemo(() => reconciliation?.runs ?? [], [reconciliation?.runs]);
-  const openReconciliationItems = useMemo(
-    () =>
-      reconciliationItems.filter(
-        (item) => !["resolved", "cleared", "closed", "dismissed"].includes(item.status.toLowerCase()),
-      ),
-    [reconciliationItems],
-  );
-  const latestReconciliationRun = reconciliationRuns[0] ?? null;
-  const latestSuccessfulReconciliationRun =
-    reconciliationRuns.find((run) => {
-      const status = run.status.toLowerCase();
-      return !run.error_message && ["completed", "complete", "success", "succeeded"].includes(status);
-    }) ?? null;
-  const reconciliationSeverityCounts = useMemo(
-    () =>
-      openReconciliationItems.reduce(
-        (acc, item) => {
-          acc[reconciliationSeverityBand(item.severity)] += 1;
-          return acc;
-        },
-        { blocking: 0, warning: 0, informational: 0 },
-      ),
-    [openReconciliationItems],
-  );
-  const reconciliationWhatChanged = useMemo(() => {
-    const latestCount =
-      latestReconciliationRun?.summary_json?.mismatch_count ?? openReconciliationItems.length;
-    if (!latestReconciliationRun) return "No reconciliation run has completed in this view yet.";
-    if (latestCount === 0) return "No RMS Charge mismatches were found in the latest run.";
-    return `${latestCount} RMS Charge mismatch${latestCount === 1 ? "" : "es"} still need review.`;
-  }, [latestReconciliationRun, openReconciliationItems.length]);
-  const reconciliationBlockingSummary =
-    reconciliationSeverityCounts.blocking > 0
-      ? `${reconciliationSeverityCounts.blocking} blocking item${reconciliationSeverityCounts.blocking === 1 ? "" : "s"} may affect pickup/payment visibility.`
-      : "No blocking accounting differences detected in loaded mismatch rows.";
-  const reconciliationSafeRerunSummary =
-    latestReconciliationRun?.summary_json?.retryable_count &&
-    latestReconciliationRun.summary_json.retryable_count > 0
-      ? `${latestReconciliationRun.summary_json.retryable_count} item${latestReconciliationRun.summary_json.retryable_count === 1 ? "" : "s"} can be safely rechecked after correction.`
-      : "Safe rerun available; it re-checks RMS Charge records without posting payments or changing accounting totals.";
 
-  const loadAccounts = useCallback(async () => {
-    if (!selectedCustomerId || !(canLegacyView || canManageLinks || canPosUse || canPosLookup)) {
-      setAccounts([]);
-      setActiveAccountId("");
-      return;
-    }
-    setLoadingAccounts(true);
+  const [activeTab, setActiveTab] = useState<"transactions" | "import">("transactions");
+  const [latestImport, setLatestImport] = useState<any>(null);
+  const [loadingLatest, setLoadingLatest] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [previewData, setPreviewData] = useState<any>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  const fetchLatestImport = useCallback(async () => {
+    setLoadingLatest(true);
     try {
-      const res = await fetch(
-        `${baseUrl}/api/customers/rms-charge/customer/${encodeURIComponent(selectedCustomerId)}/accounts`,
-        { headers: apiAuth() },
-      );
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not load linked accounts");
-      }
-      const data = (await res.json()) as RmsLinkedAccount[];
-      setAccounts(Array.isArray(data) ? data : []);
-      const preferred =
-        data.find((account) => account.is_primary)?.corecredit_account_id ??
-        data[0]?.corecredit_account_id ??
-        "";
-      setActiveAccountId((current) => current || preferred);
+      const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/latest`, {
+        headers: apiAuth(),
+      });
+      if (!res.ok) throw new Error("Could not load latest import details");
+      const data = await res.json();
+      setLatestImport(data);
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not load linked accounts", "error");
-      setAccounts([]);
-      setActiveAccountId("");
+      console.error(error);
     } finally {
-      setLoadingAccounts(false);
+      setLoadingLatest(false);
     }
-  }, [apiAuth, canLegacyView, canManageLinks, canPosLookup, canPosUse, selectedCustomerId, toast]);
-
-  const loadPosSummary = useCallback(async () => {
-    if (
-      !selectedCustomerId ||
-      !activeAccountId ||
-      !(
-        canPosUse ||
-        canPosLookup ||
-        canLegacyView ||
-        canManageLinks
-      )
-    ) {
-      setAccountSummary(null);
-      setPrograms([]);
-      setAccountTransactions([]);
-      return;
-    }
-    try {
-      const params = new URLSearchParams({ customer_id: selectedCustomerId });
-      const summaryUrl =
-        surface === "pos"
-          ? `${baseUrl}/api/pos/rms-charge/account-summary?customer_id=${encodeURIComponent(selectedCustomerId)}&account_id=${encodeURIComponent(activeAccountId)}`
-          : `${baseUrl}/api/customers/rms-charge/accounts/${encodeURIComponent(activeAccountId)}/balances?${params.toString()}`;
-      const programsUrl =
-        surface === "pos"
-          ? `${baseUrl}/api/pos/rms-charge/programs?customer_id=${encodeURIComponent(selectedCustomerId)}&account_id=${encodeURIComponent(activeAccountId)}`
-          : `${baseUrl}/api/pos/rms-charge/programs?customer_id=${encodeURIComponent(selectedCustomerId)}&account_id=${encodeURIComponent(activeAccountId)}`;
-      const txUrl = `${baseUrl}/api/customers/rms-charge/accounts/${encodeURIComponent(activeAccountId)}/transactions?${params.toString()}`;
-      const [programsRes, summaryRes, transactionsRes] = await Promise.all([
-        fetch(programsUrl, { headers: apiAuth() }),
-        fetch(summaryUrl, { headers: apiAuth() }),
-        fetch(txUrl, { headers: apiAuth() }),
-      ]);
-      if (!programsRes.ok || !summaryRes.ok || !transactionsRes.ok) {
-        const body = (await summaryRes.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not load RMS Charge details");
-      }
-      const programsBody = (await programsRes.json()) as PosProgramOption[];
-      const summaryBody = (await summaryRes.json()) as PosAccountSummary;
-      const transactionsBody = (await transactionsRes.json()) as AccountTransactionsResponse;
-      setPrograms(Array.isArray(programsBody) ? programsBody : []);
-      setAccountSummary(summaryBody as PosAccountSummary);
-      setAccountTransactions(Array.isArray(transactionsBody?.rows) ? transactionsBody.rows : []);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not load RMS Charge details", "error");
-      setPrograms([]);
-      setAccountSummary(null);
-      setAccountTransactions([]);
-    }
-  }, [activeAccountId, apiAuth, canLegacyView, canManageLinks, canPosLookup, canPosUse, selectedCustomerId, surface, toast]);
-
-  const fetchRecords = useCallback(async (nextOffset: number, append: boolean) => {
-    if (surface === "pos" || !canLegacyView) return;
-    setLoadingRecords(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("from", from);
-      params.set("to", to);
-      if (kind) params.set("kind", kind);
-      if (reportStatus !== "all") params.set("r2s_report_status", reportStatus);
-      if (selectedCustomerId) params.set("customer_id", selectedCustomerId);
-      if (q.trim()) params.set("q", q.trim());
-      params.set("limit", String(PAGE));
-      params.set("offset", String(nextOffset));
-      const res = await fetch(
-        `${baseUrl}/api/customers/rms-charge/records?${params.toString()}`,
-        { headers: apiAuth() },
-      );
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not load records");
-      }
-      const data = (await res.json()) as RmsRecordRow[];
-      setHasMore(data.length >= PAGE);
-      setOffset(nextOffset + data.length);
-      setRecords((prev) => (append ? [...prev, ...data] : data));
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not load records", "error");
-      if (!append) setRecords([]);
-      setHasMore(false);
-    } finally {
-      setLoadingRecords(false);
-    }
-  }, [apiAuth, canLegacyView, from, kind, q, reportStatus, selectedCustomerId, surface, to, toast]);
+  }, [apiAuth]);
 
   useEffect(() => {
-    void loadAccounts();
-  }, [loadAccounts]);
+    if (activeTab === "import") {
+      void fetchLatestImport();
+    }
+  }, [activeTab, fetchLatestImport]);
 
-  useEffect(() => {
-    void loadPosSummary();
-  }, [loadPosSummary]);
+  const handlePreview = async (file: File) => {
+    setUploading(true);
+    setPreviewError(null);
+    setPreviewData(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/preview`, {
+        method: "POST",
+        headers: apiAuth(),
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to preview file");
+      setPreviewData(data);
+      toast("Spreadsheet preview loaded successfully.", "success");
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : "Failed to preview file");
+      toast(error instanceof Error ? error.message : "Failed to preview file", "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!uploadFile) return;
+    setUploading(true);
+    setPreviewError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", uploadFile);
+      const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/import`, {
+        method: "POST",
+        headers: apiAuth(),
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to import file");
+      toast("RMS account list imported successfully.", "success");
+      setPreviewData(null);
+      setUploadFile(null);
+      void fetchLatestImport();
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : "Failed to import file");
+      toast(error instanceof Error ? error.message : "Failed to import file", "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const fetchRecords = useCallback(
+    async (nextOffset: number, append: boolean) => {
+      if (surface === "pos" || !canLegacyView) return;
+      setLoadingRecords(true);
+      try {
+        const params = new URLSearchParams();
+        params.set("from", from);
+        params.set("to", to);
+        if (kind) params.set("kind", kind);
+        if (reportStatus !== "all") params.set("r2s_report_status", reportStatus);
+        if (selectedCustomerId) params.set("customer_id", selectedCustomerId);
+        if (q.trim()) params.set("q", q.trim());
+        params.set("limit", String(PAGE));
+        params.set("offset", String(nextOffset));
+        const res = await fetch(
+          `${baseUrl}/api/customers/rms-charge/records?${params.toString()}`,
+          { headers: apiAuth() },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? "Could not load records");
+        }
+        const data = (await res.json()) as RmsRecordRow[];
+        setHasMore(data.length >= PAGE);
+        setOffset(nextOffset + data.length);
+        setRecords((prev) => (append ? [...prev, ...data] : data));
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Could not load records", "error");
+        if (!append) setRecords([]);
+        setHasMore(false);
+      } finally {
+        setLoadingRecords(false);
+      }
+    },
+    [apiAuth, canLegacyView, from, kind, q, reportStatus, selectedCustomerId, surface, to, toast],
+  );
 
   useEffect(() => {
     if (surface === "pos" || !canLegacyView) return;
@@ -725,1745 +256,321 @@ export default function RmsChargeAdminSection({
     void fetchRecords(0, false);
   }, [canLegacyView, fetchRecords, from, kind, q, reportStatus, selectedCustomerId, surface, to]);
 
-  const loadRecordDetail = useCallback(async (recordId: string) => {
-    if (!recordId || surface === "pos") return;
-    setLoadingRecordDetail(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/customers/rms-charge/records/${encodeURIComponent(recordId)}`, {
-        headers: apiAuth(),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not load RMS Charge record detail");
-      }
-      const data = (await res.json()) as RmsRecordDetail;
-      setRecordDetail(data);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not load RMS Charge record detail", "error");
-      setRecordDetail(null);
-    } finally {
-      setLoadingRecordDetail(false);
-    }
-  }, [apiAuth, surface, toast]);
-
-  const submitR2sReportNote = useCallback(async (note: string) => {
-    if (!reportingRecord) return false;
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/customers/rms-charge/records/${encodeURIComponent(reportingRecord.id)}/r2s-report`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...apiAuth(),
-          },
-          body: JSON.stringify({ note: note.trim() || undefined }),
-        },
-      );
-      const body = (await res.json().catch(() => ({}))) as RmsRecordDetail & { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "We couldn't mark this RMS Charge record reported.");
-      setRecordDetail(body);
-      setRecords((current) =>
-        current.map((row) => (row.id === body.id ? { ...row, ...body } : row)),
-      );
-      setReportingRecord(null);
-      toast("RMS Charge marked reported to R2S.", "success");
-      await fetchRecords(0, false);
-      return true;
-    } catch (error) {
-      toast(
-        error instanceof Error ? error.message : "We couldn't mark this RMS Charge record reported.",
-        "error",
-      );
-      return false;
-    }
-  }, [apiAuth, fetchRecords, reportingRecord, toast]);
-
-  const loadOperationalData = useCallback(async () => {
-    if (surface === "pos") return;
-    if (!(canLegacyView || canManageLinks || canReporting || canResolveExceptions || canReconcile)) {
-      setOverview(null);
-      setExceptions([]);
-      setReconciliation(null);
-      setOverviewError("");
-      setExceptionsError("");
-      setReconciliationError("");
-      return;
-    }
-    const customerParam = selectedCustomerId ? `customer_id=${encodeURIComponent(selectedCustomerId)}` : "";
-    let failureCount = 0;
-
-    const loadOverviewSection = async () => {
-      setLoadingOverview(true);
+  const loadRecordDetail = useCallback(
+    async (recordId: string) => {
+      if (!recordId || surface === "pos") return;
+      setLoadingRecordDetail(true);
       try {
         const res = await fetch(
-          `${baseUrl}/api/customers/rms-charge/overview${customerParam ? `?${customerParam}` : ""}`,
-          { headers: apiAuth() },
+          `${baseUrl}/api/customers/rms-charge/records/${encodeURIComponent(recordId)}`,
+          {
+            headers: apiAuth(),
+          },
         );
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? "We couldn't refresh the RMS overview right now.");
+          throw new Error(body.error ?? "We couldn't load transaction details.");
         }
-        const overviewBody = (await res.json()) as RmsOverviewResponse;
-        setOverview(overviewBody);
-        setOverviewError("");
+        const data = (await res.json()) as RmsRecordDetail;
+        setRecordDetail(data);
       } catch (error) {
-        failureCount += 1;
-        setOverviewError(
-          error instanceof Error ? error.message : "We couldn't refresh the RMS overview right now.",
+        toast(
+          error instanceof Error ? error.message : "We couldn't load transaction details.",
+          "error",
         );
+        setRecordDetail(null);
       } finally {
-        setLoadingOverview(false);
+        setLoadingRecordDetail(false);
       }
-    };
+    },
+    [apiAuth, surface, toast],
+  );
 
-    const loadExceptionsSection = async () => {
-      setLoadingExceptions(true);
+  const submitR2sReportNote = useCallback(
+    async (note: string) => {
+      if (!reportingRecord) return false;
       try {
         const res = await fetch(
-          `${baseUrl}/api/customers/rms-charge/exceptions?${new URLSearchParams({
-            ...(selectedCustomerId ? { customer_id: selectedCustomerId } : {}),
-            limit: "50",
-          }).toString()}`,
-          { headers: apiAuth() },
-        );
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? "We couldn't refresh RMS issues right now.");
-        }
-        const exceptionsBody = (await res.json()) as RmsExceptionRow[];
-        setExceptions(Array.isArray(exceptionsBody) ? exceptionsBody : []);
-        setExceptionsError("");
-      } catch (error) {
-        failureCount += 1;
-        setExceptionsError(
-          error instanceof Error ? error.message : "We couldn't refresh RMS issues right now.",
-        );
-      } finally {
-        setLoadingExceptions(false);
-      }
-    };
-
-    const loadReconciliationSection = async () => {
-      setLoadingReconciliation(true);
-      try {
-        const res = await fetch(`${baseUrl}/api/customers/rms-charge/reconciliation?limit=10`, {
-          headers: apiAuth(),
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? "We couldn't refresh reconciliation review right now.");
-        }
-        const reconciliationBody = (await res.json()) as RmsReconciliationResponse;
-        setReconciliation(reconciliationBody);
-        setReconciliationError("");
-      } catch (error) {
-        failureCount += 1;
-        setReconciliationError(
-          error instanceof Error ? error.message : "We couldn't refresh reconciliation review right now.",
-        );
-      } finally {
-        setLoadingReconciliation(false);
-      }
-    };
-
-    await Promise.all([
-      loadOverviewSection(),
-      loadExceptionsSection(),
-      loadReconciliationSection(),
-    ]);
-
-    if (failureCount >= 3) {
-      toast("We couldn't load RMS Charge activity right now.", "error");
-    } else if (failureCount > 0) {
-      toast("Some RMS support sections could not be refreshed. Other sections are still available.", "error");
-    }
-  }, [
-    apiAuth,
-    canLegacyView,
-    canManageLinks,
-    canReconcile,
-    canReporting,
-    canResolveExceptions,
-    selectedCustomerId,
-    surface,
-    toast,
-  ]);
-
-  const assignExceptionToCurrentStaff = useCallback(async (exception: RmsExceptionRow) => {
-    if (!staffId) {
-      toast("Sign back in before claiming RMS issues.", "error");
-      return;
-    }
-    setAssigningExceptionId(exception.id);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/customers/rms-charge/exceptions/${encodeURIComponent(exception.id)}/assign`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...apiAuth(),
+          `${baseUrl}/api/customers/rms-charge/records/${encodeURIComponent(reportingRecord.id)}/r2s-report`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...apiAuth(),
+            },
+            body: JSON.stringify({ note: note.trim() || undefined }),
           },
-          body: JSON.stringify({
-            assigned_to_staff_id: staffId,
-            notes: `Claimed by ${staffDisplayName || "current staff member"} in RMS Charge workspace`,
-          }),
-        },
-      );
-      const body = (await res.json().catch(() => ({}))) as RmsExceptionRow & { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "We couldn't claim this RMS issue.");
-      if (body.id) {
-        setExceptions((current) =>
+        );
+        const body = (await res.json().catch(() => ({}))) as RmsRecordDetail & { error?: string };
+        if (!res.ok) throw new Error(body.error ?? "We couldn't mark this RMS Charge record reported.");
+        setRecordDetail(body);
+        setRecords((current) =>
           current.map((row) => (row.id === body.id ? { ...row, ...body } : row)),
         );
+        setReportingRecord(null);
+        toast("RMS Charge marked reported to R2S.", "success");
+        await fetchRecords(0, false);
+        return true;
+      } catch (error) {
+        toast(
+          error instanceof Error ? error.message : "We couldn't mark this RMS Charge record reported.",
+          "error",
+        );
+        return false;
       }
-      toast("RMS issue assigned to you.", "success");
-      await loadOperationalData();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "We couldn't claim this RMS issue.", "error");
-    } finally {
-      setAssigningExceptionId("");
-    }
-  }, [apiAuth, loadOperationalData, staffDisplayName, staffId, toast]);
+    },
+    [apiAuth, fetchRecords, reportingRecord, toast],
+  );
 
-  const resolveException = useCallback(async (exceptionId: string) => {
-    setResolvingException(exceptions.find((row) => row.id === exceptionId) ?? null);
-  }, [exceptions]);
+  const refreshAll = useCallback(() => {
+    setOffset(0);
+    void fetchRecords(0, false);
+  }, [fetchRecords]);
 
-  const retryException = useCallback(async (exception: RmsExceptionRow) => {
-    setRetryingExceptionId(exception.id);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/customers/rms-charge/exceptions/${encodeURIComponent(exception.id)}/retry`,
-        {
-          method: "POST",
-          headers: apiAuth(),
-        },
-      );
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "We couldn't retry this RMS issue.");
-      toast("RMS issue retry completed.", "success");
-      await loadOperationalData();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "We couldn't retry this RMS issue.", "error");
-    } finally {
-      setRetryingExceptionId("");
-    }
-  }, [apiAuth, loadOperationalData, toast]);
+  if (surface === "pos") {
+    return (
+      <div className="ui-page p-6 text-sm text-app-text-muted">
+        Administrative RMS actions are disabled inside POS terminal shell mode.
+      </div>
+    );
+  }
 
-  const submitResolutionNote = useCallback(async (note: string) => {
-    const trimmed = note.trim();
-    if (!resolvingException) return false;
-    if (!trimmed) {
-      toast("Add a short resolution note so the next staff member knows what cleared the issue.", "error");
-      return false;
-    }
-    try {
-      const res = await fetch(`${baseUrl}/api/customers/rms-charge/exceptions/${encodeURIComponent(resolvingException.id)}/resolve`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...apiAuth(),
-        },
-        body: JSON.stringify({ resolution_notes: trimmed }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "We couldn't mark this issue as resolved.");
-      toast("Issue marked as resolved.", "success");
-      await loadOperationalData();
-      setResolvingException(null);
-      return true;
-    } catch (error) {
-      toast(
-        error instanceof Error ? error.message : "We couldn't mark this issue as resolved.",
-        "error",
-      );
-      return false;
-    }
-  }, [apiAuth, loadOperationalData, resolvingException, toast]);
-
-  const runReconciliation = useCallback(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/customers/rms-charge/reconciliation/run`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...apiAuth(),
-        },
-        body: JSON.stringify({ run_scope: "manual_workspace" }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "We couldn't run reconciliation right now.");
-      toast("Reconciliation finished.", "success");
-      await loadOperationalData();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "We couldn't run reconciliation right now.", "error");
-    }
-  }, [apiAuth, loadOperationalData, toast]);
-
-  const copyReconciliationSupportSnapshot = useCallback(() => {
-    const lines = [
-      "RMS Charge reconciliation support snapshot",
-      `What changed: ${reconciliationWhatChanged}`,
-      `Blocking summary: ${reconciliationBlockingSummary}`,
-      `Open mismatches: ${openReconciliationItems.length}`,
-      `Severity counts: ${reconciliationSeverityCounts.blocking} blocking, ${reconciliationSeverityCounts.warning} warning, ${reconciliationSeverityCounts.informational} informational`,
-      `Latest run: ${latestReconciliationRun ? `${latestReconciliationRun.status} at ${fmtDate(latestReconciliationRun.completed_at ?? latestReconciliationRun.started_at)}` : "none loaded"}`,
-      `Last successful run: ${latestSuccessfulReconciliationRun ? fmtDate(latestSuccessfulReconciliationRun.completed_at ?? latestSuccessfulReconciliationRun.started_at) : "none loaded"}`,
-      `Requested by: ${friendlyStaffOwnerLabel(latestReconciliationRun?.requested_by_staff_id, staffId, staffDisplayName)}`,
-      `Refresh state: ${reconciliationError ? "refresh failed; stale reconciliation may be shown" : "latest loaded reconciliation shown"}`,
-      "Safe rerun: reconciliation re-checks records and records review findings; it does not post payments or change accounting totals.",
-    ];
-    void navigator.clipboard
-      .writeText(lines.join("\n"))
-      .then(() => toast("RMS reconciliation support snapshot copied.", "success"))
-      .catch(() => toast("Could not copy the support snapshot.", "error"));
-  }, [
-    latestReconciliationRun,
-    latestSuccessfulReconciliationRun,
-    openReconciliationItems.length,
-    reconciliationBlockingSummary,
-    reconciliationError,
-    reconciliationSeverityCounts.blocking,
-    reconciliationSeverityCounts.informational,
-    reconciliationSeverityCounts.warning,
-    reconciliationWhatChanged,
-    staffDisplayName,
-    staffId,
-    toast,
-  ]);
-
-  useEffect(() => {
-    void loadOperationalData();
-  }, [loadOperationalData]);
-
-  const submitLink = useCallback(async () => {
-    if (!selectedCustomerId) {
-      toast("Select a customer before linking an account.", "error");
-      return;
-    }
-    try {
-      const res = await fetch(`${baseUrl}/api/customers/rms-charge/link-account`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...apiAuth(),
-        },
-        body: JSON.stringify({
-          customer_id: selectedCustomerId,
-          ...linkForm,
-          program_group: linkForm.program_group || undefined,
-          notes: linkForm.notes || undefined,
-        }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        throw new Error(body.error ?? "Could not link account");
-      }
-      toast("RMS Charge account linked.", "success");
-      setLinkForm({
-        corecredit_customer_id: "",
-        corecredit_account_id: "",
-        status: "active",
-        is_primary: false,
-        program_group: "",
-        verification_source: "manual_backoffice",
-        notes: "",
-      });
-      await loadAccounts();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "We couldn't link this account. Please try again.", "error");
-    }
-  }, [apiAuth, linkForm, loadAccounts, selectedCustomerId, toast]);
-
-  const loadLatestAccountListStatus = useCallback(async () => {
-    if (surface !== "backoffice" || !(canLegacyView || canReportToR2s || canManageLinks)) return;
-    setLoadingAccountListStatus(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/latest`, {
-        headers: apiAuth(),
-      });
-      const body = (await res.json().catch(() => ({}))) as RmsAccountListLatestStatus & { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Could not load RMS Account List status");
-      setLatestAccountListStatus(body);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not load RMS Account List status", "error");
-    } finally {
-      setLoadingAccountListStatus(false);
-    }
-  }, [apiAuth, canLegacyView, canManageLinks, canReportToR2s, surface, toast]);
-
-  const previewAccountList = useCallback(async (file: File | null) => {
-    if (!file) return;
-    setPreviewingAccountList(true);
-    setAccountListPreview(null);
-    setAccountListImportResult(null);
-    setSelectedAccountListFile(file);
-    try {
-      const headers = new Headers(apiAuth());
-      headers.set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/preview`, {
-        method: "POST",
-        headers,
-        body: await file.arrayBuffer(),
-      });
-      const body = (await res.json().catch(() => ({}))) as RmsAccountListPreview & { error?: string };
-      if (!res.ok) {
-        throw new Error(body.error ?? "We couldn't preview this RMS Account List report.");
-      }
-      setAccountListPreview(body);
-      toast("RMS Account List preview parsed. No records were imported.", "success");
-    } catch (error) {
-      toast(
-        error instanceof Error ? error.message : "We couldn't preview this RMS Account List report.",
-        "error",
-      );
-    } finally {
-      setPreviewingAccountList(false);
-    }
-  }, [apiAuth, toast]);
-
-  const importAccountList = useCallback(async () => {
-    if (!selectedAccountListFile || !accountListPreview) {
-      toast("Preview the RMS Account List before importing it.", "error");
-      return;
-    }
-    setImportingAccountList(true);
-    try {
-      const headers = new Headers(apiAuth());
-      headers.set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      const params = new URLSearchParams({ filename: selectedAccountListFile.name });
-      const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/import?${params.toString()}`, {
-        method: "POST",
-        headers,
-        body: await selectedAccountListFile.arrayBuffer(),
-      });
-      const body = (await res.json().catch(() => ({}))) as RmsAccountListImportResponse & { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "We couldn't import this RMS Account List report.");
-      setAccountListImportResult(body);
-      toast("RMS Account List snapshot imported. No customers or financial records were created.", "success");
-      await loadLatestAccountListStatus();
-    } catch (error) {
-      toast(
-        error instanceof Error ? error.message : "We couldn't import this RMS Account List report.",
-        "error",
-      );
-    } finally {
-      setImportingAccountList(false);
-    }
-  }, [accountListPreview, apiAuth, loadLatestAccountListStatus, selectedAccountListFile, toast]);
-
-  useEffect(() => {
-    void loadLatestAccountListStatus();
-  }, [loadLatestAccountListStatus]);
-
-  const unlinkAccount = useCallback(async (account: RmsLinkedAccount) => {
-    try {
-      const res = await fetch(`${baseUrl}/api/customers/rms-charge/unlink-account`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...apiAuth(),
-        },
-        body: JSON.stringify({
-          customer_id: account.customer_id,
-          link_id: account.id,
-        }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        throw new Error(body.error ?? "Could not unlink account");
-      }
-      toast("RMS Charge account removed.", "success");
-      await loadAccounts();
-      setConfirmUnlinkAccount(null);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "We couldn't remove this account link. Please try again.", "error");
-    }
-  }, [apiAuth, loadAccounts, toast]);
-
-  const displayExceptions = useMemo(() => {
-    if (!staffId) return exceptions;
-    return [...exceptions].sort((a, b) => {
-      const aMine = a.assigned_to_staff_id === staffId ? 0 : 1;
-      const bMine = b.assigned_to_staff_id === staffId ? 0 : 1;
-      return aMine - bMine;
-    });
-  }, [exceptions, staffId]);
-
-  return (
-    <div className="ui-page flex min-h-0 flex-1 flex-col p-6">
-      <div className="mb-4 shrink-0">
-        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
-          {surface === "pos" ? "Register" : "Customers"}
-        </p>
-        <h2 className="text-2xl font-black tracking-tight text-app-text">
-          RMS Charge
-        </h2>
-        <p className="mt-1 max-w-3xl text-sm text-app-text-muted">
-          {surface === "pos"
-            ? "Use this view to check the customer's RMS account, recent activity, and available programs."
-            : "Use this all-customer workspace for RMS Charge accounts, reporting to R2S, transaction history, and reconciliation."}
+  if (!canLegacyView) {
+    return (
+      <div className="ui-page p-6">
+        <p className="text-sm text-app-text-muted">
+          You don&apos;t have permission to view the RMS Charge transactions log.
         </p>
       </div>
+    );
+  }
 
-      {surface === "backoffice" ? (
-        <div className="mb-4 flex flex-wrap gap-2">
-          {[
-            ["overview", "Overview"],
-            ["accounts", "Accounts"],
-            ["transactions", "Transactions"],
-            ["programs", "Programs"],
-            ["exceptions", "Exceptions"],
-            ["reconciliation", "Reconciliation"],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              data-testid={`rms-workspace-tab-${id}`}
-              onClick={() =>
-                setActiveWorkspaceTab(
-                  id as
-                    | "overview"
-                    | "accounts"
-                    | "transactions"
-                    | "programs"
-                    | "exceptions"
-                    | "reconciliation",
-                )
-              }
-              className={`rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
-                activeWorkspaceTab === id
-                  ? "border-app-accent bg-app-accent/10 text-app-accent"
-                  : "border-app-border bg-app-surface text-app-text-muted hover:text-app-text"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+  return (
+    <div className="ui-page flex h-full flex-col p-4 sm:p-6 animate-in fade-in duration-500">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-app-border/40 pb-4">
+        <div>
+          <h2 className="text-2xl font-black uppercase tracking-tight text-app-text">
+            RMS Charge Workspace
+          </h2>
+          <p className="mt-1 text-xs text-app-text-muted">
+            View manual RMS Charge transactions log, reference postings, and upload the weekly accounts lists.
+          </p>
         </div>
-      ) : null}
+        {activeTab === "transactions" ? (
+          <button
+            type="button"
+            onClick={refreshAll}
+            className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs"
+          >
+            <RefreshCw size={14} className={loadingRecords ? "animate-spin" : ""} />
+            Refresh
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={fetchLatestImport}
+            className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs"
+          >
+            <RefreshCw size={14} className={loadingLatest ? "animate-spin" : ""} />
+            Refresh Status
+          </button>
+        )}
+      </div>
 
-      <div className="mb-4 grid gap-4 xl:grid-cols-[1.3fr,1fr]">
+      <div className="mb-6 flex gap-2 rounded-xl bg-app-surface-3 p-1 w-fit border border-app-border">
+        <button
+          type="button"
+          onClick={() => setActiveTab("transactions")}
+          className={`rounded-lg px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${
+            activeTab === "transactions"
+              ? "bg-app-accent text-white shadow-md shadow-app-accent/20"
+              : "text-app-text-muted hover:text-app-text"
+          }`}
+        >
+          Transactions Log
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("import")}
+          className={`rounded-lg px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${
+            activeTab === "import"
+              ? "bg-app-accent text-white shadow-md shadow-app-accent/20"
+              : "text-app-text-muted hover:text-app-text"
+          }`}
+        >
+          Weekly Account Import
+        </button>
+      </div>
+
+      {activeTab === "transactions" ? (
+        <>
+          <div className="mb-4 grid gap-4 xl:grid-cols-[1.3fr,1fr]">
         <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Customer Lookup
+                Customer filter
               </p>
               <h3 className="text-lg font-black tracking-tight text-app-text">
-                Linked Accounts
+                Filter by Customer
               </h3>
             </div>
-            <button
-              type="button"
-              data-testid="rms-linked-accounts-refresh"
-              onClick={() => void loadAccounts()}
-              className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
-            >
-              <RefreshCw size={14} />
-            </button>
-          </div>
-
-          <div className="mt-4">
             {selectedCustomerId ? (
-              <div className="flex h-[42px] items-center justify-between rounded-xl border border-app-accent bg-app-accent/5 px-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-black text-app-text">
-                    {selectedCustomerLabel || "Selected customer"}
-                  </div>
-                  <div
-                    data-testid="rms-selected-customer-id"
-                    className="truncate text-[10px] font-black uppercase tracking-widest text-app-accent"
-                  >
-                    {selectedCustomerId}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedCustomerId("");
-                    setSelectedCustomerLabel("");
-                  }}
-                  className="ml-3 text-app-accent hover:text-black"
-                  aria-label="Clear customer context"
-                >
-                  <CloseIcon size={14} />
-                </button>
-              </div>
-            ) : canPosLookup || canLegacyView || canManageLinks ? (
-              <CustomerSearchInput
-                onSelect={(customer) => {
-                  setSelectedCustomerId(customer.id);
-                  setSelectedCustomerLabel(
-                    `${customer.first_name} ${customer.last_name}${customer.customer_code ? ` · ${customer.customer_code}` : ""}`,
-                  );
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCustomerId("");
+                  setSelectedCustomerLabel("");
                 }}
-                placeholder="Search customer for RMS Charge…"
-                className="py-0.5"
-              />
-            ) : (
-              <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                Your role does not include RMS Charge lookup access.
-              </div>
-            )}
+                className="text-xs font-black uppercase tracking-widest text-app-danger"
+              >
+                Clear Filter
+              </button>
+            ) : null}
           </div>
-
-          <div className="mt-4 space-y-3">
-            {loadingAccounts ? (
-              <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                Loading linked accounts…
-              </div>
-            ) : accounts.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                {selectedCustomerId
-                  ? "No linked RMS Charge accounts for this customer yet."
-                  : "Search a customer to review linked RMS Charge accounts."}
-              </div>
-            ) : (
-              accounts.map((account) => (
-                <div
-                  key={account.id}
-                  className={`rounded-xl border p-4 transition-all ${
-                    activeAccountId === account.corecredit_account_id
-                      ? "border-app-accent bg-app-accent/5"
-                      : "border-app-border bg-app-bg"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setActiveAccountId(account.corecredit_account_id)}
-                      className="min-w-0 text-left"
-                    >
-                      <div className="text-lg font-black italic text-app-text">
-                        {account.masked_account}
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        <span className="rounded-full bg-app-surface px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          {account.status}
-                        </span>
-                        {account.is_primary ? (
-                          <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-700">
-                            Primary
-                          </span>
-                        ) : null}
-                        {account.program_group ? (
-                          <span className="rounded-full bg-amber-500/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-amber-700">
-                            {account.program_group}
-                          </span>
-                        ) : null}
-                      </div>
-                    </button>
-
-                    {surface === "backoffice" && canManageLinks ? (
-                      <button
-                        type="button"
-                        data-testid={`rms-account-unlink-${account.id}`}
-                        onClick={() => setConfirmUnlinkAccount(account)}
-                        className="rounded-lg border border-rose-300/40 bg-rose-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-700"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          <Unlink size={14} />
-                          Remove Link
-                        </span>
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-3 grid gap-2 md:grid-cols-2 text-[11px]">
-                    <div className="rounded-lg bg-app-surface px-3 py-2">
-                      <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        RMS Customer ID
-                      </div>
-                      <div className="mt-1 font-mono text-app-text">
-                        {account.corecredit_customer_id}
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-app-surface px-3 py-2">
-                      <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        Last Verified
-                      </div>
-                      <div className="mt-1 text-app-text">
-                        {fmtDate(account.last_verified_at)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
+          <div className="mt-4">
+            <CustomerSearchInput
+              key={selectedCustomerId}
+              defaultValue={selectedCustomerLabel}
+              onSelect={(customer: Customer) => {
+                setSelectedCustomerId(customer.id);
+                setSelectedCustomerLabel(`${customer.first_name} ${customer.last_name}`);
+              }}
+              placeholder="Search customers to filter RMS records..."
+            />
           </div>
-        </div>
-
-        <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            {surface === "pos" ? "Register RMS" : activeWorkspaceTab}
-          </p>
-          <h3 className="text-lg font-black tracking-tight text-app-text">
-            {surface === "pos"
-              ? "Slim RMS Charge Workspace"
-              : activeWorkspaceTab === "overview"
-                ? "Operational Overview"
-                : activeWorkspaceTab === "accounts"
-                  ? "Accounts & Verification"
-                  : activeWorkspaceTab === "transactions"
-                    ? "RMS Charge Reporting"
-                    : activeWorkspaceTab === "programs"
-                      ? "Program Visibility"
-                      : activeWorkspaceTab === "exceptions"
-                        ? "Exception Queue"
-                        : "Reconciliation & QBO Support"}
-          </h3>
-
-          {activeAccount ? (
-            <div
-              className={`mt-4 rounded-xl border p-3 text-xs font-semibold leading-5 ${
-                liveReadConfirmed
-                  ? "border-emerald-300/50 bg-emerald-500/10 text-emerald-800"
-                  : "border-app-border bg-app-bg text-app-text-muted"
-              }`}
-            >
-              <div className="flex items-start gap-2">
-                {liveReadConfirmed ? (
-                  <ShieldCheck className="mt-0.5 h-3.5 w-3.5" aria-hidden />
-                ) : (
-                  <Link2 className="mt-0.5 h-3.5 w-3.5" aria-hidden />
-                )}
-                <div>
-                  <div className="text-[10px] font-black uppercase tracking-widest">
-                    RMS Charge Workflow
-                  </div>
-                  <div className="mt-1">
-                    Account: {activeAccount.masked_account} · Workflow: {sourceLabel(accountSummary?.source)}
-                  </div>
-                  <div>
-                    Program: {programs.length ? `${programs.length} available` : "Manual review"}
-                  </div>
-                  {liveReadConfirmed ? (
-                    <div className="mt-1">RMS account read confirmed for this account.</div>
-                  ) : (
-                    <div className="mt-1">{manualWorkflowCopy(manualInfoCodes[0])}</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="mt-4 rounded-xl border border-app-warning/40 bg-app-warning/10 p-4 text-sm text-app-text">
-            <div className="text-[10px] font-black uppercase tracking-widest text-app-warning">
-              Manual RMS Charge governance
-            </div>
-            <div className="mt-2 grid gap-2 text-xs font-semibold leading-relaxed text-app-text sm:grid-cols-2">
-              <div>1. Confirm the RMS account and program in the current manual RMS workflow.</div>
-              <div>2. Enter the approval or reference number before treating the sale as complete.</div>
-              <div>3. Report required RMS Charge sales/payments to R2S the same day.</div>
-              <div>4. Resolve overdue, missing-reference, or mismatch rows before accounting clears the day.</div>
-            </div>
-          </div>
-
-          {surface === "backoffice" && activeWorkspaceTab === "accounts" ? (
-            <div className="mt-4 space-y-3">
-              {canManageLinks ? (
-                <>
-                  <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                    Link only after you confirm the customer and RMS account belong together. Removing a link only changes Riverside's customer relationship to that account, and the action is recorded in the staff audit trail.
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <input
-                      data-testid="rms-link-corecredit-customer-id"
-                      value={linkForm.corecredit_customer_id}
-                      onChange={(event) =>
-                        setLinkForm((prev) => ({
-                          ...prev,
-                          corecredit_customer_id: event.target.value,
-                        }))
-                      }
-                      placeholder="RMS customer id"
-                      className="ui-input py-2 text-sm"
-                    />
-                    <input
-                      data-testid="rms-link-corecredit-account-id"
-                      value={linkForm.corecredit_account_id}
-                      onChange={(event) =>
-                        setLinkForm((prev) => ({
-                          ...prev,
-                          corecredit_account_id: event.target.value,
-                        }))
-                      }
-                      placeholder="RMS account id"
-                      className="ui-input py-2 text-sm"
-                    />
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <input
-                      data-testid="rms-link-program-group"
-                      value={linkForm.program_group}
-                      onChange={(event) =>
-                        setLinkForm((prev) => ({
-                          ...prev,
-                          program_group: event.target.value,
-                        }))
-                      }
-                      placeholder="Program group"
-                      className="ui-input py-2 text-sm"
-                    />
-                    <select
-                      data-testid="rms-link-status"
-                      value={linkForm.status}
-                      onChange={(event) =>
-                        setLinkForm((prev) => ({ ...prev, status: event.target.value }))
-                      }
-                      className="ui-input py-2 text-sm"
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="restricted">Restricted</option>
-                      <option value="suspended">Suspended</option>
-                    </select>
-                  </div>
-                  <input
-                    data-testid="rms-link-notes"
-                    value={linkForm.notes}
-                    onChange={(event) =>
-                      setLinkForm((prev) => ({ ...prev, notes: event.target.value }))
-                    }
-                    placeholder="Verification notes"
-                    className="ui-input py-2 text-sm"
-                  />
-                  <label className="flex items-center gap-2 text-sm font-semibold text-app-text">
-                    <input
-                      data-testid="rms-link-primary"
-                      type="checkbox"
-                      checked={linkForm.is_primary}
-                      onChange={(event) =>
-                        setLinkForm((prev) => ({
-                          ...prev,
-                          is_primary: event.target.checked,
-                        }))
-                      }
-                    />
-                    Mark as primary linked account
-                  </label>
-                  <button
-                    type="button"
-                    data-testid="rms-link-submit"
-                    onClick={() => void submitLink()}
-                    className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2"
-                  >
-                    <Link2 size={14} />
-                    Link Account
-                  </button>
-                </>
-              ) : null}
-
-              {canLegacyView || canReportToR2s ? (
-                <div className="rounded-xl border border-app-border bg-app-bg p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        Weekly RMS Account List Snapshot
-                      </div>
-                      <div className="mt-1 text-sm font-semibold text-app-text-muted">
-                        RMS Charge remains the source of truth. Uploaded Account List files are stored as snapshot/reference data only.
-                      </div>
-                    </div>
-                    {canReportToR2s ? (
-                      <label className="ui-btn-secondary inline-flex cursor-pointer items-center gap-2 px-4 py-2 text-[10px]">
-                        <Upload size={14} />
-                        {previewingAccountList ? "Previewing…" : "Upload XLSX"}
-                        <input
-                          data-testid="rms-account-list-preview-upload"
-                          type="file"
-                          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                          className="sr-only"
-                          disabled={previewingAccountList || importingAccountList}
-                          onChange={(event) => {
-                            const file = event.currentTarget.files?.[0] ?? null;
-                            event.currentTarget.value = "";
-                            void previewAccountList(file);
-                          }}
-                        />
-                      </label>
-                    ) : null}
-                  </div>
-
-                  <div
-                    data-testid="rms-account-list-latest-status"
-                    className={`mt-4 rounded-lg border p-3 text-xs font-semibold ${
-                      latestAccountListStatus?.stale
-                        ? "border-amber-300/40 bg-amber-500/10 text-amber-800"
-                        : "border-app-border bg-app-surface text-app-text-muted"
-                    }`}
-                  >
-                    {loadingAccountListStatus ? (
-                      "Loading latest snapshot status…"
-                    ) : latestAccountListStatus?.latest ? (
-                      <>
-                        Latest snapshot uploaded {fmtDate(latestAccountListStatus.latest.uploaded_at)} · {latestAccountListStatus.latest.parsed_account_count.toLocaleString()} accounts · {latestAccountListStatus.unmatched_count.toLocaleString()} unmatched.{" "}
-                        {latestAccountListStatus.stale
-                          ? `Upload is older than ${latestAccountListStatus.stale_after_days} days.`
-                          : "Snapshot is current for the weekly workflow."}
-                      </>
-                    ) : (
-                      "No RMS Account List snapshot has been imported yet."
-                    )}
-                  </div>
-
-                  {accountListPreview ? (
-                    <div data-testid="rms-account-list-preview-summary" className="mt-4 space-y-3">
-                      <div className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
-                        Preview only. Confirm Import stores the account snapshots; it does not create customers, update customer profiles, or create financial records.
-                      </div>
-                      <div className="grid gap-2 md:grid-cols-4">
-                        {[
-                          ["Accounts", accountListPreview.parsed_account_count.toLocaleString()],
-                          ["Footer Count", accountListPreview.footer_count?.toLocaleString() ?? "—"],
-                          ["Warnings", accountListPreview.warning_count.toLocaleString()],
-                          ["Report Run", accountListPreview.metadata.report_run_at_raw ?? accountListPreview.metadata.report_run_at ?? "—"],
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-lg border border-app-border bg-app-surface px-3 py-2">
-                            <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{label}</div>
-                            <div className="mt-1 text-sm font-black text-app-text">{value}</div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="grid gap-2 md:grid-cols-4">
-                        {[
-                          ["Last imported balance", fmtMoney(accountListPreview.total_balance)],
-                          ["Minimum due", fmtMoney(accountListPreview.total_minimum_due)],
-                          ["Past due", fmtMoney(accountListPreview.total_past_due)],
-                          ["Last imported open-to-buy", fmtMoney(accountListPreview.total_open_to_buy)],
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-lg border border-app-border bg-app-surface px-3 py-2">
-                            <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{label}</div>
-                            <div className="mt-1 text-sm font-black text-app-text">{value}</div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="grid gap-2 md:grid-cols-3">
-                        {[
-                          ["Missing phones", accountListPreview.data_quality.missing_phones],
-                          ["Invalid phones", accountListPreview.data_quality.invalid_phones],
-                          ["Missing addresses", accountListPreview.data_quality.missing_addresses],
-                          ["Active balances", accountListPreview.data_quality.active_balance_count],
-                          ["Past due", accountListPreview.data_quality.past_due_count],
-                          ["Zero OTB", accountListPreview.data_quality.zero_open_to_buy_count],
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-lg bg-app-surface px-3 py-2 text-xs text-app-text-muted">
-                            <span className="font-black text-app-text">{String(value)}</span> {label}
-                          </div>
-                        ))}
-                      </div>
-                      {accountListPreview.warnings.length ? (
-                        <div className="rounded-lg border border-amber-300/40 bg-amber-500/10 p-3 text-xs font-semibold text-amber-800">
-                          {accountListPreview.warnings.slice(0, 3).join(" ")}
-                        </div>
-                      ) : null}
-                      <div className="space-y-2">
-                        {accountListPreview.sample_accounts.slice(0, 5).map((account) => (
-                          <div key={account.account_number} className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="font-black text-app-text">{account.name || "Unnamed account"}</span>
-                              <span className="font-mono text-app-text-muted">{account.account_number}</span>
-                            </div>
-                            <div className="mt-1 text-app-text-muted">
-                              {[account.city, account.state, account.zip].filter(Boolean).join(", ") || "No address preview"} · Last imported balance {fmtMoney(account.balance)} · Last imported open-to-buy {fmtMoney(account.open_to_buy)}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      {canReportToR2s ? (
-                        <button
-                          type="button"
-                          data-testid="rms-account-list-confirm-import"
-                          disabled={importingAccountList || previewingAccountList || !selectedAccountListFile}
-                          onClick={() => void importAccountList()}
-                          className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2 disabled:opacity-60"
-                        >
-                          <Upload size={14} />
-                          {importingAccountList ? "Importing Snapshot…" : "Confirm Import"}
-                        </button>
-                      ) : null}
-                      {accountListImportResult ? (
-                        <div
-                          data-testid="rms-account-list-import-result"
-                          className="rounded-lg border border-emerald-300/40 bg-emerald-500/10 p-3 text-xs font-semibold text-emerald-800"
-                        >
-                          Imported {accountListImportResult.inserted_snapshot_count.toLocaleString()} snapshot rows from {accountListImportResult.batch.source_filename || "the uploaded report"}. No customers or financial records were created.
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          ) : surface === "backoffice" && activeWorkspaceTab === "overview" ? (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {overviewError ? (
-                <div
-                  data-testid="rms-overview-load-warning"
-                  className="sm:col-span-2 rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm text-amber-800"
-                >
-                  {overview
-                    ? `${overviewError} Showing the last loaded overview while other RMS sections keep updating.`
-                    : overviewError}
-                </div>
-              ) : null}
-              {[
-                ["Charges", `${overview?.totals?.charge_count ?? 0} · ${fmtMoney(overview?.totals?.charge_amount)}`],
-                ["Payments", `${overview?.totals?.payment_count ?? 0} · ${fmtMoney(overview?.totals?.payment_amount)}`],
-                ["Needs review", String(overview?.totals?.failed_count ?? 0)],
-                ["Pending exceptions", String(overview?.sync_health?.active_exception_count ?? 0)],
-                ["Updates waiting", String(overview?.sync_health?.pending_webhook_count ?? 0)],
-                ["Last automatic refresh", fmtDate(overview?.sync_health?.last_repair_poll_at)],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-xl border border-app-border bg-app-bg p-4">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    {label}
-                  </div>
-                  <div className="mt-2 text-sm font-bold text-app-text">{value}</div>
-                </div>
-              ))}
-              <div className="sm:col-span-2 rounded-xl border border-app-border bg-app-bg p-4">
-                <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Program Mix
-                </div>
-                <div className="mt-3 grid gap-2">
-                  {loadingOverview && !overview ? (
-                    <div className="text-sm text-app-text-muted">Loading overview…</div>
-                  ) : (overview?.program_mix?.length ?? 0) === 0 ? (
-                    <div className="text-sm text-app-text-muted">No program activity in the current workspace scope.</div>
-                  ) : (
-                    overview?.program_mix?.map((row) => (
-                      <div key={`${row.program_code}-${row.program_label}`} className="flex items-center justify-between rounded-lg border border-app-border px-3 py-2 text-sm">
-                        <span className="font-black text-app-text">{row.program_label}</span>
-                        <span className="text-app-text-muted">
-                          {row.row_count} · {fmtMoney(row.total_amount)}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : surface === "backoffice" && activeWorkspaceTab === "programs" ? (
-            <div className="mt-4 space-y-3">
-              {programs.length === 0 ? (
-                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                  Select an account to review available RMS Charge programs. Program totals still appear in Overview.
-                </div>
-              ) : (
-                programs.map((program) => (
-                  <div key={program.program_code} className="rounded-xl border border-app-border bg-app-bg p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-black uppercase tracking-wide text-app-text">{program.program_label}</div>
-                          <div className="text-[11px] text-app-text-muted">
-                            {program.program_code} · {sourceLabel(program.source)}
-                          </div>
-                        </div>
-                      <div className={`text-[10px] font-black uppercase tracking-widest ${program.eligible ? "text-emerald-700" : "text-rose-700"}`}>
-                        {program.eligible ? "Eligible" : "Blocked"}
-                      </div>
-                      </div>
-                      {program.source !== "corecard_live" ? (
-                        <div className="mt-2 text-xs text-app-text-muted">
-                          {manualWorkflowCopy(program.warning_code)}
-                        </div>
-                      ) : null}
-                      {program.disclosure ? <div className="mt-2 text-xs text-app-text-muted">{program.disclosure}</div> : null}
-                    </div>
-                ))
-              )}
-            </div>
-          ) : surface === "backoffice" && activeWorkspaceTab === "exceptions" ? (
-            <div className="mt-4 space-y-3">
-              {exceptionsError ? (
-                <div
-                  data-testid="rms-exceptions-load-warning"
-                  className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm text-amber-800"
-                >
-                  {exceptions.length
-                    ? `${exceptionsError} Showing the last loaded issue queue.`
-                    : exceptionsError}
-                </div>
-              ) : null}
-              {loadingExceptions && !exceptions.length ? (
-                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">Loading open issues…</div>
-              ) : exceptions.length === 0 ? (
-                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">No active RMS Charge exceptions.</div>
-              ) : (
-                displayExceptions.map((exception) => (
-                  <div key={exception.id} className="rounded-xl border border-app-border bg-app-bg p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-black uppercase tracking-wide text-app-text">{exception.exception_type.replaceAll("_", " ")}</div>
-                        <div className="text-[11px] text-app-text-muted">{fmtDate(exception.opened_at)} · {exception.status} · {exception.severity}</div>
-                      </div>
-                      <div className="text-xs font-mono text-app-text-muted">{exception.account_id || "Customer-level issue"}</div>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {exception.assigned_to_staff_id ? (
-                        <span
-                          data-testid={`rms-exception-assignee-${exception.id}`}
-                          className="rounded-full bg-app-surface px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted"
-                        >
-                          {exception.assigned_to_staff_id === staffId ? "Assigned to you" : "Assigned"}
-                        </span>
-                      ) : (
-                        <span
-                          data-testid={`rms-exception-assignee-${exception.id}`}
-                          className="rounded-full bg-amber-500/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-amber-700"
-                        >
-                          Unassigned
-                        </span>
-                      )}
-                    </div>
-                    {exception.notes ? <div className="mt-2 text-sm text-app-text-muted">{exception.notes}</div> : null}
-                    {exception.resolution_notes ? (
-                      <div className="mt-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text-muted">
-                        Resolution note: {exception.resolution_notes}
-                      </div>
-                    ) : null}
-                    {canResolveExceptions ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {!exception.assigned_to_staff_id || exception.assigned_to_staff_id !== staffId ? (
-                          <button
-                            type="button"
-                            data-testid={`rms-exception-assign-self-${exception.id}`}
-                            disabled={assigningExceptionId === exception.id}
-                            onClick={() => void assignExceptionToCurrentStaff(exception)}
-                            className="ui-btn-secondary px-3 py-2 text-[10px] disabled:opacity-60"
-                          >
-                            {assigningExceptionId === exception.id ? "Claiming…" : "Assign to Me"}
-                          </button>
-                        ) : null}
-                        <button type="button" data-testid={`rms-exception-resolve-${exception.id}`} onClick={() => void resolveException(exception.id)} className="ui-btn-secondary px-3 py-2 text-[10px]">
-                          Resolve
-                        </button>
-                        <button
-                          type="button"
-                          data-testid={`rms-exception-retry-${exception.id}`}
-                          disabled={retryingExceptionId === exception.id}
-                          onClick={() => void retryException(exception)}
-                          className="ui-btn-secondary px-3 py-2 text-[10px] disabled:opacity-60"
-                        >
-                          {retryingExceptionId === exception.id ? "Retrying…" : "Retry"}
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                ))
-              )}
-            </div>
-          ) : surface === "backoffice" && activeWorkspaceTab === "reconciliation" ? (
-            <div className="mt-4 space-y-3">
-              <div className="flex flex-col gap-3 rounded-xl border border-app-border bg-app-bg p-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">All RMS activity</div>
-                  <div data-testid="rms-reconciliation-scope" className="mt-1 text-sm text-app-text-muted">{reconciliationScopeMessage}</div>
-                  <div className="mt-2 text-xs font-semibold text-app-text-muted">
-                    Safe rerun re-checks RMS Charge records and records review findings. It does not post payments or change accounting totals.
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={copyReconciliationSupportSnapshot}
-                    className="ui-btn-secondary px-4 py-2 text-[10px]"
-                  >
-                    Copy Support Snapshot
-                  </button>
-                  {canReconcile ? (
-                    <button type="button" data-testid="rms-run-reconciliation" onClick={() => void runReconciliation()} className="ui-btn-primary px-4 py-2">
-                      Safe Rerun
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              {reconciliationError ? (
-                <div
-                  data-testid="rms-reconciliation-load-warning"
-                  className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm text-amber-800"
-                >
-                  {reconciliation?.runs?.length || reconciliation?.items?.length
-                    ? `${reconciliationError} Showing the last loaded reconciliation review. Safe rerun is available after the connection recovers.`
-                    : `${reconciliationError} Overview and exceptions are still available while this review is offline. Do not treat reconciliation as clear until refresh succeeds.`}
-                </div>
-              ) : null}
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {[
-                  ["What changed", reconciliationWhatChanged],
-                  ["Blocking impact", reconciliationBlockingSummary],
-                  ["Safe rerun", reconciliationSafeRerunSummary],
-                  [
-                    "Ownership",
-                    friendlyStaffOwnerLabel(
-                      latestReconciliationRun?.requested_by_staff_id,
-                      staffId,
-                      staffDisplayName,
-                    ),
-                  ],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-xl border border-app-border bg-app-bg p-4">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">{label}</div>
-                    <div className="mt-2 text-sm font-semibold text-app-text">{value}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="rounded-xl border border-app-border bg-app-bg p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Support diagnostics</div>
-                    <div className="mt-2 text-sm text-app-text-muted">
-                      {openReconciliationItems.length} unresolved mismatch{openReconciliationItems.length === 1 ? "" : "es"} loaded · {reconciliationSeverityCounts.blocking} blocking · {reconciliationSeverityCounts.warning} warning · {reconciliationSeverityCounts.informational} informational
-                    </div>
-                  </div>
-                  <div className="text-right text-xs text-app-text-muted">
-                    <div>Last successful: {fmtDate(latestSuccessfulReconciliationRun?.completed_at ?? latestSuccessfulReconciliationRun?.started_at)}</div>
-                    <div>Latest run: {latestReconciliationRun ? `${formatOperationalLabel(latestReconciliationRun.status)} · ${fmtDate(latestReconciliationRun.completed_at ?? latestReconciliationRun.started_at)}` : "None loaded"}</div>
-                  </div>
-                </div>
-              </div>
-              {loadingReconciliation && !reconciliation ? (
-                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">Loading reconciliation review…</div>
-              ) : (reconciliation?.runs?.length ?? 0) === 0 ? (
-                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                  No reconciliation runs yet. Run reconciliation to compare RMS Charge records with support data. A clean result means no loaded mismatches, not a guarantee about records outside the run scope.
-                </div>
-              ) : (
-                reconciliation?.runs?.slice(0, 4).map((run) => (
-                  <div key={run.id} className="rounded-xl border border-app-border bg-app-bg p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-black uppercase tracking-wide text-app-text">{formatOperationalLabel(run.run_scope)}</div>
-                        <div className="text-[11px] text-app-text-muted">
-                          Started {fmtDate(run.started_at)} · Completed {fmtDate(run.completed_at)} · {formatOperationalLabel(run.status)}
-                        </div>
-                        <div className="mt-2 text-xs text-app-text-muted">
-                          {run.summary_json?.mismatch_count
-                            ? `${run.summary_json.mismatch_count} mismatch${run.summary_json.mismatch_count === 1 ? "" : "es"} found; ${run.summary_json.retryable_count ?? 0} safe to recheck after correction.`
-                            : "No mismatches recorded in this run."}
-                        </div>
-                      </div>
-                      <div className="text-sm font-black text-app-text">
-                        {run.summary_json?.mismatch_count ?? 0} mismatches
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-              {openReconciliationItems.length > 0 ? (
-                <div className="space-y-3">
-                  <div>
-                    <h4 className="text-sm font-black uppercase tracking-widest text-app-text">
-                      Mismatch review
-                    </h4>
-                    <p className="mt-1 text-xs text-app-text-muted">
-                      These rows explain what changed, why it matters, and the next safe action. Use severity to decide whether store work is blocked or support follow-up is enough.
-                    </p>
-                  </div>
-                  {openReconciliationItems.slice(0, 8).map((item) => {
-                    const guidance = reconciliationItemGuidance(item);
-                    return (
-                      <div key={item.id} className="rounded-xl border border-app-border bg-app-bg p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-black uppercase tracking-wide text-app-text">
-                              {formatOperationalLabel(item.mismatch_type)}
-                            </div>
-                            <div className="text-[11px] text-app-text-muted">
-                              Appeared {fmtDate(item.created_at)} · {formatOperationalLabel(item.status)}
-                            </div>
-                          </div>
-                          <span className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${reconciliationSeverityClass(item.severity)}`}>
-                            {reconciliationSeverityCopy(item.severity)}
-                          </span>
-                        </div>
-                        <div className="mt-3 grid gap-3 md:grid-cols-2">
-                          {[
-                            ["What changed", guidance.changed],
-                            ["Why it matters", guidance.matters],
-                            ["Downstream effect", guidance.downstream],
-                            ["Next safe action", guidance.next],
-                          ].map(([label, value]) => (
-                            <div key={label} className="rounded-lg border border-app-border bg-app-surface px-3 py-2">
-                              <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{label}</div>
-                              <div className="mt-1 text-xs font-semibold text-app-text">{value}</div>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="mt-3 text-[11px] text-app-text-muted">
-                          Record: {item.rms_record_id ?? "not linked"} · Account: {item.account_id ?? "not linked"}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : reconciliation && !loadingReconciliation ? (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700">
-                  No unresolved RMS Charge mismatches are loaded. Safe rerun remains available if staff need to confirm after new RMS activity.
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {[
-                ["Balances", activeAccount ? fmtMoney(accountSummary?.available_credit) : "Select account"],
-                ["Transactions", `${accountTransactions.length} visible`],
-                ["Transaction status", activeAccount ? (recordDetail?.posting_status || accountSummary?.account_status || activeAccount.status) : "Awaiting selection"],
-                ["Programs", `${programs.length} available`],
-                ["Payment collection", canPosPaymentCollect ? "Allowed" : "Manager or sales support only"],
-                ["Reprint / refs", canPosHistory ? "Visible" : "Restricted"],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-xl border border-app-border bg-app-bg p-4">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    {label}
-                  </div>
-                  <div className="mt-2 text-sm font-bold text-app-text">
-                    {value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
-      {surface === "pos" ? (
-        <div className="grid gap-4 xl:grid-cols-[1fr,1fr]">
-          <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={16} className="text-app-accent" />
-              <h3 className="text-lg font-black tracking-tight text-app-text">
-                Account Summary
-              </h3>
-            </div>
-            <div className="mt-4 space-y-3">
-              {activeAccount ? (
-                <>
-                  <div className="rounded-xl border border-app-border bg-app-bg p-4">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Selected Account
-                    </div>
-                    <div className="mt-2 text-xl font-black italic text-app-text">
-                      {activeAccount.masked_account}
-                    </div>
-                    <div className="mt-2 text-sm text-app-text-muted">
-                      Status: {accountSummary?.account_status ?? activeAccount.status}
-                    </div>
-                    <div className="mt-2 text-sm text-app-text-muted">
-                      Available credit: {fmtMoney(accountSummary?.available_credit)}
-                    </div>
-                    <div className="mt-1 text-sm text-app-text-muted">
-                      Current balance: {fmtMoney(accountSummary?.current_balance)}
-                    </div>
-                    <div className="mt-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
-                      Workflow: {sourceLabel(accountSummary?.source)}
-                    </div>
-                    {accountSummary?.source !== "corecard_live" ? (
-                      <div className="mt-2 text-xs text-app-text-muted">
-                        {manualWorkflowCopy(accountSummary?.warning_code)}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="rounded-xl border border-app-border bg-app-bg p-4">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Programs
-                    </div>
-                    <div className="mt-3 grid gap-2">
-                      {programs.length === 0 ? (
-                        <div className="text-sm text-app-text-muted">
-                          No program data returned for this account yet.
-                        </div>
-                      ) : (
-                        programs.map((program) => (
-                          <div
-                            key={program.program_code}
-                            className="rounded-lg border border-app-border px-3 py-2"
-                          >
-                            <div className="flex items-center justify-between">
-                              <span>
-                                <span className="block font-black uppercase tracking-wide text-app-text">
-                                  {program.program_label}
-                                </span>
-                                <span className="text-[11px] text-app-text-muted">
-                                  {sourceLabel(program.source)}
-                                </span>
-                              </span>
-                              <span className={`text-[10px] font-black uppercase tracking-widest ${program.eligible ? "text-emerald-700" : "text-rose-700"}`}>
-                                {program.eligible ? "Eligible" : "Blocked"}
-                              </span>
-                            </div>
-                            {program.source !== "corecard_live" ? (
-                              <div className="mt-2 text-xs text-app-text-muted">
-                                {manualWorkflowCopy(program.warning_code)}
-                              </div>
-                            ) : null}
-                            {program.disclosure ? (
-                              <div className="mt-1 text-xs text-app-text-muted">
-                                {program.disclosure}
-                              </div>
-                            ) : null}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-app-border bg-app-bg p-4">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Host Activity
-                    </div>
-                    <div className="mt-3 space-y-2">
-                      {accountTransactions.length === 0 ? (
-                        <div className="text-sm text-app-text-muted">
-                          No account-level RMS activity returned yet.
-                        </div>
-                      ) : (
-                        accountTransactions.slice(0, 5).map((row) => (
-                          <div key={`${row.occurred_at}-${row.external_reference ?? row.amount}`} className="rounded-lg border border-app-border px-3 py-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <div className="font-black uppercase tracking-wide text-app-text">
-                                  {row.program_label || row.kind}
-                                </div>
-                                <div className="text-[11px] text-app-text-muted">
-                                  {fmtDate(row.occurred_at)} · {row.status}
-                                </div>
-                              </div>
-                              <div className="text-sm font-black text-app-text">
-                                {fmtMoney(row.amount)}
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                  Select a linked account to view POS summary details.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
-            <h3 className="text-lg font-black tracking-tight text-app-text">
-              Recent RMS Activity
-            </h3>
-            <div className="mt-4 space-y-2">
-              {!canPosHistory ? (
-                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                  History preview requires `pos.rms_charge.history_basic`.
-                </div>
-              ) : accountSummary?.recent_history?.length ? (
-                accountSummary.recent_history.map((row) => (
-                  <div key={`${row.created_at}-${row.order_short_ref ?? row.amount}`} className="rounded-xl border border-app-border bg-app-bg p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-black uppercase tracking-wide text-app-text">
-                          {row.program_label || row.payment_method}
-                        </div>
-                        <div className="text-[11px] text-app-text-muted">
-                          {fmtDate(row.created_at)} · {row.record_kind}
-                        </div>
-                      </div>
-                      <div className="text-sm font-black text-app-text">
-                        {fmtMoney(row.amount)}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                  No recent RMS Charge activity for the selected account.
-                </div>
-              )}
-            </div>
-          </div>
+      <div className="ui-card flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+        <div className="flex flex-wrap items-end gap-3 border-b border-app-border bg-app-surface-2 p-4">
+          <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            From
+            <input
+              type="date"
+              value={from}
+              onChange={(event) => setFrom(event.target.value)}
+              className="ui-input py-2 text-xs font-semibold normal-case"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            To
+            <input
+              type="date"
+              value={to}
+              onChange={(event) => setTo(event.target.value)}
+              className="ui-input py-2 text-xs font-semibold normal-case"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Kind
+            <select
+              value={kind}
+              onChange={(event) => setKind(event.target.value as "" | "charge" | "payment")}
+              className="ui-input py-2 text-xs font-semibold normal-case"
+            >
+              <option value="">All</option>
+              <option value="charge">Charge</option>
+              <option value="payment">Payment</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Report to R2S
+            <select
+              value={reportStatus}
+              onChange={(event) =>
+                setReportStatus(event.target.value as "all" | "unreported" | "reported" | "overdue")
+              }
+              className="ui-input py-2 text-xs font-semibold normal-case"
+            >
+              <option value="all">All</option>
+              <option value="unreported">Unreported</option>
+              <option value="reported">Reported</option>
+              <option value="overdue">Overdue</option>
+            </select>
+          </label>
+          <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Search
+            <input
+              value={q}
+              onChange={(event) => setQ(event.target.value)}
+              placeholder="Customer, ref, account…"
+              className="ui-input py-2 text-xs font-semibold normal-case"
+            />
+          </label>
         </div>
-      ) : (
-        activeWorkspaceTab !== "transactions" ? (
-          <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
-            <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    {activeWorkspaceTab}
-                  </p>
-                  <h3 className="text-lg font-black tracking-tight text-app-text">
-                    {activeWorkspaceTab === "overview"
-                      ? "Recent RMS Activity"
-                      : activeWorkspaceTab === "accounts"
-                        ? "Linked Accounts Snapshot"
-                        : activeWorkspaceTab === "programs"
-                          ? "Program Eligibility & Mix"
-                          : activeWorkspaceTab === "exceptions"
-                            ? "Manual Review Queue"
-                            : "Latest Reconciliation Mismatches Across All RMS Activity"}
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void loadOperationalData()}
-                  className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
-                >
-                  Refresh
-                </button>
-              </div>
-              <div className="mt-4 space-y-3">
-                {activeWorkspaceTab === "overview" && (overview?.recent_activity?.length ?? 0) > 0
-                  ? overview?.recent_activity?.map((row) => (
-                      <div key={row.id} className="rounded-xl border border-app-border bg-app-bg p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-black uppercase tracking-wide text-app-text">
-                              {row.program_label || row.payment_method}
-                            </div>
-                            <div className="text-[11px] text-app-text-muted">
-                              {fmtDate(row.created_at)} · {row.posting_status}
-                            </div>
-                          </div>
-                          <div className="text-sm font-black text-app-text">{fmtMoney(row.amount)}</div>
-                        </div>
-                      </div>
-                    ))
-                  : null}
-                {activeWorkspaceTab === "accounts" && (overview?.accounts?.length ?? 0) > 0
-                  ? overview?.accounts?.map((account) => (
-                      <div key={account.id} className="rounded-xl border border-app-border bg-app-bg p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-black uppercase tracking-wide text-app-text">{account.masked_account}</div>
-                            <div className="text-[11px] text-app-text-muted">{account.status} · verified {fmtDate(account.last_verified_at)}</div>
-                          </div>
-                          <div className="text-right text-[11px] text-app-text-muted">
-                            <div>Avail: {fmtMoney(account.available_credit_snapshot)}</div>
-                            <div>Bal: {fmtMoney(account.current_balance_snapshot)}</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  : null}
-                {activeWorkspaceTab === "programs" && (overview?.program_mix?.length ?? 0) > 0
-                  ? overview?.program_mix?.map((row) => (
-                      <div key={`${row.program_code}-${row.program_label}`} className="rounded-xl border border-app-border bg-app-bg p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-black uppercase tracking-wide text-app-text">{row.program_label}</div>
-                            <div className="text-[11px] text-app-text-muted">{row.program_code}</div>
-                          </div>
-                          <div className="text-right text-[11px] text-app-text-muted">
-                            <div>{row.row_count} records</div>
-                            <div>{fmtMoney(row.total_amount)}</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  : null}
-                {activeWorkspaceTab === "exceptions" && displayExceptions.length > 0
-                  ? displayExceptions.map((row) => (
-                      <div key={row.id} className="rounded-xl border border-app-border bg-app-bg p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-black uppercase tracking-wide text-app-text">{row.exception_type.replaceAll("_", " ")}</div>
-                            <div className="text-[11px] text-app-text-muted">{fmtDate(row.opened_at)} · {row.status}</div>
-                          </div>
-                          <div className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">{row.severity}</div>
-                        </div>
-                      </div>
-                    ))
-                  : null}
-                {activeWorkspaceTab === "reconciliation" && (reconciliation?.items?.length ?? 0) > 0
-                  ? reconciliation?.items?.slice(0, 8).map((item) => {
-                    const guidance = reconciliationItemGuidance(item);
-                    return (
-                      <div key={item.id} className="rounded-xl border border-app-border bg-app-bg p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-black uppercase tracking-wide text-app-text">{formatOperationalLabel(item.mismatch_type)}</div>
-                            <div className="text-[11px] text-app-text-muted">{fmtDate(item.created_at)} · {formatOperationalLabel(item.status)}</div>
-                            <div className="mt-2 text-xs font-semibold text-app-text-muted">{guidance.downstream}</div>
-                            <div className="mt-1 text-xs text-app-text-muted">Next safe action: {guidance.next}</div>
-                          </div>
-                          <div className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${reconciliationSeverityClass(item.severity)}`}>
-                            {reconciliationSeverityCopy(item.severity)}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                  : null}
-                {((activeWorkspaceTab === "overview" && !(overview?.recent_activity?.length)) ||
-                  (activeWorkspaceTab === "accounts" && !(overview?.accounts?.length)) ||
-                  (activeWorkspaceTab === "programs" && !(overview?.program_mix?.length)) ||
-                  (activeWorkspaceTab === "exceptions" && !exceptions.length) ||
-                  (activeWorkspaceTab === "reconciliation" && !(reconciliation?.items?.length))) ? (
-                  <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                    {activeWorkspaceTab === "overview" && loadingOverview
-                      ? "Loading overview…"
-                      : activeWorkspaceTab === "exceptions" && loadingExceptions
-                        ? "Loading RMS issues…"
-                        : activeWorkspaceTab === "reconciliation" && loadingReconciliation
-                          ? "Loading reconciliation review…"
-                          : activeWorkspaceTab === "reconciliation"
-                            ? "No RMS Charge mismatches loaded. Refresh or safe-rerun if staff need to confirm after new RMS activity."
-                            : "No data in this RMS Charge operational section yet."}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
-              <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">System-wide RMS support</div>
-              {overviewError ? (
-                <div className="mt-3 rounded-xl border border-amber-300/40 bg-amber-500/10 p-3 text-sm text-amber-800">
-                  RMS support totals could not be refreshed. Other RMS sections may still be current.
-                </div>
-              ) : null}
-              <div className="mt-4 grid gap-3">
-                {[
-                  ["Automatic refresh", fmtDate(overview?.sync_health?.last_repair_poll_at)],
-                  ["Active exceptions", String(overview?.sync_health?.active_exception_count ?? 0)],
-                  ["Missed updates", String(overview?.sync_health?.failed_webhook_count ?? 0)],
-                  ["Stale accounts", String(overview?.sync_health?.stale_account_count ?? 0)],
-                  ["Financing clearing", "RMS_CHARGE_FINANCING_CLEARING"],
-                  ["Payment clearing", "RMS_R2S_PAYMENT_CLEARING"],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-xl border border-app-border bg-app-bg p-4">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">{label}</div>
-                    <div className="mt-2 text-sm font-bold text-app-text">{value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : (
-        <div className="ui-card flex min-h-0 flex-1 flex-col overflow-hidden p-0">
-          <div className="flex flex-wrap items-end gap-3 border-b border-app-border bg-app-surface-2 p-4">
-            <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              From
-              <input
-                type="date"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-                className="ui-input py-2 text-xs font-semibold normal-case"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              To
-              <input
-                type="date"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-                className="ui-input py-2 text-xs font-semibold normal-case"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Kind
-              <select
-                value={kind}
-                onChange={(event) => setKind(event.target.value as "" | "charge" | "payment")}
-                className="ui-input py-2 text-xs font-semibold normal-case"
-              >
-                <option value="">All</option>
-                <option value="charge">Charge</option>
-                <option value="payment">Payment</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Report to R2S
-              <select
-                value={reportStatus}
-                onChange={(event) =>
-                  setReportStatus(event.target.value as "all" | "unreported" | "reported" | "overdue")
-                }
-                className="ui-input py-2 text-xs font-semibold normal-case"
-              >
-                <option value="all">All</option>
-                <option value="unreported">Unreported</option>
-                <option value="reported">Reported</option>
-                <option value="overdue">Overdue</option>
-              </select>
-            </label>
-            <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Search
-              <input
-                value={q}
-                onChange={(event) => setQ(event.target.value)}
-                placeholder="Customer, program, ref, account…"
-                className="ui-input py-2 text-xs font-semibold normal-case"
-              />
-            </label>
-          </div>
 
-          <div className="no-scrollbar min-h-0 flex-1 overflow-auto">
-            <table className="w-full min-w-[1220px] border-collapse text-left text-sm">
-              <thead className="sticky top-0 z-[1] bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+        <div className="no-scrollbar min-h-0 flex-1 overflow-auto">
+          <table className="w-full min-w-[1000px] border-collapse text-left text-sm">
+            <thead className="sticky top-0 z-[1] bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              <tr>
+                <th className="px-4 py-3">When</th>
+                <th className="px-4 py-3">Kind</th>
+                <th className="px-4 py-3">Record</th>
+                <th className="px-4 py-3">Report to R2S</th>
+                <th className="px-4 py-3 text-right">Amount</th>
+                <th className="px-4 py-3">Tender</th>
+                <th className="px-4 py-3">Program</th>
+                <th className="px-4 py-3">Account</th>
+                <th className="px-4 py-3">Customer</th>
+                <th className="px-4 py-3">Transaction</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.length === 0 && !loadingRecords ? (
                 <tr>
-                  <th className="px-4 py-3">When</th>
-                  <th className="px-4 py-3">Kind</th>
-                  <th className="px-4 py-3">Record</th>
-                  <th className="px-4 py-3">Report to R2S</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                  <th className="px-4 py-3">Tender</th>
-                  <th className="px-4 py-3">Program</th>
-                  <th className="px-4 py-3">Account</th>
-                  <th className="px-4 py-3">Customer</th>
-                  <th className="px-4 py-3">Transaction</th>
+                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-app-text-muted">
+                    No RMS Charge activity found.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {records.length === 0 && !loadingRecords ? (
-                  <tr>
-                    <td colSpan={10} className="px-4 py-10 text-center text-sm text-app-text-muted">
-                      No RMS Charge activity in this date range.
-                    </td>
-                  </tr>
-                ) : null}
-                {records.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="cursor-pointer border-t border-app-border transition-colors hover:bg-app-surface-2"
-                    onClick={() => void loadRecordDetail(row.id)}
-                  >
-                    <td className="whitespace-nowrap px-4 py-3 text-xs text-app-text-muted">
-                      {fmtDate(row.created_at)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
+              ) : null}
+              {records.map((row) => (
+                <tr
+                  key={row.id}
+                  className="cursor-pointer border-t border-app-border transition-colors hover:bg-app-surface-2"
+                  onClick={() => void loadRecordDetail(row.id)}
+                >
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-app-text-muted">
+                    {fmtDate(row.created_at)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
                         row.record_kind === "payment"
                           ? "bg-emerald-500/15 text-emerald-800"
                           : "bg-amber-500/15 text-amber-900"
-                      }`}>
-                        {row.record_kind}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1">
-                        <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
+                      }`}
+                    >
+                      {row.record_kind}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      <span
+                        className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
                           row.posting_status === "posted"
                             ? "bg-emerald-500/15 text-emerald-800"
                             : row.posting_status === "failed"
                               ? "bg-rose-500/15 text-rose-800"
-                              : row.posting_status === "reversed" || row.posting_status === "refunded"
+                              : row.posting_status === "reversed" ||
+                                  row.posting_status === "refunded"
                                 ? "bg-sky-500/15 text-sky-800"
                                 : "bg-app-surface text-app-text-muted"
-                        }`}>
-                          {row.posting_status}
+                        }`}
+                      >
+                        {row.posting_status}
+                      </span>
+                      {row.host_reference ? (
+                        <span className="font-mono text-[11px] text-app-text-muted">
+                          {row.host_reference}
                         </span>
-                        {row.host_reference ? (
-                          <span className="font-mono text-[11px] text-app-text-muted">
-                            {row.host_reference}
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1">
-                        <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      <span
+                        className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
                           reportStatusLabel(row) === "Reported"
                             ? "bg-emerald-500/15 text-emerald-800"
                             : reportStatusLabel(row) === "Overdue"
@@ -2471,197 +578,180 @@ export default function RmsChargeAdminSection({
                               : reportStatusLabel(row) === "Not required"
                                 ? "bg-slate-500/10 text-app-text-muted"
                                 : "bg-amber-500/15 text-amber-900"
-                        }`}>
-                          {reportStatusLabel(row)}
+                        }`}
+                      >
+                        {reportStatusLabel(row)}
+                      </span>
+                      {row.r2s_reporting_required ? (
+                        <span className="text-[11px] text-app-text-muted">
+                          Due {fmtDateOnly(row.r2s_report_due_at)}
                         </span>
-                        {row.r2s_reporting_required ? (
-                          <span className="text-[11px] text-app-text-muted">
-                            Due {fmtDateOnly(row.r2s_report_due_at)}
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
-                      {fmtMoney(row.amount)}
-                    </td>
-                    <td className="px-4 py-3 text-xs font-semibold text-app-text">
-                      {row.tender_family === "rms_charge" ? "RMS Charge" : row.payment_method}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-app-text">
-                      {row.program_label || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-app-text">
-                      {row.masked_account || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      <div className="font-semibold text-app-text">
-                        {row.customer_name || row.customer_display || "—"}
-                      </div>
-                      {row.customer_code ? (
-                        <div className="mt-0.5 font-mono text-[11px] text-app-text-muted">
-                          {row.customer_code}
-                        </div>
                       ) : null}
-                    </td>
-                    <td className="px-4 py-3">
-                      {onOpenTransactionInBackoffice ? (
-                        <button
-                          type="button"
-                          onClick={() => onOpenTransactionInBackoffice(row.transaction_id)}
-                          className="text-xs font-black uppercase tracking-widest text-app-accent"
-                        >
-                          {row.order_short_ref || row.transaction_id.slice(0, 8)}
-                        </button>
-                      ) : (
-                        <span className="font-mono text-xs text-app-text-muted">
-                          {row.order_short_ref || row.transaction_id.slice(0, 8)}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {hasMore ? (
-            <div className="border-t border-app-border p-3">
-              <button
-                type="button"
-                disabled={loadingRecords}
-                onClick={() => void fetchRecords(offset, true)}
-                className="ui-btn-secondary px-4 py-2"
-              >
-                {loadingRecords ? "Loading…" : "Load more"}
-              </button>
-            </div>
-          ) : null}
-
-          <div className="border-t border-app-border bg-app-surface-2 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Transaction Detail
-                </p>
-                <h3 className="text-lg font-black tracking-tight text-app-text">
-                  Transaction Status & Reference
-                </h3>
-              </div>
-              {loadingRecordDetail ? (
-                <div className="text-sm text-app-text-muted">Loading…</div>
-              ) : null}
-            </div>
-            <div className="mt-4 grid gap-3 xl:grid-cols-2">
-              <div className="rounded-xl border border-app-border bg-app-bg p-4">
-                {recordDetail ? (
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-app-text-muted">Status</span>
-                      <span className="font-black uppercase tracking-wide text-app-text">{recordDetail.posting_status}</span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-app-text-muted">Report to R2S</span>
-                      <span className="font-black uppercase tracking-wide text-app-text">{reportStatusLabel(recordDetail)}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
+                    {fmtMoney(row.amount)}
+                  </td>
+                  <td className="px-4 py-3 text-xs font-semibold text-app-text">
+                    {row.tender_family === "rms_charge" ? "RMS Charge" : row.payment_method}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-app-text">
+                    {row.program_label || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-app-text">
+                    {row.masked_account || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    <div className="font-semibold text-app-text">
+                      {row.customer_name || row.customer_display || "—"}
                     </div>
-                    {recordDetail.r2s_reporting_required ? (
-                      <div className="flex items-center justify-between">
-                        <span className="text-app-text-muted">Due date</span>
-                        <span className="text-app-text">{fmtDateOnly(recordDetail.r2s_report_due_at)}</span>
+                    {row.customer_code ? (
+                      <div className="mt-0.5 font-mono text-[11px] text-app-text-muted">
+                        {row.customer_code}
                       </div>
                     ) : null}
-                    {recordDetail.r2s_reported_at ? (
-                      <>
-                        <div className="flex items-center justify-between">
-                          <span className="text-app-text-muted">Reported at</span>
-                          <span className="text-app-text">{fmtDate(recordDetail.r2s_reported_at)}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-app-text-muted">Reported by</span>
-                          <span className="text-app-text">{recordDetail.r2s_reported_by_name || "Recorded staff member"}</span>
-                        </div>
-                      </>
-                    ) : null}
-                    <div className="flex items-center justify-between">
-                      <span className="text-app-text-muted">Reference Number</span>
-                      <span className="font-mono text-app-text">{recordDetail.host_reference || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-app-text-muted">External reference</span>
-                      <span className="font-mono text-app-text">{recordDetail.external_transaction_id || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-app-text-muted">Program</span>
-                      <span className="font-black text-app-text">{recordDetail.program_label || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-app-text-muted">Masked account</span>
-                      <span className="font-black text-app-text">{recordDetail.masked_account || "—"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-app-text-muted">Completed at</span>
-                      <span className="text-app-text">{fmtDate(recordDetail.posted_at)}</span>
-                    </div>
-                    {recordDetail.r2s_report_note ? (
-                      <div className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text">
-                        {recordDetail.r2s_report_note}
-                      </div>
-                    ) : null}
-                    {canReportToR2s && recordDetail.r2s_reporting_required && recordDetail.r2s_report_status !== "reported" ? (
+                  </td>
+                  <td className="px-4 py-3">
+                    {onOpenTransactionInBackoffice ? (
                       <button
                         type="button"
-                        onClick={() => setReportingRecord(recordDetail)}
-                        className="ui-btn-primary mt-2 inline-flex items-center gap-2 px-3 py-2 text-xs"
+                        onClick={() => onOpenTransactionInBackoffice(row.transaction_id)}
+                        className="text-xs font-black uppercase tracking-widest text-app-accent"
                       >
-                        <ClipboardCheck size={14} />
-                        Mark Reported
+                        {row.order_short_ref || row.transaction_id.slice(0, 8)}
                       </button>
-                    ) : null}
-                    {recordDetail.posting_error_message ? (
-                      <div className="rounded-lg border border-rose-300/40 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-700">
-                        {recordDetail.posting_error_message}
-                      </div>
-                    ) : null}
+                    ) : (
+                      <span className="font-mono text-xs text-app-text-muted">
+                        {row.order_short_ref || row.transaction_id.slice(0, 8)}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {hasMore ? (
+          <div className="border-t border-app-border p-3">
+            <button
+              type="button"
+              disabled={loadingRecords}
+              onClick={() => void fetchRecords(offset, true)}
+              className="ui-btn-secondary px-4 py-2"
+            >
+              {loadingRecords ? "Loading…" : "Load more"}
+            </button>
+          </div>
+        ) : null}
+
+        <div className="border-t border-app-border bg-app-surface-2 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Transaction Detail
+              </p>
+              <h3 className="text-lg font-black tracking-tight text-app-text">
+                Transaction Status & Reference
+              </h3>
+            </div>
+            {loadingRecordDetail ? (
+              <div className="text-sm text-app-text-muted">Loading…</div>
+            ) : null}
+          </div>
+          <div className="mt-4">
+            <div className="rounded-xl border border-app-border bg-app-bg p-4 max-w-2xl">
+              {recordDetail ? (
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-app-text-muted">Status</span>
+                    <span className="font-black uppercase tracking-wide text-app-text">
+                      {recordDetail.posting_status}
+                    </span>
                   </div>
-                ) : (
-                  <div className="text-sm text-app-text-muted">
-                    Select an RMS Charge transaction to view its current status and reference number.
+                  <div className="flex items-center justify-between">
+                    <span className="text-app-text-muted">Report to R2S</span>
+                    <span className="font-black uppercase tracking-wide text-app-text">
+                      {reportStatusLabel(recordDetail)}
+                    </span>
                   </div>
-                )}
-              </div>
-              <div className="rounded-xl border border-app-border bg-app-bg p-4">
-                <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Account History Snapshot
-                </div>
-                <div className="mt-3 space-y-2">
-                  {accountTransactions.length === 0 ? (
-                    <div className="text-sm text-app-text-muted">
-                      Select an account to view recent RMS Charge activity.
+                  {recordDetail.r2s_reporting_required ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-app-text-muted">Due date</span>
+                      <span className="text-app-text">
+                        {fmtDateOnly(recordDetail.r2s_report_due_at)}
+                      </span>
                     </div>
-                  ) : (
-                    accountTransactions.slice(0, 6).map((row) => (
-                      <div key={`${row.occurred_at}-${row.external_reference ?? row.amount}`} className="rounded-lg border border-app-border px-3 py-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="font-black uppercase tracking-wide text-app-text">
-                              {row.program_label || row.kind}
-                            </div>
-                            <div className="text-[11px] text-app-text-muted">
-                              {fmtDate(row.occurred_at)} · {row.status}
-                            </div>
-                          </div>
-                          <div className="text-sm font-black text-app-text">
-                            {fmtMoney(row.amount)}
-                          </div>
-                        </div>
+                  ) : null}
+                  {recordDetail.r2s_reported_at ? (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-app-text-muted">Reported at</span>
+                        <span className="text-app-text">{fmtDate(recordDetail.r2s_reported_at)}</span>
                       </div>
-                    ))
-                  )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-app-text-muted">Reported by</span>
+                        <span className="text-app-text">
+                          {recordDetail.r2s_reported_by_name || "Recorded staff member"}
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
+                  <div className="flex items-center justify-between">
+                    <span className="text-app-text-muted">Reference Number</span>
+                    <span className="font-mono text-app-text">{recordDetail.host_reference || "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-app-text-muted">External reference</span>
+                    <span className="font-mono text-app-text">
+                      {recordDetail.external_transaction_id || "—"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-app-text-muted">Program</span>
+                    <span className="font-black text-app-text">{recordDetail.program_label || "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-app-text-muted">Masked account</span>
+                    <span className="font-black text-app-text">{recordDetail.masked_account || "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-app-text-muted">Completed at</span>
+                    <span className="text-app-text">{fmtDate(recordDetail.posted_at)}</span>
+                  </div>
+                  {recordDetail.r2s_report_note ? (
+                    <div className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text">
+                      {recordDetail.r2s_report_note}
+                    </div>
+                  ) : null}
+                  {canReportToR2s &&
+                  recordDetail.r2s_reporting_required &&
+                  recordDetail.r2s_report_status !== "reported" ? (
+                    <button
+                      type="button"
+                      onClick={() => setReportingRecord(recordDetail)}
+                      className="ui-btn-primary mt-2 inline-flex items-center gap-2 px-3 py-2 text-xs"
+                    >
+                      <ClipboardCheck size={14} />
+                      Mark Reported
+                    </button>
+                  ) : null}
+                  {recordDetail.posting_error_message ? (
+                    <div className="rounded-lg border border-rose-300/40 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-700">
+                      {recordDetail.posting_error_message}
+                    </div>
+                  ) : null}
                 </div>
-              </div>
+              ) : (
+                <div className="text-sm text-app-text-muted">
+                  Select an RMS Charge transaction to view its current status and reference number.
+                </div>
+              )}
             </div>
           </div>
-        </div>)
-      )}
+        </div>
+      </div>
+
       <PromptModal
         isOpen={Boolean(reportingRecord)}
         onClose={() => setReportingRecord(null)}
@@ -2669,45 +759,380 @@ export default function RmsChargeAdminSection({
         title="Mark Reported to R2S"
         message={
           reportingRecord
-            ? `Record that this ${reportingRecord.record_kind === "payment" ? "RMS Charge Payment" : "RMS Charge Sale"} was reported to R2S. This updates reporting follow-up only; it does not change the transaction amount.`
+            ? `Record that this ${
+                reportingRecord.record_kind === "payment" ? "RMS Charge Payment" : "RMS Charge Sale"
+              } was reported to R2S. This updates reporting follow-up only; it does not change the transaction amount.`
             : ""
         }
         placeholder="Optional note or R2S reference"
         defaultValue={reportingRecord?.r2s_report_note ?? ""}
         confirmLabel="Mark Reported"
       />
-      <PromptModal
-        isOpen={Boolean(resolvingException)}
-        onClose={() => setResolvingException(null)}
-        onSubmit={(value) => submitResolutionNote(value)}
-        title="Resolve RMS Issue"
-        message={
-          resolvingException
-            ? `Add a short support note for ${resolvingException.exception_type.replaceAll("_", " ")}.\n\nExplain what cleared the issue so the next staff member can follow the audit trail.`
-            : ""
-        }
-        placeholder="Example: Staff confirmed the RMS Charge record was corrected."
-        defaultValue={resolvingException?.resolution_notes ?? ""}
-        confirmLabel="Save Resolution"
-      />
-      <ConfirmationModal
-        isOpen={Boolean(confirmUnlinkAccount)}
-        onClose={() => setConfirmUnlinkAccount(null)}
-        onConfirm={() => {
-          if (confirmUnlinkAccount) {
-            void unlinkAccount(confirmUnlinkAccount);
-          }
-        }}
-        title="Remove RMS Account Link"
-        message={
-          confirmUnlinkAccount
-            ? `Remove ${confirmUnlinkAccount.masked_account} from ${selectedCustomerLabel || "this customer"} in Riverside?\n\nThis only removes the customer-to-account link in Riverside. It does not change the RMS Charge account itself, and the correction is recorded in the audit trail.`
-            : ""
-        }
-        confirmLabel="Remove Link"
-        cancelLabel="Keep Link"
-        variant="danger"
-      />
+        </>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[1fr,1.5fr] min-h-0 flex-1 overflow-auto no-scrollbar">
+          {/* Left Column: Status and Upload */}
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {/* Latest Status */}
+            <div className="ui-card p-6">
+              <h3 className="text-xs font-black uppercase tracking-widest text-app-text-muted mb-4">
+                Latest Spreadsheet Status
+              </h3>
+              {loadingLatest ? (
+                <div className="flex items-center gap-2 text-sm text-app-text-muted">
+                  <Loader2 size={16} className="animate-spin" />
+                  Loading latest status...
+                </div>
+              ) : latestImport?.latest ? (
+                <div className="space-y-4">
+                  <div className={`p-4 rounded-xl border ${
+                    latestImport.stale
+                      ? "bg-amber-500/10 border-amber-500/20 text-amber-900"
+                      : "bg-emerald-500/10 border-emerald-500/20 text-emerald-900"
+                  }`}>
+                    <div className="flex items-center gap-2 font-bold text-sm">
+                      {latestImport.stale ? (
+                        <>
+                          <AlertTriangle size={18} className="text-amber-600" />
+                          Status: Out of Date
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 size={18} className="text-emerald-600" />
+                          Status: Fresh (Active)
+                        </>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs opacity-90 leading-relaxed">
+                      {latestImport.stale
+                        ? `The last import is older than ${latestImport.stale_after_days} days. Please upload the current weekly Nexo/RMS Account List to avoid out-of-date balances.`
+                        : `This weekly snapshot is fresh. Balances are matched with customer records.`}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between border-b border-app-border/40 pb-2">
+                      <span className="text-app-text-muted">File Name</span>
+                      <span className="font-semibold text-app-text break-all max-w-[200px] text-right">
+                        {latestImport.latest.source_filename || "Manual Excel Upload"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-app-border/40 pb-2">
+                      <span className="text-app-text-muted">Report Run Date</span>
+                      <span className="font-semibold text-app-text">
+                        {fmtDate(latestImport.latest.report_run_at)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-app-border/40 pb-2">
+                      <span className="text-app-text-muted">Imported At</span>
+                      <span className="font-semibold text-app-text">
+                        {fmtDate(latestImport.latest.uploaded_at)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-app-border/40 pb-2">
+                      <span className="text-app-text-muted">Parsed Accounts</span>
+                      <span className="font-mono font-semibold text-app-text">
+                        {latestImport.latest.parsed_account_count}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-app-border/40 pb-2">
+                      <span className="text-app-text-muted">Matched snapshotted accounts</span>
+                      <span className="font-mono font-semibold text-emerald-600">
+                        {latestImport.matched_count}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-app-border/40 pb-2">
+                      <span className="text-app-text-muted">Unmatched snapshotted accounts</span>
+                      <span className="font-mono font-semibold text-amber-600">
+                        {latestImport.unmatched_count}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-app-border/40 pb-2">
+                      <span className="text-app-text-muted">Total Snapshot Balance</span>
+                      <span className="font-mono font-semibold text-app-text">
+                        {fmtMoney(latestImport.latest.total_balance)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-b border-app-border/40 pb-2">
+                      <span className="text-app-text-muted">Total Past Due</span>
+                      <span className="font-mono font-semibold text-rose-600">
+                        {fmtMoney(latestImport.latest.total_past_due)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between pb-2">
+                      <span className="text-app-text-muted">File Hash (SHA256)</span>
+                      <span className="font-mono text-[10px] text-app-text-muted truncate max-w-[150px]" title={latestImport.latest.source_file_hash}>
+                        {latestImport.latest.source_file_hash}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl border border-dotted border-app-border bg-app-surface/20 text-center text-xs text-app-text-muted">
+                  No Excel list has been imported yet.
+                </div>
+              )}
+            </div>
+
+            {/* Upload Form */}
+            <div className="ui-card p-6">
+              <h3 className="text-xs font-black uppercase tracking-widest text-app-text-muted mb-4">
+                Import Nexo/RMS Account List
+              </h3>
+              
+              <div className="space-y-4">
+                <div className="p-3 rounded-xl bg-app-surface-2 border border-app-border text-xs text-app-text-muted leading-relaxed">
+                  Ensure you are importing the weekly <strong>Account List Report</strong> Excel sheet (.xlsx format) downloaded from the RMS administration system. Do not modify columns prior to upload.
+                </div>
+
+                <div className="relative group flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-app-border bg-app-surface-2 p-8 hover:border-app-accent hover:bg-app-surface-3 transition-all cursor-pointer">
+                  <input
+                    type="file"
+                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="absolute inset-0 cursor-pointer opacity-0"
+                    disabled={uploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setUploadFile(file);
+                      setPreviewData(null);
+                      setPreviewError(null);
+                      if (file) {
+                        void handlePreview(file);
+                      }
+                    }}
+                  />
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-app-surface border border-app-border group-hover:scale-105 transition-transform">
+                    <FileSpreadsheet className="text-app-text-muted group-hover:text-app-accent transition-colors" size={24} />
+                  </div>
+                  <div className="text-xs font-semibold text-app-text text-center">
+                    {uploadFile ? uploadFile.name : "Select weekly Excel spreadsheet..."}
+                  </div>
+                  {uploadFile && (
+                    <div className="text-[10px] text-app-text-muted mt-1">
+                      {(uploadFile.size / 1024).toFixed(1)} KB
+                    </div>
+                  )}
+                </div>
+
+                {uploadFile && !uploading && (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadFile(null);
+                        setPreviewData(null);
+                        setPreviewError(null);
+                      }}
+                      className="ui-btn-secondary flex-1 text-xs py-2"
+                    >
+                      Clear File
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!previewData || uploading}
+                      onClick={handleImport}
+                      className="ui-btn-primary flex-1 text-xs py-2 flex items-center justify-center gap-1"
+                    >
+                      {uploading ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Upload size={12} />
+                      )}
+                      Commit Import
+                    </button>
+                  </div>
+                )}
+
+                {uploading && (
+                  <div className="flex items-center justify-center gap-2 text-xs font-bold text-app-accent py-2">
+                    <Loader2 size={14} className="animate-spin" />
+                    Processing spreadsheet...
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: Preview and errors */}
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {previewError && (
+              <div className="ui-card border-rose-500/30 bg-rose-500/5 p-6 text-sm text-rose-700">
+                <div className="flex items-center gap-2 font-bold mb-2">
+                  <AlertTriangle size={18} className="text-rose-600" />
+                  Failed to Parse Spreadsheet
+                </div>
+                <p className="text-xs leading-relaxed opacity-90">{previewError}</p>
+              </div>
+            )}
+
+            {previewData ? (
+              <div className="ui-card p-6 space-y-6">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-app-text mb-1">
+                    Spreadsheet Preview & Integrity Check
+                  </h3>
+                  <p className="text-[11px] text-app-text-muted">
+                    Verify these metadata items match your report before committing the import.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 text-xs bg-app-surface-2 p-4 rounded-xl border border-app-border">
+                  <div>
+                    <div className="text-app-text-muted mb-0.5">Institution</div>
+                    <div className="font-bold text-app-text">
+                      {previewData.metadata.institution_name || "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-app-text-muted mb-0.5">Merchant</div>
+                    <div className="font-bold text-app-text">
+                      {previewData.metadata.merchant_name || "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-app-text-muted mb-0.5">Report Title</div>
+                    <div className="font-bold text-app-text">
+                      {previewData.metadata.report_title || "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-app-text-muted mb-0.5">Report Run Date</div>
+                    <div className="font-bold text-app-text">
+                      {fmtDate(previewData.metadata.report_run_at)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-app-text-muted">
+                    Data Quality & Summary Counts
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="p-3 rounded-lg bg-app-surface border border-app-border text-center">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-app-text-muted opacity-60 mb-1">
+                        Total Accounts
+                      </div>
+                      <div className="font-mono font-bold text-sm text-app-text">
+                        {previewData.parsed_account_count}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-app-surface border border-app-border text-center">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-app-text-muted opacity-60 mb-1">
+                        Missing Phone
+                      </div>
+                      <div className={`font-mono font-bold text-sm ${previewData.data_quality.missing_phones > 0 ? "text-amber-600" : "text-app-text"}`}>
+                        {previewData.data_quality.missing_phones}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-app-surface border border-app-border text-center">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-app-text-muted opacity-60 mb-1">
+                        Missing Address
+                      </div>
+                      <div className={`font-mono font-bold text-sm ${previewData.data_quality.missing_addresses > 0 ? "text-amber-600" : "text-app-text"}`}>
+                        {previewData.data_quality.missing_addresses}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-app-surface border border-app-border text-center">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-app-text-muted opacity-60 mb-1">
+                        Duplicates
+                      </div>
+                      <div className={`font-mono font-bold text-sm ${previewData.data_quality.duplicate_account_number_count > 0 ? "text-rose-600" : "text-app-text"}`}>
+                        {previewData.data_quality.duplicate_account_number_count}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-3 rounded-lg bg-app-surface border border-app-border text-center">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-app-text-muted opacity-60 mb-1">
+                        Active Balances
+                      </div>
+                      <div className="font-mono font-bold text-sm text-app-text">
+                        {previewData.data_quality.active_balance_count}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-app-surface border border-app-border text-center">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-app-text-muted opacity-60 mb-1">
+                        Past Due
+                      </div>
+                      <div className={`font-mono font-bold text-sm ${previewData.data_quality.past_due_count > 0 ? "text-amber-600" : "text-app-text"}`}>
+                        {previewData.data_quality.past_due_count}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-app-surface border border-app-border text-center">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-app-text-muted opacity-60 mb-1">
+                        Zero Credit Limit
+                      </div>
+                      <div className="font-mono font-bold text-sm text-app-text">
+                        {previewData.data_quality.zero_open_to_buy_count}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {previewData.warnings && previewData.warnings.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-amber-700 flex items-center gap-1">
+                      <AlertTriangle size={14} /> Warnings ({previewData.warnings.length})
+                    </h4>
+                    <div className="max-h-[120px] overflow-y-auto bg-amber-500/5 border border-amber-500/10 rounded-lg p-3 space-y-1.5 no-scrollbar">
+                      {previewData.warnings.map((warn: string, idx: number) => (
+                        <div key={idx} className="text-[11px] text-amber-800 leading-normal">
+                          • {warn}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-app-text-muted">
+                    Sample Accounts Preview (First 10)
+                  </h4>
+                  <div className="overflow-x-auto border border-app-border rounded-lg bg-app-surface-2">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-app-surface border-b border-app-border text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                          <th className="p-2">Acc #</th>
+                          <th className="p-2">Name</th>
+                          <th className="p-2">Phone</th>
+                          <th className="p-2 text-right">Balance</th>
+                          <th className="p-2 text-right">Limit</th>
+                          <th className="p-2 text-right">Min Due</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewData.sample_accounts.map((acc: any, idx: number) => (
+                          <tr key={idx} className="border-b border-app-border last:border-0">
+                            <td className="p-2 font-mono">{acc.account_number}</td>
+                            <td className="p-2 font-semibold text-app-text truncate max-w-[120px]" title={acc.name}>
+                              {acc.name}
+                            </td>
+                            <td className="p-2 text-app-text-muted font-mono">{acc.phone || "—"}</td>
+                            <td className="p-2 text-right font-mono tabular-nums">{fmtMoney(acc.balance)}</td>
+                            <td className="p-2 text-right font-mono tabular-nums">{fmtMoney(acc.open_to_buy)}</td>
+                            <td className="p-2 text-right font-mono tabular-nums text-rose-600">{fmtMoney(acc.minimum_due)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="ui-card p-8 border-dotted border-app-border bg-app-surface/20 text-center flex flex-col items-center justify-center min-h-[300px]">
+                <FileSpreadsheet className="text-app-text-muted opacity-40 mb-3" size={36} />
+                <div className="text-xs font-black uppercase tracking-wider text-app-text mb-1">
+                  Awaiting Upload
+                </div>
+                <p className="text-xs text-app-text-muted max-w-[280px] leading-relaxed">
+                  Select an Excel report spreadsheet file on the left. The system will inspect its structure and show a preview of parsed data and summary verification checks.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

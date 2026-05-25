@@ -1382,10 +1382,11 @@ function AppShell({
   );
 
   const handleExitPosMode = useCallback(() => {
+    clearPendingPosCustomer();
     navigateDashboard();
     setSidebarCollapsed(false);
     triggerDashboardRefresh();
-  }, [navigateDashboard, setSidebarCollapsed, triggerDashboardRefresh]);
+  }, [clearPendingPosCustomer, navigateDashboard, setSidebarCollapsed, triggerDashboardRefresh]);
 
   const handleExitInsightsMode = useCallback(() => {
     setInsightsMode(false);

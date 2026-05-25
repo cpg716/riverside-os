@@ -4196,7 +4196,27 @@ pub(crate) async fn load_transaction_detail(
     pool: &sqlx::PgPool,
     transaction_id: Uuid,
 ) -> Result<TransactionDetailResponse, TransactionError> {
-    let header = sqlx::query_as::<_, OrderHeaderRow>(
+    let has_review_opt_out: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'customers'
+              AND column_name = 'review_requests_opt_out'
+        )
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(false);
+
+    let review_opt_out_expr = if has_review_opt_out {
+        "COALESCE(c.review_requests_opt_out, false) AS customer_review_requests_opt_out"
+    } else {
+        "false AS customer_review_requests_opt_out"
+    };
+
+    let header_sql = format!(
         r#"
         SELECT
             o.id,
@@ -4234,7 +4254,7 @@ pub(crate) async fn load_transaction_detail(
             ps.full_name AS primary_salesperson_name,
             o.review_invite_sent_at,
             o.review_invite_suppressed_at,
-            COALESCE(c.review_requests_opt_out, false) AS customer_review_requests_opt_out,
+            {review_opt_out_expr},
             ros_store.review_policy AS store_review_policy,
             COALESCE(o.is_tax_exempt, false) AS is_tax_exempt,
             o.tax_exempt_reason,
@@ -4247,11 +4267,13 @@ pub(crate) async fn load_transaction_detail(
         LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id
         CROSS JOIN store_settings ros_store
         WHERE o.id = $1 AND ros_store.id = 1
-        "#,
-    )
-    .bind(transaction_id)
-    .fetch_optional(pool)
-    .await?;
+        "#
+    );
+
+    let header = sqlx::query_as::<_, OrderHeaderRow>(&header_sql)
+        .bind(transaction_id)
+        .fetch_optional(pool)
+        .await?;
 
     let Some(h) = header else {
         return Err(TransactionError::NotFound);

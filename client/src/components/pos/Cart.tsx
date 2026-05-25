@@ -27,6 +27,7 @@ import CustomerSelector, { type Customer } from "./CustomerSelector";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
 import RegisterCashAdjustModal from "./RegisterCashAdjustModal";
 import RegisterGiftCardLoadModal from "./RegisterGiftCardLoadModal";
+import RegisterRmsPaymentModal from "./RegisterRmsPaymentModal";
 import PosCustomerMeasurementsDrawer from "./PosCustomerMeasurementsDrawer";
 import ReceiptSummaryModal from "./ReceiptSummaryModal";
 import VariantSelectionModal, { type ProductWithVariants } from "./VariantSelectionModal";
@@ -369,10 +370,15 @@ export default function Cart({
 
   useEffect(() => {
     fetch(`${baseUrl}/api/discount-events/active`, { headers: apiAuth() as Record<string, string> })
-      .then(r => r.json())
-      .then(data => setActiveDiscountEvents(Array.isArray(data) ? data : []))
-      .catch(() => {});
-  }, [baseUrl, apiAuth]);
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data) => setActiveDiscountEvents(Array.isArray(data) ? data : []))
+      .catch(() => {
+        toast("Discount events unavailable. Verify network or contact manager.", "error");
+      });
+  }, [baseUrl, apiAuth, toast]);
 
   // --- Search Hook ---
   const {
@@ -394,6 +400,7 @@ export default function Cart({
   const [customPromptOpen, setCustomPromptOpen] = useState(false);
   const [pendingCustomItem, setPendingCustomItem] = useState<ResolvedSkuItem | null>(null);
   const [giftCardLoadOpen, setGiftCardLoadOpen] = useState(false);
+  const [rmsPaymentOpen, setRmsPaymentOpen] = useState(false);
   const [parkSalePromptOpen, setParkSalePromptOpen] = useState(false);
   const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
 
@@ -571,7 +578,7 @@ export default function Cart({
       headers: { ...apiAuth() },
     })
       .then(async (res) => {
-        if (!res.ok) return null;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return (await res.json()) as WeddingPurchaseContext;
       })
       .then((payload) => {
@@ -579,7 +586,10 @@ export default function Cart({
         setWeddingPurchaseContext(payload);
       })
       .catch(() => {
-        if (!cancelled) setWeddingPurchaseContext(null);
+        if (!cancelled) {
+          setWeddingPurchaseContext(null);
+          toast("Wedding context unavailable. Verify network or contact manager.", "error");
+        }
       })
       .finally(() => {
         if (!cancelled) setWeddingPurchaseLoading(false);
@@ -588,7 +598,7 @@ export default function Cart({
     return () => {
       cancelled = true;
     };
-  }, [apiAuth, baseUrl, selectedCustomer?.id]);
+  }, [apiAuth, baseUrl, selectedCustomer?.id, toast]);
 
   const weddingMemberships = useMemo<WeddingMembership[]>(
     () =>
@@ -1447,7 +1457,9 @@ export default function Cart({
         const res = await fetch(`${baseUrl}/api/pos/rms-payment-line-meta`, { headers: h });
         if (!res.ok || cancelled) return;
         setRmsPaymentMeta(await res.json() as RmsPaymentLineMeta);
-      } catch { /* optional */ }
+      } catch {
+        console.warn("POS pre-fetch: RMS payment line meta unavailable");
+      }
     })();
     return () => { cancelled = true; };
   }, [baseUrl, apiAuth]);
@@ -1461,7 +1473,9 @@ export default function Cart({
         const res = await fetch(`${baseUrl}/api/pos/gift-card-load-line-meta`, { headers: h });
         if (!res.ok || cancelled) return;
         setGiftCardLoadMeta(await res.json() as GiftCardLoadLineMeta);
-      } catch { /* optional */ }
+      } catch {
+        console.warn("POS pre-fetch: gift card load line meta unavailable");
+      }
     })();
     return () => { cancelled = true; };
   }, [baseUrl, apiAuth]);
@@ -2111,18 +2125,7 @@ export default function Cart({
                       return;
                     }
                   }
-                  addItem({
-                    product_id: meta.product_id,
-                    variant_id: meta.variant_id,
-                    sku: meta.sku,
-                    name: meta.name,
-                    standard_retail_price: 0,
-                    unit_cost: 0,
-                    state_tax: 0,
-                    local_tax: 0,
-                    stock_on_hand: 0,
-                    vendor_sku: "",
-                  });
+                  setRmsPaymentOpen(true);
                 }}
                 title="Add an RMS Charge Payment to collect payment on customer account"
                 className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-violet-500/35 bg-violet-500/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-violet-600 transition-all hover:bg-violet-600 hover:text-white"
@@ -3420,6 +3423,29 @@ export default function Cart({
         getHeaders={apiAuth}
         onAddToCart={(code, amountCents) => addGiftCardLoadToCart(code, amountCents)}
       />
+      <RegisterRmsPaymentModal
+        open={rmsPaymentOpen}
+        onClose={() => setRmsPaymentOpen(false)}
+        selectedCustomer={selectedCustomer}
+        onSelectCustomer={(c) => setSelectedCustomer(c)}
+        onAddToCart={async (amountCents) => {
+          if (!rmsPaymentMeta) return;
+          addItem({
+            product_id: rmsPaymentMeta.product_id,
+            variant_id: rmsPaymentMeta.variant_id,
+            sku: rmsPaymentMeta.sku,
+            name: rmsPaymentMeta.name,
+            standard_retail_price: 0,
+            unit_cost: 0,
+            state_tax: 0,
+            local_tax: 0,
+            stock_on_hand: 0,
+            vendor_sku: "",
+          }, centsToFixed2(amountCents));
+        }}
+        weddingMemberships={weddingMemberships}
+        onOpenWeddingParty={onOpenWeddingParty}
+      />
       <ConfirmationModal
         isOpen={Boolean(sourceRemovalPrompt)}
         onClose={keepAlterationsAsCustomAndRemoveSource}
@@ -3888,6 +3914,7 @@ export default function Cart({
             setLastTransactionId(null);
             setCheckoutOperator(null);
             setLastReceiptOrderPaymentLines([]);
+            setSelectedCustomer(null);
             onSaleCompleted?.();
           }}
           baseUrl={baseUrl}
