@@ -14,22 +14,7 @@ export RIVERSIDE_MODE="e2e"
 export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:password@localhost:5433/$E2E_DB_NAME}"
 export E2E_API_BASE="${E2E_API_BASE:-http://127.0.0.1:43300}"
 export E2E_BASE_URL="${E2E_BASE_URL:-http://localhost:43173}"
-export E2E_CORECARD_BASE="${E2E_CORECARD_BASE:-http://127.0.0.1:43400}"
-export E2E_CORECARD_PORT="${E2E_CORECARD_PORT:-43400}"
-
 export RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="${RIVERSIDE_ENABLE_E2E_TEST_SUPPORT:-1}"
-export RIVERSIDE_CORECARD_BASE_URL="${RIVERSIDE_CORECARD_BASE_URL:-$E2E_CORECARD_BASE}"
-export RIVERSIDE_CORECARD_CLIENT_ID="${RIVERSIDE_CORECARD_CLIENT_ID:-e2e-client}"
-export RIVERSIDE_CORECARD_CLIENT_SECRET="${RIVERSIDE_CORECARD_CLIENT_SECRET:-e2e-secret}"
-export RIVERSIDE_CORECARD_REGION="${RIVERSIDE_CORECARD_REGION:-us}"
-export RIVERSIDE_CORECARD_ENVIRONMENT="${RIVERSIDE_CORECARD_ENVIRONMENT:-e2e}"
-export RIVERSIDE_CORECARD_TIMEOUT_SECS="${RIVERSIDE_CORECARD_TIMEOUT_SECS:-5}"
-export RIVERSIDE_CORECARD_REDACTION="${RIVERSIDE_CORECARD_REDACTION:-strict}"
-export RIVERSIDE_CORECARD_LOG_PAYLOADS="${RIVERSIDE_CORECARD_LOG_PAYLOADS:-false}"
-export RIVERSIDE_CORECARD_WEBHOOK_SECRET="${RIVERSIDE_CORECARD_WEBHOOK_SECRET:-e2e-corecard-webhook}"
-export RIVERSIDE_CORECARD_WEBHOOK_ALLOW_UNSIGNED="${RIVERSIDE_CORECARD_WEBHOOK_ALLOW_UNSIGNED:-false}"
-export RIVERSIDE_CORECARD_REPAIR_POLL_SECS="${RIVERSIDE_CORECARD_REPAIR_POLL_SECS:-3600}"
-export RIVERSIDE_CORECARD_SNAPSHOT_RETENTION_DAYS="${RIVERSIDE_CORECARD_SNAPSHOT_RETENTION_DAYS:-30}"
 export COUNTERPOINT_SYNC_TOKEN="${COUNTERPOINT_SYNC_TOKEN:-e2e-counterpoint-sync-token}"
 
 api_bind="${E2E_API_BASE#http://}"
@@ -80,7 +65,6 @@ cleanup_stale_listener() {
 
 cleanup_stale_listener "$ui_port"
 cleanup_stale_listener "$api_port"
-cleanup_stale_listener "$E2E_CORECARD_PORT"
 
 docker compose up -d db
 
@@ -96,7 +80,6 @@ docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 
 docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seeds/seed_rbac.sql"
 docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seeds/seed_e2e.sql"
 
-exec npx concurrently -k -s first -n api,ui,corecard -c blue,magenta,cyan \
+exec npx concurrently -k -s first -n api,ui -c blue,magenta \
   "npm run dev:server" \
-  "cd client && VITE_DEV_PROXY_TARGET=$E2E_API_BASE npm run dev -- --host $ui_host --port $ui_port --strictPort" \
-  "node scripts/fake-corecard-server.mjs"
+  "cd client && VITE_DEV_PROXY_TARGET=$E2E_API_BASE npm run dev -- --host $ui_host --port $ui_port --strictPort"
