@@ -5,6 +5,7 @@ pub mod llama_server;
 pub mod rosie_voice;
 pub mod station_config;
 pub mod unified_server;
+pub mod server_updater;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -50,6 +51,8 @@ pub fn run() {
             unified_server::start_installed_windows_server,
             unified_server::get_unified_server_status,
             unified_server::get_unified_host_network_identity,
+            server_updater::check_server_local_status,
+            server_updater::download_and_run_server_installer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

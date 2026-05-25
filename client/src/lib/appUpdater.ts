@@ -43,3 +43,30 @@ export async function installAppUpdate(): Promise<InstallUpdateResult> {
 
   return invoke<InstallUpdateResult>("install_app_update");
 }
+
+export interface ServerLocalStatus {
+  is_local: boolean;
+  install_root: string;
+  config_exists: boolean;
+  server_binary_exists: boolean;
+}
+
+export async function checkServerLocalStatus(): Promise<ServerLocalStatus> {
+  if (!isTauri()) {
+    return {
+      is_local: false,
+      install_root: "",
+      config_exists: false,
+      server_binary_exists: false,
+    };
+  }
+  return invoke<ServerLocalStatus>("check_server_local_status");
+}
+
+export async function downloadAndRunServerInstaller(version: string): Promise<string> {
+  if (!isTauri()) {
+    throw new Error("Server installer can only be run from the desktop app.");
+  }
+  return invoke<string>("download_and_run_server_installer", { version });
+}
+

@@ -13,6 +13,9 @@ import {
   checkForAppUpdate,
   installAppUpdate,
   type UpdateCheckResult,
+  checkServerLocalStatus,
+  downloadAndRunServerInstaller,
+  type ServerLocalStatus,
 } from "../../lib/appUpdater";
 import { useToast } from "../ui/ToastProviderLogic";
 
@@ -87,6 +90,8 @@ export default function UpdateManagerPanel() {
   const [pwaStatus, setPwaStatus] = useState<PwaUpdateStatus | null>(null);
   const [serverVersion, setServerVersion] = useState<ServerVersionStatus | null>(null);
   const [serverVersionError, setServerVersionError] = useState(false);
+  const [serverLocalStatus, setServerLocalStatus] = useState<ServerLocalStatus | null>(null);
+  const [serverUpdateBusy, setServerUpdateBusy] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -109,7 +114,28 @@ export default function UpdateManagerPanel() {
         setServerVersionError(true);
       }
     })();
+    void (async () => {
+      try {
+        const status = await checkServerLocalStatus();
+        setServerLocalStatus(status);
+      } catch {
+        setServerLocalStatus(null);
+      }
+    })();
   }, [baseUrl]);
+
+  const handleRunServerInstaller = async () => {
+    const targetVersion = updateCheck?.version || CLIENT_SEMVER;
+    setServerUpdateBusy(true);
+    try {
+      const msg = await downloadAndRunServerInstaller(targetVersion);
+      toast(msg, "success");
+    } catch (e) {
+      toast(String(e) || "Failed to trigger server update.", "error");
+    } finally {
+      setServerUpdateBusy(false);
+    }
+  };
 
   const surfaceLabel = useMemo(
     () =>
@@ -383,12 +409,39 @@ export default function UpdateManagerPanel() {
               </p>
             </div>
           </div>
-          <div className="mt-4 rounded-xl border border-app-warning/30 bg-app-warning/10 px-4 py-3 text-xs font-semibold leading-relaxed text-app-warning">
-            On the Backoffice / Server PC, open the release package and run
-            <span className="font-mono"> Start-RiversideDeployment.cmd</span>.
-            Select Backoffice / Server, refresh Server Status, then use Update
-            This Server PC or Repair Server.
-          </div>
+          {serverLocalStatus?.is_local ? (
+            <div className="mt-4 border border-app-border bg-app-surface-2/40 rounded-xl p-4 space-y-4">
+              <div className="flex items-center gap-2 text-emerald-500 font-bold text-xs uppercase tracking-widest">
+                <CheckCircle2 className="h-4 w-4" />
+                Local host server detected
+              </div>
+              <p className="text-xs text-app-text-muted leading-relaxed">
+                You can run the update directly on this PC. This will download the latest deployment bundle, apply database migrations, and update server assets elevated.
+              </p>
+              <button
+                type="button"
+                disabled={serverUpdateBusy}
+                onClick={handleRunServerInstaller}
+                className="ui-btn-primary w-full h-11 text-xs font-black disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {serverUpdateBusy ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Updating Host Server...
+                  </>
+                ) : (
+                  `Update local server to v${updateCheck?.version || CLIENT_SEMVER}`
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-xl border border-app-warning/30 bg-app-warning/10 px-4 py-3 text-xs font-semibold leading-relaxed text-app-warning">
+              On the Backoffice / Server PC, open the release package and run
+              <span className="font-mono"> Start-RiversideDeployment.cmd</span>.
+              Select Backoffice / Server, refresh Server Status, then use Update
+              This Server PC or Repair Server.
+            </div>
+          )}
           <ol className="mt-5 space-y-3 text-xs font-medium leading-relaxed text-app-text-muted">
             {[
               "Open the Deployment Manager on the Backoffice / Server PC.",
