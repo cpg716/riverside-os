@@ -2,7 +2,7 @@
 
 **Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.70.0 is the production release for the store rollout model: Backoffice / Server PC, Register #1 Windows Tauri, Register #2 iPad PWA, and Windows laptop PWA/optional Tauri clients. It carries forward the v0.60.2 deployment baseline and tightens host selection, printer readiness, updater, Help/ROSIE, deployment, and recovery hardening.
 
-Current Version: **v0.80.5** (See [CHANGELOG.md](CHANGELOG.md))
+Current Version: **v0.80.6** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Stack
 

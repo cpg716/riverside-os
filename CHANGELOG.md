@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.80.6] - 2026-05-25
+
+### Added
+- **In-App Host Server Updater**: Integrated a native server update orchestration layer in Tauri (`server_updater.rs`). Allows the desktop app to download release packages, unpack binaries and script installers, and run them under Administrator permissions via a standard UAC dialog.
+- **Update Manager UI Dashboard**: Enhanced `UpdateManagerPanel.tsx` and `appUpdater.ts` to display server status, download progress, and step-by-step update tracking.
+
+### Fixed
+- **Staff Help Viewer Authentication Fallback**: Hardened `server/src/api/help.rs` and help routing to gracefully fall back to the active POS register session credentials if active staff profile headers are absent or incomplete.
+- **ROSIE Insights Optional Timeout Expansion**: Increased `ROSIE_OPTIONAL_INSIGHT_TIMEOUT_MS` in `client/src/lib/rosie.ts` from 15s to 120s to prevent premature request aborts on slower CPU-only workstation hardware.
+
 ## [0.80.5] - 2026-05-25
 
 ### Added
