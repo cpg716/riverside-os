@@ -567,7 +567,6 @@ export default function RegisterOverlay({
       }
 
       const receiptPrinter = resolvePrinterTarget("receipt");
-      const printerRequired = registerLaneRef.current <= 1;
       if (!isTauri()) {
         setPrinterReadiness({
           status: "warning",
@@ -576,13 +575,13 @@ export default function RegisterOverlay({
         });
       } else if (receiptPrinter.mode === "system" && !receiptPrinter.printerName.trim()) {
         setPrinterReadiness({
-          status: printerRequired ? "error" : "warning",
+          status: "warning",
           detail:
             "Receipt printer is not selected for this station. Set it in Printers & Scanners before customer checkout.",
         });
       } else if (receiptPrinter.mode === "network" && !receiptPrinter.ip.trim()) {
         setPrinterReadiness({
-          status: printerRequired ? "error" : "warning",
+          status: "warning",
           detail:
             "Receipt printer address is not configured for this station. Set it in Printers & Scanners before customer checkout.",
         });
@@ -591,7 +590,7 @@ export default function RegisterOverlay({
         (!Number.isFinite(receiptPrinter.port) || receiptPrinter.port <= 0)
       ) {
         setPrinterReadiness({
-          status: printerRequired ? "error" : "warning",
+          status: "warning",
           detail:
             "Receipt printer port is invalid for this station. Correct the station printer settings before customer checkout.",
         });
@@ -606,7 +605,7 @@ export default function RegisterOverlay({
           const detail =
             err instanceof Error ? err.message : "Printer connection failed.";
           setPrinterReadiness({
-            status: printerRequired ? "error" : "warning",
+            status: "warning",
             detail: `${detail} Check printer power, IP, and cable/network path before customer checkout.`,
           });
         }
@@ -622,8 +621,7 @@ export default function RegisterOverlay({
   }, [booting, registerLane, runReadinessChecks]);
 
   const hasBlockingReadinessIssue =
-    apiReadiness.status === "error" ||
-    (registerLane <= 1 && printerReadiness.status === "error");
+    apiReadiness.status === "error";
 
   const root = document.getElementById("drawer-root");
   if (!root) return null;
@@ -1084,7 +1082,7 @@ export default function RegisterOverlay({
                     <div className="rounded-xl border border-app-danger/20 bg-app-danger/5 p-3 flex gap-3">
                       <AlertTriangle size={14} className="shrink-0 text-app-danger" />
                       <p className="text-[10px] font-bold leading-relaxed text-app-danger">
-                        Cannot open register until diagnostics pass. Check API connectivity and printer configuration.
+                        Cannot open register until diagnostics pass. Check API connectivity.
                       </p>
                     </div>
                   )}
