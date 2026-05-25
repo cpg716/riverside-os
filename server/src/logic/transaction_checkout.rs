@@ -2956,7 +2956,7 @@ pub async fn execute_checkout(
                 ),
             )
         };
-        let line_is_internal = false;
+        let line_is_internal = pos_kind.as_deref() == Some("rms_charge_payment");
 
         let custom_item_type = canonical_custom_item_type_for_variant(
             &mut tx,
