@@ -78,8 +78,8 @@ jobs:
         run: |
           tag="${{ steps.meta.outputs.tag }}"
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "${{ steps.meta.outputs.notes }}"
-          dmg=$(ls deployment/manager-app/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg 2>/dev/null | head -1)
-          app=$(ls deployment/manager-app/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
+          dmg=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg 2>/dev/null | head -1)
+          app=$(ls target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
           if [ -n "$dmg" ]; then
             echo "Uploading DMG: $dmg"
             gh release upload "$tag" "$dmg" --clobber

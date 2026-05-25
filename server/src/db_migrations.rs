@@ -8,8 +8,8 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
     // 1. Check if the schema migrations ledger exists
     let ledger_exists_query = "
         SELECT EXISTS (
-            SELECT 1 
-            FROM information_schema.tables 
+            SELECT 1
+            FROM information_schema.tables
             WHERE table_schema = 'public' AND table_name = 'ros_schema_migrations'
         );
     ";
@@ -54,22 +54,45 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
 
         tracing::info!("Unified Engine: Applying migration: {}...", file_name);
 
-        // Strip psql meta-commands (like \set ON_ERROR_STOP on)
+        // Strip psql meta-commands and pg_dump session-state preamble
         let clean_sql = sql_content
             .lines()
-            .filter(|line| !line.trim_start().starts_with('\\'))
+            .filter(|line| {
+                let t = line.trim_start();
+                !t.starts_with('\\')
+                    && !t.starts_with("SET ")
+                    && !t.starts_with("SELECT pg_catalog.set_config")
+            })
             .collect::<Vec<_>>()
             .join("\n");
 
         let mut tx = pool.begin().await?;
 
-        if let Err(e) = sqlx::query(&clean_sql).execute(&mut *tx).await {
-            tracing::error!(
-                error = %e,
-                "Unified Engine: Failed to execute migration sql: {}",
-                file_name
-            );
-            return Err(e.into());
+        // Split multi-statement SQL and execute each individually.
+        // PostgreSQL rejects multiple commands in a single prepared statement,
+        // so we split on semicolons and execute each non-empty, non-comment chunk.
+        // This is Send-safe (unlike sqlx::raw_sql()) and works across tokio::spawn.
+        let statements: Vec<&str> = clean_sql
+            .split(';')
+            .map(|s| s.trim())
+            .filter(|s| {
+                !s.is_empty()
+                    && s.lines().any(|line| {
+                        let t = line.trim();
+                        !t.is_empty() && !t.starts_with("--")
+                    })
+            })
+            .collect();
+
+        for stmt in &statements {
+            if let Err(e) = sqlx::query(stmt).execute(&mut *tx).await {
+                tracing::error!(
+                    error = %e,
+                    "Unified Engine: Failed to execute migration sql: {}",
+                    file_name
+                );
+                return Err(e.into());
+            }
         }
 
         // Calculate current file SHA256 to register in the ledger

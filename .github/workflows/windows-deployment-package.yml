@@ -1,7 +1,7 @@
 name: Windows deployment package
 
 concurrency:
-  group: windows-deployment-package
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:

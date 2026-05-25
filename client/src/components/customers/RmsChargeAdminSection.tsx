@@ -178,7 +178,6 @@ export interface RmsChargeAdminSectionProps {
 }
 
 export default function RmsChargeAdminSection({
-  surface,
   onOpenTransactionInBackoffice,
 }: RmsChargeAdminSectionProps) {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
@@ -304,7 +303,7 @@ export default function RmsChargeAdminSection({
 
   const fetchRecords = useCallback(
     async (nextOffset: number, append: boolean) => {
-      if (surface === "pos" || !canLegacyView) return;
+      if (!canLegacyView) return;
       setLoadingRecords(true);
       try {
         const params = new URLSearchParams();
@@ -336,18 +335,18 @@ export default function RmsChargeAdminSection({
         setLoadingRecords(false);
       }
     },
-    [apiAuth, canLegacyView, from, kind, q, reportStatus, selectedCustomerId, surface, to, toast],
+    [apiAuth, canLegacyView, from, kind, q, reportStatus, selectedCustomerId, to, toast],
   );
 
   useEffect(() => {
-    if (surface === "pos" || !canLegacyView) return;
+    if (!canLegacyView) return;
     setOffset(0);
     void fetchRecords(0, false);
-  }, [canLegacyView, fetchRecords, from, kind, q, reportStatus, selectedCustomerId, surface, to]);
+  }, [canLegacyView, fetchRecords, from, kind, q, reportStatus, selectedCustomerId, to]);
 
   const loadRecordDetail = useCallback(
     async (recordId: string) => {
-      if (!recordId || surface === "pos") return;
+      if (!recordId) return;
       setLoadingRecordDetail(true);
       try {
         const res = await fetch(
@@ -372,7 +371,7 @@ export default function RmsChargeAdminSection({
         setLoadingRecordDetail(false);
       }
     },
-    [apiAuth, surface, toast],
+    [apiAuth, toast],
   );
 
   const submitR2sReportNote = useCallback(
@@ -415,14 +414,6 @@ export default function RmsChargeAdminSection({
     setOffset(0);
     void fetchRecords(0, false);
   }, [fetchRecords]);
-
-  if (surface === "pos") {
-    return (
-      <div className="ui-page p-6 text-sm text-app-text-muted">
-        Administrative RMS actions are disabled inside POS terminal shell mode.
-      </div>
-    );
-  }
 
   if (!canLegacyView) {
     return (
@@ -968,7 +959,7 @@ export default function RmsChargeAdminSection({
               <h3 className="text-xs font-black uppercase tracking-widest text-app-text-muted mb-4">
                 Import Nexo/RMS Account List
               </h3>
-              
+
               <div className="space-y-4">
                 <div className="p-3 rounded-xl bg-app-surface-2 border border-app-border text-xs text-app-text-muted leading-relaxed">
                   Ensure you are importing the weekly <strong>Account List Report</strong> Excel sheet (.xlsx format) downloaded from the RMS administration system. Do not modify columns prior to upload.

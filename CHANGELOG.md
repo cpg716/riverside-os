@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.80.5] - 2026-05-25
+
 ### Added
 - **POS Register — Dedicated Payment Button**: A new **Payment** action button is available directly in the register toolbar under "Sale options" (next to **Gift Card**). Tapping it inserts the RMS Charge Payment line automatically, bypassing the need to search for "PAYMENT" in the product search. Cashier verification is enforced before the line is added.
 - **Production Hardening Suite**: Enterprise-grade production features for scalability, reliability, and observability
@@ -36,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Loyalty customer summary NULL safety**: `loyalty_customer_summary` now uses `COALESCE(..., 'Unknown')` to prevent deserialization panics when a customer has no name.
 - **Loyalty redemption config validation**: `redeem_reward` now validates that `loyalty_point_threshold > 0` and `loyalty_reward_amount > 0` before processing, preventing point burns against an unconfigured program.
 - **Commission recalc SQL safety**: Added explicit `SAFETY` comments to `format!` usages in `commission_recalc.rs` documenting that `ORDER_RECOGNITION_TS_SQL` is a compile-time constant with no injection risk.
+- **Database migration runner**: Hardened multi-statement migration execution by splitting on semicolons and executing each non-empty, non-comment chunk individually with `sqlx::query()`. Strips `pg_dump` `SET` and `SELECT pg_catalog.set_config` preamble from migration files to prevent session-side-effect crashes. This is Send-safe across `tokio::spawn` boundaries (unlike `sqlx::raw_sql()`), fixing Windows Tauri compilation failures.
+- **CI/CD — Windows deployment package concurrency**: Fixed static `group: windows-deployment-package` concurrency to `group: ${{ github.workflow }}-${{ github.ref }}`, preventing sequential tag pushes from cancelling each other before completion.
+- **CI/CD — macOS deployment manager upload paths**: Corrected artifact search paths from `src-tauri/target/` to repo-root `target/` to match the unified Cargo workspace layout, ensuring DMG and app.tar.gz actually reach the GitHub release.
+- **POS RMS Charge access restored**: Removed an incorrect blanket `surface === "pos"` guard in `RmsChargeAdminSection.tsx` that blocked staff from viewing RMS Charge records and reporting to R2S while in POS terminal shell mode. Permission-based access (`customers.rms_charge`) remains the correct gate.
 
 ### Changed
 - **RMS metadata cleanup**: Removed `linked_corecredit_*` fields from `RmsChargeSelectionMetadata` and RMS JSON metadata output. DB columns are preserved for backward compatibility but bound as `NULL` in new inserts.
