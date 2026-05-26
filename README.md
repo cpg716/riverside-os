@@ -1,8 +1,8 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.80.6 is the current release, carrying forward the v0.70.0 deployment baseline with additional catastrophic-failure-prevention hardening for Helcim transaction safety, QBO duplicate-journal prevention, RMS double-reversal guards, offline queue timeouts, permission tightening, and backorder failure notifications.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.80.7 is the current release, carrying forward the v0.70.0 deployment baseline with additional catastrophic-failure-prevention hardening for Helcim transaction safety, QBO duplicate-journal prevention, RMS double-reversal guards, offline queue timeouts, permission tightening, backorder failure notifications, and Phase 4 Resiliency improvements (transaction checkout state machine, offline queue conflict alerts, and transactional QBO outbox).
 
-Current Version: **v0.80.6** (See [CHANGELOG.md](CHANGELOG.md))
+Current Version: **v0.80.7** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Stack
 

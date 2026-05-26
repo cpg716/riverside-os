@@ -13,7 +13,7 @@ The primary entry point is **`Start-RiversideDeployment.cmd`**. It opens the Riv
 Build output:
 
 ```text
-RiversideOS-v0.80.6-Windows-Deployment/
+RiversideOS-v0.80.7-Windows-Deployment/
   Start-RiversideDeployment.cmd
   Start-RiversideDeployment.ps1
   install-server.ps1
@@ -37,7 +37,7 @@ RiversideOS-v0.80.6-Windows-Deployment/
 From a Windows release machine after building the server, client, and Tauri bundle:
 
 ```powershell
-.\deployment\windows\build-deployment-package.ps1 -Version "0.80.6"
+.\deployment\windows\build-deployment-package.ps1 -Version "0.80.7"
 ```
 
 If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`. For v0.80.0 and later, do not mix the `server/`, `client-dist/`, `register/`, or `updater/` folders from different release zips.
@@ -105,7 +105,7 @@ If Riverside Settings cannot open because the API is down, manage the server fro
 5. If the package version is newer than the installed server version, run **Update This Server PC**.
 6. If the server task is missing or the API is unreachable, run **Repair Server** or use **Start Server** / **Restart Server**.
 
-Hotfix/support actions included in v0.80.6 packages:
+Hotfix/support actions included in v0.80.7 packages:
 
 - **`Install-RosieAiStack.cmd`** installs the ROSIE AI models and Python voice tools, patches the server `.env` to make the local LLM reachable via `RIVERSIDE_LLAMA_UPSTREAM`, and restarts the server. Use this to restore ROSIE AI features on existing Server PCs without a full reinstall.
 - **`Repair-RiversideCredentialsKey.cmd`** repairs the installed server credential key, writes it to both `C:\RiversideOS\server\.env` and the Windows machine environment, and restarts the `Riverside OS Server` task. Use this when Backoffice Settings says `RIVERSIDE_CREDENTIALS_KEY` must be set before integration credentials can be saved.

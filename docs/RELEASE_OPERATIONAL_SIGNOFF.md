@@ -1,4 +1,4 @@
-# Release Operational Signoff — Riverside OS v0.80.6
+# Release Operational Signoff — Riverside OS v0.80.7
 
 This checklist is for the final human go/no-go review after the code RC gate has passed.
 
@@ -62,4 +62,4 @@ This checklist is for the final human go/no-go review after the code RC gate has
 ## Release tag reminder
 
 - This operational checklist is complete.
-- The release tag may be cut for **v0.80.6**.
+- The release tag may be cut for **v0.80.7**.

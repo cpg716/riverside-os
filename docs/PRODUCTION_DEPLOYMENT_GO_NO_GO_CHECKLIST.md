@@ -4,22 +4,22 @@ Target: Hybrid Tauri Host retail deployment.
 
 ## Current Deployment Status (2026-05-23)
 
-- [x] Target release version is **`v0.80.6`**.
-- [ ] Current release tag exists: **`v0.80.6`**.
+- [x] Target release version is **`v0.80.7`**.
+- [ ] Current release tag exists: **`v0.80.7`**.
 - [ ] Current release has Windows installer/updater assets published.
-  - Required action: tag/publish `v0.80.6`, then run the Windows updater release workflow and Windows deployment package workflow before installing Windows stations.
-  - Required artifacts: `latest.json`, `riverside-updater-build-manifest.json`, Windows MSI, matching `.sig`, and `RiversideOS-v0.80.6-Windows-Deployment.zip`.
+  - Required action: tag/publish `v0.80.7`, then run the Windows updater release workflow and Windows deployment package workflow before installing Windows stations.
+  - Required artifacts: `latest.json`, `riverside-updater-build-manifest.json`, Windows MSI, matching `.sig`, and `RiversideOS-v0.80.7-Windows-Deployment.zip`.
 - [ ] Current release has macOS Deployment Manager DMG published.
-  - Required artifact: `RiversideOS-Deployment-Manager_0.80.6_universal.dmg`.
-- [ ] Latest Playwright E2E push on `main` passed for the final `v0.80.6` release commit.
-- [ ] Latest Lint Checks push on `main` passed for the final `v0.80.6` release commit.
+  - Required artifact: `RiversideOS-Deployment-Manager_0.80.7_universal.dmg`.
+- [ ] Latest Playwright E2E push on `main` passed for the final `v0.80.7` release commit.
+- [ ] Latest Lint Checks push on `main` passed for the final `v0.80.7` release commit.
 - [ ] Production station deployment log is complete for:
   - Main Hub (Backoffice / Server PC)
   - Register #1 Windows Tauri
   - Register #2 iPad PWA
   - Other Windows laptop PWA / optional Tauri clients
 
-## v0.80.6 Catastrophic Failure Prevention Fixes
+## v0.80.7 Catastrophic Failure Prevention Fixes
 
 All six remediation items from the 2026-05-25 audit were applied to `main` and verified:
 
@@ -32,17 +32,17 @@ All six remediation items from the 2026-05-25 audit were applied to `main` and v
 
 Verification run on 2026-05-25: `cargo check`, `cargo clippy`, `cargo fmt`, `npm --prefix client run typecheck`, `npm --prefix client run lint`, and `npm run check:server` all passed.
 
-## v0.80.6 Release Readiness Blockers
+## v0.80.7 Release Readiness Blockers
 
-- [ ] `v0.80.6` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
-- [ ] `v0.80.6` Windows deployment package exists and its manifest source SHA matches the release tag.
-- [ ] `v0.80.6` macOS Deployment Manager DMG exists.
+- [ ] `v0.80.7` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
+- [ ] `v0.80.7` Windows deployment package exists and its manifest source SHA matches the release tag.
+- [ ] `v0.80.7` macOS Deployment Manager DMG exists.
 - [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
 - [ ] GitHub checks have rerun and passed on the final release commit.
 
 ## Code Gate
 
-- [ ] v0.80.6 automated certification evidence is recorded in [`docs/releases/v0.80.6-certification.md`](releases/v0.80.6-certification.md).
+- [ ] v0.80.7 automated certification evidence is recorded in [`docs/releases/v0.80.7-certification.md`](releases/v0.80.7-certification.md).
 - [x] No unresolved AI-actionable code-level P0/P1 findings remain in `docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md`; human/environment verification gates below remain required.
 - [x] `cargo fmt --manifest-path server/Cargo.toml --check` — passed locally for v0.4.0 readiness on 2026-05-01.
 - [x] `cargo clippy --manifest-path server/Cargo.toml -- -D warnings` — passed locally for v0.4.0 readiness on 2026-05-01 after the Meilisearch helper refactor.

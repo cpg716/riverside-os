@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.80.7] - 2026-05-26
+
+### Added
+- **Transactional Outbox for QBO**: Added `qbo_sync_outbox` queuing inside the transaction checkout block. Decouples the live registers from QuickBooks Online downtime, rate limits, or transient connection issues by using an asynchronous sync worker with exponential backoff.
+- **Offline Queue Conflict Alerts**: Allowed POS terminal checkouts during sync/offline replay to fall back to negative stock levels, inserting warning alerts to `negative_stock_alerts` and broadcasting notification updates to target admin staff.
+
+### Fixed
+- **Checkout State Machine & Idempotency**: Hardened transaction checkouts to write orders in a `Processing` state before terminal captures. Integrated client-side `checkoutClientId` idempotency to prevent dual sweeps, and hooked approved terminal payment webhooks to auto-recover and finalize stuck processing checkouts.
+- **Strict Webhook Isolation Layers**: Enforced typed `serde` payload validation parsing on Helcim, Shippo, and Podium webhook entry points to prevent upstream API changes from propagating database exceptions.
+
 ## [0.80.6] - 2026-05-25
 
 ### Added
