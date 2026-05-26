@@ -1814,6 +1814,29 @@ struct RmsChargeReconciliationQuery {
     limit: Option<i64>,
 }
 
+#[derive(Debug, Serialize, FromRow)]
+struct RmsReconciliationItemRow {
+    id: Uuid,
+    severity: String,
+    status: String,
+    mismatch_type: String,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+struct RmsReconciliationRunRow {
+    status: String,
+    started_at: DateTime<Utc>,
+    completed_at: Option<DateTime<Utc>>,
+    summary_json: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct RmsReconciliationResponse {
+    items: Vec<RmsReconciliationItemRow>,
+    runs: Vec<RmsReconciliationRunRow>,
+}
+
 #[derive(Debug, Deserialize)]
 struct RunReconciliationBody {
     #[serde(default)]
@@ -2050,6 +2073,42 @@ async fn get_rms_charge_record(
     let r2s_cutoff = rms_r2s_reporting_activation_cutoff();
     let row = fetch_rms_charge_record_detail(&state.db, record_id, r2s_cutoff).await?;
     Ok(Json(row))
+}
+
+async fn get_rms_charge_reconciliation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<RmsChargeReconciliationQuery>,
+) -> Result<Json<RmsReconciliationResponse>, CustomerError> {
+    require_rms_charge_reconcile_staff(&state, &headers).await?;
+
+    let limit = q.limit.unwrap_or(10).clamp(1, 100);
+
+    let items: Vec<RmsReconciliationItemRow> = sqlx::query_as::<_, RmsReconciliationItemRow>(
+        r#"
+        SELECT id, severity, status, mismatch_type, created_at
+        FROM corecredit_reconciliation_item
+        WHERE status != 'resolved'
+        ORDER BY created_at DESC
+        LIMIT $1
+        "#,
+    )
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await?;
+
+    let runs: Vec<RmsReconciliationRunRow> = sqlx::query_as::<_, RmsReconciliationRunRow>(
+        r#"
+        SELECT status, started_at, completed_at, summary_json
+        FROM corecredit_reconciliation_run
+        ORDER BY started_at DESC
+        LIMIT 5
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(RmsReconciliationResponse { items, runs }))
 }
 
 async fn mark_rms_charge_record_reported_to_r2s(
@@ -2753,6 +2812,10 @@ pub fn router() -> Router<AppState> {
             get(get_podium_conversation_assignees).patch(patch_podium_conversation_assignee),
         )
         .route("/rms-charge/records", get(list_rms_charge_records))
+        .route(
+            "/rms-charge/reconciliation",
+            get(get_rms_charge_reconciliation),
+        )
         .route(
             "/rms-charge/records/{record_id}",
             get(get_rms_charge_record),

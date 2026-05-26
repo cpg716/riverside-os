@@ -709,8 +709,8 @@ async fn get_diagnostics(
         },
     };
 
-    // Parse server log ring for errors and warnings
-    let log_snapshot = state.server_log_ring.snapshot_text(240_000);
+    // Parse server log ring for errors and warnings (keep scan small for local LLM)
+    let log_snapshot = state.server_log_ring.snapshot_text(32_000);
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
@@ -726,9 +726,9 @@ async fn get_diagnostics(
         }
     }
 
-    // Limit entries
-    errors.truncate(50);
-    warnings.truncate(50);
+    // Limit entries (local 4B model chokes on huge prompts)
+    errors.truncate(10);
+    warnings.truncate(10);
 
     let github = GitHubStatus {
         token_configured: state.github_token.is_some(),
@@ -813,8 +813,8 @@ fn generate_ai_prompt(
     ));
 
     if !errors.is_empty() {
-        prompt.push_str("\n## Recent Errors (last 50)\n\n");
-        for e in errors.iter().take(20) {
+        prompt.push_str("\n## Recent Errors (last 10)\n\n");
+        for e in errors.iter().take(5) {
             prompt.push_str(&format!(
                 "- `[{}]` `{}` — {}\n",
                 e.timestamp, e.target, e.message
@@ -823,8 +823,8 @@ fn generate_ai_prompt(
     }
 
     if !warnings.is_empty() {
-        prompt.push_str("\n## Recent Warnings (last 50)\n\n");
-        for w in warnings.iter().take(20) {
+        prompt.push_str("\n## Recent Warnings (last 10)\n\n");
+        for w in warnings.iter().take(5) {
             prompt.push_str(&format!(
                 "- `[{}]` `{}` — {}\n",
                 w.timestamp, w.target, w.message
@@ -833,12 +833,16 @@ fn generate_ai_prompt(
     }
 
     prompt.push_str("\n## AI Analysis Request\n\n");
-    prompt.push_str("Please analyze the above diagnostic data and:\n");
-    prompt.push_str("1. Identify the root cause of any errors or warnings\n");
-    prompt.push_str("2. Suggest specific files and code changes needed\n");
-    prompt.push_str("3. Prioritize issues by severity (critical, warning, info)\n");
-    prompt.push_str("4. Recommend preventive measures\n");
-    prompt.push_str("5. If DB issues exist, suggest migration or connection pool fixes\n");
+    prompt.push_str(
+        "Briefly analyze the above and suggest 1–2 fixes. Be specific about files and lines.\n",
+    );
+
+    // Hard cap: local 4B models tokenize slowly; keep prompt under ~4K chars
+    const MAX_PROMPT_CHARS: usize = 4_000;
+    if prompt.len() > MAX_PROMPT_CHARS {
+        prompt.truncate(MAX_PROMPT_CHARS);
+        prompt.push_str("\n[truncated]\n");
+    }
 
     prompt
 }
