@@ -13,6 +13,7 @@ import {
 } from "./lib/rosDocumentTheme";
 import { installClientDiagnostics } from "./lib/clientDiagnostics";
 import "./index.css";
+import { applyInstallerStationConfig } from "./lib/stationConfigBootstrap";
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
@@ -95,20 +96,30 @@ if (import.meta.env.DEV) {
   );
 }
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <ToastProvider>
-      {isPublicShop ? (
-        <PublicStorefront />
-      ) : isPodiumOAuthCallback ? (
-        <PodiumOAuthCallback />
-      ) : (
-        <AppErrorBoundary>
-          <App />
-        </AppErrorBoundary>
-      )}
-      {isPodiumOAuthCallback ? null : <StorefrontEmbedHost />}
-      <PwaUpdatePrompt />
-    </ToastProvider>
-  </StrictMode>,
-);
+async function init() {
+  try {
+    await applyInstallerStationConfig();
+  } catch (err) {
+    console.error("[ROS Startup] Config bootstrap failed:", err);
+  }
+
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <ToastProvider>
+        {isPublicShop ? (
+          <PublicStorefront />
+        ) : isPodiumOAuthCallback ? (
+          <PodiumOAuthCallback />
+        ) : (
+          <AppErrorBoundary>
+            <App />
+          </AppErrorBoundary>
+        )}
+        {isPodiumOAuthCallback ? null : <StorefrontEmbedHost />}
+        <PwaUpdatePrompt />
+      </ToastProvider>
+    </StrictMode>,
+  );
+}
+
+void init();

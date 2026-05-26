@@ -86,6 +86,12 @@ export async function applyInstallerStationConfig() {
   if (!config?.register) return;
 
   const hash = JSON.stringify(config.register);
+  const appliedHash = window.localStorage.getItem(APPLIED_HASH_KEY);
+  if (appliedHash === hash) {
+    // Configuration matches the already applied version. 
+    // Do not overwrite the user's manual overrides.
+    return;
+  }
 
   let changed = false;
   const stationLabel = config.register.stationLabel?.trim();
