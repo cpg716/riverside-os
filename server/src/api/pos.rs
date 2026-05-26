@@ -15,7 +15,8 @@ use uuid::Uuid;
 use crate::api::AppState;
 use crate::auth::permissions::{
     effective_permissions_for_staff, staff_has_permission, CUSTOMERS_RMS_CHARGE_MANAGE_LINKS,
-    ORDERS_REFUND_PROCESS, POS_RMS_CHARGE_HISTORY_BASIC, POS_RMS_CHARGE_LOOKUP, POS_RMS_CHARGE_USE,
+    CUSTOMERS_RMS_CHARGE_REVERSE, ORDERS_REFUND_PROCESS, POS_RMS_CHARGE_HISTORY_BASIC,
+    POS_RMS_CHARGE_LOOKUP, POS_RMS_CHARGE_USE,
 };
 use crate::logic::pos_rms_charge;
 use crate::logic::shippo::{self, ShippoError};
@@ -332,12 +333,21 @@ async fn reverse_rms_record_manual(
     amount: rust_decimal::Decimal,
 ) -> Result<RmsMutationResult, PosMetaError> {
     let now = chrono::Utc::now();
-    let metadata_row: Option<Value> =
-        sqlx::query_scalar("SELECT metadata_json FROM pos_rms_charge_record WHERE id = $1")
-            .bind(record_id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(PosMetaError::Database)?;
+    let (metadata_row, current_resolution): (Option<Value>, String) = sqlx::query_as(
+        "SELECT metadata_json, COALESCE(resolution_status, '') FROM pos_rms_charge_record WHERE id = $1"
+    )
+        .bind(record_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(PosMetaError::Database)?
+        .ok_or(PosMetaError::BadRequest(
+            "RMS charge record not found".to_string(),
+        ))?;
+    if current_resolution == "refunded" || current_resolution == "reversed" {
+        return Err(PosMetaError::BadRequest(
+            "Record has already been reversed or refunded".to_string(),
+        ));
+    }
     let mut metadata = metadata_row.unwrap_or_else(|| json!({}));
     if !metadata.is_object() {
         metadata = json!({});
@@ -408,12 +418,9 @@ async fn reverse_rms_charge_purchase(
     headers: HeaderMap,
     Json(body): Json<ReverseRmsChargeBody>,
 ) -> Result<Json<RmsMutationResult>, PosMetaError> {
-    let staff = require_staff_rms_sensitive_permission(
-        &state,
-        &headers,
-        &[ORDERS_REFUND_PROCESS, CUSTOMERS_RMS_CHARGE_MANAGE_LINKS],
-    )
-    .await?;
+    let staff =
+        require_staff_rms_sensitive_permission(&state, &headers, &[CUSTOMERS_RMS_CHARGE_REVERSE])
+            .await?;
     let record_id = if let Some(id) = body.record_id {
         id
     } else if let Some(transaction_id) = body.transaction_id {
@@ -462,12 +469,9 @@ async fn reverse_rms_charge_payment(
     headers: HeaderMap,
     Json(body): Json<ReverseRmsChargeBody>,
 ) -> Result<Json<RmsMutationResult>, PosMetaError> {
-    let staff = require_staff_rms_sensitive_permission(
-        &state,
-        &headers,
-        &[ORDERS_REFUND_PROCESS, CUSTOMERS_RMS_CHARGE_MANAGE_LINKS],
-    )
-    .await?;
+    let staff =
+        require_staff_rms_sensitive_permission(&state, &headers, &[CUSTOMERS_RMS_CHARGE_REVERSE])
+            .await?;
     let record_id = if let Some(id) = body.record_id {
         id
     } else if let Some(transaction_id) = body.transaction_id {

@@ -173,6 +173,19 @@ The POS golden path, tender UI smoke, tax-exempt checkout UI, and one exchange U
 - Local blocker signal: negative available stock returned 51 physical inventory rows after excluding explicit POS service/meta SKUs. This local data set is not production evidence, but the same probe must return zero unexplained rows on the RC/restored/production database before retail go-live.
 - Local restore result: latest local dump restored into a separate database, migration ledgers were present, and the API booted against the restored database. Hybrid Tauri host restore rehearsal remains required before production go-live.
 
+## v0.80.6 Remediation Appendix (2026-05-25)
+
+Six additional failure-prevention fixes were applied to `main` and are included in the `v0.80.6` release:
+
+| ID | Finding | Fix | Verification |
+|----|---------|-----|--------------|
+| CFP-001 | Helcim card-token purchase success path used `&state.db` instead of `&mut *tx`, leaving the attempt `pending` forever on crash after API approval. | Changed `.execute(&state.db)` to `.execute(&mut *tx)` and added `tx.commit()` in `server/src/api/payments.rs:7174-7179`. | `cargo check` and `cargo clippy` pass. |
+| CFP-002 | QBO sync could duplicate journal entries after 24 hours if the local DB update failed after QBO POST succeeded. | Added `syncing` state lock before POST in `server/src/jobs/qbo_sync.rs:142-155`. Staging rows in `syncing` or `failed` can never revert to `approved`. | `cargo check` and `cargo clippy` pass. |
+| CFP-003 | RMS double-reversal possible; rapid retries or network replays could overwrite an already `refunded`/`reversed` record. | Added `resolution_status` guard at the top of `reverse_rms_record_manual` in `server/src/api/pos.rs:335-348`. | `cargo check` and `cargo clippy` pass. |
+| CFP-004 | Offline queue flush had no fetch timeout, so a half-open TCP connection could hang the entire flush loop. | Added `AbortController` with 15-second timeout to `flushCheckoutQueue` in `client/src/lib/offlineQueue.ts:152-163`. | Client type-check and lint pass; E2E offline-recovery contract already covers 4xx retention and close blocking. |
+| CFP-005 | RMS reversal endpoints accepted `orders.refund_process` OR `customers.rms_charge.manage_links`, which was overly broad. | Changed both `reverse_rms_charge_purchase` and `reverse_rms_charge_payment` to require `customers.rms_charge.reverse` in `server/src/api/pos.rs:411-478`. | `cargo check` and `cargo clippy` pass. |
+| CFP-006 | Backorder creation after PO receipt was silent on failure. | Added `notify_backorder_failure` helper and emission from both normal and idempotent-replay receive paths in `server/src/api/purchase_orders.rs:1268,1384-1420`. | `cargo check` and `cargo clippy` pass. |
+
 ## Go-Live Position
 
 Riverside OS has the right architecture for a production POS, and the audit remediation pass has closed the identified code-level P1 findings with targeted verification. Do not deploy for unattended retail use until the remaining release gates, production/RC probe run, Hybrid Tauri host drills, accounting/QBO signoff, hardware signoff, and backup/restore signoff are complete.

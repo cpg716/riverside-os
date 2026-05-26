@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::api::AppState;
 use crate::auth::permissions::{PROCUREMENT_MUTATE, PROCUREMENT_VIEW};
 use crate::auth::pins::AuthenticatedStaff;
+use crate::logic::notifications;
 use crate::logic::order_lifecycle;
 use crate::logic::procurement;
 use crate::logic::template_variant_pricing::effective_cost_usd;
@@ -885,6 +886,7 @@ async fn receive_po(
         if has_short {
             if let Err(e) = create_backorder_from_short_lines(&state.db, po_id).await {
                 tracing::error!(error = %e, "Backorder split failed after idempotent replay");
+                let _ = notify_backorder_failure(&state.db, po_id, &e.to_string()).await;
             }
         }
 
@@ -1264,6 +1266,7 @@ async fn receive_po(
     if has_short {
         if let Err(e) = create_backorder_from_short_lines(&state.db, po_id).await {
             tracing::error!(error = %e, "Backorder split failed");
+            let _ = notify_backorder_failure(&state.db, po_id, &e.to_string()).await;
         }
     }
 
@@ -1376,4 +1379,41 @@ async fn create_backorder_from_short_lines(
 
     tx.commit().await?;
     Ok(Some(target_po_id))
+}
+
+async fn notify_backorder_failure(
+    pool: &sqlx::PgPool,
+    po_id: Uuid,
+    error: &str,
+) -> Result<(), sqlx::Error> {
+    use crate::auth::permissions::PROCUREMENT_MUTATE;
+    let title = "Backorder creation failed";
+    let body = format!(
+        "PO {po_id} was received with short quantities, but automatic backorder creation failed: {error}"
+    );
+    let dedupe = format!("backorder_fail:{po_id}");
+    let deep = json!({ "type": "procurement", "po_id": po_id.to_string() });
+    let staff_ids = notifications::staff_ids_with_permission(pool, PROCUREMENT_MUTATE).await?;
+    if staff_ids.is_empty() {
+        return Ok(());
+    }
+    let aud = json!({
+        "mode": "staff_ids",
+        "staff_ids": staff_ids.iter().map(|u| u.to_string()).collect::<Vec<_>>()
+    });
+    if let Some(nid) = notifications::insert_app_notification_deduped(
+        pool,
+        "procurement_backorder_failed",
+        title,
+        &body,
+        deep,
+        "system",
+        aud,
+        Some(&dedupe),
+    )
+    .await?
+    {
+        notifications::fan_out_notification_to_staff_ids(pool, nid, &staff_ids).await?;
+    }
+    Ok(())
 }

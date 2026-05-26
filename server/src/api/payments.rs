@@ -7171,9 +7171,12 @@ async fn process_helcim_card_token_purchase(
     .bind(provider_transaction_id)
     .bind(raw_audit_reference)
     .bind(warning)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
 
     load_helcim_attempt(&state, attempt_id, None)
         .await

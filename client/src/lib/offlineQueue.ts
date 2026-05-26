@@ -125,8 +125,8 @@ async function responseErrorText(response: Response): Promise<string> {
   return text.trim() || `Checkout replay failed with HTTP ${response.status}`;
 }
 
-/** 
- * Flush the queue aggressively by trying to submit every item. 
+/**
+ * Flush the queue aggressively by trying to submit every item.
  * Resolves to the array of un-syncable items if any fail.
  */
 export async function flushCheckoutQueue(
@@ -149,6 +149,8 @@ export async function flushCheckoutQueue(
       const live = getLiveAuthHeaders?.() ?? {};
       const stored = item.authHeaders ?? {};
       const auth = { ...stored, ...live };
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
       const response = await fetch(`${baseUrl}/api/transactions/checkout`, {
         method: "POST",
         headers: {
@@ -156,7 +158,9 @@ export async function flushCheckoutQueue(
           ...auth,
         },
         body: JSON.stringify(item.payload),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       if (response.ok) {
         await dequeueCheckout(item.id);
@@ -183,7 +187,7 @@ export async function flushCheckoutQueue(
   }
 }
 
-/** 
+/**
  * Hook for consuming queue state and connectivity
  */
 export function useOfflineSync(

@@ -20,6 +20,7 @@
 4. After an outage, confirm **`pending sync`** and **blocked recovery** counts are **zero** and spot-check **Orders** in Back Office for the affected period.
 5. Do not close the register while checkout recovery is pending or blocked; the close flow blocks Z-close until recovery is resolved.
 
-## Configuration (engineering)
+## Engineering notes
 
 - Production PWA: set **`RIVERSIDE_CORS_ORIGINS`** to your HTTPS app origins (`server/src/main.rs`). Optional **`RIVERSIDE_STRICT_PRODUCTION=true`** refuses startup without an allowlist.
+- **Replay timeout (v0.80.6):** Each queued checkout replay uses a 15-second `AbortController` timeout. If a TCP connection hangs (half-open), the item is retried on the next flush cycle rather than blocking the entire queue indefinitely.

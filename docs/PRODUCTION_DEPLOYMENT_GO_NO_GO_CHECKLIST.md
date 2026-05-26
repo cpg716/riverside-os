@@ -19,6 +19,19 @@ Target: Hybrid Tauri Host retail deployment.
   - Register #2 iPad PWA
   - Other Windows laptop PWA / optional Tauri clients
 
+## v0.80.6 Catastrophic Failure Prevention Fixes
+
+All six remediation items from the 2026-05-25 audit were applied to `main` and verified:
+
+- [x] **Helcim card-token transaction safety** (`server/src/api/payments.rs`) — success-path UPDATE now executes inside the register-session lock transaction and commits atomically.
+- [x] **QBO duplicate-journal prevention** (`server/src/jobs/qbo_sync.rs`) — `syncing` state lock added before POST to QuickBooks; failed posts transition to `failed`, never back to `approved`.
+- [x] **RMS double-reversal guard** (`server/src/api/pos.rs`) — `reverse_rms_record_manual` rejects requests when `resolution_status` is already `refunded` or `reversed`.
+- [x] **Offline queue flush timeout** (`client/src/lib/offlineQueue.ts`) — `AbortController` with 15-second timeout prevents half-open TCP hangs during replay.
+- [x] **RMS reversal permission tightened** (`server/src/api/pos.rs`) — both RMS reversal endpoints now require `customers.rms_charge.reverse` explicitly.
+- [x] **Backorder failure notification** (`server/src/api/purchase_orders.rs`) — `notify_backorder_failure` emits an app notification to procurement staff when automatic backorder creation fails after PO receipt.
+
+Verification run on 2026-05-25: `cargo check`, `cargo clippy`, `cargo fmt`, `npm --prefix client run typecheck`, `npm --prefix client run lint`, and `npm run check:server` all passed.
+
 ## v0.80.6 Release Readiness Blockers
 
 - [ ] `v0.80.6` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.

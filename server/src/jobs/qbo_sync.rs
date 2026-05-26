@@ -139,6 +139,23 @@ impl QboSyncHandler {
             request_id
         );
 
+        // Lock the staging row to syncing so retries after a crash do not re-post to QBO.
+        let locked = sqlx::query(
+            r#"
+            UPDATE qbo_sync_logs
+            SET status = 'syncing', updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND status = 'approved'
+            "#,
+        )
+        .bind(staging_id)
+        .execute(&self.pool)
+        .await?;
+        if locked.rows_affected() == 0 {
+            return Err(
+                "staging entry is not in approved state; another worker may have claimed it".into(),
+            );
+        }
+
         let resp = self
             .http_client
             .post(&url)

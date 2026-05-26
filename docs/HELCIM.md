@@ -122,6 +122,7 @@ All outbound Helcim API calls use centralized retry logic with exponential backo
 - Helcim request errors, declines, or rate limits leave ROS refund state unchanged and persist the failed provider attempt for review.
 - Idempotency keys are deterministic for provider attempts. Queued refunds include the refund queue row, original Helcim transaction id, prior refunded cents, and current amount cents.
 - Provider 429/rate-limit responses must remain visible as provider errors; they are not silently hidden as generic failures.
+- **Card-token purchase atomic update (v0.80.6):** The `POST /providers/helcim/card-token/purchase` success path updates the provider attempt record inside the same database transaction that locks the register session. This prevents an attempt from remaining `pending` if the server process crashes after Helcim approves the charge but before the local status commit.
 
 ## Terminal and hardware behavior
 
