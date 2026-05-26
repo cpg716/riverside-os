@@ -717,7 +717,10 @@ pub fn build_alteration_pickup_receiptline(
     input: &AlterationPickupReceiptInput,
     show_logo: bool,
 ) -> String {
-    let tz: Tz = input.timezone.parse().unwrap_or(chrono_tz::America::New_York);
+    let tz: Tz = input
+        .timezone
+        .parse()
+        .unwrap_or(chrono_tz::America::New_York);
     let local_time = input.picked_up_at.with_timezone(&tz);
 
     let mut lines = Vec::new();
@@ -734,7 +737,10 @@ pub fn build_alteration_pickup_receiptline(
     lines.push("| ^^^ALTERATIONS PICKUP |".to_string());
     lines.push(format!("| {} |", local_time.format("%m/%d/%Y %I:%M %p")));
     lines.push(String::new());
-    lines.push(format!("Customer: {}", receiptline_escape(&input.customer_name)));
+    lines.push(format!(
+        "Customer: {}",
+        receiptline_escape(&input.customer_name)
+    ));
     if let Some(desc) = input.item_description.as_deref() {
         let t = desc.trim();
         if !t.is_empty() {
@@ -747,7 +753,10 @@ pub fn build_alteration_pickup_receiptline(
             lines.push(format!("Work: {}", receiptline_escape(t)));
         }
     }
-    lines.push(format!("Alteration ID: {}", receiptline_escape(&input.alteration_id)));
+    lines.push(format!(
+        "Alteration ID: {}",
+        receiptline_escape(&input.alteration_id)
+    ));
     lines.push(format!(
         "Released by: {}",
         receiptline_escape(&input.picked_up_by)
@@ -789,10 +798,16 @@ pub fn build_alteration_pickup_escpos(
     set_bold(&mut out, true);
     push_line(&mut out, "ALTERATIONS PICKUP");
     set_bold(&mut out, false);
-    push_line(&mut out, &local_time.format("%m/%d/%Y %I:%M %p").to_string());
+    push_line(
+        &mut out,
+        &local_time.format("%m/%d/%Y %I:%M %p").to_string(),
+    );
     set_align(&mut out, 0);
     divider(&mut out);
-    push_line(&mut out, &format!("Customer: {}", ascii_clean(&input.customer_name)));
+    push_line(
+        &mut out,
+        &format!("Customer: {}", ascii_clean(&input.customer_name)),
+    );
     if let Some(desc) = input.item_description.as_deref() {
         let t = desc.trim();
         if !t.is_empty() {
@@ -809,8 +824,14 @@ pub fn build_alteration_pickup_escpos(
             }
         }
     }
-    push_line(&mut out, &format!("Alteration ID: {}", ascii_clean(&input.alteration_id)));
-    push_line(&mut out, &format!("Released by: {}", ascii_clean(&input.picked_up_by)));
+    push_line(
+        &mut out,
+        &format!("Alteration ID: {}", ascii_clean(&input.alteration_id)),
+    );
+    push_line(
+        &mut out,
+        &format!("Released by: {}", ascii_clean(&input.picked_up_by)),
+    );
     divider(&mut out);
     set_align(&mut out, 1);
     for fl in &cfg.footer_lines {

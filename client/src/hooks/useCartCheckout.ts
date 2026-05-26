@@ -443,7 +443,7 @@ export function useCartCheckout({
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
     cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
-    pickupConfirmed, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession
+    pickupConfirmed, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, checkoutClientId
   ]);
 
   return {

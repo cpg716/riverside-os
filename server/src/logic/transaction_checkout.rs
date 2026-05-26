@@ -2488,7 +2488,7 @@ pub async fn execute_checkout(
 
     if let Some(cid) = payload.checkout_client_id {
         let existing: Option<(Uuid, String, DbOrderStatus)> = sqlx::query_as(
-            "SELECT id, display_id, status FROM transactions WHERE checkout_client_id = $1"
+            "SELECT id, display_id, status FROM transactions WHERE checkout_client_id = $1",
         )
         .bind(cid)
         .fetch_optional(&mut *tx)
@@ -2785,260 +2785,262 @@ pub async fn execute_checkout(
     let mut negative_stock_alerts: Vec<String> = Vec::new();
 
     if !is_completing_processing {
+        if order_fulfillment_method == DbOrderFulfillmentMethod::Ship {
+            crate::logic::shipment::insert_from_pos_order_tx(
+                &mut tx,
+                transaction_id,
+                payload.customer_id,
+                payload.operator_staff_id,
+                ship_to_snapshot_for_registry,
+                order_shipping_amt,
+                pos_shippo_rate_object_id,
+            )
+            .await?;
+        }
 
-    if order_fulfillment_method == DbOrderFulfillmentMethod::Ship {
-        crate::logic::shipment::insert_from_pos_order_tx(
-            &mut tx,
-            transaction_id,
-            payload.customer_id,
-            payload.operator_staff_id,
-            ship_to_snapshot_for_registry,
-            order_shipping_amt,
-            pos_shippo_rate_object_id,
-        )
-        .await?;
-    }
+        // Order-level default: lines with no explicit `salesperson_id` inherit `primary_salesperson_id`
+        // for `transaction_lines.salesperson_id` and per-line commission snapshots.
+        let primary_for_lines = payload.primary_salesperson_id;
 
-    // Order-level default: lines with no explicit `salesperson_id` inherit `primary_salesperson_id`
-    // for `transaction_lines.salesperson_id` and per-line commission snapshots.
-    let primary_for_lines = payload.primary_salesperson_id;
+        // Takeaway stock to deduct once per variant (multiple cart lines can reference the same variant).
+        let mut layaway_stock_by_variant: HashMap<Uuid, i32> = HashMap::new();
+        let mut takeaway_stock_by_variant: HashMap<Uuid, i32> = HashMap::new();
 
-    // Takeaway stock to deduct once per variant (multiple cart lines can reference the same variant).
-    let mut layaway_stock_by_variant: HashMap<Uuid, i32> = HashMap::new();
-    let mut takeaway_stock_by_variant: HashMap<Uuid, i32> = HashMap::new();
+        let mut fulfillment_order_id: Option<Uuid> = None;
+        let mut fulfillment_order_display_id: Option<String> = None;
 
-    let mut fulfillment_order_id: Option<Uuid> = None;
-    let mut fulfillment_order_display_id: Option<String> = None;
+        let needs_fulfillment = payload.items.iter().try_fold(false, |needs, item| {
+            let fulfillment = persist_fulfillment(payload.wedding_member_id, item.fulfillment)
+                .map_err(|m| CheckoutError::InvalidPayload(m.to_string()))?;
+            Ok::<bool, CheckoutError>(needs || creates_fulfillment_order(fulfillment))
+        })?;
+        if needs_fulfillment {
+            let wedding_party_id: Option<Uuid> = if let Some(member_id) = payload.wedding_member_id
+            {
+                sqlx::query_scalar("SELECT wedding_party_id FROM wedding_members WHERE id = $1")
+                    .bind(member_id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+            } else {
+                None
+            };
 
-    let needs_fulfillment = payload.items.iter().try_fold(false, |needs, item| {
-        let fulfillment = persist_fulfillment(payload.wedding_member_id, item.fulfillment)
-            .map_err(|m| CheckoutError::InvalidPayload(m.to_string()))?;
-        Ok::<bool, CheckoutError>(needs || creates_fulfillment_order(fulfillment))
-    })?;
-    if needs_fulfillment {
-        let wedding_party_id: Option<Uuid> = if let Some(member_id) = payload.wedding_member_id {
-            sqlx::query_scalar("SELECT wedding_party_id FROM wedding_members WHERE id = $1")
-                .bind(member_id)
-                .fetch_optional(&mut *tx)
-                .await?
-        } else {
-            None
-        };
-
-        let row: (Uuid, String) = sqlx::query_as(
-            r#"
+            let row: (Uuid, String) = sqlx::query_as(
+                r#"
                 INSERT INTO fulfillment_orders (customer_id, wedding_id, status)
                 VALUES ($1, $2, 'open')
                 RETURNING id, display_id
                 "#,
-        )
-        .bind(payload.customer_id)
-        .bind(wedding_party_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        fulfillment_order_id = Some(row.0);
-        fulfillment_order_display_id = Some(row.1);
-    }
+            )
+            .bind(payload.customer_id)
+            .bind(wedding_party_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            fulfillment_order_id = Some(row.0);
+            fulfillment_order_display_id = Some(row.1);
+        }
 
-    let mut fulfillment_line_counter = 0;
-    let mut transaction_line_by_client_id: HashMap<String, Uuid> = HashMap::new();
+        let mut fulfillment_line_counter = 0;
+        let mut transaction_line_by_client_id: HashMap<String, Uuid> = HashMap::new();
 
-    for (idx, item) in payload.items.iter().enumerate() {
-        let fulfillment = persist_fulfillment(payload.wedding_member_id, item.fulfillment)
-            .map_err(|m| CheckoutError::InvalidPayload(m.to_string()))?;
-        let line_fulfilled = fulfillment == DbFulfillmentType::Takeaway;
+        for (idx, item) in payload.items.iter().enumerate() {
+            let fulfillment = persist_fulfillment(payload.wedding_member_id, item.fulfillment)
+                .map_err(|m| CheckoutError::InvalidPayload(m.to_string()))?;
+            let line_fulfilled = fulfillment == DbFulfillmentType::Takeaway;
 
-        let (target_fulfillment_id, line_display_id, fulfilled_at) =
-            if creates_fulfillment_order(fulfillment) {
-                fulfillment_line_counter += 1;
-                let parent_id =
-                    fulfillment_order_display_id
-                        .as_ref()
-                        .cloned()
-                        .ok_or_else(|| {
-                            CheckoutError::InvalidPayload(
-                                "fulfillment order display missing for order line".to_string(),
-                            )
-                        })?;
-                let target_id = fulfillment_order_id.ok_or_else(|| {
-                    CheckoutError::InvalidPayload(
-                        "fulfillment order missing for order line".to_string(),
+            let (target_fulfillment_id, line_display_id, fulfilled_at) =
+                if creates_fulfillment_order(fulfillment) {
+                    fulfillment_line_counter += 1;
+                    let parent_id =
+                        fulfillment_order_display_id
+                            .as_ref()
+                            .cloned()
+                            .ok_or_else(|| {
+                                CheckoutError::InvalidPayload(
+                                    "fulfillment order display missing for order line".to_string(),
+                                )
+                            })?;
+                    let target_id = fulfillment_order_id.ok_or_else(|| {
+                        CheckoutError::InvalidPayload(
+                            "fulfillment order missing for order line".to_string(),
+                        )
+                    })?;
+                    (
+                        Some(target_id),
+                        Some(format!("{parent_id}-{fulfillment_line_counter}")),
+                        None,
                     )
-                })?;
-                (
-                    Some(target_id),
-                    Some(format!("{parent_id}-{fulfillment_line_counter}")),
-                    None,
-                )
-            } else if !line_fulfilled {
-                (None, None, None)
-            } else {
-                (None, None, Some(Utc::now()))
-            };
+                } else if !line_fulfilled {
+                    (None, None, None)
+                } else {
+                    (None, None, Some(Utc::now()))
+                };
 
-        let override_reason = item
-            .price_override_reason
-            .as_ref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty());
-        let mut override_meta = override_reason.map(|reason| {
-            json!({
-                "price_override_reason": reason,
-                "original_unit_price": item.original_unit_price,
-                "overridden_unit_price": item.unit_price,
-            })
-        });
-        if let Some(label) = discount_event_labels.get(&idx) {
-            let mut base = override_meta.unwrap_or_else(|| json!({}));
-            if let serde_json::Value::Object(ref mut m) = base {
-                m.insert(
-                    "discount_event_id".to_string(),
-                    json!(item
-                        .discount_event_id
-                        .map(|u| u.to_string())
-                        .unwrap_or_default()),
-                );
-                m.insert("discount_event_label".to_string(), json!(label.clone()));
-                if let Some(orig) = item.original_unit_price {
-                    m.entry("original_unit_price".to_string())
-                        .or_insert(json!(orig));
-                }
-                m.entry("overridden_unit_price".to_string())
-                    .or_insert(json!(item.unit_price));
-            }
-            override_meta = Some(base);
-        }
-        if let Some(gc) = item
-            .gift_card_load_code
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            let mut base = override_meta.unwrap_or_else(|| json!({}));
-            if let serde_json::Value::Object(ref mut m) = base {
-                m.insert("gift_card_load_code".to_string(), json!(gc));
-            }
-            override_meta = Some(base);
-        }
-        if is_alteration_service_item(item) {
-            let mut base = override_meta.unwrap_or_else(|| json!({}));
-            if let serde_json::Value::Object(ref mut m) = base {
-                m.insert("line_type".to_string(), json!("alteration_service"));
-                if let Some(intake_id) = item
-                    .alteration_intake_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    m.insert("alteration_intake_id".to_string(), json!(intake_id));
-                }
-            }
-            override_meta = Some(base);
-        }
-
-        if let Some(reason) = override_reason {
-            price_override_audit.push(json!({
-                "variant_id": item.variant_id,
-                "reason": reason,
-                "original_unit_price": item.original_unit_price,
-                "overridden_unit_price": item.unit_price,
-                "quantity": item.quantity,
-            }));
-        }
-
-        let line_salesperson_id = item.salesperson_id.or(primary_for_lines);
-
-        let commission = sales_commission::commission_for_line(
-            &mut tx,
-            sales_commission::CommissionLineInput {
-                unit_price: item.unit_price,
-                quantity: item.quantity,
-                salesperson_id: line_salesperson_id,
-                product_id: item.product_id,
-                variant_id: item.variant_id,
-                is_employee_sale: is_employee_purchase_order,
-            },
-        )
-        .await?;
-
-        let logic_tax_cat = resolve_checkout_tax_category_tx(&mut tx, item.variant_id).await?;
-
-        let pos_kind = fetch_variant_pos_line_kind(&mut *tx, item.variant_id).await?;
-        // Internal POS-only service/payment lines must remain non-taxable.
-        let (state_tax, local_tax) = if matches!(
-            pos_kind.as_deref(),
-            Some("rms_charge_payment") | Some("pos_gift_card_load") | Some("alteration_service")
-        ) {
-            (Decimal::ZERO, Decimal::ZERO)
-        } else if payload.is_tax_exempt {
-            let original_state_tax = crate::logic::tax::nys_state_tax_usd(
-                logic_tax_cat,
-                item.unit_price,
-                item.unit_price,
-            );
-            let original_local_tax = crate::logic::tax::erie_local_tax_usd(
-                logic_tax_cat,
-                item.unit_price,
-                item.unit_price,
-            );
-            if !original_state_tax.is_zero() || !original_local_tax.is_zero() {
+            let override_reason = item
+                .price_override_reason
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty());
+            let mut override_meta = override_reason.map(|reason| {
+                json!({
+                    "price_override_reason": reason,
+                    "original_unit_price": item.original_unit_price,
+                    "overridden_unit_price": item.unit_price,
+                })
+            });
+            if let Some(label) = discount_event_labels.get(&idx) {
                 let mut base = override_meta.unwrap_or_else(|| json!({}));
-                if let Value::Object(ref mut map) = base {
-                    map.insert(
-                        "tax_exempt_reason".to_string(),
-                        json!(payload.tax_exempt_reason.as_deref().unwrap_or("")),
+                if let serde_json::Value::Object(ref mut m) = base {
+                    m.insert(
+                        "discount_event_id".to_string(),
+                        json!(item
+                            .discount_event_id
+                            .map(|u| u.to_string())
+                            .unwrap_or_default()),
                     );
-                    map.insert("original_state_tax".to_string(), json!(original_state_tax));
-                    map.insert("original_local_tax".to_string(), json!(original_local_tax));
-                    map.insert(
-                        "tax_category".to_string(),
-                        json!(format!("{:?}", logic_tax_cat)),
-                    );
+                    m.insert("discount_event_label".to_string(), json!(label.clone()));
+                    if let Some(orig) = item.original_unit_price {
+                        m.entry("original_unit_price".to_string())
+                            .or_insert(json!(orig));
+                    }
+                    m.entry("overridden_unit_price".to_string())
+                        .or_insert(json!(item.unit_price));
                 }
                 override_meta = Some(base);
             }
-            (Decimal::ZERO, Decimal::ZERO)
-        } else {
-            (
-                crate::logic::tax::nys_state_tax_usd(
-                    logic_tax_cat,
-                    item.unit_price,
-                    item.unit_price,
-                ),
-                crate::logic::tax::erie_local_tax_usd(
-                    logic_tax_cat,
-                    item.unit_price,
-                    item.unit_price,
-                ),
-            )
-        };
-        let line_is_internal = pos_kind.as_deref() == Some("rms_charge_payment");
-
-        let custom_item_type = canonical_custom_item_type_for_variant(
-            &mut tx,
-            fulfillment,
-            item.variant_id,
-            item.custom_item_type.as_deref(),
-        )
-        .await?;
-        let custom_subtype =
-            sqlx::query_scalar::<_, String>("SELECT sku FROM product_variants WHERE id = $1")
-                .bind(item.variant_id)
-                .fetch_optional(&mut *tx)
-                .await?
+            if let Some(gc) = item
+                .gift_card_load_code
                 .as_deref()
-                .and_then(known_custom_subtype_for_sku);
-        if let Some(details) =
-            canonical_custom_order_details(custom_subtype, item.custom_order_details.as_ref())
-        {
-            let mut base = override_meta.unwrap_or_else(|| json!({}));
-            if let Value::Object(ref mut map) = base {
-                map.insert("custom_order_details".to_string(), details);
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                let mut base = override_meta.unwrap_or_else(|| json!({}));
+                if let serde_json::Value::Object(ref mut m) = base {
+                    m.insert("gift_card_load_code".to_string(), json!(gc));
+                }
+                override_meta = Some(base);
             }
-            override_meta = Some(base);
-        }
+            if is_alteration_service_item(item) {
+                let mut base = override_meta.unwrap_or_else(|| json!({}));
+                if let serde_json::Value::Object(ref mut m) = base {
+                    m.insert("line_type".to_string(), json!("alteration_service"));
+                    if let Some(intake_id) = item
+                        .alteration_intake_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        m.insert("alteration_intake_id".to_string(), json!(intake_id));
+                    }
+                }
+                override_meta = Some(base);
+            }
 
-        let transaction_line_id: Uuid = sqlx::query_scalar(
+            if let Some(reason) = override_reason {
+                price_override_audit.push(json!({
+                    "variant_id": item.variant_id,
+                    "reason": reason,
+                    "original_unit_price": item.original_unit_price,
+                    "overridden_unit_price": item.unit_price,
+                    "quantity": item.quantity,
+                }));
+            }
+
+            let line_salesperson_id = item.salesperson_id.or(primary_for_lines);
+
+            let commission = sales_commission::commission_for_line(
+                &mut tx,
+                sales_commission::CommissionLineInput {
+                    unit_price: item.unit_price,
+                    quantity: item.quantity,
+                    salesperson_id: line_salesperson_id,
+                    product_id: item.product_id,
+                    variant_id: item.variant_id,
+                    is_employee_sale: is_employee_purchase_order,
+                },
+            )
+            .await?;
+
+            let logic_tax_cat = resolve_checkout_tax_category_tx(&mut tx, item.variant_id).await?;
+
+            let pos_kind = fetch_variant_pos_line_kind(&mut *tx, item.variant_id).await?;
+            // Internal POS-only service/payment lines must remain non-taxable.
+            let (state_tax, local_tax) = if matches!(
+                pos_kind.as_deref(),
+                Some("rms_charge_payment")
+                    | Some("pos_gift_card_load")
+                    | Some("alteration_service")
+            ) {
+                (Decimal::ZERO, Decimal::ZERO)
+            } else if payload.is_tax_exempt {
+                let original_state_tax = crate::logic::tax::nys_state_tax_usd(
+                    logic_tax_cat,
+                    item.unit_price,
+                    item.unit_price,
+                );
+                let original_local_tax = crate::logic::tax::erie_local_tax_usd(
+                    logic_tax_cat,
+                    item.unit_price,
+                    item.unit_price,
+                );
+                if !original_state_tax.is_zero() || !original_local_tax.is_zero() {
+                    let mut base = override_meta.unwrap_or_else(|| json!({}));
+                    if let Value::Object(ref mut map) = base {
+                        map.insert(
+                            "tax_exempt_reason".to_string(),
+                            json!(payload.tax_exempt_reason.as_deref().unwrap_or("")),
+                        );
+                        map.insert("original_state_tax".to_string(), json!(original_state_tax));
+                        map.insert("original_local_tax".to_string(), json!(original_local_tax));
+                        map.insert(
+                            "tax_category".to_string(),
+                            json!(format!("{:?}", logic_tax_cat)),
+                        );
+                    }
+                    override_meta = Some(base);
+                }
+                (Decimal::ZERO, Decimal::ZERO)
+            } else {
+                (
+                    crate::logic::tax::nys_state_tax_usd(
+                        logic_tax_cat,
+                        item.unit_price,
+                        item.unit_price,
+                    ),
+                    crate::logic::tax::erie_local_tax_usd(
+                        logic_tax_cat,
+                        item.unit_price,
+                        item.unit_price,
+                    ),
+                )
+            };
+            let line_is_internal = pos_kind.as_deref() == Some("rms_charge_payment");
+
+            let custom_item_type = canonical_custom_item_type_for_variant(
+                &mut tx,
+                fulfillment,
+                item.variant_id,
+                item.custom_item_type.as_deref(),
+            )
+            .await?;
+            let custom_subtype =
+                sqlx::query_scalar::<_, String>("SELECT sku FROM product_variants WHERE id = $1")
+                    .bind(item.variant_id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .as_deref()
+                    .and_then(known_custom_subtype_for_sku);
+            if let Some(details) =
+                canonical_custom_order_details(custom_subtype, item.custom_order_details.as_ref())
+            {
+                let mut base = override_meta.unwrap_or_else(|| json!({}));
+                if let Value::Object(ref mut map) = base {
+                    map.insert("custom_order_details".to_string(), details);
+                }
+                override_meta = Some(base);
+            }
+
+            let transaction_line_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO transaction_lines (
                     transaction_id, fulfillment_order_id, line_display_id,
@@ -3076,117 +3078,121 @@ pub async fn execute_checkout(
             .fetch_one(&mut *tx)
             .await?;
 
-        if let Some(client_line_id) = trimmed_non_empty(item.client_line_id.as_deref()) {
-            if alteration_client_line_ids.contains(&client_line_id) {
-                transaction_line_by_client_id
-                    .entry(client_line_id)
-                    .or_insert(transaction_line_id);
+            if let Some(client_line_id) = trimmed_non_empty(item.client_line_id.as_deref()) {
+                if alteration_client_line_ids.contains(&client_line_id) {
+                    transaction_line_by_client_id
+                        .entry(client_line_id)
+                        .or_insert(transaction_line_id);
+                }
             }
-        }
 
-        order_lifecycle::initialize_line_tx(
-            &mut tx,
-            transaction_line_id,
-            initial_order_lifecycle_status(
-                fulfillment,
-                line_fulfilled,
-                item.order_lifecycle_status,
-            )?,
-            Some(payload.operator_staff_id),
-            "checkout",
-        )
-        .await?;
+            order_lifecycle::initialize_line_tx(
+                &mut tx,
+                transaction_line_id,
+                initial_order_lifecycle_status(
+                    fulfillment,
+                    line_fulfilled,
+                    item.order_lifecycle_status,
+                )?,
+                Some(payload.operator_staff_id),
+                "checkout",
+            )
+            .await?;
 
-        if let Some(eid) = item.discount_event_id {
-            let pct: Decimal =
-                sqlx::query_scalar("SELECT percent_off FROM discount_events WHERE id = $1")
-                    .bind(eid)
-                    .fetch_optional(&mut *tx)
-                    .await?
-                    .ok_or_else(|| {
-                        CheckoutError::InvalidPayload("discount event not found".to_string())
-                    })?;
-            let line_subtotal = (item.unit_price * Decimal::from(item.quantity)).round_dp(2);
-            sqlx::query(
-                r#"
+            if let Some(eid) = item.discount_event_id {
+                let pct: Decimal =
+                    sqlx::query_scalar("SELECT percent_off FROM discount_events WHERE id = $1")
+                        .bind(eid)
+                        .fetch_optional(&mut *tx)
+                        .await?
+                        .ok_or_else(|| {
+                            CheckoutError::InvalidPayload("discount event not found".to_string())
+                        })?;
+                let line_subtotal = (item.unit_price * Decimal::from(item.quantity)).round_dp(2);
+                sqlx::query(
+                    r#"
                 INSERT INTO discount_event_usage (
                     event_id, transaction_id, transaction_line_id, variant_id, quantity,
                     line_subtotal, discount_percent
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 "#,
-            )
-            .bind(eid)
-            .bind(transaction_id)
-            .bind(transaction_line_id)
-            .bind(item.variant_id)
-            .bind(item.quantity)
-            .bind(line_subtotal)
-            .bind(pct)
-            .execute(&mut *tx)
-            .await?;
+                )
+                .bind(eid)
+                .bind(transaction_id)
+                .bind(transaction_line_id)
+                .bind(item.variant_id)
+                .bind(item.quantity)
+                .bind(line_subtotal)
+                .bind(pct)
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            if is_fully_paid && pos_kind.as_deref() == Some("pos_gift_card_load") {
+                let code = item
+                    .gift_card_load_code
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        CheckoutError::InvalidPayload(
+                            "POS gift card load requires gift_card_load_code".to_string(),
+                        )
+                    })?;
+                let line_total = (item.unit_price * Decimal::from(item.quantity)).round_dp(2);
+                gift_card_ops::pos_load_purchased_in_tx(
+                    &mut tx,
+                    code,
+                    line_total,
+                    payload.customer_id,
+                    Some(payload.session_id),
+                    Some(transaction_id),
+                )
+                .await
+                .map_err(|e| match e {
+                    gift_card_ops::GiftCardOpError::BadRequest(m) => {
+                        CheckoutError::InvalidPayload(m)
+                    }
+                    gift_card_ops::GiftCardOpError::Db(d) => CheckoutError::Database(d),
+                })?;
+            }
+
+            // Only decrement stock_on_hand for Takeaway (floor stock) lines.
+            // Special / wedding lines are pending fulfillment: no checkout-time deduction;
+            // inventory is adjusted when product is received / at pickup per ops flow.
+            let skip_stock = matches!(
+                pos_kind.as_deref(),
+                Some("rms_charge_payment")
+                    | Some("pos_gift_card_load")
+                    | Some("alteration_service")
+            );
+
+            if fulfillment == DbFulfillmentType::Takeaway && !skip_stock {
+                takeaway_stock_by_variant
+                    .entry(item.variant_id)
+                    .and_modify(|q| *q += item.quantity)
+                    .or_insert(item.quantity);
+            } else if fulfillment == DbFulfillmentType::Layaway && !skip_stock {
+                layaway_stock_by_variant
+                    .entry(item.variant_id)
+                    .and_modify(|q| *q += item.quantity)
+                    .or_insert(item.quantity);
+            }
         }
 
-        if is_fully_paid && pos_kind.as_deref() == Some("pos_gift_card_load") {
-            let code = item
-                .gift_card_load_code
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
+        let mut alteration_order_ids = Vec::new();
+        for intake in &payload.alteration_intakes {
+            let intake_id = trimmed_non_empty(Some(&intake.intake_id)).ok_or_else(|| {
+                CheckoutError::InvalidPayload("alteration intake requires intake_id".to_string())
+            })?;
+            let alteration_line_client_id =
+                trimmed_non_empty(Some(&intake.alteration_line_client_id)).ok_or_else(|| {
                     CheckoutError::InvalidPayload(
-                        "POS gift card load requires gift_card_load_code".to_string(),
+                        "alteration intake requires alteration_line_client_id".to_string(),
                     )
                 })?;
-            let line_total = (item.unit_price * Decimal::from(item.quantity)).round_dp(2);
-            gift_card_ops::pos_load_purchased_in_tx(
-                &mut tx,
-                code,
-                line_total,
-                payload.customer_id,
-                Some(payload.session_id),
-                Some(transaction_id),
-            )
-            .await
-            .map_err(|e| match e {
-                gift_card_ops::GiftCardOpError::BadRequest(m) => CheckoutError::InvalidPayload(m),
-                gift_card_ops::GiftCardOpError::Db(d) => CheckoutError::Database(d),
-            })?;
-        }
-
-        // Only decrement stock_on_hand for Takeaway (floor stock) lines.
-        // Special / wedding lines are pending fulfillment: no checkout-time deduction;
-        // inventory is adjusted when product is received / at pickup per ops flow.
-        let skip_stock = matches!(
-            pos_kind.as_deref(),
-            Some("rms_charge_payment") | Some("pos_gift_card_load") | Some("alteration_service")
-        );
-
-        if fulfillment == DbFulfillmentType::Takeaway && !skip_stock {
-            takeaway_stock_by_variant
-                .entry(item.variant_id)
-                .and_modify(|q| *q += item.quantity)
-                .or_insert(item.quantity);
-        } else if fulfillment == DbFulfillmentType::Layaway && !skip_stock {
-            layaway_stock_by_variant
-                .entry(item.variant_id)
-                .and_modify(|q| *q += item.quantity)
-                .or_insert(item.quantity);
-        }
-    }
-
-    let mut alteration_order_ids = Vec::new();
-    for intake in &payload.alteration_intakes {
-        let intake_id = trimmed_non_empty(Some(&intake.intake_id)).ok_or_else(|| {
-            CheckoutError::InvalidPayload("alteration intake requires intake_id".to_string())
-        })?;
-        let alteration_line_client_id = trimmed_non_empty(Some(&intake.alteration_line_client_id))
-            .ok_or_else(|| {
-                CheckoutError::InvalidPayload(
-                    "alteration intake requires alteration_line_client_id".to_string(),
-                )
-            })?;
-        let charge_transaction_line_id = transaction_line_by_client_id
+            let charge_transaction_line_id = transaction_line_by_client_id
             .get(&alteration_line_client_id)
             .copied()
             .ok_or_else(|| {
@@ -3194,14 +3200,14 @@ pub async fn execute_checkout(
                     "alteration intake could not link alteration_line_client_id {alteration_line_client_id}"
                 ))
             })?;
-        let source_client_line_id = trimmed_non_empty(intake.source_client_line_id.as_deref());
-        let source_transaction_line_id = if intake.source_type.trim() == "current_cart_item" {
-            let source_client_line_id = source_client_line_id.as_ref().ok_or_else(|| {
-                CheckoutError::InvalidPayload(
-                    "current-cart alteration intake requires source_client_line_id".to_string(),
-                )
-            })?;
-            Some(
+            let source_client_line_id = trimmed_non_empty(intake.source_client_line_id.as_deref());
+            let source_transaction_line_id = if intake.source_type.trim() == "current_cart_item" {
+                let source_client_line_id = source_client_line_id.as_ref().ok_or_else(|| {
+                    CheckoutError::InvalidPayload(
+                        "current-cart alteration intake requires source_client_line_id".to_string(),
+                    )
+                })?;
+                Some(
                 transaction_line_by_client_id
                     .get(source_client_line_id)
                     .copied()
@@ -3211,38 +3217,41 @@ pub async fn execute_checkout(
                         ))
                     })?,
             )
-        } else {
-            intake.source_transaction_line_id
-        };
-        let work_requested = trimmed_non_empty(Some(&intake.work_requested)).ok_or_else(|| {
-            CheckoutError::InvalidPayload("alteration intake requires work_requested".to_string())
-        })?;
-        let item_description = trimmed_non_empty(intake.item_description.as_deref());
-        let source_sku = trimmed_non_empty(intake.source_sku.as_deref());
-        let notes = trimmed_non_empty(intake.notes.as_deref());
-        let source_type = intake.source_type.trim();
-        let source_transaction_id = if source_type == "current_cart_item" {
-            Some(transaction_id)
-        } else {
-            intake.source_transaction_id
-        };
-        let charge_amount = intake.charge_amount.unwrap_or(Decimal::ZERO).round_dp(2);
-        let capacity_bucket = intake
-            .capacity_bucket
-            .as_deref()
-            .map(str::trim)
-            .filter(|bucket| matches!(*bucket, "jacket" | "pant" | "other"))
-            .unwrap_or("other");
-        let capacity_units = intake.capacity_units.unwrap_or(1).max(1);
-        let source_snapshot = json!({
-            "intake_id": intake_id,
-            "alteration_line_client_id": alteration_line_client_id,
-            "source_client_line_id": source_client_line_id,
-            "phase": "pos_register_alteration_service_checkout",
-        });
+            } else {
+                intake.source_transaction_line_id
+            };
+            let work_requested =
+                trimmed_non_empty(Some(&intake.work_requested)).ok_or_else(|| {
+                    CheckoutError::InvalidPayload(
+                        "alteration intake requires work_requested".to_string(),
+                    )
+                })?;
+            let item_description = trimmed_non_empty(intake.item_description.as_deref());
+            let source_sku = trimmed_non_empty(intake.source_sku.as_deref());
+            let notes = trimmed_non_empty(intake.notes.as_deref());
+            let source_type = intake.source_type.trim();
+            let source_transaction_id = if source_type == "current_cart_item" {
+                Some(transaction_id)
+            } else {
+                intake.source_transaction_id
+            };
+            let charge_amount = intake.charge_amount.unwrap_or(Decimal::ZERO).round_dp(2);
+            let capacity_bucket = intake
+                .capacity_bucket
+                .as_deref()
+                .map(str::trim)
+                .filter(|bucket| matches!(*bucket, "jacket" | "pant" | "other"))
+                .unwrap_or("other");
+            let capacity_units = intake.capacity_units.unwrap_or(1).max(1);
+            let source_snapshot = json!({
+                "intake_id": intake_id,
+                "alteration_line_client_id": alteration_line_client_id,
+                "source_client_line_id": source_client_line_id,
+                "phase": "pos_register_alteration_service_checkout",
+            });
 
-        let alteration_id: Uuid = sqlx::query_scalar(
-            r#"
+            let alteration_id: Uuid = sqlx::query_scalar(
+                r#"
             INSERT INTO alteration_orders (
                 customer_id, due_at, notes, transaction_id,
                 source_type, item_description, work_requested,
@@ -3261,111 +3270,111 @@ pub async fn execute_checkout(
             )
             RETURNING id
             "#,
-        )
-        .bind(payload.customer_id)
-        .bind(intake.due_at.as_ref().cloned())
-        .bind(notes.as_deref())
-        .bind(transaction_id)
-        .bind(source_type)
-        .bind(item_description.as_deref())
-        .bind(work_requested.as_str())
-        .bind(intake.source_product_id)
-        .bind(intake.source_variant_id)
-        .bind(source_sku.as_deref())
-        .bind(source_transaction_id)
-        .bind(source_transaction_line_id)
-        .bind(charge_amount)
-        .bind(charge_transaction_line_id)
-        .bind(Json(source_snapshot.clone()))
-        .fetch_one(&mut *tx)
-        .await?;
-        alteration_order_ids.push(alteration_id);
+            )
+            .bind(payload.customer_id)
+            .bind(intake.due_at.as_ref().cloned())
+            .bind(notes.as_deref())
+            .bind(transaction_id)
+            .bind(source_type)
+            .bind(item_description.as_deref())
+            .bind(work_requested.as_str())
+            .bind(intake.source_product_id)
+            .bind(intake.source_variant_id)
+            .bind(source_sku.as_deref())
+            .bind(source_transaction_id)
+            .bind(source_transaction_line_id)
+            .bind(charge_amount)
+            .bind(charge_transaction_line_id)
+            .bind(Json(source_snapshot.clone()))
+            .fetch_one(&mut *tx)
+            .await?;
+            alteration_order_ids.push(alteration_id);
 
-        sqlx::query(
-            r#"
+            sqlx::query(
+                r#"
             INSERT INTO alteration_order_items (alteration_order_id, label, capacity_bucket, units)
             VALUES ($1, $2, $3::alteration_bucket, $4)
             "#,
-        )
-        .bind(alteration_id)
-        .bind(work_requested.as_str())
-        .bind(capacity_bucket)
-        .bind(capacity_units)
-        .execute(&mut *tx)
-        .await?;
+            )
+            .bind(alteration_id)
+            .bind(work_requested.as_str())
+            .bind(capacity_bucket)
+            .bind(capacity_units)
+            .execute(&mut *tx)
+            .await?;
 
-        match capacity_bucket {
-            "jacket" => {
-                sqlx::query(
+            match capacity_bucket {
+                "jacket" => {
+                    sqlx::query(
                     "UPDATE alteration_orders SET total_units_jacket = total_units_jacket + $1 WHERE id = $2",
                 )
                 .bind(capacity_units)
                 .bind(alteration_id)
                 .execute(&mut *tx)
                 .await?;
-            }
-            "pant" => {
-                sqlx::query(
+                }
+                "pant" => {
+                    sqlx::query(
                     "UPDATE alteration_orders SET total_units_pant = total_units_pant + $1 WHERE id = $2",
                 )
                 .bind(capacity_units)
                 .bind(alteration_id)
                 .execute(&mut *tx)
                 .await?;
+                }
+                _ => {}
             }
-            _ => {}
-        }
 
-        let detail = json!({
-            "customer_id": payload.customer_id,
-            "due_at": intake.due_at.as_ref().map(|d| d.to_rfc3339()),
-            "notes_set": notes.is_some(),
-            "linked_transaction_id": transaction_id,
-            "source_type": source_type,
-            "item_description": item_description,
-            "work_requested": work_requested,
-            "capacity_bucket": capacity_bucket,
-            "capacity_units": capacity_units,
-            "source_product_id": intake.source_product_id,
-            "source_variant_id": intake.source_variant_id,
-            "source_sku": source_sku,
-            "source_transaction_id": source_transaction_id,
-            "source_transaction_line_id": source_transaction_line_id,
-            "charge_amount": charge_amount.to_string(),
-            "charge_transaction_line_id": charge_transaction_line_id,
-            "intake_channel": "pos_register",
-            "source_snapshot_set": true,
-        });
-        sqlx::query(
-            r#"
+            let detail = json!({
+                "customer_id": payload.customer_id,
+                "due_at": intake.due_at.as_ref().map(|d| d.to_rfc3339()),
+                "notes_set": notes.is_some(),
+                "linked_transaction_id": transaction_id,
+                "source_type": source_type,
+                "item_description": item_description,
+                "work_requested": work_requested,
+                "capacity_bucket": capacity_bucket,
+                "capacity_units": capacity_units,
+                "source_product_id": intake.source_product_id,
+                "source_variant_id": intake.source_variant_id,
+                "source_sku": source_sku,
+                "source_transaction_id": source_transaction_id,
+                "source_transaction_line_id": source_transaction_line_id,
+                "charge_amount": charge_amount.to_string(),
+                "charge_transaction_line_id": charge_transaction_line_id,
+                "intake_channel": "pos_register",
+                "source_snapshot_set": true,
+            });
+            sqlx::query(
+                r#"
             INSERT INTO alteration_activity (alteration_id, staff_id, action, detail)
             VALUES ($1, $2, 'create', $3)
             "#,
-        )
-        .bind(alteration_id)
-        .bind(payload.operator_staff_id)
-        .bind(Json(detail))
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    // 2) Evaluate Combo SPIFF Incentives
-    // Group items by salesperson and check for satisfied bundle rules.
-    let mut salesperson_items: HashMap<Uuid, Vec<&CheckoutItem>> = HashMap::new();
-    for item in &payload.items {
-        if is_alteration_service_item(item) {
-            continue;
+            )
+            .bind(alteration_id)
+            .bind(payload.operator_staff_id)
+            .bind(Json(detail))
+            .execute(&mut *tx)
+            .await?;
         }
-        if let Some(sid) = item.salesperson_id.or(primary_for_lines) {
-            salesperson_items.entry(sid).or_default().push(item);
-        }
-    }
 
-    for (sid, staff_items) in salesperson_items {
-        let incentives = evaluate_combo_incentives(&mut tx, &staff_items).await?;
-        for inc in incentives {
-            sqlx::query(
-                r#"
+        // 2) Evaluate Combo SPIFF Incentives
+        // Group items by salesperson and check for satisfied bundle rules.
+        let mut salesperson_items: HashMap<Uuid, Vec<&CheckoutItem>> = HashMap::new();
+        for item in &payload.items {
+            if is_alteration_service_item(item) {
+                continue;
+            }
+            if let Some(sid) = item.salesperson_id.or(primary_for_lines) {
+                salesperson_items.entry(sid).or_default().push(item);
+            }
+        }
+
+        for (sid, staff_items) in salesperson_items {
+            let incentives = evaluate_combo_incentives(&mut tx, &staff_items).await?;
+            for inc in incentives {
+                sqlx::query(
+                    r#"
                 INSERT INTO transaction_lines (
                     transaction_id, product_id, variant_id, fulfillment, quantity,
                     unit_price, unit_cost, state_tax, local_tax, salesperson_id,
@@ -3373,85 +3382,85 @@ pub async fn execute_checkout(
                 )
                 VALUES ($1, $2, $3, $4, $5, 0, 0, 0, 0, $6, $7, $8, TRUE, 'spiff_reward')
                 "#,
-            )
-            .bind(transaction_id)
-            .bind(inc.product_id)
-            .bind(inc.variant_id)
-            .bind(DbFulfillmentType::Takeaway)
-            .bind(1)
-            .bind(sid)
-            .bind(inc.reward_amount)
-            .bind(order_status == DbOrderStatus::Fulfilled)
-            .execute(&mut *tx)
-            .await?;
+                )
+                .bind(transaction_id)
+                .bind(inc.product_id)
+                .bind(inc.variant_id)
+                .bind(DbFulfillmentType::Takeaway)
+                .bind(1)
+                .bind(sid)
+                .bind(inc.reward_amount)
+                .bind(order_status == DbOrderStatus::Fulfilled)
+                .execute(&mut *tx)
+                .await?;
+            }
         }
-    }
 
-    for (variant_id, qty) in layaway_stock_by_variant {
-        sqlx::query(
-            r#"
+        for (variant_id, qty) in layaway_stock_by_variant {
+            sqlx::query(
+                r#"
             UPDATE product_variants
             SET on_layaway = on_layaway + $1
             WHERE id = $2
             "#,
-        )
-        .bind(qty)
-        .bind(variant_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    for (variant_id, qty) in takeaway_stock_by_variant {
-        if qty <= 0 {
-            continue;
+            )
+            .bind(qty)
+            .bind(variant_id)
+            .execute(&mut *tx)
+            .await?;
         }
-        // Allow stock_on_hand to go negative: shortage must not block retail checkout.
-        // (Special / wedding lines never reach this map — they skip deduction until pickup/fulfill.)
-        let after_row: Option<(i32, String)> = sqlx::query_as(
-            r#"
+
+        for (variant_id, qty) in takeaway_stock_by_variant {
+            if qty <= 0 {
+                continue;
+            }
+            // Allow stock_on_hand to go negative: shortage must not block retail checkout.
+            // (Special / wedding lines never reach this map — they skip deduction until pickup/fulfill.)
+            let after_row: Option<(i32, String)> = sqlx::query_as(
+                r#"
             UPDATE product_variants
             SET stock_on_hand = stock_on_hand - $1
             WHERE id = $2
             RETURNING stock_on_hand, sku
             "#,
-        )
-        .bind(qty)
-        .bind(variant_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+            )
+            .bind(qty)
+            .bind(variant_id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
-        if let Some((new_stock, sku)) = after_row {
-            if new_stock < 0 {
-                let alert_msg = format!("Inventory Reconciliation Over-Allocation: SKU {sku} stock fell to {new_stock} after checkout");
-                negative_stock_alerts.push(alert_msg);
-                checkout_warnings.push(format!(
-                    "{sku} stock went negative after sale (now {new_stock})"
-                ));
-            }
-            sqlx::query(
-                r#"
+            if let Some((new_stock, sku)) = after_row {
+                if new_stock < 0 {
+                    let alert_msg = format!("Inventory Reconciliation Over-Allocation: SKU {sku} stock fell to {new_stock} after checkout");
+                    negative_stock_alerts.push(alert_msg);
+                    checkout_warnings.push(format!(
+                        "{sku} stock went negative after sale (now {new_stock})"
+                    ));
+                }
+                sqlx::query(
+                    r#"
                 INSERT INTO inventory_transactions (
                     variant_id, tx_type, quantity_delta, reference_table, reference_id, notes
                 )
                 VALUES ($1, 'sale', $2, 'transactions', $3, $4)
                 "#,
-            )
-            .bind(variant_id)
-            .bind(-qty)
-            .bind(transaction_id)
-            .bind(format!(
-                "Takeaway checkout stock decrement for transaction {transaction_id}"
-            ))
-            .execute(&mut *tx)
-            .await?;
-        } else {
-            tracing::warn!(
-                variant_id = %variant_id,
-                qty,
-                "checkout: takeaway stock decrement skipped (no product_variants row — sale still completes)"
-            );
+                )
+                .bind(variant_id)
+                .bind(-qty)
+                .bind(transaction_id)
+                .bind(format!(
+                    "Takeaway checkout stock decrement for transaction {transaction_id}"
+                ))
+                .execute(&mut *tx)
+                .await?;
+            } else {
+                tracing::warn!(
+                    variant_id = %variant_id,
+                    qty,
+                    "checkout: takeaway stock decrement skipped (no product_variants row — sale still completes)"
+                );
+            }
         }
-    }
     }
 
     let alteration_order_ids = if is_completing_processing {
@@ -3660,10 +3669,7 @@ pub async fn execute_checkout(
                     json!(transaction_display_id.clone()),
                 );
                 if is_rms_payment_collection {
-                    metadata.insert(
-                        "rms_charge_collection".to_string(),
-                        json!(true),
-                    );
+                    metadata.insert("rms_charge_collection".to_string(), json!(true));
                 }
             }
 
@@ -4114,7 +4120,8 @@ pub async fn execute_checkout(
 
     // Broadcast system alerts for negative stock
     for alert_msg in negative_stock_alerts {
-        if let Err(e) = crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await {
+        if let Err(e) = crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
+        {
             tracing::error!(error = %e, "Failed to broadcast system alert for negative stock");
         }
     }

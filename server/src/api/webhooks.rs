@@ -174,7 +174,9 @@ async fn post_shippo_webhook(
         (
             data.transaction.as_deref().or(data.object_id.as_deref()),
             data.tracking_number.as_deref(),
-            data.tracking_status.as_ref().and_then(|ts| ts.status.as_deref())
+            data.tracking_status
+                .as_ref()
+                .and_then(|ts| ts.status.as_deref()),
         )
     } else {
         (None, None, None)
@@ -987,7 +989,9 @@ async fn handle_helcim_card_transaction(
 
     let mut final_payment_transaction_id = payment_transaction_id;
 
-    if (normalized_status == "approved" || normalized_status == "captured") && final_payment_transaction_id.is_none() {
+    if (normalized_status == "approved" || normalized_status == "captured")
+        && final_payment_transaction_id.is_none()
+    {
         if let Some(client_id) = checkout_client_id {
             let txn: Option<(Uuid, String, Decimal, Decimal, Uuid)> = sqlx::query_as(
                 "SELECT id, display_id, total_price, rounding_adjustment, operator_id FROM transactions WHERE checkout_client_id = $1 AND status = 'processing'"
@@ -999,7 +1003,7 @@ async fn handle_helcim_card_transaction(
             if let Some((tid, d_id, total_price, rounding_adjustment, operator_id)) = txn {
                 let payment_txn_id = Uuid::new_v4();
                 let payment_amount = Decimal::from(amount_cents) / Decimal::from(100);
-                
+
                 sqlx::query(
                     r#"
                     INSERT INTO payment_transactions (
@@ -1032,7 +1036,7 @@ async fn handle_helcim_card_transaction(
 
                 let balance_due = (total_price + rounding_adjustment - payment_amount).round_dp(2);
                 let is_fully_paid = balance_due.is_zero();
-                
+
                 let all_takeaway: bool = sqlx::query_scalar(
                     "SELECT COALESCE(BOOL_AND(fulfillment = 'takeaway'), true) FROM transaction_lines WHERE transaction_id = $1"
                 )
@@ -1106,9 +1110,24 @@ async fn handle_helcim_card_transaction(
                 .fetch_one(&mut *tx)
                 .await?;
 
-                let customer_id = sqlx::query_scalar::<_, Option<Uuid>>("SELECT customer_id FROM transactions WHERE id = $1").bind(tid).fetch_one(&mut *tx).await?;
-                let booked_at = sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>("SELECT booked_at FROM transactions WHERE id = $1").bind(tid).fetch_one(&mut *tx).await?;
-                let shipping_amount = sqlx::query_scalar::<_, Option<Decimal>>("SELECT shipping_amount_usd FROM transactions WHERE id = $1").bind(tid).fetch_one(&mut *tx).await?;
+                let customer_id = sqlx::query_scalar::<_, Option<Uuid>>(
+                    "SELECT customer_id FROM transactions WHERE id = $1",
+                )
+                .bind(tid)
+                .fetch_one(&mut *tx)
+                .await?;
+                let booked_at = sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>(
+                    "SELECT booked_at FROM transactions WHERE id = $1",
+                )
+                .bind(tid)
+                .fetch_one(&mut *tx)
+                .await?;
+                let shipping_amount = sqlx::query_scalar::<_, Option<Decimal>>(
+                    "SELECT shipping_amount_usd FROM transactions WHERE id = $1",
+                )
+                .bind(tid)
+                .fetch_one(&mut *tx)
+                .await?;
 
                 let qbo_payload = serde_json::json!({
                     "display_id": d_id,
@@ -1133,7 +1152,7 @@ async fn handle_helcim_card_transaction(
                     r#"
                     INSERT INTO qbo_sync_outbox (transaction_id, payload, status)
                     VALUES ($1, $2, 'pending')
-                    "#
+                    "#,
                 )
                 .bind(tid)
                 .bind(qbo_payload)

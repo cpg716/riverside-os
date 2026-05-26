@@ -275,18 +275,19 @@ impl QboSyncHandler {
 
     pub async fn sync_outbox(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut tx = self.pool.begin().await?;
-        let row: Option<(sqlx::types::Uuid, sqlx::types::Uuid, serde_json::Value, i32)> = sqlx::query_as(
-            r#"
+        let row: Option<(sqlx::types::Uuid, sqlx::types::Uuid, serde_json::Value, i32)> =
+            sqlx::query_as(
+                r#"
             SELECT id, transaction_id, payload, attempts
             FROM qbo_sync_outbox
             WHERE status IN ('pending', 'failed')
             ORDER BY created_at ASC
             LIMIT 1
             FOR UPDATE SKIP LOCKED
-            "#
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
+            "#,
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
 
         let Some((outbox_id, transaction_id, payload, attempts)) = row else {
             tx.commit().await?;
@@ -294,7 +295,7 @@ impl QboSyncHandler {
         };
 
         sqlx::query(
-            "UPDATE qbo_sync_outbox SET status = 'processing', updated_at = NOW() WHERE id = $1"
+            "UPDATE qbo_sync_outbox SET status = 'processing', updated_at = NOW() WHERE id = $1",
         )
         .bind(outbox_id)
         .execute(&mut *tx)
@@ -311,7 +312,7 @@ impl QboSyncHandler {
                         last_error = NULL,
                         updated_at = NOW()
                     WHERE id = $1
-                    "#
+                    "#,
                 )
                 .bind(outbox_id)
                 .bind(attempts)
@@ -340,7 +341,7 @@ impl QboSyncHandler {
                         last_error = $3,
                         updated_at = NOW()
                     WHERE id = $1
-                    "#
+                    "#,
                 )
                 .bind(outbox_id)
                 .bind(attempts)
@@ -348,7 +349,10 @@ impl QboSyncHandler {
                 .execute(&self.pool)
                 .await?;
 
-                let _ = crate::logic::notifications::emit_qbo_sync_failed(&self.pool, outbox_id, &err_str).await;
+                let _ = crate::logic::notifications::emit_qbo_sync_failed(
+                    &self.pool, outbox_id, &err_str,
+                )
+                .await;
 
                 if is_transient {
                     return Err(e);
@@ -367,27 +371,42 @@ impl QboSyncHandler {
         use crate::logic::qbo_journal::qbo_map_with_misc_fallback;
         use rust_decimal::Decimal;
 
-        let display_id = payload.get("display_id").and_then(|v| v.as_str()).unwrap_or("");
-        let booked_at = payload.get("booked_at").and_then(|v| v.as_str()).unwrap_or("");
-        let sync_date = if booked_at.len() >= 10 { &booked_at[..10] } else { booked_at };
+        let display_id = payload
+            .get("display_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let booked_at = payload
+            .get("booked_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let sync_date = if booked_at.len() >= 10 {
+            &booked_at[..10]
+        } else {
+            booked_at
+        };
 
-        let total_price = payload.get("total_price")
+        let total_price = payload
+            .get("total_price")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok())
             .unwrap_or(Decimal::ZERO);
-        let amount_paid = payload.get("amount_paid")
+        let amount_paid = payload
+            .get("amount_paid")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok())
             .unwrap_or(Decimal::ZERO);
-        let balance_due = payload.get("balance_due")
+        let balance_due = payload
+            .get("balance_due")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok())
             .unwrap_or(Decimal::ZERO);
-        let rounding_adjustment = payload.get("rounding_adjustment")
+        let rounding_adjustment = payload
+            .get("rounding_adjustment")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok())
             .unwrap_or(Decimal::ZERO);
-        let shipping_amount = payload.get("shipping_amount")
+        let shipping_amount = payload
+            .get("shipping_amount")
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Decimal>().ok());
 
@@ -395,15 +414,20 @@ impl QboSyncHandler {
 
         if let Some(items) = payload.get("items").and_then(|v| v.as_array()) {
             for item in items {
-                let product_id = item.get("product_id")
+                let product_id = item
+                    .get("product_id")
                     .and_then(|v| v.as_str())
                     .and_then(|s| sqlx::types::Uuid::parse_str(s).ok());
                 let quantity = item.get("quantity").and_then(|v| v.as_i64()).unwrap_or(1);
-                let unit_price = item.get("unit_price")
+                let unit_price = item
+                    .get("unit_price")
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or(Decimal::ZERO);
-                let line_type = item.get("line_type").and_then(|v| v.as_str()).unwrap_or("merchandise");
+                let line_type = item
+                    .get("line_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("merchandise");
 
                 let qty_dec = Decimal::from(quantity);
                 let revenue_amount = (unit_price * qty_dec).round_dp(2);
@@ -418,7 +442,7 @@ impl QboSyncHandler {
                         FROM products p
                         LEFT JOIN product_categories cat ON cat.id = p.category_id
                         WHERE p.id = $1
-                        "#
+                        "#,
                     )
                     .bind(pid)
                     .fetch_optional(&self.pool)
@@ -429,11 +453,33 @@ impl QboSyncHandler {
                 };
 
                 let (rev_id, rev_name) = if line_type == "alteration_service" {
-                    qbo_map_with_misc_fallback(&self.pool, "custom_revenue", "alteration_service", Some("REVENUE_ALTERATIONS")).await?
-                        .unwrap_or_else(|| ("REVENUE_ALTERATIONS".to_string(), "Alteration Revenue".to_string()))
+                    qbo_map_with_misc_fallback(
+                        &self.pool,
+                        "custom_revenue",
+                        "alteration_service",
+                        Some("REVENUE_ALTERATIONS"),
+                    )
+                    .await?
+                    .unwrap_or_else(|| {
+                        (
+                            "REVENUE_ALTERATIONS".to_string(),
+                            "Alteration Revenue".to_string(),
+                        )
+                    })
                 } else {
-                    qbo_map_with_misc_fallback(&self.pool, "category_revenue", &cat_label, Some("REVENUE_DEFAULT")).await?
-                        .unwrap_or_else(|| ("REVENUE_DEFAULT".to_string(), "Merchandise Revenue".to_string()))
+                    qbo_map_with_misc_fallback(
+                        &self.pool,
+                        "category_revenue",
+                        &cat_label,
+                        Some("REVENUE_DEFAULT"),
+                    )
+                    .await?
+                    .unwrap_or_else(|| {
+                        (
+                            "REVENUE_DEFAULT".to_string(),
+                            "Merchandise Revenue".to_string(),
+                        )
+                    })
                 };
 
                 let memo = format!("ROS Line Rev - {} x {}", quantity, display_id);
@@ -453,11 +499,13 @@ impl QboSyncHandler {
         if let Some(items) = payload.get("items").and_then(|v| v.as_array()) {
             for item in items {
                 let quantity = item.get("quantity").and_then(|v| v.as_i64()).unwrap_or(1);
-                let state_tax = item.get("state_tax")
+                let state_tax = item
+                    .get("state_tax")
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or(Decimal::ZERO);
-                let local_tax = item.get("local_tax")
+                let local_tax = item
+                    .get("local_tax")
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or(Decimal::ZERO);
@@ -467,8 +515,10 @@ impl QboSyncHandler {
         }
         total_tax = total_tax.round_dp(2);
         if !total_tax.is_zero() {
-            let (tax_id, tax_name) = qbo_map_with_misc_fallback(&self.pool, "tax", "SALES_TAX", None).await?
-                .unwrap_or_else(|| ("SALES_TAX".to_string(), "Sales Tax Payable".to_string()));
+            let (tax_id, tax_name) =
+                qbo_map_with_misc_fallback(&self.pool, "tax", "SALES_TAX", None)
+                    .await?
+                    .unwrap_or_else(|| ("SALES_TAX".to_string(), "Sales Tax Payable".to_string()));
             let memo = format!("ROS Sales Tax - {}", display_id);
             lines.push(json!({
                 "Description": memo,
@@ -484,8 +534,19 @@ impl QboSyncHandler {
         if let Some(ship_amt) = shipping_amount {
             let ship_amt = ship_amt.round_dp(2);
             if !ship_amt.is_zero() {
-                let (ship_id, ship_name) = qbo_map_with_misc_fallback(&self.pool, "income_shipping", "default", Some("REVENUE_SHIPPING")).await?
-                    .unwrap_or_else(|| ("REVENUE_SHIPPING".to_string(), "Shipping Revenue".to_string()));
+                let (ship_id, ship_name) = qbo_map_with_misc_fallback(
+                    &self.pool,
+                    "income_shipping",
+                    "default",
+                    Some("REVENUE_SHIPPING"),
+                )
+                .await?
+                .unwrap_or_else(|| {
+                    (
+                        "REVENUE_SHIPPING".to_string(),
+                        "Shipping Revenue".to_string(),
+                    )
+                });
                 let memo = format!("ROS Shipping Rev - {}", display_id);
                 lines.push(json!({
                     "Description": memo,
@@ -501,8 +562,12 @@ impl QboSyncHandler {
 
         if let Some(payments) = payload.get("payments").and_then(|v| v.as_array()) {
             for payment in payments {
-                let method = payment.get("method").and_then(|v| v.as_str()).unwrap_or("cash");
-                let amount = payment.get("amount")
+                let method = payment
+                    .get("method")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("cash");
+                let amount = payment
+                    .get("amount")
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<Decimal>().ok())
                     .unwrap_or(Decimal::ZERO)
@@ -511,8 +576,12 @@ impl QboSyncHandler {
                     continue;
                 }
 
-                let (tend_id, tend_name) = qbo_map_with_misc_fallback(&self.pool, "tender", method, None).await?
-                    .unwrap_or_else(|| ("TENDER_DEFAULT".to_string(), format!("Tender - {}", method)));
+                let (tend_id, tend_name) =
+                    qbo_map_with_misc_fallback(&self.pool, "tender", method, None)
+                        .await?
+                        .unwrap_or_else(|| {
+                            ("TENDER_DEFAULT".to_string(), format!("Tender - {}", method))
+                        });
                 let memo = format!("ROS Payment - {} - {}", method, display_id);
                 lines.push(json!({
                     "Description": memo,
@@ -527,12 +596,29 @@ impl QboSyncHandler {
         }
 
         if !balance_due.is_zero() {
-            let (rec_id, rec_name) = match qbo_map_with_misc_fallback(&self.pool, "receivable", "default", None).await? {
+            let (rec_id, rec_name) = match qbo_map_with_misc_fallback(
+                &self.pool,
+                "receivable",
+                "default",
+                None,
+            )
+            .await?
+            {
                 Some(m) => m,
-                None => match qbo_map_with_misc_fallback(&self.pool, "liability_deposit", "default", None).await? {
+                None => match qbo_map_with_misc_fallback(
+                    &self.pool,
+                    "liability_deposit",
+                    "default",
+                    None,
+                )
+                .await?
+                {
                     Some(m) => m,
-                    None => ("accounts_receivable".to_string(), "Accounts Receivable".to_string())
-                }
+                    None => (
+                        "accounts_receivable".to_string(),
+                        "Accounts Receivable".to_string(),
+                    ),
+                },
             };
             let memo = format!("ROS Unpaid Balance - {}", display_id);
             lines.push(json!({
@@ -547,11 +633,26 @@ impl QboSyncHandler {
         }
 
         if !rounding_adjustment.is_zero() {
-            let (rnd_id, rnd_name) = qbo_map_with_misc_fallback(&self.pool, "cash_rounding", "default", Some("CASH_ROUNDING")).await?
-                .unwrap_or_else(|| ("CASH_ROUNDING".to_string(), "Swedish Rounding Adjustments".to_string()));
+            let (rnd_id, rnd_name) = qbo_map_with_misc_fallback(
+                &self.pool,
+                "cash_rounding",
+                "default",
+                Some("CASH_ROUNDING"),
+            )
+            .await?
+            .unwrap_or_else(|| {
+                (
+                    "CASH_ROUNDING".to_string(),
+                    "Swedish Rounding Adjustments".to_string(),
+                )
+            });
             let memo = format!("ROS Swedish Rounding - {}", display_id);
             let abs_rnd = rounding_adjustment.abs().round_dp(2);
-            let posting_type = if rounding_adjustment > Decimal::ZERO { "Credit" } else { "Debit" };
+            let posting_type = if rounding_adjustment > Decimal::ZERO {
+                "Credit"
+            } else {
+                "Debit"
+            };
             lines.push(json!({
                 "Description": memo,
                 "Amount": format!("{:.2}", abs_rnd),
@@ -573,7 +674,11 @@ impl QboSyncHandler {
             .ok_or("no active QBO integration")?;
 
         let realm_id = integ.realm_id.as_ref().ok_or("missing realm_id")?;
-        let access_token = match integ.access_token.as_deref().filter(|s| !s.trim().is_empty()) {
+        let access_token = match integ
+            .access_token
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
             Some(t) => t.to_string(),
             None => refresh_access_token(&self.pool, &integ).await?,
         };
@@ -591,7 +696,9 @@ impl QboSyncHandler {
             request_id
         );
 
-        let resp = self.http_client.post(&url)
+        let resp = self
+            .http_client
+            .post(&url)
             .bearer_auth(access_token)
             .header("Accept", "application/json")
             .json(&je_body)
@@ -603,7 +710,8 @@ impl QboSyncHandler {
         let body: serde_json::Value = resp.json().await.unwrap_or_else(|_| json!({}));
 
         if !status_code.is_success() {
-            let err_msg = body.get("Fault")
+            let err_msg = body
+                .get("Fault")
                 .and_then(|f| f.get("Error"))
                 .and_then(|e| e.get(0))
                 .and_then(|e| e.get("Detail"))
@@ -612,7 +720,8 @@ impl QboSyncHandler {
             return Err(format!("QBO API Error ({}): {}", status_code, err_msg).into());
         }
 
-        let je_id = body.get("JournalEntry")
+        let je_id = body
+            .get("JournalEntry")
             .and_then(|j| j.get("Id"))
             .and_then(|v| v.as_str())
             .unwrap_or("UNKNOWN")

@@ -973,13 +973,15 @@ async fn get_alteration_pickup_receipt(
 
     let picked_up_at = row.picked_up_at.unwrap_or_else(Utc::now);
     let picked_up_by: String = if let Some(staff_id) = row.picked_up_by_staff_id {
-        sqlx::query_scalar("SELECT COALESCE(full_name, display_name, 'Staff') FROM staff WHERE id = $1")
-            .bind(staff_id)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "Staff".to_string())
+        sqlx::query_scalar(
+            "SELECT COALESCE(full_name, display_name, 'Staff') FROM staff WHERE id = $1",
+        )
+        .bind(staff_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "Staff".to_string())
     } else {
         "Staff".to_string()
     };
@@ -999,7 +1001,9 @@ async fn get_alteration_pickup_receipt(
         customer_name,
         item_description: row.item_description,
         work_requested: row.work_requested,
-        alteration_id: row.linked_transaction_display_id.unwrap_or_else(|| id.to_string()),
+        alteration_id: row
+            .linked_transaction_display_id
+            .unwrap_or_else(|| id.to_string()),
         picked_up_at,
         picked_up_by,
         timezone: receipt_cfg.timezone.clone(),
