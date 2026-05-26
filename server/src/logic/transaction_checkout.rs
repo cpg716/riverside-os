@@ -3576,6 +3576,12 @@ pub async fn execute_checkout(
                     "checkout_display_id".to_string(),
                     json!(transaction_display_id.clone()),
                 );
+                if is_rms_payment_collection {
+                    metadata.insert(
+                        "rms_charge_collection".to_string(),
+                        json!(true),
+                    );
+                }
             }
 
             // 3. Create the movement record (payment_transactions)

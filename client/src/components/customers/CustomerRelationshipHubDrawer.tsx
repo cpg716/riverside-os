@@ -439,6 +439,7 @@ interface CustomerAlterationSummary {
   work_requested: string | null;
   source_sku: string | null;
   charge_amount: string | number | null;
+  picked_up_at: string | null;
   created_at: string;
 }
 
@@ -2453,6 +2454,11 @@ export function CustomerRelationshipHubDrawer({
                         <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                           {alterationStatusLabel(row.status)}
                         </span>
+                        {row.picked_up_at ? (
+                          <span className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-emerald-400">
+                            Picked up {shortDate(row.picked_up_at)}
+                          </span>
+                        ) : null}
                         <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                           {alterationSourceLabel(row.source_type)}
                         </span>

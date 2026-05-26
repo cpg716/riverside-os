@@ -452,12 +452,8 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
                 out_lines.push(name);
                 out_lines.push(format!("SKU {}", receiptline_escape(&it.sku)));
             } else {
-                out_lines.push(name);
-                out_lines.push(format!(
-                    "SKU {} | {}",
-                    receiptline_escape(&it.sku),
-                    money(it.unit_price)
-                ));
+                out_lines.push(format!("{} | {}", name, money(it.unit_price)));
+                out_lines.push(format!("SKU {}", receiptline_escape(&it.sku)));
                 if let Some(orig) = it.original_unit_price {
                     if orig > it.unit_price && orig > Decimal::ZERO {
                         let diff = orig - it.unit_price;
@@ -698,6 +694,132 @@ pub fn build_receipt_escpos(
         push_totals(&mut out, d);
     }
     push_footer(&mut out, cfg);
+    out.extend_from_slice(b"\n\n\n\n");
+    out.extend_from_slice(&[0x1d, 0x56, 0x41, 0x00]);
+    out
+}
+
+#[derive(Debug, Clone)]
+pub struct AlterationPickupReceiptInput {
+    pub store_name: String,
+    pub header_lines: Vec<String>,
+    pub footer_lines: Vec<String>,
+    pub customer_name: String,
+    pub item_description: Option<String>,
+    pub work_requested: Option<String>,
+    pub alteration_id: String,
+    pub picked_up_at: chrono::DateTime<chrono::Utc>,
+    pub picked_up_by: String,
+    pub timezone: String,
+}
+
+pub fn build_alteration_pickup_receiptline(
+    input: &AlterationPickupReceiptInput,
+    show_logo: bool,
+) -> String {
+    let tz: Tz = input.timezone.parse().unwrap_or(chrono_tz::America::New_York);
+    let local_time = input.picked_up_at.with_timezone(&tz);
+
+    let mut lines = Vec::new();
+    if show_logo {
+        lines.push(receiptline_logo_image());
+    }
+    lines.push(format!("| ^^{} |", receiptline_escape(&input.store_name)));
+    for hl in &input.header_lines {
+        let t = hl.trim();
+        if !t.is_empty() {
+            lines.push(format!("| {} |", receiptline_escape(t)));
+        }
+    }
+    lines.push("| ^^^ALTERATIONS PICKUP |".to_string());
+    lines.push(format!("| {} |", local_time.format("%m/%d/%Y %I:%M %p")));
+    lines.push(String::new());
+    lines.push(format!("Customer: {}", receiptline_escape(&input.customer_name)));
+    if let Some(desc) = input.item_description.as_deref() {
+        let t = desc.trim();
+        if !t.is_empty() {
+            lines.push(format!("Item: {}", receiptline_escape(t)));
+        }
+    }
+    if let Some(work) = input.work_requested.as_deref() {
+        let t = work.trim();
+        if !t.is_empty() {
+            lines.push(format!("Work: {}", receiptline_escape(t)));
+        }
+    }
+    lines.push(format!("Alteration ID: {}", receiptline_escape(&input.alteration_id)));
+    lines.push(format!(
+        "Released by: {}",
+        receiptline_escape(&input.picked_up_by)
+    ));
+    lines.push(String::new());
+    lines.push("---".to_string());
+    for fl in &input.footer_lines {
+        let t = fl.trim();
+        if !t.is_empty() {
+            lines.push(format!("| {} |", receiptline_escape(t)));
+        }
+    }
+    lines.push("=".to_string());
+    lines.join("\n")
+}
+
+pub fn build_alteration_pickup_escpos(
+    input: &AlterationPickupReceiptInput,
+    cfg: &ReceiptConfig,
+) -> Vec<u8> {
+    let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
+    let local_time = input.picked_up_at.with_timezone(&tz);
+    let mut out = Vec::new();
+    out.extend_from_slice(&[0x1b, 0x40]);
+    out.extend_from_slice(&[0x1b, 0x74, 0x00]);
+    push_raw_line(&mut out, "");
+    set_align(&mut out, 1);
+    set_bold(&mut out, true);
+    set_text_size(&mut out, 0x11);
+    push_line(&mut out, &cfg.store_name);
+    set_text_size(&mut out, 0x00);
+    set_bold(&mut out, false);
+    for hl in &cfg.header_lines {
+        let t = hl.trim();
+        if !t.is_empty() {
+            push_line(&mut out, t);
+        }
+    }
+    set_bold(&mut out, true);
+    push_line(&mut out, "ALTERATIONS PICKUP");
+    set_bold(&mut out, false);
+    push_line(&mut out, &local_time.format("%m/%d/%Y %I:%M %p").to_string());
+    set_align(&mut out, 0);
+    divider(&mut out);
+    push_line(&mut out, &format!("Customer: {}", ascii_clean(&input.customer_name)));
+    if let Some(desc) = input.item_description.as_deref() {
+        let t = desc.trim();
+        if !t.is_empty() {
+            for line in wrap_text(&format!("Item: {t}"), CPL) {
+                push_line(&mut out, &line);
+            }
+        }
+    }
+    if let Some(work) = input.work_requested.as_deref() {
+        let t = work.trim();
+        if !t.is_empty() {
+            for line in wrap_text(&format!("Work: {t}"), CPL) {
+                push_line(&mut out, &line);
+            }
+        }
+    }
+    push_line(&mut out, &format!("Alteration ID: {}", ascii_clean(&input.alteration_id)));
+    push_line(&mut out, &format!("Released by: {}", ascii_clean(&input.picked_up_by)));
+    divider(&mut out);
+    set_align(&mut out, 1);
+    for fl in &cfg.footer_lines {
+        let t = fl.trim();
+        if !t.is_empty() {
+            push_line(&mut out, t);
+        }
+    }
+    set_align(&mut out, 0);
     out.extend_from_slice(b"\n\n\n\n");
     out.extend_from_slice(&[0x1d, 0x56, 0x41, 0x00]);
     out

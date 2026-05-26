@@ -1,10 +1,10 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { 
-  Loader2, 
-  Scissors, 
-  CheckCircle2, 
-  Clock, 
+import {
+  Loader2,
+  Scissors,
+  CheckCircle2,
+  Clock,
   Package,
   Calendar as CalendarIcon,
   AlertTriangle,
@@ -49,6 +49,8 @@ type AlterationRow = {
   charge_amount: string | number | null;
   intake_channel: string;
   source_snapshot: Record<string, unknown> | null;
+  picked_up_at: string | null;
+  picked_up_by_staff_id: string | null;
   created_at: string;
 };
 
@@ -342,6 +344,68 @@ export default function CustomerAlterationsPanel({
       toast("Network error", "error");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const pickupAlteration = async (id: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/alterations/${id}/pickup`, {
+        method: "POST",
+        headers: apiAuth(),
+      });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(b.error ?? "Pickup failed", "error");
+        return;
+      }
+      toast("Alteration marked as picked up", "success");
+      void load();
+      await printPickupReceipt(id);
+    } catch {
+      toast("Network error", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const printPickupReceipt = async (id: string) => {
+    try {
+      const res = await fetch(`${baseUrl}/api/alterations/${id}/pickup-receipt`, {
+        headers: apiAuth(),
+      });
+      if (!res.ok) {
+        toast("Could not generate pickup receipt", "error");
+        return;
+      }
+      const data = (await res.json()) as {
+        escpos_base64?: string;
+        receiptline_markdown?: string;
+      };
+      if (data.escpos_base64) {
+        const { printRawEscPosBase64 } = await import("../../lib/printerBridge");
+        await printRawEscPosBase64(data.escpos_base64);
+        toast("Pickup receipt sent to printer", "success");
+      } else if (data.receiptline_markdown) {
+        const { transform } = await import("receiptline");
+        const cmd = transform(data.receiptline_markdown, {
+          cpl: 42,
+          encoding: "cp437",
+          command: "escpos",
+          cutting: true,
+        });
+        const b64 = btoa(
+          String(cmd)
+            .split("")
+            .map((c) => String.fromCharCode(c.charCodeAt(0) & 0xff))
+            .join("")
+        );
+        const { printRawEscPosBase64 } = await import("../../lib/printerBridge");
+        await printRawEscPosBase64(b64);
+        toast("Pickup receipt sent to printer", "success");
+      }
+    } catch {
+      toast("Pickup receipt print failed", "error");
     }
   };
 
@@ -670,10 +734,37 @@ export default function CustomerAlterationsPanel({
       ) : null}
 
       <div className={`flex flex-wrap items-center justify-between gap-3 border-t border-app-border/40 ${compactQueue ? "pt-2" : "pt-3"}`}>
-         <p className="text-[9px] font-bold uppercase tracking-tighter text-app-text-muted">Created {new Date(r.created_at).toLocaleString()}</p>
+         <div className="flex flex-col gap-0.5">
+           <p className="text-[9px] font-bold uppercase tracking-tighter text-app-text-muted">Created {new Date(r.created_at).toLocaleString()}</p>
+           {r.status === "picked_up" && r.picked_up_at ? (
+             <p className="text-[9px] font-bold uppercase tracking-tighter text-app-success">
+               Picked up {new Date(r.picked_up_at).toLocaleString()}
+             </p>
+           ) : null}
+         </div>
 
          <div className="flex flex-wrap items-center justify-end gap-2">
-            {nextAlterationStatus(r.status) ? (
+            {r.status === "ready" ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void pickupAlteration(r.id)}
+                className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-emerald-400 transition-all hover:bg-emerald-500 hover:text-white disabled:opacity-50"
+              >
+                Pick Up & Print
+              </button>
+            ) : null}
+            {r.status === "picked_up" ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void printPickupReceipt(r.id)}
+                className="rounded-xl border border-app-accent/30 bg-app-accent/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-50"
+              >
+                Reprint Receipt
+              </button>
+            ) : null}
+            {nextAlterationStatus(r.status) && r.status !== "ready" ? (
               <button
                 type="button"
                 disabled={busy}
@@ -947,7 +1038,7 @@ export default function CustomerAlterationsPanel({
               {visibleRows.length} visible
             </p>
           </div>
-          
+
           <div className="flex-1 p-3 lg:min-h-0 lg:overflow-y-auto lg:p-4 custom-scrollbar">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-24 gap-4 opacity-40">
@@ -1021,7 +1112,7 @@ export default function CustomerAlterationsPanel({
         </section>
       </div>
       {schedulingAlt && (
-        <AlterationSchedulingDrawer 
+        <AlterationSchedulingDrawer
           alteration={schedulingAlt}
           apiAuth={apiAuth}
           onClose={() => setSchedulingAlt(null)}

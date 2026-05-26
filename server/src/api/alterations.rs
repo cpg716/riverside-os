@@ -4,9 +4,10 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, patch},
+    routing::{get, patch, post},
     Json, Router,
 };
+use base64::Engine;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,7 @@ use crate::api::AppState;
 use crate::auth::permissions::ALTERATIONS_MANAGE;
 use crate::auth::pins::AuthenticatedStaff;
 use crate::logic::messaging::MessagingService;
+use crate::logic::receipt_escpos;
 use crate::middleware;
 
 #[derive(Debug, Serialize, FromRow)]
@@ -56,6 +58,8 @@ pub struct AlterationOrderRow {
     pub charge_transaction_line_id: Option<Uuid>,
     pub intake_channel: String,
     pub source_snapshot: Option<Value>,
+    pub picked_up_at: Option<DateTime<Utc>>,
+    pub picked_up_by_staff_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -275,6 +279,8 @@ pub fn router() -> Router<AppState> {
         .route("/capacity", get(get_capacity))
         .route("/suggest-slots", get(get_suggested_slots))
         .route("/{id}", patch(patch_alteration))
+        .route("/{id}/pickup", post(post_alteration_pickup))
+        .route("/{id}/pickup-receipt", get(get_alteration_pickup_receipt))
         .route(
             "/{id}/items",
             get(list_alteration_items).post(add_alteration_item),
@@ -334,7 +340,7 @@ async fn list_alteration_items(
 ) -> Result<Json<Vec<AlterationOrderItemRow>>, AlterationError> {
     let _staff = require_manage(&state, &headers).await?;
     let rows = sqlx::query_as::<_, AlterationOrderItemRow>(
-        "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at 
+        "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at
          FROM alteration_order_items WHERE alteration_order_id = $1 ORDER BY created_at ASC"
     )
     .bind(id)
@@ -354,7 +360,7 @@ async fn add_alteration_item(
     let mut tx = state.db.begin().await?;
 
     let item_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO alteration_order_items (alteration_order_id, label, capacity_bucket, units) 
+        "INSERT INTO alteration_order_items (alteration_order_id, label, capacity_bucket, units)
          VALUES ($1, $2, $3::alteration_bucket, $4) RETURNING id",
     )
     .bind(id)
@@ -367,7 +373,7 @@ async fn add_alteration_item(
     crate::logic::alterations_scheduler::update_order_unit_totals(&mut tx, id).await?;
 
     let row = sqlx::query_as::<_, AlterationOrderItemRow>(
-        "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at 
+        "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at
          FROM alteration_order_items WHERE id = $1"
     )
     .bind(item_id)
@@ -401,7 +407,7 @@ async fn patch_alteration_item(
     }
 
     let row = sqlx::query_as::<_, AlterationOrderItemRow>(
-        "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at 
+        "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at
          FROM alteration_order_items WHERE id = $1"
     )
     .bind(item_id)
@@ -494,7 +500,7 @@ async fn list_alterations(
 
     let rows = sqlx::query_as::<_, AlterationOrderRow>(
         r#"
-        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
+        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name,
                c.customer_code, c.phone AS customer_phone, c.email AS customer_email,
                c.address_line1 AS customer_address_line1, c.city AS customer_city,
                c.state AS customer_state, c.postal_code AS customer_postal_code,
@@ -508,6 +514,7 @@ async fn list_alterations(
                a.source_transaction_id, a.source_transaction_line_id,
                a.charge_amount, a.charge_transaction_line_id,
                a.intake_channel::text AS intake_channel, a.source_snapshot,
+               a.picked_up_at, a.picked_up_by_staff_id,
                a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
@@ -648,7 +655,7 @@ async fn create_alteration(
 
     let row = sqlx::query_as::<_, AlterationOrderRow>(
         r#"
-        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
+        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name,
                c.customer_code, c.phone AS customer_phone, c.email AS customer_email,
                c.address_line1 AS customer_address_line1, c.city AS customer_city,
                c.state AS customer_state, c.postal_code AS customer_postal_code,
@@ -662,6 +669,7 @@ async fn create_alteration(
                a.source_transaction_id, a.source_transaction_line_id,
                a.charge_amount, a.charge_transaction_line_id,
                a.intake_channel::text AS intake_channel, a.source_snapshot,
+               a.picked_up_at, a.picked_up_by_staff_id,
                a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
@@ -765,7 +773,7 @@ async fn patch_alteration(
 
     let row = sqlx::query_as::<_, AlterationOrderRow>(
         r#"
-        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
+        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name,
                c.customer_code, c.phone AS customer_phone, c.email AS customer_email,
                c.address_line1 AS customer_address_line1, c.city AS customer_city,
                c.state AS customer_state, c.postal_code AS customer_postal_code,
@@ -779,6 +787,7 @@ async fn patch_alteration(
                a.source_transaction_id, a.source_transaction_line_id,
                a.charge_amount, a.charge_transaction_line_id,
                a.intake_channel::text AS intake_channel, a.source_snapshot,
+               a.picked_up_at, a.picked_up_by_staff_id,
                a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
@@ -829,6 +838,183 @@ async fn patch_alteration(
     }
 
     Ok(Json(row))
+}
+
+async fn post_alteration_pickup(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AlterationOrderRow>, AlterationError> {
+    let staff = require_manage(&state, &headers).await?;
+
+    let mut tx = state.db.begin().await?;
+
+    let prev_status: Option<String> =
+        sqlx::query_scalar("SELECT status::text FROM alteration_orders WHERE id = $1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if prev_status.is_none() {
+        return Err(AlterationError::NotFound);
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE alteration_orders
+        SET status = 'picked_up',
+            picked_up_at = now(),
+            picked_up_by_staff_id = $2,
+            updated_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .bind(staff.id)
+    .execute(&mut *tx)
+    .await?;
+
+    let row = sqlx::query_as::<_, AlterationOrderRow>(
+        r#"
+        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name,
+               c.customer_code, c.phone AS customer_phone, c.email AS customer_email,
+               c.address_line1 AS customer_address_line1, c.city AS customer_city,
+               c.state AS customer_state, c.postal_code AS customer_postal_code,
+               a.wedding_member_id, a.status::text AS status,
+               a.due_at, a.fitting_at, a.appointment_id,
+               a.total_units_jacket, a.total_units_pant,
+               a.notes, a.transaction_id AS linked_transaction_id,
+               lt.display_id AS linked_transaction_display_id,
+               a.source_type::text AS source_type, a.item_description, a.work_requested,
+               a.source_product_id, a.source_variant_id, a.source_sku,
+               a.source_transaction_id, a.source_transaction_line_id,
+               a.charge_amount, a.charge_transaction_line_id,
+               a.intake_channel::text AS intake_channel, a.source_snapshot,
+               a.picked_up_at, a.picked_up_by_staff_id,
+               a.created_at, a.updated_at
+        FROM alteration_orders a
+        LEFT JOIN customers c ON a.customer_id = c.id
+        LEFT JOIN transactions lt ON lt.id = COALESCE(a.transaction_id, a.source_transaction_id)
+        WHERE a.id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO alteration_activity (alteration_id, staff_id, action, detail)
+        VALUES ($1, $2, 'pickup', $3)
+        "#,
+    )
+    .bind(id)
+    .bind(staff.id)
+    .bind(SqlxJson(json!({
+        "previous_status": prev_status,
+        "new_status": "picked_up",
+        "picked_up_by": staff.full_name,
+    })))
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    spawn_meilisearch_alteration_upsert(&state, row.id);
+
+    Ok(Json(row))
+}
+
+async fn get_alteration_pickup_receipt(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AlterationError> {
+    let _staff = require_manage(&state, &headers).await?;
+
+    let row = sqlx::query_as::<_, AlterationOrderRow>(
+        r#"
+        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name,
+               c.customer_code, c.phone AS customer_phone, c.email AS customer_email,
+               c.address_line1 AS customer_address_line1, c.city AS customer_city,
+               c.state AS customer_state, c.postal_code AS customer_postal_code,
+               a.wedding_member_id, a.status::text AS status,
+               a.due_at, a.fitting_at, a.appointment_id,
+               a.total_units_jacket, a.total_units_pant,
+               a.notes, a.transaction_id AS linked_transaction_id,
+               lt.display_id AS linked_transaction_display_id,
+               a.source_type::text AS source_type, a.item_description, a.work_requested,
+               a.source_product_id, a.source_variant_id, a.source_sku,
+               a.source_transaction_id, a.source_transaction_line_id,
+               a.charge_amount, a.charge_transaction_line_id,
+               a.intake_channel::text AS intake_channel, a.source_snapshot,
+               a.picked_up_at, a.picked_up_by_staff_id,
+               a.created_at, a.updated_at
+        FROM alteration_orders a
+        LEFT JOIN customers c ON a.customer_id = c.id
+        LEFT JOIN transactions lt ON lt.id = COALESCE(a.transaction_id, a.source_transaction_id)
+        WHERE a.id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AlterationError::NotFound)?;
+
+    let receipt_cfg: crate::api::settings::ReceiptConfig =
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT receipt_config FROM store_settings WHERE id = 1",
+        )
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_value::<crate::api::settings::ReceiptConfig>(v).ok())
+        .unwrap_or_default()
+        .normalize_runtime();
+
+    let picked_up_at = row.picked_up_at.unwrap_or_else(Utc::now);
+    let picked_up_by: String = if let Some(staff_id) = row.picked_up_by_staff_id {
+        sqlx::query_scalar("SELECT COALESCE(full_name, display_name, 'Staff') FROM staff WHERE id = $1")
+            .bind(staff_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "Staff".to_string())
+    } else {
+        "Staff".to_string()
+    };
+
+    let customer_name = format!(
+        "{} {}",
+        row.customer_first_name.unwrap_or_default(),
+        row.customer_last_name.unwrap_or_default()
+    )
+    .trim()
+    .to_string();
+
+    let input = receipt_escpos::AlterationPickupReceiptInput {
+        store_name: receipt_cfg.store_name.clone(),
+        header_lines: receipt_cfg.header_lines.clone(),
+        footer_lines: receipt_cfg.footer_lines.clone(),
+        customer_name,
+        item_description: row.item_description,
+        work_requested: row.work_requested,
+        alteration_id: row.linked_transaction_display_id.unwrap_or_else(|| id.to_string()),
+        picked_up_at,
+        picked_up_by,
+        timezone: receipt_cfg.timezone.clone(),
+    };
+
+    let receiptline_markdown =
+        receipt_escpos::build_alteration_pickup_receiptline(&input, receipt_cfg.show_logo);
+    let bytes = receipt_escpos::build_alteration_pickup_escpos(&input, &receipt_cfg);
+    let escpos_base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(Json(serde_json::json!({
+        "escpos_base64": escpos_base64,
+        "receiptline_markdown": receiptline_markdown,
+        "printer_language": "escpos",
+        "printer_family": "epson_tm_m30iii"
+    })))
 }
 
 #[cfg(test)]
