@@ -40,6 +40,7 @@ pub enum DbOrderStatus {
     Fulfilled,
     Cancelled,
     PendingMeasurement,
+    Processing,
 }
 
 /// PostgreSQL `order_fulfillment_method`: `pickup`, `ship` — customer delivery mode (Shippo).

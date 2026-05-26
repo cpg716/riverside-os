@@ -17,6 +17,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
+use rust_decimal::Decimal;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::api::AppState;
@@ -111,6 +112,39 @@ fn shippo_tracking_status_to_ros(status: Option<&str>) -> Option<&'static str> {
     }
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct ShippoTrackingStatus {
+    status: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct ShippoWebhookData {
+    transaction: Option<String>,
+    object_id: Option<String>,
+    tracking_number: Option<String>,
+    tracking_status: Option<ShippoTrackingStatus>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct ShippoWebhookPayload {
+    event: String,
+    data: Option<ShippoWebhookData>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PodiumWebhookPayload {
+    id: String,
+    event: String,
+    data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct HelcimWebhookPayload {
+    #[serde(rename = "type")]
+    event_type: String,
+    data: Option<serde_json::Value>,
+}
+
 async fn post_shippo_webhook(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
@@ -127,30 +161,24 @@ async fn post_shippo_webhook(
         return verify.into_response();
     }
 
-    let payload: Value = match serde_json::from_slice(body.as_ref()) {
+    let payload: ShippoWebhookPayload = match serde_json::from_slice(body.as_ref()) {
         Ok(value) => value,
         Err(error) => {
-            tracing::warn!(target = "shippo_webhook", error = %error, "invalid shippo webhook json");
+            tracing::warn!(target = "shippo_webhook", error = %error, "Shippo webhook strict validation failed");
             return StatusCode::BAD_REQUEST.into_response();
         }
     };
-    let event = payload.get("event").and_then(|v| v.as_str()).unwrap_or("");
-    let data = payload.get("data").unwrap_or(&payload);
-    let transaction_id = data
-        .get("transaction")
-        .or_else(|| data.get("object_id"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let tracking_number = data
-        .get("tracking_number")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let status = data
-        .get("tracking_status")
-        .and_then(|v| v.get("status"))
-        .and_then(|v| v.as_str());
+
+    let event = payload.event.as_str();
+    let (transaction_id, tracking_number, status) = if let Some(ref data) = payload.data {
+        (
+            data.transaction.as_deref().or(data.object_id.as_deref()),
+            data.tracking_number.as_deref(),
+            data.tracking_status.as_ref().and_then(|ts| ts.status.as_deref())
+        )
+    } else {
+        (None, None, None)
+    };
     let ros_status = shippo_tracking_status_to_ros(status);
 
     let row: Option<(Uuid,)> = match (transaction_id, tracking_number) {
@@ -262,6 +290,28 @@ async fn post_podium_webhook(
                 &state.db,
                 raw,
                 "invalid json",
+                StatusCode::BAD_REQUEST.as_u16(),
+            )
+            .await
+            {
+                tracing::warn!(
+                    target = "podium_webhook",
+                    event = "failure_record_failed",
+                    error = %record_error
+                );
+            }
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+    };
+
+    let _payload: PodiumWebhookPayload = match serde_json::from_value(value.clone()) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(target = "podium_webhook", event = "strict_validation_failed", error = %e);
+            if let Err(record_error) = record_podium_webhook_failure(
+                &state.db,
+                raw,
+                "strict validation failed",
                 StatusCode::BAD_REQUEST.as_u16(),
             )
             .await
@@ -697,6 +747,15 @@ async fn post_helcim_webhook(
             return StatusCode::BAD_REQUEST.into_response();
         }
     };
+
+    let _payload: HelcimWebhookPayload = match serde_json::from_value(value.clone()) {
+        Ok(p) => p,
+        Err(error) => {
+            tracing::warn!(target = "helcim_webhook", error = %error, "strict validation failed");
+            return StatusCode::BAD_REQUEST.into_response();
+        }
+    };
+
     let event_type = value
         .get("type")
         .and_then(Value::as_str)
@@ -838,7 +897,7 @@ async fn handle_helcim_card_transaction(
 
     let mut tx = state.db.begin().await?;
     let mut match_type = "provider_transaction_id";
-    let mut attempt_id: Option<Uuid> = sqlx::query_scalar(
+    let mut attempt_row: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
         r#"
         UPDATE payment_provider_attempts
         SET status = $1,
@@ -857,7 +916,7 @@ async fn handle_helcim_card_transaction(
             ORDER BY created_at ASC
             LIMIT 1
         )
-        RETURNING id
+        RETURNING id, checkout_client_id
         "#
     )
         .bind(&normalized_status)
@@ -869,7 +928,7 @@ async fn handle_helcim_card_transaction(
         .fetch_optional(&mut *tx)
         .await?;
 
-    if attempt_id.is_none() {
+    if attempt_row.is_none() {
         match_type = "terminal_amount";
         if let Some(candidate_id) = find_safe_helcim_terminal_fallback_candidate(
             &mut tx,
@@ -879,7 +938,7 @@ async fn handle_helcim_card_transaction(
         )
         .await?
         {
-            attempt_id = sqlx::query_scalar(
+            attempt_row = sqlx::query_as(
             r#"
             UPDATE payment_provider_attempts
             SET status = $1,
@@ -890,7 +949,7 @@ async fn handle_helcim_card_transaction(
                 error_message = CASE WHEN $1 = 'failed' THEN COALESCE($6, 'Helcim payment was declined.') ELSE error_message END,
                 completed_at = now()
             WHERE id = $7
-            RETURNING id
+            RETURNING id, checkout_client_id
             "#
         )
             .bind(&normalized_status)
@@ -904,6 +963,9 @@ async fn handle_helcim_card_transaction(
             .await?;
         }
     }
+
+    let attempt_id = attempt_row.map(|r| r.0);
+    let checkout_client_id = attempt_row.and_then(|r| r.1);
 
     if attempt_id.is_none() {
         match_type = "none";
@@ -923,12 +985,172 @@ async fn handle_helcim_card_transaction(
     .fetch_optional(&mut *tx)
     .await?;
 
+    let mut final_payment_transaction_id = payment_transaction_id;
+
+    if (normalized_status == "approved" || normalized_status == "captured") && final_payment_transaction_id.is_none() {
+        if let Some(client_id) = checkout_client_id {
+            let txn: Option<(Uuid, String, Decimal, Decimal, Uuid)> = sqlx::query_as(
+                "SELECT id, display_id, total_price, rounding_adjustment, operator_id FROM transactions WHERE checkout_client_id = $1 AND status = 'processing'"
+            )
+            .bind(client_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            if let Some((tid, d_id, total_price, rounding_adjustment, operator_id)) = txn {
+                let payment_txn_id = Uuid::new_v4();
+                let payment_amount = Decimal::from(amount_cents) / Decimal::from(100);
+                
+                sqlx::query(
+                    r#"
+                    INSERT INTO payment_transactions (
+                        id, category, payment_method, amount, status, occurred_at, merchant_fee, net_amount, metadata
+                    )
+                    VALUES ($1, 'retail_sale', 'card_terminal', $2, 'approved', now(), 0, $2, $3)
+                    "#
+                )
+                .bind(payment_txn_id)
+                .bind(payment_amount)
+                .bind(serde_json::json!({
+                    "helcim_transaction_id": provider_transaction_id,
+                    "helcim_payment_id": provider_payment_id,
+                    "audit_reference": audit_reference
+                }))
+                .execute(&mut *tx)
+                .await?;
+
+                sqlx::query(
+                    r#"
+                    INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated)
+                    VALUES ($1, $2, $3)
+                    "#
+                )
+                .bind(payment_txn_id)
+                .bind(tid)
+                .bind(payment_amount)
+                .execute(&mut *tx)
+                .await?;
+
+                let balance_due = (total_price + rounding_adjustment - payment_amount).round_dp(2);
+                let is_fully_paid = balance_due.is_zero();
+                
+                let all_takeaway: bool = sqlx::query_scalar(
+                    "SELECT COALESCE(BOOL_AND(fulfillment = 'takeaway'), true) FROM transaction_lines WHERE transaction_id = $1"
+                )
+                .bind(tid)
+                .fetch_one(&mut *tx)
+                .await?;
+
+                let final_status = if is_fully_paid && all_takeaway {
+                    crate::models::DbOrderStatus::Fulfilled
+                } else {
+                    crate::models::DbOrderStatus::Open
+                };
+
+                sqlx::query(
+                    r#"
+                    UPDATE transactions
+                    SET status = $1::order_status,
+                        amount_paid = $2,
+                        balance_due = $3,
+                        fulfilled_at = CASE WHEN $1::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END
+                    WHERE id = $4
+                    "#
+                )
+                .bind(final_status)
+                .bind(payment_amount)
+                .bind(balance_due)
+                .bind(tid)
+                .execute(&mut *tx)
+                .await?;
+
+                let _ = crate::auth::pins::log_staff_access(
+                    &state.db,
+                    operator_id,
+                    "checkout_webhook_recovery",
+                    serde_json::json!({
+                        "transaction_id": tid,
+                        "amount_paid": payment_amount,
+                        "total_price": total_price,
+                    }),
+                )
+                .await;
+
+                let items: Vec<serde_json::Value> = sqlx::query_as(
+                    r#"
+                    SELECT variant_id, product_id, quantity, unit_price, state_tax, local_tax, fulfillment::text
+                    FROM transaction_lines
+                    WHERE transaction_id = $1
+                    "#
+                )
+                .bind(tid)
+                .fetch_all(&mut *tx)
+                .await?
+                .into_iter()
+                .map(|(vid, pid, qty, up, st, lt, ful): (Uuid, Uuid, i32, Decimal, Decimal, Decimal, String)| {
+                    serde_json::json!({
+                        "variant_id": vid,
+                        "product_id": pid,
+                        "quantity": qty,
+                        "unit_price": up.to_string(),
+                        "state_tax": st.to_string(),
+                        "local_tax": lt.to_string(),
+                        "line_type": if ful == "alteration_service" { "alteration_service" } else { "merchandise" }
+                    })
+                })
+                .collect();
+
+                let is_layaway = sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS(SELECT 1 FROM transaction_lines WHERE transaction_id = $1 AND fulfillment = 'layaway')"
+                )
+                .bind(tid)
+                .fetch_one(&mut *tx)
+                .await?;
+
+                let customer_id = sqlx::query_scalar::<_, Option<Uuid>>("SELECT customer_id FROM transactions WHERE id = $1").bind(tid).fetch_one(&mut *tx).await?;
+                let booked_at = sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>("SELECT booked_at FROM transactions WHERE id = $1").bind(tid).fetch_one(&mut *tx).await?;
+                let shipping_amount = sqlx::query_scalar::<_, Option<Decimal>>("SELECT shipping_amount_usd FROM transactions WHERE id = $1").bind(tid).fetch_one(&mut *tx).await?;
+
+                let qbo_payload = serde_json::json!({
+                    "display_id": d_id,
+                    "customer_id": customer_id,
+                    "booked_at": booked_at.to_rfc3339(),
+                    "total_price": total_price.to_string(),
+                    "amount_paid": payment_amount.to_string(),
+                    "balance_due": balance_due.to_string(),
+                    "rounding_adjustment": rounding_adjustment.to_string(),
+                    "is_layaway": is_layaway,
+                    "shipping_amount": shipping_amount.map(|d| d.to_string()),
+                    "items": items,
+                    "payments": vec![
+                        serde_json::json!({
+                            "method": "card_terminal",
+                            "amount": payment_amount.to_string()
+                        })
+                    ]
+                });
+
+                sqlx::query(
+                    r#"
+                    INSERT INTO qbo_sync_outbox (transaction_id, payload, status)
+                    VALUES ($1, $2, 'pending')
+                    "#
+                )
+                .bind(tid)
+                .bind(qbo_payload)
+                .execute(&mut *tx)
+                .await?;
+
+                final_payment_transaction_id = Some(payment_txn_id);
+            }
+        }
+    }
+
     mark_helcim_event_processed(
         &mut tx,
         event_id,
         Some(&provider_transaction_id),
         attempt_id,
-        payment_transaction_id,
+        final_payment_transaction_id,
         match_type,
     )
     .await?;
@@ -938,7 +1160,7 @@ async fn handle_helcim_card_transaction(
         updated: u64::from(attempt_id.is_some()),
         provider_transaction_id: Some(provider_transaction_id),
         payment_provider_attempt_id: attempt_id,
-        payment_transaction_id,
+        payment_transaction_id: final_payment_transaction_id,
         match_type: match_type.to_string(),
     })
 }

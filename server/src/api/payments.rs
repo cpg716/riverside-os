@@ -518,6 +518,8 @@ pub struct HelcimPurchaseRequestBody {
     pub selected_terminal_key: Option<String>,
     #[serde(default)]
     pub terminal_override_reason: Option<String>,
+    #[serde(default)]
+    pub checkout_client_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -6701,9 +6703,9 @@ async fn start_helcim_purchase(
         INSERT INTO payment_provider_attempts (
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
             device_id, terminal_id, selected_terminal_key, terminal_route_source,
-            terminal_override_staff_id, terminal_override_reason, idempotency_key
+            terminal_override_staff_id, terminal_override_reason, idempotency_key, checkout_client_id
         )
-        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, $12)
         "#,
     )
     .bind(attempt_id)
@@ -6717,6 +6719,7 @@ async fn start_helcim_purchase(
     .bind(terminal_route.override_staff_id)
     .bind(&terminal_route.override_reason)
     .bind(&idempotency_key)
+    .bind(payload.checkout_client_id)
     .execute(&mut *tx)
     .await;
 

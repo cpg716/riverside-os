@@ -197,6 +197,8 @@ pub struct CheckoutRequest {
     pub rounding_adjustment: Option<Decimal>,
     #[serde(default)]
     pub final_cash_due: Option<Decimal>,
+    #[serde(default)]
+    pub is_processing: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2480,24 +2482,46 @@ pub async fn execute_checkout(
 
     let mut tx = pool.begin().await?;
 
+    let mut transaction_id = Uuid::new_v4();
+    let mut transaction_display_id = String::new();
+    let mut is_completing_processing = false;
+
     if let Some(cid) = payload.checkout_client_id {
-        let existing: Option<Uuid> =
-            sqlx::query_scalar("SELECT id FROM transactions WHERE checkout_client_id = $1")
-                .bind(cid)
-                .fetch_optional(&mut *tx)
-                .await?;
-        if let Some(tid) = existing {
-            tx.commit().await?;
-            tracing::info!(transaction_id = %tid, "checkout idempotent replay");
-            let d_id: String =
-                sqlx::query_scalar("SELECT display_id FROM transactions WHERE id = $1")
-                    .bind(tid)
-                    .fetch_one(pool)
-                    .await?;
-            return Ok(CheckoutDone::Idempotent {
-                transaction_id: tid,
-                display_id: d_id,
-            });
+        let existing: Option<(Uuid, String, DbOrderStatus)> = sqlx::query_as(
+            "SELECT id, display_id, status FROM transactions WHERE checkout_client_id = $1"
+        )
+        .bind(cid)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some((tid, d_id, status)) = existing {
+            if status != DbOrderStatus::Processing {
+                tx.commit().await?;
+                tracing::info!(transaction_id = %tid, "checkout idempotent replay");
+                return Ok(CheckoutDone::Idempotent {
+                    transaction_id: tid,
+                    display_id: d_id,
+                });
+            } else {
+                if payload.is_processing {
+                    tx.commit().await?;
+                    tracing::info!(transaction_id = %tid, "checkout idempotent processing replay");
+                    return Ok(CheckoutDone::Completed {
+                        transaction_id: tid,
+                        display_id: d_id,
+                        operator_staff_id: payload.operator_staff_id,
+                        customer_id: payload.customer_id,
+                        price_override_audit: Vec::new(),
+                        alteration_order_ids: Vec::new(),
+                        amount_paid: Decimal::ZERO,
+                        total_price: payload.total_price,
+                        warnings: Vec::new(),
+                    });
+                } else {
+                    transaction_id = tid;
+                    transaction_display_id = d_id;
+                    is_completing_processing = true;
+                }
+            }
         }
     }
 
@@ -2653,82 +2677,114 @@ pub async fn execute_checkout(
         false
     };
 
-    let txn_insert: Result<(Uuid, String), SqlxError> = sqlx::query_as(
-        r#"
-        INSERT INTO transactions (
-            customer_id, wedding_member_id, operator_id, primary_salesperson_id,
-            total_price, amount_paid, balance_due, booked_at, business_date,
-            weather_snapshot, checkout_client_id,
-            fulfillment_method, ship_to, shipping_amount_usd,
-            is_employee_purchase, is_rush, need_by_date,
-            is_tax_exempt, tax_exempt_reason, register_session_id,
-            rounding_adjustment, final_cash_due, metadata,
-            status, fulfilled_at
+    let (transaction_id, transaction_display_id): (Uuid, String) = if is_completing_processing {
+        sqlx::query(
+            r#"
+            UPDATE transactions
+            SET status = $1::order_status,
+                amount_paid = $2,
+                balance_due = $3,
+                fulfilled_at = CASE WHEN $1::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END
+            WHERE id = $4
+            "#,
         )
-        VALUES (
-            $1, $2, $3, $4, $5, $6, $7,
-            COALESCE(($8::timestamp AT TIME ZONE reporting.effective_store_timezone()), CURRENT_TIMESTAMP),
-            COALESCE($9::date, (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date),
-            $10, $11,
-            $12, $13, $14,
-            $15, $16, $17, $18, $19, $20,
-            $21, $22, $23,
-            $24::order_status,
-            CASE WHEN $24::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END
-        )
-        RETURNING id, display_id
-        "#,
-    )
-    .bind(payload.customer_id)
-    .bind(payload.wedding_member_id)
-    .bind(payload.operator_staff_id)
-    .bind(payload.primary_salesperson_id)
-    .bind(payload.total_price)
-    .bind(amount_toward_order)
-    .bind(balance_due)
-    .bind(checkout_booked_at_local.as_deref())
-    .bind(checkout_business_date)
-    .bind(weather_json)
-    .bind(payload.checkout_client_id)
-    .bind(order_fulfillment_method)
-    .bind(order_ship_to)
-    .bind(order_shipping_amt)
-    .bind(is_employee_purchase_order)
-    .bind(payload.is_rush)
-    .bind(payload.need_by_date)
-    .bind(payload.is_tax_exempt)
-    .bind(payload.tax_exempt_reason.as_deref())
-    .bind(payload.session_id)
-    .bind(payload.rounding_adjustment.unwrap_or(Decimal::ZERO))
-    .bind(payload.final_cash_due)
-    .bind(&transaction_financing_metadata)
-    .bind(order_status)
-    .fetch_one(&mut *tx)
-    .await;
+        .bind(order_status)
+        .bind(amount_toward_order)
+        .bind(balance_due)
+        .bind(transaction_id)
+        .execute(&mut *tx)
+        .await?;
 
-    let (transaction_id, transaction_display_id): (Uuid, String) = match txn_insert {
-        Ok(id_display) => id_display,
-        Err(SqlxError::Database(db_err))
-            if db_err.constraint() == Some("transactions_checkout_client_id_uidx") =>
-        {
-            let Some(cid) = payload.checkout_client_id else {
-                return Err(CheckoutError::Database(SqlxError::Database(db_err)));
-            };
-            tx.rollback().await?;
-            let r: (Uuid, String) = sqlx::query_as(
-                "SELECT id, display_id FROM transactions WHERE checkout_client_id = $1",
+        (transaction_id, transaction_display_id)
+    } else {
+        let insert_status = if payload.is_processing {
+            DbOrderStatus::Processing
+        } else {
+            order_status
+        };
+
+        let txn_insert: Result<(Uuid, String), SqlxError> = sqlx::query_as(
+            r#"
+            INSERT INTO transactions (
+                customer_id, wedding_member_id, operator_id, primary_salesperson_id,
+                total_price, amount_paid, balance_due, booked_at, business_date,
+                weather_snapshot, checkout_client_id,
+                fulfillment_method, ship_to, shipping_amount_usd,
+                is_employee_purchase, is_rush, need_by_date,
+                is_tax_exempt, tax_exempt_reason, register_session_id,
+                rounding_adjustment, final_cash_due, metadata,
+                status, fulfilled_at
             )
-            .bind(cid)
-            .fetch_one(pool)
-            .await?;
-            tracing::info!(transaction_id = %r.0, "checkout idempotent replay after checkout_client_id race");
-            return Ok(CheckoutDone::Idempotent {
-                transaction_id: r.0,
-                display_id: r.1,
-            });
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7,
+                COALESCE(($8::timestamp AT TIME ZONE reporting.effective_store_timezone()), CURRENT_TIMESTAMP),
+                COALESCE($9::date, (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date),
+                $10, $11,
+                $12, $13, $14,
+                $15, $16, $17, $18, $19, $20,
+                $21, $22, $23,
+                $24::order_status,
+                CASE WHEN $24::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END
+            )
+            RETURNING id, display_id
+            "#,
+        )
+        .bind(payload.customer_id)
+        .bind(payload.wedding_member_id)
+        .bind(payload.operator_staff_id)
+        .bind(payload.primary_salesperson_id)
+        .bind(payload.total_price)
+        .bind(if payload.is_processing { Decimal::ZERO } else { amount_toward_order })
+        .bind(if payload.is_processing { payload.total_price } else { balance_due })
+        .bind(checkout_booked_at_local.as_deref())
+        .bind(checkout_business_date)
+        .bind(weather_json)
+        .bind(payload.checkout_client_id)
+        .bind(order_fulfillment_method)
+        .bind(order_ship_to)
+        .bind(order_shipping_amt)
+        .bind(is_employee_purchase_order)
+        .bind(payload.is_rush)
+        .bind(payload.need_by_date)
+        .bind(payload.is_tax_exempt)
+        .bind(payload.tax_exempt_reason.as_deref())
+        .bind(payload.session_id)
+        .bind(payload.rounding_adjustment.unwrap_or(Decimal::ZERO))
+        .bind(payload.final_cash_due)
+        .bind(&transaction_financing_metadata)
+        .bind(insert_status)
+        .fetch_one(&mut *tx)
+        .await;
+
+        match txn_insert {
+            Ok(id_display) => id_display,
+            Err(SqlxError::Database(db_err))
+                if db_err.constraint() == Some("transactions_checkout_client_id_uidx") =>
+            {
+                let Some(cid) = payload.checkout_client_id else {
+                    return Err(CheckoutError::Database(SqlxError::Database(db_err)));
+                };
+                tx.rollback().await?;
+                let r: (Uuid, String) = sqlx::query_as(
+                    "SELECT id, display_id FROM transactions WHERE checkout_client_id = $1",
+                )
+                .bind(cid)
+                .fetch_one(pool)
+                .await?;
+                tracing::info!(transaction_id = %r.0, "checkout idempotent replay after checkout_client_id race");
+                return Ok(CheckoutDone::Idempotent {
+                    transaction_id: r.0,
+                    display_id: r.1,
+                });
+            }
+            Err(e) => return Err(e.into()),
         }
-        Err(e) => return Err(e.into()),
     };
+
+    let mut alteration_order_ids = Vec::new();
+    let mut negative_stock_alerts: Vec<String> = Vec::new();
+
+    if !is_completing_processing {
 
     if order_fulfillment_method == DbOrderFulfillmentMethod::Ship {
         crate::logic::shipment::insert_from_pos_order_tx(
@@ -3366,6 +3422,8 @@ pub async fn execute_checkout(
 
         if let Some((new_stock, sku)) = after_row {
             if new_stock < 0 {
+                let alert_msg = format!("Inventory Reconciliation Over-Allocation: SKU {sku} stock fell to {new_stock} after checkout");
+                negative_stock_alerts.push(alert_msg);
                 checkout_warnings.push(format!(
                     "{sku} stock went negative after sale (now {new_stock})"
                 ));
@@ -3393,6 +3451,31 @@ pub async fn execute_checkout(
                 "checkout: takeaway stock decrement skipped (no product_variants row — sale still completes)"
             );
         }
+    }
+    }
+
+    let alteration_order_ids = if is_completing_processing {
+        sqlx::query_scalar("SELECT id FROM alteration_orders WHERE transaction_id = $1")
+            .bind(transaction_id)
+            .fetch_all(&mut *tx)
+            .await?
+    } else {
+        alteration_order_ids
+    };
+
+    if payload.is_processing {
+        tx.commit().await?;
+        return Ok(CheckoutDone::Completed {
+            transaction_id,
+            display_id: transaction_display_id,
+            operator_staff_id: payload.operator_staff_id,
+            customer_id: payload.customer_id,
+            price_override_audit,
+            alteration_order_ids,
+            amount_paid: Decimal::ZERO,
+            total_price: payload.total_price,
+            warnings: checkout_warnings,
+        });
     }
 
     let order_short_ref = pos_rms_charge::transaction_compact_ref(transaction_id);
@@ -3984,7 +4067,57 @@ pub async fn execute_checkout(
     let total_price = payload.total_price;
     let session_id_for_log = payload.session_id;
 
+    // Write completed transaction ledgers to qbo_sync_outbox before committing.
+    let qbo_payload = serde_json::json!({
+        "display_id": transaction_display_id,
+        "customer_id": payload.customer_id,
+        "booked_at": checkout_booked_at_local.as_deref().unwrap_or(""),
+        "total_price": payload.total_price.to_string(),
+        "amount_paid": amount_toward_order.to_string(),
+        "balance_due": balance_due.to_string(),
+        "rounding_adjustment": payload.rounding_adjustment.unwrap_or(Decimal::ZERO).to_string(),
+        "is_layaway": is_layaway,
+        "shipping_amount": order_shipping_amt.map(|d| d.to_string()),
+        "items": payload.items.iter().map(|item| {
+            serde_json::json!({
+                "variant_id": item.variant_id,
+                "product_id": item.product_id,
+                "quantity": item.quantity,
+                "unit_price": item.unit_price.to_string(),
+                "state_tax": item.state_tax.to_string(),
+                "local_tax": item.local_tax.to_string(),
+                "line_type": item.line_type.as_deref().unwrap_or("merchandise")
+            })
+        }).collect::<Vec<_>>(),
+        "payments": payment_splits.iter().map(|split| {
+            serde_json::json!({
+                "method": split.method,
+                "amount": split.amount.to_string(),
+                "gift_card_code": split.gift_card_code.clone()
+            })
+        }).collect::<Vec<_>>()
+    });
+
+    sqlx::query(
+        r#"
+        INSERT INTO qbo_sync_outbox (transaction_id, payload, status)
+        VALUES ($1, $2, 'pending')
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(qbo_payload)
+    .execute(&mut *tx)
+    .await
+    .map_err(CheckoutError::Database)?;
+
     tx.commit().await?;
+
+    // Broadcast system alerts for negative stock
+    for alert_msg in negative_stock_alerts {
+        if let Err(e) = crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await {
+            tracing::error!(error = %e, "Failed to broadcast system alert for negative stock");
+        }
+    }
 
     // Post-commit: commission events are non-critical back-office concerns.
     // If this fails, the sale is already committed; log and warn only.
@@ -4407,6 +4540,7 @@ mod tests {
             tax_exempt_reason: None,
             rounding_adjustment: None,
             final_cash_due: None,
+            is_processing: false,
         }
     }
 
@@ -5409,6 +5543,7 @@ mod tests {
             tax_exempt_reason: Some("test tax-exempt checkout".to_string()),
             rounding_adjustment: None,
             final_cash_due: None,
+            is_processing: false,
         };
 
         let result = execute_checkout(&pool, &reqwest::Client::new(), Decimal::ZERO, payload).await;
@@ -5730,6 +5865,7 @@ mod tests {
             tax_exempt_reason: Some("test tax-exempt checkout".to_string()),
             rounding_adjustment: None,
             final_cash_due: None,
+            is_processing: false,
         };
 
         let order_transaction_id =
@@ -5795,6 +5931,7 @@ mod tests {
             tax_exempt_reason: Some("test tax-exempt checkout".to_string()),
             rounding_adjustment: None,
             final_cash_due: None,
+            is_processing: false,
         };
 
         let group_pay_transaction_id = match execute_checkout(

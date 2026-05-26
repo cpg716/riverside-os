@@ -117,7 +117,7 @@ async fn ledger_fallback(
     Ok(row.map(|(id, nm)| (id.clone(), nm.unwrap_or(id))))
 }
 
-async fn qbo_map_with_misc_fallback(
+pub async fn qbo_map_with_misc_fallback(
     pool: &PgPool,
     source_type: &str,
     source_id: &str,

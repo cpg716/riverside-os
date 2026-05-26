@@ -13,6 +13,7 @@ pub fn order_status_label(s: DbOrderStatus) -> &'static str {
         DbOrderStatus::Fulfilled => "Fulfilled",
         DbOrderStatus::Cancelled => "Cancelled",
         DbOrderStatus::PendingMeasurement => "Waiting on Measurements",
+        DbOrderStatus::Processing => "Processing",
     }
 }
 

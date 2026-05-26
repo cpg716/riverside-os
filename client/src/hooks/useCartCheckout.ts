@@ -117,6 +117,7 @@ export function useCartCheckout({
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
   const [lastCashChangeDueCents, setLastCashChangeDueCents] = useState(0);
+  const [checkoutClientId, setCheckoutClientId] = useState<string>(() => newCheckoutClientId());
 
   const executeCheckout = useCallback(async (
     applied: AppliedPaymentLine[],
@@ -190,7 +191,6 @@ export function useCartCheckout({
         return null;
       }
 
-      const checkoutClientId = newCheckoutClientId();
       const primaryTrim = primarySalespersonId.trim();
       if (orderPaymentLines.length > 0) {
         if (!selectedCustomer?.id) {
@@ -372,6 +372,7 @@ export function useCartCheckout({
         toast("Sale queued offline.", "info");
         if (execution?.clearAfterCheckout !== false) {
           clearCart();
+          setCheckoutClientId(newCheckoutClientId());
         }
         if (execution?.emitSaleCompleted !== false) {
           onSaleCompleted?.();
@@ -402,6 +403,7 @@ export function useCartCheckout({
           toast("Server error — sale saved for sync. Print receipt for customer.", "error");
           if (execution?.clearAfterCheckout !== false) {
             clearCart();
+            setCheckoutClientId(newCheckoutClientId());
           }
           if (execution?.emitSaleCompleted !== false) {
             onSaleCompleted?.();
@@ -425,6 +427,7 @@ export function useCartCheckout({
       }
       if (execution?.clearAfterCheckout !== false) {
         clearCart();
+        setCheckoutClientId(newCheckoutClientId());
       }
       if (execution?.emitSaleCompleted !== false) {
         onSaleCompleted?.();

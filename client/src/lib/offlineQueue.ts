@@ -163,6 +163,10 @@ export async function flushCheckoutQueue(
       clearTimeout(timeout);
 
       if (response.ok) {
+        const data = await response.json().catch(() => ({})) as { warnings?: string[] };
+        if (data.warnings && data.warnings.length > 0) {
+          console.warn(`Offline sync completed with warnings for item ${item.id}:`, data.warnings);
+        }
         await dequeueCheckout(item.id);
       } else if (response.status >= 400 && response.status < 500) {
         const message = await responseErrorText(response);

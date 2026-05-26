@@ -47,4 +47,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("044_customer_review_opt_out.sql", include_str!("../../migrations/044_customer_review_opt_out.sql")),
     ("045_qbo_webhook_events_and_hardening.sql", include_str!("../../migrations/045_qbo_webhook_events_and_hardening.sql")),
     ("046_alteration_pickup_tracking.sql", include_str!("../../migrations/046_alteration_pickup_tracking.sql")),
+    ("047_phase4_resiliency.sql", include_str!("../../migrations/047_phase4_resiliency.sql")),
 ];
