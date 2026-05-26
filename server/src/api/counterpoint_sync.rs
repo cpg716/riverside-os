@@ -933,6 +933,10 @@ async fn settings_status(
     middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
         .await
         .map_err(map_perm)?;
+
+    // Automatically attempt to resolve any fallback lines on status refresh
+    let _ = counterpoint_sync::resolve_unresolved_counterpoint_lines(&state.db).await;
+
     let token_configured = state.counterpoint_sync_token.is_some()
         || std::env::var("COUNTERPOINT_SYNC_TOKEN")
             .ok()

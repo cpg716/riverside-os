@@ -7271,6 +7271,13 @@ pub async fn complete_sync_request(
     .bind(error)
     .execute(pool)
     .await?;
+
+    if error.is_none() {
+        if let Err(e) = resolve_unresolved_counterpoint_lines(pool).await {
+            tracing::error!("Error running post-sync Counterpoint line resolution: {e}");
+        }
+    }
+
     Ok(())
 }
 
@@ -8679,6 +8686,94 @@ fn resolve_ticket_lines_from_cache(
     Ok(out)
 }
 
+/// Resolve unresolved transaction lines that are currently mapped to the fallback variant
+/// but now have a matching variant in the database (matching counterpoint_item_key or SKU).
+pub async fn resolve_unresolved_counterpoint_lines(pool: &PgPool) -> Result<u64, sqlx::Error> {
+    let fallback_variant_id: Uuid = match sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM product_variants WHERE sku = $1 LIMIT 1",
+    )
+    .bind(HISTORICAL_FALLBACK_SKU)
+    .fetch_optional(pool)
+    .await?
+    {
+        Some(id) => id,
+        None => return Ok(0),
+    };
+
+    let mut tx = pool.begin().await?;
+
+    let updated = sqlx::query(
+        r#"
+        UPDATE transaction_lines tl
+        SET 
+          variant_id = pv.id,
+          product_id = pv.product_id,
+          vendor_reference = NULL
+        FROM product_variants pv
+        WHERE tl.variant_id = $1
+          AND tl.vendor_reference IS NOT NULL
+          AND pv.sku <> $2
+          AND (
+            lower(trim(tl.vendor_reference)) = lower(trim(pv.counterpoint_item_key))
+            OR lower(trim(tl.vendor_reference)) = lower(trim(pv.sku))
+          )
+        "#,
+    )
+    .bind(fallback_variant_id)
+    .bind(HISTORICAL_FALLBACK_SKU)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    if updated > 0 {
+        // Resolve ticket sync issue warnings where there are no longer any fallback lines
+        sqlx::query(
+            r#"
+            UPDATE counterpoint_sync_issue csi
+            SET resolved = TRUE, resolved_at = NOW()
+            FROM transactions t
+            WHERE t.counterpoint_ticket_ref = csi.external_key
+              AND csi.entity = 'tickets'
+              AND csi.message LIKE '%unresolved line%'
+              AND NOT csi.resolved
+              AND NOT EXISTS (
+                SELECT 1 FROM transaction_lines tl
+                WHERE tl.transaction_id = t.id
+                  AND tl.variant_id = $1
+              )
+            "#,
+        )
+        .bind(fallback_variant_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Resolve open doc sync issue warnings where there are no longer any fallback lines
+        sqlx::query(
+            r#"
+            UPDATE counterpoint_sync_issue csi
+            SET resolved = TRUE, resolved_at = NOW()
+            FROM transactions t
+            WHERE t.counterpoint_doc_ref = csi.external_key
+              AND csi.entity = 'open_docs'
+              AND csi.message LIKE '%unresolved line%'
+              AND NOT csi.resolved
+              AND NOT EXISTS (
+                SELECT 1 FROM transaction_lines tl
+                WHERE tl.transaction_id = t.id
+                  AND tl.variant_id = $1
+              )
+            "#,
+        )
+        .bind(fallback_variant_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    Ok(updated)
+}
+
 async fn resolve_variant_for_cp_item_no(
     tx: &mut Transaction<'_, Postgres>,
     item_no: &str,
@@ -8806,6 +8901,8 @@ pub async fn execute_counterpoint_ticket_batch(
     let mut bulk_line_prices = Vec::new();
     let mut bulk_line_costs = Vec::new();
     let mut bulk_line_reasons = Vec::new();
+    let mut bulk_line_vendor_refs = Vec::new();
+    let mut fallback_pair: Option<(Uuid, Uuid)> = None;
 
     let mut summary = TicketSyncSummary {
         transactions_created: 0,
@@ -8841,27 +8938,61 @@ pub async fn execute_counterpoint_ticket_batch(
             continue;
         }
 
-        let resolved_lines = match resolve_ticket_lines_from_cache(&variant_cache, &tkt.lines) {
-            Ok(lines) => lines,
-            Err(msg) => {
-                let fallback = ensure_historical_fallback_variant(&mut tx).await?;
-                record_sync_issue(
-                    pool,
-                    "tickets",
-                    Some(ticket_ref),
-                    "warning",
-                    &format!("Item unresolved, using historical fallback: {msg}"),
-                )
-                .await;
+        let mut resolved_lines: Vec<(Uuid, Uuid)> = Vec::with_capacity(tkt.lines.len());
+        let mut line_vendor_refs: Vec<Option<String>> = Vec::with_capacity(tkt.lines.len());
+        let mut unresolved_count = 0;
+        let mut skipped_ticket = false;
 
-                tkt.lines
-                    .iter()
-                    .map(|line| {
-                        resolve_variant_from_cache(&variant_cache, line).unwrap_or(fallback)
-                    })
-                    .collect()
+        for line in &tkt.lines {
+            if let Some(pair) = resolve_variant_from_cache(&variant_cache, line) {
+                resolved_lines.push(pair);
+                line_vendor_refs.push(None);
+            } else {
+                let pair = if let Some(p) = fallback_pair {
+                    p
+                } else {
+                    match ensure_historical_fallback_variant(&mut tx).await {
+                        Ok(p) => {
+                            fallback_pair = Some(p);
+                            p
+                        }
+                        Err(e) => {
+                            record_sync_issue(
+                                pool,
+                                "tickets",
+                                Some(ticket_ref),
+                                "error",
+                                &format!("Ticket skipped: failed to ensure fallback variant: {e}"),
+                            )
+                            .await;
+                            skipped_ticket = true;
+                            break;
+                        }
+                    }
+                };
+                resolved_lines.push(pair);
+
+                let sku = line.sku.as_deref().unwrap_or("").trim();
+                let cp_key = line.counterpoint_item_key.as_deref().unwrap_or(&sku).trim();
+                let item_key = if cp_key.is_empty() { sku } else { cp_key };
+                line_vendor_refs.push(Some(item_key.to_string()));
+                unresolved_count += 1;
             }
-        };
+        }
+        if skipped_ticket {
+            summary.skipped += 1;
+            continue;
+        }
+        if unresolved_count > 0 {
+            record_sync_issue(
+                pool,
+                "tickets",
+                Some(ticket_ref),
+                "warning",
+                &format!("Mapped {unresolved_count} unresolved line item(s) to fallback"),
+            )
+            .await;
+        }
 
         let customer_id: Option<Uuid> = tkt
             .cust_no
@@ -8950,7 +9081,11 @@ pub async fn execute_counterpoint_ticket_batch(
         .await?;
         summary.transactions_created += 1;
 
-        for ((variant_id, product_id), line) in resolved_lines.iter().zip(tkt.lines.iter()) {
+        for (((variant_id, product_id), line), vendor_ref) in resolved_lines
+            .iter()
+            .zip(tkt.lines.iter())
+            .zip(line_vendor_refs.iter())
+        {
             let cost = line.unit_cost.unwrap_or(Decimal::ZERO);
             bulk_line_txn_ids.push(transaction_id);
             bulk_line_prod_ids.push(*product_id);
@@ -8960,6 +9095,7 @@ pub async fn execute_counterpoint_ticket_batch(
             bulk_line_prices.push(line.unit_price);
             bulk_line_costs.push(cost);
             bulk_line_reasons.push(line.reason_code.clone());
+            bulk_line_vendor_refs.push(vendor_ref.clone());
             summary.line_items_created += 1;
         }
 
@@ -9076,15 +9212,15 @@ pub async fn execute_counterpoint_ticket_batch(
                 quantity, unit_price, unit_cost,
                 state_tax, local_tax, applied_spiff, calculated_commission,
                 is_fulfilled, fulfilled_at,
-                counterpoint_reason_code
+                counterpoint_reason_code, vendor_reference
             )
             SELECT
                 u.tid, u.pid, u.vid, u.sid, 'takeaway'::fulfillment_type,
                 u.qty, u.price, u.cost, 0, 0, 0, 0,
                 TRUE, t.booked_at,
-                u.reason
-            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::int[], $6::numeric[], $7::numeric[], $8::text[])
-              AS u(tid, pid, vid, sid, qty, price, cost, reason)
+                u.reason, u.vref
+            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::int[], $6::numeric[], $7::numeric[], $8::text[], $9::text[])
+              AS u(tid, pid, vid, sid, qty, price, cost, reason, vref)
             INNER JOIN transactions t ON t.id = u.tid
             "#,
         )
@@ -9096,6 +9232,7 @@ pub async fn execute_counterpoint_ticket_batch(
         .bind(&bulk_line_prices)
         .bind(&bulk_line_costs)
         .bind(&bulk_line_reasons)
+        .bind(&bulk_line_vendor_refs)
         .execute(&mut *tx)
         .await?;
     }
@@ -9370,6 +9507,7 @@ pub async fn execute_counterpoint_open_doc_batch(
     };
 
     let mut tx = pool.begin().await?;
+    let mut fallback_pair: Option<(Uuid, Uuid)> = None;
     let mut summary = OpenDocSyncSummary {
         transactions_created: 0,
         transactions_skipped_existing: 0,
@@ -9466,21 +9604,63 @@ pub async fn execute_counterpoint_open_doc_batch(
             continue;
         }
 
-        let resolved_lines = match resolve_ticket_lines_from_cache(&variant_cache, &doc.lines) {
-            Ok(lines) => lines,
-            Err(msg) => {
-                record_sync_issue(
-                    pool,
-                    "open_docs",
-                    Some(doc_ref),
-                    "error",
-                    &format!("Open doc skipped: {msg}"),
-                )
-                .await;
-                summary.skipped += 1;
-                continue;
+        let mut resolved_lines: Vec<(Uuid, Uuid)> = Vec::with_capacity(doc.lines.len());
+        let mut line_vendor_refs: Vec<Option<String>> = Vec::with_capacity(doc.lines.len());
+        let mut unresolved_count = 0;
+        let mut skipped_doc = false;
+
+        for line in &doc.lines {
+            if let Some(pair) = resolve_variant_from_cache(&variant_cache, line) {
+                resolved_lines.push(pair);
+                line_vendor_refs.push(None);
+            } else {
+                let pair = if let Some(p) = fallback_pair {
+                    p
+                } else {
+                    match ensure_historical_fallback_variant(&mut tx).await {
+                        Ok(p) => {
+                            fallback_pair = Some(p);
+                            p
+                        }
+                        Err(e) => {
+                            record_sync_issue(
+                                pool,
+                                "open_docs",
+                                Some(doc_ref),
+                                "error",
+                                &format!(
+                                    "Open doc skipped: failed to ensure fallback variant: {e}"
+                                ),
+                            )
+                            .await;
+                            skipped_doc = true;
+                            break;
+                        }
+                    }
+                };
+                resolved_lines.push(pair);
+
+                let sku = line.sku.as_deref().unwrap_or("").trim();
+                let cp_key = line.counterpoint_item_key.as_deref().unwrap_or(&sku).trim();
+                let item_key = if cp_key.is_empty() { sku } else { cp_key };
+                line_vendor_refs.push(Some(item_key.to_string()));
+                unresolved_count += 1;
             }
-        };
+        }
+        if skipped_doc {
+            summary.skipped += 1;
+            continue;
+        }
+        if unresolved_count > 0 {
+            record_sync_issue(
+                pool,
+                "open_docs",
+                Some(doc_ref),
+                "warning",
+                &format!("Mapped {unresolved_count} unresolved line item(s) to fallback"),
+            )
+            .await;
+        }
 
         let transaction_id: Uuid = sqlx::query_scalar(
             r#"
@@ -9513,7 +9693,11 @@ pub async fn execute_counterpoint_open_doc_batch(
 
         let fulfillment = fulfillment_type_for_cp_doc_typ(doc.doc_typ.as_deref());
 
-        for ((variant_id, product_id), line) in resolved_lines.iter().zip(doc.lines.iter()) {
+        for (((variant_id, product_id), line), vendor_ref) in resolved_lines
+            .iter()
+            .zip(doc.lines.iter())
+            .zip(line_vendor_refs.iter())
+        {
             let cost = line.unit_cost.unwrap_or(Decimal::ZERO);
 
             sqlx::query(
@@ -9522,9 +9706,9 @@ pub async fn execute_counterpoint_open_doc_batch(
                     transaction_id, product_id, variant_id, salesperson_id, fulfillment,
                     quantity, unit_price, unit_cost,
                     state_tax, local_tax, applied_spiff, calculated_commission,
-                    counterpoint_reason_code, size_specs
+                    counterpoint_reason_code, size_specs, vendor_reference
                 )
-                VALUES ($1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, 0, 0, 0, 0, $9, $10)
+                VALUES ($1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, 0, 0, 0, 0, $9, $10, $11)
                 "#,
             )
             .bind(transaction_id)
@@ -9542,6 +9726,7 @@ pub async fn execute_counterpoint_open_doc_batch(
                 "counterpoint_item_key": line.counterpoint_item_key.as_deref(),
                 "counterpoint_line_sequence": line.lin_seq_no,
             }))
+            .bind(vendor_ref.as_deref())
             .execute(&mut *tx)
             .await?;
             summary.line_items_created += 1;
@@ -14027,13 +14212,14 @@ mod tests {
             WHERE entity = 'open_docs'
               AND external_key = $1
               AND NOT resolved
-              AND message LIKE 'Open doc skipped: unresolved line%'
+              AND message LIKE 'Mapped%unresolved line item(s) to fallback%'
             "#,
         )
         .bind(&doc_ref)
         .fetch_one(&pool)
         .await
         .expect("count unresolved line issues");
+
         let transaction_exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM transactions WHERE counterpoint_doc_ref = $1)",
         )
@@ -14041,13 +14227,103 @@ mod tests {
         .fetch_one(&pool)
         .await
         .expect("check no skipped open doc transaction");
-        let summary = build_counterpoint_landing_verification_summary(&pool)
-            .await
-            .expect("build landing verification");
-        let visibility = cutover_visibility_row(&summary, "open_doc_unresolved_lines");
-        let visibility_passed = visibility.passed;
-        let visibility_count = visibility.count;
 
+        // Verify transaction line is mapped to fallback and has vendor_reference set
+        let fallback_id: Uuid =
+            sqlx::query_scalar("SELECT id FROM product_variants WHERE sku = $1 LIMIT 1")
+                .bind(HISTORICAL_FALLBACK_SKU)
+                .fetch_one(&pool)
+                .await
+                .expect("fetch fallback variant id");
+
+        let line_data: Option<(Uuid, Option<String>)> = sqlx::query_as(
+            "SELECT variant_id, vendor_reference FROM transaction_lines tl 
+             INNER JOIN transactions t ON t.id = tl.transaction_id
+             WHERE t.counterpoint_doc_ref = $1",
+        )
+        .bind(&doc_ref)
+        .fetch_optional(&pool)
+        .await
+        .expect("fetch transaction line data");
+
+        assert!(line_data.is_some(), "transaction line must exist");
+        let (var_id, vendor_ref) = line_data.unwrap();
+        assert_eq!(var_id, fallback_id);
+        assert_eq!(vendor_ref, Some(missing_key.clone()));
+
+        // Create the missing catalog item and variant
+        let category_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO categories (name, is_clothing_footwear) VALUES ($1, false) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
+        )
+        .bind(format!("Cat-{suffix}"))
+        .fetch_one(&pool)
+        .await
+        .expect("insert category");
+
+        let product_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO products (catalog_handle, name, base_retail_price, base_cost, is_active, data_source, category_id)
+            VALUES ($1, $2, 40.00, 10.00, true, 'counterpoint', $3)
+            RETURNING id
+            "#
+        )
+        .bind(format!("prod-{suffix}"))
+        .bind(format!("Unresolved Line Test Product {suffix}"))
+        .bind(category_id)
+        .fetch_one(&pool)
+        .await
+        .expect("insert product");
+
+        let variant_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO product_variants (product_id, sku, counterpoint_item_key, variation_values, variation_label, stock_on_hand)
+            VALUES ($1, $2, $3, '{}'::jsonb, 'Standard', 0)
+            RETURNING id
+            "#
+        )
+        .bind(product_id)
+        .bind(&missing_sku)
+        .bind(&missing_key)
+        .fetch_one(&pool)
+        .await
+        .expect("insert variant");
+
+        // Run the resolver
+        let resolved_count = resolve_unresolved_counterpoint_lines(&pool)
+            .await
+            .expect("run resolver");
+        assert_eq!(resolved_count, 1, "Must resolve exactly 1 line");
+
+        // Verify the line has been updated and vendor_reference cleared
+        let updated_line_data: (Uuid, Option<String>) = sqlx::query_as(
+            "SELECT variant_id, vendor_reference FROM transaction_lines tl 
+             INNER JOIN transactions t ON t.id = tl.transaction_id
+             WHERE t.counterpoint_doc_ref = $1",
+        )
+        .bind(&doc_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch updated transaction line data");
+        assert_eq!(
+            updated_line_data.0, variant_id,
+            "Should update to correct variant id"
+        );
+        assert_eq!(
+            updated_line_data.1, None,
+            "vendor_reference should be cleared"
+        );
+
+        // Verify the sync issue is marked as resolved
+        let is_resolved: bool = sqlx::query_scalar(
+            "SELECT resolved FROM counterpoint_sync_issue WHERE entity = 'open_docs' AND external_key = $1 AND message LIKE 'Mapped%'"
+        )
+        .bind(&doc_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch sync issue resolution status");
+        assert!(is_resolved, "sync issue must be resolved");
+
+        // Clean up
         sqlx::query(
             "DELETE FROM counterpoint_sync_issue WHERE entity = 'open_docs' AND external_key = $1",
         )
@@ -14056,14 +14332,12 @@ mod tests {
         .await
         .expect("cleanup open doc issue");
 
-        assert_eq!(first.transactions_created, 0);
-        assert_eq!(first.skipped, 1);
+        assert_eq!(first.transactions_created, 1);
+        assert_eq!(first.skipped, 0);
         assert_eq!(second.transactions_created, 0);
-        assert_eq!(second.skipped, 1);
+        assert_eq!(second.skipped, 0);
         assert_eq!(issue_count, 1);
-        assert!(!transaction_exists);
-        assert!(!visibility_passed);
-        assert!(visibility_count >= 1);
+        assert!(transaction_exists);
     }
 
     #[tokio::test]

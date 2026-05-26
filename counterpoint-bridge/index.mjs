@@ -710,7 +710,7 @@ function sqlMaxInventory(costCol) {
 
 const SQL_MAX_VEND_ITEM = `SELECT RTRIM(LTRIM(vi.VEND_NO)) AS vend_no, RTRIM(LTRIM(vi.ITEM_NO)) AS item_no, RTRIM(LTRIM(vi.VEND_ITEM_NO)) AS vend_item_no, vi.UNIT_COST AS vend_cost FROM PO_VEND_ITEM vi ORDER BY vi.VEND_NO, vi.ITEM_NO`;
 
-const SQL_MAX_CATEGORY_MASTERS = `SELECT DISTINCT RTRIM(LTRIM(i.CATEG_COD)) AS cp_category, RTRIM(LTRIM(i.CATEG_COD)) AS display_name FROM IM_ITEM i WHERE RTRIM(LTRIM(i.ITEM_NO)) <> N'' AND NULLIF(RTRIM(LTRIM(i.CATEG_COD)), N'') IS NOT NULL ORDER BY cp_category`;
+const SQL_MAX_CATEGORY_MASTERS = `SELECT DISTINCT RTRIM(LTRIM(i.CATEG_COD)) AS cp_category, COALESCE(RTRIM(LTRIM(c.DESCR)), RTRIM(LTRIM(i.CATEG_COD))) AS display_name FROM IM_ITEM i LEFT JOIN IM_CATEG c ON c.CATEG_COD = i.CATEG_COD WHERE RTRIM(LTRIM(i.ITEM_NO)) <> N'' AND NULLIF(RTRIM(LTRIM(i.CATEG_COD)), N'') IS NOT NULL ORDER BY cp_category`;
 
 /** Primary stock location for maximal catalog + inventory templates (many CP DBs are not `MAIN`). */
 function sqlLocId() {

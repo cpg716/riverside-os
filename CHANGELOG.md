@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.80.8] - 2026-05-26
+
+### Added
+- **Counterpoint Post-Sync Line Resolution**: Changed the Counterpoint sync engine to map unresolved lines to the fallback variant (`HIST-CP-FALLBACK`) and store the original Counterpoint item key in the `vendor_reference` column. Implemented a post-sync resolver database update that dynamically links these lines to their correct variants once the catalog/barcodes are loaded or manually resolved, clearing the warnings and resolving corresponding sync issues automatically.
+- **Proactive Dashboard Self-Healing**: Hooked the post-sync resolver into the Counterpoint Settings status dashboard API so that simply loading or refreshing the dashboard immediately resolves corrected items.
+
 ## [0.80.7] - 2026-05-26
 
 ### Added
