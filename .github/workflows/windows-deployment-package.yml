@@ -242,13 +242,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = "Stop"
           $version = (Get-Content "client/package.json" | ConvertFrom-Json).version
           $tag = "v$version"
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --title "Riverside POS $tag" --notes "Riverside POS Release"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to create GitHub release $tag"
+            }
           }
-          gh release upload $tag dist/deployment/*.zip --clobber
+          $zipFiles = Get-ChildItem -Path "dist/deployment" -Filter "*.zip" -ErrorAction SilentlyContinue
+          if (-not $zipFiles) {
+            throw "No deployment package ZIP found in dist/deployment/"
+          }
+          gh release upload $tag $zipFiles.FullName --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload deployment package to release $tag"
+          }
           if (Test-Path "client/updater-dist") {
             gh release upload $tag client/updater-dist/* --clobber
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to upload updater assets to release $tag"
+            }
           }
