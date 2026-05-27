@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **RMS Payment Lines Missing from Receipts**: Removed the `is_internal` filter from both branches of `selected_receipt_items_with_effective_qty` in `server/src/api/transactions.rs`. RMS Charge Payment lines, gift card loads, and alteration service lines now appear on all customer receipts (HTML, thermal ESC/POS, and email). Updated unit test to assert internal lines are included.
 - **Receipt Text Wrapping (HTML)**: Applied `table-layout: fixed`, `overflow-wrap: break-word; word-break: break-word` to item table cells, and `width: 1%` on the nowrap qty/price columns in `receipt_studio_html.rs`. Prevents the qty column from stealing all available width in the 320px receipt container and causing product name "one or two letters" to break onto a second line. Also applied `overflow-wrap: break-word` to the `.paper` container and `table td` CSS rule as a global fallback.
 - **Sales by Hour Stale Data**: `SalesByHourSnapshotCard.tsx` now filters the API response to `business_date === today` before computing the daily summary. Previously, if today had no hourly rows the card showed the most recent prior-day total instead of $0.
+- **CI Lint (`cargo fmt`)**: Applied `cargo fmt` to `server/src/embedded_migrations.rs` — collapsed verbose multi-line `include_str!` tuples to single-line style, resolving the GitHub Actions `cargo fmt --check` failure on both server-lint and tauri-lint jobs.
+- **Receipt Column Widths (HTML)**: Replaced `width:1%` shrink-to-fit with explicit proportional widths (`55%/25%/20%` standard, `65%/35%` gift) for more consistent layout across email clients, print, and narrow viewports.
 
 ## [0.80.7] - 2026-05-26
 
