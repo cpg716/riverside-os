@@ -59,6 +59,8 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Permissions (plain language) | [permissions-and-access.md](permissions-and-access.md) |
 | RBAC keys & technical detail (also in corpus) | [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md) |
 | Offline summary | [working-offline.md](working-offline.md) |
+| PWA update banner (what it means) | [pwa-updates-manual.md](pwa-updates-manual.md) |
+| PWA update troubleshooting (stale app) | [pwa-update-troubleshooting.md](pwa-update-troubleshooting.md) |
 | Operations Hub (Dashboard, Daily Sales, Pickup Queue, Podium Inbox, Mailbox, Reviews) | [operations-home.md](operations-home.md) |
 | Overlay behavior and reporting | [overlay-standard.md](overlay-standard.md) |
 | POS tab → Register (launchpad) | [register-tab-back-office.md](register-tab-back-office.md) |
