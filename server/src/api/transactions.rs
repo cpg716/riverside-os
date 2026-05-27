@@ -408,8 +408,11 @@ impl TransactionDetailResponse {
     ) -> Result<Vec<(&'a TransactionDetailItem, i32)>, TransactionError> {
         use std::collections::HashSet;
 
+        // Include ALL items regardless of is_internal — internal lines (RMS charge
+        // payments, gift card loads, alteration services) represent real financial
+        // activity that must appear on the customer receipt.
         let selected: Vec<&TransactionDetailItem> = match transaction_line_ids {
-            None => self.items.iter().filter(|it| !it.is_internal).collect(),
+            None => self.items.iter().collect(),
             Some(ids) => {
                 if ids.is_empty() {
                     return Err(TransactionError::InvalidPayload(
@@ -420,7 +423,7 @@ impl TransactionDetailResponse {
                 let v: Vec<_> = self
                     .items
                     .iter()
-                    .filter(|it| !it.is_internal && set.contains(&it.transaction_line_id))
+                    .filter(|it| set.contains(&it.transaction_line_id))
                     .collect();
                 if v.is_empty() {
                     return Err(TransactionError::InvalidPayload(
@@ -440,15 +443,6 @@ impl TransactionDetailResponse {
             .collect();
 
         if active.is_empty() {
-            let allow_internal_only_receipt = transaction_line_ids.is_none()
-                && self.items.iter().any(|it| it.is_internal)
-                && self
-                    .items
-                    .iter()
-                    .all(|it| it.is_internal || (it.quantity - it.quantity_returned).max(0) == 0);
-            if allow_internal_only_receipt {
-                return Ok(Vec::new());
-            }
             return Err(TransactionError::InvalidPayload(
                 "No active order lines remained after applied returns for this receipt."
                     .to_string(),
@@ -693,14 +687,16 @@ mod tests {
     }
 
     #[test]
-    fn receipt_builder_allows_internal_only_transaction_summary() {
+    fn receipt_builder_includes_internal_lines_on_receipt() {
+        // Internal lines (RMS charge payments, gift card loads) must appear on receipts.
         let detail = sample_transaction_detail(vec![sample_internal_item()]);
 
         let receipt = detail
             .build_receipt_data(None)
             .expect("internal-only receipt should build");
 
-        assert!(receipt.items.is_empty());
+        assert_eq!(receipt.items.len(), 1, "internal line should appear on the receipt");
+        assert_eq!(receipt.items[0].sku, "ROS-RMS-CHARGE-PAYMENT");
         assert_eq!(receipt.total_price, Decimal::new(1000, 2));
         assert_eq!(receipt.payment_methods_summary, "Card");
     }

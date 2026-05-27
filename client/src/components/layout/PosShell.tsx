@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useTopBar } from "../../context/TopBarContextLogic";
 import PosSidebar from "../pos/PosSidebar";
 import {
@@ -34,6 +34,11 @@ import { ArrowLeft, ShieldCheck, ShieldAlert } from "lucide-react";
 import { getAppIcon, APP_ICON_SIZES } from "../../lib/icons";
 
 const REGISTER_ICON = getAppIcon("register");
+
+/** Idle timeout: register open — 10 minutes of no interaction locks the session */
+const REGISTER_IDLE_MS = 10 * 60 * 1000;
+/** Idle timeout: PIN overlay showing — 5 minutes of no interaction returns to dashboard */
+const PIN_IDLE_MS = 5 * 60 * 1000;
 
 
 export interface SessionOpenedPayload {
@@ -85,7 +90,6 @@ interface PosShellProps {
   onSubSectionChange: (id: string) => void;
   pendingWmPartyId: string | null;
   onClearPendingWmPartyId: () => void;
-
 }
 
 export default function PosShell({
@@ -139,6 +143,40 @@ export default function PosShell({
   }, [activeTab]);
   const [managerMode, setManagerMode] = useState(false);
   const [pendingInventorySku, setPendingInventorySku] = useState<string | null>(null);
+
+  // ─── Idle timeout ────────────────────────────────────────────────────────────
+  // 10-min register idle  → call handleSessionClosed (PIN overlay reappears)
+  // 5-min  PIN-overlay idle → navigate to pos-dashboard
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+
+    if (isRegisterOpen && sessionId) {
+      // Register is open — fire after REGISTER_IDLE_MS of inactivity
+      idleTimerRef.current = setTimeout(() => {
+        handleSessionClosed();
+      }, REGISTER_IDLE_MS);
+    } else if (!isRegisterOpen) {
+      // PIN overlay is showing — navigate to dashboard after PIN_IDLE_MS
+      idleTimerRef.current = setTimeout(() => {
+        setActivePosTab("pos-dashboard");
+      }, PIN_IDLE_MS);
+    }
+  }, [isRegisterOpen, sessionId, handleSessionClosed]);
+
+  useEffect(() => {
+    // Start the idle timer and reset on any user interaction
+    resetIdleTimer();
+    const events = ["mousemove", "pointerdown", "keydown", "touchstart", "scroll"] as const;
+    const handler = () => resetIdleTimer();
+    events.forEach((ev) => document.addEventListener(ev, handler, { passive: true }));
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      events.forEach((ev) => document.removeEventListener(ev, handler));
+    };
+  }, [resetIdleTimer]);
+  // ─────────────────────────────────────────────────────────────────────────────
   const [posMessagingFocusCustomerId, setPosMessagingFocusCustomerId] =
     useState<string | null>(null);
   const [posMessagingFocusHubTab, setPosMessagingFocusHubTab] = useState<

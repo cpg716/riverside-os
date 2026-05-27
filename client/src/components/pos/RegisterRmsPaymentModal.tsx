@@ -8,7 +8,7 @@ import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import type { WeddingMembership } from "./customerProfileTypes";
 
-const NUM_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"];
+const NUM_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "del"];
 
 interface RmsChargeAccountChoice {
   link_id: string;
@@ -51,7 +51,7 @@ export default function RegisterRmsPaymentModal({
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [blockingError, setBlockingError] = useState<string | null>(null);
-  
+
   const [account, setAccount] = useState<RmsChargeAccountChoice | null>(null);
   const [choices, setChoices] = useState<RmsChargeAccountChoice[]>([]);
   const [summary, setSummary] = useState<RmsChargeAccountSummary | null>(null);
@@ -88,7 +88,7 @@ export default function RegisterRmsPaymentModal({
     setLookupLoading(true);
     setLookupError(null);
     setBlockingError(null);
-    
+
     // Auto-resolve to customer code or phone
     const code = selectedCustomer.customer_code || selectedCustomer.phone || "MANUAL";
     const mockChoice: RmsChargeAccountChoice = {
@@ -121,6 +121,9 @@ export default function RegisterRmsPaymentModal({
 
   const appendAmountKey = useCallback((key: string) => {
     setAmountBuffer((prev) => {
+      if (key === "del") {
+        return prev.slice(0, -1);
+      }
       if (key === ".") {
         if (prev.includes(".")) return prev;
         return prev.length === 0 ? "0." : `${prev}.`;
@@ -135,7 +138,7 @@ export default function RegisterRmsPaymentModal({
 
   const clearAmount = useCallback(() => setAmountBuffer(""), []);
 
-  const submit = async () => {
+  const submit = useCallback(async () => {
     const cents = parseMoneyToCents(amountBuffer.trim() || "0");
     if (!Number.isFinite(cents) || cents <= 0) {
       toast("Enter a payment amount greater than zero.", "error");
@@ -161,7 +164,25 @@ export default function RegisterRmsPaymentModal({
     } finally {
       setBusy(false);
     }
-  };
+  }, [amountBuffer, selectedCustomer, blockingError, account, toast, onAddToCart, onClose]);
+
+  useEffect(() => {
+    if (!open || busy) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key >= "0" && e.key <= "9") {
+        appendAmountKey(e.key);
+      } else if (e.key === ".") {
+        appendAmountKey(".");
+      } else if (e.key === "Backspace") {
+        appendAmountKey("del");
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        void submit();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, busy, appendAmountKey, submit]);
 
   if (!open) return null;
 
@@ -219,7 +240,7 @@ export default function RegisterRmsPaymentModal({
           {/* Left Column: Keypad & Input */}
           <div className="flex min-h-0 flex-col gap-3">
             <p className="text-xs leading-snug text-app-text-muted">
-              Select a customer, enter the amount to pay, and add the line to the cart. 
+              Select a customer, enter the amount to pay, and add the line to the cart.
               The account balance will be updated once checkout completes.
             </p>
             <div>
@@ -243,7 +264,7 @@ export default function RegisterRmsPaymentModal({
                     onClick={() => appendAmountKey(k)}
                     className="flex h-12 items-center justify-center rounded-xl border border-app-border/60 bg-app-surface-2 text-lg font-black text-app-text transition-colors hover:bg-app-surface sm:h-[3.25rem] sm:text-xl"
                   >
-                    {k}
+                    {k === "del" ? "DEL" : k}
                   </button>
                 ))}
                 <button
@@ -266,7 +287,7 @@ export default function RegisterRmsPaymentModal({
               >
                 Customer account
               </label>
-              
+
               {!selectedCustomer ? (
                 <div className="ui-panel ui-tint-warning p-4 space-y-3">
                   <div className="flex items-start gap-2.5">
@@ -321,7 +342,7 @@ export default function RegisterRmsPaymentModal({
               <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                 Financing Account Data
               </p>
-              
+
               {!selectedCustomer ? (
                 <p className="text-xs leading-relaxed text-app-text-muted">
                   Search and link a customer profile to pull active balances.
@@ -385,7 +406,7 @@ export default function RegisterRmsPaymentModal({
                       {summary.current_balance ? `$${summary.current_balance}` : "$0.00"}
                     </dd>
                   </div>
-                  
+
                   {summary.current_balance && parseMoneyToCents(summary.current_balance) > 0 && (
                     <button
                       type="button"

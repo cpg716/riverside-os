@@ -430,6 +430,11 @@ function App() {
     setLifecycleStatus(null);
     setReceiptTimezone("America/New_York");
     clearPosRegisterAuth();
+    // Keep posMode=true so we stay in the POS Shell after closing the register.
+    // The RegisterOverlay (PIN login) will be shown automatically because
+    // isRegisterOpen is now false. Only "Back to Back Office" should exit POS.
+    setPosMode(true);
+    setActiveTab("register");
   };
 
   const clearPendingPosCustomer = useCallback(

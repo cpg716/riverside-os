@@ -7,6 +7,7 @@ import {
   Cloud,
   CloudRain,
   ClipboardCheck,
+  DollarSign,
   Heart,
   PackageCheck,
   ShoppingCart,
@@ -125,7 +126,7 @@ export default function RegisterDashboard({
     staffDisplayName,
     staffRole,
   } = useBackofficeAuth();
-  const { openDrawer, refreshUnread } = useNotificationCenter();
+  const { openDrawer, refreshUnread, unread } = useNotificationCenter();
 
   const apiAuth = useCallback(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
   const hasDashboardAuth = useCallback(
@@ -139,6 +140,44 @@ export default function RegisterDashboard({
   const [compass, setCompass] = useState<MorningCompassBundle | null>(null);
   const [compassDrawerRow, setCompassDrawerRow] = useState<CompassActionRow | null>(null);
   const [forecast, setForecast] = useState<WeatherForecastPayload | null>(null);
+  const [todayBookedSales, setTodayBookedSales] = useState<{ total: number; count: number } | null>(null);
+
+  // Fetch today's booked sales total from the sales-by-day endpoint
+  const loadTodaySales = useCallback(async () => {
+    if (!permissionsLoaded) return;
+    if (!hasDashboardAuth()) return;
+    try {
+      const today = localYmd();
+      const res = await fetch(
+        `${baseUrl}/api/insights/sales-by-day?from=${encodeURIComponent(today)}&to=${encodeURIComponent(today)}`,
+        { headers: apiAuth() },
+      );
+      if (!res.ok) return;
+      const payload = (await res.json()) as Array<{ business_date: string; day_sales_total: string; day_transaction_count: string }>;
+      const todayRows = Array.isArray(payload) ? payload.filter((r) => r.business_date === today) : [];
+      if (todayRows.length > 0) {
+        const first = todayRows[0];
+        setTodayBookedSales({
+          total: Number.parseFloat(first.day_sales_total ?? "0") || 0,
+          count: Number(first.day_transaction_count ?? 0),
+        });
+      } else {
+        setTodayBookedSales({ total: 0, count: 0 });
+      }
+    } catch { /* ignore */ }
+  }, [apiAuth, hasDashboardAuth, permissionsLoaded]);
+
+  function localYmd(date = new Date()): string {
+    return [
+      date.getFullYear(),
+      `${date.getMonth() + 1}`.padStart(2, "0"),
+      `${date.getDate()}`.padStart(2, "0"),
+    ].join("-");
+  }
+
+  function currency(amount: number): string {
+    return amount.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  }
 
   const loadTasks = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("tasks.complete")) return;
@@ -202,6 +241,7 @@ export default function RegisterDashboard({
 
   useEffect(() => { void loadNotifications(); }, [loadNotifications, refreshSignal]);
   useEffect(() => { void loadCompass(); }, [loadCompass, refreshSignal]);
+  useEffect(() => { void loadTodaySales(); }, [loadTodaySales, refreshSignal]);
 
   const notifAction = async (id: string, path: "read" | "complete" | "archive") => {
     try {
@@ -293,27 +333,35 @@ export default function RegisterDashboard({
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+          {/* Today's Sales — replaces the old Register card */}
           <DashboardStatsCard
-            title="Register"
-            value={`#${registerOrdinal ?? "0"}`}
-            icon={ShoppingCart}
-            color="purple"
-            trend={{ value: "Open", isUp: true, label: "ready for sales" }}
-            className="min-h-[138px] p-4"
-            onClick={onGoToRegister}
-            ariaLabel="Open Register"
-          />
-          <DashboardStatsCard
-            title="Priority Feed"
-            value={suggestedQueue.length}
-            icon={Zap}
-            color={suggestedQueue.length > 0 ? "rose" : "green"}
+            title="Today's Sales"
+            value={todayBookedSales == null ? "..." : currency(todayBookedSales.total)}
+            icon={DollarSign}
+            color="green"
             trend={{
-              value: suggestedQueue.filter((item) => item.tier === "urgent").length,
-              isUp: suggestedQueue.length === 0,
-              label: "urgent items",
+              value: todayBookedSales?.count ?? 0,
+              isUp: (todayBookedSales?.count ?? 0) > 0,
+              label: "booked today",
             }}
             className="min-h-[138px] p-4"
+            onClick={onGoToRegister}
+            ariaLabel="Today's booked sales total"
+          />
+          {/* Unread Notifications — replaces the old Priority Feed stats card */}
+          <DashboardStatsCard
+            title="Unread Notifications"
+            value={unread}
+            icon={Bell}
+            color={unread > 0 ? "rose" : "green"}
+            trend={{
+              value: unread,
+              isUp: unread === 0,
+              label: "unread",
+            }}
+            className="min-h-[138px] p-4"
+            onClick={openDrawer}
+            ariaLabel="Open Notifications Drawer"
           />
           <DashboardStatsCard
             title="Pickups"

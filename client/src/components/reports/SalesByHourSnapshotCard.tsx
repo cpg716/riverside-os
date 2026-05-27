@@ -92,7 +92,12 @@ export default function SalesByHourSnapshotCard({
       );
       if (!res.ok) throw new Error("sales-by-hour");
       const payload = (await res.json()) as SalesByHourRow[];
-      setRows(Array.isArray(payload) ? payload : []);
+      // Filter to today only — the API returns rows ordered by date desc,
+      // so if today had no sales the first row could be a prior-day record.
+      const todayRows = Array.isArray(payload)
+        ? payload.filter((r) => r.business_date === today)
+        : [];
+      setRows(todayRows);
       setLoadState("idle");
     } catch {
       setRows([]);

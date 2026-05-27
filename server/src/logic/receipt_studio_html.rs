@@ -31,7 +31,11 @@ fn build_items_table(order: &ReceiptOrder) -> String {
             .map(|v| format!(" ({})", html_escape(v)))
             .unwrap_or_default();
         rows.push_str(&format!(
-            "<tr><td>{}{}</td><td style=\"text-align:right;white-space:nowrap\">{} × {}</td><td style=\"text-align:right\">{}</td></tr>",
+            "<tr>\
+               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0\">{}{}</td>\
+               <td style=\"text-align:right;white-space:nowrap;padding-left:8px;width:1%\">{} \u{00d7} {}</td>\
+               <td style=\"text-align:right;white-space:nowrap;padding-left:8px;width:1%\">{}</td>\
+             </tr>",
             html_escape(&it.product_name),
             var,
             it.quantity,
@@ -40,7 +44,7 @@ fn build_items_table(order: &ReceiptOrder) -> String {
         ));
     }
     format!(
-        "<table style=\"width:100%;border-collapse:collapse;font-size:12px\"><tbody>{rows}</tbody></table>"
+        "<table style=\"width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed\"><tbody>{rows}</tbody></table>"
     )
 }
 
@@ -53,7 +57,10 @@ fn build_items_table_gift(order: &ReceiptOrder) -> String {
             .map(|v| format!(" ({})", html_escape(v)))
             .unwrap_or_default();
         rows.push_str(&format!(
-            "<tr><td>{}{}</td><td style=\"text-align:right;white-space:nowrap\">{} × {}</td></tr>",
+            "<tr>\
+               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0\">{}{}</td>\
+               <td style=\"text-align:right;white-space:nowrap;padding-left:8px;width:1%\">{} \u{00d7} {}</td>\
+             </tr>",
             html_escape(&it.product_name),
             var,
             it.quantity,
@@ -61,7 +68,7 @@ fn build_items_table_gift(order: &ReceiptOrder) -> String {
         ));
     }
     format!(
-        "<table style=\"width:100%;border-collapse:collapse;font-size:12px\"><tbody>{rows}</tbody></table>"
+        "<table style=\"width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed\"><tbody>{rows}</tbody></table>"
     )
 }
 
@@ -145,13 +152,13 @@ pub fn render_standard_receipt_html(
   <style>
     :root {{ color-scheme: light; }}
     body {{ margin:0; background:#f4f4f5; color:#111827; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
-    .paper {{ width:320px; margin:24px auto; background:#fff; padding:22px 18px; border-radius:14px; box-shadow:0 20px 45px rgba(15,23,42,.16); }}
+    .paper {{ width:320px; margin:24px auto; background:#fff; padding:22px 18px; border-radius:14px; box-shadow:0 20px 45px rgba(15,23,42,.16); overflow-wrap:break-word; word-wrap:break-word; }}
     .center {{ text-align:center; }}
     .store {{ font-weight:900; font-size:20px; letter-spacing:.02em; text-transform:uppercase; }}
     .title {{ margin-top:10px; font-weight:900; text-transform:uppercase; letter-spacing:.16em; font-size:11px; }}
     .muted {{ color:#6b7280; font-size:12px; line-height:1.35; }}
     .rule {{ border-top:1px dashed #9ca3af; margin:14px 0; }}
-    table td {{ padding:5px 0; vertical-align:top; border-bottom:1px solid #f3f4f6; }}
+    table td {{ padding:5px 0; vertical-align:top; border-bottom:1px solid #f3f4f6; overflow-wrap:break-word; word-break:break-word; }}
     .totals {{ margin-top:8px; font-size:13px; }}
     .totals > div {{ display:flex; justify-content:space-between; gap:12px; padding:3px 0; }}
     .totals strong {{ text-align:right; }}

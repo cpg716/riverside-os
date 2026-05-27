@@ -9,7 +9,7 @@ import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 
 const baseUrl = getBaseUrl();
 
-const NUM_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"];
+const NUM_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "del"];
 
 /** Response from GET /api/gift-cards/code/:code */
 type GiftCardLookupRow = {
@@ -127,8 +127,18 @@ export default function RegisterGiftCardLoadModal({
     };
   }, [cardCode, open, runCardLookup, clearPreview]);
 
+  const lastFocusedRef = useRef<"amount" | "code">("amount");
+
   const appendAmountKey = useCallback((key: string) => {
+    if (lastFocusedRef.current === "code") {
+      setCardCode((prev) => {
+        if (key === "del") return prev.slice(0, -1);
+        return prev + key;
+      });
+      return;
+    }
     setAmountBuffer((prev) => {
+      if (key === "del") return prev.slice(0, -1);
       if (key === ".") {
         if (prev.includes(".")) return prev;
         return prev.length === 0 ? "0." : `${prev}.`;
@@ -143,7 +153,7 @@ export default function RegisterGiftCardLoadModal({
 
   const clearAmount = useCallback(() => setAmountBuffer(""), []);
 
-  const submit = async () => {
+  const submit = useCallback(async () => {
     const cents = parseMoneyToCents(amountBuffer.trim() || "0");
     if (!Number.isFinite(cents) || cents <= 0) {
       toast("Enter a load amount greater than zero.", "error");
@@ -174,7 +184,25 @@ export default function RegisterGiftCardLoadModal({
     } finally {
       setBusy(false);
     }
-  };
+  }, [amountBuffer, cardCode, toast, previewRow, onAddToCart, clearPreview, onClose]);
+
+  useEffect(() => {
+    if (!open || busy) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key >= "0" && e.key <= "9") {
+        appendAmountKey(e.key);
+      } else if (e.key === ".") {
+        appendAmountKey(".");
+      } else if (e.key === "Backspace") {
+        appendAmountKey("del");
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        void submit();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, busy, appendAmountKey, submit]);
 
   if (!open) return null;
 
@@ -242,7 +270,10 @@ export default function RegisterGiftCardLoadModal({
               <p className="mb-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Load amount
               </p>
-              <div className="mb-3 flex h-16 items-center justify-between rounded-2xl border-2 border-app-border/80 bg-app-surface-2/80 px-4 shadow-inner">
+              <div
+                className="mb-3 flex h-16 cursor-pointer items-center justify-between rounded-2xl border-2 border-app-border/80 bg-app-surface-2/80 px-4 shadow-inner"
+                onClick={() => { lastFocusedRef.current = "amount"; }}
+              >
                 <span className="text-[10px] font-black uppercase text-app-text-muted">
                   Value
                 </span>
@@ -259,7 +290,7 @@ export default function RegisterGiftCardLoadModal({
                     onClick={() => appendAmountKey(k)}
                     className="flex h-12 items-center justify-center rounded-xl border border-app-border/60 bg-app-surface-2 text-lg font-black text-app-text transition-colors hover:bg-app-surface sm:h-[3.25rem] sm:text-xl"
                   >
-                    {k}
+                    {k === "del" ? "DEL" : k}
                   </button>
                 ))}
                 <button
@@ -292,6 +323,7 @@ export default function RegisterGiftCardLoadModal({
                 disabled={busy}
                 value={cardCode}
                 onChange={(e) => setCardCode(e.target.value.toUpperCase())}
+                onFocus={() => { lastFocusedRef.current = "code"; }}
                 onBlur={() => {
                   const c = cardCode.trim();
                   if (c.length >= 4) void runCardLookup(c);
