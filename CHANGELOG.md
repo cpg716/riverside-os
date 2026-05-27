@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sales by Hour Stale Data**: `SalesByHourSnapshotCard.tsx` now filters the API response to `business_date === today` before computing the daily summary. Previously, if today had no hourly rows the card showed the most recent prior-day total instead of $0.
 - **CI Lint (`cargo fmt`)**: Applied `cargo fmt` to `server/src/embedded_migrations.rs` — collapsed verbose multi-line `include_str!` tuples to single-line style, resolving the GitHub Actions `cargo fmt --check` failure on both server-lint and tauri-lint jobs.
 - **Receipt Column Widths (HTML)**: Replaced `width:1%` shrink-to-fit with explicit proportional widths (`55%/25%/20%` standard, `65%/35%` gift) for more consistent layout across email clients, print, and narrow viewports.
+- **E2E Contract Testing**: Updated the Playwright `tender-matrix-contract.spec.ts` test suite to assert that the RMS payment line is printed on the receipt (changing `expect(receipt).not.toContain(...)` to `toContain(...)`), aligning test assertions with the new receipt requirements.
 
 ## [0.80.7] - 2026-05-26
 
