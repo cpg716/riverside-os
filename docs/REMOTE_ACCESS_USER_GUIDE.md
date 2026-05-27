@@ -112,4 +112,19 @@ Use this after host setup or after any deployment/update:
 - use MFA on the Tailscale account
 - remember that disconnecting Tailscale removes off-site remote access but does not redefine the local host/main-register roles
 
+## 7. Production CORS hardening
+
+When Riverside is deployed for remote Tailscale use, the server must know which browser origins are allowed to call the API. Without this, a malicious web page could attempt cross-origin requests against your Tailscale-accessible server.
+
+Set these environment variables on the host machine:
+
+```
+RIVERSIDE_STRICT_PRODUCTION=true
+RIVERSIDE_CORS_ORIGINS=http://100.x.y.z:3000,http://store-pc:3000
+```
+
+- `RIVERSIDE_STRICT_PRODUCTION=true` blocks startup if CORS is not configured.
+- `RIVERSIDE_CORS_ORIGINS` should list the exact Tailscale IPs or MagicDNS hostnames that staff devices will use.
+- Do not leave `RIVERSIDE_CORS_ORIGINS` empty in production.
+
 *Version: aligned to the current hardened deployment contract as of April 22, 2026.*

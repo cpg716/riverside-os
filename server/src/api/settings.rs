@@ -2629,10 +2629,11 @@ async fn patch_review_policy(
 }
 
 async fn get_remote_access_status(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
     let manager = RemoteAccessManager::new();
     let status = manager
         .get_status()
