@@ -189,6 +189,15 @@ jobs:
           cd deployment/server-manager-app
           npm ci
           npx tauri build
+          $src = "src-tauri\target\release\ros-server-manager.exe"
+          $dst = "..\..\target\release\ros-server-manager.exe"
+          if (Test-Path $src) {
+            New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
+            Copy-Item -Path $src -Destination $dst -Force
+            Write-Host "Copied ros-server-manager.exe to $dst"
+          } else {
+            throw "ros-server-manager.exe not found at $src"
+          }
 
       - name: Ensure CRLF in deployment scripts
         shell: pwsh
