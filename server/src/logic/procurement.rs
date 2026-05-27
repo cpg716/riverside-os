@@ -25,7 +25,7 @@ pub fn weighted_average_cost(
     if qty_incoming <= 0 {
         return None;
     }
-    let q_old = Decimal::from(qty_on_hand_before);
+    let q_old = Decimal::from(qty_on_hand_before.max(0));
     let q_new = Decimal::from(qty_incoming);
     let denom = q_old + q_new;
     if denom.is_zero() {
@@ -94,6 +94,20 @@ mod tests {
         // 5 @ 10 + 10 @ 12 → 170 / 15 = 11.333…
         let blended = weighted_average_cost(5, dec!(10.00), 10, dec!(12.00)).unwrap();
         assert!(blended >= dec!(11.33) && blended <= dec!(11.34));
+    }
+
+    #[test]
+    fn wac_negative_stock_safety() {
+        // -3 on hand + 10 incoming @ 12.00 -> should treat as 0 on hand, WAC = 12.00
+        let blended = weighted_average_cost(-3, dec!(10.00), 10, dec!(12.00)).unwrap();
+        assert_eq!(blended, dec!(12.00));
+    }
+
+    #[test]
+    fn wac_zero_stock_safety() {
+        // 0 on hand + 10 incoming @ 12.00 -> WAC = 12.00
+        let blended = weighted_average_cost(0, dec!(10.00), 10, dec!(12.00)).unwrap();
+        assert_eq!(blended, dec!(12.00));
     }
 
     #[test]

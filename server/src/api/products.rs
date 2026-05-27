@@ -1810,7 +1810,7 @@ async fn patch_product_model(
 ) -> Result<Json<Value>, ProductError> {
     let actor = require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
     let current = sqlx::query_as::<_, ProductModelAuditSnapshot>(
-        "SELECT name, brand, catalog_handle, tax_category_override::text FROM products WHERE id = $1 AND is_active = TRUE",
+        "SELECT name, brand, catalog_handle, base_retail_price, base_cost, tax_category_override::text FROM products WHERE id = $1 AND is_active = TRUE",
     )
     .bind(product_id)
     .fetch_optional(&state.db)
@@ -1876,6 +1876,16 @@ async fn patch_product_model(
         }
         set_base_retail = true;
         n += 1;
+        if current.base_retail_price != p {
+            before_values.insert(
+                "base_retail_price".to_string(),
+                Value::String(current.base_retail_price.to_string()),
+            );
+            after_values.insert(
+                "base_retail_price".to_string(),
+                Value::String(p.to_string()),
+            );
+        }
     }
     if let Some(c) = body.base_cost {
         if c < Decimal::ZERO {
@@ -1885,6 +1895,13 @@ async fn patch_product_model(
         }
         set_base_cost = true;
         n += 1;
+        if current.base_cost != c {
+            before_values.insert(
+                "base_cost".to_string(),
+                Value::String(current.base_cost.to_string()),
+            );
+            after_values.insert("base_cost".to_string(), Value::String(c.to_string()));
+        }
     }
     if body.clear_category_id {
         set_category = true;
@@ -2082,6 +2099,11 @@ async fn patch_product_model(
         ));
     }
 
+    let base_retail_price_changed = body
+        .base_retail_price
+        .map(|next| next != current.base_retail_price)
+        .unwrap_or(false);
+
     let mut tx = state.db.begin().await?;
     sqlx::query(
         r#"
@@ -2155,6 +2177,33 @@ async fn patch_product_model(
     .execute(&mut *tx)
     .await?;
 
+    #[derive(Debug, Serialize, FromRow)]
+    struct PriceChangeAffectedVariant {
+        id: Uuid,
+        sku: String,
+        variation_label: Option<String>,
+        stock_on_hand: i32,
+        effective_retail: Decimal,
+    }
+
+    let mut price_change_reprint_variants: Vec<PriceChangeAffectedVariant> = Vec::new();
+    if base_retail_price_changed {
+        let next_base_retail = body.base_retail_price.unwrap_or(current.base_retail_price);
+        price_change_reprint_variants = sqlx::query_as::<_, PriceChangeAffectedVariant>(
+            r#"
+            UPDATE product_variants
+            SET shelf_labeled_at = NULL
+            WHERE product_id = $1
+              AND retail_price_override IS NULL
+            RETURNING id, sku, variation_label, stock_on_hand, $2::numeric AS effective_retail
+            "#,
+        )
+        .bind(product_id)
+        .bind(next_base_retail)
+        .fetch_all(&mut *tx)
+        .await?;
+    }
+
     if !before_values.is_empty() {
         let note = body
             .audit_note
@@ -2196,7 +2245,11 @@ async fn patch_product_model(
     tx.commit().await?;
 
     spawn_meilisearch_product_resync(&state, product_id);
-    Ok(Json(json!({ "status": "updated" })))
+    Ok(Json(json!({
+        "status": "updated",
+        "base_retail_price_changed": base_retail_price_changed,
+        "price_change_reprint_variants": price_change_reprint_variants
+    })))
 }
 
 async fn bulk_set_product_model(
@@ -2509,6 +2562,8 @@ struct ProductModelAuditSnapshot {
     name: String,
     brand: Option<String>,
     catalog_handle: Option<String>,
+    base_retail_price: Decimal,
+    base_cost: Decimal,
     tax_category_override: Option<String>,
 }
 
@@ -2537,7 +2592,13 @@ fn normalize_audit_source(value: Option<&str>) -> Result<String, ProductError> {
 
 fn build_catalog_change_summary(before_values: &Value, after_values: &Value) -> String {
     let mut fragments = Vec::new();
-    for key in ["name", "brand", "catalog_handle"] {
+    for key in [
+        "name",
+        "brand",
+        "catalog_handle",
+        "base_retail_price",
+        "base_cost",
+    ] {
         let before = before_values
             .get(key)
             .and_then(Value::as_str)
@@ -3318,17 +3379,40 @@ async fn patch_variant_pricing(
     Json(body): Json<VariantPricingPatch>,
 ) -> Result<Json<Value>, ProductError> {
     require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
-    let exists: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM product_variants WHERE id = $1")
-            .bind(variant_id)
-            .fetch_one(&state.db)
-            .await?;
-
-    if exists == 0 {
-        return Err(ProductError::VariantNotFound);
+    #[derive(Debug, FromRow)]
+    struct VariantPricingBefore {
+        sku: String,
+        variation_label: Option<String>,
+        stock_on_hand: i32,
+        retail_price_override: Option<Decimal>,
+        base_retail_price: Decimal,
     }
 
+    let current = sqlx::query_as::<_, VariantPricingBefore>(
+        r#"
+        SELECT
+            pv.sku,
+            pv.variation_label,
+            pv.stock_on_hand,
+            pv.retail_price_override,
+            p.base_retail_price
+        FROM product_variants pv
+        JOIN products p ON p.id = pv.product_id
+        WHERE pv.id = $1
+        "#,
+    )
+    .bind(variant_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let Some(current) = current else {
+        return Err(ProductError::VariantNotFound);
+    };
+
     let mut did = false;
+    let old_effective_retail = current
+        .retail_price_override
+        .unwrap_or(current.base_retail_price);
 
     if let Some(wp) = body.web_published {
         did = true;
@@ -3477,8 +3561,39 @@ async fn patch_variant_pricing(
         ));
     }
 
+    let new_retail_override = if body.clear_retail_override {
+        None
+    } else if let Some(next_override) = body.retail_price_override {
+        Some(next_override)
+    } else {
+        current.retail_price_override
+    };
+    let new_effective_retail = new_retail_override.unwrap_or(current.base_retail_price);
+    let price_changed = old_effective_retail != new_effective_retail;
+
+    if price_changed {
+        sqlx::query(
+            r#"
+            UPDATE product_variants
+            SET shelf_labeled_at = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(variant_id)
+        .execute(&state.db)
+        .await?;
+    }
+
     spawn_meilisearch_variant_resync(&state, variant_id);
-    Ok(Json(json!({ "status": "updated" })))
+    Ok(Json(json!({
+        "status": "updated",
+        "price_changed": price_changed,
+        "stock_on_hand": current.stock_on_hand,
+        "sku": current.sku,
+        "variation_label": current.variation_label,
+        "retail_price_override": new_retail_override,
+        "effective_retail": new_effective_retail
+    })))
 }
 
 async fn adjust_variant_stock(
@@ -3872,8 +3987,8 @@ async fn delete_product_web_image(
 mod tests {
     use super::{
         ensure_skus_do_not_exist, load_product_normalization_review, patch_product_model,
-        validate_create_product_payload, CreateProductRequest, CreateVariantInput,
-        PatchProductModelRequest, ProductError,
+        patch_variant_pricing, validate_create_product_payload, CreateProductRequest,
+        CreateVariantInput, PatchProductModelRequest, ProductError, VariantPricingPatch,
     };
     use crate::api::{store_account_rate::StoreAccountRateState, AppState};
     use crate::auth::permissions::CATALOG_EDIT;
@@ -4447,5 +4562,331 @@ mod tests {
             format!("Michael Kors Suit {suggested_code}")
         );
         assert_eq!(audit.2["catalog_handle"], suggested_code);
+    }
+
+    #[tokio::test]
+    async fn patch_product_model_base_price_clears_shelf_labeled_for_base_variants_only() {
+        let pool = connect_test_db().await;
+        let product_id = insert_patchable_product(&pool).await;
+        let (_staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
+        let state = build_test_state(pool.clone());
+
+        // Insert two variants: one base-priced, one with an override
+        let base_variant = Uuid::new_v4();
+        let override_variant = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
+            VALUES ($1, $2, 'BASE-SKU', '{}'::jsonb, 5, NULL, NOW())
+            "#,
+        )
+        .bind(base_variant)
+        .bind(product_id)
+        .execute(&pool)
+        .await
+        .expect("insert base variant");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
+            VALUES ($1, $2, 'OVERRIDE-SKU', '{}'::jsonb, 3, 150.00, NOW())
+            "#,
+        )
+        .bind(override_variant)
+        .bind(product_id)
+        .execute(&pool)
+        .await
+        .expect("insert override variant");
+
+        let Json(response) = patch_product_model(
+            State(state),
+            Path(product_id),
+            auth_headers(&code),
+            Json(PatchProductModelRequest {
+                name: None,
+                base_retail_price: Some(Decimal::new(12000, 2)),
+                base_cost: None,
+                category_id: None,
+                clear_category_id: false,
+                brand: None,
+                catalog_handle: None,
+                clear_catalog_handle: false,
+                is_bundle: None,
+                track_low_stock: None,
+                tax_category_override: None,
+                clear_tax_category_override: false,
+                employee_markup_percent: None,
+                clear_employee_markup_percent: false,
+                employee_extra_amount: None,
+                primary_vendor_id: None,
+                clear_primary_vendor_id: false,
+                audit_source: None,
+                audit_note: None,
+                audit_confidence: None,
+            }),
+        )
+        .await
+        .expect("patch product model should succeed");
+
+        assert_eq!(response["status"], "updated");
+        assert_eq!(response["base_retail_price_changed"], true);
+        let returned: Vec<serde_json::Value> =
+            serde_json::from_value(response["price_change_reprint_variants"].clone())
+                .expect("parse returned variants");
+        assert_eq!(returned.len(), 1);
+        assert_eq!(returned[0]["sku"], "BASE-SKU");
+        assert_eq!(returned[0]["effective_retail"], "120.00");
+
+        let base_labeled: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT shelf_labeled_at FROM product_variants WHERE id = $1")
+                .bind(base_variant)
+                .fetch_one(&pool)
+                .await
+                .expect("load base variant");
+        assert!(
+            base_labeled.is_none(),
+            "base variant shelf_labeled_at should be cleared"
+        );
+
+        let override_labeled: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT shelf_labeled_at FROM product_variants WHERE id = $1")
+                .bind(override_variant)
+                .fetch_one(&pool)
+                .await
+                .expect("load override variant");
+        assert!(
+            override_labeled.is_some(),
+            "override variant shelf_labeled_at should remain intact"
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_product_model_base_price_returns_out_of_stock_variants() {
+        let pool = connect_test_db().await;
+        let product_id = insert_patchable_product(&pool).await;
+        let (_staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
+        let state = build_test_state(pool.clone());
+
+        let oos_variant = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
+            VALUES ($1, $2, 'OOS-SKU', '{}'::jsonb, 0, NULL, NOW())
+            "#,
+        )
+        .bind(oos_variant)
+        .bind(product_id)
+        .execute(&pool)
+        .await
+        .expect("insert oos variant");
+
+        let Json(response) = patch_product_model(
+            State(state),
+            Path(product_id),
+            auth_headers(&code),
+            Json(PatchProductModelRequest {
+                name: None,
+                base_retail_price: Some(Decimal::new(9999, 2)),
+                base_cost: None,
+                category_id: None,
+                clear_category_id: false,
+                brand: None,
+                catalog_handle: None,
+                clear_catalog_handle: false,
+                is_bundle: None,
+                track_low_stock: None,
+                tax_category_override: None,
+                clear_tax_category_override: false,
+                employee_markup_percent: None,
+                clear_employee_markup_percent: false,
+                employee_extra_amount: None,
+                primary_vendor_id: None,
+                clear_primary_vendor_id: false,
+                audit_source: None,
+                audit_note: None,
+                audit_confidence: None,
+            }),
+        )
+        .await
+        .expect("patch product model should succeed");
+
+        let returned: Vec<serde_json::Value> =
+            serde_json::from_value(response["price_change_reprint_variants"].clone())
+                .expect("parse returned variants");
+        assert_eq!(returned.len(), 1);
+        assert_eq!(returned[0]["sku"], "OOS-SKU");
+        assert_eq!(returned[0]["stock_on_hand"], 0);
+        assert_eq!(returned[0]["effective_retail"], "99.99");
+    }
+
+    #[tokio::test]
+    async fn patch_variant_pricing_detects_real_price_change() {
+        let pool = connect_test_db().await;
+        let product_id = insert_patchable_product(&pool).await;
+        let variant_id = Uuid::new_v4();
+        let (_staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
+        let state = build_test_state(pool.clone());
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
+            VALUES ($1, $2, 'PRICE-SKU', '{}'::jsonb, 4, NULL, NOW())
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .execute(&pool)
+        .await
+        .expect("insert variant");
+
+        let Json(response) = patch_variant_pricing(
+            State(state),
+            Path(variant_id),
+            auth_headers(&code),
+            Json(VariantPricingPatch {
+                web_published: None,
+                clear_web_price_override: false,
+                web_price_override: None,
+                web_gallery_order: None,
+                clear_retail_override: false,
+                retail_price_override: Some(Decimal::new(8999, 2)),
+                clear_cost_override: false,
+                cost_override: None,
+                track_low_stock: None,
+            }),
+        )
+        .await
+        .expect("patch variant pricing should succeed");
+
+        assert_eq!(response["status"], "updated");
+        assert_eq!(response["price_changed"], true);
+        assert_eq!(response["effective_retail"], "89.99");
+        assert_eq!(response["stock_on_hand"], 4);
+
+        let labeled: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT shelf_labeled_at FROM product_variants WHERE id = $1")
+                .bind(variant_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load variant");
+        assert!(
+            labeled.is_none(),
+            "shelf_labeled_at should be cleared on real price change"
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_variant_pricing_no_op_when_effective_price_unchanged() {
+        let pool = connect_test_db().await;
+        let product_id = insert_patchable_product(&pool).await;
+        let variant_id = Uuid::new_v4();
+        let (_staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
+        let state = build_test_state(pool.clone());
+
+        // base_retail_price on the product is 100.00 from insert_patchable_product
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
+            VALUES ($1, $2, 'NOOP-SKU', '{}'::jsonb, 2, 100.00, NOW())
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .execute(&pool)
+        .await
+        .expect("insert variant");
+
+        let Json(response) = patch_variant_pricing(
+            State(state),
+            Path(variant_id),
+            auth_headers(&code),
+            Json(VariantPricingPatch {
+                web_published: None,
+                clear_web_price_override: false,
+                web_price_override: None,
+                web_gallery_order: None,
+                clear_retail_override: false,
+                retail_price_override: Some(Decimal::new(10000, 2)),
+                clear_cost_override: false,
+                cost_override: None,
+                track_low_stock: None,
+            }),
+        )
+        .await
+        .expect("patch variant pricing should succeed");
+
+        assert_eq!(response["status"], "updated");
+        assert_eq!(response["price_changed"], false);
+
+        let labeled: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT shelf_labeled_at FROM product_variants WHERE id = $1")
+                .bind(variant_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load variant");
+        assert!(
+            labeled.is_some(),
+            "shelf_labeled_at should remain when effective price did not change"
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_variant_pricing_clear_override_detects_change() {
+        let pool = connect_test_db().await;
+        let product_id = insert_patchable_product(&pool).await;
+        let variant_id = Uuid::new_v4();
+        let (_staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
+        let state = build_test_state(pool.clone());
+
+        // base_retail_price on the product is 100.00; override is 80.00
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
+            VALUES ($1, $2, 'CLEAR-SKU', '{}'::jsonb, 7, 80.00, NOW())
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .execute(&pool)
+        .await
+        .expect("insert variant");
+
+        let Json(response) = patch_variant_pricing(
+            State(state),
+            Path(variant_id),
+            auth_headers(&code),
+            Json(VariantPricingPatch {
+                web_published: None,
+                clear_web_price_override: false,
+                web_price_override: None,
+                web_gallery_order: None,
+                clear_retail_override: true,
+                retail_price_override: None,
+                clear_cost_override: false,
+                cost_override: None,
+                track_low_stock: None,
+            }),
+        )
+        .await
+        .expect("patch variant pricing should succeed");
+
+        assert_eq!(response["status"], "updated");
+        assert_eq!(response["price_changed"], true);
+        assert_eq!(response["effective_retail"], "100.00");
+
+        let labeled: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT shelf_labeled_at FROM product_variants WHERE id = $1")
+                .bind(variant_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load variant");
+        assert!(
+            labeled.is_none(),
+            "shelf_labeled_at should be cleared when clearing an override that changed effective price"
+        );
     }
 }

@@ -183,6 +183,13 @@ jobs:
           npm ci
           npx tauri build
 
+      - name: Build ROS Server Manager binary
+        shell: pwsh
+        run: |
+          cd deployment/server-manager-app
+          npm ci
+          npx tauri build
+
       - name: Ensure CRLF in deployment scripts
         shell: pwsh
         run: |
@@ -205,7 +212,8 @@ jobs:
             -ClientDistPath ".\client\dist" `
             -RegisterBundlePath ".\target\release\bundle" `
             -UpdaterDistPath ".\client\updater-dist" `
-            -ManagerBinaryPath ".\target\release\riverside-deployment-manager.exe"
+            -ManagerBinaryPath ".\target\release\riverside-deployment-manager.exe" `
+            -ServerManagerBinaryPath ".\target\release\ros-server-manager.exe"
           Get-ChildItem dist/deployment/*.zip | ForEach-Object {
             "Deployment package: $($_.Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
           }
@@ -235,4 +243,3 @@ jobs:
           if (Test-Path "client/updater-dist") {
             gh release upload $tag client/updater-dist/* --clobber
           }
-

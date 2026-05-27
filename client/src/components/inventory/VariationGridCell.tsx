@@ -8,10 +8,10 @@ export interface VariationCellProps {
   isLowStock: boolean;
   isOutOfStock: boolean;
   hasPriceOverride: boolean;
-  onUpdateStock: (delta: number) => Promise<void>;
-  onUpdatePrice: (cents: number | null) => Promise<void>;
-  onUpdateTrackLow: (next: boolean) => Promise<void>;
-  onUpdateWeb: (next: boolean) => Promise<void>;
+  onUpdateStock: (delta: number) => Promise<unknown>;
+  onUpdatePrice: (cents: number | null) => Promise<unknown>;
+  onUpdateTrackLow: (next: boolean) => Promise<unknown>;
+  onUpdateWeb: (next: boolean) => Promise<unknown>;
   onShowMaintenance: (type: "damaged" | "return_to_vendor") => void;
 }
 

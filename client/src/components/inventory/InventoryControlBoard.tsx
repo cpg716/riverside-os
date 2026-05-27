@@ -890,7 +890,7 @@ export default function InventoryControlBoard({
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           quantity_delta: quantityDelta,
           tx_type: txType,
           notes: notes
@@ -1022,6 +1022,11 @@ export default function InventoryControlBoard({
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
       toast(err.error ?? "We couldn't mark those tags as printed. Please try again.", "error");
+    } else if (printResult === "blocked") {
+      toast(
+        "Browser print fallback was blocked. Please allow popups for Riverside and try again.",
+        "error",
+      );
     } else {
       toast(
         printResult === "direct"
@@ -1070,6 +1075,13 @@ export default function InventoryControlBoard({
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
         toast(err.error ?? "We couldn't mark those tags as printed. Please try again.", "error");
+        return;
+      }
+      if (printResult === "blocked") {
+        toast(
+          "Browser print fallback was blocked. Please allow popups for Riverside and try again.",
+          "error",
+        );
         return;
       }
       toast(
@@ -1339,7 +1351,7 @@ export default function InventoryControlBoard({
                <span>{totalAvailable}</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-app-border/20">
-              <div 
+              <div
                 className={`h-full transition-all duration-700 ${unavailable ? 'bg-app-danger/60' : low ? 'bg-app-warning/60' : 'bg-app-success/60'}`}
                 style={{ width: `${Math.min(100, (Math.max(0, totalAvailable) / 10) * 100)}%` }}
               />
@@ -1604,7 +1616,7 @@ export default function InventoryControlBoard({
         ref={inventoryListRef}
         className="ui-card ui-tint-neutral flex flex-col overflow-x-auto overscroll-x-contain lg:overflow-x-visible [-webkit-overflow-scrolling:touch]"
       >
-        <div 
+        <div
           className="min-w-[640px] outline-none lg:min-w-0"
           onFocus={() => setTableFocus(true)}
           onBlur={() => setTableFocus(false)}

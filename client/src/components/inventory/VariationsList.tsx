@@ -26,7 +26,7 @@ export interface VariationsListProps {
   onToggleSelect: (id: string) => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
-  onUpdateVariant: (id: string, patch: VariantPatch) => Promise<void>;
+  onUpdateVariant: (id: string, patch: VariantPatch) => Promise<unknown>;
   onShowMaintenance: (
     id: string,
     sku: string,
@@ -40,7 +40,7 @@ interface RowData {
   variants: HubVariant[];
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
-  onUpdateVariant: (id: string, patch: VariantPatch) => Promise<void>;
+  onUpdateVariant: (id: string, patch: VariantPatch) => Promise<unknown>;
   onShowMaintenance: (
     id: string,
     sku: string,

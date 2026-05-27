@@ -2,6 +2,8 @@
 
 The **Riverside OS Deployment Manager** (`RiversideOS-Deployment-Manager.exe`) is the universal graphical hub for installing, updating, auditing, repairing, and resetting in-store Riverside OS workstations and server installations. 
 
+For day-to-day Server PC operations after installation, use the separate **ROS Server Manager** (`ROS-ServerManager.exe`). It runs locally, does not require the Riverside API to be online, and is focused on server health, repairs, cleanup, updates, and recovery. See [`ROS_SERVER_MANAGER.md`](ROS_SERVER_MANAGER.md).
+
 Replacing the legacy WinForms-based and command-line scripts, it provides a unified, cross-station desktop dashboard that interfaces directly with local system configuration, services, database engines, and diagnostic tools.
 
 ---

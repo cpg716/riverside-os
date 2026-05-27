@@ -141,6 +141,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "helcim", label: "Helcim" },
     { id: "fal", label: "Fal.ai" },
     { id: "quickbooks", label: "QuickBooks" },
+    { id: "constant-contact", label: "Constant Contact" },
     { id: "counterpoint", label: "Counterpoint" },
     { id: "nuorder", label: "NuORDER" },
     { id: "geoapify", label: "Geoapify" },

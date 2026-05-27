@@ -50,6 +50,7 @@ export const SIDEBAR_SUB_SECTION_PERMISSION: Record<string, string> = {
   "settings:ros-support-center": "ops.dev_center.view",
   "settings:ros-operations-center": "ops.dev_center.view",
   "settings:ros-dev-center": "ops.dev_center.view",
+  "settings:constant-contact": "constant_contact.manage",
   "home:reviews": "reviews.view",
 };
 

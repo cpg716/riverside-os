@@ -1,0 +1,26 @@
+[package]
+name = "ros-server-manager"
+version = "0.80.8"
+description = "Riverside OS local server management console"
+authors = ["Riverside OS"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+[workspace]
+
+[lib]
+name = "server_manager_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.1.1", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "=2.11.0", features = [] }
+tauri-plugin-log = "2.0.0-rc"
+tokio = { version = "1", features = ["process", "rt", "rt-multi-thread", "io-util", "macros"] }

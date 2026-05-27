@@ -51,6 +51,23 @@ interface VariationsWorkspaceProps {
   onVariantUpdated: () => void;
 }
 
+interface VariantPricingPatchResponse {
+  status?: string;
+  price_changed?: boolean;
+  stock_on_hand?: number;
+  sku?: string;
+  variation_label?: string | null;
+  effective_retail?: string;
+}
+
+interface VariantReprintPrompt {
+  variantId: string;
+  sku: string;
+  variationLabel: string;
+  effectiveRetail: string;
+  stockOnHand: number;
+}
+
 function strVal(v: unknown): string | null {
   if (v == null) return null;
   if (typeof v === "string") return v;
@@ -101,6 +118,8 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   const [batchStockOpen, setBatchStockOpen] = useState(false);
   const [batchStockInput, setBatchStockInput] = useState("");
   const [batchStockSubmitting, setBatchStockSubmitting] = useState(false);
+  const [reprintPrompt, setReprintPrompt] = useState<VariantReprintPrompt | null>(null);
+  const [batchReprintPrompt, setBatchReprintPrompt] = useState<VariantReprintPrompt[] | null>(null);
 
   // Maintenance State
   const [maintenanceTarget, setMaintenanceTarget] = useState<{
@@ -217,7 +236,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         | { retail_price_override: string | null }
         | { web_published: boolean }
         | { track_low_stock: boolean },
-    ) => {
+    ): Promise<VariantPricingPatchResponse | null> => {
       const isStock = "quantity_delta" in patch;
       const endpoint = isStock ? "stock-adjust" : "pricing";
 
@@ -230,9 +249,30 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         },
       );
       if (!res.ok) throw new Error("Update failed");
+      const payload = (await res.json().catch(() => null)) as
+        | VariantPricingPatchResponse
+        | null;
+      if (!isStock && payload?.price_changed && (payload.stock_on_hand ?? 0) > 0) {
+        const currentVariant = variants.find((variant) => variant.id === variantId);
+        const effectiveRetail =
+          payload.effective_retail ??
+          currentVariant?.effective_retail ??
+          "0";
+        setReprintPrompt({
+          variantId,
+          sku: payload.sku ?? currentVariant?.sku ?? "Unknown SKU",
+          variationLabel:
+            payload.variation_label ??
+            currentVariant?.variation_label ??
+            "Standard",
+          effectiveRetail,
+          stockOnHand: payload.stock_on_hand ?? 0,
+        });
+      }
       onVariantUpdated();
+      return payload;
     },
-    [baseUrl, apiAuth, onVariantUpdated],
+    [baseUrl, apiAuth, onVariantUpdated, variants],
   );
 
   const adjustStock = useCallback(
@@ -355,12 +395,19 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           },
         );
         if (!res.ok) throw new Error("Tag print status update failed");
-        toast(
-          printResult === "direct"
-            ? `${successLabel} Zebra tag station confirmed.`
-            : `${successLabel} Browser print fallback opened.`,
-          "success",
-        );
+        if (printResult === "blocked") {
+          toast(
+            "Browser print fallback was blocked. Please allow popups for Riverside and try again.",
+            "error",
+          );
+        } else {
+          toast(
+            printResult === "direct"
+              ? `${successLabel} Zebra tag station confirmed.`
+              : `${successLabel} Browser print fallback opened.`,
+            "success",
+          );
+        }
         onVariantUpdated();
       } catch {
         toast("Tags opened for printing, but Riverside could not mark them as printed.", "error");
@@ -858,7 +905,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                       let finalPriceCents = cents;
                       if (batchPriceMode === "offset") {
                         const v = variants.find((v) => v.id === id);
-                        if (!v) return;
+                        if (!v) return null;
                         const current = parseMoneyToCents(v.effective_retail);
                         finalPriceCents = current + cents;
                       }
@@ -867,13 +914,34 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                       });
                     });
 
-                    await Promise.all(updates);
+                    const responses = await Promise.all(updates);
+                    const affected = responses
+                      .filter((r): r is VariantPricingPatchResponse =>
+                        r != null && r.price_changed === true && (r.stock_on_hand ?? 0) > 0,
+                      )
+                      .map((r) => {
+                        const v = variants.find((var_) => var_.sku === r.sku);
+                        return {
+                          variantId: v?.id ?? "",
+                          sku: r.sku ?? v?.sku ?? "Unknown SKU",
+                          variationLabel:
+                            r.variation_label ?? v?.variation_label ?? "Standard",
+                          effectiveRetail:
+                            r.effective_retail ?? v?.effective_retail ?? "0",
+                          stockOnHand: r.stock_on_hand ?? 0,
+                        };
+                      })
+                      .filter((item) => item.variantId !== "");
+
                     toast(
                       `Batch price ${batchPriceMode === "fixed" ? "updated" : "adjusted"} successfully`,
                       "success",
                     );
                     setShowBatchPriceModal(false);
                     setBatchPriceInput("");
+                    if (affected.length > 0) {
+                      setBatchReprintPrompt(affected);
+                    }
                   } catch (e) {
                     toast(
                       e instanceof Error
@@ -895,7 +963,109 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         document.getElementById("drawer-root") || document.body
       )}
 
+      {/* Batch reprint prompt for multi-variant price changes */}
+      <ConfirmationModal
+        isOpen={batchReprintPrompt != null && batchReprintPrompt.length > 0}
+        title="Print Updated Price Tags?"
+        message={
+          batchReprintPrompt
+            ? `The price of ${batchReprintPrompt.length} variation${batchReprintPrompt.length === 1 ? "" : "s"} has changed. Would you like to print new tags for the ${batchReprintPrompt.reduce((sum, v) => sum + Math.max(0, v.stockOnHand), 0)} units in stock?`
+            : ""
+        }
+        confirmLabel="Print Tags"
+        onClose={() => setBatchReprintPrompt(null)}
+        onConfirm={() => {
+          if (!batchReprintPrompt || batchReprintPrompt.length === 0) return;
+          void handlePrintTags(
+            batchReprintPrompt.map((item) => {
+              const v = variants.find((var_) => var_.id === item.variantId);
+              return {
+                ...(v ?? ({} as HubVariant)),
+                id: item.variantId,
+                sku: item.sku,
+                variation_label: item.variationLabel,
+                effective_retail: item.effectiveRetail,
+                stock_on_hand: item.stockOnHand,
+              };
+            }),
+            `Updated price tags for ${batchReprintPrompt.length} variation${batchReprintPrompt.length === 1 ? "" : "s"} sent to print.`,
+          );
+          setBatchReprintPrompt(null);
+        }}
+      />
+
       {/* Batch Command Bar */}
+      <ConfirmationModal
+        isOpen={reprintPrompt != null}
+        title="Print Updated Price Tags?"
+        message={
+          reprintPrompt
+            ? `The price of this item has changed. Would you like to print new tags for the ${reprintPrompt.stockOnHand} units in stock?`
+            : ""
+        }
+        confirmLabel="Print Tags"
+        onClose={() => setReprintPrompt(null)}
+        onConfirm={() => {
+          if (!reprintPrompt) return;
+          void (async () => {
+            try {
+              const printItems = Array.from(
+                { length: Math.max(0, reprintPrompt.stockOnHand) },
+                () => ({
+                  sku: reprintPrompt.sku,
+                  productName,
+                  variation: reprintPrompt.variationLabel,
+                  price: `$${centsToFixed2(parseMoneyToCents(reprintPrompt.effectiveRetail))}`,
+                }),
+              );
+              if (printItems.length === 0) {
+                setReprintPrompt(null);
+                return;
+              }
+              const printResult = await openInventoryTagsWindow(printItems);
+              const markRes = await fetch(
+                `${baseUrl}/api/products/variants/bulk-mark-shelf-labeled`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    ...apiAuth(),
+                  },
+                  body: JSON.stringify({
+                    variant_ids: [reprintPrompt.variantId],
+                  }),
+                },
+              );
+              if (!markRes.ok) {
+                toast(
+                  "Tags printed, but Riverside could not mark this variation as shelf-labeled.",
+                  "error",
+                );
+                return;
+              }
+              if (printResult === "blocked") {
+                toast(
+                  "Browser print fallback was blocked. Please allow popups for Riverside and try again.",
+                  "error",
+                );
+              } else {
+                toast(
+                  printResult === "direct"
+                    ? `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} sent to the Zebra tag station.`
+                    : `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} opened in browser print fallback.`,
+                  "success",
+                );
+              }
+              onVariantUpdated();
+            } catch {
+              toast("Price tags could not be printed. Please try again.", "error");
+            } finally {
+              setReprintPrompt(null);
+            }
+          })();
+        }}
+      />
+
       <BatchCommandBar
         selectedCount={selectedIds.size}
         onClearSelection={() => setSelectedIds(new Set())}

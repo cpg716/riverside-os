@@ -3,6 +3,7 @@ import { ChevronsUpDown, X, ShoppingBag } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { VariationsWorkspace, type HubVariant } from "./VariationsWorkspace";
 import { useToast } from "../ui/ToastProviderLogic";
+import ConfirmationModal from "../ui/ConfirmationModal";
 import {
   formatMoney,
   formatUsdFromCents,
@@ -21,6 +22,7 @@ import {
   type RosieProductCatalogSuggestionResponse,
 } from "../../lib/rosie";
 import { getAppIcon } from "../../lib/icons";
+import { openInventoryTagsWindow } from "./labelPrint";
 
 const VENDOR_ICON = getAppIcon("vendor");
 
@@ -167,6 +169,20 @@ interface ProductHubDrawerProps {
   /** Shown in header while loading. */
   seedTitle?: string;
   onHubMutated?: () => void;
+}
+
+interface ProductModelPriceChangeVariant {
+  id: string;
+  sku: string;
+  variation_label: string | null;
+  stock_on_hand: number;
+  effective_retail: string;
+}
+
+interface ProductModelPatchResponse {
+  status?: string;
+  base_retail_price_changed?: boolean;
+  price_change_reprint_variants?: ProductModelPriceChangeVariant[];
 }
 
 interface RosieCleanupSuggestionCard {
@@ -387,6 +403,7 @@ export default function ProductHubDrawer({
   const [cleanupSuggestionLoading, setCleanupSuggestionLoading] = useState(false);
   const [cleanupSuggestionError, setCleanupSuggestionError] = useState<string | null>(null);
   const [cleanupApplyingKey, setCleanupApplyingKey] = useState<string | null>(null);
+  const [reprintPrompt, setReprintPrompt] = useState<ProductModelPriceChangeVariant[] | null>(null);
 
   const loadHub = useCallback(async () => {
     if (!productId) return;
@@ -537,6 +554,17 @@ export default function ProductHubDrawer({
         if (!res.ok) {
           await res.json().catch(() => ({}));
           throw new Error("Product update failed. Check the product details and try again.");
+        }
+        const payload = (await res.json().catch(() => null)) as
+          | ProductModelPatchResponse
+          | null;
+        if (payload?.base_retail_price_changed) {
+          const affectedWithStock = (payload.price_change_reprint_variants ?? []).filter(
+            (variant) => variant.stock_on_hand > 0,
+          );
+          if (affectedWithStock.length > 0) {
+            setReprintPrompt(affectedWithStock);
+          }
         }
         await loadHub();
         onHubMutated?.();
@@ -924,27 +952,28 @@ export default function ProductHubDrawer({
   );
 
   return (
-    <DetailDrawer
-      isOpen={isOpen && !!productId}
-      onClose={onClose}
-      title={title}
-      subtitle={subtitle}
-      panelMaxClassName="max-w-3xl"
-      titleClassName="!normal-case !tracking-tight"
-      actions={
-        <div className="flex flex-wrap gap-2">
-          {tabBtn("general", "General")}
-          {tabBtn("variations", "Variations")}
-          {tabBtn("history", "History")}
-        </div>
-      }
-    >
-      {loading || !hub ? (
-        <p className="text-sm text-app-text-muted">
-          {loading ? "Loading hub…" : "No data."}
-        </p>
-      ) : (
-        <>
+    <>
+      <DetailDrawer
+        isOpen={isOpen && !!productId}
+        onClose={onClose}
+        title={title}
+        subtitle={subtitle}
+        panelMaxClassName="max-w-3xl"
+        titleClassName="!normal-case !tracking-tight"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            {tabBtn("general", "General")}
+            {tabBtn("variations", "Variations")}
+            {tabBtn("history", "History")}
+          </div>
+        }
+      >
+        {loading || !hub ? (
+          <p className="text-sm text-app-text-muted">
+            {loading ? "Loading hub…" : "No data."}
+          </p>
+        ) : (
+          <>
           {tab === "general" && (
             <div className="space-y-5">
               <section className="rounded-2xl border border-app-border bg-app-surface p-5">
@@ -1963,8 +1992,80 @@ export default function ProductHubDrawer({
               )}
             </div>
           )}
-        </>
-      )}
-    </DetailDrawer>
+          </>
+        )}
+      </DetailDrawer>
+      <ConfirmationModal
+        isOpen={reprintPrompt != null && reprintPrompt.length > 0}
+        title="Print Updated Price Tags?"
+        message={
+          reprintPrompt
+            ? `The price of this item has changed. Would you like to print new tags for the ${reprintPrompt.reduce((sum, variant) => sum + Math.max(0, variant.stock_on_hand), 0)} units in stock?`
+            : ""
+        }
+        confirmLabel="Print Tags"
+        onClose={() => setReprintPrompt(null)}
+        onConfirm={() => {
+          if (!reprintPrompt || reprintPrompt.length === 0) return;
+          void (async () => {
+            try {
+              const printItems = reprintPrompt.flatMap((variant) => {
+                const quantity = Math.max(0, variant.stock_on_hand);
+                return Array.from({ length: quantity }, () => ({
+                  sku: variant.sku,
+                  productName: hub?.product.name ?? seedTitle,
+                  variation: variant.variation_label ?? "Standard",
+                  price: money(variant.effective_retail),
+                }));
+              });
+              if (printItems.length === 0) {
+                setReprintPrompt(null);
+                return;
+              }
+              const printResult = await openInventoryTagsWindow(printItems);
+              const markRes = await fetch(
+                `${baseUrl}/api/products/variants/bulk-mark-shelf-labeled`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    ...apiAuth(),
+                  },
+                  body: JSON.stringify({
+                    variant_ids: reprintPrompt.map((variant) => variant.id),
+                  }),
+                },
+              );
+              if (!markRes.ok) {
+                toast(
+                  "Tags printed, but Riverside could not mark all variants as shelf-labeled.",
+                  "error",
+                );
+                return;
+              }
+              if (printResult === "blocked") {
+                toast(
+                  "Browser print fallback was blocked. Please allow popups for Riverside and try again.",
+                  "error",
+                );
+              } else {
+                toast(
+                  printResult === "direct"
+                    ? `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} sent to the Zebra tag station.`
+                    : `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} opened in browser print fallback.`,
+                  "success",
+                );
+              }
+              void loadHub();
+              onHubMutated?.();
+            } catch {
+              toast("Price tags could not be printed. Please try again.", "error");
+            } finally {
+              setReprintPrompt(null);
+            }
+          })();
+        }}
+      />
+    </>
   );
 }

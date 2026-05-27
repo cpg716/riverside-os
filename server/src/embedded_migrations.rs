@@ -50,4 +50,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("046_alteration_pickup_tracking.sql", include_str!("../../migrations/046_alteration_pickup_tracking.sql")),
     ("047_phase4_resiliency.sql", include_str!("../../migrations/047_phase4_resiliency.sql")),
     ("048_constant_contact_integration.sql", include_str!("../../migrations/048_constant_contact_integration.sql")),
+    ("049_constant_contact_permissions.sql", include_str!("../../migrations/049_constant_contact_permissions.sql")),
 ];

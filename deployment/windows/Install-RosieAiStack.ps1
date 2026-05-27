@@ -176,7 +176,7 @@ if ($SkipVoiceTools) {
     Write-Host "      uv: $uvCmd"
     Write-Host "      Installing sherpa-onnx..."
     try {
-      & $uvCmd tool install --python 3.12 sherpa-onnx 2>&1 | ForEach-Object { Write-Host "      $_" }
+      & $uvCmd tool install --force --python 3.12 sherpa-onnx 2>&1 | ForEach-Object { Write-Host "      $_" }
       if ($LASTEXITCODE -eq 0) {
         Write-Host "      sherpa-onnx installed."
       } else {

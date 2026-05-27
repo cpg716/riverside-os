@@ -7,8 +7,10 @@ param(
   [string]$RegisterBundlePath = "$PSScriptRoot\..\..\target\release\bundle",
   [string]$UpdaterDistPath = "$PSScriptRoot\..\..\client\updater-dist",
   [string]$ManagerBinaryPath = "$PSScriptRoot\..\..\target\release\riverside-deployment-manager.exe",
+  [string]$ServerManagerBinaryPath = "$PSScriptRoot\..\..\target\release\ros-server-manager.exe",
   [switch]$AllowMissingRegisterBundle,
-  [switch]$AllowMissingManagerBinary
+  [switch]$AllowMissingManagerBinary,
+  [switch]$AllowMissingServerManagerBinary
 )
 
 $ErrorActionPreference = "Stop"
@@ -83,6 +85,9 @@ if (-not (Test-Path $RegisterBundlePath) -and -not $AllowMissingRegisterBundle) 
 if (-not (Test-Path $ManagerBinaryPath) -and -not $AllowMissingManagerBinary) {
   throw "Manager binary not found: $ManagerBinaryPath. Build it first with cd deployment/manager-app && npx tauri build, or pass -AllowMissingManagerBinary."
 }
+if (-not (Test-Path $ServerManagerBinaryPath) -and -not $AllowMissingServerManagerBinary) {
+  throw "ROS Server Manager binary not found: $ServerManagerBinaryPath. Build it first with cd deployment/server-manager-app && npx tauri build, or pass -AllowMissingServerManagerBinary."
+}
 
 Assert-ClientDistMatchesSource $ClientDistPath $Version $gitShort
 
@@ -131,6 +136,10 @@ if (Test-Path $integrationCredsSource) {
 if (Test-Path $ManagerBinaryPath) {
   Copy-Item $ManagerBinaryPath "$packageRoot\RiversideOS-Deployment-Manager.exe" -Force
   Write-Host "Packaged RiversideOS-Deployment-Manager.exe"
+}
+if (Test-Path $ServerManagerBinaryPath) {
+  Copy-Item $ServerManagerBinaryPath "$packageRoot\ROS-ServerManager.exe" -Force
+  Write-Host "Packaged ROS-ServerManager.exe"
 }
 Copy-Item "$PSScriptRoot\riverside-deployment.config.example.json" $packageRoot -Force
 Copy-Item $ServerBinaryPath "$packageRoot\server\riverside-server.exe" -Force
@@ -184,7 +193,8 @@ foreach ($doc in @(
   "docs\HARDWARE_MANAGEMENT.md",
   "docs\LOCAL_UPDATE_PROTOCOL.md",
   "docs\WINDOWS_INSTALLER_PACKAGE.md",
-  "docs\DEPLOYMENT_MANAGER.md"
+  "docs\DEPLOYMENT_MANAGER.md",
+  "docs\ROS_SERVER_MANAGER.md"
 )) {
   $source = Join-Path $repoRoot $doc
   if (Test-Path $source) {
@@ -208,6 +218,7 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "`n1. Double-click Start-RiversideDeployment.cmd.`n" +
   "2. Choose Backoffice / Server, Register #1, or Back Office Workstation.`n" +
   "3. Click Check, then Install, Update, Repair, or Uninstall.`n" +
+  "4. Use ROS-ServerManager.exe for local server health, repairs, cleanup, and recovery when the Riverside app cannot load.`n" +
   "`nThe Deployment Manager writes riverside-deployment.config.json for you and runs`n" +
   "the correct installer for the selected station type.`n" +
   "`nBackoffice / Server installs both:`n" +
@@ -219,6 +230,7 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "- Riverside database and app secrets are generated automatically when left blank or placeholder.`n" +
   "- Station settings are written automatically for Register and Back Office workstation installs.`n" +
   "- A deployment-manager.log file is written next to the installer for support.`n" +
+  "- ROS-ServerManager.exe runs locally and does not require the Riverside API to be online.`n" +
   "`nUninstall behavior:`n" +
   "`n- Workstation uninstall removes the Riverside desktop app and station settings.`n" +
   "- Server uninstall removes the Riverside server service, firewall rule, and app files.`n" +

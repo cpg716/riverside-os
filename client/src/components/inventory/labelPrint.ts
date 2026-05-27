@@ -455,7 +455,7 @@ body{font-family:Inter,Outfit,"Aptos","Segoe UI",sans-serif;color:#000;backgroun
 </style></head><body>${pages}${config.showBarcode ? generateBarcodeSvgScript() : ""}</body></html>`;
 }
 
-export type InventoryTagPrintResult = "direct" | "browser";
+export type InventoryTagPrintResult = "direct" | "browser" | "blocked";
 
 /** Single inventory tag routed to the configured tag station. */
 export async function openSingleInventoryTag(
@@ -468,18 +468,21 @@ export async function openSingleInventoryTag(
 export function openInventoryTagsPreviewWindow(
   items: InventoryTagItem[],
   overrideConfig?: Partial<InventoryTagPrintConfig>,
-): void {
-  if (items.length === 0) return;
+): InventoryTagPrintResult {
+  if (items.length === 0) return "browser";
   const config = {
     ...getInventoryTagPrintConfig(),
     ...overrideConfig,
   };
   const w = window.open("", "_blank", "width=520,height=420");
-  if (!w) return;
+  if (!w) {
+    return "blocked";
+  }
   w.document.write(buildDocument(items, config));
   w.document.close();
   w.focus();
   w.print();
+  return "browser";
 }
 
 /** Multi-label Zebra/ZPL dispatch using the configured Tag Station. */
@@ -498,7 +501,6 @@ export async function openInventoryTagsWindow(
     return "direct";
   } catch (error) {
     console.warn("Direct Zebra tag print failed; opening browser print fallback", error);
-    openInventoryTagsPreviewWindow(items, config);
-    return "browser";
+    return openInventoryTagsPreviewWindow(items, config);
   }
 }
