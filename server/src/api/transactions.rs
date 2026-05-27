@@ -695,7 +695,11 @@ mod tests {
             .build_receipt_data(None)
             .expect("internal-only receipt should build");
 
-        assert_eq!(receipt.items.len(), 1, "internal line should appear on the receipt");
+        assert_eq!(
+            receipt.items.len(),
+            1,
+            "internal line should appear on the receipt"
+        );
         assert_eq!(receipt.items[0].sku, "ROS-RMS-CHARGE-PAYMENT");
         assert_eq!(receipt.total_price, Decimal::new(1000, 2));
         assert_eq!(receipt.payment_methods_summary, "Card");

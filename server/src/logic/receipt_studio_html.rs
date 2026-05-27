@@ -32,9 +32,9 @@ fn build_items_table(order: &ReceiptOrder) -> String {
             .unwrap_or_default();
         rows.push_str(&format!(
             "<tr>\
-               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0\">{}{}</td>\
-               <td style=\"text-align:right;white-space:nowrap;padding-left:8px;width:1%\">{} \u{00d7} {}</td>\
-               <td style=\"text-align:right;white-space:nowrap;padding-left:8px;width:1%\">{}</td>\
+               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:55%\">{}{}</td>\
+               <td style=\"text-align:right;padding-left:8px;width:25%\">{} \u{00d7} {}</td>\
+               <td style=\"text-align:right;padding-left:8px;width:20%\">{}</td>\
              </tr>",
             html_escape(&it.product_name),
             var,
@@ -58,8 +58,8 @@ fn build_items_table_gift(order: &ReceiptOrder) -> String {
             .unwrap_or_default();
         rows.push_str(&format!(
             "<tr>\
-               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0\">{}{}</td>\
-               <td style=\"text-align:right;white-space:nowrap;padding-left:8px;width:1%\">{} \u{00d7} {}</td>\
+               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:65%\">{}{}</td>\
+               <td style=\"text-align:right;padding-left:8px;width:35%\">{} \u{00d7} {}</td>\
              </tr>",
             html_escape(&it.product_name),
             var,
