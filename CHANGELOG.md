@@ -7,11 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## [0.80.8] - 2026-05-26
+## [0.80.8] - 2026-05-27
 
 ### Added
 - **Counterpoint Post-Sync Line Resolution**: Changed the Counterpoint sync engine to map unresolved lines to the fallback variant (`HIST-CP-FALLBACK`) and store the original Counterpoint item key in the `vendor_reference` column. Implemented a post-sync resolver database update that dynamically links these lines to their correct variants once the catalog/barcodes are loaded or manually resolved, clearing the warnings and resolving corresponding sync issues automatically.
 - **Proactive Dashboard Self-Healing**: Hooked the post-sync resolver into the Counterpoint Settings status dashboard API so that simply loading or refreshing the dashboard immediately resolves corrected items.
+- **POS Register Idle Timeout**: Two-tier idle timeout — register open + 10 min of no interaction clears the session and shows the PIN overlay; PIN overlay idle for 5 min navigates to the POS Dashboard. Prevents unattended cashier sessions. Activity tracked via mouse, pointer, keyboard, touch, and scroll events.
+- **POS Shell Strict Containment**: Closing the register (Z-report or session end) now always stays in the POS Shell with the PIN overlay showing. Only "Back to Back Office" exits POS mode. Fixes a regression where closing the register sometimes navigated to the Back Office.
+- **POS Dashboard — Today's Sales Card**: Replaced the static "Register #N" stats card with a live "Today's Sales" card showing the current booked sales total filtered to today's date. Updates on every `refreshSignal` cycle.
+- **POS Dashboard — Unread Notifications Card**: Replaced the "Priority Feed" stats card with an "Unread Notifications" card showing the real-time unread count for the signed-in staff member. Clicking opens the Notifications Drawer.
+
+### Fixed
+- **RMS Payment Lines Missing from Receipts**: Removed the `is_internal` filter from both branches of `selected_receipt_items_with_effective_qty` in `server/src/api/transactions.rs`. RMS Charge Payment lines, gift card loads, and alteration service lines now appear on all customer receipts (HTML, thermal ESC/POS, and email). Updated unit test to assert internal lines are included.
+- **Receipt Text Wrapping (HTML)**: Applied `table-layout: fixed`, `overflow-wrap: break-word; word-break: break-word` to item table cells, and `width: 1%` on the nowrap qty/price columns in `receipt_studio_html.rs`. Prevents the qty column from stealing all available width in the 320px receipt container and causing product name "one or two letters" to break onto a second line. Also applied `overflow-wrap: break-word` to the `.paper` container and `table td` CSS rule as a global fallback.
+- **Sales by Hour Stale Data**: `SalesByHourSnapshotCard.tsx` now filters the API response to `business_date === today` before computing the daily summary. Previously, if today had no hourly rows the card showed the most recent prior-day total instead of $0.
 
 ## [0.80.7] - 2026-05-26
 
