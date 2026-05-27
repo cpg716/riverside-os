@@ -136,6 +136,9 @@ pub const OPS_DEV_CENTER_ACTIONS: &str = "ops.dev_center.actions";
 pub const NUORDER_MANAGE: &str = "nuorder.manage";
 pub const NUORDER_SYNC: &str = "nuorder.sync";
 
+pub const CONSTANT_CONTACT_MANAGE: &str = "constant_contact.manage";
+pub const CONSTANT_CONTACT_SYNC: &str = "constant_contact.sync";
+
 /// Review queued duplicate customer pairs (Pillar 5b).
 pub const CUSTOMERS_DUPLICATE_REVIEW: &str = "customers_duplicate_review";
 
@@ -222,6 +225,8 @@ pub static ALL_PERMISSION_KEYS: &[&str] = &[
     CUSTOMERS_COUPLE_MANAGE,
     NUORDER_MANAGE,
     NUORDER_SYNC,
+    CONSTANT_CONTACT_MANAGE,
+    CONSTANT_CONTACT_SYNC,
 ];
 
 pub fn all_permissions_set() -> HashSet<String> {

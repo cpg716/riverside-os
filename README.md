@@ -296,6 +296,7 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/TRANSACTION_RETURNS_EXCHANGES.md` | Refunds, returns, exchanges | Devs |
 | `docs/RECEIPT_BUILDER_AND_DELIVERY.md`| ZPL / Thermal templates and Podium delivery | Devs / ops |
 | `docs/SHIPPING_AND_SHIPMENTS_HUB.md` | Shippo, Registry, and Hub operations | Devs / ops |
+| `docs/CONSTANT_CONTACT_INTEGRATION.md` | Constant Contact customer sync and webhooks | Devs / ops |
 | **User Interface & Client** |
 | `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
 | `docs/CLIENT_UI_CONVENTIONS.md` | React primitives, modal a11y, shell wiring | Devs / agents |

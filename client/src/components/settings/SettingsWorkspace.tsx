@@ -63,6 +63,7 @@ import EmailSettingsPanel from "./EmailSettingsPanel";
 import MeilisearchSettingsPanel from "./MeilisearchSettingsPanel";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
+import ConstantContactSettingsPanel from "./ConstantContactSettingsPanel";
 import ShippoSettingsPanel from "./ShippoSettingsPanel";
 import HelcimSettingsPanel from "./HelcimSettingsPanel";
 import FalSettingsPanel from "./FalSettingsPanel";
@@ -186,6 +187,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   helcim: "Helcim payments, terminal readiness, and card processing setup.",
   fal: "Fal.ai API key configuration, credit balance, and image queue logs.",
   quickbooks: "QuickBooks connection settings and accounting bridge controls.",
+  "constant-contact": "Sync opted-in customer lists and map group codes to Constant Contact lists.",
   counterpoint: "Counterpoint sync status, mappings, staging, and issue handling.",
   nuorder: "NuORDER catalog and vendor sync configuration.",
   geoapify: "Address lookup setup for customer, vendor, and shipping entry.",
@@ -214,6 +216,7 @@ const SETTINGS_HUB_INTEGRATION_BRANDS: Partial<
   shippo: "shippo",
   helcim: "helcim",
   quickbooks: "qbo",
+  "constant-contact": "constant_contact",
   nuorder: "nuorder",
   weather: "weather",
   insights: "metabase",
@@ -237,6 +240,7 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   shippo: Plug,
   helcim: Plug,
   quickbooks: Plug,
+  "constant-contact": Mail,
   counterpoint: Server,
   nuorder: Plug,
   geoapify: MapPin,
@@ -1226,6 +1230,14 @@ export default function SettingsWorkspace({
                       brandKind: "icon" as const,
                     },
                     {
+                      id: "constant-contact",
+                      label: "Constant Contact",
+                      desc: "Mailing List & Segments Sync",
+                      color: "bg-white",
+                      brand: "constant_contact" as IntegrationBrand,
+                      brandKind: "icon" as const,
+                    },
+                    {
                       id: "corecard",
                       label: "CoreCard",
                       desc: "RMS Charge host credentials",
@@ -1409,6 +1421,10 @@ export default function SettingsWorkspace({
                   navigateToTab?.("qbo");
                 }}
               />
+            )}
+
+            {activeTab === "constant-contact" && hasPermission("constant_contact.manage") && (
+              <ConstantContactSettingsPanel />
             )}
 
             {activeTab === "helcim" && hasPermission("settings.admin") && (

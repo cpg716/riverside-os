@@ -19,6 +19,7 @@ pub mod hardware;
 pub mod health;
 pub mod help;
 pub mod insights;
+pub mod integrations_cc;
 pub mod inventory;
 pub mod loyalty;
 pub mod mailbox;
@@ -168,6 +169,10 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
         .nest(
             "/api/settings/counterpoint-sync",
             counterpoint_sync::settings_router(),
+        )
+        .nest(
+            "/api/settings/constant-contact",
+            integrations_cc::router().merge(integrations_cc::auth_router()),
         );
 
     if matches!(

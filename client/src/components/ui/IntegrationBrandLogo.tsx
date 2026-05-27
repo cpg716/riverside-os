@@ -24,9 +24,13 @@ export type IntegrationBrand =
   | "qbo"
   | "shippo"
   | "helcim"
-  | "weather";
+  | "weather"
+  | "constant_contact";
 type IntegrationBrandKind = "icon" | "wordmark";
 type IntegrationBrandTheme = "light" | "dark";
+
+const constantContactIcon = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%232563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`;
+const constantContactWordmark = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" fill="none"><text x="5" y="26" fill="%232563eb" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="16" letter-spacing="-0.5px">Constant Contact</text></svg>`;
 
 const BRAND_LABELS: Record<IntegrationBrand, string> = {
   meilisearch: "Meilisearch",
@@ -37,6 +41,7 @@ const BRAND_LABELS: Record<IntegrationBrand, string> = {
   shippo: "Shippo",
   helcim: "Helcim",
   weather: "Weather",
+  constant_contact: "Constant Contact",
 };
 
 function resolveSrc(
@@ -44,6 +49,9 @@ function resolveSrc(
   kind: IntegrationBrandKind,
   theme: IntegrationBrandTheme,
 ): string {
+  if (brand === "constant_contact") {
+    return kind === "icon" ? constantContactIcon : constantContactWordmark;
+  }
   if (brand === "helcim") {
     return kind === "icon" ? helcimIcon : helcimWordmark;
   }

@@ -296,6 +296,26 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         credential_key: "webhook_base_url",
         env_key: "RIVERSIDE_PUBLIC_BASE_URL",
     },
+    IntegrationCredentialMapping {
+        integration_key: "constant_contact",
+        credential_key: "client_id",
+        env_key: "RIVERSIDE_CC_CLIENT_ID",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "constant_contact",
+        credential_key: "client_secret",
+        env_key: "RIVERSIDE_CC_CLIENT_SECRET",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "constant_contact",
+        credential_key: "access_token",
+        env_key: "RIVERSIDE_CC_ACCESS_TOKEN",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "constant_contact",
+        credential_key: "refresh_token",
+        env_key: "RIVERSIDE_CC_REFRESH_TOKEN",
+    },
 ];
 
 #[derive(Debug, Error)]

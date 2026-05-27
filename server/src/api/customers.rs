@@ -5426,6 +5426,15 @@ struct ShipmentTimelineRow {
     staff_name: Option<String>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct MarketingEmailEventTimelineRow {
+    id: Uuid,
+    event_type: String,
+    occurred_at: DateTime<Utc>,
+    campaign_name: Option<String>,
+    provider: String,
+}
+
 async fn build_customer_timeline(
     pool: &sqlx::PgPool,
     customer_id: Uuid,
@@ -5638,6 +5647,19 @@ async fn build_customer_timeline(
     .fetch_all(pool)
     .await?;
 
+    let marketing_events = sqlx::query_as::<_, MarketingEmailEventTimelineRow>(
+        r#"
+        SELECT id, event_type, occurred_at, campaign_name, provider
+        FROM customer_marketing_email_event
+        WHERE customer_id = $1
+        ORDER BY occurred_at DESC
+        LIMIT 50
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
+
     let mut events: Vec<CustomerTimelineEvent> = Vec::new();
 
     for o in orders {
@@ -5746,6 +5768,32 @@ async fn build_customer_timeline(
             ),
             reference_id: Some(se.shipment_id),
             reference_type: Some("shipment".to_string()),
+            wedding_party_id: None,
+        });
+    }
+
+    for ev in marketing_events {
+        let provider = match ev.provider.as_str() {
+            "constant_contact" => "Constant Contact",
+            other => other,
+        };
+        let campaign_info = if let Some(name) = &ev.campaign_name {
+            format!(" for campaign \"{}\"", name)
+        } else {
+            "".to_string()
+        };
+        let summary = format!(
+            "[{}] Email {}{}",
+            provider,
+            ev.event_type.to_lowercase(),
+            campaign_info
+        );
+        events.push(CustomerTimelineEvent {
+            at: ev.occurred_at,
+            kind: "marketing_email".to_string(),
+            summary,
+            reference_id: Some(ev.id),
+            reference_type: Some("marketing_email_event".to_string()),
             wedding_party_id: None,
         });
     }

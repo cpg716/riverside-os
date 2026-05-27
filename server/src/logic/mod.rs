@@ -101,6 +101,7 @@ pub mod wedding_push;
 pub mod wedding_queries;
 pub mod weddings;
 
+pub mod constant_contact;
 pub mod inventory_brain;
 pub mod rms_account_list_import;
 pub mod wedding_health;
