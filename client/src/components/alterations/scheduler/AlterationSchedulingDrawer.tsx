@@ -44,6 +44,21 @@ export default function AlterationSchedulingDrawer({
 
   const customerName = `${localAlt.customer_first_name ?? ""} ${localAlt.customer_last_name ?? ""}`.trim() || "Unassigned Customer";
 
+  const reloadAlteration = async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/alterations/${localAlt.id}`, {
+        headers: apiAuth(),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setLocalAlt(updated);
+        onUpdated();
+      }
+    } catch (e) {
+      console.error("Failed to reload alteration", e);
+    }
+  };
+
   const updateAlteration = async (patch: Partial<AlterationRow>) => {
     try {
       const res = await fetch(`${baseUrl}/api/alterations/${localAlt.id}`, {
@@ -157,10 +172,7 @@ export default function AlterationSchedulingDrawer({
               <AlterationItemEditor
                 alterationId={localAlt.id}
                 apiAuth={apiAuth}
-                onItemsChanged={() => {
-                  // Reload alt to get new totals
-                  void updateAlteration({});
-                }}
+                onItemsChanged={() => void reloadAlteration()}
               />
 
               <div className="pt-6 border-t border-white/5">

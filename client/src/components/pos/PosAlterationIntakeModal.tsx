@@ -467,9 +467,14 @@ export default function PosAlterationIntakeModal({
             ) : null}
 
             <div className="mb-4 rounded-xl border border-app-border bg-app-surface-2 p-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Tailor workload
-              </p>
+              <div className="flex items-center justify-between gap-2 mb-0.5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Tailor workload
+                </p>
+                <span className="text-[9px] font-bold uppercase tracking-widest text-app-text-muted opacity-60">
+                  Preliminary — tailor finalizes in queue
+                </span>
+              </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {ALTERATION_WORK_TYPES.map((task) => {
                   const active =

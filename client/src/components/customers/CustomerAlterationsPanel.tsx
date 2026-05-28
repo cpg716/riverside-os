@@ -326,6 +326,10 @@ export default function CustomerAlterationsPanel({
       toast("That day is marked closed. Choose another work date.", "error");
       return;
     }
+    if (scheduleDayCapacity && !scheduleDayCapacity.has_staff) {
+      toast("No alterations staff is scheduled for that day. Choose a day with alterations coverage.", "error");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`${baseUrl}/api/alterations/${id}`, {
@@ -935,7 +939,7 @@ export default function CustomerAlterationsPanel({
                     </p>
                     <button
                       type="button"
-                      disabled={busy || scheduleDayCapacity?.is_closed}
+                      disabled={busy || scheduleDayCapacity?.is_closed || (scheduleDayCapacity != null && !scheduleDayCapacity.has_staff)}
                       onClick={() => void scheduleForSelectedDay(row.id)}
                       className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-app-accent/30 bg-app-accent/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
