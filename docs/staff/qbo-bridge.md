@@ -46,6 +46,9 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 6. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
 7. **Approve** only when totals match **ROS** expectations for that close.
 8. **Sync** after approve; watch **History** for success/fail.
+9. **Revert** — if an approved entry needs mapping fixes or regeneration, click **Revert** to move it back to **pending**. Fix mappings in Settings, then re-approve.
+10. **Retry** — if a synced entry **failed** (network, token expiry, QBO rejection), click **Retry**. ROS re-validates balance/accounts and re-attempts the POST. No need to re-stage.
+11. **Void in QBO** — if a **synced** journal needs to be completely removed from QuickBooks (wrong date, duplicate, data correction), click **Void in QBO**. This deletes the JournalEntry in Intuit and marks the local row `voided`. You can then re-stage a corrected entry for that business date.
 
 Backdated corrections are governed. The **business date** controls the sales/reporting day and the **payment effective date** controls tender, deposit, and payment movement evidence. Do not use QBO staging to move a payment to a different day unless the payment effective date was corrected in ROS with a documented reason.
 
@@ -74,6 +77,9 @@ Before pilot accounting relies on QBO posting, run these scenarios in the QBO sa
 | Approval audit trail | Approved rows show approver name and approval timestamp in History detail. | |
 | Token health check | Token Health endpoint shows valid/refreshable status and minutes remaining. | |
 | Z-close handoff | The Z-report row shows the QBO staging state for the closed business date. | |
+| Revert to pending | Approved row reverts to pending; approver info cleared; can be re-approved after mapping fix. | |
+| Retry failed posting | Failed row re-validates and re-posts; transitions to synced on success; stays failed with new error on re-failure. | |
+| Void synced journal | Synced row is deleted in QBO; local status becomes voided; re-staging creates a revision row. | |
 
 Pilot rule: only the accounting owner or store owner approves warning-bearing journals. Cashiers and floor managers may close the register, but they do not clear QBO staging for pilot accounting.
 
@@ -89,7 +95,9 @@ Pilot rule: only the accounting owner or store owner approves warning-bearing jo
 
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
-| Sync failed | Read **error** in History | Fix mapping, refresh QBO accounts, and re-stage |
+| Sync failed | Click **Retry** on the failed row; read error text literally | Fix mapping, refresh QBO accounts, retry again |
+| Approved but needs fix | Click **Revert** to move back to pending, fix mappings, re-approve | Re-propose from Staging for fresh data |
+| Wrong journal posted to QBO | Click **Void in QBO** to delete it, then re-stage and post corrected version | Accountant manual void in QBO |
 | Duplicate journal concern after retry | Check History for the same staging row / request id | Accountant |
 | Class/location mismatch | Update mapping version | [QBO_JOURNAL_TEST_MATRIX.md](../QBO_JOURNAL_TEST_MATRIX.md) |
 | OAuth loop | Different browser | Intuit status |
@@ -102,9 +110,16 @@ Pilot rule: only the accounting owner or store owner approves warning-bearing jo
 
 ---
 
+## Daily Financial Report
+
+After Z-close, ROS can automatically generate and email a comprehensive **Daily Financial Report** covering net sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, freight, category margins, and the QBO journal status for the business date. Configure in **Settings → Daily Financial Report**. Reports are stored and viewable in the same Settings panel.
+
+See [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md) for full configuration and API reference.
+
 ## See also
 
 - [../QBO_JOURNAL_TEST_MATRIX.md](../QBO_JOURNAL_TEST_MATRIX.md)
 - [../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md](../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md)
+- [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md)
 
-**Last reviewed:** 2026-05-17
+**Last reviewed:** 2026-05-27

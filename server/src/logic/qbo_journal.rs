@@ -633,6 +633,59 @@ pub async fn propose_daily_journal(
         }
     }
 
+    // ── Inbound Freight (shipping cost) ─────────────────────────────────────
+    // Freight is NOT part of COGS — it posts to its own expense account
+    // (COGS_FREIGHT ledger mapping) with an offset to INV_RECEIVING_CLEARING.
+    #[derive(sqlx::FromRow)]
+    struct FreightAgg {
+        total_freight: Option<Decimal>,
+    }
+    let freight_agg: FreightAgg = sqlx::query_as(
+        r#"
+        SELECT COALESCE(SUM(re.freight_total), 0)::numeric(14,2) AS total_freight
+        FROM receiving_events re
+        WHERE (re.received_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+          AND re.freight_total > 0
+        "#,
+    )
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
+    let freight_total = freight_agg
+        .total_freight
+        .unwrap_or(Decimal::ZERO)
+        .round_dp(2);
+    if !freight_total.is_zero() {
+        let freight_account = ledger_fallback(pool, "COGS_FREIGHT").await?;
+        let clearing_account = ledger_fallback(pool, "INV_RECEIVING_CLEARING").await?;
+
+        if let (Some((fr_id, fr_name)), Some((cl_id, cl_name))) =
+            (freight_account, clearing_account)
+        {
+            lines.push(JournalLine {
+                qbo_account_id: fr_id,
+                qbo_account_name: fr_name,
+                debit: freight_total,
+                credit: Decimal::ZERO,
+                memo: format!("Inbound freight / shipping cost for {activity_date}"),
+                detail: vec![json!({"kind": "freight", "total": freight_total.to_string()})],
+            });
+            lines.push(JournalLine {
+                qbo_account_id: cl_id,
+                qbo_account_name: cl_name,
+                debit: Decimal::ZERO,
+                credit: freight_total,
+                memo: format!("Freight clearing offset for {activity_date}"),
+                detail: vec![],
+            });
+        } else {
+            warnings.push(format!(
+                "Inbound freight of ${freight_total} detected but `COGS_FREIGHT` or `INV_RECEIVING_CLEARING` ledger mapping is missing; freight omitted from journal."
+            ));
+        }
+    }
+
     for t in &tender_rows {
         let amt = t.total.unwrap_or(Decimal::ZERO);
         if amt.is_zero() {

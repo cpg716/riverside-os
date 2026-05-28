@@ -9,8 +9,8 @@ Target: Hybrid Tauri Host retail deployment.
 - [ ] Current release has Windows installer/updater assets published.
   - Required action: tag/publish `v0.80.8`, then run the Windows updater release workflow and Windows deployment package workflow before installing Windows stations.
   - Required artifacts: `latest.json`, `riverside-updater-build-manifest.json`, Windows MSI, matching `.sig`, and `RiversideOS-v0.80.8-Windows-Deployment.zip`.
-- [ ] Current release has macOS Deployment Manager DMG published.
-  - Required artifact: `RiversideOS-Deployment-Manager_0.80.8_universal.dmg`.
+- [ ] Current release has macOS ROS Dev Center DMG published.
+  - Required artifact: `ROS-Dev-Center_0.80.9_universal.dmg`.
 - [ ] Latest Playwright E2E push on `main` passed for the final `v0.80.8` release commit.
 - [ ] Latest Lint Checks push on `main` passed for the final `v0.80.8` release commit.
 - [ ] Production station deployment log is complete for:
@@ -36,7 +36,7 @@ Verification run on 2026-05-25: `cargo check`, `cargo clippy`, `cargo fmt`, `npm
 
 - [ ] `v0.80.8` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
 - [ ] `v0.80.8` Windows deployment package exists and its manifest source SHA matches the release tag.
-- [ ] `v0.80.8` macOS Deployment Manager DMG exists.
+- [ ] `v0.80.8` macOS ROS Dev Center DMG exists.
 - [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
 - [ ] GitHub checks have rerun and passed on the final release commit.
 

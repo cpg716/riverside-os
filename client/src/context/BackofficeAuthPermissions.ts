@@ -51,6 +51,7 @@ export const SIDEBAR_SUB_SECTION_PERMISSION: Record<string, string> = {
   "settings:ros-operations-center": "ops.dev_center.view",
   "settings:ros-dev-center": "ops.dev_center.view",
   "settings:constant-contact": "constant_contact.manage",
+  "settings:migration-workbench": "settings.admin",
   "home:reviews": "reviews.view",
 };
 

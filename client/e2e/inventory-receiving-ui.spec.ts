@@ -185,6 +185,9 @@ test.describe("Inventory receiving operator verification", () => {
     await confirmPostButton.click({ force: true });
     await receiveResponse;
 
+    // Close receiving report modal
+    await page.getByRole("button", { name: /^done$/i }).click();
+
     await expect(page.getByRole("heading", { name: /receive stock/i })).toBeHidden({
       timeout: 20_000,
     });
@@ -255,6 +258,9 @@ test.describe("Inventory receiving operator verification", () => {
       .getByRole("button", { name: /confirm & post|post without invoice/i })
       .click({ force: true });
     await receiveResponse;
+
+    // Close receiving report modal
+    await page.getByRole("button", { name: /^done$/i }).click();
 
     await expect(page.getByRole("heading", { name: /receive stock/i })).toBeHidden({
       timeout: 20_000,

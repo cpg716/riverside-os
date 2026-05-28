@@ -353,6 +353,12 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | GET | `/api/qbo/mappings` | Saved mappings. |
 | GET | `/api/qbo/staging` | Staging rows. |
 | GET | `/api/qbo/staging/{id}/drilldown` | Line-level drilldown. |
+| POST | `/api/qbo/staging/propose` | Stage daily journal for a business date. |
+| POST | `/api/qbo/staging/{id}/approve` | Approve pending entry for sync (**`qbo.staging_approve`**). |
+| POST | `/api/qbo/staging/{id}/revert` | Revert approved entry back to pending (**`qbo.staging_approve`**). |
+| POST | `/api/qbo/staging/{id}/retry` | Re-validate and re-sync a failed entry (**`qbo.sync`**). |
+| POST | `/api/qbo/staging/{id}/sync` | Post approved entry to QBO (**`qbo.sync`**). |
+| POST | `/api/qbo/staging/{id}/void` | Void/delete synced JournalEntry in QBO (**`qbo.sync`**). |
 
 ### `/api/settings/*`
 

@@ -2358,6 +2358,9 @@ async fn close_session(
                 "QBO pending journal after Z-close failed"
             ),
         }
+
+        // Auto-send daily financial report after close (if configured)
+        crate::api::daily_reports::auto_send_daily_report(&snapshot_pool).await;
     });
 
     let _ = log_staff_access(

@@ -262,10 +262,15 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_purchase_orders).post(create_draft_po))
         .route("/direct-invoice", post(create_direct_invoice_draft))
+        .route(
+            "/receiving-events/{event_id}",
+            get(get_receiving_event_detail),
+        )
         .route("/{po_id}", get(get_po_details))
         .route("/{po_id}/lines", post(add_po_line))
         .route("/{po_id}/submit", post(submit_po))
         .route("/{po_id}/receive", post(receive_po))
+        .route("/{po_id}/receiving-history", get(list_receiving_history))
 }
 
 async fn list_purchase_orders(
@@ -953,14 +958,15 @@ async fn receive_po(
 
     let receive_event_id: Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO receiving_events (purchase_order_id, invoice_number, freight_total, notes)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO receiving_events (purchase_order_id, invoice_number, freight_total, received_by, notes)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING id
         "#,
     )
     .bind(po_id)
     .bind(invoice_number.clone())
     .bind(payload.freight_total)
+    .bind(staff.id)
     .bind(&receipt_note)
     .fetch_one(&mut *tx)
     .await?;
@@ -1379,6 +1385,175 @@ async fn create_backorder_from_short_lines(
 
     tx.commit().await?;
     Ok(Some(target_po_id))
+}
+
+// ── Receiving History ────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct ReceivingEventSummary {
+    pub id: Uuid,
+    pub purchase_order_id: Uuid,
+    pub po_number: String,
+    pub vendor_name: String,
+    pub invoice_number: Option<String>,
+    pub freight_total: Decimal,
+    pub received_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub received_by_name: Option<String>,
+    pub total_units_received: i64,
+    pub total_line_cost: Decimal,
+}
+
+async fn list_receiving_history(
+    State(state): State<AppState>,
+    Path(po_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ReceivingEventSummary>>, PurchaseOrderError> {
+    require_po(&state, &headers, PROCUREMENT_VIEW).await?;
+    let rows = sqlx::query_as::<_, ReceivingEventSummary>(
+        r#"
+        SELECT
+            re.id,
+            re.purchase_order_id,
+            po.po_number,
+            v.name AS vendor_name,
+            re.invoice_number,
+            re.freight_total,
+            re.received_at,
+            s.display_name AS received_by_name,
+            COALESCE(SUM(it.quantity_delta), 0)::bigint AS total_units_received,
+            COALESCE(SUM(it.unit_cost * it.quantity_delta), 0)::numeric(14,2) AS total_line_cost
+        FROM receiving_events re
+        INNER JOIN purchase_orders po ON po.id = re.purchase_order_id
+        INNER JOIN vendors v ON v.id = po.vendor_id
+        LEFT JOIN staff s ON s.id = re.received_by
+        LEFT JOIN inventory_transactions it
+            ON it.reference_table = 'receiving_events'
+           AND it.reference_id = re.id
+        WHERE re.purchase_order_id = $1
+        GROUP BY re.id, po.po_number, v.name, s.display_name
+        ORDER BY re.received_at DESC
+        "#,
+    )
+    .bind(po_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct ReceivingEventLineDetail {
+    pub sku: String,
+    pub product_name: String,
+    pub variation_label: Option<String>,
+    pub quantity_received: i32,
+    pub unit_cost: Decimal,
+    pub landed_cost_component: Decimal,
+    pub line_total: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReceivingEventDetailResponse {
+    pub id: Uuid,
+    pub purchase_order_id: Uuid,
+    pub po_number: String,
+    pub vendor_name: String,
+    pub invoice_number: Option<String>,
+    pub freight_total: Decimal,
+    pub received_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub received_by_name: Option<String>,
+    pub lines: Vec<ReceivingEventLineDetail>,
+    pub total_units: i64,
+    pub total_merchandise_cost: Decimal,
+    pub grand_total: Decimal,
+}
+
+async fn get_receiving_event_detail(
+    State(state): State<AppState>,
+    Path(event_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<ReceivingEventDetailResponse>, PurchaseOrderError> {
+    require_po(&state, &headers, PROCUREMENT_VIEW).await?;
+
+    #[derive(Debug, FromRow)]
+    struct EventHeader {
+        id: Uuid,
+        purchase_order_id: Uuid,
+        po_number: String,
+        vendor_name: String,
+        invoice_number: Option<String>,
+        freight_total: Decimal,
+        received_at: Option<chrono::DateTime<chrono::Utc>>,
+        received_by_name: Option<String>,
+    }
+
+    let header = sqlx::query_as::<_, EventHeader>(
+        r#"
+        SELECT
+            re.id,
+            re.purchase_order_id,
+            po.po_number,
+            v.name AS vendor_name,
+            re.invoice_number,
+            re.freight_total,
+            re.received_at,
+            s.display_name AS received_by_name
+        FROM receiving_events re
+        INNER JOIN purchase_orders po ON po.id = re.purchase_order_id
+        INNER JOIN vendors v ON v.id = po.vendor_id
+        LEFT JOIN staff s ON s.id = re.received_by
+        WHERE re.id = $1
+        "#,
+    )
+    .bind(event_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(PurchaseOrderError::NotFound)?;
+
+    let line_rows = sqlx::query_as::<_, ReceivingEventLineDetail>(
+        r#"
+        SELECT
+            pv.sku,
+            p.name AS product_name,
+            pv.variation_label,
+            it.quantity_delta AS quantity_received,
+            COALESCE(it.unit_cost, 0)::numeric(12,4) AS unit_cost,
+            COALESCE(it.landed_cost_component, 0)::numeric(12,4) AS landed_cost_component,
+            (COALESCE(it.unit_cost, 0) * it.quantity_delta)::numeric(14,2) AS line_total
+        FROM inventory_transactions it
+        INNER JOIN product_variants pv ON pv.id = it.variant_id
+        INNER JOIN products p ON p.id = pv.product_id
+        WHERE it.reference_table = 'receiving_events'
+          AND it.reference_id = $1
+        ORDER BY p.name, pv.sku
+        "#,
+    )
+    .bind(event_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let total_units: i64 = line_rows.iter().map(|l| l.quantity_received as i64).sum();
+    let total_merchandise_cost: Decimal = line_rows
+        .iter()
+        .map(|l| l.line_total)
+        .sum::<Decimal>()
+        .round_dp(2);
+    let grand_total = (total_merchandise_cost + header.freight_total).round_dp(2);
+
+    Ok(Json(ReceivingEventDetailResponse {
+        id: header.id,
+        purchase_order_id: header.purchase_order_id,
+        po_number: header.po_number,
+        vendor_name: header.vendor_name,
+        invoice_number: header.invoice_number,
+        freight_total: header.freight_total,
+        received_at: header.received_at,
+        received_by_name: header.received_by_name,
+        lines: line_rows,
+        total_units,
+        total_merchandise_cost,
+        grand_total,
+    }))
 }
 
 async fn notify_backorder_failure(

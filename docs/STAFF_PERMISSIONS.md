@@ -52,7 +52,7 @@ Operational behavior (refund queue, returns, register session bypass): **`docs/T
 | `catalog.edit` | Product create/import/bulk/matrix, variant pricing & stock, shelf labels, clear overrides; **`POST /api/inventory/batch-scan`**. |
 | `procurement.view` | List/get purchase orders. |
 | `procurement.mutate` | Create/submit/receive PO, direct invoice, lines. |
-| `settings.admin` | Receipt config, backup CRUD/restore, DB stats/optimize. |
+| `settings.admin` | Receipt config, backup CRUD/restore, DB stats/optimize, daily financial report config/send/history. |
 | `gift_cards.manage` | Gift card admin surfaces (issue/void/list); lookup paths may also allow POS session per module. |
 | `loyalty.program_settings` | `GET`/`PATCH` loyalty settings, monthly eligible (PII). |
 | `weddings.view` | Read wedding routes (SSE, lists, GET party/member, ledger, financial context). |

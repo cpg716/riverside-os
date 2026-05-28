@@ -532,8 +532,9 @@ async fn create_backup(
     let manager = BackupManager::new(state.database_url.clone());
     let settings_raw: Value =
         sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
-            .fetch_one(&state.db)
-            .await?;
+            .fetch_optional(&state.db)
+            .await?
+            .unwrap_or_else(|| json!({}));
     let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
     let filename = match manager.create_backup_with_settings(&settings).await {
         Ok(f) => f,

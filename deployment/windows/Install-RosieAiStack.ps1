@@ -175,16 +175,37 @@ if ($SkipVoiceTools) {
   if ($uvCmd -and (Test-Path $uvCmd)) {
     Write-Host "      uv: $uvCmd"
     Write-Host "      Installing sherpa-onnx..."
+    $sherpaInstalled = $false
+    # Attempt 1: uv tool install with pinned Python 3.12
     try {
       & $uvCmd tool install --force --python 3.12 sherpa-onnx 2>&1 | ForEach-Object { Write-Host "      $_" }
-      if ($LASTEXITCODE -eq 0) {
-        Write-Host "      sherpa-onnx installed."
-      } else {
-        throw "uv exited $LASTEXITCODE"
-      }
-    } catch {
-      Write-Warning "      sherpa-onnx install failed: $($_.Exception.Message)"
-      Write-Warning "      Voice features will use Windows TTS fallback."
+      if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
+    } catch { }
+    # Attempt 2: uv tool install without pinned Python
+    if (-not $sherpaInstalled) {
+      Write-Host "      Retry 1 - without pinned Python..."
+      try {
+        & $uvCmd tool install --force sherpa-onnx 2>&1 | ForEach-Object { Write-Host "      $_" }
+        if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
+      } catch { }
+    }
+    # Attempt 3: pip install into a dedicated venv
+    if (-not $sherpaInstalled) {
+      Write-Host "      Retry 2 - creating dedicated venv with pip..."
+      $sherpaVenv = Join-Path $env:LOCALAPPDATA "riverside-os\rosie\sherpa-venv"
+      try {
+        & $uvCmd venv --python 3.12 $sherpaVenv 2>&1 | ForEach-Object { Write-Host "      $_" }
+        $sherpaVenvPip = Join-Path $sherpaVenv "Scripts\pip.exe"
+        if (Test-Path $sherpaVenvPip) {
+          & $sherpaVenvPip install --upgrade sherpa-onnx 2>&1 | ForEach-Object { Write-Host "      $_" }
+          if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
+        }
+      } catch { }
+    }
+    if ($sherpaInstalled) {
+      Write-Host "      sherpa-onnx installed successfully."
+    } else {
+      Write-Warning "      sherpa-onnx install FAILED after all retries. Voice STT/TTS will not be available. Check network connectivity and try again."
     }
   }
 

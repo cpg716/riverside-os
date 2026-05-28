@@ -247,7 +247,10 @@ pub fn router() -> Router<AppState> {
         .route("/staging/propose", post(propose_staging))
         .route("/staging/{id}/drilldown", get(staging_drilldown))
         .route("/staging/{id}/approve", post(approve_staging))
+        .route("/staging/{id}/revert", post(revert_to_pending))
+        .route("/staging/{id}/retry", post(retry_failed))
         .route("/staging/{id}/sync", post(sync_staging))
+        .route("/staging/{id}/void", post(void_synced))
 }
 
 pub fn auth_router() -> Router<AppState> {
@@ -2074,6 +2077,424 @@ async fn sync_staging(
 
     Ok(Json(json!({
         "status": "synced",
+        "journal_entry_id": je_id
+    })))
+}
+
+/// Revert an approved (but not yet synced) staging entry back to pending so it can be
+/// regenerated or its mappings corrected before re-approval.
+async fn revert_to_pending(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, QboError> {
+    let admin = require_staff_with_permission(&state, &headers, QBO_STAGING_APPROVE)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+
+    let n = sqlx::query(
+        r#"
+        UPDATE qbo_sync_logs
+        SET status = 'pending', approved_by_staff_id = NULL, approved_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND status = 'approved'
+        "#,
+    )
+    .bind(id)
+    .execute(&state.db)
+    .await?
+    .rows_affected();
+
+    if n == 0 {
+        return Err(QboError::Conflict(
+            "only approved entries can be reverted to pending".to_string(),
+        ));
+    }
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "qbo_staging_revert_pending",
+        json!({ "staging_id": id }),
+    )
+    .await;
+
+    Ok(Json(json!({ "status": "reverted_to_pending" })))
+}
+
+/// Retry a failed staging entry: re-validate balance/accounts and re-attempt sync to QBO.
+async fn retry_failed(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, QboError> {
+    let admin = require_staff_with_permission(&state, &headers, QBO_SYNC)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+
+    let row: Option<(String, serde_json::Value)> =
+        sqlx::query_as("SELECT status, payload FROM qbo_sync_logs WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?;
+
+    let Some((status, payload)) = row else {
+        return Err(QboError::NotFound);
+    };
+    if status != "failed" {
+        return Err(QboError::Conflict(
+            "only failed entries can be retried".to_string(),
+        ));
+    }
+
+    // Re-validate before retry
+    validate_staging_journal_balanced(&payload)?;
+    validate_staging_accounts_active(&state.db, &payload).await?;
+
+    // Move back to approved so sync_staging can process it
+    sqlx::query(
+        r#"
+        UPDATE qbo_sync_logs
+        SET status = 'approved', error_message = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND status = 'failed'
+        "#,
+    )
+    .bind(id)
+    .execute(&state.db)
+    .await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "qbo_staging_retry",
+        json!({ "staging_id": id }),
+    )
+    .await;
+
+    // Now delegate to sync_staging logic inline
+    let integ = integration_row(&state.db)
+        .await?
+        .ok_or_else(|| QboError::InvalidPayload("no active QBO integration".to_string()))?;
+    let realm_id = integ
+        .realm_id
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| QboError::InvalidPayload("missing realm_id".to_string()))?;
+
+    let access_token = match integ
+        .access_token
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        Some(t) => t.to_string(),
+        None => refresh_access_token(&state.db, &integ).await?,
+    };
+
+    fn to_amount(v: &serde_json::Value) -> Option<String> {
+        if let Some(s) = v.as_str() {
+            return Some(s.to_string());
+        }
+        if let Some(n) = v.as_f64() {
+            return Some(format!("{:.2}", n.abs()));
+        }
+        None
+    }
+    let sync_date = payload
+        .get("activity_date")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let mut line_payloads: Vec<serde_json::Value> = Vec::new();
+    if let Some(lines) = payload.get("lines").and_then(|v| v.as_array()) {
+        for l in lines {
+            let debit = l.get("debit").and_then(to_amount);
+            let credit = l.get("credit").and_then(to_amount);
+            let (posting_type, amount) = if let Some(d) = debit.as_ref().filter(|d| *d != "0.00") {
+                ("Debit", d.clone())
+            } else if let Some(c) = credit.as_ref().filter(|c| *c != "0.00") {
+                ("Credit", c.clone())
+            } else {
+                continue;
+            };
+            let account_id = l
+                .get("qbo_account_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if account_id.is_empty() {
+                continue;
+            }
+            let account_name = l
+                .get("qbo_account_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or(account_id);
+            let memo = l
+                .get("memo")
+                .and_then(|v| v.as_str())
+                .unwrap_or("ROS journal line");
+            line_payloads.push(json!({
+                "Description": memo,
+                "Amount": amount,
+                "DetailType": "JournalEntryLineDetail",
+                "JournalEntryLineDetail": {
+                    "PostingType": posting_type,
+                    "AccountRef": { "value": account_id, "name": account_name }
+                }
+            }));
+        }
+    }
+    if line_payloads.is_empty() {
+        return Err(QboError::InvalidPayload(
+            "staging payload has no journal lines".to_string(),
+        ));
+    }
+    let je_body = json!({
+        "TxnDate": sync_date,
+        "Line": line_payloads
+    });
+    let request_id = format!("ros-qbo-journal-retry-{id}");
+    let url = format!(
+        "{}/v3/company/{}/journalentry?minorversion={}&requestid={}",
+        qbo_base_url(integ.use_sandbox),
+        realm_id,
+        QBO_MINOR_VERSION,
+        request_id
+    );
+    let http = Client::new();
+    let resp = http
+        .post(&url)
+        .bearer_auth(access_token)
+        .header("Accept", "application/json")
+        .json(&je_body)
+        .send()
+        .await
+        .map_err(|e| QboError::Conflict(format!("QBO JournalEntry request failed: {e}")))?;
+    let status_code = resp.status();
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .unwrap_or_else(|_| json!({ "fault": "invalid response from qbo" }));
+    if !status_code.is_success() {
+        let err_msg = body
+            .get("Fault")
+            .and_then(|f| f.get("Error"))
+            .and_then(|e| e.get(0))
+            .and_then(|e| e.get("Detail"))
+            .and_then(|d| d.as_str())
+            .or_else(|| body.get("fault").and_then(|v| v.as_str()))
+            .unwrap_or("QBO sync failed")
+            .to_string();
+        sqlx::query(
+            r#"
+            UPDATE qbo_sync_logs
+            SET status = 'failed', error_message = $2, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(&err_msg)
+        .execute(&state.db)
+        .await?;
+        return Err(QboError::Conflict(format!("QBO retry failed: {err_msg}")));
+    }
+    let je_id = body
+        .get("JournalEntry")
+        .and_then(|j| j.get("Id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("UNKNOWN")
+        .to_string();
+    sqlx::query(
+        r#"
+        UPDATE qbo_sync_logs
+        SET status = 'synced', journal_entry_id = $2, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .bind(&je_id)
+    .execute(&state.db)
+    .await?;
+    sqlx::query(
+        "UPDATE qbo_integration SET last_sync_at = CURRENT_TIMESTAMP WHERE is_active = true",
+    )
+    .execute(&state.db)
+    .await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "qbo_retry_success",
+        json!({ "staging_id": id, "journal_entry_id": je_id.clone() }),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "status": "synced",
+        "journal_entry_id": je_id
+    })))
+}
+
+/// Void a synced JournalEntry in QBO and mark the local staging row as voided.
+async fn void_synced(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, QboError> {
+    let admin = require_staff_with_permission(&state, &headers, QBO_SYNC)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+
+    let row: Option<(String, Option<String>)> =
+        sqlx::query_as("SELECT status, journal_entry_id FROM qbo_sync_logs WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?;
+
+    let Some((status, je_id_opt)) = row else {
+        return Err(QboError::NotFound);
+    };
+    if status != "synced" {
+        return Err(QboError::Conflict(
+            "only synced entries can be voided in QuickBooks".to_string(),
+        ));
+    }
+    let je_id = je_id_opt
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| {
+            QboError::InvalidPayload(
+                "synced entry has no journal_entry_id; cannot void in QBO".to_string(),
+            )
+        })?;
+
+    let integ = integration_row(&state.db)
+        .await?
+        .ok_or_else(|| QboError::InvalidPayload("no active QBO integration".to_string()))?;
+    let realm_id = integ
+        .realm_id
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| QboError::InvalidPayload("missing realm_id".to_string()))?;
+
+    let access_token = match integ
+        .access_token
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        Some(t) => t.to_string(),
+        None => refresh_access_token(&state.db, &integ).await?,
+    };
+
+    // First, read the JournalEntry from QBO to get its SyncToken (required for updates/voids)
+    let read_url = format!(
+        "{}/v3/company/{}/journalentry/{}?minorversion={}",
+        qbo_base_url(integ.use_sandbox),
+        realm_id,
+        je_id,
+        QBO_MINOR_VERSION
+    );
+    let http = Client::new();
+    let read_resp = http
+        .get(&read_url)
+        .bearer_auth(&access_token)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| QboError::Conflict(format!("QBO read JournalEntry failed: {e}")))?;
+
+    if !read_resp.status().is_success() {
+        let err_body: serde_json::Value = read_resp
+            .json()
+            .await
+            .unwrap_or_else(|_| json!({ "fault": "failed to read JE from QBO" }));
+        let err_msg = err_body
+            .get("Fault")
+            .and_then(|f| f.get("Error"))
+            .and_then(|e| e.get(0))
+            .and_then(|e| e.get("Detail"))
+            .and_then(|d| d.as_str())
+            .unwrap_or("Failed to read JournalEntry from QBO")
+            .to_string();
+        return Err(QboError::Conflict(err_msg));
+    }
+
+    let je_read: serde_json::Value = read_resp.json().await.unwrap_or_else(|_| json!({}));
+    let sync_token = je_read
+        .get("JournalEntry")
+        .and_then(|j| j.get("SyncToken"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("0")
+        .to_string();
+
+    // Delete (void) the JournalEntry in QBO
+    let delete_url = format!(
+        "{}/v3/company/{}/journalentry?operation=delete&minorversion={}",
+        qbo_base_url(integ.use_sandbox),
+        realm_id,
+        QBO_MINOR_VERSION
+    );
+    let delete_body = json!({
+        "Id": je_id,
+        "SyncToken": sync_token
+    });
+    let delete_resp = http
+        .post(&delete_url)
+        .bearer_auth(&access_token)
+        .header("Accept", "application/json")
+        .json(&delete_body)
+        .send()
+        .await
+        .map_err(|e| QboError::Conflict(format!("QBO delete JournalEntry failed: {e}")))?;
+
+    if !delete_resp.status().is_success() {
+        let err_body: serde_json::Value = delete_resp
+            .json()
+            .await
+            .unwrap_or_else(|_| json!({ "fault": "QBO void request failed" }));
+        let err_msg = err_body
+            .get("Fault")
+            .and_then(|f| f.get("Error"))
+            .and_then(|e| e.get(0))
+            .and_then(|e| e.get("Detail"))
+            .and_then(|d| d.as_str())
+            .unwrap_or("Failed to void JournalEntry in QBO")
+            .to_string();
+        sqlx::query(
+            r#"
+            UPDATE qbo_sync_logs
+            SET error_message = $2, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(&err_msg)
+        .execute(&state.db)
+        .await?;
+        return Err(QboError::Conflict(format!("QBO void failed: {err_msg}")));
+    }
+
+    // Mark local row as voided
+    sqlx::query(
+        r#"
+        UPDATE qbo_sync_logs
+        SET status = 'voided', error_message = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .execute(&state.db)
+    .await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "qbo_staging_void",
+        json!({ "staging_id": id, "journal_entry_id": je_id }),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "status": "voided",
         "journal_entry_id": je_id
     })))
 }

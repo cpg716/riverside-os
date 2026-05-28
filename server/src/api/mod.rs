@@ -12,7 +12,9 @@ pub mod alterations;
 pub mod bug_reports;
 pub mod categories;
 pub mod counterpoint_sync;
+pub mod counterpoint_workbench;
 pub mod customers;
+pub mod daily_reports;
 pub mod discount_events;
 pub mod gift_cards;
 pub mod hardware;
@@ -71,6 +73,101 @@ async fn api_version() -> Json<ApiVersionResponse> {
     })
 }
 
+#[derive(Serialize)]
+struct NetworkInfoResponse {
+    hostname: String,
+    server_port: u16,
+    lan_ips: Vec<String>,
+    urls: Vec<NetworkUrl>,
+    tailscale_ip: Option<String>,
+}
+
+#[derive(Serialize)]
+struct NetworkUrl {
+    label: String,
+    url: String,
+    kind: &'static str,
+}
+
+async fn api_network_info(headers: axum::http::HeaderMap) -> Json<NetworkInfoResponse> {
+    let hostname = std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
+    let http_bind = std::env::var("HTTP_BIND").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+    let server_port: u16 = http_bind
+        .rsplit(':')
+        .next()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(3000);
+
+    let mut lan_ips = Vec::new();
+    let mut tailscale_ip = None;
+
+    // UDP trick: open a socket to an external address to discover the default route interface
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                let ip = addr.ip().to_string();
+                if !ip.starts_with("127.") {
+                    lan_ips.push(ip);
+                }
+            }
+        }
+    }
+
+    // Also check if we're behind a proxy / the request came from a known host
+    if let Some(host_header) = headers.get("host").and_then(|v| v.to_str().ok()) {
+        let host_part = host_header.split(':').next().unwrap_or("");
+        if !host_part.is_empty()
+            && host_part != "localhost"
+            && host_part != "127.0.0.1"
+            && !lan_ips.contains(&host_part.to_string())
+        {
+            // Check if it's a Tailscale IP (100.x.x.x)
+            if host_part.starts_with("100.") {
+                tailscale_ip = Some(host_part.to_string());
+            }
+        }
+    }
+
+    // Build connection URLs
+    let mut urls = Vec::new();
+
+    urls.push(NetworkUrl {
+        label: "Backoffice / Server (this machine)".to_string(),
+        url: format!("http://127.0.0.1:{server_port}"),
+        kind: "loopback",
+    });
+
+    for ip in &lan_ips {
+        urls.push(NetworkUrl {
+            label: format!("LAN — Registers & PWA devices"),
+            url: format!("http://{ip}:{server_port}"),
+            kind: "lan",
+        });
+    }
+
+    if let Some(ref ts_ip) = tailscale_ip {
+        urls.push(NetworkUrl {
+            label: "Tailscale — Remote access".to_string(),
+            url: format!("http://{ts_ip}:{server_port}"),
+            kind: "tailscale",
+        });
+    }
+
+    Json(NetworkInfoResponse {
+        hostname,
+        server_port,
+        lan_ips,
+        urls,
+        tailscale_ip,
+    })
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -109,6 +206,7 @@ pub struct AppState {
 pub fn build_router(app_state: AppState) -> Router<AppState> {
     let mut router = Router::new()
         .route("/api/version", get(api_version))
+        .route("/api/network-info", get(api_network_info))
         .merge(metabase_proxy::router())
         .nest("/api/ai", ai::router())
         .nest("/api/inventory", inventory::router())
@@ -121,6 +219,7 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
         .nest("/api/discount-events", discount_events::router())
         .nest("/api/purchase-orders", purchase_orders::router())
         .nest("/api/qbo", qbo::router())
+        .nest("/api/daily-reports", daily_reports::router())
         .nest(
             "/api/auth",
             staff::auth_router().nest("/qbo", qbo::auth_router()),
@@ -169,6 +268,10 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
         .nest(
             "/api/settings/counterpoint-sync",
             counterpoint_sync::settings_router(),
+        )
+        .nest(
+            "/api/settings/counterpoint-sync/workbench",
+            counterpoint_workbench::router(),
         )
         .nest(
             "/api/settings/constant-contact",

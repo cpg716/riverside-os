@@ -31,7 +31,8 @@ Settings appears in these sidebar groups:
 
 **Maintenance**
 1. **Data & Backups**
-2. **Remote Access**
+2. **Daily Financial Report**
+3. **Remote Access**
 
 **Integrations**
 1. **Integrations Overview**
@@ -104,6 +105,20 @@ Typical areas (labels may group differently by build):
 - **Cloud sync** can send backups to S3-compatible storage, OneDrive, Google Drive, or Dropbox when credentials are configured.
 - **Replication folders** copy verified backups to mounted/synced folders such as NAS shares, mapped Windows drives, external drives, or cloud desktop sync folders.
 - **Encrypted archives** require the server recovery key. Do not enable encryption until `RIVERSIDE_BACKUP_ENCRYPTION_KEY` is recorded in the approved recovery bundle.
+
+### Daily Financial Report
+
+- **Enable/Disable**: Master toggle for report generation and storage.
+- **Auto-Send After Close**: When enabled, the report is automatically emailed to all configured recipients after Z-close.
+- **Recipient Emails**: Add/remove email addresses that receive the daily report.
+- **Subject Template**: Customize the email subject; `{date}` is replaced with the business date.
+- **Include QBO Status**: Toggle QBO journal sync status badge in the report.
+- **Include Inventory Activity**: Toggle receiving/freight activity in the report.
+- **Generate**: Manually create a report for any date.
+- **Generate & Send**: Create and email a report to all recipients.
+- **Test Send**: Send the most recent completed report with `[TEST]` prefix. Supports email override.
+- **Report History**: View all generated reports with net sales, status badges, and actions to **View** (in-app HTML preview) or **Resend**.
+- See [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md) for API details and email template specs.
 
 ### Database
 
@@ -249,6 +264,7 @@ For remote administrative management, developers and admins can run the standalo
 - [../ROS_DEV_CENTER.md](../ROS_DEV_CENTER.md)
 - [../MANUAL_CREATION.md](../MANUAL_CREATION.md)
 - [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md)
+- [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md)
 - [pos-settings.md](pos-settings.md)
 
-**Last reviewed:** 2026-05-23
+**Last reviewed:** 2026-05-27

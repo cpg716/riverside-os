@@ -804,12 +804,37 @@ function Install-RosieStack($PackageRoot) {
   }
 
   Write-Host "ROSIE: Installing sherpa-onnx Python runtime via uv..."
+  $sherpaInstalled = $false
+  # Attempt 1: uv tool install with pinned Python 3.12
   try {
     & $uvCmd tool install --force --python 3.12 sherpa-onnx 2>&1 | Write-Host
-    if ($LASTEXITCODE -ne 0) { throw "uv tool install sherpa-onnx exited $LASTEXITCODE" }
-    Write-Host "ROSIE: sherpa-onnx installed."
-  } catch {
-    Write-Warning "ROSIE: sherpa-onnx install failed: $($_.Exception.Message). Voice features will fall back to Windows TTS."
+    if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
+  } catch { }
+  # Attempt 2: uv tool install without pinned Python
+  if (-not $sherpaInstalled) {
+    Write-Host "ROSIE: Retry 1 - sherpa-onnx without pinned Python version..."
+    try {
+      & $uvCmd tool install --force sherpa-onnx 2>&1 | Write-Host
+      if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
+    } catch { }
+  }
+  # Attempt 3: pip install into a uv-managed venv as fallback
+  if (-not $sherpaInstalled) {
+    Write-Host "ROSIE: Retry 2 - creating dedicated venv with pip..."
+    $sherpaVenv = Join-Path $env:LOCALAPPDATA "riverside-os\rosie\sherpa-venv"
+    try {
+      & $uvCmd venv --python 3.12 $sherpaVenv 2>&1 | Write-Host
+      $sherpaVenvPip = Join-Path $sherpaVenv "Scripts\pip.exe"
+      if (Test-Path $sherpaVenvPip) {
+        & $sherpaVenvPip install --upgrade sherpa-onnx 2>&1 | Write-Host
+        if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
+      }
+    } catch { }
+  }
+  if ($sherpaInstalled) {
+    Write-Host "ROSIE: sherpa-onnx installed successfully."
+  } else {
+    Write-Warning "ROSIE: sherpa-onnx install FAILED after all retries. Voice STT/TTS will not be available. Check network connectivity and try again."
   }
 
   # ---- 3. SenseVoice STT model -----

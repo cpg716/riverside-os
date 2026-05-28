@@ -1,5 +1,4 @@
 import { useEffect, useState, useMemo, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { ShieldCheck } from "lucide-react";
 import {
@@ -148,10 +147,6 @@ export default function BackofficeSignInGate({
       ...(browserOrigin ? [browserOrigin] : []),
     ]);
   }, [serverUrl]);
-
-  const selectedApiHost = apiHostOptions.find(
-    (option) => normalizeApiBase(option.url) === normalizeApiBase(tempUrl),
-  );
 
   const isTailscaleRemote = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -416,85 +411,95 @@ export default function BackofficeSignInGate({
         )}
       </div>
 
-      {/* Manual Server Connection Overlay */}
-      <div className="mt-8">
-        <button
-          onClick={() => setShowServerSetup(true)}
-          className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text transition-all"
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          API Host Settings
-        </button>
-      </div>
-
-      {showServerSetup && createPortal(
-        <div className="ui-overlay-backdrop animate-in fade-in duration-300">
-          <div className="ui-modal w-full max-w-sm p-8 space-y-6 animate-in zoom-in-95 duration-300">
-            <div className="text-center space-y-2">
-              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">API Host Configuration</h3>
-              <p className="text-[10px] font-medium text-app-text-muted">Point this device to the Riverside URL for the host machine it should use: the local-network host URL when this device is in the shop, or the store's Tailscale remote-access URL when this device is off-site.</p>
+      {/* Server connection — inline panel */}
+      <div className="mt-6 w-full max-w-md">
+        {!showServerSetup ? (
+          <button
+            onClick={() => setShowServerSetup(true)}
+            className="w-full flex items-center justify-between rounded-2xl border border-app-border/40 bg-app-surface/60 px-5 py-3 hover:bg-app-surface transition-colors"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${
+                roster.length > 0 ? "bg-emerald-500" : "bg-red-500 animate-pulse"
+              }`} />
+              <div className="text-left min-w-0">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Server</p>
+                <p className="text-[11px] font-mono font-bold text-app-text truncate">{serverUrl}</p>
+              </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Known servers</label>
-              <select
-                value={selectedApiHost?.url ?? ""}
-                onChange={(e) => {
-                  if (e.target.value) {
-                    setTempUrl(e.target.value);
-                  }
+            <span className="text-[9px] font-black uppercase tracking-widest text-app-accent shrink-0 ml-2">Change</span>
+          </button>
+        ) : (
+          <div className="rounded-2xl border border-app-border/40 bg-app-surface overflow-hidden animate-in slide-in-from-bottom-2 duration-200">
+            <div className="px-5 py-3 border-b border-app-border/40 bg-app-bg/40">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text">Server Connection</h3>
+              <p className="text-[9px] text-app-text-muted mt-0.5">Select a known server or enter a custom IP address.</p>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Quick-pick known hosts */}
+              <div className="space-y-1.5">
+                {apiHostOptions.map((option) => {
+                  const isSelected = normalizeApiBase(option.url) === normalizeApiBase(tempUrl);
+                  return (
+                    <button
+                      key={option.url}
+                      type="button"
+                      onClick={() => setTempUrl(option.url)}
+                      className={`w-full text-left rounded-xl border px-4 py-2.5 transition-colors ${
+                        isSelected
+                          ? "border-app-accent bg-app-accent/10"
+                          : "border-app-border/60 bg-app-bg/60 hover:border-app-accent/40"
+                      }`}
+                    >
+                      <p className={`text-xs font-bold ${isSelected ? "text-app-accent" : "text-app-text"}`}>{option.label}</p>
+                      <p className="text-[10px] font-mono text-app-text-muted">{option.url}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Manual URL input */}
+              <div>
+                <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Or enter IP address / URL
+                </label>
+                <input
+                  type="text"
+                  value={tempUrl}
+                  onChange={(e) => setTempUrl(e.target.value)}
+                  placeholder="http://192.168.1.100:3000"
+                  className="mt-1 w-full bg-app-bg border border-app-border rounded-xl px-4 py-2.5 text-xs font-mono text-app-text outline-none focus:border-app-accent"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={saveServerUrl}
+                  className="ui-btn-primary h-10 flex-[2] text-xs font-black"
+                >
+                  Save &amp; Connect
+                </button>
+                <button
+                  onClick={() => setShowServerSetup(false)}
+                  className="ui-btn-secondary h-10 flex-1 text-xs font-black"
+                >
+                  Cancel
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  setTempUrl(DEFAULT_BASE_URL);
+                  localStorage.removeItem("ros_api_base_override");
+                  setServerUrl(DEFAULT_BASE_URL);
+                  setShowServerSetup(false);
+                  window.location.reload();
                 }}
-                className="w-full bg-app-bg border border-app-border rounded-xl px-4 py-3 text-xs font-bold text-app-text outline-none focus:border-app-accent"
+                className="w-full text-[9px] font-black uppercase tracking-widest text-app-text-muted/60 hover:text-app-text transition-all"
               >
-                <option value="">Type a server below</option>
-                {apiHostOptions.map((option) => (
-                  <option key={option.url} value={option.url}>
-                    {option.label} - {option.url}
-                  </option>
-                ))}
-              </select>
-              {selectedApiHost ? (
-                <p className="text-[10px] font-semibold leading-relaxed text-app-text-muted">
-                  {selectedApiHost.helper}
-                </p>
-              ) : null}
-            </div>
-            <div className="space-y-2">
-              <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">API Base URL</label>
-              <input
-                type="text"
-                value={tempUrl}
-                onChange={(e) => setTempUrl(e.target.value)}
-                placeholder="http://ros-host.local:3000 or https://ros-host.tailnet.ts.net"
-                className="w-full bg-app-bg border border-app-border rounded-xl px-4 py-3 text-xs font-mono text-app-text outline-none focus:border-app-accent"
-              />
-            </div>
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setShowServerSetup(false)}
-                className="ui-btn-secondary h-12 flex-1 text-xs font-black"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveServerUrl}
-                className="ui-btn-primary h-12 flex-1 text-xs font-black"
-              >
-                Save & Connect
+                Reset to Default
               </button>
             </div>
-            <button
-              onClick={() => setTempUrl(DEFAULT_BASE_URL)}
-              className="w-full text-[9px] font-black uppercase tracking-widest text-app-text-muted/60 hover:text-app-text transition-all"
-            >
-              Reset to Localhost
-            </button>
           </div>
-        </div>,
-        document.getElementById("drawer-root") || document.body
-      )}
+        )}
+      </div>
     </div>
   );
 }

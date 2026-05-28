@@ -161,3 +161,7 @@ Professional full-page report includes:
 
 - `register.reports` - Required for store-wide view
 - Open register session - Scopes to that lane
+
+## Related: Daily Financial Report
+
+For an automated **emailed** financial summary after register Z-close (covering net sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, category margins, and QBO status), see [DAILY_FINANCIAL_REPORT.md](DAILY_FINANCIAL_REPORT.md). That system is configured in **Settings → Daily Financial Report** and operates independently from the real-time register reports described here.

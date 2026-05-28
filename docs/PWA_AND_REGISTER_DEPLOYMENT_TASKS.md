@@ -28,7 +28,7 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] Target Riverside version is now **`v0.80.8`** across root, client/PWA, server, Tauri, and Deployment Manager metadata.
 - [x] The Windows updater release workflow publishes `latest.json`, the Windows MSI, `.sig`, and an updater build manifest for the same Riverside version.
 - [x] The Windows deployment package workflow publishes `RiversideOS-v0.80.8-Windows-Deployment.zip` containing the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
-- [x] The macOS Deployment Manager workflow publishes a universal Apple Silicon / Intel DMG for remote server management.
+- [x] The macOS ROS Dev Center workflow publishes a universal Apple Silicon / Intel DMG for DevOps companion access.
 - [x] Release workflows run `npm run check:version` so mismatched release metadata blocks packaging.
 - [ ] Before installing Windows stations, confirm the target GitHub release does not retain older Riverside MSI/signature assets beside the current release assets.
 - [ ] Latest `main` **Lint Checks** must be green on the `v0.80.8` release commit before calling the current head release-ready.

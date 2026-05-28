@@ -147,6 +147,22 @@ RiversideOS v0.60.0 introduces the ROSIE Local AI Copilot stack, integrated aggr
 - **Universal Search Aggregator**: Exposes `/api/search/aggregate` to query Customers CRM, catalog inventory, alterations, active weddings, and help articles in a single aggregated backend call, replacing client-side multi-threaded search calls.
 - **Register Transaction Backdating**: POS terminal checkouts support explicit transaction date overrides (`booked_at`). Backdating properly adjusts payment allocations, commission calculations, revenue recognition, and downstream QBO accounting entries.
 
+### v0.80.9 Daily Financial Report & QBO Journal Lifecycle
+
+RiversideOS v0.80.9 introduces automated daily financial reporting and completes the QBO staging lifecycle.
+
+- **Daily Financial Report System**: After register Z-close, the system generates, stores, and emails a comprehensive business-day financial summary. Covers net sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, freight, category margins with COGS/margin %, and QBO journal sync status.
+  - **Settings**: `Settings → Daily Financial Report` — enable/disable, recipient emails, subject template, auto-send toggle, QBO and inventory toggles.
+  - **Auto-Send**: Fires after Z-close in the same background task as EOD snapshot and QBO journal staging.
+  - **Test Send**: Sends the most recent report with `[TEST]` prefix; supports email override.
+  - **Report Archive**: All reports stored in `daily_financial_reports` with full payload + rendered HTML, viewable in Settings via iframe preview modal.
+  - **API**: `/api/daily-reports/` — config, generate, send, test-send, history, detail, resend. All gated by `settings.admin`.
+  - **Migration**: `052_daily_financial_reports.sql`.
+- **QBO Staging Lifecycle Actions**: Revert to Pending, Retry Failed, Void Synced Entry — full lifecycle management for previously staged/synced journal entries.
+- **Inbound Freight in QBO Journal**: `COGS_FREIGHT` ledger key for receiving freight costs, posted as a separate debit line in the daily journal distinct from merchandise COGS.
+
+**Documentation**: `docs/DAILY_FINANCIAL_REPORT.md` for full configuration, API reference, and email template details.
+
 ### v0.3.5 Cash Rounding & CoreCredit Financing
 
 RiversideOS v0.3.5 introduces cash rounding logic and consumer line-of-credit (CoreCard/CoreCredit) integrations.

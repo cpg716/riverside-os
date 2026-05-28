@@ -49,6 +49,7 @@
 
 ## After close (Back Office)
 
+- **Daily Financial Report:** if configured in **Settings → Daily Financial Report**, a comprehensive financial summary is automatically emailed to all configured recipients after Z-close. This includes net sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, category margins, and QBO status. Reports are stored and viewable in the same Settings panel. See [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md).
 - **Orders → Open Orders:** clear stragglers or document — [orders-back-office.md](orders-back-office.md).
 - **Insights** or **QBO** (if used): per accounting schedule — [insights-back-office.md](insights-back-office.md), [qbo-bridge.md](qbo-bridge.md).
 
@@ -68,5 +69,6 @@
 - [FAQ.md](FAQ.md)
 - [working-offline.md](working-offline.md)
 - [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md)
+- [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md)
 
-**Last reviewed:** 2026-05-17
+**Last reviewed:** 2026-05-27

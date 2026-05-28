@@ -21,6 +21,7 @@ import CameraScanner from "./CameraScanner";
 import { playScanSuccess, playScanError, playScanWarning, warmUpAudio } from "../../lib/scanSounds";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import ReceivingReport from "./ReceivingReport";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
@@ -54,6 +55,8 @@ interface ApiLine {
   prior_effective_cost?: string | number;
 }
 
+export type LineReceiveStatus = "received" | "backordered" | "not_shipped" | "";
+
 export interface WorksheetLine {
   line_id: string;
   variant_id: string;
@@ -66,6 +69,7 @@ export interface WorksheetLine {
   qty_receiving: number;
   unit_cost: number;
   prior_effective_cost: number;
+  line_status: LineReceiveStatus;
 }
 
 type ScanMode = "laser" | "camera";
@@ -124,6 +128,7 @@ function mapApiLine(l: ApiLine): WorksheetLine {
     qty_receiving: 0,
     unit_cost: toNumberCost(l.unit_cost),
     prior_effective_cost: toNumberCost(l.prior_effective_cost),
+    line_status: "",
   };
 }
 
@@ -207,6 +212,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
   const [scanCount, setScanCount] = useState(0);
   const [showPostConfirm, setShowPostConfirm] = useState(false);
+  const [postedReceivingEventId, setPostedReceivingEventId] = useState<string | null>(null);
   const { toast } = useToast();
   const scannerRef = useRef<HTMLInputElement>(null);
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -531,7 +537,14 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
         const body = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(body.error ?? "Receive failed");
       }
-      onComplete();
+      const result = (await res.json().catch(() => ({}))) as {
+        receiving_event_id?: string;
+      };
+      if (result.receiving_event_id) {
+        setPostedReceivingEventId(result.receiving_event_id);
+      } else {
+        onComplete();
+      }
     } catch (err) {
       toast(
         err instanceof Error
@@ -808,6 +821,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
                 <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-app-text-muted bg-app-accent-2/10">Prior Rcvd</th>
                 <th className="px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-app-accent-2 bg-app-accent-2/10">Receiving</th>
                 <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Unit Cost</th>
+                <th className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border/40">
@@ -846,6 +860,31 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
                       </span>
                       {line.prior_effective_cost > 0 && (
                         <p className="text-[9px] text-app-text-muted">was ${line.prior_effective_cost.toFixed(2)}</p>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {remaining > 0 ? (
+                        <select
+                          value={line.line_status || (line.qty_receiving >= remaining ? "received" : line.qty_receiving > 0 ? "received" : "")}
+                          disabled={receivingClosed}
+                          onChange={(e) => {
+                            const val = e.target.value as LineReceiveStatus;
+                            setLines((prev) => prev.map((l) => l.line_id === line.line_id ? { ...l, line_status: val } : l));
+                          }}
+                          className={`w-full max-w-[110px] rounded-lg border border-app-border px-1.5 py-1 text-[9px] font-bold outline-none transition-colors disabled:opacity-40 ${
+                            (line.line_status || (line.qty_receiving >= remaining ? "received" : "")) === "received" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                            (line.line_status) === "backordered" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                            (line.line_status) === "not_shipped" ? "bg-red-50 text-red-700 border-red-200" :
+                            "bg-app-surface text-app-text-muted"
+                          }`}
+                        >
+                          <option value="">—</option>
+                          <option value="received">Received</option>
+                          <option value="backordered">Backordered</option>
+                          <option value="not_shipped">Not Shipped</option>
+                        </select>
+                      ) : (
+                        <span className="text-[9px] font-bold text-emerald-600">Complete</span>
                       )}
                     </td>
                   </tr>
@@ -931,6 +970,24 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
           confirmLabel={invoiceMissing ? "Post Without Invoice" : "Confirm & Post"}
           onConfirm={() => void handlePost()}
           onClose={() => setShowPostConfirm(false)}
+        />
+      )}
+
+      {postedReceivingEventId && (
+        <ReceivingReport
+          receivingEventId={postedReceivingEventId}
+          showTagPrompt={true}
+          onPrintTags={(eventId) => {
+            window.open(
+              `${BASE_URL}/api/purchase-orders/receiving-events/${eventId}`,
+              "_blank",
+            );
+            toast("Tag printing initiated. Use label printer for received items.", "success");
+          }}
+          onClose={() => {
+            setPostedReceivingEventId(null);
+            onComplete();
+          }}
         />
       )}
     </div>,

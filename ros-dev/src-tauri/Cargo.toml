@@ -1,6 +1,6 @@
 [package]
 name = "ros-dev-center"
-version = "0.80.8"
+version = "0.80.9"
 description = "Riverside OS DevOps Center"
 edition = "2021"
 

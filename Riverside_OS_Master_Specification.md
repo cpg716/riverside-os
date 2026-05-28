@@ -123,6 +123,7 @@ Mandatory Opening/Closing workflow.
 - **Opening:** Cash float verification.
 - **Closing:** System tallies Cash, Helcim (Credit), Gift Cards, and RMS Charges. It calculates *Expected Cash* vs. *Actual Count* for Over/Short auditing.
 - **Detailed Transaction List:** Granular closing report showing every line item, original vs. sold price, discounts, and payment allocations.
+- **Daily Financial Report:** After Z-close, an automated financial summary is generated and emailed to configured recipients. Covers net sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, freight, category margins (COGS/margin %), and QBO journal status. Configurable in Settings → Daily Financial Report. Reports are stored and viewable in-app. See [`docs/DAILY_FINANCIAL_REPORT.md`](docs/DAILY_FINANCIAL_REPORT.md).
 
 ---
 
