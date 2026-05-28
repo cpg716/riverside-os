@@ -147,6 +147,7 @@ async fn send_report(
         .subject_template
         .replace("{date}", &body.date.to_string());
 
+    let mut successful_recipients: Vec<String> = vec![];
     let mut send_errors: Vec<String> = vec![];
     for recipient in &config.recipient_emails {
         if let Err(e) = email::send_email(
@@ -156,6 +157,8 @@ async fn send_report(
         {
             tracing::error!(error = %e, "Failed to send daily report to {}", recipient);
             send_errors.push(format!("{recipient}: {e}"));
+        } else {
+            successful_recipients.push(recipient.clone());
         }
     }
 
@@ -168,7 +171,7 @@ async fn send_report(
     daily_report::mark_sent(
         &state.db,
         id,
-        &config.recipient_emails,
+        &successful_recipients,
         error_msg.as_deref(),
     )
     .await?;
@@ -176,7 +179,7 @@ async fn send_report(
     Ok(Json(json!({
         "id": id,
         "report_date": report.report_date,
-        "sent_to": config.recipient_emails,
+        "sent_to": successful_recipients,
         "errors": error_msg,
         "status": if error_msg.is_some() { "partial_failure" } else { "sent" }
     })))
@@ -257,6 +260,7 @@ async fn test_send_report(
         "Test Send"
     );
 
+    let mut successful_recipients: Vec<String> = vec![];
     let mut send_errors: Vec<String> = vec![];
     for recipient in &recipients {
         if let Err(e) = email::send_email(
@@ -266,6 +270,8 @@ async fn test_send_report(
         {
             tracing::error!(error = %e, "Test send daily report failed to {}", recipient);
             send_errors.push(format!("{recipient}: {e}"));
+        } else {
+            successful_recipients.push(recipient.clone());
         }
     }
 
@@ -275,12 +281,12 @@ async fn test_send_report(
         Some(send_errors.join("; "))
     };
 
-    daily_report::mark_sent(&state.db, id, &recipients, error_msg.as_deref()).await?;
+    daily_report::mark_sent(&state.db, id, &successful_recipients, error_msg.as_deref()).await?;
 
     Ok(Json(json!({
         "id": id,
         "report_date": report_date,
-        "sent_to": recipients,
+        "sent_to": successful_recipients,
         "is_test": true,
         "errors": error_msg,
         "status": if error_msg.is_some() { "partial_failure" } else { "sent" }
@@ -565,6 +571,7 @@ pub async fn auto_send_daily_report(pool: &PgPool) {
         .subject_template
         .replace("{date}", &today.to_string());
 
+    let mut successful_recipients: Vec<String> = vec![];
     let mut errors: Vec<String> = vec![];
     for recipient in &config.recipient_emails {
         if let Err(e) =
@@ -572,6 +579,8 @@ pub async fn auto_send_daily_report(pool: &PgPool) {
         {
             tracing::error!(error = %e, "Auto daily report failed to send to {}", recipient);
             errors.push(format!("{recipient}: {e}"));
+        } else {
+            successful_recipients.push(recipient.clone());
         }
     }
 
@@ -581,7 +590,7 @@ pub async fn auto_send_daily_report(pool: &PgPool) {
         Some(errors.join("; "))
     };
 
-    let _ = daily_report::mark_sent(pool, id, &config.recipient_emails, error_msg.as_deref()).await;
+    let _ = daily_report::mark_sent(pool, id, &successful_recipients, error_msg.as_deref()).await;
 
     if errors.is_empty() {
         tracing::info!(

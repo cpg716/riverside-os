@@ -170,7 +170,7 @@ fn local_day_bounds(
         .succ_opt()
         .ok_or_else(|| "invalid to date".to_string())?
         .and_hms_opt(0, 0, 0)
-        .unwrap();
+        .ok_or_else(|| "invalid to date".to_string())?;
     let end = tz
         .from_local_datetime(&to_next)
         .single()

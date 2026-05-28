@@ -39,6 +39,10 @@ pub struct WorkerStatus {
     pub email_worker: bool,
     pub podium_worker: bool,
     pub weather_worker: bool,
+    pub qbo_sync_worker: bool,
+    pub job_queue_worker: bool,
+    pub metrics_worker: bool,
+    pub redis_connected: bool,
 }
 
 // Shared state for tracking worker health
@@ -52,6 +56,9 @@ pub struct WorkerHealth {
     pub email_worker: Option<Instant>,
     pub podium_worker: Option<Instant>,
     pub weather_worker: Option<Instant>,
+    pub qbo_sync_worker: Option<Instant>,
+    pub job_queue_worker: Option<Instant>,
+    pub metrics_worker: Option<Instant>,
 }
 
 impl WorkerHealth {
@@ -67,6 +74,9 @@ impl WorkerHealth {
             "email" => health.email_worker = Some(now),
             "podium" => health.podium_worker = Some(now),
             "weather" => health.weather_worker = Some(now),
+            "qbo_sync" => health.qbo_sync_worker = Some(now),
+            "job_queue" => health.job_queue_worker = Some(now),
+            "metrics" => health.metrics_worker = Some(now),
             _ => {}
         }
     }
@@ -83,6 +93,9 @@ impl WorkerHealth {
             "email" => health.email_worker,
             "podium" => health.podium_worker,
             "weather" => health.weather_worker,
+            "qbo_sync" => health.qbo_sync_worker,
+            "job_queue" => health.job_queue_worker,
+            "metrics" => health.metrics_worker,
             _ => None,
         };
         last.map(|t| t.elapsed() < threshold).unwrap_or(false)
@@ -116,6 +129,10 @@ pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyResponse>,
         email_worker: WorkerHealth::is_healthy("email", 7200).await,
         podium_worker: WorkerHealth::is_healthy("podium", 86400).await,
         weather_worker: WorkerHealth::is_healthy("weather", 7200).await,
+        qbo_sync_worker: WorkerHealth::is_healthy("qbo_sync", 7200).await,
+        job_queue_worker: WorkerHealth::is_healthy("job_queue", 7200).await,
+        metrics_worker: WorkerHealth::is_healthy("metrics", 7200).await,
+        redis_connected: check_redis_health(&state.cache).await,
     };
 
     let response = ReadyResponse {
@@ -154,6 +171,17 @@ async fn check_database_health(pool: &PgPool) -> Result<DatabaseStatus, sqlx::Er
         active_connections,
         idle_connections,
     })
+}
+
+async fn check_redis_health(cache: &Option<crate::cache::CacheService>) -> bool {
+    let Some(svc) = cache else { return false };
+    match svc.redis().ping().await {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::warn!(error = %e, "Redis health check failed");
+            false
+        }
+    }
 }
 
 fn start_time() -> &'static Instant {

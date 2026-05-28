@@ -9,7 +9,7 @@ on:
       release_tag:
         description: "Release tag (e.g., v0.80.9)"
         required: true
-        default: "v0.80.9"
+        default: "v0.85.0"
       release_notes:
         description: "Release notes"
         required: false

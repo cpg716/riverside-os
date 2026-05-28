@@ -303,7 +303,7 @@ export async function checkReceiptPrinterConnection(
   }
 }
 
-/** 
+/**
  * Automatically routes a document to the correct station printer based on type.
  * Ensures the right protocol (ZPL vs ESC/POS) is used for the destination.
  */
@@ -320,5 +320,74 @@ export async function autoRoutePrint(type: PrintDocType, payload: string, format
     return printZplReceipt(payload, target);
   } else {
     return printEscPosReceipt(payload, target);
+  }
+}
+
+/** Serialize all printer settings from localStorage for server sync. */
+function gatherPrinterSettings(): Record<string, string> {
+  const keys = [
+    "ros.hardware.printer.receipt.ip",
+    "ros.hardware.printer.receipt.port",
+    "ros.hardware.printer.receipt.mode",
+    "ros.hardware.printer.receipt.systemName",
+    "ros.hardware.printer.tag.ip",
+    "ros.hardware.printer.tag.port",
+    "ros.hardware.printer.tag.mode",
+    "ros.hardware.printer.tag.systemName",
+    "ros.hardware.printer.report.ip",
+    "ros.hardware.printer.report.port",
+    "ros.hardware.printer.report.mode",
+    "ros.hardware.printer.report.systemName",
+    "ros.hardware.cashDrawer.enabled",
+  ];
+  const out: Record<string, string> = {};
+  for (const k of keys) {
+    const v = window.localStorage.getItem(k);
+    if (v !== null) out[k] = v;
+  }
+  return out;
+}
+
+/** Persist current station printer settings to the server by register lane. */
+export async function syncPrinterConfigToServer(
+  baseUrl: string,
+  authHeaders: Record<string, string>,
+  registerLane: number,
+): Promise<void> {
+  try {
+    const res = await fetch(`${baseUrl}/api/settings/printer-config/${registerLane}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify(gatherPrinterSettings()),
+    });
+    if (!res.ok) {
+      console.warn("Failed to sync printer config to server", res.status);
+    }
+  } catch (e) {
+    console.warn("Printer config sync failed", e);
+  }
+}
+
+/** Load printer settings from the server for a register lane into localStorage. */
+export async function hydratePrinterConfigFromServer(
+  baseUrl: string,
+  registerLane: number,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl}/api/settings/printer-config/${registerLane}`);
+    if (!res.ok) return false;
+    const data = (await res.json()) as Record<string, string>;
+    if (typeof data !== "object" || data === null) return false;
+    let applied = false;
+    for (const [key, value] of Object.entries(data)) {
+      if (typeof value === "string") {
+        window.localStorage.setItem(key, value);
+        applied = true;
+      }
+    }
+    return applied;
+  } catch (e) {
+    console.warn("Printer config hydration failed", e);
+    return false;
   }
 }

@@ -265,6 +265,8 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   "ros-dev-center": Code2,
 };
 
+const POS_ALLOWED_SETTINGS = new Set(["profile", "printing"]);
+
 export default function SettingsWorkspace({
   activeSection,
   settingsActiveSection,
@@ -285,11 +287,15 @@ export default function SettingsWorkspace({
 
   // Navigation - synced with sidebar activeSection; default to profile
   const requestedActiveTab = activeSection || settingsActiveSection || "hub";
-  const activeTab =
+  let activeTab =
     requestedActiveTab.startsWith("settings-group-") ||
     requestedActiveTab === "general"
       ? "hub"
       : requestedActiveTab;
+  // POS mode restricts settings to Profile and Printers & Scanners only
+  if (mode === "pos" && !POS_ALLOWED_SETTINGS.has(activeTab)) {
+    activeTab = "profile";
+  }
   const navigateToTab = onNavigateToTab ?? onSettingsSectionNavigate;
   const navigateOperationsTarget = useCallback(
     (target: OperationsCenterNavigateTarget) => {
@@ -334,6 +340,9 @@ export default function SettingsWorkspace({
         continue;
       }
       if (section.id === "hub") continue;
+      if (mode === "pos" && !POS_ALLOWED_SETTINGS.has(section.id)) {
+        continue;
+      }
       if (
         !subSectionVisible(
           "settings",
@@ -370,7 +379,7 @@ export default function SettingsWorkspace({
         const bIndex = SETTINGS_HUB_GROUP_ORDER.indexOf(b.id);
         return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
       });
-  }, [hasPermission, permissionsLoaded]);
+  }, [hasPermission, permissionsLoaded, mode]);
 
   const fetchBackups = useCallback(async () => {
     try {

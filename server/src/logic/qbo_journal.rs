@@ -1881,6 +1881,30 @@ fn with_staging_metadata(
     payload
 }
 
+/// Returns true if the given business date has any Counterpoint-imported transactions.
+/// Auto-propose skips these days so QBO journals are not created from non-authoritative tax data.
+pub async fn has_counterpoint_imports_for_date(
+    pool: &PgPool,
+    activity_date: NaiveDate,
+) -> Result<bool, sqlx::Error> {
+    let line_recognition_ts = crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
+    let count: i64 = sqlx::query_scalar(&format!(
+        r#"
+        SELECT COUNT(DISTINCT o.id)::bigint
+        FROM orders o
+        WHERE o.is_forfeited = false
+          AND o.is_counterpoint_import = true
+          AND (o.counterpoint_ticket_ref IS NOT NULL OR o.counterpoint_doc_ref IS NOT NULL)
+          AND {line_recognition_ts} IS NOT NULL
+          AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+        "#,
+    ))
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+    Ok(count > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

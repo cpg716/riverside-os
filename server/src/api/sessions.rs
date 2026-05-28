@@ -2309,6 +2309,10 @@ async fn close_session(
             Ok(d) => d,
             Err(e) => {
                 tracing::error!(error = %e, "register EOD snapshot: store_local_date");
+                let _ = crate::logic::notifications::broadcast_system_alert(
+                    &snapshot_pool,
+                    &format!("Register Z-close failed to resolve business date: {e}. Daily snapshot and QBO journal may be delayed."),
+                ).await;
                 return;
             }
         };
@@ -2334,6 +2338,10 @@ async fn close_session(
                 .await
                 {
                     tracing::error!(error = %e, "register EOD snapshot: save");
+                    let _ = crate::logic::notifications::broadcast_system_alert(
+                        &snapshot_pool,
+                        &format!("Register EOD snapshot save failed after Z-close ({local_date}): {e}. Report data may be incomplete."),
+                    ).await;
                 } else {
                     tracing::info!(
                         store_local_date = %local_date,
@@ -2341,7 +2349,13 @@ async fn close_session(
                     );
                 }
             }
-            Err(e) => tracing::error!(error = %e, "register EOD snapshot: build summary"),
+            Err(e) => {
+                tracing::error!(error = %e, "register EOD snapshot: build summary");
+                let _ = crate::logic::notifications::broadcast_system_alert(
+                    &snapshot_pool,
+                    &format!("Register EOD summary build failed after Z-close ({local_date}): {e}. Report data may be incomplete."),
+                ).await;
+            }
         }
 
         match crate::logic::qbo_journal::ensure_pending_daily_journal(&snapshot_pool, local_date)
@@ -2352,11 +2366,17 @@ async fn close_session(
                 qbo_staging_id = %staging_id,
                 "QBO pending journal ensured after Z-close"
             ),
-            Err(e) => tracing::error!(
-                error = %e,
-                store_local_date = %local_date,
-                "QBO pending journal after Z-close failed"
-            ),
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    store_local_date = %local_date,
+                    "QBO pending journal after Z-close failed"
+                );
+                let _ = crate::logic::notifications::broadcast_system_alert(
+                    &snapshot_pool,
+                    &format!("QBO daily journal staging failed after Z-close ({local_date}): {e}. Manual review required."),
+                ).await;
+            }
         }
 
         // Auto-send daily financial report after close (if configured)

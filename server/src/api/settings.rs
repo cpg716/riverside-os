@@ -2587,6 +2587,12 @@ pub fn router() -> Router<AppState> {
         .nest("/nuorder", build_nuorder_router())
         .route("/fal/billing", get(get_fal_billing))
         .route("/fal/usage", get(get_fal_usage))
+        .route(
+            "/pos-station-config",
+            get(get_pos_station_config).patch(patch_pos_station_config),
+        )
+        .route("/pos-station-config/public", get(get_pos_station_config_public))
+        .route("/printer-config/{register_lane}", get(get_printer_config).patch(patch_printer_config))
 }
 
 async fn get_review_policy(
@@ -2627,6 +2633,125 @@ async fn patch_review_policy(
         .await
         .map_err(SettingsError::Database)?;
     Ok(Json(cur))
+}
+
+// ── POS Station Config ───────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+struct PosStationConfig {
+    max_register_lanes: i16,
+    #[serde(flatten)]
+    extra: serde_json::Value,
+}
+
+async fn get_pos_station_config_public(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, SettingsError> {
+    let raw: serde_json::Value = sqlx::query_scalar(
+        "SELECT pos_station_config FROM store_settings WHERE id = 1"
+    )
+    .fetch_one(&state.db)
+    .await?;
+    let max_lanes = raw.get("max_register_lanes")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(4) as i16;
+    Ok(Json(json!({
+        "max_register_lanes": max_lanes,
+    })))
+}
+
+async fn get_pos_station_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let raw: serde_json::Value = sqlx::query_scalar(
+        "SELECT pos_station_config FROM store_settings WHERE id = 1"
+    )
+    .fetch_one(&state.db)
+    .await?;
+    Ok(Json(raw))
+}
+
+async fn patch_pos_station_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let existing_raw: serde_json::Value = sqlx::query_scalar(
+        "SELECT pos_station_config FROM store_settings WHERE id = 1"
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    let mut existing = existing_raw;
+    if let (serde_json::Value::Object(existing_map), serde_json::Value::Object(new_map)) = (&mut existing, body) {
+        for (k, v) in new_map {
+            existing_map.insert(k, v);
+        }
+    }
+
+    sqlx::query("UPDATE store_settings SET pos_station_config = $1 WHERE id = 1")
+        .bind(&existing)
+        .execute(&state.db)
+        .await?;
+
+    Ok(Json(existing))
+}
+
+// ── Printer Config (per register lane) ──────────────────────────────────────
+
+async fn get_printer_config(
+    State(state): State<AppState>,
+    Path(register_lane): Path<i16>,
+) -> Result<Json<serde_json::Value>, SettingsError> {
+    let raw: serde_json::Value = sqlx::query_scalar(
+        "SELECT pos_station_config FROM store_settings WHERE id = 1"
+    )
+    .fetch_one(&state.db)
+    .await?;
+    let config = raw
+        .get("printer_config")
+        .and_then(|v| v.get(register_lane.to_string()))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    Ok(Json(config))
+}
+
+async fn patch_printer_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(register_lane): Path<i16>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let raw: serde_json::Value = sqlx::query_scalar(
+        "SELECT pos_station_config FROM store_settings WHERE id = 1"
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    let mut existing = raw;
+    let mut printer_config = existing
+        .get("printer_config")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    if let serde_json::Value::Object(ref mut map) = printer_config {
+        map.insert(register_lane.to_string(), body);
+    }
+
+    if let serde_json::Value::Object(ref mut root) = existing {
+        root.insert("printer_config".to_string(), printer_config);
+    }
+
+    sqlx::query("UPDATE store_settings SET pos_station_config = $1 WHERE id = 1")
+        .bind(&existing)
+        .execute(&state.db)
+        .await?;
+
+    Ok(Json(existing))
 }
 
 async fn get_remote_access_status(
