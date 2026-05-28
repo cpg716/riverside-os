@@ -172,20 +172,30 @@ if ($SkipVoiceTools) {
     }
   }
 
+  # sherpa-onnx is a Python library — create a venv with uv, then pip install.
+  $sherpaInstalled = $false
+  $sherpaVenv    = Join-Path $env:LOCALAPPDATA "riverside-os\rosie\sherpa-venv"
+  $sherpaVenvPip = Join-Path $sherpaVenv "Scripts\pip.exe"
+
   if ($uvCmd -and (Test-Path $uvCmd)) {
     Write-Host "      uv: $uvCmd"
-    Write-Host "      Installing sherpa-onnx..."
-    try {
-      & $uvCmd tool install --force --python 3.12 sherpa-onnx 2>&1 | ForEach-Object { Write-Host "      $_" }
-      if ($LASTEXITCODE -eq 0) {
-        Write-Host "      sherpa-onnx installed."
-      } else {
-        throw "uv exited $LASTEXITCODE"
-      }
-    } catch {
-      Write-Warning "      sherpa-onnx install failed: $($_.Exception.Message)"
-      Write-Warning "      Voice features will use Windows TTS fallback."
+    Write-Host "      Creating sherpa-onnx venv..."
+    & $uvCmd venv $sherpaVenv 2>&1 | ForEach-Object { Write-Host "      $_" }
+    if (Test-Path $sherpaVenvPip) {
+      Write-Host "      Installing sherpa-onnx..."
+      & $sherpaVenvPip install --upgrade sherpa-onnx 2>&1 | ForEach-Object { Write-Host "      $_" }
+      if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
+    } else {
+      Write-Warning "      uv venv did not produce a pip — cannot install sherpa-onnx."
     }
+  } else {
+    Write-Warning "      uv not available — cannot install sherpa-onnx."
+  }
+
+  if ($sherpaInstalled) {
+    Write-Host "      sherpa-onnx installed. Venv: $sherpaVenv"
+  } else {
+    Write-Warning "      sherpa-onnx install FAILED. Voice STT/TTS will not be available."
   }
 
   # ---- SenseVoice STT model ----

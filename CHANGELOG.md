@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.80.9] - 2026-05-27
+
+### Added
+- **QBO Staging Lifecycle Management**: Three new endpoints to manage previously staged/synced journal entries:
+  - **Revert to Pending** (`POST /api/qbo/staging/{id}/revert`): Un-approve an approved entry back to pending so mappings can be fixed and the journal regenerated before re-approval. Requires `qbo.staging_approve`.
+  - **Retry Failed** (`POST /api/qbo/staging/{id}/retry`): Re-validate balance/accounts and re-attempt QBO JournalEntry POST for failed entries without requiring manual re-propose. Requires `qbo.sync`.
+  - **Void Synced Entry** (`POST /api/qbo/staging/{id}/void`): Read the JE SyncToken from QBO, delete the JournalEntry via `?operation=delete`, and mark the local row `voided`. Enables re-staging a corrected entry for the same business date. Requires `qbo.sync`.
+- **QBO Workspace UI — Lifecycle Actions**: Contextual action buttons in the staging table: Revert (amber, approved rows), Retry (orange, failed rows), Void in QBO (red/danger confirmation, synced rows). All gated behind confirmation modals with descriptive messaging.
+- **QBO Voided Status**: New `voided` status in staging pipeline with distinct visual treatment (gray, line-through) in both Review & Send and History views.
+- **Daily Financial Report System**: Automated end-of-day financial summary that generates, stores, and emails a comprehensive business-day report after register Z-close. Covers net sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, freight, category margins with COGS and margin %, and QBO journal status. Features:
+  - **Settings Panel** (`Settings → Daily Financial Report`): Enable/disable, configure recipient emails, subject template, auto-send toggle, QBO status inclusion, and inventory activity toggle.
+  - **Professional HTML Email**: Gradient header, color-coded KPI cards, clean data tables, margin heat coloring, QBO sync badge, and branded footer.
+  - **Auto-Send After Close**: Automatically emails the report after Z-close when enabled. Skips duplicates if already sent for the business date.
+  - **Test Send**: Send the most recent completed report as a test with `[TEST]` prefix. Supports email override for ad-hoc testing.
+  - **Report History**: View all generated reports with net sales, status badges, in-app HTML preview modal, and one-click resend.
+  - **API**: Full REST API at `/api/daily-reports/` — config, generate, send, test-send, history, detail, resend.
+  - **Migration**: `052_daily_financial_reports.sql` — `daily_report_config` JSONB on `store_settings`, `daily_financial_reports` table with unique date constraint.
+
 ## [0.80.8] - 2026-05-27
 
 ### Added
@@ -83,7 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Commission recalc SQL safety**: Added explicit `SAFETY` comments to `format!` usages in `commission_recalc.rs` documenting that `ORDER_RECOGNITION_TS_SQL` is a compile-time constant with no injection risk.
 - **Database migration runner**: Hardened multi-statement migration execution by splitting on semicolons and executing each non-empty, non-comment chunk individually with `sqlx::query()`. Strips `pg_dump` `SET` and `SELECT pg_catalog.set_config` preamble from migration files to prevent session-side-effect crashes. This is Send-safe across `tokio::spawn` boundaries (unlike `sqlx::raw_sql()`), fixing Windows Tauri compilation failures.
 - **CI/CD — Windows deployment package concurrency**: Fixed static `group: windows-deployment-package` concurrency to `group: ${{ github.workflow }}-${{ github.ref }}`, preventing sequential tag pushes from cancelling each other before completion.
-- **CI/CD — macOS deployment manager upload paths**: Corrected artifact search paths from `src-tauri/target/` to repo-root `target/` to match the unified Cargo workspace layout, ensuring DMG and app.tar.gz actually reach the GitHub release.
+- **CI/CD — macOS ROS Dev Center upload paths**: Corrected artifact search paths from `src-tauri/target/` to repo-root `target/` to match the unified Cargo workspace layout, ensuring DMG and app.tar.gz actually reach the GitHub release.
 - **POS RMS Charge access restored**: Removed an incorrect blanket `surface === "pos"` guard in `RmsChargeAdminSection.tsx` that blocked staff from viewing RMS Charge records and reporting to R2S while in POS terminal shell mode. Permission-based access (`customers.rms_charge`) remains the correct gate.
 
 ### Changed

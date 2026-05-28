@@ -17,6 +17,7 @@ pub mod customer_merge;
 pub mod customer_open_deposit;
 pub mod customer_transaction_history;
 pub mod customers;
+pub mod daily_report;
 pub mod email;
 pub mod fal_sidecar;
 pub mod gift_card_ops;
@@ -102,6 +103,7 @@ pub mod wedding_queries;
 pub mod weddings;
 
 pub mod constant_contact;
+pub mod counterpoint_workbench;
 pub mod inventory_brain;
 pub mod rms_account_list_import;
 pub mod wedding_health;

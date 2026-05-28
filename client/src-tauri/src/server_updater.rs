@@ -26,11 +26,28 @@ struct GithubRelease {
 
 #[command]
 pub fn check_server_local_status() -> Result<ServerLocalStatus, String> {
-    let install_root = "C:\\RiversideOS".to_string();
-    let config_path = Path::new("C:\\RiversideOS\\riverside-deployment.config.json");
-    let server_bin_path = Path::new("C:\\RiversideOS\\riverside-server.exe");
+    // Default install root — overridden if the config file specifies otherwise.
+    let mut install_root = "C:\\RiversideOS".to_string();
 
-    // On non-Windows platforms, we treat it as not local
+    let default_config = PathBuf::from(&install_root).join("riverside-deployment.config.json");
+    if default_config.exists() {
+        if let Ok(raw) = std::fs::read_to_string(&default_config) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(root) = json
+                    .get("server")
+                    .and_then(|s| s.get("installRoot"))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
+                    install_root = root.to_string();
+                }
+            }
+        }
+    }
+
+    let config_path = PathBuf::from(&install_root).join("riverside-deployment.config.json");
+    let server_bin_path = PathBuf::from(&install_root).join("riverside-server.exe");
+
     #[cfg(windows)]
     let is_local = server_bin_path.exists() || config_path.exists();
     #[cfg(not(windows))]
@@ -216,7 +233,11 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
 
         let runner_script_path = temp_dir.join("update-runner.ps1");
 
-        let config_path = "C:\\RiversideOS\\riverside-deployment.config.json";
+        // Resolve config path from the detected install root rather than hardcoding.
+        let install_root = check_server_local_status()
+            .map(|s| s.install_root)
+            .unwrap_or_else(|_| "C:\\RiversideOS".to_string());
+        let config_path = format!("{}\\riverside-deployment.config.json", install_root);
 
         let runner_content = format!(
             r#"$ErrorActionPreference = 'Stop'
@@ -228,7 +249,7 @@ Write-Host 'Step 1: Running install-server.ps1...'
 ./install-server.ps1 -ConfigPath '{config_path}'
 Write-Host 'Step 2: Running repair-bootstrap-admin.ps1...'
 ./repair-bootstrap-admin.ps1 -ConfigPath '{config_path}'
-Write-Host 'Step 3: Running install-register.ps1...'
+Write-Host 'Step 3: Updating Backoffice client on this PC...'
 ./install-register.ps1 -ConfigPath '{config_path}' -StationMode 'backoffice'
 Write-Host '========================================='
 Write-Host 'Update Complete! Press any key to exit.'

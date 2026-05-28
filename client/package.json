@@ -1,7 +1,7 @@
 {
   "name": "riverside-pos",
   "private": true,
-  "version": "0.80.8",
+  "version": "0.80.9",
   "type": "module",
   "scripts": {
     "generate:help": "node scripts/generate-help-manifest.mjs",

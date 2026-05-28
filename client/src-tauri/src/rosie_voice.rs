@@ -134,11 +134,65 @@ fn resolve_sensevoice_tokens_path() -> Option<PathBuf> {
 }
 
 fn resolve_rosie_speech_python_path() -> PathBuf {
-    std::env::var("RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH")
+    // 1. Explicit env var override
+    if let Some(p) = std::env::var("RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH")
         .ok()
         .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| PathBuf::from("/Users/cpg/.local/share/uv/tools/sherpa-onnx/bin/python"))
+        .filter(|path| !path.as_os_str().is_empty() && path.exists())
+    {
+        return p;
+    }
+
+    // 2. Windows: dedicated sherpa-venv created by the installer
+    #[cfg(windows)]
+    {
+        if let Ok(local_app) = std::env::var("LOCALAPPDATA") {
+            let venv_python = PathBuf::from(&local_app)
+                .join("riverside-os")
+                .join("rosie")
+                .join("sherpa-venv")
+                .join("Scripts")
+                .join("python.exe");
+            if venv_python.exists() {
+                return venv_python;
+            }
+            // Legacy: uv tool install location (older installs)
+            let uv_tool = PathBuf::from(&local_app)
+                .join("uv")
+                .join("tools")
+                .join("sherpa-onnx")
+                .join("Scripts")
+                .join("python.exe");
+            if uv_tool.exists() {
+                return uv_tool;
+            }
+        }
+    }
+
+    // 3. macOS/Linux: uv tool install location
+    #[cfg(not(windows))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let uv_tool = PathBuf::from(&home)
+                .join(".local")
+                .join("share")
+                .join("uv")
+                .join("tools")
+                .join("sherpa-onnx")
+                .join("bin")
+                .join("python");
+            if uv_tool.exists() {
+                return uv_tool;
+            }
+        }
+    }
+
+    // 4. Not found — return a non-existent path; callers check command_exists()
+    PathBuf::from(if cfg!(windows) {
+        r"C:\nonexistent\sherpa-venv\Scripts\python.exe"
+    } else {
+        "/nonexistent/sherpa-onnx/bin/python"
+    })
 }
 
 fn resolve_whisper_model_path() -> Option<PathBuf> {

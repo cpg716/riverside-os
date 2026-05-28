@@ -305,11 +305,11 @@ export default function UpdateManagerPanel() {
             {releaseMismatch ? (
               <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-900">
                 This station did not finish updating. Close and reopen the
-                Windows app. If the diagnostic detail says the server is behind,
-                go to the Backoffice / Server PC and run the Riverside
-                Deployment Manager outside this app. Choose Backoffice / Server,
-                then Update This Server PC.
-                Diagnostic detail: {releaseDiagnostic}.
+                Windows app.{" "}
+                {serverLocalStatus?.is_local
+                  ? "If the server is behind, use the \"Update local server\" button in the Server Update section below."
+                  : "If the server is behind, go to the Backoffice / Server PC and use the Server Update section in Settings there."}
+                {" "}Diagnostic detail: {releaseDiagnostic}.
               </div>
             ) : null}
           </div>
@@ -442,21 +442,23 @@ export default function UpdateManagerPanel() {
               This Server PC or Repair Server.
             </div>
           )}
-          <ol className="mt-5 space-y-3 text-xs font-medium leading-relaxed text-app-text-muted">
-            {[
-              "Open the Deployment Manager on the Backoffice / Server PC.",
-              "Back up the database.",
-              "Replace the server and web bundle.",
-              "Apply migrations.",
-              "Restart the store server.",
-              "Smoke test Backoffice, Register #1, and Register #2.",
-            ].map((step) => (
-              <li key={step} className="flex gap-2">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-                <span>{step}</span>
-              </li>
-            ))}
-          </ol>
+          {!serverLocalStatus?.is_local && (
+            <ol className="mt-5 space-y-3 text-xs font-medium leading-relaxed text-app-text-muted">
+              {[
+                "Go to the Backoffice / Server PC and open Settings → Updates.",
+                "Back up the database.",
+                "Use \"Update local server\" to replace the server and web bundle.",
+                "Apply migrations.",
+                "Restart the store server.",
+                "Smoke test Backoffice, Register #1, and Register #2.",
+              ].map((step) => (
+                <li key={step} className="flex gap-2">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+          )}
         </section>
       </div>
 

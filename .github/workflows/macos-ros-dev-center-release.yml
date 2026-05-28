@@ -1,4 +1,4 @@
-name: macOS Deployment Manager Release
+name: macOS ROS Dev Center Release
 
 on:
   push:
@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag (e.g., v0.80.8)"
+        description: "Release tag (e.g., v0.80.9)"
         required: true
-        default: "v0.80.8"
+        default: "v0.80.9"
       release_notes:
         description: "Release notes"
         required: false
@@ -32,7 +32,7 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: deployment/manager-app/package-lock.json
+          cache-dependency-path: ros-dev/package-lock.json
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -41,18 +41,18 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          shared-key: "macos-manager"
+          shared-key: "macos-ros-dev"
 
-      - name: Install manager app dependencies
-        working-directory: deployment/manager-app
+      - name: Install ROS Dev Center dependencies
+        working-directory: ros-dev
         run: npm ci
 
       - name: Check Riverside version parity
         working-directory: ${{ github.workspace }}
         run: node scripts/check-version-parity.mjs
 
-      - name: Build Deployment Manager (macOS universal)
-        working-directory: deployment/manager-app
+      - name: Build ROS Dev Center (macOS universal)
+        working-directory: ros-dev
         run: npm run tauri build -- --target universal-apple-darwin
         env:
           CI: true
@@ -67,7 +67,7 @@ jobs:
           else
             tag="${{ github.ref_name }}"
             version="${tag#v}"
-            notes="Riverside OS Deployment Manager v$version — macOS Apple Silicon / Intel universal build."
+            notes="ROS Dev Center v$version — macOS Apple Silicon / Intel universal build."
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "notes=$notes" >> "$GITHUB_OUTPUT"

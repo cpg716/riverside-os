@@ -61,12 +61,14 @@ Suit **component swap** cost-delta lines, operational inventory moves, and some 
 | **`INV_RECEIVING_CLEARING`** | Credit side for received inventory before vendor bill/AP posting |
 | **`INV_RTV_CLEARING`** | Debit/credit side for return-to-vendor inventory moves |
 | **`INV_SHRINKAGE`** | Expense side for damaged or shrinkage inventory moves |
+| **`COGS_FREIGHT`** | Inbound freight/shipping cost from receiving events — separate from merchandise COGS |
 
 Staging checklist:
 
 - [ ] **`INV_ASSET`** mapped in **`ledger_mappings`** before relying on restock or swap inventory lines  
 - [ ] **`INV_RECEIVING_CLEARING`** mapped before relying on PO receiving lines in the daily journal
 - [ ] **`COGS_DEFAULT`** mapped for swap COGS offset when swaps occur on the journal date  
+- [ ] **`COGS_FREIGHT`** mapped before relying on receiving freight lines in the daily journal  
 - [ ] If **propose** shows a warning about **`INV_ASSET`** missing on a return day with restock COGS, add the mapping and re-propose  
 
 See also **[`SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md`](./SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md)** for swap accounting notes.
@@ -89,3 +91,16 @@ Before relying on sync:
 - [ ] Auto-propose worker creates a pending row for the previous business date after 2 AM local time
 - [ ] Approval captures `approved_by_staff_id` and `approved_at` visible in History detail
 - [ ] Re-sync of an already-synced approved row does not create a duplicate JournalEntry (same request id)
+
+## Lifecycle management checks
+
+- [ ] **Revert to Pending**: Approved entry reverts to `pending`; `approved_by_staff_id` and `approved_at` cleared; entry can be re-approved after mapping fix
+- [ ] **Revert guard**: Attempting revert on a `pending`, `synced`, or `failed` row returns a conflict error
+- [ ] **Retry Failed**: Failed entry re-validates balance + accounts, re-attempts QBO POST, transitions to `synced` on success with new `journal_entry_id`
+- [ ] **Retry guard**: Attempting retry on a non-`failed` row returns a conflict error
+- [ ] **Retry re-fails gracefully**: If QBO rejects the retry, row returns to `failed` with updated error message
+- [ ] **Void Synced**: Synced entry reads SyncToken from QBO, deletes the JournalEntry via `?operation=delete`, marks local row `voided`
+- [ ] **Void guard**: Attempting void on a non-`synced` row returns a conflict error
+- [ ] **Void + re-stage**: After voiding, proposing the same business date creates a new revision row referencing the voided entry
+- [ ] **Audit trail**: All three actions log to `staff_access_log` with correct `event_kind` and staff identity
+- [ ] **Permission enforcement**: Revert requires `qbo.staging_approve`; Retry and Void require `qbo.sync`

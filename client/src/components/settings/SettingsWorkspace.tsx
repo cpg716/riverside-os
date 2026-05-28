@@ -16,6 +16,7 @@ import {
   Bot,
   Code2,
   Database,
+  FileText,
   Trash2,
   Download,
   Play,
@@ -51,6 +52,8 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import OnlineStoreConfigPanel from "./OnlineStoreConfigPanel";
 import HelpCenterSettingsPanel from "./HelpCenterSettingsPanel";
 import CounterpointSyncSettingsPanel from "./CounterpointSyncSettingsPanel";
+import InventoryMigrationWorkbench from "./InventoryMigrationWorkbench";
+import StationNetworkPanel from "./StationNetworkPanel";
 import { StaffRoleAccessPanel } from "../staff/StaffAccessPanels";
 import StaffDiscountCapsPanel from "../staff/StaffDiscountCapsPanel";
 import InsightsSettingsPanel from "./InsightsSettingsPanel";
@@ -68,6 +71,7 @@ import ShippoSettingsPanel from "./ShippoSettingsPanel";
 import HelcimSettingsPanel from "./HelcimSettingsPanel";
 import FalSettingsPanel from "./FalSettingsPanel";
 import IntegrationBrandLogo, { type IntegrationBrand } from "../ui/IntegrationBrandLogo";
+import DailyFinancialReportPanel from "./DailyFinancialReportPanel";
 import RemoteAccessPanel from "./RemoteAccessPanel";
 import RegisterSettings from "../pos/RegisterSettings";
 import StaffProfilePanel from "./StaffProfilePanel";
@@ -177,7 +181,9 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   "receipt-builder": "Receipt layout, branding, barcode, and delivery settings.",
   "tag-designer": "Merchandise tag layout and printing templates.",
   register: "Terminal overrides, register feedback, and lane device preferences.",
+  "station-network": "Server connection, LAN IPs for registers and PWA devices, and network diagnostics.",
   backups: "Local snapshots, backup retention, restore tools, and maintenance tasks.",
+  "daily-financial-report": "Automated daily financial summary, email delivery, and report archive.",
   "remote-access": "Remote support access and workstation connectivity.",
   updates: "App updates, PWA refresh, and server update steps.",
   integrations: "Overview cards for connected services and integration setup.",
@@ -189,6 +195,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   quickbooks: "QuickBooks connection settings and accounting bridge controls.",
   "constant-contact": "Sync opted-in customer lists and map group codes to Constant Contact lists.",
   counterpoint: "Counterpoint sync status, mappings, staging, and issue handling.",
+  "migration-workbench": "Guided step-by-step inventory import and data migration workbench.",
   nuorder: "NuORDER catalog and vendor sync configuration.",
   geoapify: "Address lookup setup for customer, vendor, and shipping entry.",
   weather: "Weather provider settings for store planning signals.",
@@ -231,7 +238,9 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   "receipt-builder": ReceiptText,
   "tag-designer": Tags,
   register: SlidersHorizontal,
+  "station-network": Wifi,
   backups: Database,
+  "daily-financial-report": FileText,
   "remote-access": Wifi,
   updates: RefreshCw,
   integrations: Plug,
@@ -242,6 +251,7 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   quickbooks: Plug,
   "constant-contact": Mail,
   counterpoint: Server,
+  "migration-workbench": Server,
   nuorder: Plug,
   geoapify: MapPin,
   weather: Plug,
@@ -1122,7 +1132,7 @@ export default function SettingsWorkspace({
             )}
 
             {activeTab === "printing" && (
-              <Suspense 
+              <Suspense
                 fallback={
                    <p className="text-sm font-medium text-app-text-muted">
                     Loading Printers & Scanners…
@@ -1137,12 +1147,17 @@ export default function SettingsWorkspace({
               </Suspense>
             )}
             {activeTab === "register" && (
-              <RegisterSettings 
+              <RegisterSettings
                 sessionId={posSessionId}
                 cashierCode={posCashierCode}
                 lifecycleStatus={posLifecycleStatus}
                 onRefreshMeta={onPosRefreshMeta}
               />
+            )}
+            {activeTab === "station-network" && (
+              <div className="space-y-10">
+                <StationNetworkPanel />
+              </div>
             )}
             {activeTab === "integrations" && (
               <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -1341,6 +1356,13 @@ export default function SettingsWorkspace({
                 </div>
               )}
 
+            {activeTab === "migration-workbench" &&
+              hasPermission("settings.admin") && (
+                <div className="space-y-10">
+                  <InventoryMigrationWorkbench />
+                </div>
+              )}
+
             {activeTab === "remote-access" && (
               <div className="space-y-10">
                 <header className="mb-2">
@@ -1356,6 +1378,10 @@ export default function SettingsWorkspace({
                   <RemoteAccessPanel />
                 </section>
               </div>
+            )}
+
+            {activeTab === "daily-financial-report" && hasPermission("settings.admin") && (
+              <DailyFinancialReportPanel baseUrl={baseUrl} />
             )}
 
             {activeTab === "online-store" && (

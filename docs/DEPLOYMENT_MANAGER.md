@@ -43,9 +43,9 @@ RiversideOS-v[Version]-Windows-Deployment/
   register/                              <-- Register MSI/EXE installers
 ```
 
-### macOS Deployment Manager
+### macOS ROS Dev Center
 
-A separate **macOS Deployment Manager** is built as a universal Apple Silicon / Intel DMG via `.github/workflows/macos-deployment-manager-release.yml`. It is published as a GitHub release asset for macOS-based server management and remote administration. Download the `.dmg` from the matching release tag and install like any standard macOS application.
+The **ROS Dev Center** (`ros-dev`) is a separate macOS DevOps companion app built as a universal Apple Silicon / Intel DMG via `.github/workflows/macos-ros-dev-center-release.yml`. It connects to any ROS instance for real-time monitoring, GitHub integration, and one-click release builds. Download the `.dmg` from the matching release tag and install like any standard macOS application. See [`ros-dev/README.md`](../ros-dev/README.md) for setup and usage.
 
 ---
 
@@ -243,11 +243,11 @@ Logs are emitted asynchronously from Rust back to the Vite console using the `de
 ### GitHub Actions CI/CD Pipeline
 The deployment manager packaging is automated in two workflows:
 - **Windows**: `.github/workflows/windows-deployment-package.yml` — builds the full Windows deployment ZIP (server binary, client bundle, register updater, and Deployment Manager executable).
-- **macOS**: `.github/workflows/macos-deployment-manager-release.yml` — builds a universal Apple Silicon / Intel DMG for macOS-based server management.
+- **macOS**: `.github/workflows/macos-ros-dev-center-release.yml` — builds a universal Apple Silicon / Intel DMG for the ROS Dev Center.
 
 Both pipelines utilize **`swatinem/rust-cache`** to cache downloaded Rust dependencies across runs. The Windows workspace builds three targets sequentially in one job:
 1.  `client/src-tauri` (Tauri Client Desktop application)
 2.  `server` (Axum Backend server executable)
 3.  `deployment/manager-app/src-tauri` (Deployment Manager executable)
 
-Full Windows deployment package builds realistically take **20–30 minutes** (dependency caching saves time on crates that did not change between runs). macOS Deployment Manager builds are faster at approximately **15 minutes** since only one Tauri app is compiled. The Windows runner automatically packages the compiled executable in the final zip file as `RiversideOS-Deployment-Manager.exe`.
+Full Windows deployment package builds realistically take **20–30 minutes** (dependency caching saves time on crates that did not change between runs). macOS ROS Dev Center builds are faster at approximately **15 minutes** since only one Tauri app is compiled. The Windows runner automatically packages the compiled executable in the final zip file as `RiversideOS-Deployment-Manager.exe`.

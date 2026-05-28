@@ -1187,7 +1187,7 @@ Riverside OS uses GitHub Actions for continuous integration and automated depend
 | `security-audit.yml` | Weekly (Mon midnight) + manual | `cargo audit` (CVE scan) + `cargo outdated` (stale deps) |
 | `tauri-register-updater-release.yml` | Push `v*` tag or manual | Builds signed Windows updater bundle and publishes to GitHub release |
 | `windows-deployment-package.yml` | Push `v*` tag or manual | Builds Windows deployment package (server, client, Deployment Manager) and publishes to GitHub release |
-| `macos-deployment-manager-release.yml` | Push `v*` tag or manual | Builds macOS universal DMG for the Deployment Manager and publishes to GitHub release |
+| `macos-ros-dev-center-release.yml` | Push `v*` tag or manual | Builds macOS universal DMG for the ROS Dev Center and publishes to GitHub release |
 | `dependabot-auto-merge.yml` | Dependabot PR | Auto-squash merges patch-level dependency updates |
 
 ### Releasing a New Version

@@ -44,7 +44,7 @@ The system utilizes a canonical SQL expression (`ORDER_RECOGNITION_TS_SQL`) acro
 
 ## 6. Recommendations
 1. **Dynamic Visualizations**: While CSV download is supported, the curated reports UI is primarily tabular. Adding lightweight charts (sparklines/bars) for pivot summaries would improve immediate visibility.
-2. **Scheduled Exports**: Implement background generation of "Morning Digest" reports as automated email notifications for owners (planned in `PLAN_NOTIFICATION_CENTER.md`).
+2. **Resolved (2026-05-27)**: **Scheduled Exports / Daily Financial Report** — automated daily financial summary generated and emailed after Z-close. Covers net sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, freight, and category margins. Configurable via `Settings → Daily Financial Report`. See [`docs/DAILY_FINANCIAL_REPORT.md`](../DAILY_FINANCIAL_REPORT.md).
 
 ## 7. Conclusion
 The Reporting & Insights sections are state-of-the-art for a retail platform, offering high data integrity and a clear roadmap for further AI integration. No critical logic gaps were found during this audit.

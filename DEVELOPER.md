@@ -549,6 +549,7 @@ Use these docs when changing behavior; keep transactions, access logs, and idemp
 - **Orders / refunds / returns / exchanges:** [`docs/TRANSACTION_RETURNS_EXCHANGES.md`](docs/TRANSACTION_RETURNS_EXCHANGES.md) — `/api/transactions/*` routes, `orders.*` RBAC compatibility keys, register session read paths; checkout idempotency is part of the baseline.
 - **Extended RBAC seeds:** [`docs/STAFF_PERMISSIONS.md`](docs/STAFF_PERMISSIONS.md) — `scripts/seeds/seed_rbac.sql` (`catalog.*`, `procurement.*`, `settings.admin`, etc.).
 - **QBO:** `server/src/api/qbo.rs` — preserve access-log events for writes (`qbo_mapping_save`, staging approve, sync success/fail per project rules).
+- **Daily Financial Report:** `server/src/api/daily_reports.rs` — `/api/daily-reports/*` config, generate, send, test-send, history, detail, resend. Auto-send hooks into register close (`sessions.rs`). Requires `settings.admin`. See [`docs/DAILY_FINANCIAL_REPORT.md`](docs/DAILY_FINANCIAL_REPORT.md).
 - **Catalog import:** [`docs/CATALOG_IMPORT.md`](docs/CATALOG_IMPORT.md) — body limits, Lightspeed column map.
 - **Physical inventory:** `server/src/api/physical_inventory.rs` + [`INVENTORY_GUIDE.md`](INVENTORY_GUIDE.md) — session lifecycle vs live sales; use staff headers on all mutations from the BO UI.
 - **Staff tasks / register shift:** [`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`](docs/STAFF_TASKS_AND_REGISTER_SHIFT.md) — baseline task/register schema, lazy task materialization, **`/api/tasks/*`**, POS shift handoff.

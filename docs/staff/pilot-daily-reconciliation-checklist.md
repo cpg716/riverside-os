@@ -19,6 +19,7 @@
 | Card/payment review clear | | |
 | Any terminal recovery attempt reviewed | | |
 | Provider-real payment rehearsal result logged, if today was a drill | | |
+| Daily Financial Report emailed (if configured) — check Settings → Daily Financial Report history | | |
 
 ---
 
@@ -119,4 +120,4 @@
 | Accounting review | | |
 | Pilot lead review | | |
 
-**Last reviewed:** 2026-05-17
+**Last reviewed:** 2026-05-27

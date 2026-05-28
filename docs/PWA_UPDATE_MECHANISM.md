@@ -134,7 +134,7 @@ If a device is stuck on an old version because a user keeps tapping **Later**:
 
 ## CI/CD implications
 
-The `windows-deployment-package.yml` and `macos-deployment-manager-release.yml` workflows do **not** build the PWA directly — they build the Tauri desktop shell and the server binary. The PWA is the web client served by the Rust server. Ensure your production deployment pipeline copies the freshly built `client/dist/` to the server's static file path before restarting the server.
+The `windows-deployment-package.yml` and `macos-ros-dev-center-release.yml` workflows do **not** build the PWA directly — they build the Tauri desktop shell and the server binary. The PWA is the web client served by the Rust server. Ensure your production deployment pipeline copies the freshly built `client/dist/` to the server's static file path before restarting the server.
 
 ---
 

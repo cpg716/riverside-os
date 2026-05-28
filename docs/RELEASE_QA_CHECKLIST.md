@@ -330,6 +330,31 @@ For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:
 
 ---
 
+## Daily Financial Report QA
+
+### Settings Panel (Settings → Daily Financial Report)
+
+- [ ] Panel loads with default config (disabled, no recipients)
+- [ ] Toggle Enable/Disable, Auto-Send, QBO Status, Inventory Activity — all persist after save
+- [ ] Add/remove recipient emails — save persists
+- [ ] Subject template accepts `{date}` placeholder
+- [ ] "Generate" creates report for selected date, appears in history
+- [ ] "Generate & Send" creates and emails report to configured recipients
+- [ ] "Test Send" sends most recent report with `[TEST]` prefix
+- [ ] Test send with email override sends to the override address only
+- [ ] Report history shows date, net sales, transaction count, sent status, test badge
+- [ ] "View" opens HTML preview modal with rendered report
+- [ ] "Resend" re-emails a stored report
+- [ ] Permission: panel hidden without `settings.admin`
+
+### Auto-Send After Close
+
+- [ ] After Z-close with auto-send enabled + recipients configured, report is emailed automatically
+- [ ] Report appears in history as non-test with sent status
+- [ ] Duplicate close on same date does not send a second report
+
+---
+
 ## Known limitations / deferred hardening
 
 - **API base centralization:** remaining direct **`VITE_API_BASE ?? "http://127.0.0.1:3000"`** callsites should be consolidated on the shared helper. Deferred from this RC.
@@ -337,4 +362,4 @@ For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:
 
 ---
 
-**Last reviewed:** 2026-05-26 for v0.80.8
+**Last reviewed:** 2026-05-27 for v0.80.9

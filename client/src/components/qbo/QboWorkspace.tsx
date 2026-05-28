@@ -94,6 +94,9 @@ interface AccessLogRow {
 type ConfirmAction =
   | { kind: "approve"; id: string; label: string; message: string }
   | { kind: "sync"; id: string; label: string; message: string }
+  | { kind: "revert"; id: string; label: string; message: string }
+  | { kind: "retry"; id: string; label: string; message: string }
+  | { kind: "void"; id: string; label: string; message: string }
   | null;
 
 function moneyJson(n: unknown): string {
@@ -199,6 +202,8 @@ function statusLabel(row: SyncLogRow): string {
       return "Sent to QuickBooks";
     case "failed":
       return "Posting failed";
+    case "voided":
+      return "Voided";
     default:
       return row.status.replace(/_/g, " ");
   }
@@ -209,6 +214,7 @@ function statusClassName(row: SyncLogRow, hasBlocking: boolean): string {
   if (row.status === "synced") return "bg-emerald-100 text-emerald-800";
   if (row.status === "approved") return "bg-blue-100 text-blue-800";
   if (row.status === "pending") return "bg-amber-100 text-amber-900";
+  if (row.status === "voided") return "bg-gray-100 text-gray-600 line-through";
   return "bg-app-surface-2 text-app-text-muted";
 }
 
@@ -454,12 +460,84 @@ export default function QboWorkspace({
     }
   };
 
+  const revertRow = async (id: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/qbo/staging/${encodeURIComponent(id)}/revert`,
+        { method: "POST", headers: backofficeHeaders() },
+      );
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? "Revert failed");
+      }
+      await refreshCore();
+      toast("Reverted to pending. Fix mappings or regenerate before re-approving.", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Revert failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const retryRow = async (id: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/qbo/staging/${encodeURIComponent(id)}/retry`,
+        { method: "POST", headers: backofficeHeaders() },
+      );
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? "Retry failed");
+      }
+      const data = (await res.json()) as { journal_entry_id?: string };
+      await refreshCore();
+      toast(
+        data.journal_entry_id
+          ? `Retry succeeded: ${data.journal_entry_id}`
+          : "Retry succeeded.",
+        "success"
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Retry failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const voidRow = async (id: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/qbo/staging/${encodeURIComponent(id)}/void`,
+        { method: "POST", headers: backofficeHeaders() },
+      );
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? "Void failed");
+      }
+      await refreshCore();
+      toast("Journal voided in QuickBooks. You can now re-stage a corrected entry for this date.", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Void failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runConfirmedAction = async () => {
     if (!confirmAction) return;
     if (confirmAction.kind === "approve") {
       await approveRow(confirmAction.id);
     } else if (confirmAction.kind === "sync") {
       await syncRow(confirmAction.id);
+    } else if (confirmAction.kind === "revert") {
+      await revertRow(confirmAction.id);
+    } else if (confirmAction.kind === "retry") {
+      await retryRow(confirmAction.id);
+    } else if (confirmAction.kind === "void") {
+      await voidRow(confirmAction.id);
     }
     setConfirmAction(null);
   };
@@ -925,21 +1003,72 @@ export default function QboWorkspace({
                             </button>
                           ) : null}
                           {r.status === "approved" ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                className="mr-2 text-[10px] font-black uppercase text-amber-700"
+                                onClick={() =>
+                                  setConfirmAction({
+                                    kind: "revert",
+                                    id: r.id,
+                                    label: "Revert to pending?",
+                                    message: `Revert approved journal ${r.sync_date} back to pending so it can be regenerated or mappings fixed before re-approval.`,
+                                  })
+                                }
+                              >
+                                Revert
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                className="text-[10px] font-black uppercase text-emerald-700"
+                                onClick={() =>
+                                  setConfirmAction({
+                                    kind: "sync",
+                                    id: r.id,
+                                    label:
+                                      "Send this approved journal to QuickBooks now?",
+                                    message: buildConfirmMessage(r, "sync"),
+                                  })
+                                }
+                              >
+                                Post to QBO
+                              </button>
+                            </>
+                          ) : null}
+                          {r.status === "failed" ? (
                             <button
                               type="button"
                               disabled={busy}
-                              className="text-[10px] font-black uppercase text-emerald-700"
+                              className="text-[10px] font-black uppercase text-orange-700"
                               onClick={() =>
                                 setConfirmAction({
-                                  kind: "sync",
+                                  kind: "retry",
                                   id: r.id,
-                                  label:
-                                    "Send this approved journal to QuickBooks now?",
-                                  message: buildConfirmMessage(r, "sync"),
+                                  label: "Retry posting to QuickBooks?",
+                                  message: `Retry the failed journal for ${r.sync_date}. The system will re-validate balance and accounts, then re-attempt posting.\n\nLast error: ${r.error_message ?? "unknown"}`,
                                 })
                               }
                             >
-                              Post to QBO
+                              Retry
+                            </button>
+                          ) : null}
+                          {r.status === "synced" ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              className="text-[10px] font-black uppercase text-red-700"
+                              onClick={() =>
+                                setConfirmAction({
+                                  kind: "void",
+                                  id: r.id,
+                                  label: "Void this journal in QuickBooks?",
+                                  message: `This will DELETE journal entry ${r.journal_entry_id ?? "unknown"} from QuickBooks for date ${r.sync_date}.\n\nThis action cannot be undone in QuickBooks. After voiding, you can re-stage a corrected entry for this date.`,
+                                })
+                              }
+                            >
+                              Void in QBO
                             </button>
                           ) : null}
                         </td>
@@ -1129,10 +1258,20 @@ export default function QboWorkspace({
           isOpen={true}
           title="Confirm Financial Action"
           message={confirmAction.message}
-          confirmLabel={confirmAction.kind === "sync" ? "Post to QBO" : "Approve"}
+          confirmLabel={
+            confirmAction.kind === "sync"
+              ? "Post to QBO"
+              : confirmAction.kind === "void"
+                ? "Void in QuickBooks"
+                : confirmAction.kind === "retry"
+                  ? "Retry Now"
+                  : confirmAction.kind === "revert"
+                    ? "Revert to Pending"
+                    : "Approve"
+          }
           onConfirm={runConfirmedAction}
           onClose={() => setConfirmAction(null)}
-          variant="info"
+          variant={confirmAction.kind === "void" ? "danger" : "info"}
         />
       )}
     </div>

@@ -1,12 +1,13 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReceivingBay from "./ReceivingBay";
+import ReceivingReport from "./ReceivingReport";
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
-import { AlertTriangle, Clock, Truck, Sparkles, Plus, Printer, Mail } from "lucide-react";
+import { AlertTriangle, Clock, FileText, Truck, Sparkles, Plus, Printer, Mail } from "lucide-react";
 
 interface PurchaseOrder {
   id: string;
@@ -160,6 +161,39 @@ export default function PurchaseOrderPanel({
   const [selectedNtboIds, setSelectedNtboIds] = useState<Set<string>>(() => new Set());
   const [ntboVendorId, setNtboVendorId] = useState("");
   const [ntboPoBusy, setNtboPoBusy] = useState(false);
+  const [viewingReceivingEventId, setViewingReceivingEventId] = useState<string | null>(null);
+
+  interface ReceivingHistoryRow {
+    id: string;
+    po_number: string;
+    vendor_name: string;
+    invoice_number?: string | null;
+    freight_total: number;
+    received_at?: string | null;
+    received_by_name?: string | null;
+    total_units_received: number;
+    total_line_cost: number;
+  }
+  const [receivingHistory, setReceivingHistory] = useState<ReceivingHistoryRow[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const loadReceivingHistory = useCallback(
+    async (poId: string) => {
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/purchase-orders/${poId}/receiving-history`,
+          { headers: backofficeHeaders() as Record<string, string> },
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as ReceivingHistoryRow[];
+        setReceivingHistory(data);
+        setShowHistory(true);
+      } catch {
+        toast("Could not load receiving history.", "error");
+      }
+    },
+    [backofficeHeaders, toast],
+  );
 
   const refresh = useCallback(async () => {
     setOrdersLoading(true);
@@ -778,6 +812,15 @@ export default function PurchaseOrderPanel({
               >
                 <Mail size={13} className="inline mr-1" /> Email
               </button>
+              {selected && ["partially_received", "closed"].includes(selected.status) && (
+                <button
+                  type="button"
+                  onClick={() => void loadReceivingHistory(selected.id)}
+                  className="h-9 rounded-lg border border-app-border bg-app-surface-2 px-3 text-[10px] font-bold text-app-text-muted hover:text-app-text transition-all"
+                >
+                  <FileText size={13} className="inline mr-1" /> History
+                </button>
+              )}
               {canSubmitSelected && (
                 <button
                   type="button"
@@ -877,6 +920,82 @@ export default function PurchaseOrderPanel({
             </table>
           </div>
         </div>
+      )}
+
+      {/* ── Receiving History ── */}
+      {showHistory && receivingHistory.length > 0 && (
+        <div className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold text-app-text flex items-center gap-2">
+              <FileText size={14} className="text-app-text-muted" />
+              Receiving History ({receivingHistory.length})
+            </h3>
+            <button
+              type="button"
+              onClick={() => { setShowHistory(false); setReceivingHistory([]); }}
+              className="text-[9px] font-bold text-app-text-muted hover:text-app-text transition-colors"
+            >
+              Close
+            </button>
+          </div>
+          <div className="rounded-xl border border-app-border overflow-hidden">
+            <table className="w-full text-left text-[11px]">
+              <thead className="bg-app-surface-2/60 border-b border-app-border">
+                <tr>
+                  <th className="px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted">Date</th>
+                  <th className="px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted">Invoice #</th>
+                  <th className="px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted text-center">Units</th>
+                  <th className="px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted text-right">Merchandise</th>
+                  <th className="px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted text-right">Freight</th>
+                  <th className="px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted">Received By</th>
+                  <th className="px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-app-border/40">
+                {receivingHistory.map((ev) => (
+                  <tr key={ev.id} className="hover:bg-app-surface-2/30 transition-colors">
+                    <td className="px-3 py-2 text-app-text font-bold">
+                      {ev.received_at
+                        ? new Date(ev.received_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-app-text">
+                      {ev.invoice_number || "—"}
+                    </td>
+                    <td className="px-3 py-2 text-center font-mono font-bold text-app-text">
+                      {ev.total_units_received}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-app-text">
+                      ${Number(ev.total_line_cost).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-amber-700">
+                      {Number(ev.freight_total) > 0 ? `$${Number(ev.freight_total).toFixed(2)}` : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-app-text-muted">
+                      {ev.received_by_name || "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setViewingReceivingEventId(ev.id)}
+                        className="h-7 rounded-lg border border-app-border bg-app-surface px-3 text-[9px] font-bold text-app-text-muted hover:text-app-text hover:border-app-accent transition-all"
+                      >
+                        View Report
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {viewingReceivingEventId && (
+        <ReceivingReport
+          receivingEventId={viewingReceivingEventId}
+          onClose={() => setViewingReceivingEventId(null)}
+        />
       )}
     </div>
   );
