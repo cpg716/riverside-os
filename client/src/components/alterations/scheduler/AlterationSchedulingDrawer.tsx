@@ -23,6 +23,7 @@ type AlterationRow = {
   notes: string | null;
   item_description: string | null;
   work_requested: string | null;
+  ticket_number: string | null;
 };
 
 type AlterationSchedulingDrawerProps = {
@@ -143,6 +144,20 @@ export default function AlterationSchedulingDrawer({
             <p className="text-[10px] text-app-text-muted uppercase font-black tracking-widest">Initial Request</p>
             <p className="text-sm font-bold text-app-text mt-1 truncate">{localAlt.work_requested || "Not specified"}</p>
           </div>
+        </div>
+
+        {/* Ticket Number */}
+        <div className="px-6 py-4 bg-app-surface border-b border-app-border">
+          <label className="block space-y-2">
+            <span className="text-[10px] text-app-text-muted uppercase font-black tracking-widest">Ticket #</span>
+            <input
+              type="text"
+              value={localAlt.ticket_number || ""}
+              onChange={(e) => updateAlteration({ ticket_number: e.target.value || null })}
+              placeholder="Physical ticket number"
+              className="w-full bg-app-surface-2 border border-app-border rounded-xl px-4 py-3 text-sm font-bold text-app-text focus:outline-none focus:border-app-accent/50"
+            />
+          </label>
         </div>
 
         {/* Tabs */}

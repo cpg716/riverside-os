@@ -51,6 +51,7 @@ type AlterationRow = {
   source_snapshot: Record<string, unknown> | null;
   picked_up_at: string | null;
   picked_up_by_staff_id: string | null;
+  ticket_number: string | null;
   created_at: string;
 };
 
@@ -424,6 +425,7 @@ export default function CustomerAlterationsPanel({
       ? dailyScheduledRows.map((row) => `
           <tr>
             <td>${escapeHtml(customerName(row))}</td>
+            <td>${escapeHtml(row.ticket_number ?? "")}</td>
             <td>${escapeHtml(row.item_description ?? "")}</td>
             <td>${escapeHtml(row.work_requested ?? "")}</td>
             <td>${escapeHtml(row.status.replace("_", " "))}</td>
@@ -431,7 +433,7 @@ export default function CustomerAlterationsPanel({
             <td>${escapeHtml(row.notes ?? "")}</td>
           </tr>
         `).join("")
-      : `<tr><td colspan="6">No alterations scheduled for this day.</td></tr>`;
+      : `<tr><td colspan="7">No alterations scheduled for this day.</td></tr>`;
     const printWindow = window.open("", "_blank", "width=900,height=700");
     if (!printWindow) {
       toast("Could not open print window.", "error");
@@ -461,6 +463,7 @@ export default function CustomerAlterationsPanel({
             <thead>
               <tr>
                 <th>Customer</th>
+                <th>Ticket #</th>
                 <th>Garment</th>
                 <th>Work</th>
                 <th>Status</th>
@@ -684,6 +687,13 @@ export default function CustomerAlterationsPanel({
         </p>
       ) : null}
 
+      {r.ticket_number && (
+        <div className="flex items-center gap-1.5 rounded-lg border border-app-accent/25 bg-app-accent/5 px-2 py-1">
+          <span className="text-[9px] font-black uppercase tracking-widest text-app-accent">Ticket</span>
+          <span className="text-xs font-bold text-app-text">{r.ticket_number}</span>
+        </div>
+      )}
+
       {!compactQueue && r.notes && (
         <div className="break-words rounded-xl border border-app-border/40 bg-app-surface-2/60 p-3 text-xs italic text-app-text/80 shadow-inner">
            {r.notes}
@@ -729,6 +739,16 @@ export default function CustomerAlterationsPanel({
             {r.work_requested || "Work details not specified"}
           </p>
         </div>
+        {r.ticket_number ? (
+          <div className="min-w-0 sm:col-span-2">
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              Ticket #
+            </p>
+            <p className="mt-1 break-words font-bold text-app-accent">
+              {r.ticket_number}
+            </p>
+          </div>
+        ) : null}
         {sourceContextLabel(r) ? (
           <div className="break-words text-[10px] font-bold uppercase tracking-widest text-app-text-muted sm:col-span-2">
             {sourceContextLabel(r)}

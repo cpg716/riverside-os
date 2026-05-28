@@ -99,6 +99,7 @@ export interface PendingAlterationIntake {
   charge_amount?: string | null;
   due_at?: string | null;
   notes?: string | null;
+  ticket_number?: string | null;
   created_at: string;
 }
 
@@ -119,6 +120,7 @@ export interface CheckoutAlterationIntakePayload {
   charge_amount?: string | null;
   due_at?: string | null;
   notes?: string | null;
+  ticket_number?: string | null;
 }
 
 export interface OrderPaymentCartLine {

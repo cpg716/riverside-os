@@ -60,6 +60,7 @@ pub struct AlterationOrderRow {
     pub source_snapshot: Option<Value>,
     pub picked_up_at: Option<DateTime<Utc>>,
     pub picked_up_by_staff_id: Option<Uuid>,
+    pub ticket_number: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -101,6 +102,7 @@ pub struct CreateAlterationBody {
     pub charge_transaction_line_id: Option<Uuid>,
     pub intake_channel: Option<String>,
     pub source_snapshot: Option<Value>,
+    pub ticket_number: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +112,7 @@ pub struct PatchAlterationBody {
     pub fitting_at: Option<DateTime<Utc>>,
     pub appointment_id: Option<Uuid>,
     pub notes: Option<String>,
+    pub ticket_number: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -514,7 +517,7 @@ async fn list_alterations(
                a.source_transaction_id, a.source_transaction_line_id,
                a.charge_amount, a.charge_transaction_line_id,
                a.intake_channel::text AS intake_channel, a.source_snapshot,
-               a.picked_up_at, a.picked_up_by_staff_id,
+               a.picked_up_at, a.picked_up_by_staff_id, a.ticket_number,
                a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
@@ -589,7 +592,7 @@ async fn create_alteration(
             source_product_id, source_variant_id, source_sku,
             source_transaction_id, source_transaction_line_id,
             charge_amount, charge_transaction_line_id,
-            intake_channel, source_snapshot
+            intake_channel, source_snapshot, ticket_number
         )
         VALUES (
             $1, $2, $3, $4, $5,
@@ -597,7 +600,7 @@ async fn create_alteration(
             $9, $10, $11,
             $12, $13,
             $14, $15,
-            $16::alteration_intake_channel, $17
+            $16::alteration_intake_channel, $17, $18
         )
         RETURNING id
         "#,
@@ -619,6 +622,7 @@ async fn create_alteration(
     .bind(body.charge_transaction_line_id)
     .bind(validated.intake_channel.as_str())
     .bind(source_snapshot)
+    .bind(body.ticket_number.as_deref())
     .fetch_one(&mut *tx)
     .await?;
 
@@ -669,7 +673,7 @@ async fn create_alteration(
                a.source_transaction_id, a.source_transaction_line_id,
                a.charge_amount, a.charge_transaction_line_id,
                a.intake_channel::text AS intake_channel, a.source_snapshot,
-               a.picked_up_at, a.picked_up_by_staff_id,
+               a.picked_up_at, a.picked_up_by_staff_id, a.ticket_number,
                a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
@@ -710,7 +714,7 @@ async fn get_alteration(
                a.source_transaction_id, a.source_transaction_line_id,
                a.charge_amount, a.charge_transaction_line_id,
                a.intake_channel::text AS intake_channel, a.source_snapshot,
-               a.picked_up_at, a.picked_up_by_staff_id,
+               a.picked_up_at, a.picked_up_by_staff_id, a.ticket_number,
                a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
@@ -808,6 +812,14 @@ async fn patch_alteration(
             .await?;
     }
 
+    if body.ticket_number.is_some() {
+        sqlx::query("UPDATE alteration_orders SET ticket_number = $1, updated_at = now() WHERE id = $2")
+            .bind(body.ticket_number.as_deref())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
     let row = sqlx::query_as::<_, AlterationOrderRow>(
         r#"
         SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name,
@@ -824,7 +836,7 @@ async fn patch_alteration(
                a.source_transaction_id, a.source_transaction_line_id,
                a.charge_amount, a.charge_transaction_line_id,
                a.intake_channel::text AS intake_channel, a.source_snapshot,
-               a.picked_up_at, a.picked_up_by_staff_id,
+               a.picked_up_at, a.picked_up_by_staff_id, a.ticket_number,
                a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
@@ -924,7 +936,7 @@ async fn post_alteration_pickup(
                a.source_transaction_id, a.source_transaction_line_id,
                a.charge_amount, a.charge_transaction_line_id,
                a.intake_channel::text AS intake_channel, a.source_snapshot,
-               a.picked_up_at, a.picked_up_by_staff_id,
+               a.picked_up_at, a.picked_up_by_staff_id, a.ticket_number,
                a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
@@ -1000,7 +1012,7 @@ async fn get_alteration_pickup_receipt(
                a.source_transaction_id, a.source_transaction_line_id,
                a.charge_amount, a.charge_transaction_line_id,
                a.intake_channel::text AS intake_channel, a.source_snapshot,
-               a.picked_up_at, a.picked_up_by_staff_id,
+               a.picked_up_at, a.picked_up_by_staff_id, a.ticket_number,
                a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
@@ -1157,6 +1169,7 @@ mod tests {
             charge_transaction_line_id: None,
             intake_channel: None,
             source_snapshot: None,
+            ticket_number: None,
         };
 
         let validated = validate_alteration_create(&body).unwrap();
@@ -1185,6 +1198,7 @@ mod tests {
             charge_transaction_line_id: None,
             intake_channel: None,
             source_snapshot: None,
+            ticket_number: None,
         };
 
         let err = validate_alteration_create(&body).unwrap_err();
@@ -1211,6 +1225,7 @@ mod tests {
             charge_transaction_line_id: None,
             intake_channel: None,
             source_snapshot: None,
+            ticket_number: None,
         };
 
         let err = validate_alteration_create(&body).unwrap_err();
@@ -1237,6 +1252,7 @@ mod tests {
             charge_transaction_line_id: Some(Uuid::new_v4()),
             intake_channel: None,
             source_snapshot: None,
+            ticket_number: None,
         };
 
         let err = validate_alteration_create(&body).unwrap_err();

@@ -144,6 +144,7 @@ export default function PosAlterationIntakeModal({
   const [capacityUnits, setCapacityUnits] = useState(1);
   const [dueAt, setDueAt] = useState("");
   const [notes, setNotes] = useState("");
+  const [ticketNumber, setTicketNumber] = useState("");
   const [fittingNeeded, setFittingNeeded] = useState(true);
   const [chargeEnabled, setChargeEnabled] = useState(false);
   const [chargeAmount, setChargeAmount] = useState("");
@@ -184,6 +185,7 @@ export default function PosAlterationIntakeModal({
     setCapacityUnits(1);
     setDueAt("");
     setNotes("");
+    setTicketNumber("");
     setChargeEnabled(false);
     setChargeAmount("");
     setCustomItemDescription("");
@@ -218,6 +220,7 @@ export default function PosAlterationIntakeModal({
     setCapacityUnits(editingIntake.capacity_units ?? 1);
     setDueAt(editingIntake.due_at ? editingIntake.due_at.slice(0, 10) : "");
     setNotes(editingIntake.notes ?? "");
+    setTicketNumber(editingIntake.ticket_number ?? "");
     setChargeEnabled(Boolean(editingIntake.charge_amount && editingIntake.charge_amount !== "0.00"));
     setChargeAmount(editingIntake.charge_amount ?? "");
     setCustomItemDescription(
@@ -356,6 +359,7 @@ export default function PosAlterationIntakeModal({
     const finalWork = work || (fittingNeeded ? "Fitting Needed" : "");
     const chargeValue = chargeEnabled ? charge : null;
     const noteValue = notes.trim() || null;
+    const ticketValue = ticketNumber.trim() || null;
 
     const intakeId = editingIntake?.id ?? newPendingAlterationId();
     onSavePending({
@@ -375,6 +379,7 @@ export default function PosAlterationIntakeModal({
         charge_amount: chargeValue,
         due_at: dueIso,
         notes: noteValue,
+        ticket_number: ticketValue,
         created_at: editingIntake?.created_at ?? new Date().toISOString(),
       });
     toast(editingIntake ? "Alteration line updated." : "Alteration line added to the cart.", "success");
@@ -873,6 +878,19 @@ export default function PosAlterationIntakeModal({
                       ? "Due date set. After checkout, this can be scheduled or printed from Alterations."
                       : "Fitting first. Save the intake now; final work can be confirmed during the fitting."}
                 </p>
+              </label>
+
+              <label className="block space-y-2">
+                <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Ticket #
+                </span>
+                <input
+                  type="text"
+                  value={ticketNumber}
+                  onChange={(event) => setTicketNumber(event.target.value)}
+                  placeholder="Physical ticket number (optional)"
+                  className="ui-input h-11 w-full text-sm font-bold"
+                />
               </label>
 
               <label className="block space-y-2">
