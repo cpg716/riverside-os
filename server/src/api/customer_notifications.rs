@@ -137,11 +137,11 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/notifications/queue", get(list_notifications))
         .route(
-            "/notifications/queue/:id/send-now",
+            "/notifications/queue/{id}/send-now",
             post(send_notification_now),
         )
         .route("/notifications/queue/schedule-batch", post(schedule_batch))
-        .route("/notifications/queue/:id/skip", post(skip_notification))
+        .route("/notifications/queue/{id}/skip", post(skip_notification))
 }
 
 /// List pending notifications for staff review

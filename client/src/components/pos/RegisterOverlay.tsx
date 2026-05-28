@@ -30,6 +30,8 @@ import {
   checkReceiptPrinterConnection,
   describePrinterTarget,
   resolvePrinterTarget,
+  hydratePrinterConfigFromServer,
+  syncPrinterConfigToServer,
 } from "../../lib/printerBridge";
 import RiversideJustLogo from "../../assets/images/logo1.png";
 import { CLIENT_SEMVER } from "../../clientBuildMeta";
@@ -54,11 +56,6 @@ interface RegisterOverlayProps {
   onCancel?: () => void;
 }
 
-const BYPASS =
-  import.meta.env.VITE_REGISTER_AUTH_BYPASS === "true" ||
-  import.meta.env.VITE_REGISTER_AUTH_BYPASS === "1";
-const DEV_CASHIER_CODE = "1234";
-const DEV_OPENING_FLOAT = "200.00";
 
 type CurrentSessionJson = {
   cashier_name: string;
@@ -172,10 +169,27 @@ export default function RegisterOverlay({
     })();
   }, [baseUrl]);
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/settings/pos-station-config/public`);
+        if (res.ok) {
+          const data = (await res.json()) as { max_register_lanes?: number };
+          if (typeof data.max_register_lanes === "number" && data.max_register_lanes > 0) {
+            setMaxRegisterLanes(data.max_register_lanes);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load station config", e);
+      }
+    })();
+  }, [baseUrl]);
+
   const [registerLane, setRegisterLane] = useState(1);
   /** After the user picks a lane, do not auto-switch (e.g. admin default to #2). */
   const registerLaneUserChosenRef = useRef(false);
-  const [openingFloat, setOpeningFloat] = useState(DEV_OPENING_FLOAT);
+  const [maxRegisterLanes, setMaxRegisterLanes] = useState(4);
+  const [openingFloat, setOpeningFloat] = useState("200.00");
   const [booting, setBooting] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -247,7 +261,6 @@ export default function RegisterOverlay({
 
   // Admins in POS: discover if Register #1 is open before showing the open form (unless opening #1 themselves).
   useEffect(() => {
-    if (BYPASS) return;
     if (!permissionsLoaded) return;
     if (staffRole !== "admin") {
       setRegister1OpenForAdmin(null);
@@ -268,7 +281,6 @@ export default function RegisterOverlay({
   }, [staffRole, permissionsLoaded, booting, error, fetchRegister1IsOpen]);
 
   useEffect(() => {
-    if (BYPASS) return;
     if (
       permissionsLoaded &&
       staffRole === "admin" &&
@@ -281,7 +293,7 @@ export default function RegisterOverlay({
   }, [permissionsLoaded, staffRole, register1OpenForAdmin, adminPrimaryPath]);
 
   useEffect(() => {
-    if (BYPASS || registerLane <= 1) {
+    if (registerLane <= 1) {
       setPrimarySessionId(null);
       setLinkStatus(null);
       return;
@@ -336,10 +348,12 @@ export default function RegisterOverlay({
   useEffect(() => {
     if (registerLane > 1) {
       setOpeningFloat("0.00");
-    } else if (!BYPASS) {
-      setOpeningFloat(DEV_OPENING_FLOAT);
+    } else {
+      setOpeningFloat("200.00");
     }
-  }, [registerLane]);
+    // Hydrate printer config for this lane from server
+    void hydratePrinterConfigFromServer(baseUrl, registerLane);
+  }, [registerLane, baseUrl]);
 
   const tryResumeOrBypass = useCallback(async () => {
     setBooting(true);
@@ -363,31 +377,6 @@ export default function RegisterOverlay({
         }
       }
 
-      if (BYPASS) {
-        const floatStr = centsToFixed2(
-          parseMoneyToCents(openingFloatRef.current),
-        );
-        const res = await fetch(`${baseUrl}/api/sessions/open`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            cashier_code: DEV_CASHIER_CODE,
-            pin: DEV_CASHIER_CODE,
-            opening_float: floatStr,
-            register_lane: 1,
-          }),
-        });
-        if (!res.ok) {
-          const errData = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(errData.error ?? `Open failed (${res.status})`);
-        }
-        const data = (await res.json()) as CurrentSessionJson & {
-          pos_api_token?: string;
-        };
-        onOpenedRef.current(payloadFromSessionJson(data, data.pos_api_token));
-      }
     } catch (err: unknown) {
       const message =
         err instanceof Error
@@ -464,6 +453,7 @@ export default function RegisterOverlay({
             if (cur.ok) {
               const data = (await cur.json()) as CurrentSessionJson;
               onOpenedRef.current(payloadFromSessionJson(data, token));
+              void syncPrinterConfigToServer(baseUrl, mergedPosStaffHeaders(backofficeHeaders), registerLaneRef.current);
               return;
             }
           }
@@ -490,11 +480,11 @@ export default function RegisterOverlay({
       pos_api_token?: string;
     };
     onOpenedRef.current(payloadFromSessionJson(data, data.pos_api_token));
+    void syncPrinterConfigToServer(baseUrl, mergedPosStaffHeaders(backofficeHeaders), registerLaneRef.current);
   };
 
   const onSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (BYPASS) return;
     const code = credentialRef.current.trim();
     if (code.length !== 4) {
       setError("Enter your 4-digit staff code.");
@@ -514,7 +504,7 @@ export default function RegisterOverlay({
   const busy = booting || submitting;
 
   const overlayVisible = useMemo(
-    () => !BYPASS || booting || Boolean(error),
+    () => booting || Boolean(error),
     [booting, error],
   );
   useShellBackdropLayer(overlayVisible);
@@ -567,7 +557,13 @@ export default function RegisterOverlay({
       }
 
       const receiptPrinter = resolvePrinterTarget("receipt");
-      if (!isTauri()) {
+      if (!isTauri() && registerLane <= 1) {
+        setPrinterReadiness({
+          status: "error",
+          detail:
+            "Register #1 must use the Riverside desktop app to print receipts. Install and open the RiversideOS register application.",
+        });
+      } else if (!isTauri()) {
         setPrinterReadiness({
           status: "warning",
           detail:
@@ -613,15 +609,14 @@ export default function RegisterOverlay({
     } finally {
       setReadinessBusy(false);
     }
-  }, [baseUrl]);
+  }, [baseUrl, registerLane]);
 
   useEffect(() => {
     if (booting) return;
     void runReadinessChecks();
   }, [booting, registerLane, runReadinessChecks]);
 
-  const hasBlockingReadinessIssue =
-    apiReadiness.status === "error";
+  const hasBlockingReadinessIssue = apiReadiness.status === "error";
 
   const root = document.getElementById("drawer-root");
   if (!root) return null;
@@ -636,70 +631,6 @@ export default function RegisterOverlay({
       <X size={16} aria-hidden />
     </button>
   ) : null;
-
-  if (BYPASS && booting) {
-    return createPortal(
-      <div className="ui-overlay-backdrop !z-[200]">
-        <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          aria-busy="true"
-          tabIndex={-1}
-          className="ui-modal w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-[420px] sm:rounded-[32px]"
-        >
-          <h2 id={titleId} className="sr-only">
-            Initializing register
-          </h2>
-          <div className="ui-modal-body flex flex-col items-center space-y-6 py-12 text-center">
-            <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-app-accent/10">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-app-accent border-t-transparent" />
-            </div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-              Initializing register (dev bypass)…
-            </p>
-          </div>
-        </div>
-      </div>,
-      root
-    );
-  }
-
-  if (BYPASS && error) {
-    return createPortal(
-      <div className="ui-overlay-backdrop !z-[200]">
-        <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          tabIndex={-1}
-          className="ui-modal relative w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-[420px] sm:rounded-[32px]"
-        >
-          {cancelControl}
-          <div className="ui-modal-body space-y-4 p-8 text-center">
-            <h2 id={titleId} className="text-lg font-black text-app-text">
-              Register error
-            </h2>
-            <p className="text-sm font-bold text-app-danger">{error}</p>
-            <button
-              type="button"
-              onClick={() => void tryResumeOrBypass()}
-              className="ui-btn-primary w-full py-4 text-sm"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      </div>,
-      root
-    );
-  }
-
-  if (BYPASS) {
-    return null;
-  }
 
   const adminGate = staffRole === "admin" && permissionsLoaded && !booting;
   const adminCheckingPrimary = adminGate && register1OpenForAdmin === null;
@@ -1025,10 +956,21 @@ export default function RegisterOverlay({
                       }}
                       className="ui-input h-14 w-full bg-app-surface/50 text-center text-base font-black"
                     >
-                      <option value={1}>Register #1 - Main</option>
-                      <option value={2}>Register #2 - iPad</option>
-                      <option value={3}>Register #3 - Back Office</option>
-                      <option value={4}>Register #4 - Mobile</option>
+                      {Array.from({ length: maxRegisterLanes }, (_, i) => {
+                        const lane = i + 1;
+                        const labels: Record<number, string> = {
+                          1: "Main",
+                          2: "iPad",
+                          3: "Back Office",
+                          4: "Mobile",
+                        };
+                        const label = labels[lane] ?? `Station ${lane}`;
+                        return (
+                          <option key={lane} value={lane}>
+                            Register #{lane} - {label}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                   <div className="space-y-2">

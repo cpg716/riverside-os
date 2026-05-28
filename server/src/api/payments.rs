@@ -46,7 +46,7 @@ const PAYMENTS_DEPOSIT_LINK: &str = "payments.deposit.link";
 const PAYMENTS_DEPOSIT_ADJUST: &str = "payments.deposit.adjust";
 const PAYMENTS_SYNC: &str = "payments.sync";
 const PAYMENTS_TERMINAL_OVERRIDE: &str = "payments.terminal.override";
-const HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES: i64 = 10;
+const HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES: i64 = 5;
 const HELCIM_ATTEMPT_STREAM_MAX_SECONDS: u16 = 600;
 
 #[derive(Debug, Error)]

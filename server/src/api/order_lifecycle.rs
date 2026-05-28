@@ -423,7 +423,7 @@ async fn transition_item(
     // Check if line has pending alterations before allowing ready_for_pickup
     if next_status == DbOrderItemLifecycleStatus::ReadyForPickup {
         let alteration_ready: bool = sqlx::query_scalar(
-            "SELECT COALESCE(alteration_ready, false) FROM transaction_lines WHERE id = $1"
+            "SELECT COALESCE(alteration_ready, false) FROM transaction_lines WHERE id = $1",
         )
         .bind(transaction_line_id)
         .fetch_one(&mut *tx)
@@ -445,7 +445,8 @@ async fn transition_item(
 
         if has_pending_alteration && !alteration_ready {
             return Err(OrderLifecycleError::InvalidPayload(
-                "Cannot mark ready for pickup: pending alterations must be completed first".to_string(),
+                "Cannot mark ready for pickup: pending alterations must be completed first"
+                    .to_string(),
             ));
         }
 

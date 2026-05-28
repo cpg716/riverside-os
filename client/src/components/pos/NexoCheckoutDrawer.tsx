@@ -682,9 +682,13 @@ export default function NexoCheckoutDrawer({
         headers: mergedPosStaffHeaders(backofficeHeaders),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as {
-          error?: string;
-        };
+        let body: { error?: string } = {};
+        try {
+          body = await res.json() as { error?: string };
+        } catch {
+          const text = await res.text().catch(() => "");
+          body = { error: text || `Could not load payment provider (${res.status})` };
+        }
         throw new Error(body.error ?? "Could not load payment provider.");
       }
       const settings = (await res.json()) as PaymentProviderSettings;
@@ -1104,7 +1108,13 @@ export default function NexoCheckoutDrawer({
         },
       );
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        let body: { error?: string } = {};
+        try {
+          body = await res.json() as { error?: string };
+        } catch {
+          const text = await res.text().catch(() => "");
+          body = { error: text || `Could not release the Helcim terminal attempt (${res.status})` };
+        }
         throw new Error(body.error ?? "Could not release the Helcim terminal attempt.");
       }
       const attempt = (await res.json()) as HelcimAttempt;
@@ -1156,9 +1166,13 @@ export default function NexoCheckoutDrawer({
             customer_code: code || undefined,
           }),
         });
-        const body = (await res.json().catch(() => ({}))) as
-          | HelcimAttempt
-          | { error?: string };
+        let body: HelcimAttempt | { error?: string } = {};
+        try {
+          body = await res.json() as HelcimAttempt | { error?: string };
+        } catch {
+          const text = await res.text().catch(() => "");
+          body = { error: text || `Helcim saved card failed (${res.status})` };
+        }
         if (!res.ok || !("status" in body)) {
           throw new Error(
             "error" in body ? body.error ?? "Helcim saved card failed." : "Helcim saved card failed.",
@@ -1243,9 +1257,17 @@ export default function NexoCheckoutDrawer({
     };
 
     void readAttemptStream();
+
+    // Fallback poll: if SSE drops and does not reconnect, poll every 4s
+    const fallbackPoll = setInterval(() => {
+      if (stopped) return;
+      void refreshHelcimAttempt(attemptId, { quietStaleSession: true });
+    }, 4000);
+
     return () => {
       stopped = true;
       controller.abort();
+      clearInterval(fallbackPoll);
     };
   }, [
     applyHelcimAttemptUpdate,

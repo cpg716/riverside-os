@@ -22,6 +22,8 @@ import {
   Scissors,
   CreditCard,
   Pencil,
+  AlertTriangle,
+  Printer,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
@@ -362,11 +364,43 @@ export default function Cart({
   const [suitSwapWizardOpen, setSuitSwapWizardOpen] = useState(false);
   const [openDepositPrompt, setOpenDepositPrompt] = useState<OpenDepositPrompt | null>(null);
   const [intelligenceVariantId, setIntelligenceVariantId] = useState<string | null>(null);
+  const [showPrintRetryPanel, setShowPrintRetryPanel] = useState(false);
   const openDepositSuppressedRef = useRef(false);
 
   const [activeDiscountEvents, setActiveDiscountEvents] = useState<ActiveDiscountEvent[]>([]);
   const [selectedDiscountEventId, setSelectedDiscountEventId] = useState("");
   const [exchangeWizardInitialTransactionId, setExchangeWizardInitialTransactionId] = useState<string | null>(null);
+
+  // --- Offline queue & print retry badges ---
+  const [offlineQueueCount, setOfflineQueueCount] = useState(0);
+  const [offlineBlockedCount, setOfflineBlockedCount] = useState(0);
+  const [failedPrintCount, setFailedPrintCount] = useState(0);
+
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const { getCheckoutQueueSummary } = await import("../../lib/offlineQueue");
+        const summary = await getCheckoutQueueSummary();
+        setOfflineQueueCount(summary.totalCount);
+        setOfflineBlockedCount(summary.blockedCount);
+      } catch { /* ignore */ }
+      try {
+        const { getFailedPrintJobs } = await import("../../lib/printRetryQueue");
+        const jobs = await getFailedPrintJobs();
+        setFailedPrintCount(jobs.length);
+      } catch { /* ignore */ }
+    };
+    void poll();
+    const interval = setInterval(poll, 10000);
+    const onQueueChange = () => void poll();
+    window.addEventListener("queue_changed", onQueueChange);
+    window.addEventListener("print_queue_changed", onQueueChange);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("queue_changed", onQueueChange);
+      window.removeEventListener("print_queue_changed", onQueueChange);
+    };
+  }, []);
 
   useEffect(() => {
     fetch(`${baseUrl}/api/discount-events/active`, { headers: apiAuth() as Record<string, string> })
@@ -1884,6 +1918,24 @@ export default function Cart({
                   <Scissors size={12} aria-hidden />
                   {pendingAlterationIntakes.length} intake{pendingAlterationIntakes.length === 1 ? "" : "s"} pending checkout
                 </span>
+              ) : null}
+              {offlineQueueCount > 0 ? (
+                <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-black uppercase tracking-widest ${offlineBlockedCount > 0 ? "border-app-danger/25 bg-app-danger/10 text-app-danger" : "border-app-warning/25 bg-app-warning/10 text-app-warning"}`}>
+                  <AlertTriangle size={12} aria-hidden />
+                  {offlineBlockedCount > 0
+                    ? `${offlineBlockedCount} offline sale${offlineBlockedCount === 1 ? "" : "s"} need recovery`
+                    : `${offlineQueueCount} syncing`}
+                </span>
+              ) : null}
+              {failedPrintCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowPrintRetryPanel(true)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-app-danger/25 bg-app-danger/10 px-2 py-1 font-black uppercase tracking-widest text-app-danger hover:bg-app-danger/20"
+                >
+                  <Printer size={12} aria-hidden />
+                  {failedPrintCount} print retry
+                </button>
               ) : null}
             </div>
           ) : null}
@@ -4000,6 +4052,92 @@ export default function Cart({
 
         </>
       )}
+
+      {showPrintRetryPanel && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-app-border bg-app-surface p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Retry Failed Prints</h3>
+              <button onClick={() => setShowPrintRetryPanel(false)} className="p-1 text-app-text-muted hover:text-app-text">
+                <X size={18} />
+              </button>
+            </div>
+            <PrintRetryList onRetry={() => {
+              setShowPrintRetryPanel(false);
+              void (async () => {
+                const { getFailedPrintJobs } = await import("../../lib/printRetryQueue");
+                const jobs = await getFailedPrintJobs();
+                setFailedPrintCount(jobs.length);
+              })();
+            }} />
+          </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body
+      )}
+    </div>
+  );
+}
+
+function PrintRetryList({ onRetry }: { onRetry: () => void }) {
+  const [jobs, setJobs] = useState<{ id: string; label: string; transactionId: string; timestamp: number; attempts: number; printableBase64: string }[]>([]);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    void (async () => {
+      const { getFailedPrintJobs } = await import("../../lib/printRetryQueue");
+      setJobs(await getFailedPrintJobs());
+    })();
+  }, []);
+
+  const retry = async (job: { id: string; label: string; transactionId: string; timestamp: number; attempts: number; printableBase64?: string }) => {
+    try {
+      const { removeFailedPrintJob, incrementPrintAttempt } = await import("../../lib/printRetryQueue");
+      const { printRawEscPosBase64 } = await import("../../lib/printerBridge");
+      await incrementPrintAttempt(job.id);
+      if (!job.printableBase64) throw new Error("Missing print payload");
+      await printRawEscPosBase64(job.printableBase64);
+      await removeFailedPrintJob(job.id);
+      toast(`Re-printed ${job.label}`, "success");
+      setJobs((prev) => prev.filter((j) => j.id !== job.id));
+      onRetry();
+    } catch (e) {
+      toast(String(e) || "Print retry failed", "error");
+    }
+  };
+
+  const dismiss = async (id: string) => {
+    const { removeFailedPrintJob } = await import("../../lib/printRetryQueue");
+    await removeFailedPrintJob(id);
+    setJobs((prev) => prev.filter((j) => j.id !== id));
+    onRetry();
+  };
+
+  if (jobs.length === 0) {
+    return <p className="text-center text-sm text-app-text-muted">No failed prints to retry.</p>;
+  }
+
+  return (
+    <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+      {jobs.map((job) => (
+        <div key={job.id} className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 p-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-black text-app-text">{job.label}</p>
+            <p className="text-[10px] text-app-text-muted">Tx: {job.transactionId.slice(-8)} · Attempts: {job.attempts}</p>
+          </div>
+          <button
+            onClick={() => void retry(job)}
+            className="ui-btn-secondary shrink-0 px-3 py-1.5 text-[10px] font-black uppercase"
+          >
+            Retry
+          </button>
+          <button
+            onClick={() => void dismiss(job.id)}
+            className="shrink-0 p-1.5 text-app-text-muted hover:text-app-danger"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

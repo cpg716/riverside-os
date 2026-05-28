@@ -411,6 +411,7 @@ async fn launch_server_inner(
             let worker = crate::jobs::JobWorker::new(queue, registry, worker_config);
             tokio::spawn(async move {
                 tracing::info!("Initializing background JobWorker...");
+                crate::api::health::WorkerHealth::mark_heartbeat("job_queue").await;
                 if let Err(e) = worker.start().await {
                     tracing::error!(error = %e, "Failed to start background JobWorker");
                 } else {
@@ -459,6 +460,7 @@ async fn launch_server_inner(
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(20));
         loop {
             ticker.tick().await;
+            crate::api::health::WorkerHealth::mark_heartbeat("qbo_sync").await;
             if let Err(e) = handler.sync_outbox().await {
                 tracing::error!(error = %e, "QBO outbox sync worker failed");
             }
@@ -471,6 +473,7 @@ async fn launch_server_inner(
         let mut last_run_day: Option<chrono::NaiveDate> = None;
         loop {
             ticker.tick().await;
+            crate::api::health::WorkerHealth::mark_heartbeat("qbo_sync").await;
             let now_local = chrono::Local::now();
             let today = now_local.naive_local().date();
             let hour = now_local.hour();
@@ -478,6 +481,14 @@ async fn launch_server_inner(
             if last_run_day != Some(today) && hour >= 2 {
                 last_run_day = Some(today);
                 let yesterday = today.pred_opt().unwrap_or(today);
+                match crate::logic::qbo_journal::has_counterpoint_imports_for_date(&qbo_propose_state.db, yesterday).await {
+                    Ok(true) => {
+                        tracing::warn!(activity_date = %yesterday, "QBO auto-propose skipped: day contains Counterpoint imports with non-authoritative tax data");
+                        continue;
+                    }
+                    Ok(false) => {}
+                    Err(e) => tracing::error!(error = %e, "QBO auto-propose: failed to check Counterpoint imports"),
+                }
                 tracing::info!(activity_date = %yesterday, "QBO auto-propose worker: proposing daily journal");
                 if let Err(e) = crate::logic::qbo_journal::ensure_pending_daily_journal(&qbo_propose_state.db, yesterday).await {
                     tracing::error!(error = %e, "QBO auto-propose worker failed");

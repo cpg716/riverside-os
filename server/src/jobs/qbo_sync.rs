@@ -388,18 +388,21 @@ impl QboSyncHandler {
         let total_price = payload
             .get("total_price")
             .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<Decimal>().ok())
-            .unwrap_or(Decimal::ZERO);
+            .ok_or("outbox payload missing total_price")?
+            .parse::<Decimal>()
+            .map_err(|e| format!("outbox payload invalid total_price: {e}"))?;
         let amount_paid = payload
             .get("amount_paid")
             .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<Decimal>().ok())
-            .unwrap_or(Decimal::ZERO);
+            .ok_or("outbox payload missing amount_paid")?
+            .parse::<Decimal>()
+            .map_err(|e| format!("outbox payload invalid amount_paid: {e}"))?;
         let balance_due = payload
             .get("balance_due")
             .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<Decimal>().ok())
-            .unwrap_or(Decimal::ZERO);
+            .ok_or("outbox payload missing balance_due")?
+            .parse::<Decimal>()
+            .map_err(|e| format!("outbox payload invalid balance_due: {e}"))?;
         let rounding_adjustment = payload
             .get("rounding_adjustment")
             .and_then(|v| v.as_str())

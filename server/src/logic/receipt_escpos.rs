@@ -194,7 +194,10 @@ fn kick_cash_drawer(out: &mut Vec<u8>) {
 }
 
 fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: bool) {
-    let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
+    let tz: Tz = cfg.timezone.parse().unwrap_or_else(|_| {
+        tracing::warn!(timezone = %cfg.timezone, "Receipt timezone invalid; falling back to UTC");
+        chrono_tz::UTC
+    });
     let local_time = d.booked_at.with_timezone(&tz);
     let order_ref = receipt_ref(d);
 
@@ -326,7 +329,10 @@ fn receipt_ref(d: &ReceiptOrder) -> String {
 }
 
 fn receipt_date(d: &ReceiptOrder, cfg: &ReceiptConfig) -> String {
-    let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
+    let tz: Tz = cfg.timezone.parse().unwrap_or_else(|_| {
+        tracing::warn!(timezone = %cfg.timezone, "Receipt timezone invalid; falling back to UTC");
+        chrono_tz::UTC
+    });
     d.booked_at
         .with_timezone(&tz)
         .format("%m/%d/%Y %I:%M %p")
@@ -347,27 +353,21 @@ fn receipt_header_lines(cfg: &ReceiptConfig) -> Vec<String> {
     let mut lines = Vec::new();
     if cfg.show_address {
         let value = cfg.store_address.trim();
-        lines.push(if value.is_empty() {
-            "2760 Delaware Ave, Buffalo, NY".to_string()
-        } else {
-            value.to_string()
-        });
+        if !value.is_empty() {
+            lines.push(value.to_string());
+        }
     }
     if cfg.show_phone {
         let value = cfg.store_phone.trim();
-        lines.push(if value.is_empty() {
-            "(716) 876-2424".to_string()
-        } else {
-            value.to_string()
-        });
+        if !value.is_empty() {
+            lines.push(value.to_string());
+        }
     }
     if cfg.show_email {
         let value = cfg.store_email.trim();
-        lines.push(if value.is_empty() {
-            "service@riversidemensshop.com".to_string()
-        } else {
-            value.to_string()
-        });
+        if !value.is_empty() {
+            lines.push(value.to_string());
+        }
     }
     lines.extend(cfg.header_lines.iter().cloned());
     lines
@@ -738,7 +738,10 @@ pub fn build_alteration_pickup_receiptline(
     let tz: Tz = input
         .timezone
         .parse()
-        .unwrap_or(chrono_tz::America::New_York);
+        .unwrap_or_else(|_| {
+            tracing::warn!(timezone = %input.timezone, "Alteration receipt timezone invalid; falling back to UTC");
+            chrono_tz::UTC
+        });
     let local_time = input.picked_up_at.with_timezone(&tz);
 
     let mut lines = Vec::new();
@@ -795,7 +798,10 @@ pub fn build_alteration_pickup_escpos(
     input: &AlterationPickupReceiptInput,
     cfg: &ReceiptConfig,
 ) -> Vec<u8> {
-    let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
+    let tz: Tz = cfg.timezone.parse().unwrap_or_else(|_| {
+        tracing::warn!(timezone = %cfg.timezone, "Alteration receipt timezone invalid; falling back to UTC");
+        chrono_tz::UTC
+    });
     let local_time = input.picked_up_at.with_timezone(&tz);
     let mut out = Vec::new();
     out.extend_from_slice(&[0x1b, 0x40]);
@@ -864,14 +870,14 @@ pub fn build_alteration_pickup_escpos(
     out
 }
 
-pub fn build_alteration_card_receiptline(
-    input: &AlterationCardInput,
-    show_logo: bool,
-) -> String {
+pub fn build_alteration_card_receiptline(input: &AlterationCardInput, show_logo: bool) -> String {
     let tz: Tz = input
         .timezone
         .parse()
-        .unwrap_or(chrono_tz::America::New_York);
+        .unwrap_or_else(|_| {
+            tracing::warn!(timezone = %input.timezone, "Alteration card timezone invalid; falling back to UTC");
+            chrono_tz::UTC
+        });
     let created_local = input.created_at.with_timezone(&tz);
 
     let mut lines = Vec::new();
@@ -923,10 +929,7 @@ pub fn build_alteration_card_receiptline(
     }
     if let Some(due) = input.due_at {
         let due_local = due.with_timezone(&tz);
-        lines.push(format!(
-            "Due: {}",
-            due_local.format("%m/%d/%Y")
-        ));
+        lines.push(format!("Due: {}", due_local.format("%m/%d/%Y")));
     }
     if let Some(fitting) = input.fitting_at {
         let fitting_local = fitting.with_timezone(&tz);
@@ -954,11 +957,11 @@ pub fn build_alteration_card_receiptline(
     lines.join("\n")
 }
 
-pub fn build_alteration_card_escpos(
-    input: &AlterationCardInput,
-    cfg: &ReceiptConfig,
-) -> Vec<u8> {
-    let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
+pub fn build_alteration_card_escpos(input: &AlterationCardInput, cfg: &ReceiptConfig) -> Vec<u8> {
+    let tz: Tz = cfg.timezone.parse().unwrap_or_else(|_| {
+        tracing::warn!(timezone = %cfg.timezone, "Alteration card timezone invalid; falling back to UTC");
+        chrono_tz::UTC
+    });
     let created_local = input.created_at.with_timezone(&tz);
     let mut out = Vec::new();
     out.extend_from_slice(&[0x1b, 0x40]);
@@ -1001,7 +1004,10 @@ pub fn build_alteration_card_escpos(
             push_line(&mut out, &format!("Ticket #: {}", ascii_clean(t)));
         }
     }
-    push_line(&mut out, &format!("ID: {}", ascii_clean(&input.alteration_id)));
+    push_line(
+        &mut out,
+        &format!("ID: {}", ascii_clean(&input.alteration_id)),
+    );
     divider(&mut out);
     if let Some(desc) = input.item_description.as_deref() {
         let t = desc.trim();

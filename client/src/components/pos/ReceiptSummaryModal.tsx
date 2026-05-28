@@ -24,6 +24,7 @@ import {
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2 } from "../../lib/money";
+import { enqueueFailedPrint } from "../../lib/printRetryQueue";
 import type { OrderPaymentCartLine } from "./types";
 
 export interface ReceiptSummaryModalProps {
@@ -226,8 +227,14 @@ export default function ReceiptSummaryModal({
             setEmailDraft((c.email ?? "").trim());
           }
         } else {
-          await res.json().catch(() => ({}));
-          toast("Could not load receipt details.", "error");
+          let body: { error?: string } = {};
+          try {
+            body = await res.json() as { error?: string };
+          } catch {
+            const text = await res.text().catch(() => "");
+            body = { error: text || `Could not load receipt details (${res.status})` };
+          }
+          toast(body.error || "Could not load receipt details.", "error");
         }
       } catch (e) {
         console.error("Failed to fetch order detail", e);
@@ -337,6 +344,7 @@ export default function ReceiptSummaryModal({
       setPrinterCheckMessage(null);
       setLastPrintAttemptLabel(attemptLabel);
       setLastPrintRequest(opts);
+      let printableBase64 = "";
       try {
         const q = buildReceiptQuery(
           opts?.gift || opts?.transactionLineIds?.length
@@ -360,7 +368,7 @@ export default function ReceiptSummaryModal({
           throw new Error("Receipt printing is unavailable. Try again or use reprint.");
         }
 
-        let printableBase64 = escposPayload.escpos_base64;
+        printableBase64 = escposPayload.escpos_base64;
         if (typeof escposPayload.receiptline_markdown === "string" && escposPayload.receiptline_markdown.trim()) {
           try {
             const receiptlineCommand = transform(escposPayload.receiptline_markdown, {
@@ -389,6 +397,14 @@ export default function ReceiptSummaryModal({
         setPrintingFailure(
           `${message} The sale is already complete. Retry printing, check the station printer, or send the receipt by SMS or email.`,
         );
+        // Queue for retry from the POS header
+        if (transactionId && printableBase64.trim()) {
+          void enqueueFailedPrint({
+            transactionId,
+            label: opts?.gift ? "Gift receipt" : "Receipt",
+            printableBase64,
+          });
+        }
       } finally {
         setPrinting(false);
       }

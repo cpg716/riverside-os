@@ -122,7 +122,13 @@ pub struct CreateOrderItemBody {
     pub units: i32,
 }
 
-const VALID_ALTERATION_STATUSES: &[&str] = &["intake", "in_work", "verify_completed", "ready", "picked_up"];
+const VALID_ALTERATION_STATUSES: &[&str] = &[
+    "intake",
+    "in_work",
+    "verify_completed",
+    "ready",
+    "picked_up",
+];
 const VALID_ALTERATION_SOURCE_TYPES: &[&str] = &[
     "current_cart_item",
     "past_transaction_line",
@@ -814,11 +820,13 @@ async fn patch_alteration(
     }
 
     if body.ticket_number.is_some() {
-        sqlx::query("UPDATE alteration_orders SET ticket_number = $1, updated_at = now() WHERE id = $2")
-            .bind(body.ticket_number.as_deref())
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE alteration_orders SET ticket_number = $1, updated_at = now() WHERE id = $2",
+        )
+        .bind(body.ticket_number.as_deref())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     }
 
     let row = sqlx::query_as::<_, AlterationOrderRow>(
@@ -1203,7 +1211,13 @@ mod tests {
 
     #[test]
     fn normalize_alteration_status_accepts_known_values() {
-        for status in ["intake", "in_work", "verify_completed", "ready", "picked_up"] {
+        for status in [
+            "intake",
+            "in_work",
+            "verify_completed",
+            "ready",
+            "picked_up",
+        ] {
             assert_eq!(normalize_alteration_status(status).unwrap(), status);
         }
     }

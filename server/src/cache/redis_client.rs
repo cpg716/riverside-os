@@ -20,6 +20,12 @@ impl RedisCache {
         self.client.get_connection()
     }
 
+    /// Health-check ping
+    pub async fn ping(&self) -> RedisResult<String> {
+        let mut conn = self.get_connection().await?;
+        redis::cmd("PING").query(&mut conn)
+    }
+
     /// Cache a value with TTL
     pub async fn set<T: Serialize>(&self, key: &str, value: &T, ttl: Duration) -> RedisResult<()> {
         let serialized = serde_json::to_string(value).map_err(|e| {

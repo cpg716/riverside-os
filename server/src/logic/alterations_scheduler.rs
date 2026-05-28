@@ -38,7 +38,7 @@ pub async fn get_capacity_for_range(
     // 1. Get total units used per day in the range
     let used_units: Vec<(NaiveDate, i32, i32)> = sqlx::query_as(
         r#"
-        SELECT 
+        SELECT
             (ao.fitting_at AT TIME ZONE 'UTC')::date as d,
             COALESCE(SUM(ao.total_units_jacket), 0)::int as j,
             COALESCE(SUM(ao.total_units_pant), 0)::int as p
@@ -47,11 +47,16 @@ pub async fn get_capacity_for_range(
         GROUP BY d
         "#,
     )
-    .bind(start_date.and_hms_opt(0, 0, 0).unwrap().and_utc())
+    .bind(
+        start_date
+            .and_hms_opt(0, 0, 0)
+            .ok_or(sqlx::Error::Protocol("invalid start date".into()))?
+            .and_utc(),
+    )
     .bind(
         (end_date + Duration::days(1))
             .and_hms_opt(0, 0, 0)
-            .unwrap()
+            .ok_or(sqlx::Error::Protocol("invalid end date".into()))?
             .and_utc(),
     )
     .fetch_all(pool)
@@ -180,7 +185,7 @@ pub async fn update_order_unit_totals(
     sqlx::query(
         r#"
         UPDATE alteration_orders
-        SET 
+        SET
             total_units_jacket = (
                 SELECT COALESCE(SUM(units), 0)
                 FROM alteration_order_items
