@@ -176,7 +176,9 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
     use NotificationPreferenceHandling as Handling;
 
     match semantic_kind {
-        "admin_broadcast" | "update_available" => Some(Handling::Configurable(Category::Announcements)),
+        "admin_broadcast" | "update_available" => {
+            Some(Handling::Configurable(Category::Announcements))
+        }
         "alteration_due"
         | "morning_alteration_due"
         | "rms_account_list_weekly_upload"

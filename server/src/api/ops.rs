@@ -504,11 +504,7 @@ async fn get_update_check(
         .map_err(|e| e.into_response())?;
     match update_check::check_for_update(&state.http_client).await {
         Ok(result) => Ok(Json(serde_json::to_value(result).unwrap_or_default())),
-        Err(e) => Err((
-            StatusCode::BAD_GATEWAY,
-            Json(json!({ "error": e })),
-        )
-            .into_response()),
+        Err(e) => Err((StatusCode::BAD_GATEWAY, Json(json!({ "error": e }))).into_response()),
     }
 }
 
