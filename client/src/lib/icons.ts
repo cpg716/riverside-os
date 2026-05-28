@@ -115,7 +115,7 @@ export const APP_NAV_ICON_NAMES = {
 } as const;
 
 export const APP_ICON_SIZES = {
-  rail: 20,
+  rail: 25,
   section: 16,
   stat: 18,
   button: 16,

@@ -37,32 +37,27 @@ export default function PosSidebar({
       label: string;
       icon: ReturnType<typeof getAppIcon>;
     }[] = [
-      { id: "pos-dashboard", label: "Dashboard", icon: getAppIcon(APP_NAV_ICON_NAMES["pos-dashboard"]) },
-      { id: "register", label: "Register", icon: getAppIcon(APP_NAV_ICON_NAMES.register) },
-      { id: "tasks", label: "Tasks", icon: getAppIcon(APP_NAV_ICON_NAMES.tasks) },
-      { id: "customers", label: "Customers", icon: getAppIcon(APP_NAV_ICON_NAMES.customers) },
-      { id: "rms-charge", label: "RMS Charge", icon: getAppIcon(APP_NAV_ICON_NAMES["rms-charge"]) },
+      { id: "pos-dashboard", label: "Dashboard",  icon: getAppIcon(APP_NAV_ICON_NAMES["pos-dashboard"]) },
+      { id: "register",      label: "Register",   icon: getAppIcon(APP_NAV_ICON_NAMES.register) },
+      { id: "customers",     label: "Customers",  icon: getAppIcon(APP_NAV_ICON_NAMES.customers) },
     ];
 
-    // Mirroring Back Office permission gate logic for POS rails
+    // Permission-gated items in daily workflow order
     const items: { id: PosTabId; label: string; icon: ReturnType<typeof getAppIcon>; permission?: string; permissionsAny?: string[] }[] = [
-      {
-        id: "podium-inbox",
-        label: "Podium Inbox",
-        icon: getAppIcon(APP_NAV_ICON_NAMES["podium-inbox"]),
-        permission: "customers.hub_view",
-      },
-      { id: "weddings", label: "Weddings", icon: getAppIcon(APP_NAV_ICON_NAMES.weddings), permission: "wedding_manager.open" },
-      { id: "alterations", label: "Alterations", icon: getAppIcon(APP_NAV_ICON_NAMES.alterations), permission: "alterations.manage" },
-      { id: "inventory", label: "Inventory", icon: getAppIcon(APP_NAV_ICON_NAMES.inventory) }, // catalog.view is usually a baseline for catalog discovery
-      { id: "orders", label: "Orders", icon: getAppIcon(APP_NAV_ICON_NAMES.orders), permission: "orders.view" },
-      { id: "reports", label: "Reports", icon: getAppIcon(APP_NAV_ICON_NAMES.reports), permission: "insights.view" },
-      { id: "payments", label: "Payments", icon: getAppIcon(APP_NAV_ICON_NAMES.payments) },
-      { id: "gift-cards", label: "Gift Cards", icon: getAppIcon(APP_NAV_ICON_NAMES["gift-cards"]), permission: "gift_cards.manage" },
-      { id: "loyalty", label: "Loyalty", icon: getAppIcon(APP_NAV_ICON_NAMES.loyalty), permissionsAny: ["loyalty.program_settings", "loyalty.adjust_points"] },
-      { id: "layaways", label: "Layaways", icon: getAppIcon(APP_NAV_ICON_NAMES.layaways) }, // customer-hub access usually includes layaways
-      { id: "shipping", label: "Shipping", icon: getAppIcon(APP_NAV_ICON_NAMES.shipping), permission: "shipments.view" },
-      { id: "settings", label: "Settings", icon: getAppIcon(APP_NAV_ICON_NAMES.settings) }, // settings.admin or staff.manage_access
+      { id: "weddings",     label: "Weddings",    icon: getAppIcon(APP_NAV_ICON_NAMES.weddings),          permission: "wedding_manager.open" },
+      { id: "alterations",  label: "Alterations", icon: getAppIcon(APP_NAV_ICON_NAMES.alterations),       permission: "alterations.manage" },
+      { id: "orders",       label: "Orders",      icon: getAppIcon(APP_NAV_ICON_NAMES.orders),            permission: "orders.view" },
+      { id: "tasks",        label: "Tasks",       icon: getAppIcon(APP_NAV_ICON_NAMES.tasks) },
+      { id: "podium-inbox", label: "Podium Inbox", icon: getAppIcon(APP_NAV_ICON_NAMES["podium-inbox"]),  permission: "customers.hub_view" },
+      { id: "rms-charge",   label: "RMS Charge",  icon: getAppIcon(APP_NAV_ICON_NAMES["rms-charge"]) },
+      { id: "inventory",    label: "Inventory",   icon: getAppIcon(APP_NAV_ICON_NAMES.inventory) },
+      { id: "payments",     label: "Payments",    icon: getAppIcon(APP_NAV_ICON_NAMES.payments) },
+      { id: "reports",      label: "Reports",     icon: getAppIcon(APP_NAV_ICON_NAMES.reports),           permission: "insights.view" },
+      { id: "gift-cards",   label: "Gift Cards",  icon: getAppIcon(APP_NAV_ICON_NAMES["gift-cards"]),    permission: "gift_cards.manage" },
+      { id: "loyalty",      label: "Loyalty",     icon: getAppIcon(APP_NAV_ICON_NAMES.loyalty),           permissionsAny: ["loyalty.program_settings", "loyalty.adjust_points"] },
+      { id: "layaways",     label: "Layaways",    icon: getAppIcon(APP_NAV_ICON_NAMES.layaways) },
+      { id: "shipping",     label: "Shipping",    icon: getAppIcon(APP_NAV_ICON_NAMES.shipping),          permission: "shipments.view" },
+      { id: "settings",     label: "Settings",    icon: getAppIcon(APP_NAV_ICON_NAMES.settings) },
     ];
 
     for (const item of items) {
@@ -72,7 +67,7 @@ export default function PosSidebar({
        }
        if (item.permission && !hasPermission(item.permission)) continue;
        if (item.permissionsAny && !item.permissionsAny.some(p => hasPermission(p))) continue;
-       
+
        // Extra check for settings: mirror SIDEBAR_TAB_PERMISSIONS_ANY
        if (item.id === "settings") {
          const canAdmin = hasPermission("settings.admin") || hasPermission("staff.manage_access");
@@ -144,7 +139,7 @@ export default function PosSidebar({
                     {isActive && !collapsed && (
                       <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-app-accent" />
                     )}
-                    <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+                    <span className="relative flex h-[26px] w-[26px] shrink-0 items-center justify-center">
                       <Icon
                         {...getNavIconProps(isActive)}
                         aria-hidden

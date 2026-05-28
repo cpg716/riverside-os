@@ -64,39 +64,24 @@ export default function Sidebar({
   const menuItems = useMemo(
     () =>
       [
-        { id: "home", label: "Operations", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.home) },
-        { id: "register", label: "POS", surface: "POS-Core", icon: getAppIcon(APP_NAV_ICON_NAMES.register) },
-        { id: "customers", label: "Customers", surface: "POS-Core", icon: getAppIcon(APP_NAV_ICON_NAMES.customers) },
-        {
-          id: "alterations",
-          label: "Alterations",
-          surface: "POS-Core",
-          icon: getAppIcon(APP_NAV_ICON_NAMES.alterations),
-        },
-        { id: "orders", label: "Orders", surface: "POS-Core", icon: getAppIcon(APP_NAV_ICON_NAMES.orders) },
-        { id: "inventory", label: "Inventory", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.inventory) },
-        { id: "shipping", label: "Shipping", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.shipping) },
+        { id: "home",         label: "Operations",  surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.home) },
+        { id: "register",     label: "POS",          surface: "POS-Core",  icon: getAppIcon(APP_NAV_ICON_NAMES.register) },
+        { id: "appointments", label: "Appointments", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.appointments) },
+        { id: "customers",    label: "Customers",    surface: "POS-Core",  icon: getAppIcon(APP_NAV_ICON_NAMES.customers) },
+        { id: "weddings",     label: "Weddings",     surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.weddings) },
+        { id: "alterations",  label: "Alterations",  surface: "POS-Core",  icon: getAppIcon(APP_NAV_ICON_NAMES.alterations) },
+        { id: "orders",       label: "Orders",       surface: "POS-Core",  icon: getAppIcon(APP_NAV_ICON_NAMES.orders) },
+        { id: "inventory",    label: "Inventory",    surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.inventory) },
+        { id: "staff",        label: "Staff",        surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.staff) },
+        { id: "payments",     label: "Payments",     surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.payments) },
+        { id: "reports",      label: "Reports",      surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.reports) },
+        { id: "dashboard",    label: "Insights",     surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.dashboard) },
+        { id: "gift-cards",   label: "Gift Cards",   surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES["gift-cards"]) },
+        { id: "loyalty",      label: "Loyalty",      surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.loyalty) },
+        { id: "shipping",     label: "Shipping",     surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.shipping) },
         { id: "online-store", label: "Online Store", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES["online-store"]) },
-        { id: "weddings", label: "Weddings", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.weddings) },
-        { id: "gift-cards", label: "Gift Cards", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES["gift-cards"]) },
-        { id: "loyalty", label: "Loyalty", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.loyalty) },
-        { id: "staff", label: "Staff", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.staff) },
-        { id: "qbo", label: "QBO bridge", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.qbo) },
-        { id: "payments", label: "Payments", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.payments) },
-        { id: "reports", label: "Reports", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.reports) },
-        {
-          id: "dashboard",
-          label: "Insights",
-          surface: "BackOffice",
-          icon: getAppIcon(APP_NAV_ICON_NAMES.dashboard),
-        },
-        {
-          id: "appointments",
-          label: "Appointments",
-          surface: "BackOffice",
-          icon: getAppIcon(APP_NAV_ICON_NAMES.appointments),
-        },
-        { id: "settings", label: "Settings", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.settings) },
+        { id: "qbo",          label: "QBO bridge",   surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.qbo) },
+        { id: "settings",     label: "Settings",     surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.settings) },
       ] as {
         id: SidebarTabId;
         label: string;
@@ -125,8 +110,8 @@ export default function Sidebar({
   return (
     <aside
       className={`ui-rail z-[70] md:z-40 flex shrink-0 flex-col border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[84px] md:h-[calc(100vh-84px)] overflow-y-auto custom-scrollbar ${
-        collapsed 
-          ? "w-0 -translate-x-full md:w-16 md:translate-x-0 md:px-2" 
+        collapsed
+          ? "w-0 -translate-x-full md:w-16 md:translate-x-0 md:px-2"
           : "fixed left-0 top-[84px] bottom-0 w-[240px] px-4 md:sticky md:w-[220px] md:px-0"
       }`}
     >
@@ -194,7 +179,7 @@ export default function Sidebar({
                   {isActive && !collapsed && (
                     <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-app-accent" />
                   )}
-                  <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+                  <span className="relative flex h-[26px] w-[26px] shrink-0 items-center justify-center">
                     <Icon
                       {...navIconProps}
                       aria-hidden
