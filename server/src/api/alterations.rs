@@ -122,7 +122,7 @@ pub struct CreateOrderItemBody {
     pub units: i32,
 }
 
-const VALID_ALTERATION_STATUSES: &[&str] = &["intake", "in_work", "ready", "picked_up"];
+const VALID_ALTERATION_STATUSES: &[&str] = &["intake", "in_work", "verify_completed", "ready", "picked_up"];
 const VALID_ALTERATION_SOURCE_TYPES: &[&str] = &[
     "current_cart_item",
     "past_transaction_line",
@@ -874,13 +874,30 @@ async fn patch_alteration(
         let pool = state.db.clone();
         let cid = row.customer_id;
         let aid = row.id;
+        let source_line_id = row.source_transaction_line_id;
         tokio::spawn(async move {
-            // Queue customer notification for batch sending
-            let _ = sqlx::query("SELECT queue_alteration_ready_notification($1, $2, NULL)")
-                .bind(aid)
-                .bind(cid)
+            // Check if alteration is linked to an order line
+            if let Some(line_id) = source_line_id {
+                // Notify order system that alteration is ready
+                let _ = sqlx::query(
+                    r#"
+                    UPDATE transaction_lines
+                    SET alteration_ready = true,
+                        updated_at = now()
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(line_id)
                 .execute(&pool)
                 .await;
+            } else {
+                // Queue customer notification for batch sending (standalone alteration)
+                let _ = sqlx::query("SELECT queue_alteration_ready_notification($1, $2, NULL)")
+                    .bind(aid)
+                    .bind(cid)
+                    .execute(&pool)
+                    .await;
+            }
         });
     }
 
@@ -1098,7 +1115,7 @@ mod tests {
 
     #[test]
     fn normalize_alteration_status_accepts_known_values() {
-        for status in ["intake", "in_work", "ready", "picked_up"] {
+        for status in ["intake", "in_work", "verify_completed", "ready", "picked_up"] {
             assert_eq!(normalize_alteration_status(status).unwrap(), status);
         }
     }

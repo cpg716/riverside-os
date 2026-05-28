@@ -68,7 +68,7 @@ type AlterationCapacityDay = {
 };
 
 
-const STATUS_FILTERS = ["all", "intake", "in_work", "ready", "picked_up"] as const;
+const STATUS_FILTERS = ["all", "intake", "in_work", "verify_completed", "ready", "picked_up"] as const;
 const SOURCE_FILTERS = [
   { value: "all", label: "All sources" },
   { value: "current_cart_item", label: "Current sale" },
@@ -98,7 +98,7 @@ const escapeHtml = (value: string) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
-const isOpenWorkStatus = (status: string) => status !== "ready" && status !== "picked_up";
+const isOpenWorkStatus = (status: string) => status !== "verify_completed" && status !== "ready" && status !== "picked_up";
 const fulfillmentLooksLikeOrder = (snapshot: Record<string, unknown> | null | undefined) => {
   const fulfillment = String(snapshot?.fulfillment ?? "").toLowerCase();
   return ["special_order", "wedding_order", "custom", "layaway", "order"].includes(fulfillment);
@@ -173,7 +173,8 @@ const rowMatchesSearch = (row: AlterationRow, search: string) => {
 
 const nextAlterationStatus = (status: string): string | null => {
   if (status === "intake") return "in_work";
-  if (status === "in_work") return "ready";
+  if (status === "in_work") return "verify_completed";
+  if (status === "verify_completed") return "ready";
   if (status === "ready") return "picked_up";
   return null;
 };
@@ -197,6 +198,12 @@ const alterationPressureState = (row: AlterationRow) => {
       className: "border-app-success/30 bg-app-success/10 text-app-success",
     };
   }
+  if (row.status === "verify_completed") {
+    return {
+      label: "Verify completed",
+      className: "border-app-accent/30 bg-app-accent/10 text-app-accent",
+    };
+  }
   return {
     label: row.status === "in_work" ? "In work" : "Needs tailor review",
     className: "border-app-border bg-app-surface-2 text-app-text-muted",
@@ -207,7 +214,8 @@ const alterationNextSafeAction = (row: AlterationRow): string => {
   if (isOverdue(row)) return "Escalate or reassign before promising pickup.";
   if (isDueToday(row)) return "Advance status or reassign if it will miss today.";
   if (row.status === "intake") return "Start work or assign schedule.";
-  if (row.status === "in_work") return "Mark ready when tailoring is complete.";
+  if (row.status === "in_work") return "Mark verify completed when tailoring is done.";
+  if (row.status === "verify_completed") return "Mark ready for pickup after verification.";
   if (row.status === "ready") return "Confirm pickup before marking picked up.";
   return "Review history if the customer asks for status.";
 };
@@ -588,6 +596,14 @@ export default function CustomerAlterationsPanel({
       icon: AlertTriangle,
       rows: visibleRows.filter((row) => isOverdue(row)),
       tone: "text-red-700 bg-red-500/10 border-red-500/20",
+    },
+    {
+      id: "verify_completed",
+      title: "Verify Completed",
+      subtitle: "Alterations past their scheduled date ready for verification.",
+      icon: CheckCircle2,
+      rows: visibleRows.filter((row) => row.status === "in_work" && row.fitting_at && new Date(row.fitting_at) < new Date()),
+      tone: "text-app-accent bg-app-accent/10 border-app-accent/20",
     },
     {
       id: "due_today",
