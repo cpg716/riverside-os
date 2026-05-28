@@ -91,20 +91,23 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
         fetchParties();
         fetchSalespeople();
 
-        socket.on('connect', () => setIsConnected(true));
-        socket.on('disconnect', () => setIsConnected(false));
-
-        socket.on('parties_updated', (data) => {
+        const onConnect = () => setIsConnected(true);
+        const onDisconnect = () => setIsConnected(false);
+        const onPartiesUpdated = (data) => {
             // Ignore updates initiated by this client to prevent race conditions
             if (data && data.senderId === socket.id) return;
             fetchParties();
             setLastUpdated(new Date());
-        });
+        };
+
+        socket.on('connect', onConnect);
+        socket.on('disconnect', onDisconnect);
+        socket.on('parties_updated', onPartiesUpdated);
 
         return () => {
-            socket.off('connect');
-            socket.off('disconnect');
-            socket.off('parties_updated');
+            socket.off('connect', onConnect);
+            socket.off('disconnect', onDisconnect);
+            socket.off('parties_updated', onPartiesUpdated);
         };
     }, []);
 
@@ -590,12 +593,15 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
                 <AppointmentModal
                     isOpen={isApptModalOpen}
-                    onClose={() => setIsApptModalOpen(false)}
+                    onClose={() => {
+                        setIsApptModalOpen(false);
+                        setApptInitialData(null);
+                    }}
                     initialData={apptInitialData}
                     parties={parties}
                     onSave={() => {
-                        // Refresh if needed, though appointments are separate
                         setIsApptModalOpen(false);
+                        setApptInitialData(null);
                     }}
                 />
 

@@ -34,11 +34,18 @@ const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }
         if (!member) return;
         setLoading(true);
         try {
-            const allAppts = await api.getAppointments();
-            // Filter for this member
-            const memberAppts = allAppts.filter(a =>
-                a.memberId === member.id &&
-                a.partyId === member.partyId
+            // Fetch a wide window (2 years past → 2 years future) so we catch all member appointments
+            // without loading the entire table. The backend requires from/to bounds.
+            const pastBound = new Date();
+            pastBound.setFullYear(pastBound.getFullYear() - 2);
+            const futureBound = new Date();
+            futureBound.setFullYear(futureBound.getFullYear() + 2);
+            const startStr = pastBound.toISOString().slice(0, 10) + 'T00:00:00';
+            const endStr   = futureBound.toISOString().slice(0, 10) + 'T23:59:59';
+            const allAppts = await api.getAppointments(startStr, endStr);
+            const memberAppts = (allAppts || []).filter(a =>
+                a.memberId === member.id ||
+                (member.partyId && a.partyId === member.partyId)
             );
             setAppointments(memberAppts.sort((a, b) => a.datetime.localeCompare(b.datetime)));
         } catch (err) {
@@ -73,6 +80,7 @@ const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }
             if (onRefresh) onRefresh();
         } catch (err) {
             console.error("Failed to delete:", err);
+            showConfirm(`Failed to delete appointment. Please try again.`, 'Error', { variant: 'danger', confirmText: 'OK', cancelText: null });
         }
     };
 

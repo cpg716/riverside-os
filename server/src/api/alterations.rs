@@ -278,7 +278,7 @@ pub fn router() -> Router<AppState> {
         .route("/", get(list_alterations).post(create_alteration))
         .route("/capacity", get(get_capacity))
         .route("/suggest-slots", get(get_suggested_slots))
-        .route("/{id}", patch(patch_alteration))
+        .route("/{id}", get(get_alteration).patch(patch_alteration))
         .route("/{id}/pickup", post(post_alteration_pickup))
         .route("/{id}/pickup-receipt", get(get_alteration_pickup_receipt))
         .route(
@@ -685,6 +685,43 @@ async fn create_alteration(
     tx.commit().await?;
     spawn_meilisearch_alteration_upsert(&state, row.id);
 
+    Ok(Json(row))
+}
+
+async fn get_alteration(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AlterationOrderRow>, AlterationError> {
+    let _staff = require_manage(&state, &headers).await?;
+    let row = sqlx::query_as::<_, AlterationOrderRow>(
+        r#"
+        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name,
+               c.customer_code, c.phone AS customer_phone, c.email AS customer_email,
+               c.address_line1 AS customer_address_line1, c.city AS customer_city,
+               c.state AS customer_state, c.postal_code AS customer_postal_code,
+               a.wedding_member_id, a.status::text AS status,
+               a.due_at, a.fitting_at, a.appointment_id,
+               a.total_units_jacket, a.total_units_pant,
+               a.notes, a.transaction_id AS linked_transaction_id,
+               lt.display_id AS linked_transaction_display_id,
+               a.source_type::text AS source_type, a.item_description, a.work_requested,
+               a.source_product_id, a.source_variant_id, a.source_sku,
+               a.source_transaction_id, a.source_transaction_line_id,
+               a.charge_amount, a.charge_transaction_line_id,
+               a.intake_channel::text AS intake_channel, a.source_snapshot,
+               a.picked_up_at, a.picked_up_by_staff_id,
+               a.created_at, a.updated_at
+        FROM alteration_orders a
+        LEFT JOIN customers c ON a.customer_id = c.id
+        LEFT JOIN transactions lt ON lt.id = COALESCE(a.transaction_id, a.source_transaction_id)
+        WHERE a.id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AlterationError::NotFound)?;
     Ok(Json(row))
 }
 

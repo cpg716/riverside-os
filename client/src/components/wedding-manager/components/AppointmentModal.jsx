@@ -217,41 +217,22 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
         setSearchResults([]);
     };
 
-    const checkAvailability = async (date, time, salesperson) => {
-        if (!salesperson) return true; // No salesperson selected, no conflict
-        try {
-            // Fetch appointments for the day
-            const start = `${date}T00:00:00`;
-            const end = `${date}T23:59:59`;
-            const dayAppts = await api.getAppointments(start, end);
-
-            // Check for conflict
-            const conflict = dayAppts.find(a =>
-                a.salesperson === salesperson &&
-                a.datetime.includes(time) &&
-                a.id !== initialData?.id // Ignore self if editing
-            );
-
-            if (conflict) {
-                const confirmed = await showConfirm(
-                    `${salesperson} already has an appointment at ${time}. Do you want to schedule this anyway?`,
-                    "Schedule Conflict",
-                    { variant: 'warning', confirmText: 'Yes, Schedule Anyway', cancelText: 'No, Cancel' }
-                );
-                if (!confirmed) return false;
-            }
-            return true;
-        } catch (err) {
-            console.error("Failed to check availability:", err);
-            return true; // Assume ok on error? Or block?
-        }
+    const checkAvailability = async () => {
+        if (!formData.salesperson) return true;
+        if (conflicts.length === 0) return true;
+        const confirmed = await showConfirm(
+            `${formData.salesperson} already has ${conflicts.length} appointment(s) at ${formData.time}. Schedule anyway?`,
+            "Schedule Conflict",
+            { variant: 'warning', confirmText: 'Yes, Schedule Anyway', cancelText: 'No, Cancel' }
+        );
+        return confirmed;
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
 
         // 1. Check Availability
-        const isAvailable = await checkAvailability(formData.date, formData.time, formData.salesperson);
+        const isAvailable = await checkAvailability();
         if (!isAvailable) return;
 
         // 2. Confirm Working Day
@@ -388,7 +369,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
             if (initialData.memberId) {
                 const apptDate = new Date(formData.date).toLocaleDateString();
                 const newNote = `Deleted appointment on ${apptDate} - ${deletedBy}`;
-                // We can't easily append to history without fetching member first, 
+                // We can't easily append to history without fetching member first,
                 // but we can try to use a specialized endpoint or just let the backend logging handle it?
                 // The user specifically asked for "Member CONTACT HISTORY".
                 // We should try to update the member.

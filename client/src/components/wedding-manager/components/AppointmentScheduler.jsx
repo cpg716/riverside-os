@@ -42,12 +42,11 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
     useEffect(() => {
         fetchAppointments();
 
-        socket.on('appointments_updated', () => {
-            fetchAppointments();
-        });
+        const onAppointmentsUpdated = () => fetchAppointments();
+        socket.on('appointments_updated', onAppointmentsUpdated);
 
         return () => {
-            socket.off('appointments_updated');
+            socket.off('appointments_updated', onAppointmentsUpdated);
         };
     }, [selectedDate, viewMode]);
 
@@ -126,7 +125,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
 
             try {
                 // We need to get the appointment details first to log it properly if we want to add to member history
-                // But we only have the ID here. 
+                // But we only have the ID here.
                 // We can find it in the `appointments` prop if available?
                 // `appointments` is passed as prop.
                 const apptToDelete = appointments.find(a => a.id === apptId);
@@ -243,7 +242,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                         <div className="grid grid-cols-[80px_1fr] divide-y divide-app-border/80">
                             {timeSlots.map(time => {
                                 const dateStr = localDateKey(selectedDate);
-                                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time));
+                                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time) && a.status !== 'Attended' && a.status !== 'Missed');
 
                                 return (
                                     <div key={time} className="contents group">
