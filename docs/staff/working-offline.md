@@ -50,7 +50,7 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 | Checkout recovery blocked | Stop and call manager | Manager reviews/retries/exports; do not close register |
 | Duplicate charge fear | Compare **receipt #** on paper vs screen | Orders lead |
 | “Online only” error on BO | Expected | Wait for network |
-| Tailscale down | Check phone **cellular** | [REMOTE_ACCESS_GUIDE](../../REMOTE_ACCESS_GUIDE.md) owner |
+| Tailscale down | Check phone **cellular** | See [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) |
 
 ## When to get a manager
 
@@ -63,6 +63,7 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 ## See also
 
 - [../OFFLINE_OPERATIONAL_PLAYBOOK.md](../OFFLINE_OPERATIONAL_PLAYBOOK.md)
-- [../../REMOTE_ACCESS_GUIDE.md](../../REMOTE_ACCESS_GUIDE.md)
+- [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) — full Tailscale setup
+- [`REMOTE_ACCESS_USER_GUIDE.md`](../REMOTE_ACCESS_USER_GUIDE.md) — concept and roles
 
 **Last reviewed:** 2026-04-25

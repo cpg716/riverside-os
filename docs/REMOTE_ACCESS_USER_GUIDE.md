@@ -1,5 +1,7 @@
 # Remote Access & Network Bridge Guide
 
+> **Full Tailscale setup instructions (install, firewall, CORS, per-device, admin console) are in [`REMOTE_ACCESS_GUIDE.md`](REMOTE_ACCESS_GUIDE.md).** This guide covers the operational concept and roles.
+
 This guide explains the **separate** roles of:
 
 - the **HOST machine**
@@ -59,12 +61,15 @@ This is **local access**, not remote access.
 
 For laptops, phones, or tablets that are **away from the shop**:
 
-1. Install **Tailscale** on the remote device.
+1. Install **Tailscale** on the remote device (see [`REMOTE_ACCESS_GUIDE.md`](REMOTE_ACCESS_GUIDE.md) section 3 for platform-specific steps).
 2. Sign in to the same private network as the host machine.
-3. Use the store's Tailscale remote-access path to reach Riverside.
-4. Confirm you are testing from an off-site device or non-store network, not from the same local Wi‑Fi as the host.
+3. In Riverside's sign-in gate → **Server Connection → Tailscale / Remote Address → Set** → enter the store's Tailscale address and save. It then appears as a named quick-pick on every future launch.
+4. Select **"Store server (Tailscale / remote)"** from the quick-pick list to connect.
+5. Confirm you are testing from an off-site device or non-store network, not from the same local Wi‑Fi as the host.
 
 This is **remote access**, not the same thing as local host access.
+
+> **In-app hint:** if the gate cannot reach the server over a Tailscale address, it shows a purple warning: *"Make sure the Tailscale app is running and connected on this device."*
 
 ## 4. Main Register clarification
 
