@@ -194,6 +194,23 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 
 ---
 
+## Customer Notifications
+
+### Ready for Pickup Notifications
+
+When order lines are marked **Ready for Pickup** (via Order Lifecycle), customer SMS/email notifications are queued and sent in batches at scheduled times (9:30 AM and 3:00 PM, Monday-Saturday) or immediately via staff override.
+
+**Key Points:**
+- Notifications are queued when items become ready, not sent immediately
+- Staff can review pending notifications in Operations → Notification Queue
+- "Send Now" override available for urgent pickups
+- All sent messages appear in Customer Messages section and Customer History
+- Requires customer opt-in (operational SMS/email always enabled by default)
+
+**Documentation:** See [`CUSTOMER_NOTIFICATION_QUEUE.md`](CUSTOMER_NOTIFICATION_QUEUE.md) for complete system reference.
+
+---
+
 ## Known Gaps (Future Work)
 
 | Gap | Description | Priority |
@@ -201,3 +218,4 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 | **Push to POS** | No "Push to POS" button in Transactions workspace to send transaction to register | Medium |
 | **Auto-charge at pickup** | Saved card not automatically charged for balance + shipping at pickup/release | Medium |
 | **Shippo label integration** | No Shippo integration for generating shipping labels from ROS | Low |
+| **Order-alteration dependency** | Order notifications should only send after linked alterations are complete | Medium |

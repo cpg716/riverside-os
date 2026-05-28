@@ -55,6 +55,35 @@ pub struct InsertCustomerParams {
     pub customer_created_source: CustomerCreatedSource,
 }
 
+impl Default for InsertCustomerParams {
+    fn default() -> Self {
+        Self {
+            customer_code: None,
+            first_name: String::new(),
+            last_name: String::new(),
+            company_name: None,
+            email: None,
+            phone: None,
+            address_line1: None,
+            address_line2: None,
+            city: None,
+            state: None,
+            postal_code: None,
+            date_of_birth: None,
+            anniversary_date: None,
+            custom_field_1: None,
+            custom_field_2: None,
+            custom_field_3: None,
+            custom_field_4: None,
+            marketing_email_opt_in: true,  // Prechecked for new customers
+            marketing_sms_opt_in: true,   // Prechecked for new customers
+            transactional_sms_opt_in: true,  // Always ON for operational messages
+            transactional_email_opt_in: true, // Always ON for operational messages
+            customer_created_source: CustomerCreatedSource::Store,
+        }
+    }
+}
+
 /// Next store-facing customer code (`ROS-` + zero-padded sequence). Concurrency-safe.
 pub async fn next_customer_code(pool: &PgPool) -> Result<String, sqlx::Error> {
     let n: i64 = sqlx::query_scalar("SELECT nextval('customer_code_seq')")

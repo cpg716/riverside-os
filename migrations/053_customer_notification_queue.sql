@@ -3,44 +3,40 @@
 
 CREATE TABLE IF NOT EXISTS customer_notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    
+
     -- Target entity (order or alteration)
     entity_type TEXT NOT NULL CHECK (entity_type IN ('order', 'alteration')),
     entity_id UUID NOT NULL,
-    
+
     -- Customer who should receive notification
     customer_id UUID NOT NULL REFERENCES customers(id),
-    
+
     -- Notification kind
     kind TEXT NOT NULL CHECK (kind IN ('ready_for_pickup')),
-    
+
     -- Status tracking
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'scheduled', 'sent', 'skipped', 'failed')),
-    
+
     -- Scheduling
     scheduled_for TIMESTAMP WITH TIME ZONE,
     sent_at TIMESTAMP WITH TIME ZONE,
-    
+
     -- Override flags
     send_immediately BOOLEAN DEFAULT FALSE,
     override_reason TEXT,
-    
+
     -- Delivery tracking
     delivery_method TEXT CHECK (delivery_method IN ('sms', 'email', 'both')),
     delivery_status TEXT CHECK (delivery_status IN ('pending', 'delivered', 'failed')),
     delivery_error TEXT,
-    
+
     -- Metadata
     metadata JSONB DEFAULT '{}',
-    
+
     -- Audit
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_by_staff_id UUID REFERENCES staff(id),
-    
-    -- Prevent duplicate notifications for same entity
-    CONSTRAINT unique_pending_notification UNIQUE (entity_type, entity_id, kind, status)
-    WHERE status IN ('pending', 'scheduled')
+    created_by_staff_id UUID REFERENCES staff(id)
 );
 
 -- Indexes for efficient queries
@@ -95,7 +91,7 @@ BEGIN
     ON CONFLICT (entity_type, entity_id, kind, status)
     DO NOTHING
     RETURNING id INTO v_notification_id;
-    
+
     RETURN v_notification_id;
 END;
 $$ LANGUAGE plpgsql;
@@ -131,7 +127,7 @@ BEGIN
     ON CONFLICT (entity_type, entity_id, kind, status)
     DO NOTHING
     RETURNING id INTO v_notification_id;
-    
+
     RETURN v_notification_id;
 END;
 $$ LANGUAGE plpgsql;
@@ -152,7 +148,7 @@ BEGIN
         delivery_error = p_error,
         updated_at = NOW()
     WHERE id = p_notification_id;
-    
+
     RETURN FOUND;
 END;
 $$ LANGUAGE plpgsql;
@@ -168,7 +164,7 @@ BEGIN
         updated_at = NOW()
     WHERE status = 'pending'
       AND send_immediately = FALSE;
-    
+
     GET DIAGNOSTICS v_count = ROW_COUNT;
     RETURN v_count;
 END;
@@ -187,7 +183,7 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
+    SELECT
         cnq.id,
         cnq.entity_type,
         cnq.entity_id,
@@ -217,7 +213,7 @@ BEGIN
         updated_at = NOW(),
         created_by_staff_id = p_staff_id
     WHERE id = p_notification_id;
-    
+
     RETURN FOUND;
 END;
 $$ LANGUAGE plpgsql;

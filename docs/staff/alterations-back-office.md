@@ -42,6 +42,13 @@ Order or Transaction Record numbers appear only as source context when the garme
 2. **In progress** when work starts; **Ready** when pressed/hung; **Picked up** when customer signs.
 3. **Save** after each transition; some transitions may **notify** the customer — follow messaging policy.
 
+**Customer Notifications:**
+- When status changes to **Ready**, customer SMS/email notification is queued for batch sending (9:30 AM or 3:00 PM, Mon-Sat)
+- Staff can review pending notifications in Operations → Notification Queue
+- "Send Now" override available for urgent pickups
+- All sent messages appear in Customer Messages section
+- See [notification-queue.md](notification-queue.md) for details
+
 ### Plan a work day
 
 1. Use **Daily Alteration Schedule** to pick the work date.
@@ -84,5 +91,6 @@ Floor staff use **POS → Alterations** for quick status. If POS shows **differe
 ## See also
 
 - [pos-alterations.md](pos-alterations.md)
+- [notification-queue.md](notification-queue.md)
 
-**Last reviewed:** 2026-04-24
+**Last reviewed:** 2026-05-28 (v0.80.9 Notification Queue added)
