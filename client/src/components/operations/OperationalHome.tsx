@@ -4,10 +4,12 @@ import {
   Activity,
   AlertCircle,
   CalendarCheck,
+  ChevronDown,
   ChevronRight,
   CircleDollarSign,
   ClipboardCheck,
   Target,
+  TriangleAlert,
   TrendingUp,
   Zap,
   ShieldCheck,
@@ -313,6 +315,58 @@ function SummaryPill({
         {value}
       </p>
     </Root>
+  );
+}
+
+function RecentActivityCard({
+  activityFeed,
+  feedError,
+}: {
+  activityFeed: ActivityFeedEntry[];
+  feedError: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <DashboardGridCard
+      title="Recent Activity"
+      subtitle="Store floor and wedding events"
+      icon={Activity}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center justify-between rounded-xl border border-app-border bg-app-surface-3 px-4 py-2.5 text-left text-xs font-bold text-app-text-muted transition-colors hover:bg-app-surface-2"
+      >
+        <span>{expanded ? "Hide activity log" : `Show activity log (${activityFeed.length} recent events)`}</span>
+        <ChevronDown size={14} className={cn("transition-transform", expanded && "rotate-180")} />
+      </button>
+      {expanded && (
+        <div className="mt-4 space-y-5">
+          {feedError ? (
+            <FeedDegradedNotice message={feedError} />
+          ) : activityFeed.length === 0 ? (
+            <div className="py-12 text-center text-sm font-semibold text-app-text-muted">
+              No recent activity has posted yet.
+            </div>
+          ) : activityFeed.slice(0, 8).map((act) => (
+            <div key={act.id} className="flex gap-4">
+              <div className="mt-1">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-app-accent/10 text-app-accent">
+                  <Users size={14} />
+                </div>
+              </div>
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="text-xs font-bold text-app-text">
+                  {act.actor_name} <span className="font-medium text-app-text-muted">performed</span> {act.action_type.replace(/_/g, " ")}
+                </p>
+                <p className="line-clamp-2 text-[10px] leading-relaxed text-app-text-muted">{act.description}</p>
+                <p className="text-[9px] font-bold text-app-text-muted/60">{new Date(act.created_at).toLocaleTimeString()}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </DashboardGridCard>
   );
 }
 
@@ -2072,7 +2126,7 @@ export default function OperationalHome({
                             : "border-app-accent/20 bg-app-accent/10 text-app-accent",
                         )}
                       >
-                        <Zap size={16} />
+                        {item.tier === "urgent" ? <TriangleAlert size={16} /> : <Zap size={16} />}
                       </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-bold text-app-text">
@@ -2199,36 +2253,7 @@ export default function OperationalHome({
             </DashboardGridCard>
           </div>
 
-          <DashboardGridCard
-            title="Recent Activity"
-            subtitle="Store floor and wedding events"
-            icon={Activity}
-          >
-            <div className="space-y-5">
-              {feedLoadErrors.activityFeed ? (
-                <FeedDegradedNotice message={feedLoadErrors.activityFeed} />
-              ) : activityFeed.length === 0 ? (
-                <div className="py-12 text-center text-sm font-semibold text-app-text-muted">
-                  No recent activity has posted yet.
-                </div>
-              ) : activityFeed.slice(0, 8).map((act) => (
-                <div key={act.id} className="flex gap-4">
-                  <div className="mt-1">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-app-accent/10 text-app-accent">
-                      <Users size={14} />
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <p className="text-xs font-bold text-app-text">
-                      {act.actor_name} <span className="font-medium text-app-text-muted">performed</span> {act.action_type.replace(/_/g, " ")}
-                    </p>
-                    <p className="line-clamp-2 text-[10px] leading-relaxed text-app-text-muted">{act.description}</p>
-                    <p className="text-[9px] font-bold text-app-text-muted/60">{new Date(act.created_at).toLocaleTimeString()}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </DashboardGridCard>
+          <RecentActivityCard activityFeed={activityFeed} feedError={feedLoadErrors.activityFeed ?? null} />
         </div>
 
         <div className="space-y-6 xl:col-span-4">

@@ -9,12 +9,12 @@ import {
   ClipboardCheck,
   DollarSign,
   Heart,
+  Package,
   PackageCheck,
   ShoppingCart,
   Snowflake,
   Scissors,
   Sun,
-  Target,
   Zap,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -304,7 +304,7 @@ export default function RegisterDashboard({
   return (
     <>
       <div className="flex flex-1 flex-col gap-6 bg-app-bg p-4 animate-in fade-in duration-500 sm:p-6 lg:p-8">
-        
+
         {/* Header Section */}
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="min-w-0 space-y-2">
@@ -348,23 +348,22 @@ export default function RegisterDashboard({
             onClick={onGoToRegister}
             ariaLabel="Today's booked sales total"
           />
-          {/* Unread Notifications — replaces the old Priority Feed stats card */}
           <DashboardStatsCard
-            title="Unread Notifications"
-            value={unread}
+            title="Notifications"
+            value={activeNotifications.length}
             icon={Bell}
             color={unread > 0 ? "rose" : "green"}
             trend={{
               value: unread,
               isUp: unread === 0,
-              label: "unread",
+              label: unread === 0 ? "all read" : "unread",
             }}
             className="min-h-[138px] p-4"
             onClick={openDrawer}
             ariaLabel="Open Notifications Drawer"
           />
           <DashboardStatsCard
-            title="Pickups"
+            title="Overdue Pickups"
             value={stats?.overdue_pickups ?? 0}
             icon={PackageCheck}
             color={(stats?.overdue_pickups ?? 0) > 0 ? "rose" : "green"}
@@ -396,7 +395,7 @@ export default function RegisterDashboard({
           <DashboardStatsCard
             title="Inventory Alerts"
             value={inventoryAlerts.length}
-            icon={Bell}
+            icon={Package}
             color={inventoryAlerts.length > 0 ? "orange" : "green"}
             trend={{ value: activeNotifications.length, isUp: inventoryAlerts.length === 0, label: "total alerts" }}
             className="min-h-[138px] p-4"
@@ -408,7 +407,7 @@ export default function RegisterDashboard({
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
            {/* Left Column: Priority Feed & Pulse */}
            <div className="space-y-6 xl:col-span-8">
-              <DashboardGridCard 
+              <DashboardGridCard
                 title="Priority Feed"
                 subtitle="Tap any row to open its source workflow"
                 icon={Zap}
@@ -433,8 +432,8 @@ export default function RegisterDashboard({
                           }}
                           className={cn(
                             "flex w-full items-center justify-between gap-4 rounded-2xl border p-4 transition-all active:scale-[0.98] group/item",
-                            item.tier === "urgent" 
-                              ? "bg-app-danger/[0.06] border-app-danger/15 hover:border-app-danger/35" 
+                            item.tier === "urgent"
+                              ? "bg-app-danger/[0.06] border-app-danger/15 hover:border-app-danger/35"
                               : "bg-app-surface-2/72 border-app-border hover:border-app-accent/30"
                           )}
                         >
@@ -466,8 +465,8 @@ export default function RegisterDashboard({
                   )}
               </DashboardGridCard>
 
-              <DashboardGridCard 
-                title="Wedding Pulse" 
+              <DashboardGridCard
+                title="Wedding Pulse"
                 subtitle="Open measurement, order, and pickup follow-up"
                 icon={Heart}
                 actionLabel={
@@ -556,30 +555,6 @@ export default function RegisterDashboard({
                 }
                 refreshSignal={refreshSignal}
               />
-
-              {/* Staff Pulse Cards */}
-              {stats && (
-                <DashboardGridCard title="Floor Pressure" icon={Target}>
-                   <div className="grid grid-cols-2 gap-3">
-                      <button type="button" onClick={onGoToWeddings} className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-left transition-all hover:border-app-accent/40">
-                         <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider mb-1">Measure</p>
-                         <p className="text-2xl font-bold text-app-text">{stats.needs_measure}</p>
-                      </button>
-                      <button type="button" onClick={onGoToWeddings} className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-left transition-all hover:border-app-accent/40">
-                         <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider mb-1">Order</p>
-                         <p className="text-2xl font-bold text-app-text">{stats.needs_order}</p>
-                      </button>
-                      <button type="button" onClick={onGoToOrders} className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-left transition-all hover:border-app-danger/40">
-                         <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-app-danger">Overdue</p>
-                         <p className="text-2xl font-bold text-app-danger">{stats.overdue_pickups}</p>
-                      </button>
-                      <button type="button" onClick={onGoToOrders} className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-left transition-all hover:border-app-accent/40">
-                         <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-app-accent">Rush</p>
-                         <p className="text-2xl font-bold text-app-accent">{stats.rush_orders}</p>
-                      </button>
-                   </div>
-                </DashboardGridCard>
-              )}
 
               {/* Notifications */}
               {activeNotifications.length > 0 && (
