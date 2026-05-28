@@ -48,7 +48,7 @@ hmac = "0.12"
 hex = "0.4"
 subtle = "2.6"
 ring = "0.17"
-chrono-tz = "0.9"
+chrono-tz = "0.10"
 redis = { version = "0.26", features = ["tokio-comp", "connection-manager"] }
 async-trait = "0.1"
 tracing = "0.1"
