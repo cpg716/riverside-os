@@ -4522,10 +4522,10 @@ pub(crate) async fn load_transaction_detail(
         r#"
         SELECT
             COUNT(*) FILTER (
-                WHERE a.status IN ('intake'::alteration_status, 'in_work'::alteration_status)
+                WHERE a.status IN ('intake'::alteration_status, 'in_work'::alteration_status, 'verify_completed'::alteration_status)
             )::bigint AS open_count,
             COUNT(*) FILTER (
-                WHERE a.status IN ('intake'::alteration_status, 'in_work'::alteration_status)
+                WHERE a.status IN ('intake'::alteration_status, 'in_work'::alteration_status, 'verify_completed'::alteration_status)
                   AND a.due_at IS NOT NULL
                   AND a.due_at < now()
             )::bigint AS overdue_count,
