@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertCircle,
+  CalendarCheck,
   ChevronRight,
   CircleDollarSign,
   ClipboardCheck,
@@ -1874,12 +1875,12 @@ export default function OperationalHome({
         />
         <DashboardStatsCard
           title="Register Close"
-          value={feedLoadErrors.registerSessions ? "Not loaded" : registerCloseStats.openDrawers}
+          value={feedLoadErrors.registerSessions ? "Not loaded" : registerCloseStats.reconciling > 0 ? registerCloseStats.reconciling : registerCloseStats.openDrawers}
           icon={ClipboardCheck}
           trend={{
-            value: registerCloseStats.reconciling,
-            isUp: false,
-            label: "in close review",
+            value: registerCloseStats.reconciling > 0 ? registerCloseStats.openDrawers : 0,
+            isUp: registerCloseStats.reconciling === 0,
+            label: registerCloseStats.reconciling > 0 ? `drawer${registerCloseStats.openDrawers !== 1 ? "s" : ""} open` : "all drawers clear",
           }}
           color={registerCloseStats.reconciling > 0 ? "orange" : "green"}
           className="min-h-[142px] p-4"
@@ -1909,7 +1910,7 @@ export default function OperationalHome({
             isUp: true,
             label: "ready",
           }}
-          color="blue"
+          color="purple"
           className="min-h-[142px] p-4"
           onClick={() => onNavigateMetric?.({ tab: "alterations", section: "queue" })}
           ariaLabel="Open Alterations Queue"
@@ -1929,18 +1930,18 @@ export default function OperationalHome({
           ariaLabel="Open Inventory Stock Guidance"
         />
         <DashboardStatsCard
-          title="Needs Attention"
-          value={hasFeedLoadErrors ? "Review" : Math.max(topIssues.length, activeNotifications.length)}
-          icon={AlertCircle}
+          title="Today's Appointments"
+          value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.appointment_count ?? 0}
+          icon={CalendarCheck}
           trend={{
-            value: activeNotifications.length,
+            value: topIssues.length + activeNotifications.length,
             isUp: false,
-            label: "open inbox items",
+            label: "items need attention",
           }}
           color="rose"
           className="min-h-[142px] p-4"
-          onClick={() => onNavigateMetric?.({ tab: "home", section: "inbox" })}
-          ariaLabel="Open Podium Inbox"
+          onClick={() => onNavigateMetric?.({ tab: "appointments", section: "scheduler" })}
+          ariaLabel="Open Appointments Scheduler"
         />
       </div>
 
