@@ -1103,8 +1103,11 @@ export function CustomerRelationshipHubDrawer({
     loadCustomerAlterations,
   ]);
 
+  const lastLoadedCustomerIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!open) {
+      lastLoadedCustomerIdRef.current = null;
       setErr(null);
       setHubShipmentFocusId(null);
       setOpenSummary({ orders: null, layaways: null, alterations: null });
@@ -1139,16 +1142,20 @@ export function CustomerRelationshipHubDrawer({
       setNoteDraft("");
       return;
     }
+    const alreadyLoaded = lastLoadedCustomerIdRef.current === customer.id;
+    lastLoadedCustomerIdRef.current = customer.id;
     setErr(null);
-    void loadHub();
-    if (canTimeline) {
-      void loadTimeline();
-    } else {
-      setTimeline([]);
-      setTimelineLoading(false);
-      setTimelineLoadError(null);
+    if (!alreadyLoaded) {
+      void loadHub();
+      if (canTimeline) {
+        void loadTimeline();
+      } else {
+        setTimeline([]);
+        setTimelineLoading(false);
+        setTimelineLoadError(null);
+      }
+      void loadOpenSummary();
     }
-    void loadOpenSummary();
     setNoteDraft("");
     setHubShipmentFocusId(null);
   }, [

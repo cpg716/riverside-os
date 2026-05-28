@@ -2164,42 +2164,39 @@ export function AddCustomerDrawer({
     !errors.state &&
     !errors.postal;
 
-  const resetForm = useCallback(() => {
-    setForm({ ...EMPTY_ADD_CUSTOMER_FORM });
-  }, []);
-
-  const draftKey = JSON.stringify(initialDraft ?? {});
+  const prevOpenRef = useRef(false);
 
   useEffect(() => {
-    if (!isOpen) return;
-    setForm({
-      ...EMPTY_ADD_CUSTOMER_FORM,
-      ...(initialDraft ?? {}),
-      phone: initialDraft?.phone
-        ? formatPhoneInput(initialDraft.phone)
-        : EMPTY_ADD_CUSTOMER_FORM.phone,
-      state: initialDraft?.state
-        ? initialDraft.state.toUpperCase()
-        : EMPTY_ADD_CUSTOMER_FORM.state,
-    });
-    setTouched({});
-    setErr(null);
-    setDupCandidates([]);
-    setNameNeedsPhoneReview(false);
-  }, [isOpen, draftKey, initialDraft]);
+    const wasOpen = prevOpenRef.current;
+    prevOpenRef.current = isOpen;
 
-  useEffect(() => {
-    if (!isOpen) {
+    if (isOpen && !wasOpen) {
+      dupAbortRef.current?.abort();
+      setForm({
+        ...EMPTY_ADD_CUSTOMER_FORM,
+        ...(initialDraft ?? {}),
+        phone: initialDraft?.phone
+          ? formatPhoneInput(initialDraft.phone)
+          : EMPTY_ADD_CUSTOMER_FORM.phone,
+        state: initialDraft?.state
+          ? initialDraft.state.toUpperCase()
+          : EMPTY_ADD_CUSTOMER_FORM.state,
+      });
+      setTouched({});
+      setErr(null);
+      setDupCandidates([]);
+      setNameNeedsPhoneReview(false);
+    } else if (!isOpen && wasOpen) {
+      dupAbortRef.current?.abort();
       setEmailPromptOpen(false);
       setEmailPromptValue("");
       setErr(null);
       setTouched({});
       setDupCandidates([]);
       setNameNeedsPhoneReview(false);
-      dupAbortRef.current?.abort();
-      resetForm();
+      setForm({ ...EMPTY_ADD_CUSTOMER_FORM });
     }
-  }, [isOpen, resetForm]);
+  }, [isOpen, initialDraft]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -2403,7 +2400,7 @@ export function AddCustomerDrawer({
           }
         }
       }
-      resetForm();
+      setForm({ ...EMPTY_ADD_CUSTOMER_FORM });
       onSaved();
     } catch (e) {
       console.error("Could not create customer", e);
