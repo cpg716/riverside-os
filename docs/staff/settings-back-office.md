@@ -33,6 +33,7 @@ Settings appears in these sidebar groups:
 1. **Data & Backups**
 2. **Daily Financial Report**
 3. **Remote Access**
+4. **Updates** *(via ROS Dev Center → Updates tab)*
 
 **Integrations**
 1. **Integrations Overview**
@@ -183,6 +184,19 @@ Typical areas (labels may group differently by build):
 - **Cleanup** only targets eligible auto-scaffold/orphan docs; curated manuals should remain untouched.
 - **Revert overrides** restores bundled defaults for the selected manual.
 
+## Remote Access
+
+**Purpose:** Manage and monitor off-site remote access to the store server.
+
+**Where in ROS:** **Settings → Remote Access** (on the dedicated host machine).
+
+1. Confirm **Shop Host** is running if this machine serves local-network satellite clients.
+2. View the **local satellite URL** and **LAN IPv4** for in-store devices.
+3. View **Tailscale connection status** — shows whether the server PC is connected to the Tailscale private network.
+4. Use the **Tailscale / Remote Address** saver in the **sign-in gate** (not in this panel) to save the store's Tailscale address on client devices for quick-pick remote access.
+
+For full setup and per-device Tailscale instructions, see [remote-access-tailscale.md](remote-access-tailscale.md) (staff) and [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) (IT/owner).
+
 ## Bug reports
 
 **Staff — how to send a report:** **[bug-reports-submit-manual.md](bug-reports-submit-manual.md)** (bug icon in header or POS; screenshot optional; rate limits; privacy).
@@ -206,6 +220,27 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 4. **Alert Center**: Acknowledge active incidents and verify suppression/recurrence behavior.
 5. **Guarded Actions**: Run maintenance actions only with explicit reason + dual confirmation.
 6. **Bug Manager Overlay**: Keep ROS bug reports as source-of-truth and attach bugs to active incidents for triage context.
+7. **Updates tab**: Manage and monitor software updates for the Main Hub server, Windows desktop app, and PWA clients.
+
+### Updates tab (Settings → ROS Dev Center → Updates)
+
+**Update order is enforced:** the Main Hub server must update first. Client update buttons are disabled with an explanation until the server is confirmed up to date.
+
+| Section | What it does |
+|---|---|
+| **Main Hub Server** | Shows current server version and build SHA. Displays whether a newer version or same-version rebuild is available. Daily update check runs automatically at 2 AM and notifies admin staff. |
+| **Windows app (Back Office / Register)** | Check for and install Tauri desktop app updates. Button is disabled if server has not updated yet. |
+| **PWA update status** | Shows whether the PWA served by the server matches the latest client build. |
+
+**Same-version rebuilds:** the system detects when a new build of the same release version is published (using a build SHA fingerprint) — not just version number changes. This means hotfixes and rebuild deployments are detected even if the version number has not incremented.
+
+**Update sequence (always follow this order):**
+1. Main Hub server updates first (via ROS Dev Center → Updates → Main Hub Server).
+2. Confirm server is healthy (Ops Health Board shows green).
+3. Windows desktop apps (Back Office, Register) update via the same Updates tab.
+4. PWA clients (iPads, phones) auto-update on next page load — no manual action needed.
+
+> **Tailscale / Remote connection:** if working off-site, the server connection must be set to the Tailscale address before using this panel. See [remote-access-tailscale.md](remote-access-tailscale.md).
 
 ### Current operator-visible fallback states
 

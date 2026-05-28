@@ -155,10 +155,12 @@ jobs:
           $signature = (Get-Content $sig.FullName -Raw).Trim()
           $notes = if ([string]::IsNullOrWhiteSpace($env:RELEASE_NOTES)) { "Riverside POS update" } else { $env:RELEASE_NOTES }
 
+          $gitSha = $env:GITHUB_SHA
           $manifest = @{
             version = $version
             notes = $notes
             pub_date = $pubDate
+            build_sha = $gitSha
             platforms = @{
               "windows-x86_64" = @{
                 signature = $signature
