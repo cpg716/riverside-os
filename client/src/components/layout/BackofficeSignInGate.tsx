@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, type ReactNode } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { RefreshCw, ShieldCheck, Sparkles, Wifi } from "lucide-react";
 import { CLIENT_SEMVER } from "../../clientBuildMeta";
 import {
   checkForAppUpdate,
@@ -92,6 +92,15 @@ function uniqueHostOptions(options: ApiHostOption[]): ApiHostOption[] {
   });
 }
 
+function isTailscaleUrl(url: string): boolean {
+  try {
+    const h = new URL(url).hostname;
+    return h.startsWith("100.") || h.endsWith(".tailscale.net") || h.endsWith(".ts.net");
+  } catch {
+    return false;
+  }
+}
+
 function stripV(v: string): string {
   return v.replace(/^v/, "");
 }
@@ -136,6 +145,11 @@ export default function BackofficeSignInGate({
   const [showServerSetup, setShowServerSetup] = useState(false);
   const [tempUrl, setTempUrl] = useState(serverUrl);
   const [serverStartupNotice, setServerStartupNotice] = useState<string | null>(null);
+  const [savedTailscaleUrl, setSavedTailscaleUrl] = useState<string>(() => {
+    return localStorage.getItem("ros_tailscale_url") || "";
+  });
+  const [showTailscaleInput, setShowTailscaleInput] = useState(false);
+  const [tempTailscaleUrl, setTempTailscaleUrl] = useState("");
   const [serverVersion, setServerVersion] = useState<string | null>(null);
   const [versionGateBlocked, setVersionGateBlocked] = useState(false);
   const [appUpdateBusy, setAppUpdateBusy] = useState(false);
@@ -144,6 +158,7 @@ export default function BackofficeSignInGate({
   const apiHostOptions = useMemo(() => {
     const current = normalizeApiBase(serverUrl);
     const browserOrigin = getBrowserOriginOption();
+    const tailscaleNorm = savedTailscaleUrl ? normalizeApiBase(savedTailscaleUrl) : "";
     return uniqueHostOptions([
       ...(current
         ? [
@@ -166,15 +181,30 @@ export default function BackofficeSignInGate({
         url: DEFAULT_BASE_URL,
         helper: "The packaged default or same-origin Riverside host.",
       },
+      ...(tailscaleNorm
+        ? [
+            {
+              label: "Store server (Tailscale / remote)",
+              url: tailscaleNorm,
+              helper: "Your store's Tailscale remote address. Requires Tailscale to be running on this device.",
+            },
+          ]
+        : []),
       ...(browserOrigin ? [browserOrigin] : []),
     ]);
-  }, [serverUrl]);
+  }, [serverUrl, savedTailscaleUrl]);
 
   const isTailscaleRemote = useMemo(() => {
     if (typeof window === "undefined") return false;
     const h = window.location.hostname;
     return h.startsWith("100.") || h.endsWith(".tailscale.net") || h.endsWith(".ts.net");
   }, []);
+
+  // True when the current serverUrl looks like a Tailscale address but we have no roster
+  const tailscaleConnectionFailed =
+    roster.length === 0 &&
+    !serverStartupNotice &&
+    isTailscaleUrl(serverUrl);
 
   const saveServerUrl = () => {
     const url = normalizeApiBase(tempUrl);
@@ -448,6 +478,15 @@ export default function BackofficeSignInGate({
               {serverStartupNotice}
             </p>
           ) : null}
+          {tailscaleConnectionFailed && !error ? (
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs font-semibold text-indigo-800 space-y-1">
+              <div className="flex items-center gap-1.5">
+                <Wifi className="h-3.5 w-3.5 shrink-0" />
+                <span>Cannot reach server over Tailscale.</span>
+              </div>
+              <p className="text-indigo-600 font-medium">Make sure the Tailscale app is running and connected on this device, then try again.</p>
+            </div>
+          ) : null}
 
           <div className="space-y-3">
             <p className="text-center text-[9px] font-black uppercase tracking-widest text-app-text-muted">
@@ -541,7 +580,7 @@ export default function BackofficeSignInGate({
           <div className="rounded-2xl border border-app-border/40 bg-app-surface overflow-hidden animate-in slide-in-from-bottom-2 duration-200">
             <div className="px-5 py-3 border-b border-app-border/40 bg-app-bg/40">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text">Server Connection</h3>
-              <p className="text-[9px] text-app-text-muted mt-0.5">Select a known server or enter a custom IP address.</p>
+              <p className="text-[9px] text-app-text-muted mt-0.5">Select a known server or enter a custom IP / Tailscale address.</p>
             </div>
             <div className="p-5 space-y-4">
               {/* Quick-pick known hosts */}
@@ -577,6 +616,84 @@ export default function BackofficeSignInGate({
                   placeholder="http://192.168.1.100:3000"
                   className="mt-1 w-full bg-app-bg border border-app-border rounded-xl px-4 py-2.5 text-xs font-mono text-app-text outline-none focus:border-app-accent"
                 />
+              </div>
+              {/* Tailscale address saver */}
+              <div className="border-t border-app-border/40 pt-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Wifi className="h-3 w-3 text-indigo-500" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600">Tailscale / Remote Address</span>
+                  </div>
+                  {!showTailscaleInput && (
+                    <button
+                      type="button"
+                      onClick={() => { setShowTailscaleInput(true); setTempTailscaleUrl(savedTailscaleUrl); }}
+                      className="text-[9px] font-black uppercase tracking-widest text-app-accent"
+                    >
+                      {savedTailscaleUrl ? "Edit" : "Set"}
+                    </button>
+                  )}
+                </div>
+                {savedTailscaleUrl && !showTailscaleInput && (
+                  <p className="text-[10px] font-mono text-app-text-muted">{savedTailscaleUrl}</p>
+                )}
+                {!savedTailscaleUrl && !showTailscaleInput && (
+                  <p className="text-[10px] text-app-text-muted leading-relaxed">
+                    Save your store&apos;s Tailscale address here so it appears as a quick-pick when working remotely.
+                    Tailscale must be installed and signed in on this device separately.
+                  </p>
+                )}
+                {showTailscaleInput && (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={tempTailscaleUrl}
+                      onChange={(e) => setTempTailscaleUrl(e.target.value)}
+                      placeholder="https://your-server.ts.net:3000 or http://100.x.x.x:3000"
+                      className="w-full bg-app-bg border border-indigo-300 rounded-xl px-4 py-2.5 text-xs font-mono text-app-text outline-none focus:border-indigo-500"
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const url = normalizeApiBase(tempTailscaleUrl);
+                          if (url) {
+                            localStorage.setItem("ros_tailscale_url", url);
+                            setSavedTailscaleUrl(url);
+                          } else {
+                            localStorage.removeItem("ros_tailscale_url");
+                            setSavedTailscaleUrl("");
+                          }
+                          setShowTailscaleInput(false);
+                        }}
+                        className="ui-btn-primary h-8 flex-1 text-[10px] font-black"
+                      >
+                        Save
+                      </button>
+                      {savedTailscaleUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            localStorage.removeItem("ros_tailscale_url");
+                            setSavedTailscaleUrl("");
+                            setShowTailscaleInput(false);
+                          }}
+                          className="ui-btn-secondary h-8 flex-1 text-[10px] font-black"
+                        >
+                          Clear
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowTailscaleInput(false)}
+                        className="ui-btn-secondary h-8 px-3 text-[10px] font-black"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex gap-2">
                 <button
