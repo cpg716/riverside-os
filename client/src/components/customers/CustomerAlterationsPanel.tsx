@@ -774,7 +774,7 @@ export default function CustomerAlterationsPanel({
                 Advance to {nextAlterationStatus(r.status)?.replace("_", " ")}
               </button>
             ) : null}
-            {["in_work", "ready", "picked_up"].map((s) => (
+            {["intake", "in_work", "ready", "picked_up"].map((s) => (
               <button
                 key={s}
                 type="button"

@@ -165,6 +165,12 @@ pub struct ActionRow {
 pub struct WeddingActions {
     pub needs_measure: Vec<ActionRow>,
     pub needs_order: Vec<ActionRow>,
+    pub fitting: Vec<ActionRow>,
+    pub pickups: Vec<ActionRow>,
+    #[serde(rename = "upcomingAppts")]
+    pub upcoming_appts: Vec<AppointmentRow>,
+    #[serde(rename = "missedAppts")]
+    pub missed_appts: Vec<AppointmentRow>,
 }
 
 #[derive(Debug, Serialize, FromRow)]

@@ -4,6 +4,7 @@ import { X, Scissors, User } from "lucide-react";
 import AlterationItemEditor from "./AlterationItemEditor";
 import AlterationSmartScheduler from "./AlterationSmartScheduler";
 import { getBaseUrl } from "../../../lib/apiConfig";
+import { useToast } from "../../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
 
@@ -39,6 +40,7 @@ export default function AlterationSchedulingDrawer({
 }: AlterationSchedulingDrawerProps) {
   const [activeTab, setActiveTab] = useState<"items" | "schedule">("items");
   const [localAlt, setLocalAlt] = useState(alteration);
+  const { toast } = useToast();
 
   const customerName = `${localAlt.customer_first_name ?? ""} ${localAlt.customer_last_name ?? ""}`.trim() || "Unassigned Customer";
 
@@ -53,11 +55,14 @@ export default function AlterationSchedulingDrawer({
         const updated = await res.json();
         setLocalAlt(updated);
         onUpdated();
+      } else {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(b.error ?? "Could not update alteration.", "error");
+        console.error("Failed to update alteration", res.status, b);
       }
     } catch (e) {
+      toast("Network error updating alteration.", "error");
       console.error("Failed to update alteration", e);
-    } finally {
-      // Done
     }
   };
 
@@ -87,7 +92,7 @@ export default function AlterationSchedulingDrawer({
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex justify-end bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div 
+      <div
         className="w-full max-w-lg bg-app-surface border-l border-app-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 ease-out h-full top-0"
         onClick={(e) => e.stopPropagation()}
       >
@@ -105,7 +110,7 @@ export default function AlterationSchedulingDrawer({
               </p>
             </div>
           </div>
-          <button 
+          <button
             onClick={onClose}
             className="p-2 rounded-full hover:bg-app-surface-2 text-app-text-muted hover:text-app-text transition-all"
           >
@@ -149,17 +154,17 @@ export default function AlterationSchedulingDrawer({
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar drawer-content-area">
           {activeTab === "items" ? (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <AlterationItemEditor 
-                alterationId={localAlt.id} 
+              <AlterationItemEditor
+                alterationId={localAlt.id}
                 apiAuth={apiAuth}
                 onItemsChanged={() => {
                   // Reload alt to get new totals
                   void updateAlteration({});
                 }}
               />
-              
+
               <div className="pt-6 border-t border-white/5">
-                <button 
+                <button
                   onClick={() => setActiveTab("schedule")}
                   className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 group"
                 >
@@ -172,7 +177,7 @@ export default function AlterationSchedulingDrawer({
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="space-y-1">
                 <label className="text-[10px] text-app-text-muted uppercase font-black tracking-widest">Promised Due Date</label>
-                <input 
+                <input
                   type="date"
                   className="w-full bg-app-surface border border-app-border rounded-xl px-4 py-3 text-app-text focus:outline-none focus:border-app-accent/50"
                   value={localAlt.due_at ? localAlt.due_at.split('T')[0] : ""}
@@ -180,7 +185,7 @@ export default function AlterationSchedulingDrawer({
                 />
               </div>
 
-              <AlterationSmartScheduler 
+              <AlterationSmartScheduler
                 alterationId={localAlt.id}
                 jacketUnits={localAlt.total_units_jacket}
                 pantUnits={localAlt.total_units_pant}
@@ -217,16 +222,16 @@ export default function AlterationSchedulingDrawer({
 
 function ChevronRight(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg 
-      {...props} 
-      xmlns="http://www.w3.org/2000/svg" 
-      width="24" 
-      height="24" 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
       strokeLinejoin="round"
     >
       <path d="m9 18 6-6-6-6"/>

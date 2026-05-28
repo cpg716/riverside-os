@@ -419,9 +419,109 @@ pub async fn query_wedding_actions(
     .fetch_all(pool)
     .await?;
 
+    // Members who are measured + ordered but not yet fitted
+    let fitting = sqlx::query_as::<_, ActionRow>(&format!(
+        r#"
+        SELECT
+            wp.id AS wedding_party_id,
+            wm.id AS wedding_member_id,
+            {SQL_PARTY_TRACKING_LABEL_WP} AS party_name,
+            COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Unknown') AS customer_name,
+            wm.role,
+            wm.status,
+            wp.event_date,
+            COALESCE((
+                SELECT SUM(o.balance_due)
+                FROM transactions o
+                JOIN wedding_members wm2 ON wm2.id = o.wedding_member_id
+                WHERE wm2.wedding_party_id = wp.id
+            ), 0)::numeric AS party_balance_due
+        FROM wedding_members wm
+        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+        JOIN customers c ON c.id = wm.customer_id
+        JOIN transactions o ON o.wedding_member_id = wm.id
+        WHERE (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+          AND wp.event_date <= (CURRENT_DATE + make_interval(days => $1::int))
+          AND wm.measured = TRUE
+          AND (wm.suit_ordered = TRUE OR wm.received = TRUE)
+          AND (wm.fitting IS NULL OR wm.fitting = FALSE)
+          AND (wm.pickup_status IS NULL OR wm.pickup_status = '')
+        ORDER BY wp.event_date ASC, customer_name ASC
+        "#
+    ))
+    .bind(day_window as i32)
+    .fetch_all(pool)
+    .await?;
+
+    // Members who are ready for pickup (received/fitting done, not yet picked up)
+    let pickups = sqlx::query_as::<_, ActionRow>(&format!(
+        r#"
+        SELECT
+            wp.id AS wedding_party_id,
+            wm.id AS wedding_member_id,
+            {SQL_PARTY_TRACKING_LABEL_WP} AS party_name,
+            COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Unknown') AS customer_name,
+            wm.role,
+            wm.status,
+            wp.event_date,
+            COALESCE((
+                SELECT SUM(o.balance_due)
+                FROM transactions o
+                JOIN wedding_members wm2 ON wm2.id = o.wedding_member_id
+                WHERE wm2.wedding_party_id = wp.id
+            ), 0)::numeric AS party_balance_due
+        FROM wedding_members wm
+        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+        JOIN customers c ON c.id = wm.customer_id
+        WHERE (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+          AND wp.event_date <= (CURRENT_DATE + make_interval(days => $1::int))
+          AND wm.received = TRUE
+          AND (wm.pickup_status IS NULL OR wm.pickup_status NOT IN ('complete', 'partial'))
+        ORDER BY wp.event_date ASC, customer_name ASC
+        "#
+    ))
+    .bind(day_window as i32)
+    .fetch_all(pool)
+    .await?;
+
+    // Upcoming appointments (next 14 days, status = Scheduled)
+    let upcoming_appts = sqlx::query_as::<_, AppointmentRow>(
+        r#"
+        SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name,
+               phone, appointment_type, starts_at, notes, status, salesperson
+        FROM wedding_appointments
+        WHERE status = 'Scheduled'
+          AND starts_at >= NOW()
+          AND starts_at <= NOW() + INTERVAL '14 days'
+        ORDER BY starts_at ASC
+        LIMIT 50
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // Missed appointments (status = Scheduled but starts_at in the past)
+    let missed_appts = sqlx::query_as::<_, AppointmentRow>(
+        r#"
+        SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name,
+               phone, appointment_type, starts_at, notes, status, salesperson
+        FROM wedding_appointments
+        WHERE status = 'Scheduled'
+          AND starts_at < NOW() - INTERVAL '15 minutes'
+        ORDER BY starts_at DESC
+        LIMIT 30
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
     Ok(WeddingActions {
         needs_measure,
         needs_order,
+        fitting,
+        pickups,
+        upcoming_appts,
+        missed_appts,
     })
 }
 

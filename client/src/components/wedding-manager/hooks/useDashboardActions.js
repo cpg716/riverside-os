@@ -67,8 +67,8 @@ function normalizeDashboardPayload(data) {
             ? needsMeasure.map((r) => mapActionApiRow(r, 'Measurement'))
             : [],
         ordering: Array.isArray(needsOrder) ? needsOrder.map((r) => mapActionApiRow(r, 'Order')) : [],
-        fitting: Array.isArray(data.fitting) ? data.fitting : [],
-        pickups: Array.isArray(data.pickups) ? data.pickups : [],
+        fitting: Array.isArray(data.fitting) ? data.fitting.map((r) => mapActionApiRow(r, 'Fitting')) : [],
+        pickups: Array.isArray(data.pickups) ? data.pickups.map((r) => mapActionApiRow(r, 'Pickup')) : [],
         upcomingAppts: Array.isArray(data.upcomingAppts) ? data.upcomingAppts : [],
         missedAppts: Array.isArray(data.missedAppts) ? data.missedAppts : [],
     };
@@ -96,16 +96,20 @@ export const useDashboardActions = (filters = {}) => {
     useEffect(() => {
         fetchActions();
 
-        // Listen for updates that might affect actions
-        socket.on('parties_updated', () => fetchActions());
-        socket.on('appointments_updated', () => fetchActions());
+        // Listen for updates that might affect actions — remove first to prevent double-registration
+        const onPartiesUpdated = () => fetchActions();
+        const onAppointmentsUpdated = () => fetchActions();
+        socket.off('parties_updated');
+        socket.off('appointments_updated');
+        socket.on('parties_updated', onPartiesUpdated);
+        socket.on('appointments_updated', onAppointmentsUpdated);
 
         // Auto-refresh every 10 minutes
         const interval = setInterval(fetchActions, 600000);
 
         return () => {
-            socket.off('parties_updated');
-            socket.off('appointments_updated');
+            socket.off('parties_updated', onPartiesUpdated);
+            socket.off('appointments_updated', onAppointmentsUpdated);
             clearInterval(interval);
         };
     }, [filters.search, filters.startDate, filters.endDate, filters.salesperson]); // Re-run when filters change

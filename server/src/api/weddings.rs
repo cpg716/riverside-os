@@ -2153,6 +2153,21 @@ async fn delete_appointment(
     headers: HeaderMap,
 ) -> Result<StatusCode, WeddingError> {
     require_weddings_mutate(&state, &headers).await?;
+
+    // Fetch before deleting so we can log it and update search index
+    let existing: Option<AppointmentRow> = sqlx::query_as(
+        r#"
+        SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name,
+               phone, appointment_type, starts_at, notes, status, salesperson
+        FROM wedding_appointments WHERE id = $1
+        "#,
+    )
+    .bind(appointment_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let existing = existing.ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
+
     let result = sqlx::query("DELETE FROM wedding_appointments WHERE id = $1")
         .bind(appointment_id)
         .execute(&state.db)
@@ -2162,6 +2177,33 @@ async fn delete_appointment(
             "Appointment not found".to_string(),
         ));
     }
+
+    if let Some(party_id) = existing.wedding_party_id {
+        if let Err(e) = wedding_logic::insert_wedding_activity(
+            &state.db,
+            party_id,
+            existing.wedding_member_id,
+            "system",
+            "APPOINTMENT_DELETED",
+            &format!(
+                "Appointment deleted: {} on {}",
+                existing.appointment_type,
+                existing.starts_at.format("%Y-%m-%d %H:%M UTC"),
+            ),
+            json!({
+                "appointment_id": appointment_id,
+                "appointment_type": existing.appointment_type,
+                "starts_at": existing.starts_at,
+                "salesperson": existing.salesperson,
+                "customer_display_name": existing.customer_display_name,
+            }),
+        )
+        .await
+        {
+            tracing::warn!(error = %e, "Wedding activity log failed for appointment deletion");
+        }
+    }
+
     state
         .wedding_events
         .appointments_updated(wedding_client_sender(&headers).as_deref());
@@ -2556,7 +2598,7 @@ async fn post_attach_order(
     // 5. Update Order Items to 'wedding_order'
     sqlx::query(
         r#"
-        UPDATE transaction_lines 
+        UPDATE transaction_lines
         SET fulfillment = 'wedding_order'
         WHERE transaction_id = $1 AND fulfillment = 'special_order'
         "#,
