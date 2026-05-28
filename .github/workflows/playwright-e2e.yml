@@ -36,7 +36,16 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
 
+      - name: Cache client node_modules
+        id: cache-node-modules
+        uses: actions/cache@v4
+        with:
+          path: client/node_modules
+          key: e2e-node-modules-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: e2e-node-modules-
+
       - name: Install client dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: cd client && npm ci
 
       - name: Build client (SPA)
@@ -55,11 +64,16 @@ jobs:
           path: client/dist/
 
   e2e-blocking:
-    name: Playwright Blocking Lane
+    name: Playwright Blocking Lane (shard ${{ matrix.shard }} / ${{ matrix.shardTotal }})
     if: github.event_name != 'schedule'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+        shardTotal: [4]
     permissions:
       contents: read
       issues: write
@@ -115,10 +129,28 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
 
+      - name: Restore client node_modules
+        id: cache-node-modules
+        uses: actions/cache@v4
+        with:
+          path: client/node_modules
+          key: e2e-node-modules-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: e2e-node-modules-
+
       - name: Install client dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: cd client && npm ci
 
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: playwright-
+
       - name: Install Playwright Chromium
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
         run: cd client && npx playwright install chromium --with-deps
 
       - name: Download Server Binary
@@ -135,7 +167,6 @@ jobs:
       - name: Fix Binary Permissions
         run: chmod +x ./riverside-server
 
-
       - name: Start API server
         run: |
           nohup env DATABASE_URL="$DATABASE_URL" RIVERSIDE_HTTP_BIND=127.0.0.1:3000 \
@@ -144,8 +175,8 @@ jobs:
             FRONTEND_DIST="$FRONTEND_DIST" \
             ./riverside-server > /tmp/ros-server.log 2>&1 &
           echo $! > /tmp/ros-server.pid
-          for i in $(seq 1 90); do
-            if curl -sf "http://127.0.0.1:3000/api/staff/list-for-pos" | grep -q '\['; then
+          for i in $(seq 1 60); do
+            if curl -sf "http://127.0.0.1:3000/api/health" >/dev/null; then
               echo "Server is up."
               exit 0
             fi
@@ -198,13 +229,13 @@ jobs:
         run: |
           set -o pipefail
           cd client
-          npm run test:e2e:blocking 2>&1 | tee ../blocking-e2e.log
+          npm run test:e2e:blocking:shardable -- --workers=1 --shard=${{ matrix.shard }}/${{ matrix.shardTotal }} 2>&1 | tee ../blocking-e2e.log
 
       - name: Upload blocking lane report
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-report-blocking
+          name: playwright-report-blocking-shard-${{ matrix.shard }}
           path: |
             client/test-results/
             client/test-results/results.json
@@ -440,12 +471,17 @@ jobs:
           fi
 
   e2e-nightly:
-    name: Playwright Nightly Lane
+    name: Playwright Nightly Lane (shard ${{ matrix.shard }} / ${{ matrix.shardTotal }})
     if: github.event_name == 'schedule'
     continue-on-error: true
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+        shardTotal: [4]
 
     services:
       postgres:
@@ -498,10 +534,28 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
 
+      - name: Restore client node_modules
+        id: cache-node-modules
+        uses: actions/cache@v4
+        with:
+          path: client/node_modules
+          key: e2e-node-modules-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: e2e-node-modules-
+
       - name: Install client dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: cd client && npm ci
 
+      - name: Cache Playwright browsers
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: playwright-
+
       - name: Install Playwright Chromium
+        if: steps.cache-playwright.outputs.cache-hit != 'true'
         run: cd client && npx playwright install chromium --with-deps
 
       - name: Download Server Binary
@@ -518,7 +572,6 @@ jobs:
       - name: Fix Binary Permissions
         run: chmod +x ./riverside-server
 
-
       - name: Start API server
         run: |
           nohup env DATABASE_URL="$DATABASE_URL" RIVERSIDE_HTTP_BIND=127.0.0.1:3000 \
@@ -527,8 +580,8 @@ jobs:
             FRONTEND_DIST="$FRONTEND_DIST" \
             ./riverside-server > /tmp/ros-server.log 2>&1 &
           echo $! > /tmp/ros-server.pid
-          for i in $(seq 1 90); do
-            if curl -sf "http://127.0.0.1:3000/api/staff/list-for-pos" | grep -q '\['; then
+          for i in $(seq 1 60); do
+            if curl -sf "http://127.0.0.1:3000/api/health" >/dev/null; then
               echo "Server is up."
               exit 0
             fi
@@ -578,13 +631,15 @@ jobs:
           exit 1
 
       - name: Run nightly full suite
-        run: cd client && npm run test:e2e:nightly
+        run: |
+          cd client
+          npm run test:e2e:nightly -- --shard=${{ matrix.shard }}/${{ matrix.shardTotal }}
 
       - name: Upload nightly lane report
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-report-nightly
+          name: playwright-report-nightly-shard-${{ matrix.shard }}
           path: |
             client/test-results/
             client/test-results/results.json

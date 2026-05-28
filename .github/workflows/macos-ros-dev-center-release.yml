@@ -43,7 +43,16 @@ jobs:
         with:
           shared-key: "macos-ros-dev"
 
+      - name: Cache ros-dev node_modules
+        id: cache-ros-dev-node-modules
+        uses: actions/cache@v4
+        with:
+          path: ros-dev/node_modules
+          key: macos-ros-dev-npm-${{ hashFiles('ros-dev/package-lock.json') }}
+          restore-keys: macos-ros-dev-npm-
+
       - name: Install ROS Dev Center dependencies
+        if: steps.cache-ros-dev-node-modules.outputs.cache-hit != 'true'
         working-directory: ros-dev
         run: npm ci
 
