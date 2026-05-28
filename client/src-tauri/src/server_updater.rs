@@ -245,16 +245,51 @@ Set-Location -Path '{script_dir}'
 Write-Host '========================================='
 Write-Host 'Riverside OS: Running Server Update'
 Write-Host '========================================='
+
 Write-Host 'Step 1: Running install-server.ps1...'
 ./install-server.ps1 -ConfigPath '{config_path}'
+
 Write-Host 'Step 2: Running repair-bootstrap-admin.ps1...'
 ./repair-bootstrap-admin.ps1 -ConfigPath '{config_path}'
+
 Write-Host 'Step 3: Updating Backoffice client on this PC...'
 ./install-register.ps1 -ConfigPath '{config_path}' -StationMode 'backoffice'
+
+Write-Host 'Step 4: Restarting Riverside OS Server...'
+$taskName = 'Riverside OS Server'
+$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($task) {{
+    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue |
+        ForEach-Object {{ $_.Kill(); $_.WaitForExit(5000) }}
+    Start-ScheduledTask -TaskName $taskName
+    Write-Host "  Scheduled task '$taskName' restarted."
+}} else {{
+    Write-Warning "  Scheduled task '$taskName' not found — server may need manual restart."
+}}
+
+Write-Host 'Step 5: Waiting for server to become ready...'
+$serverPort = 3000
+$ready = $false
+for ($i = 0; $i -lt 30; $i++) {{
+    Start-Sleep -Seconds 2
+    try {{
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort/api/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        if ($resp.StatusCode -eq 200) {{ $ready = $true; break }}
+    }} catch {{ }}
+    Write-Host "  Waiting... ($($i * 2)s)"
+}}
+if ($ready) {{
+    Write-Host '  Server is ready.'
+}} else {{
+    Write-Warning '  Server did not respond within 60s — check Windows Task Scheduler.'
+}}
+
 Write-Host '========================================='
-Write-Host 'Update Complete! Press any key to exit.'
+Write-Host 'Update Complete! Relaunch Riverside on all stations.'
 Write-Host '========================================='
-Read-Host
+Read-Host 'Press Enter to close this window'
 "#,
             script_dir = script_dir.to_string_lossy().replace('\'', "''"),
             config_path = config_path.replace('\'', "''")

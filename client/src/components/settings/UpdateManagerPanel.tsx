@@ -512,8 +512,8 @@ export default function UpdateManagerPanel() {
                   {([
                     ["downloading", "Downloading deployment package"],
                     ["extracting", "Extracting package"],
-                    ["running_installer", "Running installer (elevated)"],
-                    ["done", "Update launched"],
+                    ["running_installer", "Installing, restarting server & verifying"],
+                    ["done", "Server ready — relaunch Riverside on all stations"],
                   ] as [UpdateStep, string][]).map(([s, label]) => {
                     const steps: UpdateStep[] = ["downloading", "extracting", "running_installer", "done"];
                     const idx = steps.indexOf(s);

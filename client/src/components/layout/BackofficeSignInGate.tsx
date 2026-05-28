@@ -1,6 +1,11 @@
 import { useEffect, useState, useMemo, type ReactNode } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { ShieldCheck } from "lucide-react";
+import { RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { CLIENT_SEMVER } from "../../clientBuildMeta";
+import {
+  checkForAppUpdate,
+  installAppUpdate,
+} from "../../lib/appUpdater";
 import {
   useBackofficeAuth,
   type StaffRole,
@@ -87,6 +92,19 @@ function uniqueHostOptions(options: ApiHostOption[]): ApiHostOption[] {
   });
 }
 
+function stripV(v: string): string {
+  return v.replace(/^v/, "");
+}
+
+function serverIsAhead(serverVer: string, clientVer: string): boolean {
+  const parse = (v: string) => stripV(v).split(".").map(Number);
+  const [sm, sn, sp] = parse(serverVer);
+  const [cm, cn, cp] = parse(clientVer);
+  if (sm !== cm) return sm > cm;
+  if (sn !== cn) return sn > cn;
+  return sp > cp;
+}
+
 /**
  * Blocks the Back Office shell until a valid 4-digit staff credential is stored.
  * Independent of the register: POS / checkout still require an open session where enforced.
@@ -118,6 +136,10 @@ export default function BackofficeSignInGate({
   const [showServerSetup, setShowServerSetup] = useState(false);
   const [tempUrl, setTempUrl] = useState(serverUrl);
   const [serverStartupNotice, setServerStartupNotice] = useState<string | null>(null);
+  const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const [versionGateBlocked, setVersionGateBlocked] = useState(false);
+  const [appUpdateBusy, setAppUpdateBusy] = useState(false);
+  const [appUpdateDone, setAppUpdateDone] = useState(false);
 
   const apiHostOptions = useMemo(() => {
     const current = normalizeApiBase(serverUrl);
@@ -173,6 +195,18 @@ export default function BackofficeSignInGate({
 
     void (async () => {
       try {
+        // Check version first — if server is ahead of client, gate the UI.
+        const verRes = await fetch(`${serverUrl}/api/version`, { cache: "no-store" }).catch(() => null);
+        if (verRes?.ok) {
+          const verData = await verRes.json() as { version: string };
+          if (cancelled) return;
+          setServerVersion(verData.version);
+          if (serverIsAhead(verData.version, CLIENT_SEMVER)) {
+            setVersionGateBlocked(true);
+            return;
+          }
+        }
+
         const res = await fetch(`${serverUrl}/api/staff/list-for-pos`);
         if (res.ok) {
           const data = await res.json();
@@ -314,6 +348,80 @@ export default function BackofficeSignInGate({
     return (
       <div className="flex h-screen items-center justify-center bg-app-bg font-sans text-app-text-muted antialiased">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-app-accent border-t-transparent" />
+      </div>
+    );
+  }
+
+  // Version gate: server has been updated but this station hasn't yet.
+  if (versionGateBlocked && serverVersion) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-6 bg-app-bg p-6 font-sans antialiased">
+        <div className="w-full max-w-sm overflow-hidden rounded-[32px] border border-app-border/40 bg-app-surface shadow-2xl">
+          <div className="border-b border-app-border bg-app-surface-2 px-8 py-6 text-center">
+            <div className="mx-auto mb-4 h-16 w-auto flex items-center justify-center overflow-hidden rounded-xl">
+              <img src={RiversideLogo} alt="Riverside Men's Shop" className="h-full w-auto object-contain" />
+            </div>
+            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
+              <Sparkles className="h-3.5 w-3.5" />
+              Update Required
+            </div>
+          </div>
+          <div className="space-y-5 px-8 py-7">
+            <p className="text-sm font-bold text-app-text text-center leading-relaxed">
+              The server has been updated to v{serverVersion}.
+            </p>
+            <p className="text-xs text-app-text-muted text-center leading-relaxed">
+              This station is running v{CLIENT_SEMVER}. You must update this app before signing in to keep everything in sync.
+            </p>
+            {isTauri() ? (
+              <>
+                {appUpdateDone ? (
+                  <p className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-center text-xs font-bold text-emerald-800">
+                    Update installed — please relaunch Riverside.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={appUpdateBusy}
+                    onClick={async () => {
+                      setAppUpdateBusy(true);
+                      try {
+                        const check = await checkForAppUpdate();
+                        if (!check.available) {
+                          alert("No update found in the updater channel. Ask your manager to update this station manually.");
+                          return;
+                        }
+                        await installAppUpdate();
+                        setAppUpdateDone(true);
+                      } catch (e) {
+                        alert(String(e));
+                      } finally {
+                        setAppUpdateBusy(false);
+                      }
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-app-accent px-4 py-3 text-sm font-black text-white disabled:opacity-60"
+                  >
+                    {appUpdateBusy
+                      ? <><RefreshCw className="h-4 w-4 animate-spin" />Updating...</>
+                      : `Update to v${serverVersion}`
+                    }
+                  </button>
+                )}
+              </>
+            ) : (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-xs font-semibold text-amber-800">
+                Reload this page after the server admin has pushed the updated web files.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="w-full text-center text-xs text-app-text-muted underline"
+            >
+              Recheck after manual update
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
