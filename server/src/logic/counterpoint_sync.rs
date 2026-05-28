@@ -2865,8 +2865,8 @@ async fn upsert_customer_row(
     // Operational opt-ins always ON (pickup, alterations, appointments, etc.)
     let m_email = row.marketing_email_opt_in.unwrap_or(true);
     let m_sms = row.marketing_sms_opt_in.unwrap_or(true);
-    let t_email = true;  // Operational email always ON
-    let t_sms = true;   // Operational SMS always ON
+    let t_email = true; // Operational email always ON
+    let t_sms = true; // Operational SMS always ON
     let loyalty_pts = row.loyalty_points;
     let cust_type = trim_opt(&row.customer_type);
     let ar_bal = trim_opt(&row.ar_balance);

@@ -613,12 +613,10 @@ pub async fn ingest_webhook_event(
 
         // If customer unsubscribed, turn off promotional email opt-in
         if norm_event == "unsubscribed" {
-            sqlx::query(
-                "UPDATE customers SET marketing_email_opt_in = false WHERE id = $1"
-            )
-            .bind(cid)
-            .execute(pool)
-            .await?;
+            sqlx::query("UPDATE customers SET marketing_email_opt_in = false WHERE id = $1")
+                .bind(cid)
+                .execute(pool)
+                .await?;
         }
     }
 

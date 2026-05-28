@@ -75,9 +75,9 @@ impl Default for InsertCustomerParams {
             custom_field_2: None,
             custom_field_3: None,
             custom_field_4: None,
-            marketing_email_opt_in: true,  // Prechecked for new customers
+            marketing_email_opt_in: true, // Prechecked for new customers
             marketing_sms_opt_in: true,   // Prechecked for new customers
-            transactional_sms_opt_in: true,  // Always ON for operational messages
+            transactional_sms_opt_in: true, // Always ON for operational messages
             transactional_email_opt_in: true, // Always ON for operational messages
             customer_created_source: CustomerCreatedSource::Store,
         }

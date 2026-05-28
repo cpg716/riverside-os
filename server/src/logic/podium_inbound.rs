@@ -367,7 +367,10 @@ pub async fn ingest_from_webhook(
 
     // Check for unsubscribe/opt-out keywords in message body
     let body_upper = body.to_uppercase();
-    if body_upper.contains("STOP") || body_upper.contains("UNSUBSCRIBE") || body_upper.contains("OPT OUT") {
+    if body_upper.contains("STOP")
+        || body_upper.contains("UNSUBSCRIBE")
+        || body_upper.contains("OPT OUT")
+    {
         // Turn off promotional SMS opt-in for the customer
         let customer_id: Option<Uuid> = if let Some(ref phone) = e164 {
             sqlx::query_scalar("SELECT id FROM customers WHERE phone = $1 LIMIT 1")
