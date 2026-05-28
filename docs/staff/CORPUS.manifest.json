@@ -79,6 +79,7 @@
     "docs/staff/bug-reports-admin-manual.md",
     "docs/staff/permissions-and-access.md",
     "docs/staff/working-offline.md",
+    "docs/staff/remote-access-tailscale.md",
     "docs/staff/pwa-updates-manual.md",
     "docs/staff/pwa-update-troubleshooting.md",
     "docs/staff/overlay-standard.md",
