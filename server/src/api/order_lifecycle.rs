@@ -21,6 +21,7 @@ use crate::auth::permissions::{
     PROCUREMENT_MUTATE,
 };
 use crate::auth::pins;
+use crate::logic::messaging::MessagingService;
 use crate::logic::order_lifecycle;
 use crate::middleware;
 use crate::models::DbOrderItemLifecycleStatus;
@@ -451,15 +452,41 @@ async fn transition_item(
     tx.commit().await?;
 
     if next_status == DbOrderItemLifecycleStatus::ReadyForPickup {
-        let pool = state.db.clone();
+        let pool1 = state.db.clone();
+        let pool2 = state.db.clone();
+        let line_id = transaction_line_id;
+
+        // Send staff notification
         tokio::spawn(async move {
-            if let Err(error) = crate::logic::notifications::emit_order_item_ready_for_pickup(
-                &pool,
-                transaction_line_id,
-            )
-            .await
+            if let Err(error) =
+                crate::logic::notifications::emit_order_item_ready_for_pickup(&pool1, line_id).await
             {
-                tracing::error!(%error, %transaction_line_id, "emit_order_item_ready_for_pickup");
+                tracing::error!(%error, %line_id, "emit_order_item_ready_for_pickup");
+            }
+        });
+
+        // Queue customer notification for batch sending
+        tokio::spawn(async move {
+            let row: Option<(Uuid, Uuid)> = sqlx::query_as(
+                r#"
+                SELECT t.id AS transaction_id, t.customer_id
+                FROM transaction_lines tl
+                INNER JOIN transactions t ON t.id = tl.transaction_id
+                WHERE tl.id = $1
+                "#,
+            )
+            .bind(line_id)
+            .fetch_optional(&pool2)
+            .await
+            .ok()
+            .flatten();
+
+            if let Some((transaction_id, customer_id)) = row {
+                let _ = sqlx::query("SELECT queue_order_ready_notification($1, $2, NULL)")
+                    .bind(transaction_id)
+                    .bind(customer_id)
+                    .execute(&pool2)
+                    .await;
             }
         });
     }

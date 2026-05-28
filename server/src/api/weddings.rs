@@ -2166,7 +2166,8 @@ async fn delete_appointment(
     .fetch_optional(&state.db)
     .await?;
 
-    let existing = existing.ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
+    let existing =
+        existing.ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
 
     let result = sqlx::query("DELETE FROM wedding_appointments WHERE id = $1")
         .bind(appointment_id)

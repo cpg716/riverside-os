@@ -860,17 +860,15 @@ async fn patch_alteration(
 
     if row.status == "ready" && prev_status.as_deref() != Some("ready") {
         let pool = state.db.clone();
-        let http = state.http_client.clone();
-        let podium_cache = state.podium_token_cache.clone();
         let cid = row.customer_id;
         let aid = row.id;
         tokio::spawn(async move {
-            if let Err(e) =
-                MessagingService::trigger_alteration_ready(&pool, &http, &podium_cache, cid, aid)
-                    .await
-            {
-                tracing::warn!(error = %e, "alteration ready messaging failed");
-            }
+            // Queue customer notification for batch sending
+            let _ = sqlx::query("SELECT queue_alteration_ready_notification($1, $2, NULL)")
+                .bind(aid)
+                .bind(cid)
+                .execute(&pool)
+                .await;
         });
     }
 
@@ -956,6 +954,25 @@ async fn post_alteration_pickup(
 
     tx.commit().await?;
     spawn_meilisearch_alteration_upsert(&state, row.id);
+
+    // Notify alterations staff about the pickup
+    let customer_name = format!(
+        "{} {}",
+        row.customer_first_name.as_deref().unwrap_or(""),
+        row.customer_last_name.as_deref().unwrap_or("")
+    );
+    tokio::spawn(async move {
+        if let Err(e) = crate::logic::notifications::emit_alteration_picked_up(
+            &state.db,
+            id,
+            &customer_name,
+            &staff.full_name,
+        )
+        .await
+        {
+            tracing::error!(error = %e, "emit_alteration_picked_up");
+        }
+    });
 
     Ok(Json(row))
 }

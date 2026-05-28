@@ -13,6 +13,7 @@ pub mod bug_reports;
 pub mod categories;
 pub mod counterpoint_sync;
 pub mod counterpoint_workbench;
+pub mod customer_notifications;
 pub mod customers;
 pub mod daily_reports;
 pub mod discount_events;
@@ -238,6 +239,7 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
         .nest("/api/help", help::router())
         .nest("/api/loyalty", loyalty::router())
         .nest("/api/mailbox", mailbox::router())
+        .nest("/api", customer_notifications::router())
         .nest("/api/reviews", reviews::router())
         .nest("/api/search", search::router())
         .nest("/api/notifications", notifications::router())

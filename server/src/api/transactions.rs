@@ -2038,16 +2038,6 @@ async fn mark_transaction_pickup(
         tracing::error!(error = %e, transaction_id = %transaction_id, "loyalty accrual failed after pickup");
     }
 
-    // Trigger automated "Ready for Pickup" pings if order is now fulfilled.
-    let _ = crate::logic::messaging::MessagingService::handle_status_change(
-        &state.db,
-        &state.http_client,
-        &state.podium_token_cache,
-        transaction_id,
-        status_after,
-    )
-    .await;
-
     Ok(Json(json!({ "status": "ok" })))
 }
 

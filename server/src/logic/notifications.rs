@@ -7,8 +7,8 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::auth::permissions::{
-    self, staff_has_permission, CATALOG_EDIT, CUSTOMERS_MERGE, NUORDER_SYNC, ORDERS_VIEW, QBO_VIEW,
-    REGISTER_REPORTS,
+    self, staff_has_permission, ALTERATIONS_MANAGE, CATALOG_EDIT, CUSTOMERS_MERGE, NUORDER_SYNC,
+    ORDERS_VIEW, QBO_VIEW, REGISTER_REPORTS,
 };
 use crate::models::DbStaffRole;
 
@@ -781,6 +781,23 @@ pub async fn staff_ids_for_order_scoped(
             if attributed {
                 out.push(id);
             }
+        }
+    }
+    Ok(dedupe_sorted(out))
+}
+
+/// Admin + staff with alterations.manage permission (for alteration notifications).
+pub async fn staff_ids_for_alterations_scoped(pool: &PgPool) -> Result<Vec<Uuid>, sqlx::Error> {
+    let rows: Vec<(Uuid, DbStaffRole)> =
+        sqlx::query_as(r#"SELECT id, role FROM staff WHERE is_active = TRUE"#)
+            .fetch_all(pool)
+            .await?;
+    let mut out = Vec::new();
+
+    for (id, role) in rows {
+        let eff = permissions::effective_permissions_for_staff(pool, id, role).await?;
+        if role == DbStaffRole::Admin || staff_has_permission(&eff, ALTERATIONS_MANAGE) {
+            out.push(id);
         }
     }
     Ok(dedupe_sorted(out))
@@ -1796,6 +1813,41 @@ pub async fn emit_order_item_ready_for_pickup(
     let Some(nid) = insert_app_notification_deduped(
         pool,
         "order_item_ready_for_pickup",
+        &title,
+        &body,
+        deep,
+        "system",
+        aud,
+        Some(&dedupe),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    fan_out_notification_to_staff_ids(pool, nid, &staff).await
+}
+
+pub async fn emit_alteration_picked_up(
+    pool: &PgPool,
+    alteration_id: Uuid,
+    customer_name: &str,
+    staff_name: &str,
+) -> Result<(), sqlx::Error> {
+    let dedupe = format!("alteration_picked_up:{alteration_id}");
+    let title = "Alteration picked up".to_string();
+    let body = format!("Alteration for {customer_name} has been picked up by {staff_name}.");
+    let deep = json!({ "type": "alterations", "alteration_id": alteration_id.to_string() });
+    let staff = staff_ids_for_alterations_scoped(pool).await?;
+    if staff.is_empty() {
+        return Ok(());
+    }
+    let aud = json!({
+        "mode": "staff_ids",
+        "staff_ids": staff.iter().map(|u| u.to_string()).collect::<Vec<_>>()
+    });
+    let Some(nid) = insert_app_notification_deduped(
+        pool,
+        "alteration_picked_up",
         &title,
         &body,
         deep,
