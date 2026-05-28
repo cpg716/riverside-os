@@ -199,6 +199,13 @@ export default function UpdateManagerPanel() {
   const serverVersionMismatch =
     serverVersion != null && serverVersion.version !== CLIENT_SEMVER;
   const releaseMismatch = desktopVersionMismatch || serverVersionMismatch;
+
+  // On a satellite station (not the Main Hub), block client updates until the
+  // server has been updated first. This prevents clients from running a newer
+  // version than the server, which would break API compatibility.
+  const serverNeedsUpdateFirst =
+    !serverLocalStatus?.is_local &&         // not the Main Hub
+    serverUpdateCheck?.update_available === true; // server is behind latest
   const releaseDiagnostic = [
     `app files ${CLIENT_SEMVER}`,
     tauriShellVersion != null ? `Windows app ${tauriShellVersion}` : null,
@@ -247,6 +254,10 @@ export default function UpdateManagerPanel() {
   };
 
   const handleInstallUpdate = async () => {
+    if (serverNeedsUpdateFirst) {
+      toast("Update the Main Hub server first before updating this station.", "error");
+      return;
+    }
     setDesktopBusy(true);
     try {
       const result = await installAppUpdate();
@@ -377,10 +388,19 @@ export default function UpdateManagerPanel() {
               </p>
             </div>
           </div>
+          {serverNeedsUpdateFirst && (
+            <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-900">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                The Main Hub server must be updated to v{serverUpdateCheck?.latest_version} first.
+                Go to the Backoffice / Server PC and run the server update there before updating this station.
+              </span>
+            </div>
+          )}
           <div className="mt-5 flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={desktopBusy}
+              disabled={desktopBusy || serverNeedsUpdateFirst}
               onClick={() => void handleCheckForUpdates()}
               className="ui-btn-primary h-11 px-4 text-xs font-black disabled:opacity-50"
             >
@@ -388,7 +408,7 @@ export default function UpdateManagerPanel() {
             </button>
             <button
               type="button"
-              disabled={desktopBusy}
+              disabled={desktopBusy || serverNeedsUpdateFirst}
               onClick={() => void handleInstallUpdate()}
               className="ui-btn-secondary h-11 px-4 text-xs font-black disabled:opacity-50"
             >
@@ -398,9 +418,11 @@ export default function UpdateManagerPanel() {
           <p className="mt-4 text-xs font-medium leading-relaxed text-app-text-muted">
             {tauriShellVersion == null
               ? "This station is not running the Windows desktop app."
-              : updateCheck?.available
-                ? `Update ${updateCheck.version ?? ""} is ready to install.`
-                : updateCheck?.message ?? "No update check has run yet."}
+              : serverNeedsUpdateFirst
+                ? "Waiting for Main Hub to update first."
+                : updateCheck?.available
+                  ? `Update ${updateCheck.version ?? ""} is ready to install.`
+                  : updateCheck?.message ?? "No update check has run yet."}
           </p>
         </section>
 
