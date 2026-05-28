@@ -284,6 +284,7 @@ pub fn router() -> Router<AppState> {
         .route("/{id}", get(get_alteration).patch(patch_alteration))
         .route("/{id}/pickup", post(post_alteration_pickup))
         .route("/{id}/pickup-receipt", get(get_alteration_pickup_receipt))
+        .route("/{id}/card", get(get_alteration_card))
         .route(
             "/{id}/items",
             get(list_alteration_items).post(add_alteration_item),
@@ -1095,6 +1096,93 @@ async fn get_alteration_pickup_receipt(
     let receiptline_markdown =
         receipt_escpos::build_alteration_pickup_receiptline(&input, receipt_cfg.show_logo);
     let bytes = receipt_escpos::build_alteration_pickup_escpos(&input, &receipt_cfg);
+    let escpos_base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(Json(serde_json::json!({
+        "escpos_base64": escpos_base64,
+        "receiptline_markdown": receiptline_markdown,
+        "printer_language": "escpos",
+        "printer_family": "epson_tm_m30iii"
+    })))
+}
+
+async fn get_alteration_card(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AlterationError> {
+    let _staff = require_manage(&state, &headers).await?;
+
+    let row = sqlx::query_as::<_, AlterationOrderRow>(
+        r#"
+        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name,
+               c.customer_code, c.phone AS customer_phone, c.email AS customer_email,
+               c.address_line1 AS customer_address_line1, c.city AS customer_city,
+               c.state AS customer_state, c.postal_code AS customer_postal_code,
+               a.wedding_member_id, a.status::text AS status,
+               a.due_at, a.fitting_at, a.appointment_id,
+               a.total_units_jacket, a.total_units_pant,
+               a.notes, a.transaction_id AS linked_transaction_id,
+               lt.display_id AS linked_transaction_display_id,
+               a.source_type::text AS source_type, a.item_description, a.work_requested,
+               a.source_product_id, a.source_variant_id, a.source_sku,
+               a.source_transaction_id, a.source_transaction_line_id,
+               a.charge_amount, a.charge_transaction_line_id,
+               a.intake_channel::text AS intake_channel, a.source_snapshot,
+               a.picked_up_at, a.picked_up_by_staff_id, a.ticket_number,
+               a.created_at, a.updated_at
+        FROM alteration_orders a
+        LEFT JOIN customers c ON a.customer_id = c.id
+        LEFT JOIN transactions lt ON lt.id = COALESCE(a.transaction_id, a.source_transaction_id)
+        WHERE a.id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AlterationError::NotFound)?;
+
+    let receipt_cfg: crate::api::settings::ReceiptConfig =
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT receipt_config FROM store_settings WHERE id = 1",
+        )
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_value::<crate::api::settings::ReceiptConfig>(v).ok())
+        .unwrap_or_default()
+        .normalize_runtime();
+
+    let customer_name = format!(
+        "{} {}",
+        row.customer_first_name.unwrap_or_default(),
+        row.customer_last_name.unwrap_or_default()
+    )
+    .trim()
+    .to_string();
+
+    let input = receipt_escpos::AlterationCardInput {
+        store_name: receipt_cfg.store_name.clone(),
+        header_lines: receipt_cfg.header_lines.clone(),
+        footer_lines: receipt_cfg.footer_lines.clone(),
+        customer_name,
+        customer_phone: row.customer_phone,
+        ticket_number: row.ticket_number,
+        item_description: row.item_description,
+        work_requested: row.work_requested,
+        notes: row.notes,
+        alteration_id: row
+            .linked_transaction_display_id
+            .unwrap_or_else(|| id.to_string()),
+        due_at: row.due_at,
+        fitting_at: row.fitting_at,
+        created_at: row.created_at,
+        timezone: receipt_cfg.timezone.clone(),
+    };
+
+    let receiptline_markdown =
+        receipt_escpos::build_alteration_card_receiptline(&input, receipt_cfg.show_logo);
+    let bytes = receipt_escpos::build_alteration_card_escpos(&input, &receipt_cfg);
     let escpos_base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(Json(serde_json::json!({
         "escpos_base64": escpos_base64,

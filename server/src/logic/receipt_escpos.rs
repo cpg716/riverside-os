@@ -700,6 +700,24 @@ pub fn build_receipt_escpos(
 }
 
 #[derive(Debug, Clone)]
+pub struct AlterationCardInput {
+    pub store_name: String,
+    pub header_lines: Vec<String>,
+    pub footer_lines: Vec<String>,
+    pub customer_name: String,
+    pub customer_phone: Option<String>,
+    pub ticket_number: Option<String>,
+    pub item_description: Option<String>,
+    pub work_requested: Option<String>,
+    pub notes: Option<String>,
+    pub alteration_id: String,
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub fitting_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub timezone: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct AlterationPickupReceiptInput {
     pub store_name: String,
     pub header_lines: Vec<String>,
@@ -832,6 +850,195 @@ pub fn build_alteration_pickup_escpos(
         &mut out,
         &format!("Released by: {}", ascii_clean(&input.picked_up_by)),
     );
+    divider(&mut out);
+    set_align(&mut out, 1);
+    for fl in &cfg.footer_lines {
+        let t = fl.trim();
+        if !t.is_empty() {
+            push_line(&mut out, t);
+        }
+    }
+    set_align(&mut out, 0);
+    out.extend_from_slice(b"\n\n\n\n");
+    out.extend_from_slice(&[0x1d, 0x56, 0x41, 0x00]);
+    out
+}
+
+pub fn build_alteration_card_receiptline(
+    input: &AlterationCardInput,
+    show_logo: bool,
+) -> String {
+    let tz: Tz = input
+        .timezone
+        .parse()
+        .unwrap_or(chrono_tz::America::New_York);
+    let created_local = input.created_at.with_timezone(&tz);
+
+    let mut lines = Vec::new();
+    if show_logo {
+        lines.push(receiptline_logo_image());
+    }
+    lines.push(format!("| ^^{} |", receiptline_escape(&input.store_name)));
+    for hl in &input.header_lines {
+        let t = hl.trim();
+        if !t.is_empty() {
+            lines.push(format!("| {} |", receiptline_escape(t)));
+        }
+    }
+    lines.push("| ^^^ALTERATIONS CARD |".to_string());
+    lines.push(format!("| {} |", created_local.format("%m/%d/%Y %I:%M %p")));
+    lines.push(String::new());
+    lines.push(format!(
+        "Customer: {}",
+        receiptline_escape(&input.customer_name)
+    ));
+    if let Some(phone) = input.customer_phone.as_deref() {
+        let t = phone.trim();
+        if !t.is_empty() {
+            lines.push(format!("Phone: {}", receiptline_escape(t)));
+        }
+    }
+    if let Some(ticket) = input.ticket_number.as_deref() {
+        let t = ticket.trim();
+        if !t.is_empty() {
+            lines.push(format!("Ticket #: {}", receiptline_escape(t)));
+        }
+    }
+    lines.push(format!(
+        "Alteration ID: {}",
+        receiptline_escape(&input.alteration_id)
+    ));
+    lines.push(String::new());
+    if let Some(desc) = input.item_description.as_deref() {
+        let t = desc.trim();
+        if !t.is_empty() {
+            lines.push(format!("Item: {}", receiptline_escape(t)));
+        }
+    }
+    if let Some(work) = input.work_requested.as_deref() {
+        let t = work.trim();
+        if !t.is_empty() {
+            lines.push(format!("Work: {}", receiptline_escape(t)));
+        }
+    }
+    if let Some(due) = input.due_at {
+        let due_local = due.with_timezone(&tz);
+        lines.push(format!(
+            "Due: {}",
+            due_local.format("%m/%d/%Y")
+        ));
+    }
+    if let Some(fitting) = input.fitting_at {
+        let fitting_local = fitting.with_timezone(&tz);
+        lines.push(format!(
+            "Scheduled: {}",
+            fitting_local.format("%m/%d/%Y %I:%M %p")
+        ));
+    }
+    if let Some(notes) = input.notes.as_deref() {
+        let t = notes.trim();
+        if !t.is_empty() {
+            lines.push(String::new());
+            lines.push(format!("Notes: {}", receiptline_escape(t)));
+        }
+    }
+    lines.push(String::new());
+    lines.push("---".to_string());
+    for fl in &input.footer_lines {
+        let t = fl.trim();
+        if !t.is_empty() {
+            lines.push(format!("| {} |", receiptline_escape(t)));
+        }
+    }
+    lines.push("=".to_string());
+    lines.join("\n")
+}
+
+pub fn build_alteration_card_escpos(
+    input: &AlterationCardInput,
+    cfg: &ReceiptConfig,
+) -> Vec<u8> {
+    let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
+    let created_local = input.created_at.with_timezone(&tz);
+    let mut out = Vec::new();
+    out.extend_from_slice(&[0x1b, 0x40]);
+    out.extend_from_slice(&[0x1b, 0x74, 0x00]);
+    push_raw_line(&mut out, "");
+    set_align(&mut out, 1);
+    set_bold(&mut out, true);
+    set_text_size(&mut out, 0x11);
+    push_line(&mut out, &cfg.store_name);
+    set_text_size(&mut out, 0x00);
+    set_bold(&mut out, false);
+    for hl in &cfg.header_lines {
+        let t = hl.trim();
+        if !t.is_empty() {
+            push_line(&mut out, t);
+        }
+    }
+    set_bold(&mut out, true);
+    push_line(&mut out, "ALTERATIONS CARD");
+    set_bold(&mut out, false);
+    push_line(
+        &mut out,
+        &created_local.format("%m/%d/%Y %I:%M %p").to_string(),
+    );
+    set_align(&mut out, 0);
+    divider(&mut out);
+    push_line(
+        &mut out,
+        &format!("Customer: {}", ascii_clean(&input.customer_name)),
+    );
+    if let Some(phone) = input.customer_phone.as_deref() {
+        let t = phone.trim();
+        if !t.is_empty() {
+            push_line(&mut out, &format!("Phone: {}", ascii_clean(t)));
+        }
+    }
+    if let Some(ticket) = input.ticket_number.as_deref() {
+        let t = ticket.trim();
+        if !t.is_empty() {
+            push_line(&mut out, &format!("Ticket #: {}", ascii_clean(t)));
+        }
+    }
+    push_line(&mut out, &format!("ID: {}", ascii_clean(&input.alteration_id)));
+    divider(&mut out);
+    if let Some(desc) = input.item_description.as_deref() {
+        let t = desc.trim();
+        if !t.is_empty() {
+            for line in wrap_text(&format!("Item: {t}"), CPL) {
+                push_line(&mut out, &line);
+            }
+        }
+    }
+    if let Some(work) = input.work_requested.as_deref() {
+        let t = work.trim();
+        if !t.is_empty() {
+            for line in wrap_text(&format!("Work: {t}"), CPL) {
+                push_line(&mut out, &line);
+            }
+        }
+    }
+    if let Some(due) = input.due_at {
+        let due_local = due.with_timezone(&tz);
+        push_line(&mut out, &format!("Due: {}", due_local.format("%m/%d/%Y")));
+    }
+    if let Some(fitting) = input.fitting_at {
+        let fitting_local = fitting.with_timezone(&tz);
+        push_line(
+            &mut out,
+            &format!("Scheduled: {}", fitting_local.format("%m/%d/%Y %I:%M %p")),
+        );
+    }
+    if let Some(notes) = input.notes.as_deref() {
+        let t = notes.trim();
+        if !t.is_empty() {
+            divider(&mut out);
+            for line in wrap_text(&format!("Notes: {t}"), CPL) {
+                push_line(&mut out, &line);
+            }
+        }
+    }
     divider(&mut out);
     set_align(&mut out, 1);
     for fl in &cfg.footer_lines {

@@ -422,6 +422,46 @@ export default function CustomerAlterationsPanel({
     }
   };
 
+  const printAlterationCard = async (id: string) => {
+    try {
+      const res = await fetch(`${baseUrl}/api/alterations/${id}/card`, {
+        headers: apiAuth(),
+      });
+      if (!res.ok) {
+        toast("Could not generate alteration card", "error");
+        return;
+      }
+      const data = (await res.json()) as {
+        escpos_base64?: string;
+        receiptline_markdown?: string;
+      };
+      if (data.escpos_base64) {
+        const { printRawEscPosBase64 } = await import("../../lib/printerBridge");
+        await printRawEscPosBase64(data.escpos_base64);
+        toast("Alteration card sent to printer", "success");
+      } else if (data.receiptline_markdown) {
+        const { transform } = await import("receiptline");
+        const cmd = transform(data.receiptline_markdown, {
+          cpl: 42,
+          encoding: "cp437",
+          command: "escpos",
+          cutting: true,
+        });
+        const b64 = btoa(
+          String(cmd)
+            .split("")
+            .map((c) => String.fromCharCode(c.charCodeAt(0) & 0xff))
+            .join("")
+        );
+        const { printRawEscPosBase64 } = await import("../../lib/printerBridge");
+        await printRawEscPosBase64(b64);
+        toast("Alteration card sent to printer", "success");
+      }
+    } catch {
+      toast("Alteration card print failed", "error");
+    }
+  };
+
   const printDailySchedule = () => {
     const capacityLine = scheduleDayCapacity
       ? `Jacket ${scheduleDayCapacity.jacket_units_used}/${scheduleDayCapacity.jacket_units_used + scheduleDayCapacity.jacket_units_available}u · Pant ${scheduleDayCapacity.pant_units_used}/${scheduleDayCapacity.pant_units_used + scheduleDayCapacity.pant_units_available}u`
@@ -835,6 +875,14 @@ export default function CustomerAlterationsPanel({
               className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-blue-400 transition-all hover:bg-blue-500 hover:text-white"
             >
               Plan / Reassign
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void printAlterationCard(r.id)}
+              className="rounded-xl border border-app-border/30 bg-app-surface-2 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-app-text transition-all hover:bg-app-accent hover:text-white disabled:opacity-50"
+            >
+              Print Card
             </button>
          </div>
       </div>

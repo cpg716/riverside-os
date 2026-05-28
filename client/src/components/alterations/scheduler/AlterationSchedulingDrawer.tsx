@@ -234,11 +234,58 @@ export default function AlterationSchedulingDrawer({
                 {localAlt.fitting_at ? "Work Day Scheduled" : "Waiting for Work Day"}
               </p>
             </div>
-            {localAlt.fitting_at && (
-              <p className="text-xs font-black text-emerald-500">
-                {new Date(localAlt.fitting_at).toLocaleDateString()}
-              </p>
-            )}
+            <div className="flex items-center gap-3">
+              {localAlt.fitting_at && (
+                <p className="text-xs font-black text-emerald-500">
+                  {new Date(localAlt.fitting_at).toLocaleDateString()}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`${baseUrl}/api/alterations/${localAlt.id}/card`, {
+                      headers: apiAuth(),
+                    });
+                    if (!res.ok) {
+                      toast("Could not generate alteration card", "error");
+                      return;
+                    }
+                    const data = (await res.json()) as {
+                      escpos_base64?: string;
+                      receiptline_markdown?: string;
+                    };
+                    if (data.escpos_base64) {
+                      const { printRawEscPosBase64 } = await import("../../../lib/printerBridge");
+                      await printRawEscPosBase64(data.escpos_base64);
+                      toast("Alteration card sent to printer", "success");
+                    } else if (data.receiptline_markdown) {
+                      const { transform } = await import("receiptline");
+                      const cmd = transform(data.receiptline_markdown, {
+                        cpl: 42,
+                        encoding: "cp437",
+                        command: "escpos",
+                        cutting: true,
+                      });
+                      const b64 = btoa(
+                        String(cmd)
+                          .split("")
+                          .map((c) => String.fromCharCode(c.charCodeAt(0) & 0xff))
+                          .join("")
+                      );
+                      const { printRawEscPosBase64 } = await import("../../../lib/printerBridge");
+                      await printRawEscPosBase64(b64);
+                      toast("Alteration card sent to printer", "success");
+                    }
+                  } catch {
+                    toast("Alteration card print failed", "error");
+                  }
+                }}
+                className="px-4 py-2 bg-app-accent hover:bg-app-accent/80 text-white text-xs font-black uppercase tracking-widest rounded-lg transition-all"
+              >
+                Print Card
+              </button>
+            </div>
           </div>
         </div>
       </div>
