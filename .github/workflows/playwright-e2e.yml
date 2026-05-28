@@ -169,13 +169,14 @@ jobs:
 
       - name: Start API server
         run: |
-          nohup env DATABASE_URL="$DATABASE_URL" RIVERSIDE_HTTP_BIND=127.0.0.1:3000 \
-            RIVERSIDE_MODE="$RIVERSIDE_MODE" \
-            RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="$RIVERSIDE_ENABLE_E2E_TEST_SUPPORT" \
-            FRONTEND_DIST="$FRONTEND_DIST" \
-            ./riverside-server > /tmp/ros-server.log 2>&1 &
+          export DATABASE_URL="$DATABASE_URL"
+          export RIVERSIDE_HTTP_BIND=127.0.0.1:3000
+          export RIVERSIDE_MODE="$RIVERSIDE_MODE"
+          export RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="$RIVERSIDE_ENABLE_E2E_TEST_SUPPORT"
+          export FRONTEND_DIST="$FRONTEND_DIST"
+          nohup ./riverside-server > /tmp/ros-server.log 2>&1 &
           echo $! > /tmp/ros-server.pid
-          for i in $(seq 1 60); do
+          for i in $(seq 1 90); do
             if curl -sf "http://127.0.0.1:3000/api/health" >/dev/null; then
               echo "Server is up."
               exit 0
@@ -574,13 +575,14 @@ jobs:
 
       - name: Start API server
         run: |
-          nohup env DATABASE_URL="$DATABASE_URL" RIVERSIDE_HTTP_BIND=127.0.0.1:3000 \
-            RIVERSIDE_MODE="$RIVERSIDE_MODE" \
-            RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="$RIVERSIDE_ENABLE_E2E_TEST_SUPPORT" \
-            FRONTEND_DIST="$FRONTEND_DIST" \
-            ./riverside-server > /tmp/ros-server.log 2>&1 &
+          export DATABASE_URL="$DATABASE_URL"
+          export RIVERSIDE_HTTP_BIND=127.0.0.1:3000
+          export RIVERSIDE_MODE="$RIVERSIDE_MODE"
+          export RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="$RIVERSIDE_ENABLE_E2E_TEST_SUPPORT"
+          export FRONTEND_DIST="$FRONTEND_DIST"
+          nohup ./riverside-server > /tmp/ros-server.log 2>&1 &
           echo $! > /tmp/ros-server.pid
-          for i in $(seq 1 60); do
+          for i in $(seq 1 90); do
             if curl -sf "http://127.0.0.1:3000/api/health" >/dev/null; then
               echo "Server is up."
               exit 0
