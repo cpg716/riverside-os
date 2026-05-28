@@ -499,7 +499,7 @@ async fn get_update_check(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, Response> {
-    let _ = middleware::require_auth(&state, &headers)
+    let _ = middleware::require_authenticated_staff_headers(&state, &headers)
         .await
         .map_err(|e| e.into_response())?;
     match update_check::check_for_update(&state.http_client).await {
