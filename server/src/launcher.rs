@@ -493,6 +493,25 @@ async fn launch_server_inner(
         }
     });
 
+    // Daily update check: runs every hour, fires the notification at most once per day.
+    let update_check_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+        let mut last_checked_day: Option<chrono::NaiveDate> = None;
+        loop {
+            ticker.tick().await;
+            let today = chrono::Local::now().naive_local().date();
+            if last_checked_day != Some(today) {
+                last_checked_day = Some(today);
+                crate::logic::update_check::run_daily_update_check(
+                    &update_check_state.db,
+                    &update_check_state.http_client,
+                )
+                .await;
+            }
+        }
+    });
+
     let notif_state = state.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));

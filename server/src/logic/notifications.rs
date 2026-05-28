@@ -148,6 +148,7 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "staff_bug_report",
     "store_email_inbound",
     "task_due_soon",
+    "update_available",
     "wedding_soon",
 ];
 
@@ -175,7 +176,7 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
     use NotificationPreferenceHandling as Handling;
 
     match semantic_kind {
-        "admin_broadcast" => Some(Handling::Configurable(Category::Announcements)),
+        "admin_broadcast" | "update_available" => Some(Handling::Configurable(Category::Announcements)),
         "alteration_due"
         | "morning_alteration_due"
         | "rms_account_list_weekly_upload"

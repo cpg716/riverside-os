@@ -24,6 +24,7 @@ use crate::api::AppState;
 use crate::auth::permissions::{OPS_DEV_CENTER_ACTIONS, OPS_DEV_CENTER_VIEW};
 use crate::logic::bug_reports;
 use crate::logic::ops_dev_center::{self, GuardedActionResult, StationHeartbeatIn};
+use crate::logic::update_check;
 use crate::middleware;
 
 const MAX_SERVER_ERROR_LOG_SNAPSHOT_BYTES: usize = 240_000;
@@ -492,6 +493,23 @@ async fn get_audit_probe_run_detail(
         None => json!({ "error": "not found" }),
     };
     Ok(Json(value))
+}
+
+async fn get_update_check(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, Response> {
+    let _ = middleware::require_auth(&state, &headers)
+        .await
+        .map_err(|e| e.into_response())?;
+    match update_check::check_for_update(&state.http_client).await {
+        Ok(result) => Ok(Json(serde_json::to_value(result).unwrap_or_default())),
+        Err(e) => Err((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": e })),
+        )
+            .into_response()),
+    }
 }
 
 // --- GitHub DevOps Center proxy endpoints ---
@@ -1033,4 +1051,5 @@ pub fn router() -> Router<AppState> {
         .route("/bugs/overview", get(get_bugs_overview))
         .route("/bugs/link-alert", post(post_bug_alert_link))
         .route("/logs/stream", get(stream_logs))
+        .route("/update-check", get(get_update_check))
 }

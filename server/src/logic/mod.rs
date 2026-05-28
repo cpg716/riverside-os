@@ -89,6 +89,7 @@ pub mod store_tax;
 pub mod suit_component_swap;
 pub mod tasks;
 pub mod tax;
+pub mod update_check;
 pub mod template_variant_pricing;
 pub mod transaction_checkout;
 pub mod transaction_fulfillment;
