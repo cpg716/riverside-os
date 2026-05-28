@@ -1,20 +1,30 @@
-//! Daily update check: compares running version against latest GitHub release,
-//! broadcasts an admin notification when a newer version is available.
+//! Daily update check: compares running version AND build SHA against the
+//! published latest.json updater manifest, so new builds of the same version
+//! are also detected.
 
 use chrono::Timelike;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-const GITHUB_RELEASES_URL: &str =
-    "https://api.github.com/repos/cpg716/riverside-os/releases/latest";
+/// The updater manifest is published to the GitHub release as `latest.json`.
+/// We read it directly so we can compare `build_sha` in addition to `version`.
+const LATEST_JSON_URL: &str =
+    "https://github.com/cpg716/riverside-os/releases/latest/download/latest.json";
+
+/// Build SHA injected at compile time by the build script (`build.rs`).
+/// Falls back to "dev" in local builds where the env var is absent.
+const CURRENT_BUILD_SHA: &str = env!("RIVERSIDE_GIT_SHA");
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateCheckResult {
     pub current_version: String,
+    pub current_build_sha: String,
     pub latest_version: String,
+    pub latest_build_sha: Option<String>,
     pub update_available: bool,
+    /// True when the version matches but the build SHA differs (same-version rebuild).
+    pub rebuild_available: bool,
     pub release_notes: Option<String>,
-    pub release_url: Option<String>,
     pub published_at: Option<String>,
     /// Whether right now is within the safe update window (before open / after close).
     pub safe_window: bool,
@@ -23,11 +33,16 @@ pub struct UpdateCheckResult {
 }
 
 #[derive(Deserialize)]
-struct GithubRelease {
-    tag_name: String,
-    body: Option<String>,
-    html_url: Option<String>,
-    published_at: Option<String>,
+struct LatestManifest {
+    /// Semver string, e.g. "0.80.9"
+    version: String,
+    /// Full git commit SHA of the build, e.g. "abc1234..." — added in v0.80.9+.
+    /// Absent in older manifests; treated as unknown.
+    build_sha: Option<String>,
+    /// ISO-8601 publish date from the workflow.
+    pub_date: Option<String>,
+    /// Release notes body.
+    notes: Option<String>,
 }
 
 /// Returns true when the local time is before 10 AM or after 6 PM — i.e. before
@@ -70,40 +85,62 @@ fn strip_v(s: &str) -> &str {
     s.strip_prefix('v').unwrap_or(s)
 }
 
-/// Fetch the latest GitHub release and compare to the running server version.
+/// Fetch the published `latest.json` updater manifest and compare both the
+/// semver version AND the build SHA to the running server.
+///
+/// `update_available` is true when the version is strictly newer.
+/// `rebuild_available` is true when the version matches but the build SHA differs
+/// (i.e. the same release tag was re-published with a new build).
 pub async fn check_for_update(client: &reqwest::Client) -> Result<UpdateCheckResult, String> {
     let current = env!("CARGO_PKG_VERSION").to_string();
+    let current_sha = CURRENT_BUILD_SHA.to_string();
 
     let res = client
-        .get(GITHUB_RELEASES_URL)
+        .get(LATEST_JSON_URL)
         .header("User-Agent", "RiversideOS-UpdateCheck")
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
+        .header("Cache-Control", "no-cache")
         .send()
         .await
-        .map_err(|e| format!("GitHub request failed: {e}"))?;
+        .map_err(|e| format!("Failed to fetch latest.json: {e}"))?;
 
     if !res.status().is_success() {
-        return Err(format!("GitHub API returned {}", res.status()));
+        return Err(format!("latest.json returned HTTP {}", res.status()));
     }
 
-    let release: GithubRelease = res
+    let manifest: LatestManifest = res
         .json()
         .await
-        .map_err(|e| format!("Failed to parse GitHub release: {e}"))?;
+        .map_err(|e| format!("Failed to parse latest.json: {e}"))?;
 
-    let latest = strip_v(&release.tag_name).to_string();
-    let update_available = latest != strip_v(&current);
+    let latest_ver = strip_v(&manifest.version).to_string();
+    let current_ver = strip_v(&current).to_string();
+
+    let version_newer = latest_ver != current_ver;
+    let rebuild_available = !version_newer
+        && manifest
+            .build_sha
+            .as_deref()
+            .map(|sha| {
+                // Compare full SHA or the first 8 chars against CURRENT_BUILD_SHA
+                let current_short = &current_sha[..current_sha.len().min(8)];
+                let latest_short = &sha[..sha.len().min(8)];
+                latest_short != current_short && current_sha != "dev"
+            })
+            .unwrap_or(false);
+
+    let update_available = version_newer || rebuild_available;
 
     let (safe_window, safe_window_hint) = is_safe_update_window();
 
     Ok(UpdateCheckResult {
         current_version: current,
-        latest_version: latest,
+        current_build_sha: current_sha,
+        latest_version: latest_ver,
+        latest_build_sha: manifest.build_sha,
         update_available,
-        release_notes: release.body,
-        release_url: release.html_url,
-        published_at: release.published_at,
+        rebuild_available,
+        release_notes: manifest.notes,
+        published_at: manifest.pub_date,
         safe_window,
         safe_window_hint,
     })
@@ -123,19 +160,38 @@ pub async fn run_daily_update_check(pool: &PgPool, client: &reqwest::Client) {
     if !result.update_available {
         tracing::debug!(
             version = %result.current_version,
+            sha = %result.current_build_sha,
             "Daily update check: already on latest"
         );
         return;
     }
 
-    let message = format!(
-        "Riverside OS {} is available (you are on {}). {}",
-        result.latest_version, result.current_version, result.safe_window_hint,
-    );
+    let message = if result.rebuild_available {
+        format!(
+            "Riverside OS {} has a new build available (current build: {}). {}",
+            result.latest_version,
+            &result.current_build_sha[..result.current_build_sha.len().min(8)],
+            result.safe_window_hint,
+        )
+    } else {
+        format!(
+            "Riverside OS {} is available (you are on {}). {}",
+            result.latest_version, result.current_version, result.safe_window_hint,
+        )
+    };
 
-    // Dedupe key: one notification per (version, day) pair so it doesn't spam every hour.
+    // Dedupe key: one notification per (version+sha, day) so same-version rebuilds
+    // also fire once per day without spamming.
     let today = chrono::Utc::now().format("%Y-%m-%d");
-    let dedup_key = format!("update_available_{}_{}", result.latest_version, today);
+    let sha_short = result
+        .latest_build_sha
+        .as_deref()
+        .map(|s| &s[..s.len().min(8)])
+        .unwrap_or("unknown");
+    let dedup_key = format!(
+        "update_available_{}_{}_{}",
+        result.latest_version, sha_short, today
+    );
 
     if let Err(e) =
         broadcast_update_notification(pool, &message, &result.latest_version, &dedup_key).await

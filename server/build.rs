@@ -1,8 +1,28 @@
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=../migrations");
+    println!("cargo:rerun-if-env-changed=GITHUB_SHA");
+
+    // Inject git SHA so update_check.rs can detect same-version rebuilds.
+    // CI sets GITHUB_SHA; local builds fall back to `git rev-parse HEAD`; then "dev".
+    let sha = std::env::var("GITHUB_SHA")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_else(|| "dev".to_string());
+
+    println!("cargo:rustc-env=RIVERSIDE_GIT_SHA={sha}");
 
     let migrations_dir = Path::new("../migrations");
     let mut entries = fs::read_dir(migrations_dir)

@@ -188,6 +188,7 @@ jobs:
             version = $version
             notes = $notes
             pub_date = $pubDate
+            build_sha = $env:GITHUB_SHA
             platforms = @{
               "windows-x86_64" = @{
                 signature = $signature

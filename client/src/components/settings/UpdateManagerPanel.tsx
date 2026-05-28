@@ -37,10 +37,12 @@ type ServerVersionStatus = {
 
 type ServerUpdateCheck = {
   current_version: string;
+  current_build_sha: string;
   latest_version: string;
+  latest_build_sha: string | null;
   update_available: boolean;
+  rebuild_available: boolean;
   release_notes: string | null;
-  release_url: string | null;
   published_at: string | null;
   safe_window: boolean;
   safe_window_hint: string;
@@ -479,10 +481,18 @@ export default function UpdateManagerPanel() {
                 {serverUpdateCheck.update_available
                   ? <Sparkles className="h-4 w-4 shrink-0" />
                   : <CheckCircle2 className="h-4 w-4 shrink-0" />}
-                {serverUpdateCheck.update_available
-                  ? `v${serverUpdateCheck.latest_version} is available (you are on v${serverUpdateCheck.current_version})`
-                  : `You are on the latest version (v${serverUpdateCheck.current_version})`}
+                {serverUpdateCheck.rebuild_available
+                  ? `New build of v${serverUpdateCheck.latest_version} is available`
+                  : serverUpdateCheck.update_available
+                    ? `v${serverUpdateCheck.latest_version} is available (you are on v${serverUpdateCheck.current_version})`
+                    : `You are on the latest version (v${serverUpdateCheck.current_version})`}
               </div>
+              {serverUpdateCheck.update_available && serverUpdateCheck.rebuild_available && (
+                <div className="mt-1 text-[10px] font-mono text-amber-700 opacity-80">
+                  current build: {serverUpdateCheck.current_build_sha.slice(0, 8)}
+                  {serverUpdateCheck.latest_build_sha && ` → latest: ${serverUpdateCheck.latest_build_sha.slice(0, 8)}`}
+                </div>
+              )}
               {serverUpdateCheck.update_available && (
                 <div className={`mt-2 flex items-center gap-1.5 ${
                   serverUpdateCheck.safe_window ? "text-emerald-700" : "text-amber-700"
