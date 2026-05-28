@@ -1,6 +1,6 @@
 [package]
 name = "ros-server-manager"
-version = "0.80.9"
+version = "0.85.0"
 description = "Riverside OS local server management console"
 authors = ["Riverside OS"]
 license = ""

@@ -258,8 +258,10 @@ pub async fn approve_step(
 ) -> Result<ApproveStepResult, WorkbenchError> {
     let status_col =
         step_column(step).ok_or_else(|| WorkbenchError::InvalidStep(step.to_string()))?;
-    let approved_at_col = step_approved_at_column(step).unwrap();
-    let approved_by_col = step_approved_by_column(step).unwrap();
+    let approved_at_col = step_approved_at_column(step)
+        .ok_or_else(|| WorkbenchError::InvalidStep(step.to_string()))?;
+    let approved_by_col = step_approved_by_column(step)
+        .ok_or_else(|| WorkbenchError::InvalidStep(step.to_string()))?;
 
     // Check current status
     let current: String = sqlx::query_scalar(&format!(
@@ -288,7 +290,8 @@ pub async fn approve_step(
 
     // Unlock next step
     let next_unlocked = if let Some(next) = next_step(step) {
-        let next_col = step_column(next).unwrap();
+        let next_col =
+            step_column(next).ok_or_else(|| WorkbenchError::InvalidStep(next.to_string()))?;
         let next_current: String = sqlx::query_scalar(&format!(
             "SELECT {next_col} FROM counterpoint_workbench_state WHERE id = 1"
         ))

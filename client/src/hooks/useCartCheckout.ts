@@ -157,6 +157,20 @@ export function useCartCheckout({
       return null;
     }
 
+    // Verify session is still open before tendering (gives early feedback if closed by another terminal)
+    try {
+      const sessionRes = await fetch(`${baseUrl}/api/sessions/current`, {
+        headers: { ...apiAuth(), "Content-Type": "application/json" },
+        cache: "no-store",
+      });
+      if (!sessionRes.ok) {
+        toast("Your register session is no longer active. Re-open the till to continue.", "error");
+        return null;
+      }
+    } catch {
+      // Network hiccup during probe — proceed; server will validate anyway
+    }
+
     setCheckoutBusy(true);
 
     try {
@@ -410,7 +424,13 @@ export function useCartCheckout({
           }
           return null;
         }
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        let b: { error?: string } = {};
+        try {
+          b = await res.json() as { error?: string };
+        } catch {
+          const text = await res.text().catch(() => "");
+          b = { error: text || `Checkout failed (${res.status})` };
+        }
         throw new Error(b.error || `Checkout failed (${res.status})`);
       }
 

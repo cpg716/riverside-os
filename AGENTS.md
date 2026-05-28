@@ -163,6 +163,19 @@ RiversideOS v0.80.9 introduces automated daily financial reporting and completes
 
 **Documentation**: `docs/DAILY_FINANCIAL_REPORT.md` for full configuration, API reference, and email template details.
 
+### v0.85.0 POS Register GO LIVE Readiness
+
+RiversideOS v0.85.0 is the GO LIVE readiness release. It is the result of a systematic end-to-end review of the POS Register (cart, checkout, payments, printing, sessions, offline), Back Office, Settings & Integrations, and Performance. Six critical fixes (A–F) were identified and implemented to harden the register for daily production use.
+
+- **Fix A — POS Session Token Expiry Pre-Check**: `useCartCheckout` probes `GET /api/sessions/current` before tendering. Cashiers get immediate feedback if the session expired or was closed from another terminal, preventing late-stage server rejections after payment splits have been entered.
+- **Fix B — Printer Config Server-Side Persistence**: Per-lane printer settings (receipt, tag, report printers, cash drawer toggle) are now stored in `store_settings.pos_station_config`. New endpoints: `GET|PATCH /api/settings/printer-config/{register_lane}`. The Register Overlay hydrates these settings on lane change and syncs them on successful open, eliminating the local-only configuration drift across terminals.
+- **Fix C — Blocked Offline Items Recovery UI**: The POS cart header polls the offline checkout queue every 10s. An amber "syncing" badge shows queued items; a red "need recovery" badge appears when blocked items require manual attention. Cashiers can no longer miss stalled offline sales.
+- **Fix D — Receipt Print Failure Retry Queue**: Failed receipt prints are captured in a new `localforage` retry queue (`printRetryQueue.ts`). A "X print retry" danger button appears in the POS header; clicking opens a modal to retry individual print jobs or dismiss them. The queue persists across page reloads.
+- **Fix E — Dynamic Register Lane Dropdown**: The Register Overlay dropdown is no longer hardcoded to 4 lanes. It fetches `max_register_lanes` from `/api/settings/pos-station-config/public` and generates options dynamically. Migration `058_pos_station_config.sql` adds the JSONB column.
+- **Fix F — Helcim Terminal Stream Auto-Reconnect**: `NexoCheckoutDrawer` runs a 4-second fallback polling interval alongside the SSE stream. If the SSE connection drops silently, polling continues refreshing the terminal attempt status until completion or cancellation, preventing stuck terminal payments.
+
+**Migration**: `058_pos_station_config.sql` — adds `pos_station_config JSONB` to `store_settings`.
+
 ### v0.3.5 Cash Rounding & CoreCredit Financing
 
 RiversideOS v0.3.5 introduces cash rounding logic and consumer line-of-credit (CoreCard/CoreCredit) integrations.

@@ -37,9 +37,8 @@ impl NotificationScheduler {
             let scheduled = local_now
                 .date_naive()
                 .and_hms_opt(hour, minute, 0)
-                .unwrap()
-                .and_local_timezone(chrono::Local)
-                .unwrap();
+                .and_then(|dt| dt.and_local_timezone(chrono::Local).single())
+                .unwrap_or(local_now);
 
             // If today's scheduled time hasn't passed yet and it's Mon-Sat
             if scheduled > local_now && local_now.weekday() != Weekday::Sun {
@@ -55,9 +54,8 @@ impl NotificationScheduler {
                 // Schedule for 9:30 AM
                 let scheduled = next_day
                     .and_hms_opt(9, 30, 0)
-                    .unwrap()
-                    .and_local_timezone(chrono::Local)
-                    .unwrap();
+                    .and_then(|dt| dt.and_local_timezone(chrono::Local).single())
+                    .unwrap_or(local_now);
                 return scheduled.with_timezone(&Utc);
             }
             next_day += Duration::days(1);
