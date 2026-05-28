@@ -55,4 +55,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("051_receiving_freight_ledger_keys.sql", include_str!("../../migrations/051_receiving_freight_ledger_keys.sql")),
     ("052_daily_financial_reports.sql", include_str!("../../migrations/052_daily_financial_reports.sql")),
     ("053_customer_notification_queue.sql", include_str!("../../migrations/053_customer_notification_queue.sql")),
+    ("054_customer_opt_in_defaults.sql", include_str!("../../migrations/054_customer_opt_in_defaults.sql")),
 ];

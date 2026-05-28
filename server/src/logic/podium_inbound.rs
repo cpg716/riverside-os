@@ -365,6 +365,37 @@ pub async fn ingest_from_webhook(
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty());
 
+    // Check for unsubscribe/opt-out keywords in message body
+    let body_upper = body.to_uppercase();
+    if body_upper.contains("STOP") || body_upper.contains("UNSUBSCRIBE") || body_upper.contains("OPT OUT") {
+        // Turn off promotional SMS opt-in for the customer
+        let customer_id: Option<Uuid> = if let Some(ref phone) = e164 {
+            sqlx::query_scalar("SELECT id FROM customers WHERE phone = $1 LIMIT 1")
+                .bind(phone)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten()
+        } else if let Some(ref e) = email {
+            sqlx::query_scalar("SELECT id FROM customers WHERE LOWER(email) = LOWER($1) LIMIT 1")
+                .bind(e)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+
+        if let Some(cid) = customer_id {
+            let _ = sqlx::query("UPDATE customers SET marketing_sms_opt_in = false WHERE id = $1")
+                .bind(cid)
+                .execute(pool)
+                .await;
+            tracing::info!(target = "podium_inbound", customer_id = %cid, "Customer opted out of promotional SMS via STOP/UNSUBSCRIBE");
+        }
+    }
+
     let channel = detect_channel(value, e164.is_some(), email.is_some());
 
     if e164.is_none() && email.is_none() {

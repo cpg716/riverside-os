@@ -2861,8 +2861,12 @@ async fn upsert_customer_row(
 
     let dob = row.date_of_birth.as_deref().and_then(parse_dob);
 
-    let m_email = row.marketing_email_opt_in.unwrap_or(false);
-    let m_sms = row.marketing_sms_opt_in.unwrap_or(false);
+    // Set promotional opt-ins to ON by default for Counterpoint sync
+    // Operational opt-ins always ON (pickup, alterations, appointments, etc.)
+    let m_email = row.marketing_email_opt_in.unwrap_or(true);
+    let m_sms = row.marketing_sms_opt_in.unwrap_or(true);
+    let t_email = true;  // Operational email always ON
+    let t_sms = true;   // Operational SMS always ON
     let loyalty_pts = row.loyalty_points;
     let cust_type = trim_opt(&row.customer_type);
     let ar_bal = trim_opt(&row.ar_balance);
@@ -2919,8 +2923,8 @@ async fn upsert_customer_row(
         .bind(dob)
         .bind(m_email)
         .bind(m_sms)
-        .bind(m_sms)
-        .bind(m_email)
+        .bind(t_sms)
+        .bind(t_email)
         .bind(loyalty_pts)
         .bind(&cust_type)
         .bind(&ar_bal)
@@ -2960,8 +2964,8 @@ async fn upsert_customer_row(
         .bind(&ar_bal)
         .bind(m_email)
         .bind(m_sms)
-        .bind(m_sms)
-        .bind(m_email)
+        .bind(t_sms)
+        .bind(t_email)
         .bind(loyalty_pts)
         .bind(preferred_rep)
         .execute(&mut **tx)
@@ -8705,7 +8709,7 @@ pub async fn resolve_unresolved_counterpoint_lines(pool: &PgPool) -> Result<u64,
     let updated = sqlx::query(
         r#"
         UPDATE transaction_lines tl
-        SET 
+        SET
           variant_id = pv.id,
           product_id = pv.product_id,
           vendor_reference = NULL
@@ -14237,7 +14241,7 @@ mod tests {
                 .expect("fetch fallback variant id");
 
         let line_data: Option<(Uuid, Option<String>)> = sqlx::query_as(
-            "SELECT variant_id, vendor_reference FROM transaction_lines tl 
+            "SELECT variant_id, vendor_reference FROM transaction_lines tl
              INNER JOIN transactions t ON t.id = tl.transaction_id
              WHERE t.counterpoint_doc_ref = $1",
         )
@@ -14296,7 +14300,7 @@ mod tests {
 
         // Verify the line has been updated and vendor_reference cleared
         let updated_line_data: (Uuid, Option<String>) = sqlx::query_as(
-            "SELECT variant_id, vendor_reference FROM transaction_lines tl 
+            "SELECT variant_id, vendor_reference FROM transaction_lines tl
              INNER JOIN transactions t ON t.id = tl.transaction_id
              WHERE t.counterpoint_doc_ref = $1",
         )
