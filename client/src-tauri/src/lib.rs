@@ -1,6 +1,7 @@
 #[cfg(desktop)]
 pub mod app_updates;
 pub mod hardware;
+pub mod install_contract;
 pub mod llama_server;
 pub mod rosie_voice;
 pub mod server_updater;

@@ -17,9 +17,16 @@ function Assert-Admin {
 
 Assert-Admin
 
-# Resolve install root from config
-$configPath = "C:\riverside-deployment.config.json"
+# Resolve install root from config.
+# Check the canonical location first ({installRoot}\riverside-deployment.config.json),
+# then fall back to the next to the script itself (for removal from the deployment package).
 $installRoot = "C:\RiversideOS"
+$configPath  = Join-Path $installRoot "riverside-deployment.config.json"
+if (-not (Test-Path $configPath)) {
+  # Also try next to the script (e.g. running from the deployment package directory)
+  $scriptSidePath = Join-Path $PSScriptRoot "riverside-deployment.config.json"
+  if (Test-Path $scriptSidePath) { $configPath = $scriptSidePath }
+}
 if (Test-Path $configPath) {
   try {
     $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -118,14 +125,19 @@ if (-not $KeepDatabase) {
   Write-Host "[4/6] Skipping database drop (--KeepDatabase)." -ForegroundColor Gray
 }
 
-# 5. Remove station configs
-Write-Host "[5/6] Removing station configurations..." -ForegroundColor Cyan
-$stationsDir = "C:\ProgramData\riverside\stations"
-if (Test-Path $stationsDir) {
-  Get-ChildItem $stationsDir -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
-    Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
-    Write-Host "  Removed: $($_.Name)" -ForegroundColor Green
-  }
+# 5. Remove station config
+# install-register.ps1 writes: %PROGRAMDATA%\RiversideOS\station-config.json
+Write-Host "[5/6] Removing station configuration..." -ForegroundColor Cyan
+$stationConfigFile = Join-Path $env:PROGRAMDATA "RiversideOS\station-config.json"
+if (Test-Path $stationConfigFile) {
+  Remove-Item $stationConfigFile -Force -ErrorAction SilentlyContinue
+  Write-Host "  Removed: $stationConfigFile" -ForegroundColor Green
+}
+# Also clean the parent dir if empty
+$stationConfigDir = Join-Path $env:PROGRAMDATA "RiversideOS"
+if ((Test-Path $stationConfigDir) -and -not (Get-ChildItem $stationConfigDir -ErrorAction SilentlyContinue)) {
+  Remove-Item $stationConfigDir -Force -ErrorAction SilentlyContinue
+  Write-Host "  Removed empty dir: $stationConfigDir" -ForegroundColor Green
 }
 
 # 6. Remove install root (unless --KeepInstallRoot)

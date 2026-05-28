@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param()
 
 $ErrorActionPreference = "Continue"
@@ -242,6 +242,49 @@ if ($config -and $config.register -and $config.register.receiptPrinter) {
     }
 } else {
     Write-Host "No custom printer details configured. Skipping print routing check." -ForegroundColor Gray
+}
+
+# 8. Updater Path Contract Probes
+# Verifies that the file-system paths the Tauri updater checks for Main Hub
+# detection actually exist on this machine.  If these fail, Settings → Updates
+# will show the satellite "Go to Main Hub" instructions even on the server PC.
+#
+# SYNC: These paths MUST match install_contract.rs constants and install-server.ps1.
+#       Run deployment\windows\validate-install-contract.ps1 before every release.
+Write-Host ""
+Write-Host "--- Updater Path Contract Probes ---" -ForegroundColor Blue
+
+$contractInstallRoot = "C:\RiversideOS"
+if ($config -and $config.server -and $config.server.installRoot) {
+    $contractInstallRoot = $config.server.installRoot
+}
+
+$contractServerBin   = Join-Path $contractInstallRoot "server\riverside-server.exe"
+$contractConfigFile  = Join-Path $contractInstallRoot "riverside-deployment.config.json"
+$contractSummaryFile = Join-Path $contractInstallRoot "deployment-summary.txt"
+
+$contractAnyFound = $false
+foreach ($probe in @(
+    @{ Path = $contractServerBin;   Label = "Server binary (server\riverside-server.exe)" },
+    @{ Path = $contractConfigFile;  Label = "Deployment config (riverside-deployment.config.json)" },
+    @{ Path = $contractSummaryFile; Label = "Install marker (deployment-summary.txt)" }
+)) {
+    if (Test-Path $probe.Path) {
+        Write-Host "[OK] Found: $($probe.Label)" -ForegroundColor Green
+        Write-Host "     $($probe.Path)" -ForegroundColor DarkGray
+        $contractAnyFound = $true
+    } else {
+        Write-Host "[WARN] Missing: $($probe.Label)" -ForegroundColor Yellow
+        Write-Host "       $($probe.Path)" -ForegroundColor DarkGray
+    }
+}
+
+if ($contractAnyFound) {
+    Write-Host "[OK] Updater will detect this PC as the Main Hub (at least one probe file found)." -ForegroundColor Green
+} else {
+    Write-Host "[FAIL] NONE of the updater probe files were found under $contractInstallRoot." -ForegroundColor Red
+    Write-Host "       Settings -> Updates will incorrectly show 'Go to Main Hub' instructions." -ForegroundColor Red
+    Write-Host "       Re-run install-server.ps1 or check that installRoot in the config is correct." -ForegroundColor Red
 }
 
 Write-Host ""

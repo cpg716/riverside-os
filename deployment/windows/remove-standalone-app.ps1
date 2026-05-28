@@ -70,14 +70,18 @@ if ($uninstallReg) {
   }
 }
 
-# 3. Remove station configs
-Write-Host "[3/3] Removing station configurations..." -ForegroundColor Cyan
-$stationsDir = "C:\ProgramData\riverside\stations"
-if (Test-Path $stationsDir) {
-  Get-ChildItem $stationsDir -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
-    Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
-    Write-Host "  Removed: $($_.Name)" -ForegroundColor Green
-  }
+# 3. Remove station config
+# install-register.ps1 writes: %PROGRAMDATA%\RiversideOS\station-config.json
+Write-Host "[3/3] Removing station configuration..." -ForegroundColor Cyan
+$stationConfigFile = Join-Path $env:PROGRAMDATA "RiversideOS\station-config.json"
+if (Test-Path $stationConfigFile) {
+  Remove-Item $stationConfigFile -Force -ErrorAction SilentlyContinue
+  Write-Host "  Removed: $stationConfigFile" -ForegroundColor Green
+}
+$stationConfigDir = Join-Path $env:PROGRAMDATA "RiversideOS"
+if ((Test-Path $stationConfigDir) -and -not (Get-ChildItem $stationConfigDir -ErrorAction SilentlyContinue)) {
+  Remove-Item $stationConfigDir -Force -ErrorAction SilentlyContinue
+  Write-Host "  Removed empty dir: $stationConfigDir" -ForegroundColor Green
 }
 
 Write-Host ""

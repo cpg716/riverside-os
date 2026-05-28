@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{command, AppHandle};
 
+use crate::install_contract::contract;
+
 #[derive(serde::Serialize)]
 pub struct ServerLocalStatus {
     pub is_local: bool,
@@ -27,15 +29,15 @@ struct GithubRelease {
 #[command]
 pub fn check_server_local_status() -> Result<ServerLocalStatus, String> {
     // Default install root — overridden if the config file specifies otherwise.
-    let mut install_root = "C:\\RiversideOS".to_string();
+    let mut install_root = contract::DEFAULT_INSTALL_ROOT.to_string();
 
-    let default_config = PathBuf::from(&install_root).join("riverside-deployment.config.json");
+    let default_config = PathBuf::from(&install_root).join(contract::DEPLOY_CONFIG_FILE);
     if default_config.exists() {
         if let Ok(raw) = std::fs::read_to_string(&default_config) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
                 if let Some(root) = json
-                    .get("server")
-                    .and_then(|s| s.get("installRoot"))
+                    .get(contract::CONFIG_SERVER_KEY)
+                    .and_then(|s| s.get(contract::CONFIG_INSTALL_ROOT_KEY))
                     .and_then(|v| v.as_str())
                     .filter(|s| !s.is_empty())
                 {
@@ -45,11 +47,14 @@ pub fn check_server_local_status() -> Result<ServerLocalStatus, String> {
         }
     }
 
-    let config_path = PathBuf::from(&install_root).join("riverside-deployment.config.json");
-    let server_bin_path = PathBuf::from(&install_root).join("riverside-server.exe");
+    let config_path = PathBuf::from(&install_root).join(contract::DEPLOY_CONFIG_FILE);
+    // install_contract::contract::SERVER_BIN_SUBPATH — must match install-server.ps1.
+    let server_bin_path = PathBuf::from(&install_root).join(contract::SERVER_BIN_SUBPATH);
+    // install_contract::contract::DEPLOY_SUMMARY_FILE — written by install-server.ps1 on success.
+    let summary_path = PathBuf::from(&install_root).join(contract::DEPLOY_SUMMARY_FILE);
 
     #[cfg(windows)]
-    let is_local = server_bin_path.exists() || config_path.exists();
+    let is_local = server_bin_path.exists() || config_path.exists() || summary_path.exists();
     #[cfg(not(windows))]
     let is_local = false;
 
@@ -236,8 +241,8 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
         // Resolve config path from the detected install root rather than hardcoding.
         let install_root = check_server_local_status()
             .map(|s| s.install_root)
-            .unwrap_or_else(|_| "C:\\RiversideOS".to_string());
-        let config_path = format!("{}\\riverside-deployment.config.json", install_root);
+            .unwrap_or_else(|_| contract::DEFAULT_INSTALL_ROOT.to_string());
+        let config_path = format!("{}\\{}", install_root, contract::DEPLOY_CONFIG_FILE);
 
         let runner_content = format!(
             r#"$ErrorActionPreference = 'Stop'
@@ -256,7 +261,7 @@ Write-Host 'Step 3: Updating Backoffice client on this PC...'
 ./install-register.ps1 -ConfigPath '{config_path}' -StationMode 'backoffice'
 
 Write-Host 'Step 4: Restarting Riverside OS Server...'
-$taskName = 'Riverside OS Server'
+$taskName = '{task_name}'
 $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($task) {{
     Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -270,12 +275,12 @@ if ($task) {{
 }}
 
 Write-Host 'Step 5: Waiting for server to become ready...'
-$serverPort = 3000
+$serverPort = {server_port}
 $ready = $false
 for ($i = 0; $i -lt 30; $i++) {{
     Start-Sleep -Seconds 2
     try {{
-        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort/api/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{health_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         if ($resp.StatusCode -eq 200) {{ $ready = $true; break }}
     }} catch {{ }}
     Write-Host "  Waiting... ($($i * 2)s)"
@@ -290,9 +295,12 @@ Write-Host '========================================='
 Write-Host 'Update Complete! Relaunch Riverside on all stations.'
 Write-Host '========================================='
 Read-Host 'Press Enter to close this window'
-"#,
+\"#,
             script_dir = script_dir.to_string_lossy().replace('\'', "''"),
-            config_path = config_path.replace('\'', "''")
+            config_path = config_path.replace('\'', "''"),
+            task_name   = contract::SERVER_TASK_NAME,
+            server_port = contract::DEFAULT_SERVER_PORT,
+            health_ep   = contract::HEALTH_ENDPOINT,
         );
 
         std::fs::write(&runner_script_path, runner_content)

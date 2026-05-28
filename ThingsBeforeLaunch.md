@@ -75,6 +75,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] NTP/time sync verified (clock drift can break TLS and reports).
 - [ ] UPS present and graceful shutdown plan documented.
 - [ ] Backup target reachable and write permissions verified.
+- [ ] **Run `deployment\windows\audit-system.ps1`** and confirm the **"Updater Path Contract Probes"** section shows `[OK]` for at least one probe file. This guarantees Settings → Updates will show "This is the Main Hub" and allow server updates from this PC.
 
 ### Register 1 (Tauri, primary drawer lane)
 
@@ -378,6 +379,10 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
   - [ ] `cargo fmt --check`
   - [ ] `npm run lint`
   - [ ] `npm --prefix client run build`
+- [ ] **Installer path contract validation** *(prevents the GO LIVE updater class of bug)*:
+  Run `deployment/windows/validate-install-contract.ps1` (or `pwsh` on Mac/Linux).
+  This script parses `install_contract.rs` constants and asserts they match `install-server.ps1`.
+  **Exit code must be 0. Block the release if it fails.**
 - [ ] Abort launch if any hard gate fails and move to rollback/hold decision.
 
 ### T-30 to T-20 (E2E release gate)
