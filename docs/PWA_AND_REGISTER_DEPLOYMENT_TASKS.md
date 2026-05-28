@@ -62,6 +62,8 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] **Windows 11 smoke:** Use `docs/WINDOWS11_TAURI_SMOKE_CHECKLIST_V021.md` for release sign-off on v0.2.1 auth/identity hardening (Unified Guard, authenticated staff persona priority, restricted POS Settings, POS hardware access).
 - [x] **Thermal / ESC-POS:** **Desktop / Tauri:** `client/src/lib/printerBridge.ts` → Tauri `invoke("print_*")` → `client/src-tauri/src/hardware.rs` to either the selected installed Windows printer or direct TCP printer address. Prefer direct **Network address** for Register #1 Epson receipts/cash drawer when the printer has a stable IP. **PWA / browser:** same module falls back to `POST /api/hardware/print`, then browser print fallback.
 - [x] **Auto-update (desktop):** Tauri updater is supported via the release workflow `.github/workflows/tauri-register-updater-release.yml`. It emits `latest.json` + signed Windows updater artifacts for your hosted update endpoint. Installed Windows stations use **Settings → Updates → Windows app** for check/install, and the same screen verifies the loaded app files and server API are on the same Riverside release.
+- [x] **In-app server update (Main Hub):** As of v0.80.9, the Main Hub uses **Settings → Updates → Server update** to download, install, restart, and verify the server in a single guided flow. The Deployment Manager is no longer required for routine updates. See [`DEPLOYMENT_MANAGER.md`](DEPLOYMENT_MANAGER.md) section 8.
+- [x] **Version gate (satellite stations):** On launch, every Register and Back Office station checks `GET /api/version` before showing the sign-in PIN screen. If the server is ahead of the client, the PIN screen is replaced with a blocking **"Update Required"** prompt. Staff cannot sign in until the station is updated to match the server. Windows Tauri stations update via the Tauri updater; PWA/browser stations reload after the web bundle is refreshed.
 - [x] **Kiosk-ish (optional):** Not bundled; use Windows assigned access / shell replacement, or Tauri fullscreen + `tauri-plugin-single-instance` if you add it later.
 
 ### D.1 Windows install paths
@@ -134,6 +136,16 @@ Station role rules:
 3. Use **Settings → Updates → iPad and browser app → Check app files** to ask the installed PWA to look for a refreshed build.
 4. When the **PWA update prompt** appears, use **Reload now** after the active task or sale is at a safe stopping point.
 5. Confirm **Settings → Updates** reports the expected Riverside version. If it shows **Update incomplete**, finish the matching server/station update before continuing.
+
+### Version gate — what staff see after a server update
+
+After the Main Hub is updated, satellite stations (Register #1, Back Office laptops, iPad PWAs) will show a blocking **"Update Required"** screen on next launch instead of the sign-in PIN. This is intentional and expected:
+
+- **Windows Tauri stations:** Click **"Update to vX.X.X"** on screen. The Tauri updater downloads and installs the signed MSI automatically. Relaunch Riverside when prompted.
+- **PWA / browser stations:** The screen instructs staff to reload. The updated web files are served by the server automatically after the Main Hub update completes. A hard reload (`Ctrl+Shift+R` / `Cmd+Shift+R`) or clearing site data may be needed if the service worker is serving a stale cache.
+- **After updating:** Staff can sign in normally. All stations will be on the same version as the server.
+
+> Staff should not attempt to work around the version gate. All stations must match the server before use.
 
 ### Register app will not print
 

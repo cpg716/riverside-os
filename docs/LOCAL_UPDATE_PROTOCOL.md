@@ -58,78 +58,82 @@ Ship a folder or archive the operator can keep on the server PC (or copy from me
 
 ## 5. Server PC procedure
 
-### 5.1 Backup (mandatory)
+> **As of v0.80.9, the recommended path for all routine updates is the in-app updater.** The manual steps below (5.2–5.6) are the fallback for offline environments or when the in-app updater is not available.
 
-Create a **fresh** database backup before any migration or binary swap.
+### 5.0 In-App Update (recommended — requires internet access)
 
-- **In-app:** Back Office → Settings → backups: use **Create backup**, or call **`POST /api/settings/backups/create`** with appropriate staff auth (see [`BACKUP_RESTORE_GUIDE.md`](../BACKUP_RESTORE_GUIDE.md)).
-- **Or manual:** `pg_dump` to a dated file on disk or your standard path.
+This is the standard update path for all production stores:
 
-Confirm the backup file exists and has non-trivial size before continuing.
+1. **Admin notification**: The server checks GitHub for new releases daily and sends an `update_available` in-app notification to all `settings.admin` staff when a newer version is found.
+2. **Timing**: Updates should be performed **before 10 AM or after 6 PM** (outside store hours). The update UI warns if the store may be open.
+3. **On the Main Hub (Backoffice / Server PC)**:
+   - Open **Settings → Updates → Server update**.
+   - Confirm the version banner shows the available update.
+   - Click **"Update server to vX.X.X"** and monitor the progress steps.
+   - The system automatically: downloads the deployment ZIP, runs `install-server.ps1` + migrations elevated, **restarts the `Riverside OS Server` scheduled task**, and polls `/api/health` until the server is confirmed ready.
+   - When the PowerShell window prints "Update Complete", relaunch Riverside on all stations.
+4. **On Register / Back Office satellite stations**:
+   - The next time staff launch the app, the `BackofficeSignInGate` checks `GET /api/version`.
+   - If the server is ahead of the client, the sign-in screen is **replaced with a blocking update prompt**.
+   - Windows Tauri stations: click **"Update to vX.X.X"** to pull the signed MSI via the Tauri updater.
+   - PWA / browser stations: reload after the server admin has pushed updated web files.
+   - Staff cannot sign in until client and server versions match.
 
-### 5.2 Stop the API
+### 5.1 Backup (mandatory — in-app and manual paths)
+
+Create a **fresh** database backup before any update.
+
+- **In-app:** Back Office → Settings → Backups → **Create backup**, or `POST /api/settings/backups/create` (see [`BACKUP_RESTORE_GUIDE.md`](../BACKUP_RESTORE_GUIDE.md)).
+- **Or manual:** `pg_dump` to a dated file on disk.
+
+Confirm the backup file has non-trivial size before continuing.
+
+### 5.2 Stop the API (manual / offline path only)
 
 Stop the Riverside OS HTTP process **cleanly** (no hard kill mid-request if avoidable).
 
-Document **your** method here (examples only):
-
 - Close the console window if you run `riverside-server` manually.
-- Stop a **scheduled task** or **Windows service** if you use one (NSSM and similar are store-specific; not shipped in-repo).
+- In a production Windows install, stop the `"Riverside OS Server"` scheduled task via Task Scheduler or `Stop-ScheduledTask -TaskName "Riverside OS Server"`.
 
 Until the process is stopped, do not replace the binary or the static `dist` tree.
 
-### 5.3 Apply database migrations
+### 5.3 Apply database migrations (manual / offline path only)
 
-Fresh installs and pre-launch reset builds use the schema-contract baseline in `migrations/001_core_identity_staff.sql` through `migrations/036_financial_date_and_counterpoint_integrity.sql`. Migration filenames are tracked in **`public.ros_schema_migrations`**. **Never** skip the ledger inserts: the apply scripts record each applied filename.
+Migration filenames are tracked in **`public.ros_schema_migrations`**. Never skip the ledger inserts.
 
-Seed data is separate from schema. Apply the release-approved seed set after migrations; for a normal install that means `scripts/seeds/seed_core_required.sql` and `scripts/seeds/seed_rbac.sql`. Local development can additionally apply `scripts/seeds/seed_dev.sql`; E2E uses `scripts/seeds/seed_e2e.sql`.
-
-**Option A — same machine has bash and `psql` (WSL, Git Bash, macOS/Linux build box with VPN to DB):**
-
-From a checkout that contains the **`migrations/`** folder for this release:
-
+**Option A — bash + `psql`:**
 ```bash
 export DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/DATABASE"
 ./scripts/apply-migrations-psql.sh
 ```
 
-**Option B — manual `psql` (mirror of [`scripts/apply-migrations-docker.sh`](../scripts/apply-migrations-docker.sh)):**
-
-1. For each active `migrations/[0-9][0-9]*_*.sql` file in **sorted order**, if `version` is not already in `ros_schema_migrations`:
+**Option B — manual `psql`:**
+1. For each active `migrations/[0-9][0-9]*_*.sql` in sorted order, if not already in `ros_schema_migrations`:
    - `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /path/to/that/file.sql`
-   - `INSERT INTO ros_schema_migrations (version) VALUES ('NN_whatever.sql') ON CONFLICT (version) DO NOTHING;`
-2. Apply the release-approved seed files with `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f /path/to/seed_file.sql`.
+   - `INSERT INTO ros_schema_migrations (version) VALUES ('NN_whatever.sql') ON CONFLICT DO NOTHING;`
 
-If any file fails, **stop** and restore from backup (section 8) or fix forward with engineering — do not start the new server against a half-applied chain.
+If any file fails, **stop** and restore from backup — do not start the new server against a half-applied chain.
 
-**Staff sign-in after updates:** Schema migrations no longer create default staff users. Local dev gets Admin **`1234`** from **`scripts/seeds/seed_dev.sql`**. E2E gets Admin **`1234`** and deterministic non-Admin fixtures from **`scripts/seeds/seed_e2e.sql`**. Production installs should use store-approved staff provisioning or a reviewed production seed; do not rely on dev/E2E seed files.
-
-### 5.4 Deploy binary and static UI
-
-The server serves the SPA from **`FRONTEND_DIST`**. If unset, development falls back to **`../client/dist`** relative to the **process working directory**, but production service installs should treat that as unsafe. On hardened production hosts, set **`RIVERSIDE_STRICT_PRODUCTION=true`** and provide an explicit **`FRONTEND_DIST`** path so startup refuses a missing or wrong static bundle directory.
+### 5.4 Deploy binary and static UI (manual / offline path only)
 
 1. Replace the **server executable** with the one from the release bundle.
-2. Replace the **contents** of the static UI directory (the folder pointed to by `FRONTEND_DIST`):
-   - Prefer **atomic swap:** copy new files to `dist.new`, then rename/swap with `dist` to avoid half-written assets if a client requests mid-copy.
+2. Replace the **contents** of the `FRONTEND_DIST` directory (atomic swap preferred).
 
 ### 5.5 Environment variables
 
-Merge any **new** keys from release notes into the server’s `.env` (or system environment). Never commit production secrets. Full reference: [`DEVELOPER.md`](../DEVELOPER.md).
-
-Pay attention to:
+Merge any **new** keys from release notes into the server's `.env`. Full reference: [`DEVELOPER.md`](../DEVELOPER.md).
 
 - `DATABASE_URL`
 - `RIVERSIDE_CORS_ORIGINS` (production browser allowlist)
-- `RIVERSIDE_STRICT_PRODUCTION=true` (recommended for browser-facing production hosts)
-- `RIVERSIDE_STORE_CUSTOMER_JWT_SECRET` (required when `/api/store/account/*` is exposed)
-- `FRONTEND_DIST` (explicit deployed static bundle path)
-- `RIVERSIDE_HTTP_BIND` / firewall alignment — [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 4
-- Optional caps and integrations (`RIVERSIDE_MAX_BODY_BYTES`, weather, backup S3, etc.)
-- ROS-AI help RAG: **`RIVERSIDE_REPO_ROOT`** (absolute path to the deployed tree that contains **`docs/staff/CORPUS.manifest.json`**) if you use **`POST /api/ai/admin/reindex-docs`**; **`AI_EMBEDDINGS_ENABLED`** to disable ONNX embeddings on constrained hosts — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md)
+- `RIVERSIDE_STRICT_PRODUCTION=true` (recommended)
+- `RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`
+- `FRONTEND_DIST`
+- `RIVERSIDE_HTTP_BIND`
+- ROS-AI help RAG: `RIVERSIDE_REPO_ROOT` — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md)
 
-### 5.6 Start the API
+### 5.6 Start the API (manual / offline path only)
 
-Start the server the same way you normally do; confirm it listens on the expected address (default `0.0.0.0:3000` unless overridden).
+Start `riverside-server` or restart the `"Riverside OS Server"` scheduled task. Confirm it listens on `0.0.0.0:3000` (or your override).
 
 ### 5.7 Smoke test
 
@@ -170,18 +174,27 @@ For role clarity during rollout:
 - only the dedicated Main Hub should be used for **Shop Host**
 - updating a register station does not automatically make it the host
 
-Use the desktop updater release pipeline (`.github/workflows/tauri-register-updater-release.yml`) for recurring Windows updates:
+### 6.1 Version gate (automatic enforcement — v0.80.9+)
 
-1. Run the workflow after business hours with:
-   - GitHub variable: `RIVERSIDE_UPDATER_PUBLIC_KEY` (from `~/.tauri/riverside-updater.key.pub`)
+After the Main Hub server is updated, **satellite stations enforce version sync automatically**. On next launch, `BackofficeSignInGate` checks `GET /api/version`:
+
+- If the server is ahead of the client, the PIN screen is **replaced** with a blocking "Update Required" screen.
+- **Windows Tauri stations:** A one-click "Update to vX.X.X" button pulls the signed MSI via the Tauri updater and installs it. Relaunch Riverside when prompted.
+- **PWA / browser stations:** The screen shows reload instructions. Updated web files are served by the server automatically after the Main Hub update; a hard reload or service worker clear may be needed.
+- Staff cannot sign in until the client version matches the server.
+
+### 6.2 Desktop updater pipeline
+
+For recurring Windows station updates via the Tauri updater channel:
+
+1. Run `.github/workflows/tauri-register-updater-release.yml` after business hours with:
+   - GitHub variable: `RIVERSIDE_UPDATER_PUBLIC_KEY`
    - GitHub secret: `TAURI_SIGNING_PRIVATE_KEY` (+ optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`)
-2. The workflow publishes `updater-dist/latest.json`, updater artifact, and `.sig` file to the GitHub release tag for that version.
-3. On stations, use **Settings → Updates → Windows app → Check for update / Install update**.
+2. The workflow publishes `updater-dist/latest.json`, updater artifact, and `.sig` to the GitHub release tag.
+3. Stations detect the update automatically on launch via the version gate and prompt one-click install.
 4. Keep the previous installer available for rollback.
 
-If you need a manual fallback, install/replace with the latest MSI/NSIS build.
-
-**`VITE_API_BASE`** remains fixed **at build time** — any desktop rebuild must still target the same API origin staff use (LAN hostname, HTTPS URL, etc.). See [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 3.2.
+**`VITE_API_BASE`** remains fixed **at build time** — any desktop rebuild must still target the same API origin staff use. See [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 3.2.
 
 ---
 

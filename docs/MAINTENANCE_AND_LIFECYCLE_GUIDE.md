@@ -22,6 +22,17 @@ The Maintenance Engine (`server/src/logic/maintenance.rs`) is a background worke
 - **Database Hygiene**: Running `VACUUM ANALYZE` and checking migration integrity.
 - **Sanity Checks**: Verifying that core integrations (like Meilisearch) are reachable and healthy.
 
+### C. Daily Update Check (v0.80.9+)
+
+`server/src/logic/update_check.rs` is a background worker that checks GitHub's `/releases/latest` API once per calendar day. It:
+
+- Compares the running server version (`CARGO_PKG_VERSION`) against the latest GitHub release tag.
+- If a newer version is available, broadcasts an `update_available` in-app notification to all staff with the `settings.admin` permission, deduped to one notification per (version, day) pair.
+- Includes store-hours guidance in the notification: updates are recommended before **10 AM** or after **6 PM**.
+- Exposes the result via `GET /api/ops/update-check` for the Settings → Updates UI.
+
+The worker runs inside a `tokio::spawn` loop in `launcher.rs`, ticking every hour but firing the notification logic at most once per calendar day.
+
 ## 3. How to Add a New Lifecycle Check
 
 When adding a new 3rd-party API or a major piece of open-source software, you **must** register it in the maintenance engine:

@@ -80,6 +80,19 @@ Verification run on 2026-05-25: `cargo check`, `cargo clippy`, `cargo fmt`, `npm
   - Local probe result: money allocation, checkout idempotency, tax exemption, commission timing, QBO, parked-sale close, and backup probes returned zero rows.
   - Local probe blocker: negative available stock returned 51 physical inventory rows after excluding explicit POS service/meta SKUs. RC/production inventory must be reconciled to zero unexplained rows, or ownership/accounting must explicitly sign a written waiver before go-live.
 
+## In-App Update System (v0.80.9+)
+
+- [ ] Daily update check background worker is running (verify via `GET /api/ops/update-check` returning valid JSON after server start).
+- [ ] `update_available` notification is delivered to at least one `settings.admin` staff member when a newer GitHub release exists.
+- [ ] **Settings → Updates → Server update** on the Main Hub shows the correct current and latest version.
+- [ ] Safe-window hint correctly reflects local time (before 10 AM / after 6 PM = safe; during store hours = warning).
+- [ ] Server update button triggers the guided PowerShell flow: download → extract → install → restart task → readiness poll.
+- [ ] After server update, the `"Riverside OS Server"` scheduled task restarts automatically and `/api/health` returns 200 within 60 s.
+- [ ] Satellite station (Register #1 or Back Office laptop) shows the **"Update Required"** version gate screen — not the PIN screen — when client version is behind the server.
+- [ ] Windows Tauri satellite: **"Update to vX.X.X"** button installs the signed MSI via the Tauri updater and relaunches correctly.
+- [ ] PWA satellite: hard reload serves updated web files after Main Hub update; version gate clears.
+- [ ] Staff cannot sign in on any station until client version matches server version.
+
 ## Hybrid Host Gate
 
 - [ ] Production host boots the Tauri app and embedded engine together.

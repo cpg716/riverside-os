@@ -209,7 +209,63 @@ In case of complete lockout, this script forcefully resets the primary administr
 
 ---
 
-## 8. Integrations & AI Add-ons
+## 8. In-App Update System (v0.80.9+)
+
+As of v0.80.9, **routine updates no longer require the Deployment Manager**. All ongoing updates are handled from within the running Riverside OS application itself.
+
+### Overview
+
+| What changed | Detail |
+|---|---|
+| **Deployment Manager role** | First-time install and factory reset only. Not needed for updates. |
+| **Routine updates** | Handled entirely from **Settings → Updates** inside Riverside OS. |
+| **Daily update check** | The server checks GitHub for new releases every hour, once per calendar day. Admin staff receive an in-app notification when a newer version is available. |
+| **Safe window enforcement** | The update check reports whether the current time is within the safe update window (before 10 AM or after 6 PM). The UI warns if an update is attempted during store hours. |
+
+### Update Flow — Main Hub (Server PC)
+
+On the Main Hub station, **Settings → Updates → Server update** shows a live version status banner and a one-click update button. When clicked, the system:
+
+1. Downloads the latest Windows deployment ZIP from GitHub.
+2. Extracts it to a temporary directory.
+3. Runs `install-server.ps1`, `repair-bootstrap-admin.ps1`, and `install-register.ps1` elevated via UAC in a PowerShell window.
+4. **Automatically restarts the `Riverside OS Server` scheduled task** after install.
+5. Polls `GET /api/health` every 2 seconds (up to 60 s) and confirms the server is responding before printing "Update Complete".
+6. The operator relaunches Riverside on all stations when prompted.
+
+### Satellite Station Version Gate
+
+When a Register or Back Office station connects to the server, `BackofficeSignInGate` checks `GET /api/version`. If the server version is **ahead of the client version**, the sign-in PIN screen is replaced with a blocking **"Update Required"** screen showing:
+
+- The server version vs. the current station version.
+- A one-click **"Update to vX.X.X"** button (Windows Tauri: pulls the signed MSI via the Tauri updater channel).
+- A "Reload now" instruction for PWA / browser stations.
+- A "Recheck after manual update" link.
+
+**Staff cannot sign in until the client version matches the server.** This ensures all stations are always in sync after a server update.
+
+### Admin Notifications
+
+When the daily update check detects a newer release on GitHub, it broadcasts an `update_available` notification to all staff with the `settings.admin` permission. The notification includes the new version number and the current store-hours status, and deep-links to **Settings → Updates**.
+
+### API Endpoint
+
+`GET /api/ops/update-check` (requires authenticated staff session) returns:
+
+```json
+{
+  "current_version": "0.80.9",
+  "latest_version": "0.81.0",
+  "update_available": true,
+  "release_notes": "...",
+  "safe_window": false,
+  "safe_window_hint": "Store is open (2:30 PM). Schedule the update before 10 AM or after 6 PM."
+}
+```
+
+---
+
+## 9. Integrations & AI Add-ons
 
 The manager exposes utilities to connect and enhance the Riverside OS environment after the core system is installed.
 
