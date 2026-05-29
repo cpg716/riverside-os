@@ -443,7 +443,7 @@ impl QboSyncHandler {
                         r#"
                         SELECT COALESCE(cat.name, 'default')
                         FROM products p
-                        LEFT JOIN product_categories cat ON cat.id = p.category_id
+                        LEFT JOIN categories cat ON cat.id = p.category_id
                         WHERE p.id = $1
                         "#,
                     )

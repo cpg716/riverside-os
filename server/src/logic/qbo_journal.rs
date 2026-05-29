@@ -1891,7 +1891,7 @@ pub async fn has_counterpoint_imports_for_date(
     let count: i64 = sqlx::query_scalar(&format!(
         r#"
         SELECT COUNT(DISTINCT o.id)::bigint
-        FROM orders o
+        FROM transactions o
         WHERE o.is_forfeited = false
           AND o.is_counterpoint_import = true
           AND (o.counterpoint_ticket_ref IS NOT NULL OR o.counterpoint_doc_ref IS NOT NULL)

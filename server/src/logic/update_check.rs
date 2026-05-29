@@ -213,22 +213,11 @@ async fn broadcast_update_notification(
     dedup_key: &str,
 ) -> Result<(), sqlx::Error> {
     use crate::logic::notifications::{
-        fan_out_notification_to_staff_ids, insert_app_notification_deduped,
+        admin_staff_ids, fan_out_notification_to_staff_ids, insert_app_notification_deduped,
     };
     use serde_json::json;
-    use uuid::Uuid;
 
-    let admin_staff: Vec<Uuid> = sqlx::query_scalar(
-        r#"
-        SELECT DISTINCT sp.staff_id
-        FROM staff_permissions sp
-        JOIN permissions p ON sp.permission_id = p.id
-        WHERE p.key = 'settings.admin'
-          AND sp.granted = TRUE
-        "#,
-    )
-    .fetch_all(pool)
-    .await?;
+    let admin_staff = admin_staff_ids(pool).await?;
 
     if admin_staff.is_empty() {
         tracing::warn!("No admin staff found for update notification");

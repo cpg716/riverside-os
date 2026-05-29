@@ -1923,18 +1923,7 @@ pub async fn emit_nuorder_sync_failed(
 
 /// Broadcast critical system alert to all admin staff
 pub async fn broadcast_system_alert(pool: &PgPool, message: &str) -> Result<(), sqlx::Error> {
-    // Find all staff with settings.admin permission
-    let admin_staff: Vec<Uuid> = sqlx::query_scalar(
-        r#"
-        SELECT DISTINCT sp.staff_id
-        FROM staff_permissions sp
-        JOIN permissions p ON sp.permission_id = p.id
-        WHERE p.key = 'settings.admin'
-        AND sp.granted = TRUE
-        "#,
-    )
-    .fetch_all(pool)
-    .await?;
+    let admin_staff = admin_staff_ids(pool).await?;
 
     if admin_staff.is_empty() {
         tracing::warn!("No admin staff found for system alert broadcast");
