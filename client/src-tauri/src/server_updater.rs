@@ -50,6 +50,7 @@ pub fn check_server_local_status() -> Result<ServerLocalStatus, String> {
     let config_path = PathBuf::from(&install_root).join(contract::DEPLOY_CONFIG_FILE);
     // install_contract::contract::SERVER_BIN_SUBPATH — must match install-server.ps1.
     let server_bin_path = PathBuf::from(&install_root).join(contract::SERVER_BIN_SUBPATH);
+    #[cfg(windows)]
     // install_contract::contract::DEPLOY_SUMMARY_FILE — written by install-server.ps1 on success.
     let summary_path = PathBuf::from(&install_root).join(contract::DEPLOY_SUMMARY_FILE);
 
@@ -298,9 +299,9 @@ Read-Host 'Press Enter to close this window'
 \"#,
             script_dir = script_dir.to_string_lossy().replace('\'', "''"),
             config_path = config_path.replace('\'', "''"),
-            task_name   = contract::SERVER_TASK_NAME,
+            task_name = contract::SERVER_TASK_NAME,
             server_port = contract::DEFAULT_SERVER_PORT,
-            health_ep   = contract::HEALTH_ENDPOINT,
+            health_ep = contract::HEALTH_ENDPOINT,
         );
 
         std::fs::write(&runner_script_path, runner_content)
