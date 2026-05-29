@@ -51,7 +51,6 @@ pub fn check_server_local_status() -> Result<ServerLocalStatus, String> {
     // install_contract::contract::SERVER_BIN_SUBPATH — must match install-server.ps1.
     let server_bin_path = PathBuf::from(&install_root).join(contract::SERVER_BIN_SUBPATH);
 
-
     #[cfg(windows)]
     let is_local = {
         // install_contract::contract::DEPLOY_SUMMARY_FILE — written by install-server.ps1 on success.
