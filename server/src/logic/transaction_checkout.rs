@@ -1809,63 +1809,12 @@ pub async fn execute_checkout(
         }
     }
 
-    let mut is_rms_payment_collection = false;
-    {
-        let mut rms_line_count = 0usize;
-        for item in &payload.items {
-            let resolved = inventory::fetch_variant_by_ids(
-                pool,
-                item.variant_id,
-                item.product_id,
-                global_employee_markup,
-            )
-            .await
-            .map_err(|e| match e {
-                inventory::InventoryError::SkuNotFound(s) => {
-                    CheckoutError::InvalidPayload(format!("checkout line: {s}"))
-                }
-                inventory::InventoryError::AmbiguousProduct(m) => CheckoutError::InvalidPayload(m),
-                inventory::InventoryError::Unauthorized(m) => CheckoutError::InvalidPayload(m),
-                inventory::InventoryError::Database(d) => CheckoutError::Database(d),
-            })?;
-            if resolved.pos_line_kind.as_deref() == Some("rms_charge_payment") {
-                rms_line_count += 1;
-            }
-        }
-        if rms_line_count > 0 {
-            if payload.items.len() != 1 || payload.items[0].quantity != 1 {
-                return Err(CheckoutError::InvalidPayload(
-                    "RMS CHARGE PAYMENT cannot be combined with other items and must be quantity 1"
-                        .to_string(),
-                ));
-            }
-            let r0 = inventory::fetch_variant_by_ids(
-                pool,
-                payload.items[0].variant_id,
-                payload.items[0].product_id,
-                global_employee_markup,
-            )
-            .await
-            .map_err(|e| match e {
-                inventory::InventoryError::SkuNotFound(s) => {
-                    CheckoutError::InvalidPayload(format!("checkout line: {s}"))
-                }
-                inventory::InventoryError::AmbiguousProduct(m) => CheckoutError::InvalidPayload(m),
-                inventory::InventoryError::Unauthorized(m) => CheckoutError::InvalidPayload(m),
-                inventory::InventoryError::Database(d) => CheckoutError::Database(d),
-            })?;
-            if r0.pos_line_kind.as_deref() != Some("rms_charge_payment") {
-                return Err(CheckoutError::InvalidPayload(
-                    "Invalid RMS payment line".to_string(),
-                ));
-            }
-            is_rms_payment_collection = true;
-        }
-    }
-
-    let mut has_pos_gift_card_load = false;
-    let mut gc_load_codes: HashSet<String> = HashSet::new();
+    // Pre-resolve all unique variant IDs once to avoid repeated DB lookups during validation.
+    let mut resolved_variants: HashMap<Uuid, inventory::ResolvedSkuItem> = HashMap::new();
     for item in &payload.items {
+        if resolved_variants.contains_key(&item.variant_id) {
+            continue;
+        }
         let resolved = inventory::fetch_variant_by_ids(
             pool,
             item.variant_id,
@@ -1881,6 +1830,42 @@ pub async fn execute_checkout(
             inventory::InventoryError::Unauthorized(m) => CheckoutError::InvalidPayload(m),
             inventory::InventoryError::Database(d) => CheckoutError::Database(d),
         })?;
+        resolved_variants.insert(item.variant_id, resolved);
+    }
+
+    let mut is_rms_payment_collection = false;
+    {
+        let rms_line_count = payload
+            .items
+            .iter()
+            .filter(|item| {
+                resolved_variants
+                    .get(&item.variant_id)
+                    .and_then(|r| r.pos_line_kind.as_deref())
+                    == Some("rms_charge_payment")
+            })
+            .count();
+        if rms_line_count > 0 {
+            if payload.items.len() != 1 || payload.items[0].quantity != 1 {
+                return Err(CheckoutError::InvalidPayload(
+                    "RMS CHARGE PAYMENT cannot be combined with other items and must be quantity 1"
+                        .to_string(),
+                ));
+            }
+            let r0 = resolved_variants.get(&payload.items[0].variant_id).unwrap();
+            if r0.pos_line_kind.as_deref() != Some("rms_charge_payment") {
+                return Err(CheckoutError::InvalidPayload(
+                    "Invalid RMS payment line".to_string(),
+                ));
+            }
+            is_rms_payment_collection = true;
+        }
+    }
+
+    let mut has_pos_gift_card_load = false;
+    let mut gc_load_codes: HashSet<String> = HashSet::new();
+    for item in &payload.items {
+        let resolved = resolved_variants.get(&item.variant_id).unwrap();
         let kind = resolved.pos_line_kind.as_deref();
         if payload.primary_salesperson_id.is_none()
             && item.salesperson_id.is_none()
@@ -2001,21 +1986,7 @@ pub async fn execute_checkout(
         if !has_ov {
             continue;
         }
-        let resolved = inventory::fetch_variant_by_ids(
-            pool,
-            item.variant_id,
-            item.product_id,
-            global_employee_markup,
-        )
-        .await
-        .map_err(|e| match e {
-            inventory::InventoryError::SkuNotFound(s) => {
-                CheckoutError::InvalidPayload(format!("checkout line: {s}"))
-            }
-            inventory::InventoryError::AmbiguousProduct(m) => CheckoutError::InvalidPayload(m),
-            inventory::InventoryError::Unauthorized(m) => CheckoutError::InvalidPayload(m),
-            inventory::InventoryError::Database(d) => CheckoutError::Database(d),
-        })?;
+        let resolved = resolved_variants.get(&item.variant_id).unwrap();
         let retail = resolved.standard_retail_price;
         if retail <= Decimal::ZERO {
             continue;
@@ -2076,21 +2047,7 @@ pub async fn execute_checkout(
         let Some(eid) = item.discount_event_id else {
             continue;
         };
-        let resolved = inventory::fetch_variant_by_ids(
-            pool,
-            item.variant_id,
-            item.product_id,
-            global_employee_markup,
-        )
-        .await
-        .map_err(|e| match e {
-            inventory::InventoryError::SkuNotFound(s) => {
-                CheckoutError::InvalidPayload(format!("checkout line: {s}"))
-            }
-            inventory::InventoryError::AmbiguousProduct(m) => CheckoutError::InvalidPayload(m),
-            inventory::InventoryError::Unauthorized(m) => CheckoutError::InvalidPayload(m),
-            inventory::InventoryError::Database(d) => CheckoutError::Database(d),
-        })?;
+        let resolved = resolved_variants.get(&item.variant_id).unwrap();
         if resolved.pos_line_kind.as_deref() == Some("rms_charge_payment") {
             return Err(CheckoutError::InvalidPayload(
                 "Discount events cannot apply to RMS CHARGE PAYMENT".to_string(),

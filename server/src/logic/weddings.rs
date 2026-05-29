@@ -68,12 +68,15 @@ pub async fn get_morning_compass_stats(pool: &PgPool) -> Result<CompassStats, sq
                   AND (wm.pickup_status IS NULL OR wm.pickup_status <> 'complete')
                   AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
             ) AS overdue_pickups,
-            COUNT(*) FILTER (
-                WHERE o.is_rush = TRUE OR (o.need_by_date IS NOT NULL AND o.need_by_date <= (CURRENT_DATE + INTERVAL '3 days'))
+            (
+                SELECT COUNT(*)
+                FROM transactions o
+                WHERE (o.is_rush = TRUE OR (o.need_by_date IS NOT NULL AND o.need_by_date <= (CURRENT_DATE + INTERVAL '3 days')))
+                  AND o.status <> 'fulfilled'
+                  AND o.status <> 'cancelled'
             ) AS rush_orders
         FROM wedding_members wm
         JOIN wedding_parties wp ON wm.wedding_party_id = wp.id
-        FULL OUTER JOIN transactions o ON o.customer_id = wp.id -- Just for the count, though orders can be standalone
         "#,
     )
     .fetch_one(pool)
