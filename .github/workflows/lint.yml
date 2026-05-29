@@ -23,7 +23,7 @@ jobs:
 
       - name: Cache client node_modules
         id: cache-client-node-modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: client/node_modules
           key: lint-client-npm-${{ hashFiles('client/package-lock.json') }}

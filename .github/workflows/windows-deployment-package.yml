@@ -77,7 +77,7 @@ jobs:
 
       - name: Cache client node_modules
         id: cache-client-node-modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: client/node_modules
           key: windows-client-npm-${{ hashFiles('client/package-lock.json') }}
@@ -247,7 +247,7 @@ jobs:
 
       - name: Cache manager-app node_modules
         id: cache-manager-node-modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: deployment/manager-app/node_modules
           key: windows-manager-npm-${{ hashFiles('deployment/manager-app/package-lock.json') }}
@@ -292,7 +292,7 @@ jobs:
 
       - name: Cache server-manager-app node_modules
         id: cache-server-manager-node-modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: deployment/server-manager-app/node_modules
           key: windows-server-manager-npm-${{ hashFiles('deployment/server-manager-app/package-lock.json') }}
