@@ -41,6 +41,7 @@ export default function AlterationSchedulingDrawer({
 }: AlterationSchedulingDrawerProps) {
   const [activeTab, setActiveTab] = useState<"items" | "schedule">("items");
   const [localAlt, setLocalAlt] = useState(alteration);
+  const [ticketDraft, setTicketDraft] = useState(alteration.ticket_number ?? "");
   const { toast } = useToast();
 
   const customerName = `${localAlt.customer_first_name ?? ""} ${localAlt.customer_last_name ?? ""}`.trim() || "Unassigned Customer";
@@ -152,8 +153,19 @@ export default function AlterationSchedulingDrawer({
             <span className="text-[10px] text-app-text-muted uppercase font-black tracking-widest">Ticket #</span>
             <input
               type="text"
-              value={localAlt.ticket_number || ""}
-              onChange={(e) => updateAlteration({ ticket_number: e.target.value || null })}
+              value={ticketDraft}
+              onChange={(e) => setTicketDraft(e.target.value)}
+              onBlur={() => {
+                const val = ticketDraft.trim() || null;
+                if (val !== (localAlt.ticket_number ?? null)) {
+                  void updateAlteration({ ticket_number: val });
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.currentTarget.blur();
+                }
+              }}
               placeholder="Physical ticket number"
               className="w-full bg-app-surface-2 border border-app-border rounded-xl px-4 py-3 text-sm font-bold text-app-text focus:outline-none focus:border-app-accent/50"
             />
@@ -168,7 +180,7 @@ export default function AlterationSchedulingDrawer({
               activeTab === "items" ? "bg-app-surface text-app-text shadow-sm border border-app-border" : "text-app-text-muted hover:text-app-text hover:bg-app-surface"
             }`}
           >
-            1. Define Work Items
+            1. Work Items
           </button>
           <button
             onClick={() => setActiveTab("schedule")}
@@ -176,7 +188,7 @@ export default function AlterationSchedulingDrawer({
               activeTab === "schedule" ? "bg-app-surface text-app-text shadow-sm border border-app-border" : "text-app-text-muted hover:text-app-text hover:bg-app-surface"
             }`}
           >
-            2. Schedule Day
+            2. Schedule
           </button>
         </div>
 
@@ -190,13 +202,19 @@ export default function AlterationSchedulingDrawer({
                 onItemsChanged={() => void reloadAlteration()}
               />
 
-              <div className="pt-6 border-t border-white/5">
+              <div className="pt-6 border-t border-white/5 flex flex-col gap-2">
                 <button
                   onClick={() => setActiveTab("schedule")}
-                  className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 group"
+                  className="w-full py-4 bg-purple-600 hover:bg-purple-500 text-white font-black uppercase tracking-widest rounded-xl shadow-lg shadow-purple-500/20 transition-all flex items-center justify-center gap-2 group"
                 >
-                  Proceed to Scheduling
+                  Auto-Schedule
                   <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </button>
+                <button
+                  onClick={() => setActiveTab("schedule")}
+                  className="w-full py-3 bg-app-surface-2 hover:bg-app-surface border border-app-border text-app-text font-black uppercase tracking-widest rounded-xl transition-all text-xs flex items-center justify-center gap-2"
+                >
+                  Manual Schedule
                 </button>
               </div>
             </div>

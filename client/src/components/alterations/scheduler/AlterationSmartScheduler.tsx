@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Calendar, Clock, CheckCircle2, AlertTriangle, ChevronRight, Info } from "lucide-react";
 import { getBaseUrl } from "../../../lib/apiConfig";
-import RosieInsightSummary from "../../help/RosieInsightSummary";
 
 const baseUrl = getBaseUrl();
 const MONTH_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short" });
@@ -281,73 +280,6 @@ export default function AlterationSmartScheduler({
                 <li>{capacityOutlook.selectedUtilization}</li>
               ) : null}
             </ul>
-            <RosieInsightSummary
-              surface="capacity_outlook"
-              title="Capacity Outlook"
-              mode="explain"
-              getHeaders={apiAuth}
-              facts={{
-                title: "Capacity Outlook",
-                bullets: [
-                  {
-                    id: "capacity-requested",
-                    label: capacityOutlook.requested,
-                    severity: "info",
-                  },
-                  ...(capacityOutlook.nextSafeDay
-                    ? [{
-                        id: "capacity-next-safe-day",
-                        label: capacityOutlook.nextSafeDay,
-                        severity: "success",
-                      }]
-                    : []),
-                  ...(capacityOutlook.overloadedDays > 0
-                    ? [{
-                        id: "capacity-overloaded-days",
-                        label: `${capacityOutlook.overloadedDays} day${
-                          capacityOutlook.overloadedDays === 1 ? " is" : "s are"
-                        } over capacity in this window.`,
-                        severity: "warning",
-                      }]
-                    : []),
-                  ...(capacityOutlook.noStaffDays > 0
-                    ? [{
-                        id: "capacity-no-staff-days",
-                        label: `${capacityOutlook.noStaffDays} day${
-                          capacityOutlook.noStaffDays === 1 ? " has" : "s have"
-                        } no alterations staff scheduled.`,
-                        severity: "warning",
-                      }]
-                    : []),
-                  ...(capacityOutlook.closedDays > 0
-                    ? [{
-                        id: "capacity-closed-days",
-                        label: `${capacityOutlook.closedDays} day${
-                          capacityOutlook.closedDays === 1 ? " is" : "s are"
-                        } marked closed.`,
-                        severity: "warning",
-                      }]
-                    : []),
-                  ...(capacityOutlook.hasManualOnlyDay
-                    ? [{
-                        id: "capacity-manual-only-day",
-                        label: "Thursdays require manual review.",
-                        severity: "info",
-                      }]
-                    : []),
-                  ...(capacityOutlook.selectedUtilization
-                    ? [{
-                        id: "capacity-selected-utilization",
-                        label: capacityOutlook.selectedUtilization,
-                        severity: "info",
-                      }]
-                    : []),
-                ],
-                disclaimers: [
-                  "Explain the displayed capacity facts only. Scheduling remains deterministic.",
-                ],
-              }}
-            />
           </>
         ) : (
           <p className="mt-3 text-[11px] font-medium text-white/40">

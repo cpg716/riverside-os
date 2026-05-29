@@ -51,6 +51,23 @@ fn receiptline_escape(s: &str) -> String {
         .replace('}', "\\}")
 }
 
+/// Truncate a product name so it fits the left column of a two-column
+/// receiptline row (`name | price`).  The receiptline library wraps the
+/// left column independently; at CPL = 42 the left column is effectively
+/// limited to ~28 chars before the price column (" | $999.99" ≈ 10 chars)
+/// and the separator eat the rest. Hard-clipping here prevents a single
+/// trailing character from being pushed to a second line.
+fn clip_item_name(name: &str, max_chars: usize) -> String {
+    let cleaned = ascii_clean(name);
+    if cleaned.len() <= max_chars {
+        return cleaned;
+    }
+    // Clip at a word boundary when possible, then add '…'
+    let clipped = &cleaned[..max_chars.saturating_sub(1)];
+    let boundary = clipped.rfind(' ').unwrap_or(clipped.len());
+    format!("{}…", &cleaned[..boundary])
+}
+
 fn receiptline_logo_image() -> String {
     let Ok(img) = image::load_from_memory(RECEIPT_LOGO_IMAGE) else {
         return String::new();
@@ -446,7 +463,8 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
                 .as_deref()
                 .map(|v| format!(" ({v})"))
                 .unwrap_or_default();
-            let name = receiptline_escape(&format!("{}x {}{var}", it.quantity, it.product_name));
+            let name_raw = format!("{}x {}{var}", it.quantity, it.product_name);
+            let name = receiptline_escape(&clip_item_name(&name_raw, 28));
 
             if gift {
                 out_lines.push(name);

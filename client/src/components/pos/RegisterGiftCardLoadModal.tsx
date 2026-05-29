@@ -189,6 +189,11 @@ export default function RegisterGiftCardLoadModal({
   useEffect(() => {
     if (!open || busy) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      // Let button clicks handle themselves via onClick; skip global routing.
+      if (active instanceof HTMLButtonElement) return;
+      // Card code input: let React's onChange handle typing naturally.
+      if (active === codeInputRef.current) return;
       if (e.key >= "0" && e.key <= "9") {
         appendAmountKey(e.key);
       } else if (e.key === ".") {
