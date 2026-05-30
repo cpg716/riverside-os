@@ -324,6 +324,8 @@ pub struct TransitionRequest {
     pub manager_staff_code: Option<String>,
     pub manager_pin: Option<String>,
     pub metadata: Option<Value>,
+    #[serde(default)]
+    pub override_checks: bool,
 }
 
 async fn transition_item(
@@ -402,6 +404,20 @@ async fn transition_item(
         ));
     }
 
+    if next_status == DbOrderItemLifecycleStatus::ReadyForPickup && payload.override_checks {
+        // Require manager PIN for override
+        if payload.manager_pin.is_none() || payload.manager_pin.as_ref().map_or(true, |p| p.trim().is_empty()) {
+            return Err(OrderLifecycleError::Forbidden(
+                "Manager Access PIN is required for lifecycle override.".to_string(),
+            ));
+        }
+        if payload.reason.is_none() || payload.reason.as_ref().map_or(true, |r| r.trim().len() < 12) {
+            return Err(OrderLifecycleError::InvalidPayload(
+                "Lifecycle override requires a clear reason (minimum 12 characters).".to_string(),
+            ));
+        }
+    }
+
     let mut tx = state.db.begin().await?;
     let exists: bool = sqlx::query_scalar(
         r#"
@@ -444,8 +460,29 @@ async fn transition_item(
         .await?;
 
         if has_pending_alteration && !alteration_ready {
+            if !payload.override_checks {
+                return Err(OrderLifecycleError::InvalidPayload(
+                    "Cannot mark ready for pickup: pending alterations must be completed first. Use manager override with reason to bypass."
+                        .to_string(),
+                ));
+            }
+        }
+
+        // Check if line was received (went through ordered -> received lifecycle)
+        let was_received: bool = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(received_at IS NOT NULL, false)
+            FROM transaction_lines
+            WHERE id = $1
+            "#,
+        )
+        .bind(transaction_line_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if !was_received && !payload.override_checks {
             return Err(OrderLifecycleError::InvalidPayload(
-                "Cannot mark ready for pickup: pending alterations must be completed first"
+                "Cannot mark ready for pickup: item must be received first (ordered and received via vendor invoice). Use manager override with reason to bypass."
                     .to_string(),
             ));
         }

@@ -58,6 +58,9 @@ pub async fn fetch_best_sellers(
         INNER JOIN products p ON p.id = pv.product_id
         WHERE p.is_active = true
           AND {order_filter}
+          AND COALESCE(oi.is_internal, false) = FALSE
+          AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+          AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
         GROUP BY oi.variant_id, p.id, pv.sku, p.name
         ORDER BY units_sold DESC, net_sales DESC
         LIMIT $3
@@ -93,6 +96,9 @@ pub async fn fetch_dead_stock(
           INNER JOIN products p2 ON p2.id = pv2.product_id
           WHERE p2.is_active = true
             AND {order_filter}
+            AND COALESCE(oi.is_internal, false) = FALSE
+            AND (p2.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+            AND (p2.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
           GROUP BY oi.variant_id
         )
         SELECT
@@ -110,6 +116,8 @@ pub async fn fetch_dead_stock(
         LEFT JOIN sales s ON s.variant_id = pv.id
         WHERE p.is_active = true
           AND (pv.stock_on_hand > 0 OR pv.reserved_stock > 0)
+          AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+          AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
           AND COALESCE(s.units_sold, 0) <= $3
         ORDER BY retail_value_on_hand DESC, pv.stock_on_hand DESC
         LIMIT $4

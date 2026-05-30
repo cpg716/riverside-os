@@ -431,7 +431,7 @@ type FulfillmentKind =
   | "layaway";
 
 interface OrderRowActions {
-  onOpenInRegister?: (orderId: string) => void;
+  onOpenInRegister?: (orderId: string, forPickup?: boolean) => void;
   onAttachToWedding: () => void;
   onCancel: () => void;
   onReturnAll: () => void;
@@ -479,7 +479,7 @@ function formatOrderStatusLabel(status: string) {
 
 function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }: {
   row: TransactionRow;
-  isSelected: boolean; 
+  isSelected: boolean;
   onClick: () => void;
   actions: OrderRowActions;
   hydratedSummaries: Record<string, OrderLineSummary>;
@@ -489,7 +489,7 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
   const contactLines = customerContactLines(row);
   const priorityLabels = orderPriorityLabels(row);
   return (
-    <tr 
+    <tr
       onClick={onClick}
       onDoubleClick={() => actions.onOpenInRegister?.(row.transaction_id)}
       className={cn(
@@ -598,7 +598,7 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
           <p className={cn("text-[11px] font-black", parseMoneyToCents(row.balance_due) > 0 ? "text-app-warning" : "text-app-text-disabled")}>
             {money(row.balance_due)}
           </p>
-           <button 
+           <button
              onClick={(e) => { e.stopPropagation(); actions.onOpenInRegister?.(row.transaction_id); }}
              className="rounded-lg bg-app-success px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-white opacity-0 transition-all duration-150 group-hover:opacity-100 group-focus-within:opacity-100 hover:brightness-110 active:scale-95 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/30"
            >
@@ -771,7 +771,7 @@ export default function OrdersWorkspace({
   refreshSignal = 0,
 }: {
   activeSection?: string;
-  onOpenInRegister?: (orderId: string) => void;
+  onOpenInRegister?: (orderId: string, forPickup?: boolean) => void;
   /** When set, selects this order in the list and opens detail (e.g. from CRM hub). */
   deepLinkTxnId?: string | null;
   onDeepLinkTxnConsumed?: () => void;
@@ -812,9 +812,9 @@ export default function OrdersWorkspace({
   const [refundMethod, setRefundMethod] = useState("cash");
   const [refundGiftCode, setRefundGiftCode] = useState("");
   const [refundBusy, setRefundBusy] = useState(false);
-  const openInRegisterAndClose = useCallback((orderId: string) => {
+  const openInRegisterAndClose = useCallback((orderId: string, forPickup?: boolean) => {
     setSelectedId(null);
-    onOpenInRegister?.(orderId);
+    onOpenInRegister?.(orderId, forPickup);
   }, [onOpenInRegister]);
   const [registerRequiredOpen, setRegisterRequiredOpen] = useState(false);
   useShellBackdropLayer(refundModalOpen || registerRequiredOpen);
@@ -1761,9 +1761,9 @@ export default function OrdersWorkspace({
               </thead>
               <tbody className="divide-y divide-app-border/40">
                 {transactionRows.map((r) => (
-                  <OrderTableRow 
-                    key={r.transaction_id} 
-                    row={r} 
+                  <OrderTableRow
+                    key={r.transaction_id}
+                    row={r}
                     isSelected={selectedId === r.transaction_id}
                     onClick={() => setSelectedId(selectedId === r.transaction_id ? null : r.transaction_id)}
                     actions={{

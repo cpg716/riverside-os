@@ -5,12 +5,13 @@
 //! redacted traces. It must not learn from uncontrolled memory, raw
 //! production data, or unrestricted conversation logs.
 
+use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use sqlx::{PgPool, Row};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 
 use crate::logic::help_manual_policy::HELP_MANUAL_FILES;
 
@@ -20,6 +21,101 @@ pub struct RosieUpstreamHealth {
     pub reachable: bool,
     pub latency_ms: u64,
     pub message: String,
+}
+
+/// Token telemetry summary for cost analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RosieTokenMetrics {
+    pub daily_tokens: i64,
+    pub monthly_tokens: i64,
+    pub estimated_monthly_cost: Decimal,
+}
+
+/// Record token usage telemetry (non-blocking, fire-and-forget)
+///
+/// This function spawns a background task to write telemetry without blocking
+/// the calling thread, ensuring POS performance is not impacted.
+pub fn record_token_telemetry(
+    pool: PgPool,
+    provider: String,
+    model_name: String,
+    input_tokens: i32,
+    output_tokens: i32,
+) {
+    tokio::spawn(async move {
+        let query = r#"
+            INSERT INTO rosie_token_telemetry (model_name, provider, input_tokens, output_tokens)
+            VALUES ($1, $2, $3, $4)
+        "#;
+
+        if let Err(e) = sqlx::query(query)
+            .bind(&model_name)
+            .bind(&provider)
+            .bind(input_tokens)
+            .bind(output_tokens)
+            .execute(&pool)
+            .await
+        {
+            eprintln!("Failed to record ROSIE token telemetry: {}", e);
+        }
+    });
+}
+
+/// Extract token usage from a JSON response value and record telemetry in the background (fire-and-forget).
+pub fn record_telemetry_from_value(pool: PgPool, provider: &str, body: &serde_json::Value) {
+    if let Some(usage) = body.get("usage") {
+        let input_tokens = usage.get("prompt_tokens").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
+        let output_tokens = usage.get("completion_tokens").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
+        let model_name = body.get("model").and_then(|m| m.as_str()).unwrap_or("unknown").to_string();
+        if input_tokens > 0 || output_tokens > 0 {
+            record_token_telemetry(pool, provider.to_string(), model_name, input_tokens, output_tokens);
+        }
+    }
+}
+
+
+/// Query token telemetry summary for cost analysis
+///
+/// Returns daily tokens, monthly tokens, and estimated monthly cost based on
+/// current model pricing (assumes $0.50 per 1M tokens as default placeholder).
+pub async fn get_token_metrics(pool: &PgPool) -> Result<RosieTokenMetrics, sqlx::Error> {
+    let query = r#"
+        WITH daily AS (
+            SELECT COALESCE(SUM(input_tokens + output_tokens), 0)::bigint AS total
+            FROM rosie_token_telemetry
+            WHERE DATE(timestamp) = CURRENT_DATE
+        ),
+        monthly AS (
+            SELECT COALESCE(SUM(input_tokens + output_tokens), 0)::bigint AS total
+            FROM rosie_token_telemetry
+            WHERE DATE_TRUNC('month', timestamp) = DATE_TRUNC('month', CURRENT_DATE)
+        )
+        SELECT
+            (SELECT total FROM daily) AS daily_tokens,
+            (SELECT total FROM monthly) AS monthly_tokens
+    "#;
+
+    let row = sqlx::query(query)
+        .fetch_one(pool)
+        .await?;
+
+    let daily_tokens: i64 = row.get("daily_tokens");
+    let monthly_tokens: i64 = row.get("monthly_tokens");
+
+    // Default cost: $0.50 per 1M tokens (placeholder - should be configurable)
+    // TODO: Make this configurable per provider/model
+    let cost_per_1m_tokens = Decimal::new(50, 2); // 0.50
+    let estimated_monthly_cost = if monthly_tokens > 0 {
+        (Decimal::from(monthly_tokens) * cost_per_1m_tokens) / Decimal::from(1_000_000)
+    } else {
+        Decimal::ZERO
+    };
+
+    Ok(RosieTokenMetrics {
+        daily_tokens,
+        monthly_tokens,
+        estimated_monthly_cost,
+    })
 }
 
 pub async fn health_check(http: &reqwest::Client) -> RosieUpstreamHealth {

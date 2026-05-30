@@ -110,7 +110,7 @@ For **each** primary component below: (a) fix misclassified instructional copy (
 
 Pass **every** rail tab from [`client/UI_WORKSPACE_INVENTORY.md`](../client/UI_WORKSPACE_INVENTORY.md): `RegisterDashboard`, `Cart` / `RegisterOverlay`, `RegisterTasksPanel`, `ProcurementHub`, `AlterationsWorkspace` (POS path), `RegisterReports`, `RegisterLookupHub`, `RegisterSettings`.
 
-Pass **all** POS modals/drawers (glob `client/src/components/pos/*Modal*.tsx` and `*Drawer*.tsx`): e.g. `NexoCheckoutDrawer`, `CloseRegisterModal`, `RegisterShiftHandoffModal`, `ReceiptSummaryModal`, `VariantSelectionModal`, `PriceOverrideModal`, `RegisterCashAdjustModal`, `RegisterGiftCardLoadModal`, `PosShippingModal`, `CustomerProfileCompletionModal`, `OrderAttributionModal`, `RegisterXReportModal`, `PosCustomerMeasurementsDrawer`, `WeddingLookupDrawer`, etc.
+Pass **all** POS modals/drawers (glob `client/src/components/pos/*Modal*.tsx` and `*Drawer*.tsx`): e.g. `NexoCheckoutDrawer`, `CloseRegisterModal`, `RegisterShiftHandoffModal`, `ReceiptSummaryModal`, `VariantSelectionModal`, `PriceOverrideModal`, `RegisterCashAdjustModal`, `RegisterGiftCardLoadModal`, `PosShippingModal`, `CustomerProfileCompletionModal`, `TransactionAttributionModal`, `RegisterXReportModal`, `PosCustomerMeasurementsDrawer`, `WeddingLookupDrawer`, etc.
 
 **Nexo checkout:** keep tender grid / numpad / **Complete Sale** chrome; **reading-class** content uses instruction utilities (Pub 718-C note, deposit instructions, wedding linked banner).
 

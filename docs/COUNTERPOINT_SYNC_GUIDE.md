@@ -9,6 +9,18 @@ End-to-end reference for setting up and operating the one-way data ingest from *
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
 - [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — full `.env` reference with example SQL
 
+**Guided Migration Pipeline:**
+The Counterpoint Sync and Migration Inventory Workbench have been consolidated into a single **8-step guided pipeline** in **Settings → Integrations → Counterpoint**. This unified workflow enforces a logical sequence of data preparation, cleaning, verification, and live import:
+
+1. **Step 1: SQL Bridge Sync** - Health status, sync control, progress tracking, staging table management
+2. **Step 2: Inventory & Catalog Mapping** - CSV enrichment, category maps, vendor maps, AI enrichment (ROSIE), SKU gaps, merge preview
+3. **Step 3: Customers & CRM** - Review and load staged customer profiles
+4. **Step 4: Sales & Ticket History** - Review and load closed tickets
+5. **Step 5: Gift Cards & Liabilities** - Verify active liabilities
+6. **Step 6: Open Orders & Layaways** - Load active orders and deposits
+7. **Step 7: Loyalty History** - Verify and load loyalty balances
+8. **Step 8: Audit & Live Cutover** - Landing verification, checksums, final Go-Live sign-off
+
 **Optional SQL objects:** Gift and loyalty tables (Standard: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are **NCR Counterpoint** names from product/schema docs — Riverside did not invent them. However, many v8.2 installations (including yours) use custom naming: **`SY_GFC`** (Gift Cards) and **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 
 **Migrations:** 29 (base `counterpoint_item_key` + `counterpoint_sync_runs`), 84 (heartbeat, ticket idempotency, sync requests/issues, mapping tables), 85 (provenance: `customer_created_source = 'counterpoint'`, `products.data_source`), 86 (staff sync: `counterpoint_staff_map`, `staff.data_source` / `counterpoint_user_id` / `counterpoint_sls_rep`, `customers.preferred_salesperson_id`, `orders.processed_by_staff_id`), 89 (`vendor_supplier_item` for `PO_VEND_ITEM`, idempotent `loyalty_point_ledger` index for `PS_LOY_PTS_HIST` imports), 95 (`counterpoint_staging_batch` + `store_settings.counterpoint_config` for optional **staging** ingest controlled in Back Office).

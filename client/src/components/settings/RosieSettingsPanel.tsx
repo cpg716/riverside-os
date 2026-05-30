@@ -906,6 +906,75 @@ export default function RosieSettingsPanel() {
           </div>
         </section>
       )}
+
+      {canManageIntelligence && (
+        <section className="ui-card p-8">
+          <RosieTokenMonitor backofficeHeaders={backofficeHeaders} />
+        </section>
+      )}
+    </div>
+  );
+}
+
+interface RosieTokenMonitorProps {
+  backofficeHeaders: () => HeadersInit;
+}
+
+function RosieTokenMonitor({ backofficeHeaders }: RosieTokenMonitorProps) {
+  const [metrics, setMetrics] = useState({ daily: 0, monthly: 0, cost: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/settings/rosie/token-metrics`, {
+          headers: backofficeHeaders(),
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        setMetrics({
+          daily: data.daily_tokens || 0,
+          monthly: data.monthly_tokens || 0,
+          cost: data.estimated_monthly_cost || 0,
+        });
+      } catch (error) {
+        console.error("Failed to fetch ROSIE token metrics:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMetrics();
+  }, [backofficeHeaders]);
+
+  return (
+    <div>
+      <h3 className="text-sm font-black uppercase tracking-widest text-app-text mb-4">
+        ROSIE Intelligence Usage
+      </h3>
+      {loading ? (
+        <p className="text-sm font-medium text-app-text-muted">Loading token metrics…</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-1">
+            <p className="text-sm text-app-text-muted">Daily Token Use</p>
+            <p className="text-2xl font-mono text-app-text">{metrics.daily.toLocaleString()}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm text-app-text-muted">Actual Monthly Usage</p>
+            <p className="text-2xl font-mono text-app-text">{metrics.monthly.toLocaleString()}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm text-app-text-muted">Estimated Monthly Cost</p>
+            <p className="text-2xl font-mono text-green-600">${metrics.cost.toFixed(2)}</p>
+          </div>
+        </div>
+      )}
+      <p className="mt-4 text-[10px] text-app-text-muted">
+        * Estimates based on current provider rates ($0.50 per 1M tokens placeholder).
+      </p>
     </div>
   );
 }

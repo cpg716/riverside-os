@@ -216,6 +216,7 @@ pub async fn generate_report(
             COALESCE(SUM((oi.local_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)), 0)::numeric(14,2) AS tax_local
         FROM transaction_lines oi
         INNER JOIN transactions o ON o.id = oi.transaction_id
+        INNER JOIN products p ON p.id = oi.product_id
         LEFT JOIN (
             SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
             FROM transaction_return_lines GROUP BY transaction_line_id
@@ -224,6 +225,9 @@ pub async fn generate_report(
           AND o.status::text NOT IN ('cancelled')
           AND {line_recognition_ts} IS NOT NULL
           AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+          AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+          AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+          AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         "#
     ))
     .bind(activity_date)

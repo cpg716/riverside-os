@@ -68,7 +68,9 @@ interface PosShellProps {
   sessionId: string | null;
   pendingPosCustomer: Customer | null;
   pendingPosTransactionId: string | null;
+  pendingPosTransactionForPickup: boolean;
   setPendingPosTransactionId: (transactionId: string | null) => void;
+  setPendingPosTransactionForPickup: (forPickup: boolean) => void;
   setPendingPosCustomer: (c: Customer | null) => void;
   clearPendingPosCustomer: () => void;
   clearPendingPosTransaction: () => void;
@@ -103,7 +105,9 @@ export default function PosShell({
   sessionId,
   pendingPosCustomer,
   pendingPosTransactionId,
+  pendingPosTransactionForPickup,
   setPendingPosTransactionId,
+  setPendingPosTransactionForPickup,
   setPendingPosCustomer,
   clearPendingPosCustomer,
   clearPendingPosTransaction,
@@ -383,6 +387,7 @@ export default function PosShell({
                   initialCustomer={pendingPosCustomer}
                   onInitialCustomerConsumed={clearPendingPosCustomer}
                   initialTransactionId={pendingPosTransactionId}
+                  initialTransactionForPickup={pendingPosTransactionForPickup}
                   onInitialTransactionConsumed={clearPendingPosTransaction}
                   managerMode={managerMode}
                   initialWeddingLookupOpen={false}
@@ -503,8 +508,9 @@ export default function PosShell({
                 <OrdersWorkspace
                   activeSection="open"
                   refreshSignal={refreshSignal}
-                  onOpenInRegister={(orderId) => {
+                  onOpenInRegister={(orderId, forPickup) => {
                     setPendingPosTransactionId(orderId);
+                    setPendingPosTransactionForPickup(forPickup || false);
                     clearPendingPosCustomer();
                     setActivePosTab("register");
                   }}

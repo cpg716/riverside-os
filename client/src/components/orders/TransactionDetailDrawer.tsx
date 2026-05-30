@@ -34,6 +34,7 @@ import ReceiptSummaryModal from "../pos/ReceiptSummaryModal";
 import type { FulfillmentKind } from "../pos/types";
 import VariantSearchInput from "../ui/VariantSearchInput";
 import RosieInsightSummary from "../help/RosieInsightSummary";
+import TransactionAttributionModal from "../pos/TransactionAttributionModal";
 
 function fmtMoney(v: string | number): string {
   return formatUsdFromCents(parseMoneyToCents(v));
@@ -143,7 +144,7 @@ export interface TransactionDrawerAudit {
 }
 
 export interface TransactionDrawerOrderActions {
-  onOpenInRegister?: (orderId: string) => void;
+  onOpenInRegister?: (orderId: string, forPickup?: boolean) => void;
   onAttachToWedding?: () => void;
   onCancel?: () => void;
   onReturnAll?: () => void;
@@ -738,6 +739,7 @@ export default function TransactionDetailDrawer({
   const [pickupTargetLineIds, setPickupTargetLineIds] = useState<string[] | null>(null);
   const [pickupBusy, setPickupBusy] = useState(false);
   const [pickupError, setPickupError] = useState<string | null>(null);
+  const [attributionOpen, setAttributionOpen] = useState(false);
   useShellBackdropLayer(Boolean(readyTarget) || showPickupReleaseModal);
 
   const usesControlledData =
@@ -1170,7 +1172,7 @@ export default function TransactionDetailDrawer({
             !["fulfilled", "cancelled"].includes(detail.status) ? (
               <button
                 type="button"
-                onClick={() => openPickupReleaseModal()}
+                onClick={() => orderActions?.onOpenInRegister?.(detail.transaction_id, true)}
                 disabled={pickupReleaseLines.open.length === 0}
                 className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-success bg-app-success px-3 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all duration-150 hover:opacity-90 active:translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -2073,9 +2075,18 @@ export default function TransactionDetailDrawer({
                   </p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Primary Salesperson
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Primary Salesperson
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setAttributionOpen(true)}
+                      className="text-[10px] font-bold uppercase tracking-widest text-app-accent hover:underline"
+                    >
+                      Correct
+                    </button>
+                  </div>
                   <p className="mt-1 text-[12px] font-semibold text-app-text">
                     {detail.primary_salesperson_name ?? "—"}
                   </p>
@@ -2424,6 +2435,17 @@ export default function TransactionDetailDrawer({
           onClose={() => setShowReceiptModal(false)}
           baseUrl={baseUrl}
           getAuthHeaders={auth}
+        />
+      ) : null}
+
+      {attributionOpen && orderId ? (
+        <TransactionAttributionModal
+          orderId={orderId}
+          onClose={() => setAttributionOpen(false)}
+          onSaved={() => {
+            setAttributionOpen(false);
+            void load();
+          }}
         />
       ) : null}
     </>

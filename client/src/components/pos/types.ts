@@ -72,6 +72,8 @@ export interface CartLineItem extends ResolvedSkuItem {
   return_tender_original_transaction_id?: string | null;
   return_tender_receipt_label?: string | null;
   return_tender_refund_cents?: number | null;
+  /** Database ID of the original transaction line for pickup tracking. */
+  transaction_line_id?: string | null;
 }
 
 export type AlterationSourceType =

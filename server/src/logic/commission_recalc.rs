@@ -3,6 +3,8 @@ use rust_decimal::Decimal;
 use sqlx::postgres::PgConnection;
 use sqlx::FromRow;
 use uuid::Uuid;
+use serde_json::json;
+use crate::logic::pricing::round_money_usd;
 
 use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 use crate::logic::sales_commission;
@@ -19,6 +21,8 @@ struct CommissionLineCalcRow {
     is_employee_purchase: bool,
     calc_at: DateTime<Utc>,
     calculated_commission: Decimal,
+    is_internal: bool,
+    transaction_short_id: String,
 }
 
 pub async fn recalc_staff_commissions_from(
@@ -43,7 +47,9 @@ pub async fn recalc_staff_commissions_from(
                 WHEN oi.is_fulfilled AND ({rec}) IS NOT NULL THEN ({rec})
                 ELSE o.booked_at
             END AS calc_at,
-            oi.calculated_commission
+            oi.calculated_commission,
+            COALESCE(oi.is_internal, FALSE) AS is_internal,
+            COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8)) AS transaction_short_id
         FROM transaction_lines oi
         INNER JOIN transactions o ON o.id = oi.transaction_id
         WHERE oi.salesperson_id = $1
@@ -127,17 +133,14 @@ pub async fn recalc_transaction_line_commission(
                 WHEN oi.is_fulfilled AND ({rec}) IS NOT NULL THEN ({rec})
                 ELSE o.booked_at
             END AS calc_at,
-            oi.calculated_commission
+            oi.calculated_commission,
+            COALESCE(oi.is_internal, FALSE) AS is_internal,
+            COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8)) AS transaction_short_id
         FROM transaction_lines oi
         INNER JOIN transactions o ON o.id = oi.transaction_id
         WHERE oi.id = $1
           AND oi.transaction_id = $2
           AND o.status::text <> 'cancelled'
-          AND NOT EXISTS (
-              SELECT 1
-              FROM commission_events ce
-              WHERE ce.transaction_line_id = oi.id
-          )
         "#,
     );
 
@@ -151,7 +154,7 @@ pub async fn recalc_transaction_line_commission(
         return Ok(None);
     };
 
-    let new_commission = sales_commission::commission_for_line_at(
+    let breakdown = sales_commission::commission_breakdown_for_line_at(
         conn,
         CommissionLineInput {
             unit_price: row.unit_price,
@@ -170,11 +173,85 @@ pub async fn recalc_transaction_line_commission(
     )
     .bind(transaction_line_id)
     .bind(salesperson_id)
-    .bind(new_commission)
+    .bind(breakdown.total_commission)
     .execute(&mut *conn)
     .await?;
 
-    Ok(Some(new_commission))
+    // Check if a commission event exists for this line
+    let event_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM commission_events WHERE transaction_line_id = $1)"
+    )
+    .bind(transaction_line_id)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    if event_exists {
+        if let Some(sid) = salesperson_id {
+            // Fetch staff name
+            let staff_name: String = sqlx::query_scalar("SELECT full_name FROM staff WHERE id = $1")
+                .bind(sid)
+                .fetch_optional(&mut *conn)
+                .await?
+                .flatten()
+                .unwrap_or_else(|| "Unassigned".to_string());
+
+            // Fetch product name
+            let product_name: String = sqlx::query_scalar("SELECT name FROM products WHERE id = $1")
+                .bind(row.product_id)
+                .fetch_optional(&mut *conn)
+                .await?
+                .flatten()
+                .unwrap_or_else(|| "Transaction line".to_string());
+
+            let event_type = if row.is_internal { "combo_incentive" } else { "sale_commission" };
+            let commissionable_amount = if row.is_internal { Decimal::ZERO } else { row.unit_price * Decimal::from(row.quantity) };
+            let base_commission_amount = if row.is_internal { Decimal::ZERO } else { round_money_usd(commissionable_amount * breakdown.base_rate) };
+            let incentive_amount = if row.is_internal { breakdown.total_commission } else { breakdown.total_commission - base_commission_amount };
+
+            let snapshot_json = json!({
+                "transaction_short_id": row.transaction_short_id,
+                "product_name": product_name,
+                "quantity": row.quantity,
+                "unit_price": row.unit_price,
+                "staff_name": staff_name,
+                "source": if row.is_internal { "Combo incentive" } else { "Staff base rate plus fixed incentives" }
+            });
+
+            sqlx::query(
+                r#"
+                UPDATE commission_events
+                SET staff_id = $2,
+                    event_type = $3,
+                    commissionable_amount = $4,
+                    base_rate_used = $5,
+                    base_commission_amount = $6,
+                    incentive_amount = $7,
+                    total_commission_amount = $8,
+                    snapshot_json = $9
+                WHERE transaction_line_id = $1
+                "#
+            )
+            .bind(transaction_line_id)
+            .bind(sid)
+            .bind(event_type)
+            .bind(commissionable_amount)
+            .bind(breakdown.base_rate)
+            .bind(base_commission_amount)
+            .bind(incentive_amount)
+            .bind(breakdown.total_commission)
+            .bind(snapshot_json)
+            .execute(&mut *conn)
+            .await?;
+        } else {
+            // Delete the commission event if the salesperson is removed
+            sqlx::query("DELETE FROM commission_events WHERE transaction_line_id = $1")
+                .bind(transaction_line_id)
+                .execute(&mut *conn)
+                .await?;
+        }
+    }
+
+    Ok(Some(breakdown.total_commission))
 }
 
 pub async fn recalc_transaction_commissions_after_fulfillment(
@@ -203,7 +280,9 @@ pub async fn recalc_transaction_commissions_after_fulfillment(
                 WHEN oi.is_fulfilled AND ({rec}) IS NOT NULL THEN ({rec})
                 ELSE o.booked_at
             END AS calc_at,
-            oi.calculated_commission
+            oi.calculated_commission,
+            COALESCE(oi.is_internal, FALSE) AS is_internal,
+            COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8)) AS transaction_short_id
         FROM transaction_lines oi
         INNER JOIN transactions o ON o.id = oi.transaction_id
         WHERE oi.transaction_id = $1

@@ -96,12 +96,21 @@ pub async fn commission_breakdown_for_line_at(
         return Ok(CommissionBreakdown::zero());
     }
 
-    let category_id: Option<Uuid> =
-        sqlx::query_scalar::<_, Option<Uuid>>("SELECT category_id FROM products WHERE id = $1")
-            .bind(input.product_id)
-            .fetch_optional(&mut *conn)
-            .await?
-            .flatten();
+    let product_info: Option<(Option<Uuid>, Option<String>)> = sqlx::query_as(
+        "SELECT category_id, pos_line_kind FROM products WHERE id = $1"
+    )
+    .bind(input.product_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+
+    let (category_id, pos_line_kind) = match product_info {
+        Some((cat_id, line_kind)) => (cat_id, line_kind),
+        None => (None, None),
+    };
+
+    if matches!(pos_line_kind.as_deref(), Some("pos_gift_card_load") | Some("rms_charge_payment")) {
+        return Ok(CommissionBreakdown::zero());
+    }
 
     // Fixed-dollar SPIFF lookup only. Percentage/category overrides are intentionally ignored.
     #[derive(sqlx::FromRow)]

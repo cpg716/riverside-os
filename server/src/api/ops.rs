@@ -924,6 +924,8 @@ async fn post_diagnostics_analyze(
             .into_response()
     })?;
 
+    crate::logic::rosie_intelligence::record_telemetry_from_value(state.db.clone(), "local", &data);
+
     if !status.is_success() {
         return Ok(Json(json!({
             "error": format!("ROSIE upstream error {status}"),

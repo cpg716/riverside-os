@@ -56,6 +56,7 @@ interface OrderLoadModalProps {
     patch: { quantity?: number; unit_price?: string; variant_id?: string; order_lifecycle_status?: string },
   ) => Promise<boolean>;
   onDeleteOrderItem?: (order: CustomerOrder, item: OrderItem) => Promise<boolean>;
+  onOpenInRegisterForPickup?: (orderId: string) => void;
 }
 
 const fulfillmentLabel = (fulfillment: string) => {
@@ -87,6 +88,7 @@ export default function OrderLoadModal({
   onAddItemToOrder,
   onUpdateOrderItem,
   onDeleteOrderItem,
+  onOpenInRegisterForPickup,
 }: OrderLoadModalProps) {
   const { toast } = useToast();
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
@@ -315,6 +317,14 @@ export default function OrderLoadModal({
   };
 
   const openPickupFlow = async (order: CustomerOrder, oneItem?: OrderItem) => {
+    // New pickup flow: open order in register with pickup mode
+    if (onOpenInRegisterForPickup && order.transaction_id) {
+      onOpenInRegisterForPickup(order.transaction_id);
+      onClose();
+      return;
+    }
+
+    // Fallback to old flow if callback not provided
     if (parseMoneyToCents(order.balance_due) > 0) {
       toast("Collect the Balance Due before pickup release.", "error");
       return;

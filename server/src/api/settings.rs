@@ -6,6 +6,7 @@ use crate::logic::backups::{BackupFile, BackupManager, BackupSettings};
 use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::integration_credentials;
 use crate::logic::remote_access::RemoteAccessManager;
+use crate::logic::rosie_intelligence::{get_token_metrics, RosieTokenMetrics};
 use axum::{
     extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -510,6 +511,15 @@ async fn patch_rosie_config(
         .await?;
 
     Ok(Json(normalized))
+}
+
+async fn get_rosie_token_metrics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<RosieTokenMetrics>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let metrics = get_token_metrics(&state.db).await?;
+    Ok(Json(metrics))
 }
 
 async fn get_backups(
@@ -2522,6 +2532,7 @@ pub fn router() -> Router<AppState> {
             get(get_receipt_config).patch(patch_receipt_config),
         )
         .route("/rosie", get(get_rosie_config).patch(patch_rosie_config))
+        .route("/rosie/token-metrics", get(get_rosie_token_metrics))
         .route("/backups", get(get_backups))
         .route("/backups/create", post(create_backup))
         .route("/backups/restore/{filename}", post(restore_backup))

@@ -418,11 +418,15 @@ pub async fn fetch_register_day_summary(
                     * (oi.state_tax + oi.local_tax)
                 )::numeric(14,2) AS line_tax
             FROM transaction_lines oi
+            LEFT JOIN products p ON p.id = oi.product_id
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
                 FROM transaction_return_lines
                 GROUP BY transaction_line_id
             ) orl ON orl.transaction_line_id = oi.id
+            WHERE COALESCE(oi.is_internal, false) = FALSE
+              AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+              AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
             GROUP BY transaction_id
         ) ln ON ln.transaction_id = o.id
         WHERE {order_in_range}

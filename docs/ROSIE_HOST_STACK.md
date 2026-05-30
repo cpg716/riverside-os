@@ -24,6 +24,33 @@ If runtime code, env notes, or workstation setup drift from this file, this file
 - Voice does not create a second assistant path.
 - Tool execution, RBAC, and ROSIE governance remain server-validated.
 
+## Token Telemetry and Cost Monitoring
+
+### Purpose
+ROSIE token telemetry tracks AI token usage for cost analysis when evaluating local LLMs vs cloud-based APIs. This enables data-driven decisions about scaling ROSIE to cloud providers.
+
+### Data Collection
+- **Table**: `rosie_token_telemetry` (migration `060_rosie_token_telemetry.sql`)
+- **Fields**: `id` (UUID), `timestamp` (timestamptz), `model_name`, `provider`, `input_tokens`, `output_tokens`
+- **Indexes**: Timestamp (DESC) for date-based queries, provider/model for provider comparison
+- **Non-Blocking Recording**: Telemetry writes use `tokio::spawn` for fire-and-forget DB inserts, ensuring POS terminal performance is not impacted
+
+### Metrics API
+- **Endpoint**: `GET /api/settings/rosie/token-metrics`
+- **Permission**: Requires `settings.admin`
+- **Response**: Daily tokens, monthly tokens, estimated monthly cost
+- **Cost Rate**: Placeholder $0.50 per 1M tokens (configurable for per-provider rates)
+
+### UI Component
+- **Location**: `RosieSettingsPanel.tsx` → `RosieTokenMonitor` component
+- **Display**: Daily token use, actual monthly usage, estimated monthly cost
+- **Access**: Visible to staff with `help.manage` permission
+
+### Operational Notes
+- Telemetry is recorded for all ROSIE interactions regardless of provider (local or cloud)
+- Cost estimates use placeholder rates and should be configured with actual provider rates before production cloud deployment
+- Data supports comparison between local Gemma costs vs cloud API pricing models
+
 ## Approval Status Labels
 - Approved production default: explicitly approved as the intended production stack baseline.
 - Approved fallback/dev fallback: allowed when the production-default component is unavailable, or for constrained development/bootstrap use.

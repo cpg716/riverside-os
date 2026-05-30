@@ -233,40 +233,57 @@ export function openProfessionalZReportPrint(opts: {
     opts.transactions && opts.transactions.length > 0
       ? opts.transactions
           .map((t) => {
-            const tm = new Date(t.created_at).toLocaleTimeString([], {
+            const tm = new Date(t.created_at).toLocaleString([], {
+              month: "short",
+              day: "numeric",
               hour: "2-digit",
               minute: "2-digit",
             });
             const visibleItems = (t.items ?? []).filter((item) => !item.is_internal).slice(0, 4);
             const internalItems = (t.items ?? []).filter((item) => item.is_internal);
             const giftCardIssued = internalItems.find((item) => item.line_kind === "pos_gift_card_load");
-            const itemSummary = visibleItems
-              .map(
-                (item) =>
-                  `${item.quantity}x ${item.name}${item.sku ? ` (${item.sku})` : ""} · ${fulfillmentLabel(item.fulfillment)} · ${formatReportMoney(item.unit_price)}`,
-              )
-              .join("; ");
+
+            const itemsHtml = visibleItems.map(item => `
+              <div class="print-item-row">
+                <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${item.fulfillment ? ` · ${fulfillmentLabel(item.fulfillment)}` : ""}</span></span>
+                <span style="font-family: monospace;">
+                  ${formatReportMoney(item.unit_price)}
+                </span>
+              </div>
+            `).join("");
+
             const extraCount = Math.max(0, (t.items ?? []).filter((item) => !item.is_internal).length - visibleItems.length);
             const notes = [
-              itemSummary || null,
               extraCount > 0 ? `+${extraCount} more line${extraCount === 1 ? "" : "s"}` : null,
               giftCardIssued ? "Gift card issued on this sale" : null,
-            ].filter(Boolean).join(" ");
-            const totals = [
-              t.transaction_total ? `Sale ${formatReportMoney(t.transaction_total)}` : null,
-              t.transaction_paid ? `Paid ${formatReportMoney(t.transaction_paid)}` : null,
-              t.transaction_balance_due && parseMoneyToCents(t.transaction_balance_due) > 0
-                ? `Balance ${formatReportMoney(t.transaction_balance_due)}`
-                : null,
             ].filter(Boolean).join(" · ");
-            return `<tr>
-              <td>${tm}</td>
-              <td class="center">#${t.register_lane}</td>
-              <td>${escapeReportHtml(t.transaction_display_id ?? "Sale")}</td>
-              <td>${escapeReportHtml(reportLabel(t.payment_method))}<br><span class="muted">${escapeReportHtml(totals || "Paid at register")}</span></td>
-              <td class="money">${formatReportMoney(t.amount)}</td>
-              <td><strong>${escapeReportHtml(t.customer_name || "Walk-in")}</strong><br><span class="muted">${escapeReportHtml(notes || "No item detail recorded")}</span></td>
-            </tr>`;
+
+            const chips = [
+              t.transaction_status ? reportLabel(t.transaction_status) : null,
+            ].filter(Boolean).map((chip) => `<span class="chip">${chip}</span>`).join("");
+
+            return `
+              <section class="activity-card">
+                <div class="activity-left">
+                  <div class="pill">${reportLabel(t.payment_method)}</div>
+                  <div class="time">${tm}</div>
+                  <div class="customer">${t.customer_name || "Walk-in Customer"}</div>
+                  <div class="chips">${t.transaction_display_id ? `<span class="chip mono">#${t.transaction_display_id}</span>` : ""}<span class="chip mono">Lane #${t.register_lane}</span>${chips}</div>
+                </div>
+                <div class="activity-items">
+                  <div class="section-label">Line Items</div>
+                  ${itemsHtml || `<div class="muted" style="padding:18px 0;text-align:center;">No item details recorded for this transaction</div>`}
+                  ${notes ? `<div class="muted" style="font-size:9px;margin-top:8px;">${notes}</div>` : ""}
+                </div>
+                <div class="activity-money">
+                  <div class="money-label">Transaction Amount</div>
+                  <div class="money-total">${formatReportMoney(t.amount)}</div>
+                  ${t.transaction_total ? `<div class="money-sub">Sale Total: ${formatReportMoney(t.transaction_total)}</div>` : ""}
+                  ${t.transaction_paid ? `<div class="money-sub">Paid: ${formatReportMoney(t.transaction_paid)}</div>` : ""}
+                  ${t.transaction_balance_due && parseMoneyToCents(t.transaction_balance_due) > 0 ? `<div class="money-due">Balance: ${formatReportMoney(t.transaction_balance_due)}</div>` : ""}
+                </div>
+              </section>
+            `;
           })
           .join("")
       : "";
@@ -341,12 +358,30 @@ export function openProfessionalZReportPrint(opts: {
     .reconciliation-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; margin-top: 16px; }
     .cash-line { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
     .signature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+    .activity-card { display: grid; grid-template-columns: 1.05fr 1.6fr 1fr; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; margin-top: 14px; break-inside: avoid; }
+    .activity-left, .activity-money { background: #f8fafc; padding: 18px; }
+    .activity-items { padding: 18px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
+    .pill { display: inline-block; border: 1px solid #cbd5e1; border-radius: 999px; padding: 5px 10px; font-size: 9px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+    .time { margin-top: 8px; color: #64748b; font-size: 10px; font-weight: 700; }
+    .customer { margin-top: 14px; font-size: 14px; font-weight: 800; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+    .chip { background: #f1f5f9; border-radius: 999px; color: #475569; display: inline-block; font-size: 9px; font-weight: 800; padding: 4px 7px; text-transform: uppercase; }
+    .section-label { color: #64748b; font-size: 10px; font-weight: 800; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
+    .print-item-row { align-items: flex-start; border-top: 1px solid #e2e8f0; color: #0f172a; display: flex; font-size: 10px; justify-content: space-between; gap: 12px; padding: 8px 0; }
+    .activity-money { text-align: right; }
+    .money-label { color: #64748b; font-size: 10px; font-weight: 800; }
+    .money-total { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 800; margin-top: 4px; }
+    .money-sub, .money-good, .money-due { font-size: 10px; font-weight: 800; margin-top: 8px; }
+    .money-sub { color: #64748b; }
+    .money-good { color: #047857; }
+    .money-due { color: #b45309; }
     @media print { body { padding: 0; } .no-print { display: none; } }
   </style></head><body>
   <div style="display: flex; justify-content: space-between; align-items: flex-start;">
     <div>
-      <h1>RIVERSIDE OS</h1>
+      <h1>RIVERSIDE MEN'S SHOP</h1>
       <p style="font-weight: 700; color: #64748b; margin-top: 4px;">Z-Report Reconciliation Audit</p>
+      <p class="muted" style="font-size: 10px; margin-top: 2px;">Generated: ${new Date().toLocaleString()}</p>
     </div>
     <div style="text-align: right;">
       <p class="stat-label">Report ID</p>
@@ -472,11 +507,8 @@ export function openProfessionalZReportPrint(opts: {
 
   ${txAuditRows ? `
     <div style="margin-top: 14px; page-break-before: auto;">
-      <h2>Transaction Audit Trail</h2>
-      <table style="font-size: 8.2px;">
-        <thead><tr><th>Time</th><th style="text-align:center">Reg</th><th>Transaction</th><th>Payment / Order</th><th style="text-align:right">Paid</th><th>Customer / Detail</th></tr></thead>
-        <tbody>${txAuditRows}</tbody>
-      </table>
+      <h2>Transaction List</h2>
+      ${txAuditRows}
     </div>
   ` : ""}
 
@@ -493,9 +525,46 @@ export function openProfessionalZReportPrint(opts: {
   </body></html>`);
   w.document.close();
   w.focus();
-  setTimeout(() => {
-    w.print();
-  }, 500);
+
+  // Check if running in Tauri
+  const isTauriEnv = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+
+  if (isTauriEnv) {
+    setTimeout(async () => {
+      try {
+        const { open } = await import("@tauri-apps/plugin-shell");
+        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+        const { save } = await import("@tauri-apps/plugin-dialog");
+
+        const filePath = await save({
+          defaultPath: `z-report-${opts.sessionId.slice(0, 8)}.html`,
+          filters: [{ name: "HTML", extensions: ["html"] }],
+        });
+
+        if (filePath) {
+          await writeTextFile(filePath, w.document.documentElement.outerHTML);
+          await open(filePath);
+        }
+      } catch (err) {
+        console.error("Tauri print failed:", err);
+        try {
+          w.print();
+        } catch (e) {
+          console.error("Print failed:", e);
+          alert("Print dialog could not be opened. Please check your browser settings.");
+        }
+      }
+    }, 500);
+  } else {
+    setTimeout(() => {
+      try {
+        w.print();
+      } catch (e) {
+        console.error("Print failed:", e);
+        alert("Print dialog could not be opened. Please check your browser settings.");
+      }
+    }, 500);
+  }
 }
 
 export function openProfessionalDailySalesPrint(opts: {
@@ -542,6 +611,8 @@ export function openProfessionalDailySalesPrint(opts: {
 }): void {
   const w = window.open("", "_blank", "width=850,height=950");
   if (!w) return;
+
+  w.document.title = "Daily Sales Report";
 
   const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
   const { summary, activities } = opts;
@@ -626,6 +697,12 @@ export function openProfessionalDailySalesPrint(opts: {
     })
     .join("");
 
+  // Calculate grand total across all groups
+  const grandTotal = Object.values(groupedActivities)
+    .flat()
+    .reduce((sum, row) => sum + (Number.parseFloat(row.sales_total || "0") || 0), 0)
+    .toFixed(2);
+
   w.document.write(`<!DOCTYPE html><html><head><title>${opts.title}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
@@ -665,8 +742,9 @@ export function openProfessionalDailySalesPrint(opts: {
   </style></head><body>
   <div style="display: flex; justify-content: space-between; align-items: flex-start;">
     <div>
-      <h1>RIVERSIDE OS</h1>
+      <h1>RIVERSIDE MEN'S SHOP</h1>
       <p style="font-weight: 700; color: #64748b; margin-top: 4px;">Daily Sales & Activity Report</p>
+      <p class="muted" style="font-size: 10px; margin-top: 2px;">Generated: ${new Date().toLocaleString()}</p>
     </div>
     <div style="text-align: right;">
       <p class="stat-label">Reporting Period</p>
@@ -718,16 +796,61 @@ export function openProfessionalDailySalesPrint(opts: {
     </div>
   </div>
 
-  <h2>Activity Detail</h2>
+  <h2>Transaction List</h2>
   ${activityRows || "<div class='muted' style='padding:40px; text-align:center;'>No activity recorded for this period.</div>"}
 
+  ${activityRows ? `
+  <div style="margin-top: 30px; border-top: 2px solid #e2e8f0; padding-top: 20px; text-align: right;">
+    <p style="font-size: 14px; font-weight: 800; color: #0f172a; margin: 0;">Grand Total: $${grandTotal}</p>
+  </div>
+  ` : ""}
+
   <div style="margin-top: 60px; border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center;">
-    <p class="muted" style="font-size: 10px;">End of Summary Audit · Riverside OS v0.2.0 · Generated: ${new Date().toLocaleString()}</p>
+    <p class="muted" style="font-size: 10px;">End of Summary Audit · Riverside Men's Shop · Generated: ${new Date().toLocaleString()}</p>
   </div>
   </body></html>`);
   w.document.close();
   w.focus();
-  setTimeout(() => w.print(), 500);
+
+  // Check if running in Tauri
+  const isTauriEnv = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+
+  if (isTauriEnv) {
+    setTimeout(async () => {
+      try {
+        const { open } = await import("@tauri-apps/plugin-shell");
+        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+        const { save } = await import("@tauri-apps/plugin-dialog");
+
+        const filePath = await save({
+          defaultPath: `daily-sales-report.html`,
+          filters: [{ name: "HTML", extensions: ["html"] }],
+        });
+
+        if (filePath) {
+          await writeTextFile(filePath, w.document.documentElement.outerHTML);
+          await open(filePath);
+        }
+      } catch (err) {
+        console.error("Tauri print failed:", err);
+        try {
+          w.print();
+        } catch (e) {
+          console.error("Print failed:", e);
+          alert("Print dialog could not be opened. Please check your browser settings.");
+        }
+      }
+    }, 500);
+  } else {
+    setTimeout(() => {
+      try {
+        w.print();
+      } catch (e) {
+        console.error("Print failed:", e);
+        alert("Print dialog could not be opened. Please check your browser settings.");
+      }
+    }, 500);
+  }
 }
 
 export function openProfessionalTablePrint(opts: {
@@ -738,6 +861,8 @@ export function openProfessionalTablePrint(opts: {
 }): void {
   const w = window.open("", "_blank", "width=950,height=950");
   if (!w) return;
+
+  w.document.title = opts.title;
 
   const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
   const escapeHtml = (value: string) =>
@@ -795,10 +920,49 @@ export function openProfessionalTablePrint(opts: {
   </table>
 
   <div style="margin-top: 40px; text-align: right;">
-    <p class="muted" style="font-size: 9px;">End of Report · Riverside OS Proprietary Document</p>
+    <p class="muted" style="font-size: 9px;">End of Report · Riverside Men's Shop Proprietary Document</p>
   </div>
   </body></html>`);
   w.document.close();
   w.focus();
-  setTimeout(() => w.print(), 500);
+
+  // Check if running in Tauri
+  const isTauriEnv = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+
+  if (isTauriEnv) {
+    setTimeout(async () => {
+      try {
+        const { open } = await import("@tauri-apps/plugin-shell");
+        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+        const { save } = await import("@tauri-apps/plugin-dialog");
+
+        const filePath = await save({
+          defaultPath: `${opts.title.replace(/[^a-z0-9]/gi, '_')}.html`,
+          filters: [{ name: "HTML", extensions: ["html"] }],
+        });
+
+        if (filePath) {
+          await writeTextFile(filePath, w.document.documentElement.outerHTML);
+          await open(filePath);
+        }
+      } catch (err) {
+        console.error("Tauri print failed:", err);
+        try {
+          w.print();
+        } catch (e) {
+          console.error("Print failed:", e);
+          alert("Print dialog could not be opened. Please check your browser settings.");
+        }
+      }
+    }, 500);
+  } else {
+    setTimeout(() => {
+      try {
+        w.print();
+      } catch (e) {
+        console.error("Print failed:", e);
+        alert("Print dialog could not be opened. Please check your browser settings.");
+      }
+    }, 500);
+  }
 }

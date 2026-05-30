@@ -32,6 +32,7 @@ interface UseCartCheckoutProps {
   pendingAlterationIntakes: PendingAlterationIntake[];
   orderPaymentLines: OrderPaymentCartLine[];
   pickupConfirmed: boolean;
+  pickupTransactionId: string | null;
   saleDateTimeLocal?: string | null;
   totals: CartTotals;
   toast: (msg: string, type?: "success" | "error" | "info") => void;
@@ -107,6 +108,7 @@ export function useCartCheckout({
   pendingAlterationIntakes,
   orderPaymentLines,
   pickupConfirmed,
+  pickupTransactionId,
   saleDateTimeLocal,
   totals,
   toast,
@@ -314,39 +316,41 @@ export function useCartCheckout({
         tax_exempt_reason: ledgerSignals.isTaxExempt ? (ledgerSignals.taxExemptReason ?? "Other") : undefined,
         rounding_adjustment: ledgerSignals.roundingAdjustmentCents ? centsToFixed2(ledgerSignals.roundingAdjustmentCents) : undefined,
         final_cash_due: ledgerSignals.finalCashDueCents ? centsToFixed2(ledgerSignals.finalCashDueCents) : undefined,
-        items: checkoutLines.map((l) => {
-          const unitCents = parseMoneyToCents(l.standard_retail_price);
-          const origCents = l.original_unit_price != null ? parseMoneyToCents(l.original_unit_price) : unitCents;
-          const fulfillment = pickupConfirmed ? "takeaway" : (l.fulfillment ?? "takeaway");
-          const appliesOrderOptions = fulfillment !== "takeaway";
-          return {
-            client_line_id: l.cart_row_id,
-            line_type: l.line_type ?? "merchandise",
-            alteration_intake_id: l.alteration_intake_id ?? null,
-            product_id: l.product_id,
-            variant_id: l.variant_id,
-            fulfillment,
-            quantity: l.quantity,
-            unit_price: centsToFixed2(unitCents),
-            original_unit_price: origCents !== unitCents ? centsToFixed2(origCents) : undefined,
-            price_override_reason: l.price_override_reason,
-            unit_cost: centsToFixed2(parseMoneyToCents(l.unit_cost)),
-            state_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.state_tax)),
-            local_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.local_tax)),
-            salesperson_id: l.salesperson_id?.trim() || null,
-            custom_item_type: l.custom_item_type,
-            custom_order_details: l.custom_order_details ?? undefined,
-            is_rush: l.is_rush || (appliesOrderOptions ? Boolean(options?.is_rush) : false),
-            need_by_date: l.need_by_date ?? (appliesOrderOptions ? options?.need_by_date ?? null : null),
-            needs_gift_wrap: l.needs_gift_wrap,
-            order_lifecycle_status:
-              appliesOrderOptions && l.order_lifecycle_status === "needs_measurements"
-                ? "needs_measurements"
-                : undefined,
-            ...(l.discount_event_id ? { discount_event_id: l.discount_event_id } : {}),
-            ...(l.gift_card_load_code?.trim() ? { gift_card_load_code: l.gift_card_load_code.trim().toUpperCase() } : {}),
-          };
-        }),
+        items: checkoutLines
+          .filter((l) => !l.transaction_line_id)
+          .map((l) => {
+            const unitCents = parseMoneyToCents(l.standard_retail_price);
+            const origCents = l.original_unit_price != null ? parseMoneyToCents(l.original_unit_price) : unitCents;
+            const fulfillment = pickupConfirmed ? "takeaway" : (l.fulfillment ?? "takeaway");
+            const appliesOrderOptions = fulfillment !== "takeaway";
+            return {
+              client_line_id: l.cart_row_id,
+              line_type: l.line_type ?? "merchandise",
+              alteration_intake_id: l.alteration_intake_id ?? null,
+              product_id: l.product_id,
+              variant_id: l.variant_id,
+              fulfillment,
+              quantity: l.quantity,
+              unit_price: centsToFixed2(unitCents),
+              original_unit_price: origCents !== unitCents ? centsToFixed2(origCents) : undefined,
+              price_override_reason: l.price_override_reason,
+              unit_cost: centsToFixed2(parseMoneyToCents(l.unit_cost)),
+              state_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.state_tax)),
+              local_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.local_tax)),
+              salesperson_id: l.salesperson_id?.trim() || null,
+              custom_item_type: l.custom_item_type,
+              custom_order_details: l.custom_order_details ?? undefined,
+              is_rush: l.is_rush || (appliesOrderOptions ? Boolean(options?.is_rush) : false),
+              need_by_date: l.need_by_date ?? (appliesOrderOptions ? options?.need_by_date ?? null : null),
+              needs_gift_wrap: l.needs_gift_wrap,
+              order_lifecycle_status:
+                appliesOrderOptions && l.order_lifecycle_status === "needs_measurements"
+                  ? "needs_measurements"
+                  : undefined,
+              ...(l.discount_event_id ? { discount_event_id: l.discount_event_id } : {}),
+              ...(l.gift_card_load_code?.trim() ? { gift_card_load_code: l.gift_card_load_code.trim().toUpperCase() } : {}),
+            };
+          }),
         alteration_intakes: pendingAlterationIntakes.map((intake) => ({
           intake_id: intake.id,
           alteration_line_client_id: intake.alteration_cart_row_id!,
@@ -452,6 +456,32 @@ export function useCartCheckout({
       if (execution?.emitSaleCompleted !== false) {
         onSaleCompleted?.();
       }
+
+      // Call pickup API after successful checkout when in pickup mode
+      if (pickupTransactionId) {
+        try {
+          const pickupRes = await fetch(`${baseUrl}/api/transactions/${pickupTransactionId}/pickup`, {
+            method: "POST",
+            headers: { ...apiAuth(), "Content-Type": "application/json" },
+            body: JSON.stringify({
+              delivered_item_ids: lines
+                .filter((l) => l.transaction_line_id)
+                .map((l) => l.transaction_line_id),
+              actor: "Register Pickup Flow",
+              override_readiness: false,
+            }),
+          });
+          if (pickupRes.ok) {
+            toast("Pickup completed successfully.", "success");
+          } else {
+            const body = await pickupRes.json().catch(() => ({})) as { error?: string };
+            toast(body.error ?? "Pickup could not be completed after checkout.", "error");
+          }
+        } catch {
+          toast("Pickup API call failed after checkout.", "error");
+        }
+      }
+
       return data.transaction_id;
     } catch (e) {
       playPosScanError();
@@ -463,7 +493,7 @@ export function useCartCheckout({
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
     cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
-    pickupConfirmed, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, checkoutClientId
+    pickupConfirmed, pickupTransactionId, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, checkoutClientId
   ]);
 
   return {

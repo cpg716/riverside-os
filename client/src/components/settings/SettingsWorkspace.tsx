@@ -52,7 +52,6 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import OnlineStoreConfigPanel from "./OnlineStoreConfigPanel";
 import HelpCenterSettingsPanel from "./HelpCenterSettingsPanel";
 import CounterpointSyncSettingsPanel from "./CounterpointSyncSettingsPanel";
-import InventoryMigrationWorkbench from "./InventoryMigrationWorkbench";
 import StationNetworkPanel from "./StationNetworkPanel";
 import { StaffRoleAccessPanel } from "../staff/StaffAccessPanels";
 import StaffDiscountCapsPanel from "../staff/StaffDiscountCapsPanel";
@@ -195,7 +194,6 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   quickbooks: "QuickBooks connection settings and accounting bridge controls.",
   "constant-contact": "Sync opted-in customer lists and map group codes to Constant Contact lists.",
   counterpoint: "Counterpoint sync status, mappings, staging, and issue handling.",
-  "migration-workbench": "Guided step-by-step inventory import and data migration workbench.",
   nuorder: "NuORDER catalog and vendor sync configuration.",
   geoapify: "Address lookup setup for customer, vendor, and shipping entry.",
   weather: "Weather provider settings for store planning signals.",
@@ -251,7 +249,6 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   quickbooks: Plug,
   "constant-contact": Mail,
   counterpoint: Server,
-  "migration-workbench": Server,
   nuorder: Plug,
   geoapify: MapPin,
   weather: Plug,
@@ -1365,12 +1362,7 @@ export default function SettingsWorkspace({
                 </div>
               )}
 
-            {activeTab === "migration-workbench" &&
-              hasPermission("settings.admin") && (
-                <div className="space-y-10">
-                  <InventoryMigrationWorkbench />
-                </div>
-              )}
+
 
             {activeTab === "remote-access" && (
               <div className="space-y-10">

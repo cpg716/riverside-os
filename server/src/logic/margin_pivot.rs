@@ -64,6 +64,11 @@ pub async fn run_margin_pivot(
         "o.status::text <> 'cancelled' AND ({ts}) IS NOT NULL AND (({ts}) AT TIME ZONE reporting.effective_store_timezone())::date >= ($1 AT TIME ZONE 'UTC')::date AND (({ts}) AT TIME ZONE reporting.effective_store_timezone())::date < ($2 AT TIME ZONE 'UTC')::date",
         ts = ORDER_RECOGNITION_TS_SQL.trim()
     );
+    let margin_pivot_excluded_line_kinds_sql = r#"
+            AND COALESCE(oi.is_internal, false) = FALSE
+            AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+            AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+    "#;
 
     if gb == "customer" {
         let date_filter = if completed {
@@ -117,6 +122,7 @@ pub async fn run_margin_pivot(
             LEFT JOIN staff st ON st.id = oi.salesperson_id
             {returns_join}
             WHERE {date_filter}
+              {margin_pivot_excluded_line_kinds_sql}
             GROUP BY o.customer_id
             ORDER BY gross_revenue DESC NULLS LAST
             LIMIT 201
@@ -171,6 +177,7 @@ pub async fn run_margin_pivot(
                 LEFT JOIN staff st ON st.id = oi.salesperson_id
                 {returns_join}
                 WHERE {date_filter}
+                  {margin_pivot_excluded_line_kinds_sql}
                 GROUP BY {date_key}
             )
             SELECT
@@ -243,6 +250,7 @@ pub async fn run_margin_pivot(
             LEFT JOIN staff st ON st.id = oi.salesperson_id
             {returns_join}
             WHERE {date_filter}
+              {margin_pivot_excluded_line_kinds_sql}
             GROUP BY {dim_sql}
             ORDER BY gross_revenue DESC NULLS LAST
             LIMIT 201

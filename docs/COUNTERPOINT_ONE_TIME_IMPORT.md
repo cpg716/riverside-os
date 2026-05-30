@@ -4,6 +4,23 @@ Directed migration from Counterpoint (SQL Server + Windows bridge) into ROS Post
 
 This path is intended for a **single controlled import and validation cycle**. After cutover, **Riverside OS becomes the system of record** and the Counterpoint bridge should be retired.
 
+**Note:** The Counterpoint Sync and Migration Inventory Workbench have been consolidated into a single **8-step guided pipeline** in **Settings → Integrations → Counterpoint**. Use the guided pipeline for all migration work instead of the previous separate workbench.
+
+## Guided Migration Pipeline Overview
+
+The unified 8-step pipeline enforces a logical sequence of data preparation, cleaning, verification, and live import:
+
+1. **Step 1: SQL Bridge Sync** - Sync raw staging rows from Counterpoint
+2. **Step 2: Inventory & Catalog Mapping** - Map codes, run ROSIE AI, & fix barcodes
+3. **Step 3: Customers & CRM** - Review & load staged customer profiles
+4. **Step 4: Sales & Ticket History** - Review & load closed tickets
+5. **Step 5: Gift Cards & Liabilities** - Verify active liabilities
+6. **Step 6: Open Orders & Layaways** - Load active orders & deposits
+7. **Step 7: Loyalty History** - Verify & load loyalty balances
+8. **Step 8: Audit & Live Cutover** - Landing audit & final Go-Live sign-off
+
+Each step includes progress tracking, approval gates, and clear instructions. Work is safely isolated in the Staging Area until you click Apply in each step.
+
 ## Bridge import order and guards
 
 The Windows bridge runs entities in a **single fixed pipeline** (`counterpoint-bridge/index.mjs`). Startup **validates** flag combinations (for example, `SYNC_TICKETS` requires `SYNC_CUSTOMERS` and `SYNC_CATALOG`, and `SYNC_INVENTORY` requires `SYNC_CATALOG`). For incremental expert runs against an already-seeded ROS database, set **`SYNC_RELAXED_DEPENDENCIES=1`** in `.env` to skip those exits.

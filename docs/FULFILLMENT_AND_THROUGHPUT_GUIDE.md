@@ -22,11 +22,50 @@ The fulfillment queue ([fulfillment_queue.rs](file:///server/src/logic/fulfillme
 *   **Definition**: Orders that have been open for over **14 days** with 0% fulfillment progress.
 *   **Action**: Manager review required to unblock (verify stock, contact customer).
 
+## ORDER Pick up Guards
+
+### Inventory Availability Check
+- **Purpose**: Prevent pickup when insufficient stock is available
+- **Check**: Verifies `stock_on_hand >= quantity` for all unfulfilled lines before allowing pickup
+- **Error Message**: Shows which items have insufficient inventory with need/have counts
+- **Override**: Manager can bypass with explicit reason (minimum 12 characters) and manager PIN
+- **Applies To**: All fulfillment types (special_order, custom, wedding_order, layaway) and all unfulfilled transactions
+
+### Received Status Check
+- **Purpose**: Ensure items physically arrived before marking ready for pickup
+- **Check**: Verifies `received_at` is not NULL (item went through ordered → received lifecycle via vendor invoice)
+- **Error Message**: "Cannot mark ready for pickup: item must be received first (ordered and received via vendor invoice)"
+- **Override**: Manager can bypass with `override_checks` flag, manager PIN, and clear reason
+- **Allows**: Negative inventory for exceptional cases (receiving later brings stock positive)
+
+### Payment Screen Recognition
+- **Purpose**: Ensure payment screen recognizes previous deposits for pickup transactions
+- **Fix**: Shows order payment line even when balance due is 0 if there were previous deposits
+- **Applies To**: All unfulfilled transactions regardless of fulfillment type or balance due status
+
+### Manager Override Mechanism
+- **Required**: Manager PIN and clear reason (minimum 12 characters)
+- **Scope**: Bypasses inventory availability check, received status check, and alteration pending check
+- **Use Case**: Exceptional cases where pickup must proceed despite missing inventory or un-received items
+- **Audit**: Override reason is logged for accountability
+
 ## API Integration
 
-The `GET /api/transactions/fulfillment-queue` endpoint returns a summary of these counts and a ranked list of transactions. 
+The `GET /api/transactions/fulfillment-queue` endpoint returns a summary of these counts and a ranked list of transactions.
 *   **Query Params**: `limit`, `offset`.
 *   **Permissions**: `orders.view`.
+
+### Pickup API
+- **Endpoint**: `POST /api/transactions/{transaction_id}/pickup`
+- **Request Body**: `PickupTransactionRequest` with optional `override_readiness`, `override_reason`, `delivered_item_ids`
+- **Checks Performed**: Balance due, readiness status, inventory availability
+- **Permissions**: Requires appropriate transaction access
+
+### Order Lifecycle API
+- **Endpoint**: `PATCH /api/order-lifecycle/{transaction_line_id}/transition`
+- **Request Body**: `TransitionRequest` with `next_status`, `reason`, `manager_pin`, `override_checks`
+- **Checks Performed**: Alteration pending status, received status (when transitioning to ready_for_pickup)
+- **Permissions**: `orders.lifecycle_manage`
 
 ## UI Components
 
@@ -35,7 +74,15 @@ A high-density dashboard used in the **Operations** workspace.
 *   **Stat Cards**: Pulsing indicators for Rush and Due Soon items.
 *   **Queue Table**: Summarized order rows with quick-jump links to the Back Office.
 
+### RosieSettingsPanel.tsx
+ROSIE configuration panel including:
+*   **RosieTokenMonitor**: Displays daily token use, monthly usage, and estimated monthly cost
+*   **Access**: Requires `help.manage` permission for token metrics view
+
 ## Operational Best Practices
 *   **Mid-Day**: Focused effort on **Rush** and **Due Soon** items.
 *   **Intelligence Check**: Review the **Wedding Health Heatmap** in the Wedding Manager to identify "silent failures" (missing measurements) before they hit the fulfillment queue.
 *   **Manager Review**: Check the **Blocked** filter weekly to prune dead orders.
+*   **Pickup Verification**: Always verify inventory availability before pickup. Use manager override only for exceptional cases with clear documentation.
+*   **Layaway Handling**: All pickup checks apply to layaway transactions - ensure stock is available before releasing layaway items.
+*   **Token Cost Monitoring**: Review ROSIE token telemetry monthly to evaluate local vs cloud API costs before scaling decisions.

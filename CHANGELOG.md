@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- **ROSIE Token Telemetry System**: Comprehensive token usage tracking for cost analysis and provider comparison when evaluating local LLMs vs cloud-based APIs:
+  - **Database Migration**: `060_rosie_token_telemetry.sql` adds `rosie_token_telemetry` table with fields for model name, provider, input/output tokens, and timestamp. Includes indexes for efficient date-based and provider/model queries.
+  - **Non-Blocking Telemetry Recording**: `record_token_telemetry()` function in `rosie_intelligence.rs` uses `tokio::spawn` for fire-and-forget DB inserts, ensuring POS terminal performance is not impacted by telemetry recording.
+  - **Token Metrics Query**: `get_token_metrics()` function returns daily tokens, monthly tokens, and estimated monthly cost (using placeholder rate of $0.50 per 1M tokens, configurable for per-provider rates).
+  - **API Endpoint**: `GET /api/settings/rosie/token-metrics` exposes telemetry metrics for admin staff (requires `settings.admin` permission).
+  - **UI Component**: `RosieTokenMonitor` component in `RosieSettingsPanel.tsx` displays daily token use, actual monthly usage, and estimated monthly cost with clear formatting and placeholder rate disclaimer.
+- **ORDER Pick up Inventory and Lifecycle Guards**: Enhanced pickup workflow with inventory availability and lifecycle status checks:
+  - **Inventory Availability Check**: Pickup guard now verifies `stock_on_hand >= quantity` for all unfulfilled lines before allowing pickup. Error message shows which items have insufficient inventory with need/have counts.
+  - **Received Status Check**: When transitioning to `ReadyForPickup` status, system now verifies `received_at` is not NULL (item went through ordered → received lifecycle via vendor invoice). Prevents marking items ready before they physically arrive.
+  - **Manager Override Mechanism**: Both inventory and received status checks can be bypassed using manager override with explicit reason (minimum 12 characters). Requires manager PIN and clear reason. Allows negative inventory for exceptional cases (receiving later brings stock positive).
+  - **Payment Screen Recognition**: Fixed order payment line display for pickup transactions - now shows order payment line even when balance due is 0 if there were previous deposits, ensuring payment screen recognizes the transaction properly.
+  - **Layaway and All Unfulfilled Transactions**: All pickup checks (inventory, received status, manager override, payment recognition) apply to layaway and all unfulfilled transactions regardless of fulfillment type or balance due status.
+
+### Changed
+- **Counterpoint Sync & Guided Migration Pipeline Consolidation**: Unified Counterpoint Sync and Migration Inventory Workbench into a single 8-step guided pipeline:
+  - **8-Step Stepper**: SQL Bridge Sync → Inventory Catalog → Customers & CRM → Sales & Ticket History → Gift Cards & Liabilities → Open Orders & Layaways → Loyalty History → Audit & Live Cutover
+  - **Consolidated Component**: Merged `InventoryMigrationWorkbench.tsx` logic into `CounterpointSyncSettingsPanel.tsx` under Step 2 sub-tabs
+  - **Step 2 Sub-Tabs**: CSV Enrichment, Category Maps, Vendor Maps, AI Enrichment (ROSIE), SKU Gaps, Merge Preview
+  - **Linear Step Enforcement**: Steps unlock sequentially based on completion of previous steps
+  - **Pipeline Percentage**: Visual progress indicator showing completion across all 8 steps
+  - **Backend Step Gate**: Step approval system with `approve-step` API endpoint
+  - **Simplified Terminology**: "Open Orders & Deposits", "Gift Card Active Liabilities", "Sales & Ticket History", "Staging Area"
+  - **Deleted Files**: Removed `InventoryMigrationWorkbench.tsx` (logic consolidated)
+  - **Updated Navigation**: Removed "Migration Workbench" from `sidebarSections.ts` and `SettingsWorkspace.tsx`
+- **NY Tax Audit Report Simplification**: Simplified the NY Tax Audit API response structure to match NY State filing requirements with user-friendly fields:
+  - **Simplified Response**: Replaced complex line categorization (clothing_footwear_lines, local_only_exempt_lines, clothing_at_or_over_threshold_lines, etc.) with three clear sales categories: gross_sales, taxable_sales, nontaxable_sales.
+  - **Tax Totals**: Added total_state_tax, total_local_tax, and total_tax_collected for easy reporting.
+  - **Backend**: Updated `nys_tax_audit` function in `insights.rs` to aggregate data into the simplified structure.
+  - **Frontend**: Updated `reportsCatalog.ts` to reflect the new simplified title and description.
+- **Z-Report Print Layout Redesign**: Major visual overhaul of the Z-Report print output for better readability and professional appearance:
+  - **Activity Cards**: Replaced table-based transaction list with card-based layout showing payment method pill, timestamp, customer name, transaction ID chip, and lane chip.
+  - **Item Display**: Enhanced item rows with bold product names, muted SKU/fulfillment details, and monospace pricing in a clean grid layout.
+  - **Money Section**: Reorganized transaction totals with clear labels for Transaction Amount, Sale Total, Paid, and Balance Due.
+  - **CSS Styling**: Added new CSS classes for activity cards, pills, chips, section labels, and improved spacing/borders.
+  - **Branding Update**: Changed header from "RIVERSIDE OS" to "RIVERSIDE MEN'S SHOP" throughout print outputs.
+  - **Tauri Print Integration**: Added Tauri file save dialog for desktop app - saves HTML file and opens in default browser instead of direct print, with graceful fallback to browser print.
+  - **Error Handling**: Added print failure error handling with user-friendly alerts.
+- **Daily Sales Report Print Enhancements**: Improved daily sales report print output:
+  - **Grand Total**: Added grand total calculation displayed at end of report with clear formatting.
+  - **Document Title**: Added document title for browser tab identification.
+  - **Generated Timestamp**: Added generated timestamp to report header and footer.
+  - **Tauri Integration**: Added Tauri file save dialog for desktop app with same save-and-open workflow as Z-Report.
+  - **Section Rename**: Changed "Activity Detail" to "Transaction List" for clarity.
+- **Table Print Enhancements**: Improved generic table print output:
+  - **Document Title**: Added document title based on report name.
+  - **Branding Update**: Changed footer from "RIVERSIDE OS" to "Riverside Men's Shop".
+  - **Tauri Integration**: Added Tauri file save dialog with save-and-open workflow.
+  - **Error Handling**: Added print failure error handling.
+- **Register Reports CSV Export Enhancement**: Improved CSV export with totals and Tauri native file dialog:
+  - **Total Rows**: Added grand total row at end of CSV with TOTAL label and summed values for Transaction Total, Sales Total, Tax, and Net Total.
+  - **Tauri Native Dialog**: Added Tauri file save dialog using `@tauri-apps/plugin-dialog` and `@tauri-apps/plugin-fs` for native file picker experience in desktop app.
+  - **Fallback**: Graceful fallback to browser download method if Tauri environment is not available or save fails.
+  - **Async Function**: Converted `handleExportCSV` to async function to support Tauri plugin imports.
+
+### Migration
+- `060_rosie_token_telemetry.sql` — adds `rosie_token_telemetry` table for tracking AI token usage with indexes on timestamp and provider/model.
+
 ## [0.85.0] - 2026-05-28
 
 ### Added

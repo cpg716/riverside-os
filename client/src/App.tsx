@@ -195,6 +195,7 @@ function App() {
   const [pendingPosTransactionId, setPendingPosTransactionId] = useState<string | null>(
     null,
   );
+  const [pendingPosTransactionForPickup, setPendingPosTransactionForPickup] = useState(false);
   const [transactionsDeepLinkTxnId, setTransactionsDeepLinkTxnId] = useState<
     string | null
   >(null);
@@ -442,7 +443,10 @@ function App() {
     [],
   );
   const clearPendingPosTransaction = useCallback(
-    () => setPendingPosTransactionId(null),
+    () => {
+      setPendingPosTransactionId(null);
+      setPendingPosTransactionForPickup(false);
+    },
     [],
   );
   const clearPendingWeddingPosLink = useCallback(
@@ -1072,7 +1076,9 @@ function App() {
             pendingPosCustomer={pendingPosCustomer}
             setPendingPosCustomer={setPendingPosCustomer}
             pendingPosTransactionId={pendingPosTransactionId}
+            pendingPosTransactionForPickup={pendingPosTransactionForPickup}
             setPendingPosTransactionId={setPendingPosTransactionId}
+            setPendingPosTransactionForPickup={setPendingPosTransactionForPickup}
             clearPendingPosCustomer={clearPendingPosCustomer}
             clearPendingPosTransaction={clearPendingPosTransaction}
             pendingWeddingPosLink={pendingWeddingPosLink}
@@ -1183,7 +1189,9 @@ interface AppShellProps {
   pendingPosCustomer: Customer | null;
   setPendingPosCustomer: (c: Customer | null) => void;
   pendingPosTransactionId: string | null;
+  pendingPosTransactionForPickup: boolean;
   setPendingPosTransactionId: (id: string | null) => void;
+  setPendingPosTransactionForPickup: (forPickup: boolean) => void;
   clearPendingPosCustomer: () => void;
   clearPendingPosTransaction: () => void;
   pendingWeddingPosLink: RosOpenRegisterFromWmDetail | null;
@@ -1269,7 +1277,9 @@ function AppShell({
   receiptTimezone,
   pendingPosCustomer,
   pendingPosTransactionId,
+  pendingPosTransactionForPickup,
   setPendingPosTransactionId,
+  setPendingPosTransactionForPickup,
   setPendingPosCustomer,
   clearPendingPosCustomer,
   clearPendingPosTransaction,
@@ -1464,7 +1474,9 @@ function AppShell({
             receiptTimezone={receiptTimezone ?? "UTC"}
             pendingPosCustomer={pendingPosCustomer}
             pendingPosTransactionId={pendingPosTransactionId}
+            pendingPosTransactionForPickup={pendingPosTransactionForPickup}
             setPendingPosTransactionId={setPendingPosTransactionId}
+            setPendingPosTransactionForPickup={setPendingPosTransactionForPickup}
             setPendingPosCustomer={setPendingPosCustomer}
             clearPendingPosCustomer={clearPendingPosCustomer}
             clearPendingPosTransaction={clearPendingPosTransaction}

@@ -72,6 +72,7 @@ import {
   type ResolvedSkuItem,
   type CartLineItem,
   type FulfillmentKind,
+  type OrderLifecycleStatus,
   type PosStaffRow,
   type ActiveDiscountEvent,
   type RmsPaymentLineMeta,
@@ -177,8 +178,12 @@ interface ExchangeReturnHandoff {
 interface HandoffOrderDetail {
   transaction_id: string;
   transaction_display_id?: string;
+  primary_salesperson_id?: string | null;
   fulfillment_method?: string;
   shipping_amount_usd?: string | null;
+  total_price?: string;
+  amount_paid?: string;
+  balance_due?: string;
   customer: {
     id: string;
     first_name: string;
@@ -189,6 +194,7 @@ interface HandoffOrderDetail {
     company_name?: string | null;
   } | null;
   items: Array<{
+    transaction_line_id: string;
     product_id: string;
     variant_id: string;
     sku: string;
@@ -204,6 +210,8 @@ interface HandoffOrderDetail {
     is_internal?: boolean;
     custom_item_type?: string | null;
     custom_order_details?: ResolvedSkuItem["custom_order_details"];
+    order_lifecycle_status?: string;
+    salesperson_id?: string | null;
   }>;
 }
 
@@ -256,6 +264,8 @@ interface CartProps {
   onInitialCustomerConsumed?: () => void;
   initialTransactionId?: string | null;
   onInitialTransactionConsumed?: () => void;
+  /** When true, loading the transaction is for pickup flow - will auto-add balance payment and call pickup API after checkout */
+  initialTransactionForPickup?: boolean;
   initialWeddingLookupOpen?: boolean;
   managerMode?: boolean;
   /** From Wedding Manager: pre-link customer + wedding member for wedding_order checkout. */
@@ -285,6 +295,7 @@ export default function Cart({
   onInitialCustomerConsumed,
   initialTransactionId = null,
   onInitialTransactionConsumed,
+  initialTransactionForPickup = false,
   managerMode = false,
   // initialWeddingLookupOpen removed
   initialWeddingPosLink = null,
@@ -339,6 +350,7 @@ export default function Cart({
   const [salePinCredential, setSalePinCredential] = useState("");
   const [salePinError, setSalePinError] = useState<string | null>(null);
   const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
+  const [pickupTransactionId, setPickupTransactionId] = useState<string | null>(null);
 
   // --- UI States (Restored to Cart.tsx) ---
   const [checkoutDrawerOpen, setCheckoutDrawerOpen] = useState(false);
@@ -1103,6 +1115,10 @@ export default function Cart({
   const totals = useMemo(() => {
     const res = lines.reduce(
       (acc, l) => {
+        if (l.transaction_line_id) {
+          return acc;
+        }
+
         const pC = parseMoneyToCents(l.standard_retail_price);
         const stC = parseMoneyToCents(l.state_tax);
         const ltC = parseMoneyToCents(l.local_tax);
@@ -1234,6 +1250,7 @@ export default function Cart({
     pendingAlterationIntakes,
     orderPaymentLines,
     pickupConfirmed,
+    pickupTransactionId,
     saleDateTimeLocal,
     totals,
     toast,
@@ -1567,7 +1584,7 @@ export default function Cart({
   }, [initialCustomer, onInitialCustomerConsumed, setSelectedCustomer]);
 
   const loadTransactionIntoRegister = useCallback(
-    async (transactionId: string) => {
+    async (transactionId: string, forPickup: boolean = false) => {
       const res = await fetch(`${baseUrl}/api/transactions/${transactionId}`, {
         headers: apiAuth(),
       });
@@ -1591,6 +1608,7 @@ export default function Cart({
         toast("This Transaction Record has no customer attached, so it cannot be reopened from the customer order menu.", "error");
         return false;
       }
+
       setSelectedCustomer({
         id: detail.customer.id,
         customer_code: detail.customer.customer_code ?? "",
@@ -1600,6 +1618,81 @@ export default function Cart({
         email: detail.customer.email ?? null,
         phone: detail.customer.phone ?? null,
       });
+
+      if (forPickup) {
+        // Pickup mode: load unfulfilled items into cart
+        setPickupTransactionId(detail.transaction_id);
+        const balanceDueCents = parseMoneyToCents(detail.balance_due ?? "0");
+
+        if (detail.primary_salesperson_id) {
+          setPrimarySalespersonId(detail.primary_salesperson_id);
+        }
+
+        // Add unfulfilled items to cart
+        const cartLines: CartLineItem[] = unfulfilled.map((item) => ({
+          product_id: item.product_id,
+          variant_id: item.variant_id,
+          sku: item.sku,
+          name: item.product_name,
+          variation_label: item.variation_label ?? null,
+          standard_retail_price: item.unit_price,
+          unit_cost: item.unit_cost ?? "0.00",
+          state_tax: item.state_tax ?? "0.00",
+          local_tax: item.local_tax ?? "0.00",
+          tax_category: "other",
+          quantity: item.quantity,
+          fulfillment: item.fulfillment as FulfillmentKind,
+          cart_row_id: newCartRowId(),
+          transaction_line_id: item.transaction_line_id,
+          salesperson_id: item.salesperson_id || null,
+          line_type: item.custom_item_type === "alteration_service" ? "alteration_service" : "merchandise",
+          custom_item_type: item.custom_item_type || undefined,
+          custom_order_details: item.custom_order_details ?? null,
+          order_lifecycle_status: item.order_lifecycle_status as OrderLifecycleStatus | undefined,
+        }));
+
+        setLines(cartLines);
+
+        // If balance due, add order payment line
+        if (balanceDueCents > 0) {
+          const customerName = `${detail.customer.first_name} ${detail.customer.last_name}`.trim();
+          const orderPaymentLine: OrderPaymentCartLine = {
+            line_type: "order_payment",
+            cart_row_id: newCartRowId(),
+            target_transaction_id: detail.transaction_id,
+            target_display_id: detail.transaction_display_id ?? detail.transaction_id.slice(0, 8).toUpperCase(),
+            customer_id: detail.customer.id,
+            customer_name: customerName || detail.customer.first_name || "Customer",
+            amount: centsToFixed2(balanceDueCents),
+            balance_before: detail.balance_due ?? "0.00",
+            projected_balance_after: "0.00",
+          };
+          setOrderPaymentLines([orderPaymentLine]);
+        } else if (balanceDueCents === 0 && detail.amount_paid && parseMoneyToCents(detail.amount_paid) > 0) {
+          // Show previous deposits even if no balance due
+          const customerName = `${detail.customer.first_name} ${detail.customer.last_name}`.trim();
+          const orderPaymentLine: OrderPaymentCartLine = {
+            line_type: "order_payment",
+            cart_row_id: newCartRowId(),
+            target_transaction_id: detail.transaction_id,
+            target_display_id: detail.transaction_display_id ?? detail.transaction_id.slice(0, 8).toUpperCase(),
+            customer_id: detail.customer.id,
+            customer_name: customerName || detail.customer.first_name || "Customer",
+            amount: "0.00",
+            balance_before: detail.balance_due ?? "0.00",
+            projected_balance_after: "0.00",
+          };
+          setOrderPaymentLines([orderPaymentLine]);
+        }
+
+        toast(
+          `Loaded ${unfulfilled.length} item(s) from ${detail.transaction_display_id ?? "transaction"} for pickup. ${balanceDueCents > 0 ? "Balance due added to cart." : "No balance due."}`,
+          "success",
+        );
+        return true;
+      }
+
+      // Normal mode: open OrderLoadModal
       setOrderLoadOpen(true);
       toast(
         `Opened ${detail.transaction_display_id ?? "transaction"} in Customer Orders. Add payments or edit the original order there; ROS will not start a new sale for this order.`,
@@ -1607,7 +1700,7 @@ export default function Cart({
       );
       return true;
     },
-    [apiAuth, baseUrl, setSelectedCustomer, toast],
+    [apiAuth, baseUrl, setSelectedCustomer, toast, setLines, setOrderPaymentLines, setPrimarySalespersonId],
   );
 
   useEffect(() => {
@@ -1623,14 +1716,14 @@ export default function Cart({
     }
     initialTransactionApplyingRef.current = initialTransactionId;
     void (async () => {
-      await loadTransactionIntoRegister(initialTransactionId);
+      await loadTransactionIntoRegister(initialTransactionId, initialTransactionForPickup);
       initialTransactionAppliedRef.current = initialTransactionId;
       if (initialTransactionApplyingRef.current === initialTransactionId) {
         initialTransactionApplyingRef.current = null;
       }
       onInitialTransactionConsumed?.();
     })();
-  }, [initialTransactionId, loadTransactionIntoRegister, onInitialTransactionConsumed, saleHydrated]);
+  }, [initialTransactionId, initialTransactionForPickup, loadTransactionIntoRegister, onInitialTransactionConsumed, saleHydrated]);
 
   useEffect(() => {
     if (!initialWeddingPosLink?.member?.customer_id) return;
@@ -4004,6 +4097,11 @@ export default function Cart({
             onAddItemToOrder={addItemToExistingOrder}
             onUpdateOrderItem={updateExistingOrderItem}
             onDeleteOrderItem={deleteExistingOrderItem}
+            onOpenInRegisterForPickup={(orderId) => {
+              setPickupTransactionId(orderId);
+              setOrderLoadOpen(false);
+              void loadTransactionIntoRegister(orderId, true);
+            }}
           />
 
           <OrderReviewModal

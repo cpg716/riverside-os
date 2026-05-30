@@ -37,6 +37,7 @@ import {
 } from "../../lib/reportsCatalog";
 import { openProfessionalTablePrint } from "../pos/zReportPrint";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { isTauri } from "@tauri-apps/api/core";
 
 const baseUrl = getBaseUrl();
 
@@ -304,19 +305,50 @@ function rowsWithDisplayLabels(
   });
 }
 
-function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
+async function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
   const cols = keysFromRows(rows);
   const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
   const lines = [
     cols.join(","),
     ...rows.map((r) => cols.map((c) => esc(toCellString(r[c]))).join(",")),
   ];
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  const csvContent = lines.join("\n");
+
+  if (isTauri()) {
+    // In Tauri, use the save dialog API
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+      const filePath = await save({
+        defaultPath: filename,
+        filters: [{ name: "CSV", extensions: ["csv"] }],
+      });
+      if (filePath) {
+        await writeTextFile(filePath, csvContent);
+      }
+    } catch (err) {
+      console.error("Tauri save failed:", err);
+      // Fallback to browser method
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }
+  } else {
+    // Browser/PWA: use standard download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  }
 }
 
 const REGISTER_DAY_SUMMARY_FIELDS = [

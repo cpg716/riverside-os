@@ -57,7 +57,7 @@ Lazy-loaded (Suspense): Inventory, QBO, Wedding Manager (Back Office tab), Order
 
 Shared pattern: [`useDialogAccessibility`](src/hooks/useDialogAccessibility.ts) (focus trap, Tab cycle, Escape where appropriate, focus restore on close) plus `role="dialog"` / `aria-modal` / `aria-labelledby` on modal panels.
 
-Applied to: `PriceOverrideModal`, `RegisterCashAdjustModal`, `RegisterXReportModal`, `OrderAttributionModal`, `CustomerProfileCompletionModal`, `PosCustomerMeasurementsDrawer`, `CloseRegisterModal` (all steps), `RegisterOverlay` (including dev bypass states), merge modal in `CustomersWorkspace`, refund modal in `OrdersWorkspace`, edit modal in `StaffWorkspace` (+ `useShellBackdropLayer`), QBO staging drill-down in `QboWorkspace` (+ `useShellBackdropLayer`), [`DetailDrawer`](src/components/layout/DetailDrawer.tsx) (unique `titleId` via hook; duplicate Escape handler removed in favor of trap).
+Applied to: `PriceOverrideModal`, `RegisterCashAdjustModal`, `RegisterXReportModal`, `TransactionAttributionModal`, `CustomerProfileCompletionModal`, `PosCustomerMeasurementsDrawer`, `CloseRegisterModal` (all steps), `RegisterOverlay` (including dev bypass states), merge modal in `CustomersWorkspace`, refund modal in `OrdersWorkspace`, edit modal in `StaffWorkspace` (+ `useShellBackdropLayer`), QBO staging drill-down in `QboWorkspace` (+ `useShellBackdropLayer`), [`DetailDrawer`](src/components/layout/DetailDrawer.tsx) (unique `titleId` via hook; duplicate Escape handler removed in favor of trap).
 
 ### Wedding Manager (embedded) — wiring only, no visual redesign
 

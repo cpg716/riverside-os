@@ -879,6 +879,9 @@ struct PickupGuardLine {
     sku: String,
     product_name: String,
     order_lifecycle_status: DbOrderItemLifecycleStatus,
+    variant_id: Uuid,
+    quantity: i32,
+    stock_on_hand: i32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1731,7 +1734,10 @@ async fn mark_transaction_pickup(
             SELECT
                 COALESCE(pv.sku, 'Unknown SKU') AS sku,
                 COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Unknown item') AS product_name,
-                oi.order_lifecycle_status
+                oi.order_lifecycle_status,
+                oi.variant_id,
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity,
+                COALESCE(pv.stock_on_hand, 0)::int AS stock_on_hand
             FROM transaction_lines oi
             LEFT JOIN product_variants pv ON pv.id = oi.variant_id
             LEFT JOIN products p ON p.id = oi.product_id
@@ -1757,7 +1763,10 @@ async fn mark_transaction_pickup(
             SELECT
                 COALESCE(pv.sku, 'Unknown SKU') AS sku,
                 COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Unknown item') AS product_name,
-                oi.order_lifecycle_status
+                oi.order_lifecycle_status,
+                oi.variant_id,
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity,
+                COALESCE(pv.stock_on_hand, 0)::int AS stock_on_hand
             FROM transaction_lines oi
             LEFT JOIN product_variants pv ON pv.id = oi.variant_id
             LEFT JOIN products p ON p.id = oi.product_id
@@ -1808,6 +1817,37 @@ async fn mark_transaction_pickup(
     if !unready_lines.is_empty() && override_reason.len() < 12 {
         return Err(TransactionError::InvalidPayload(
             "Pickup readiness override requires a clear reason.".to_string(),
+        ));
+    }
+
+    // Check inventory availability for pickup (can be overridden by manager)
+    let insufficient_stock_lines = pickup_guard_lines
+        .iter()
+        .filter(|line| line.stock_on_hand < line.quantity)
+        .collect::<Vec<_>>();
+    if !insufficient_stock_lines.is_empty() && !body.override_readiness {
+        let examples = insufficient_stock_lines
+            .iter()
+            .take(3)
+            .map(|line| {
+                format!(
+                    "{} ({}): need {}, have {}",
+                    line.product_name,
+                    line.sku,
+                    line.quantity,
+                    line.stock_on_hand
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(TransactionError::InvalidPayload(format!(
+            "Pickup blocked: {count} line(s) have insufficient inventory. {examples}. Receive stock through vendor invoice before pickup, or use a manager override with reason to allow negative inventory.",
+            count = insufficient_stock_lines.len()
+        )));
+    }
+    if !insufficient_stock_lines.is_empty() && override_reason.len() < 12 {
+        return Err(TransactionError::InvalidPayload(
+            "Inventory override requires a clear reason (manager approval required).".to_string(),
         ));
     }
 
@@ -5675,12 +5715,7 @@ async fn patch_transaction_attribution(
             continue;
         }
 
-        if has_commission_event {
-            return Err(TransactionError::InvalidPayload(
-                "cannot change salesperson on lines with recognized commission events - use a manual commission adjustment"
-                    .to_string(),
-            ));
-        }
+
 
         line_attribution_changes += 1;
 

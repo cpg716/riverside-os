@@ -855,6 +855,7 @@ async fn commission_lines(
             AND oi.is_fulfilled = TRUE
             AND oi.salesperson_id IS NOT NULL
             AND ($1 IS NULL OR oi.salesperson_id = $1)
+            AND oi.calculated_commission <> 0
             AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) >= $2
             AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) < $3
             AND NOT EXISTS (
@@ -889,6 +890,7 @@ async fn commission_lines(
             (oi.salesperson_id = $1)
             OR ($1 IS NULL AND oi.salesperson_id IS NULL)
             )
+            AND oi.calculated_commission <> 0
             AND o.booked_at >= $2
             AND o.booked_at < $3
         )
@@ -981,24 +983,20 @@ async fn commission_adjustment(
 
 #[derive(Debug, Serialize)]
 pub struct NysTaxAuditResponse {
-    pub threshold_usd: String,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
-    pub total_lines: i64,
-    pub clothing_footwear_lines: i64,
-    /// Lines with category clothing/footwear where stored taxes imply §718-C local-only (state $0, local > 0).
-    pub local_only_exempt_lines: i64,
-    pub local_only_exempt_net_revenue: Decimal,
-    pub local_only_exempt_state_tax: Decimal,
-    pub local_only_exempt_local_tax: Decimal,
-    /// Clothing/footwear at net ≥ threshold (state component expected to apply).
-    pub clothing_at_or_over_threshold_lines: i64,
-    pub clothing_at_or_over_threshold_net: Decimal,
-    /// All other lines (non-clothing or full combined rate path in practice).
-    pub standard_path_lines: i64,
-    pub standard_path_net: Decimal,
+    /// Total gross sales (taxable + nontaxable + exempt)
+    pub gross_sales: Decimal,
+    /// Taxable sales (subject to full tax rate)
+    pub taxable_sales: Decimal,
+    /// Nontaxable/exempt sales (clothing/footwear under threshold, services, etc.)
+    pub nontaxable_sales: Decimal,
+    /// Total state tax collected
     pub total_state_tax: Decimal,
+    /// Total local tax collected
     pub total_local_tax: Decimal,
+    /// Combined total tax collected (state + local)
+    pub total_tax_collected: Decimal,
 }
 
 async fn nys_tax_audit(
@@ -1024,16 +1022,9 @@ async fn nys_tax_audit(
 
     #[derive(FromRow)]
     struct Agg {
-        total_lines: i64,
-        clothing_footwear_lines: i64,
-        local_only_exempt_lines: i64,
-        local_only_exempt_net_revenue: Decimal,
-        local_only_exempt_state_tax: Decimal,
-        local_only_exempt_local_tax: Decimal,
-        clothing_at_or_over_threshold_lines: i64,
-        clothing_at_or_over_threshold_net: Decimal,
-        standard_path_lines: i64,
-        standard_path_net: Decimal,
+        gross_sales: Decimal,
+        taxable_sales: Decimal,
+        nontaxable_sales: Decimal,
         total_state_tax: Decimal,
         total_local_tax: Decimal,
     }
@@ -1079,58 +1070,26 @@ async fn nys_tax_audit(
                 LIMIT 1
             ) rc ON true
             WHERE {order_filter}
+              AND COALESCE(oi.is_internal, false) = FALSE
+              AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+              AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
         )
         SELECT
-            COUNT(*)::bigint AS total_lines,
-            COUNT(*) FILTER (WHERE resolved_tax_category IN ('clothing', 'footwear'))::bigint
-                AS clothing_footwear_lines,
-            COUNT(*) FILTER (
-                WHERE resolved_tax_category IN ('clothing', 'footwear')
-                  AND unit_price < $3
-            )::bigint AS local_only_exempt_lines,
-            COALESCE(
-                SUM((unit_price * effective_qty)::numeric) FILTER (
-                    WHERE resolved_tax_category IN ('clothing', 'footwear')
-                      AND unit_price < $3
-                ),
-                0
-            )::numeric(14, 2) AS local_only_exempt_net_revenue,
-            COALESCE(
-                SUM((state_tax * effective_qty)::numeric) FILTER (
-                    WHERE resolved_tax_category IN ('clothing', 'footwear')
-                      AND unit_price < $3
-                ),
-                0
-            )::numeric(14, 2) AS local_only_exempt_state_tax,
-            COALESCE(
-                SUM((local_tax * effective_qty)::numeric) FILTER (
-                    WHERE resolved_tax_category IN ('clothing', 'footwear')
-                      AND unit_price < $3
-                ),
-                0
-            )::numeric(14, 2) AS local_only_exempt_local_tax,
-            COUNT(*) FILTER (
-                WHERE resolved_tax_category IN ('clothing', 'footwear')
-                  AND unit_price >= $3
-            )::bigint AS clothing_at_or_over_threshold_lines,
-            COALESCE(
-                SUM((unit_price * effective_qty)::numeric) FILTER (
-                    WHERE resolved_tax_category IN ('clothing', 'footwear')
-                      AND unit_price >= $3
-                ),
-                0
-            )::numeric(14, 2) AS clothing_at_or_over_threshold_net,
-            COUNT(*) FILTER (
-                WHERE resolved_tax_category NOT IN ('clothing', 'footwear')
-                   OR unit_price >= $3
-            )::bigint AS standard_path_lines,
+            COALESCE(SUM((unit_price * effective_qty)::numeric), 0)::numeric(14, 2) AS gross_sales,
             COALESCE(
                 SUM((unit_price * effective_qty)::numeric) FILTER (
                     WHERE resolved_tax_category NOT IN ('clothing', 'footwear')
                        OR unit_price >= $3
                 ),
                 0
-            )::numeric(14, 2) AS standard_path_net,
+            )::numeric(14, 2) AS taxable_sales,
+            COALESCE(
+                SUM((unit_price * effective_qty)::numeric) FILTER (
+                    WHERE resolved_tax_category IN ('clothing', 'footwear')
+                      AND unit_price < $3
+                ),
+                0
+            )::numeric(14, 2) AS nontaxable_sales,
             COALESCE(SUM((state_tax * effective_qty)::numeric), 0)::numeric(14, 2) AS total_state_tax,
             COALESCE(SUM((local_tax * effective_qty)::numeric), 0)::numeric(14, 2) AS total_local_tax
         FROM tax_lines
@@ -1142,22 +1101,17 @@ async fn nys_tax_audit(
     .fetch_one(&state.db)
     .await?;
 
+    let total_tax_collected = row.total_state_tax + row.total_local_tax;
+
     Ok(Json(NysTaxAuditResponse {
-        threshold_usd: CLOTHING_FOOTWEAR_EXEMPTION_THRESHOLD_USD.to_string(),
         from: start,
         to: end,
-        total_lines: row.total_lines,
-        clothing_footwear_lines: row.clothing_footwear_lines,
-        local_only_exempt_lines: row.local_only_exempt_lines,
-        local_only_exempt_net_revenue: row.local_only_exempt_net_revenue,
-        local_only_exempt_state_tax: row.local_only_exempt_state_tax,
-        local_only_exempt_local_tax: row.local_only_exempt_local_tax,
-        clothing_at_or_over_threshold_lines: row.clothing_at_or_over_threshold_lines,
-        clothing_at_or_over_threshold_net: row.clothing_at_or_over_threshold_net,
-        standard_path_lines: row.standard_path_lines,
-        standard_path_net: row.standard_path_net,
+        gross_sales: row.gross_sales,
+        taxable_sales: row.taxable_sales,
+        nontaxable_sales: row.nontaxable_sales,
         total_state_tax: row.total_state_tax,
         total_local_tax: row.total_local_tax,
+        total_tax_collected,
     }))
 }
 
@@ -1230,7 +1184,11 @@ async fn staff_performance(
         FROM transaction_lines oi
         INNER JOIN transactions o ON o.id = oi.transaction_id
         LEFT JOIN staff st ON st.id = oi.salesperson_id
+        LEFT JOIN products p ON p.id = oi.product_id
         WHERE o.status::text NOT IN ('cancelled')
+          AND COALESCE(oi.is_internal, false) = FALSE
+          AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+          AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
         GROUP BY st.id, st.full_name
         HAVING COALESCE(
             SUM((oi.unit_price * oi.quantity)::numeric) FILTER (
@@ -1278,7 +1236,11 @@ async fn staff_performance(
             COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)::numeric(14,2) AS revenue
         FROM transaction_lines oi
         INNER JOIN transactions o ON o.id = oi.transaction_id
+        LEFT JOIN products p ON p.id = oi.product_id
         WHERE {momentum_order_filter}
+          AND COALESCE(oi.is_internal, false) = FALSE
+          AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+          AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
         GROUP BY oi.salesperson_id, {date_key_sql}
         "#
     );

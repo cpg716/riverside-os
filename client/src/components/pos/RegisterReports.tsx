@@ -24,6 +24,7 @@ import {
 import ReceiptSummaryModal from "./ReceiptSummaryModal";
 import PosVoidTransactionModal, { type PosVoidTransactionTarget } from "./PosVoidTransactionModal";
 import ProductHubDrawer from "../inventory/ProductHubDrawer";
+import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
 import { openProfessionalDailySalesPrint, openProfessionalZReportPrint } from "./zReportPrint";
 import { useToast } from "../ui/ToastProviderLogic";
 
@@ -419,6 +420,7 @@ export default function RegisterReports({
   const [zLoading, setZLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
+  const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [hubProductId, setHubProductId] = useState<string | null>(null);
   const [zPreset, setZPreset] = useState<ZPresetId>("recent");
   const [customFromZ, setCustomFromZ] = useState("");
@@ -647,7 +649,7 @@ export default function RegisterReports({
     });
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
     if (!selectedSummary?.activities.length) return;
     const rows = selectedSummary.activities.flatMap(a => {
       const itemRows = (a.items || []).map((item, idx) => ({
@@ -674,17 +676,83 @@ export default function RegisterReports({
       }));
       return itemRows;
     });
+
+    // Calculate totals
+    const totalSales = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.sales_total || "0") || 0), 0);
+    const totalTax = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.tax_total || "0") || 0), 0);
+    const totalNet = selectedSummary.activities.reduce((sum, a) => sum + (parseFloat(a.amount_label || "0") || 0), 0);
+
+    const totalRow = {
+      "Date": "TOTAL",
+      "Time": "",
+      "Kind": "",
+      "Order ID": "",
+      "Customer Name": "",
+      "Customer #": "",
+      "Wedding Party": "",
+      "Item": "",
+      "SKU": "",
+      "Qty": "",
+      "Reg Price": "",
+      "Sale Price": "",
+      "Takeaway": "",
+      "Fulfillment": "",
+      "Deposit Paid": "",
+      "Balance Due": "",
+      "Transaction Total": totalSales.toFixed(2),
+      "Sales Total": totalSales.toFixed(2),
+      "Tax": totalTax.toFixed(2),
+      "Net Total": totalNet.toFixed(2),
+    };
+
     const headers = ["Date", "Time", "Kind", "Order ID", "Customer Name", "Customer #", "Wedding Party", "Item", "SKU", "Qty", "Reg Price", "Sale Price", "Takeaway", "Fulfillment", "Deposit Paid", "Balance Due", "Transaction Total", "Sales Total", "Tax", "Net Total"];
     const csv = [headers.join(","), ...rows.map(r => headers.map(h => {
       const v = r[h as keyof typeof r]?.toString() || "";
       return v.includes(",") ? `"${v}"` : v;
-    }).join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `daily-sales-${preset}.csv`;
-    a.click();
+    }).join(",")), headers.map(h => {
+      const v = totalRow[h as keyof typeof totalRow]?.toString() || "";
+      return v.includes(",") ? `"${v}"` : v;
+    }).join(",")].join("\n");
+
+    // Check if running in Tauri
+    const isTauriEnv = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+
+    if (isTauriEnv) {
+      try {
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+        const filePath = await save({
+          defaultPath: `daily-sales-${preset}.csv`,
+          filters: [{ name: "CSV", extensions: ["csv"] }],
+        });
+        if (filePath) {
+          await writeTextFile(filePath, csv);
+        }
+      } catch (err) {
+        console.error("Tauri save failed:", err);
+        // Fallback to browser method
+        const blob = new Blob([csv], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `daily-sales-${preset}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } else {
+      // Browser/PWA: use standard download
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `daily-sales-${preset}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
   const submitVoidTransaction = useCallback(
@@ -743,6 +811,13 @@ export default function RegisterReports({
 
   return (
     <div className="flex flex-1 flex-col bg-app-bg p-4 sm:p-6">
+      {detailOrderId && (
+        <TransactionDetailDrawer
+          orderId={detailOrderId}
+          isOpen={!!detailOrderId}
+          onClose={() => setDetailOrderId(null)}
+        />
+      )}
       <ReceiptSummaryModal
         transactionId={receiptOrderId}
         onClose={() => setReceiptOrderId(null)}
@@ -1022,8 +1097,8 @@ export default function RegisterReports({
                     </div>
                   </div>
                   {group.activities.map((row) => (
-                    <div 
-                      key={row.id} 
+                    <div
+                      key={row.id}
                       className="ui-card ui-tint-neutral group relative mb-4 flex flex-col transition-all"
                     >
                       <div className="flex flex-col lg:flex-row lg:items-stretch divide-y lg:divide-y-0 lg:divide-x divide-app-border">
@@ -1047,8 +1122,8 @@ export default function RegisterReports({
                                <div className="flex flex-wrap items-center gap-1.5 mt-1">
 	                                 {row.customer_code && <span className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted">#{row.customer_code}</span>}
                                  {row.wedding_party_name && (
-                                   <button 
-                                     type="button" 
+                                   <button
+                                     type="button"
                                      onClick={(e) => {
                                        e.stopPropagation();
                                        if (row.wedding_party_id && onOpenWeddingParty) onOpenWeddingParty(row.wedding_party_id);
@@ -1070,13 +1145,24 @@ export default function RegisterReports({
                                </div>
                             </div>
                           </div>
-                          
+
                           <div className="mt-4 grid gap-2 border-t border-app-border/40 pt-4">
 	                             <button type="button" onClick={() => {
                                 const transactionId = activityTransactionId(row);
                                 if (transactionId) setReceiptOrderId(transactionId);
                               }} className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white">
                                 <Receipt size={14} /> Receipt
+                             </button>
+                             <button
+                               type="button"
+                               onClick={() => {
+                                 const transactionId = activityTransactionId(row);
+                                 if (transactionId) setDetailOrderId(transactionId);
+                               }}
+                               disabled={!activityTransactionId(row)}
+                               className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                             >
+                               <Search size={14} /> Detail
                              </button>
                              <button
                                type="button"
@@ -1148,7 +1234,7 @@ export default function RegisterReports({
                                    ${row.sales_total || "0.00"}
                                  </span>
                               </div>
-                              
+
                               <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
 	                                 <span className="text-xs font-bold text-app-success">Deposits Taken / Transaction Total</span>
                                  <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">

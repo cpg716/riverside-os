@@ -63,6 +63,8 @@ export function CartItemRow({
       ? "Order"
       : "Order"; 
 
+  const isPickupLine = Boolean(line.transaction_line_id);
+
   return (
     <div
       role="button"
@@ -140,45 +142,51 @@ export function CartItemRow({
 
       {/* 2. Fulfillment Toggle (Middle) */}
       {!isAlterationLine ? (
-      <div 
-        className="flex shrink-0 items-center gap-1 rounded-xl border border-app-border/60 bg-app-surface-2/40 p-1"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          onClick={() => updateLineFulfillment(line.cart_row_id, "takeaway")}
-          className={`h-8 rounded-lg px-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${
-            line.fulfillment === "takeaway"
-              ? "bg-app-text text-app-surface shadow-sm"
-              : "bg-transparent text-app-text-muted hover:text-app-text"
-          }`}
-        >
-          Take Now
-        </button>
-        <button
-          type="button"
-          onClick={() => updateLineFulfillment(line.cart_row_id, orderLaterFulfillment)}
-          className={`h-8 rounded-lg px-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${
-            (line.fulfillment === orderLaterFulfillment || line.fulfillment === "custom")
-              ? "bg-app-warning text-white shadow-sm"
-              : "bg-transparent text-app-text-muted hover:text-app-text"
-          }`}
-        >
-          {laterLabel}
-        </button>
-        
-         <button
-          type="button"
-          onClick={() => updateLineGiftWrapStatus(line.cart_row_id, !line.needs_gift_wrap)}
-          className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-all ${
-            line.needs_gift_wrap
-              ? "border-app-success/40 bg-app-success/10 text-app-success"
-              : "border-transparent text-app-text-muted hover:bg-app-surface"
-          }`}
-        >
-          <Gift size={14} />
-        </button>
-      </div>
+        isPickupLine ? (
+          <div className="flex shrink-0 items-center rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-600">
+            Pickup
+          </div>
+        ) : (
+          <div 
+            className="flex shrink-0 items-center gap-1 rounded-xl border border-app-border/60 bg-app-surface-2/40 p-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => updateLineFulfillment(line.cart_row_id, "takeaway")}
+              className={`h-8 rounded-lg px-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+                line.fulfillment === "takeaway"
+                  ? "bg-app-text text-app-surface shadow-sm"
+                  : "bg-transparent text-app-text-muted hover:text-app-text"
+              }`}
+            >
+              Take Now
+            </button>
+            <button
+              type="button"
+              onClick={() => updateLineFulfillment(line.cart_row_id, orderLaterFulfillment)}
+              className={`h-8 rounded-lg px-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+                (line.fulfillment === orderLaterFulfillment || line.fulfillment === "custom")
+                  ? "bg-app-warning text-white shadow-sm"
+                  : "bg-transparent text-app-text-muted hover:text-app-text"
+              }`}
+            >
+              {laterLabel}
+            </button>
+            
+             <button
+              type="button"
+              onClick={() => updateLineGiftWrapStatus(line.cart_row_id, !line.needs_gift_wrap)}
+              className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-all ${
+                line.needs_gift_wrap
+                  ? "border-app-success/40 bg-app-success/10 text-app-success"
+                  : "border-transparent text-app-text-muted hover:bg-app-surface"
+              }`}
+            >
+              <Gift size={14} />
+            </button>
+          </div>
+        )
       ) : (
         <div className="flex shrink-0 items-center rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent">
           Work order
@@ -193,22 +201,23 @@ export function CartItemRow({
         {!isAlterationLine ? (
         <button
           type="button"
+          disabled={isPickupLine}
           onClick={() => {
             setSelectedLineKey(lk);
             setKeypadMode("qty");
             setKeypadBuffer("");
           }}
           className={`flex h-11 w-14 flex-col items-center justify-center rounded-xl border-2 transition-all ${
-            keypadMode === "qty" && isSelected
+            keypadMode === "qty" && isSelected && !isPickupLine
               ? line.quantity < 0
                 ? "border-app-danger bg-app-danger text-white shadow-lg shadow-app-danger/20"
                 : "border-app-accent bg-app-accent text-white shadow-lg"
               : line.quantity < 0
                 ? "border-app-danger/40 bg-app-danger/10 text-app-danger"
                 : "border-app-border bg-app-surface-2 text-app-text"
-          }`}
+          } ${isPickupLine ? "cursor-default opacity-80" : ""}`}
         >
-          <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "qty" && isSelected ? "text-white/80" : "text-app-text-muted"}`}>
+          <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "qty" && isSelected && !isPickupLine ? "text-white/80" : "text-app-text-muted"}`}>
             Qty
           </span>
           <span className="text-sm font-black tabular-nums leading-none">
@@ -219,6 +228,7 @@ export function CartItemRow({
 
         <button
           type="button"
+          disabled={isPickupLine}
           onClick={() => {
             if (isAlterationLine && line.alteration_intake_id && onEditAlterationLine) {
               onEditAlterationLine(line.alteration_intake_id);
@@ -229,12 +239,12 @@ export function CartItemRow({
             setKeypadBuffer("");
           }}
           className={`flex h-11 min-w-[5.5rem] flex-col items-end justify-center rounded-xl border-2 px-3 transition-all ${
-            keypadMode === "price" && isSelected
+            keypadMode === "price" && isSelected && !isPickupLine
               ? "border-app-accent bg-app-accent text-white shadow-lg"
               : "border-app-border bg-app-surface-2 text-app-text"
-          }`}
+          } ${isPickupLine ? "cursor-default opacity-80" : ""}`}
         >
-          <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "price" && isSelected ? "text-white/80" : "text-app-text-muted"}`}>
+          <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "price" && isSelected && !isPickupLine ? "text-white/80" : "text-app-text-muted"}`}>
             {isAlterationLine ? "Amount" : "Sale"}
           </span>
           <div className="flex items-center gap-1.5">

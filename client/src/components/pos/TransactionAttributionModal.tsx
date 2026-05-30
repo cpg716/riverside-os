@@ -19,7 +19,7 @@ interface StaffRow {
 }
 
 interface OrderDetailLine {
-  order_item_id: string;
+  transaction_line_id: string;
   sku: string;
   product_name: string;
   variation_label: string | null;
@@ -29,7 +29,7 @@ interface OrderDetailLine {
 }
 
 interface OrderDetail {
-  order_id: string;
+  transaction_id: string;
   primary_salesperson_id: string | null;
   primary_salesperson_name: string | null;
   operator_name: string | null;
@@ -42,7 +42,7 @@ interface Props {
   onSaved?: () => void;
 }
 
-export default function OrderAttributionModal({
+export default function TransactionAttributionModal({
   orderId,
   onClose,
   onSaved,
@@ -92,7 +92,7 @@ export default function OrderAttributionModal({
       setPrimaryId(d.primary_salesperson_id ?? "");
       const m: Record<string, string> = {};
       for (const it of d.items) {
-        m[it.order_item_id] = it.salesperson_id ?? "";
+        m[it.transaction_line_id] = it.salesperson_id ?? "";
       }
       setLineMap(m);
     } catch (e) {
@@ -134,9 +134,9 @@ export default function OrderAttributionModal({
     }
 
     const line_attribution = detail.items.map((it) => ({
-      order_item_id: it.order_item_id,
-      salesperson_id: lineMap[it.order_item_id]?.trim()
-        ? lineMap[it.order_item_id]
+      transaction_line_id: it.transaction_line_id,
+      salesperson_id: lineMap[it.transaction_line_id]?.trim()
+        ? lineMap[it.transaction_line_id]
         : null,
     }));
     
@@ -233,7 +233,7 @@ export default function OrderAttributionModal({
                   
                   <div className="custom-scrollbar max-h-[40vh] space-y-3 overflow-y-auto pr-2 sm:max-h-[400px]">
                     {detail.items.map((it) => (
-                      <div key={it.order_item_id} className="group relative rounded-2xl border-4 border-app-border bg-app-surface p-4 transition-all hover:border-app-accent/40 shadow-sm">
+                      <div key={it.transaction_line_id} className="group relative rounded-2xl border-4 border-app-border bg-app-surface p-4 transition-all hover:border-app-accent/40 shadow-sm">
                         <div className="flex justify-between items-start mb-3">
                           <div>
                             <p className="font-black text-app-text text-sm italic group-hover:text-app-accent transition-colors">
@@ -245,8 +245,8 @@ export default function OrderAttributionModal({
                           </div>
                         </div>
                         <select
-                          value={lineMap[it.order_item_id] ?? ""}
-                          onChange={(e) => setLineMap(prev => ({ ...prev, [it.order_item_id]: e.target.value }))}
+                          value={lineMap[it.transaction_line_id] ?? ""}
+                          onChange={(e) => setLineMap(prev => ({ ...prev, [it.transaction_line_id]: e.target.value }))}
                           className="ui-input w-full p-2.5 text-xs font-bold bg-app-bg/50 border-app-border/40 hover:border-app-accent transition-all cursor-pointer"
                         >
                           <option value="">Unassigned</option>

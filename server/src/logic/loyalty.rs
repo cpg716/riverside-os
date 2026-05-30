@@ -114,6 +114,9 @@ pub async fn try_accrue_for_order(
         WHERE oi.transaction_id = $1
           AND p.tax_category != 'service'::tax_category
           AND p.excludes_from_loyalty = FALSE
+          AND COALESCE(oi.is_internal, false) = FALSE
+          AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+          AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
         "#,
     )
     .bind(transaction_id)

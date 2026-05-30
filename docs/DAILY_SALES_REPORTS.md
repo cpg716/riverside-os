@@ -24,7 +24,7 @@ The default view showing high-level metrics for the selected period.
   - Revenue (subtotal without tax)
   - Tax collected
   - Net (after fees)
-  
+
 - **Booked (Sale)** section:
   - Sales # (number of transactions)
   - Sales $ (total sales amount)
@@ -41,15 +41,38 @@ The default view showing high-level metrics for the selected period.
 - Date presets: Today, Yesterday, This week, This month, This year, Custom
 - Custom date range with Apply button
 - Print button (full page report)
-- Export CSV button
+- Export CSV button (includes grand total row with summed Transaction Total, Sales Total, Tax, and Net Total)
+
+**CSV Export Features:**
+- **Grand Total Row**: Added at end of CSV with TOTAL label and summed values for Transaction Total, Sales Total, Tax, and Net Total
+- **Tauri Native Dialog**: Desktop app uses native file save dialog via `@tauri-apps/plugin-dialog` and `@tauri-apps/plugin-fs`
+- **Browser Fallback**: Graceful fallback to browser download method if Tauri environment is not available or save fails
 
 ### 2. Activity Tab
 
 Detailed transaction listing grouped by date.
 
 **View Modes:**
-- **Fulfilled (Pickup)**: Shows pickup/fulfilled transactions only (no duplicates with sale)
-- **Booked (Sale)**: Shows sale transactions only
+- **Activity List**: Transaction cards with payment method, timestamp, customer name, transaction ID, lane, and item details
+- **Table View**: Traditional table format for quick scanning
+
+**Z-Report Print Layout (Updated):**
+- **Activity Cards**: Card-based layout showing payment method pill, timestamp, customer name, transaction ID chip, and lane chip
+- **Item Display**: Enhanced item rows with bold product names, muted SKU/fulfillment details, and monospace pricing
+- **Money Section**: Reorganized transaction totals with clear labels for Transaction Amount, Sale Total, Paid, and Balance Due
+- **Visual Improvements**: New CSS classes for activity cards, pills, chips, section labels, and improved spacing/borders
+- **Branding**: Changed header from "RIVERSIDE OS" to "RIVERSIDE MEN'S SHOP"
+- **Tauri Integration**: Desktop app saves HTML file via native dialog and opens in default browser instead of direct print
+- **Error Handling**: Added print failure error handling with user-friendly alerts
+- **Generated Timestamp**: Added generated timestamp to report header and footer
+
+**Daily Sales Report Print (Updated):**
+- **Grand Total**: Added grand total calculation displayed at end of report
+- **Document Title**: Added document title for browser tab identification
+- **Generated Timestamp**: Added generated timestamp to report header and footer
+- **Tauri Integration**: Desktop app saves HTML file via native dialog with save-and-open workflow
+- **Section Rename**: Changed "Activity Detail" to "Transaction List" for clarity
+- **Branding**: Changed header and footer from "RIVERSIDE OS" to "Riverside Men's Shop"
 
 **Transaction Details:**
 Each transaction shows:

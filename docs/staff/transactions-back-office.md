@@ -53,6 +53,7 @@
 2. Set **date range** first to avoid huge lists.
 3. Search **Transaction Record #**, **receipt**, **customer name**, **SKU**, or **fulfillment order #** if fields exist.
 4. Open Transaction Record → **receipt** copy, **audit** timeline, or reprint per policy.
+5. **Correct salesperson/attribution**: Click the **Correct** link next to **Primary Salesperson** in the transaction detail panel to correct the salesperson attribution. To prevent commission errors or unauthorized modifications, this action requires manager PIN authorization (unless signed in with an Admin role).
 
 ## Returns, refunds, exchanges
 
