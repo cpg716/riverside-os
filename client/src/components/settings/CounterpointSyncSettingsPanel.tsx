@@ -401,8 +401,7 @@ export interface CounterpointSyncSettingsPanelProps {
   variant?: "card" | "workspace";
 }
 
-export default function CounterpointSyncSettingsPanel({
-}: CounterpointSyncSettingsPanelProps) {
+export default function CounterpointSyncSettingsPanel() {
   const baseUrl = getBaseUrl();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();

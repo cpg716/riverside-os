@@ -406,12 +406,22 @@ async fn transition_item(
 
     if next_status == DbOrderItemLifecycleStatus::ReadyForPickup && payload.override_checks {
         // Require manager PIN for override
-        if payload.manager_pin.is_none() || payload.manager_pin.as_ref().map_or(true, |p| p.trim().is_empty()) {
+        if payload.manager_pin.is_none()
+            || payload
+                .manager_pin
+                .as_ref()
+                .map_or(true, |p| p.trim().is_empty())
+        {
             return Err(OrderLifecycleError::Forbidden(
                 "Manager Access PIN is required for lifecycle override.".to_string(),
             ));
         }
-        if payload.reason.is_none() || payload.reason.as_ref().map_or(true, |r| r.trim().len() < 12) {
+        if payload.reason.is_none()
+            || payload
+                .reason
+                .as_ref()
+                .map_or(true, |r| r.trim().len() < 12)
+        {
             return Err(OrderLifecycleError::InvalidPayload(
                 "Lifecycle override requires a clear reason (minimum 12 characters).".to_string(),
             ));

@@ -2175,7 +2175,11 @@ async fn rosie_chat_completions(
             .into_response()
     })?;
 
-    crate::logic::rosie_intelligence::record_telemetry_from_value(state.db.clone(), "local", &payload);
+    crate::logic::rosie_intelligence::record_telemetry_from_value(
+        state.db.clone(),
+        "local",
+        &payload,
+    );
 
     Ok((status, Json(payload)).into_response())
 }
@@ -2235,7 +2239,11 @@ async fn post_rosie_insight_summary(
         }
     };
 
-    crate::logic::rosie_intelligence::record_telemetry_from_value(state.db.clone(), "local", &completion);
+    crate::logic::rosie_intelligence::record_telemetry_from_value(
+        state.db.clone(),
+        "local",
+        &completion,
+    );
 
     Ok(Json(rosie_insight_summary::parse_completion_response(
         &body,
@@ -2299,7 +2307,11 @@ async fn post_rosie_search_intent(
         }
     };
 
-    crate::logic::rosie_intelligence::record_telemetry_from_value(state.db.clone(), "local", &completion);
+    crate::logic::rosie_intelligence::record_telemetry_from_value(
+        state.db.clone(),
+        "local",
+        &completion,
+    );
 
     Ok(Json(rosie_search_intent::parse_completion_response(
         &body,
