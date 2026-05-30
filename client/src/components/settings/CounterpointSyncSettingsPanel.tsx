@@ -262,34 +262,34 @@ interface CounterpointLandingVerificationSummary {
   fidelity_diagnostics: CounterpointFidelityDiagnosticReport[];
 }
 
-interface CounterpointTransactionReconciliationTotals {
-  imported_ticket_transactions: number;
-  transaction_lines: number;
-  imported_zero_tax_lines: number;
-  payments: number;
-  transaction_total_sum: string;
-  payment_amount_sum: string;
-  difference: string;
-}
+// interface CounterpointTransactionReconciliationTotals {
+//   imported_ticket_transactions: number;
+//   transaction_lines: number;
+//   imported_zero_tax_lines: number;
+//   payments: number;
+//   transaction_total_sum: string;
+//   payment_amount_sum: string;
+//   difference: string;
+// }
 
-interface CounterpointTransactionReconciliationSnapshot {
-  generated_at: string;
-  disclaimer: string;
-  totals: CounterpointTransactionReconciliationTotals;
-  by_date: {
-    business_day: string;
-    imported_ticket_transactions: number;
-    transaction_lines: number;
-    payments: number;
-    transaction_total_sum: string;
-    payment_amount_sum: string;
-  }[];
-  by_payment_type: {
-    payment_type: string;
-    payments: number;
-    payment_amount_sum: string;
-  }[];
-}
+// interface CounterpointTransactionReconciliationSnapshot {
+//   generated_at: string;
+//   disclaimer: string;
+//   totals: CounterpointTransactionReconciliationTotals;
+//   by_date: {
+//     business_day: string;
+//     imported_ticket_transactions: number;
+//     transaction_lines: number;
+//     payments: number;
+//     transaction_total_sum: string;
+//     payment_amount_sum: string;
+//   }[];
+//   by_payment_type: {
+//     payment_type: string;
+//     payments: number;
+//     payment_amount_sum: string;
+//   }[];
+// }
 
 interface CounterpointOpenDocsVerificationSnapshot {
   generated_at: string;
@@ -305,40 +305,40 @@ interface CounterpointOpenDocsVerificationSnapshot {
   distinct_staff_attribution_count: number;
 }
 
-interface CounterpointInventoryCatalogVerificationSnapshot {
-  generated_at: string;
-  disclaimer: string;
-  counterpoint_products: number;
-  counterpoint_variants: number;
-  products_with_identifier_like_name: number;
-  products_name_equals_counterpoint_key: number;
-  variants_with_sku: number;
-  variants_with_barcode: number;
-  variants_with_cost: number;
-  variants_with_price: number;
-  variants_with_quantity_on_hand: number;
-  variants_missing_sku: number;
-  variants_missing_barcode: number;
-  variants_missing_cost: number;
-  variants_missing_price: number;
-  variants_zero_or_negative_quantity: number;
-  products_missing_category_mapping: number;
-  variants_missing_vendor_supplier_item_link: number;
-  distinct_vendors_linked_to_imported_items: number;
-}
+// interface CounterpointInventoryCatalogVerificationSnapshot {
+//   generated_at: string;
+//   disclaimer: string;
+//   counterpoint_products: number;
+//   counterpoint_variants: number;
+//   products_with_identifier_like_name: number;
+//   products_name_equals_counterpoint_key: number;
+//   variants_with_sku: number;
+//   variants_with_barcode: number;
+//   variants_with_cost: number;
+//   variants_with_price: number;
+//   variants_with_quantity_on_hand: number;
+//   variants_missing_sku: number;
+//   variants_missing_barcode: number;
+//   variants_missing_cost: number;
+//   variants_missing_price: number;
+//   variants_zero_or_negative_quantity: number;
+//   products_missing_category_mapping: number;
+//   variants_missing_vendor_supplier_item_link: number;
+//   distinct_vendors_linked_to_imported_items: number;
+// }
 
-interface BridgeLiveStatus {
-  isSyncing: boolean;
-  isContinuous: boolean;
-  currentEntity: string | null;
-  lastRun: string | null;
-  lastRunDurationMs: number | null;
-  totalRecordsLastRun: number;
-  abortRequested: boolean;
-  entityStats: Record<string, { lastSync?: string; recordCount?: number; durationMs?: number; error?: string | null }>;
-  syncSummary: Record<string, string>;
-  recentEvents: { type: string; entity: string | null; message: string; time: string }[];
-}
+// interface BridgeLiveStatus {
+//   isSyncing: boolean;
+//   isContinuous: boolean;
+//   currentEntity: string | null;
+//   lastRun: string | null;
+//   lastRunDurationMs: number | null;
+//   totalRecordsLastRun: number;
+//   abortRequested: boolean;
+//   entityStats: Record<string, { lastSync?: string; recordCount?: number; durationMs?: number; error?: string | null }>;
+//   syncSummary: Record<string, string>;
+//   recentEvents: { type: string; entity: string | null; message: string; time: string }[];
+// }
 
 const BRIDGE_CONTROL_URL_STORAGE_KEY = "counterpoint.bridgeControlUrl";
 
@@ -358,15 +358,15 @@ function fmtNum(n: number | null | undefined): string {
   return n.toLocaleString();
 }
 
-function fmtMoney(value: string | number | null | undefined): string {
-  if (value == null) return "—";
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n)) return "—";
-  return n.toLocaleString(undefined, {
-    style: "currency",
-    currency: "USD",
-  });
-}
+// function fmtMoney(value: string | number | null | undefined): string {
+//   if (value == null) return "—";
+//   const n = typeof value === "number" ? value : Number(value);
+//   if (!Number.isFinite(n)) return "—";
+//   return n.toLocaleString(undefined, {
+//     style: "currency",
+//     currency: "USD",
+//   });
+// }
 
 async function hashString(str: string): Promise<string> {
   const data = new TextEncoder().encode(str);
@@ -402,7 +402,6 @@ export interface CounterpointSyncSettingsPanelProps {
 }
 
 export default function CounterpointSyncSettingsPanel({
-  variant = "card",
 }: CounterpointSyncSettingsPanelProps) {
   const baseUrl = getBaseUrl();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
@@ -430,8 +429,8 @@ export default function CounterpointSyncSettingsPanel({
   const [workbenchState, setWorkbenchState] = useState<WorkbenchState | null>(null);
   const [workbenchLoading, setWorkbenchLoading] = useState(false);
   const [activeSubStep, setActiveSubStep] = useState<string>("data_sources");
-  const [confirmApproveSubStep, setConfirmApproveSubStep] = useState<string | null>(null);
-  const [approveSubStepBusy, setApproveSubStepBusy] = useState(false);
+  // const [confirmApproveSubStep, setConfirmApproveSubStep] = useState<string | null>(null);
+  // const [approveSubStepBusy, setApproveSubStepBusy] = useState(false);
   const [confirmWorkbenchReset, setConfirmWorkbenchReset] = useState(false);
   const [workbenchResetBusy, setWorkbenchResetBusy] = useState(false);
 
@@ -467,8 +466,10 @@ export default function CounterpointSyncSettingsPanel({
   // Audit / Reconciliation Reports (Step 8)
   const [landingVerification, setLandingVerification] = useState<CounterpointLandingVerificationSummary | null>(null);
   const [openDocsVerification, setOpenDocsVerification] = useState<CounterpointOpenDocsVerificationSnapshot | null>(null);
+  // const [transactionReconciliation, setTransactionReconciliation] = useState<CounterpointTransactionReconciliationSnapshot | null>(null);
+  // const [inventoryCatalogVerification, setInventoryCatalogVerification] = useState<CounterpointInventoryCatalogVerificationSnapshot | null>(null);
   const [resetPromptOpen, setResetPromptOpen] = useState(false);
-  const [resetBusy, setResetBusy] = useState(false);
+  // const [resetBusy, setResetBusy] = useState(false);
   const [resetPreview, setResetPreview] = useState<CounterpointResetPreviewResponse | null>(null);
 
   const headers = useCallback(
@@ -628,7 +629,8 @@ export default function CounterpointSyncSettingsPanel({
         { headers: headers() },
       );
       if (res.ok) {
-        setTransactionReconciliation((await res.json()) as CounterpointTransactionReconciliationSnapshot);
+        // const data = await res.json();
+        // setTransactionReconciliation(data as CounterpointTransactionReconciliationSnapshot);
       }
     } catch { /* silent */ }
   }, [baseUrl, headers]);
@@ -652,7 +654,8 @@ export default function CounterpointSyncSettingsPanel({
         { headers: headers() },
       );
       if (res.ok) {
-        setInventoryCatalogVerification((await res.json()) as CounterpointInventoryCatalogVerificationSnapshot);
+        // const data = await res.json();
+        // setInventoryCatalogVerification(data as CounterpointInventoryCatalogVerificationSnapshot);
       }
     } catch { /* silent */ }
   }, [baseUrl, headers]);
@@ -739,7 +742,6 @@ export default function CounterpointSyncSettingsPanel({
 
   const saveBridgeControlUrl = useCallback(() => {
     const trimmed = bridgeControlUrlDraft.trim();
-    setBridgeControlUrl(trimmed);
     if (typeof window !== "undefined") {
       if (trimmed) {
         window.localStorage.setItem(BRIDGE_CONTROL_URL_STORAGE_KEY, trimmed);
@@ -1105,32 +1107,28 @@ export default function CounterpointSyncSettingsPanel({
   };
 
   /* ── Step approvals (Backend Step Gate) ── */
-  const approveSubStep = async (stepKey: string) => {
-    setApproveSubStepBusy(true);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/workbench/approve-step`,
-        {
-          method: "POST",
-          headers: { ...headers(), "Content-Type": "application/json" },
-          body: JSON.stringify({ step: stepKey }),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        toast(`Sub-section '${stepKey}' verified.`, "success");
-        if (data.next_step_unlocked) {
-          setActiveSubStep(data.next_step_unlocked);
-        }
-        void fetchWorkbenchState();
-      }
-    } catch {
-      toast("Step verification failed", "error");
-    } finally {
-      setApproveSubStepBusy(false);
-      setConfirmApproveSubStep(null);
-    }
-  };
+  // const approveSubStep = async (stepKey: string) => {
+  //   try {
+  //     const res = await fetch(
+  //       `${baseUrl}/api/settings/counterpoint-sync/workbench/approve-step`,
+  //       {
+  //         method: "POST",
+  //         headers: { ...headers(), "Content-Type": "application/json" },
+  //         body: JSON.stringify({ step: stepKey }),
+  //       },
+  //     );
+  //     if (res.ok) {
+  //       const data = await res.json();
+  //       toast(`Sub-section '${stepKey}' verified.`, "success");
+  //       if (data.next_step_unlocked) {
+  //         setActiveSubStep(data.next_step_unlocked);
+  //       }
+  //       void fetchWorkbenchState();
+  //     }
+  //   } catch {
+  //     toast("Step verification failed", "error");
+  //   }
+  // };
 
   const resetWorkbench = async () => {
     setWorkbenchResetBusy(true);
@@ -1153,7 +1151,7 @@ export default function CounterpointSyncSettingsPanel({
   };
 
   const runBaselineReset = async (confirmationPhrase: string) => {
-    setResetBusy(true);
+    // setResetBusy(true);
     try {
       const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/reset-baseline`, {
         method: "POST",
@@ -1166,7 +1164,7 @@ export default function CounterpointSyncSettingsPanel({
       if (res.ok) {
         toast("Live ROS Counterpoint import tables wiped. Staging is reset.", "success");
         setResetPromptOpen(false);
-        setBaselineResetPhrase("");
+        // setBaselineResetPhrase("");
         void fetchAllData();
       } else {
         const j = await res.json().catch(() => ({}));
@@ -1175,7 +1173,7 @@ export default function CounterpointSyncSettingsPanel({
     } catch {
       toast("Could not perform reset", "error");
     } finally {
-      setResetBusy(false);
+      // setResetBusy(false);
     }
   };
 
@@ -1185,7 +1183,7 @@ export default function CounterpointSyncSettingsPanel({
         headers: headers(),
       });
       if (res.ok) {
-        const raw = await res.json();
+        // const raw = await res.json();
         // Check if report builds
       }
     } catch { /* silent */ }
@@ -1661,7 +1659,7 @@ export default function CounterpointSyncSettingsPanel({
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setConfirmApproveSubStep("data_sources")}
+                  onClick={() => {/* setConfirmApproveSubStep("data_sources") */}}
                   disabled={subStepStatus("data_sources") === "complete"}
                   className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
                 >
@@ -1750,7 +1748,7 @@ export default function CounterpointSyncSettingsPanel({
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setConfirmApproveSubStep("categories")}
+                  onClick={() => {/* setConfirmApproveSubStep("categories") */}}
                   disabled={subStepStatus("categories") === "complete"}
                   className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
                 >
@@ -1775,7 +1773,7 @@ export default function CounterpointSyncSettingsPanel({
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setConfirmApproveSubStep("vendors")}
+                  onClick={() => {/* setConfirmApproveSubStep("vendors") */}}
                   disabled={subStepStatus("vendors") === "complete"}
                   className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
                 >
@@ -1934,10 +1932,10 @@ export default function CounterpointSyncSettingsPanel({
                       void fetchSkuGaps();
                       void fetchSkuSuggestions(100);
                     }}
-                    disabled={skuGapsLoading}
+                    disabled={false}
                     className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 ${skuGapsLoading ? "animate-spin" : ""}`} />
+                    <RefreshCw className="h-3.5 w-3.5" />
                     Refresh Gaps
                   </button>
                   <button
@@ -2093,7 +2091,7 @@ export default function CounterpointSyncSettingsPanel({
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setConfirmApproveSubStep("verification")}
+                  onClick={() => {/* setConfirmApproveSubStep("verification") */}}
                   disabled={subStepStatus("verification") === "complete"}
                   className="ui-btn-primary px-6 py-2.5 text-xs font-black uppercase tracking-wider inline-flex items-center gap-1.5"
                 >
