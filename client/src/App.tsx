@@ -507,6 +507,9 @@ function App() {
     }
   }, [posMode]);
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [activeTab, activeSubSection, insightsMode, posMode, weddingMode]);
 
   const clearPendingWmPartyId = useCallback(() => {
     setPendingWmPartyId(null);
@@ -601,7 +604,6 @@ function App() {
           "remote-access",
           "ros-operations-center",
           "ros-dev-center",
-          "ros-support-center",
           "rosie",
           "online-store",
           "help-center",
@@ -615,7 +617,7 @@ function App() {
           "email",
           "insights",
         ]);
-        const targetSec = sec === "bug-reports" ? "ros-support-center" : sec;
+        const targetSec = sec === "bug-reports" ? "ros-operations-center" : sec;
         setActiveSubSection(allowed.has(targetSec) ? targetSec : "general");
         const bugId = linkStr(link, "bug_report_id");
         if (bugId) {

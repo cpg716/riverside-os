@@ -21,16 +21,20 @@ status: approved
 
 ## What this is
 
-Bug Reports Settings is the support review area for submitted reports and diagnostic incidents.
+Bug Reports Settings is the support review area for submitted reports and automated diagnostic incidents. It is split into two primary areas:
+- **Bug Reports:** Manual tickets submitted directly by staff with custom context and optional screenshots.
+- **Developer Errors:** Automated system alerts and exceptions captured from both the server (Rust) and client (React) runtimes.
 
-It helps managers and support staff see what was reported, which workstation or route was involved, and whether the captured diagnostics are enough to reproduce the problem.
+It helps managers and support staff see what was reported, which workstation or route was involved, and whether the captured diagnostics are enough to reproduce the problem. It is also available in the standalone **Dev Ops Center** macOS app for immediate offline diagnostic collection and copy-to-clipboard AI diagnostics formatting.
 
 ## How to use it
 
-1. Open Bug Reports Settings from the protected settings area.
-2. Select the report or incident needing review.
-3. Check the route, summary, redacted diagnostics, and screenshot when present.
-4. Share the report ID or correlation ID with support when needed.
+1. Open Bug Reports Settings from the protected settings area (or open the Standalone macOS DevOps application).
+2. Select the tab for either **Bug Reports** or **Developer Errors**.
+3. Select the report or incident needing review to open its details dialog.
+4. Use **Copy AI Package** to grab the pre-packaged context, error logs, and system variables formatted as a developer prompt, ready to paste directly into AI editors.
+5. Use **Download AI Diagnostic** to save the diagnostic payload as an `.md` report.
+6. Share the report ID or correlation ID with support when needed.
 
 ## When to use it
 

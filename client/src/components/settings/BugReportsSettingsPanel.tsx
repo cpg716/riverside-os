@@ -13,6 +13,7 @@ import {
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import {
   redactDiagnosticText,
   redactDiagnosticValue,
@@ -142,8 +143,9 @@ function isServerError(event: ErrorEventRow): boolean {
 }
 
 function buildAiDiagnosticPackage(event: ErrorEventRow): string {
+  const isServer = event.event_source.startsWith("server_");
   const prompt = [
-    "## Riverside OS — Server Error Diagnostic",
+    `## Riverside OS — ${isServer ? "Server" : "Client"} Error Diagnostic`,
     "",
     `**Event source**: \`${event.event_source}\`  `,
     `**Severity**: ${event.severity}  `,
@@ -155,11 +157,9 @@ function buildAiDiagnosticPackage(event: ErrorEventRow): string {
     event.message,
     "",
     "### Fix instructions",
-    "1. Read the route and error message to identify the failing handler.",
-    "2. Check server_log_snapshot for the Rust tracing context near the error.",
-    "3. Locate the handler in server/src/api/ or server/src/logic/ and apply the smallest safe fix.",
-    "4. Follow AGENTS.md: thin handlers, business logic in logic/, no raw SQL mutations without transactions.",
-    "5. Run: cargo fmt && cargo check && cd client && npm run lint && npm run typecheck",
+    isServer
+      ? "1. Read the route and error message to identify the failing handler.\n2. Check server_log_snapshot for the Rust tracing context near the error.\n3. Locate the handler in server/src/api/ or server/src/logic/ and apply the smallest safe fix.\n4. Follow AGENTS.md: thin handlers, business logic in logic/, no raw SQL mutations without transactions.\n5. Run: cargo fmt && cargo check && cd client && npm run lint && npm run typecheck"
+      : "1. Read the route, message, and client metadata.\n2. Locate the failing React view, handler, or service in client/src/.\n3. Apply the smallest safe fix, ensure TypeScript typings, and run client-side lints.\n4. Run: cd client && npm run lint && npm run typecheck",
     "",
     "### Full diagnostic payload (JSON)",
   ].join("\n");
@@ -235,6 +235,13 @@ export default function BugReportsSettingsPanel({
     "all" | "server" | "client"
   >("all");
   const [viewMode, setViewMode] = useState<"reports" | "events">("reports");
+
+  const { dialogRef: bugDetailRef } = useDialogAccessibility(detail !== null, {
+    onEscape: () => setDetail(null),
+  });
+  const { dialogRef: eventDetailRef } = useDialogAccessibility(eventDetail !== null, {
+    onEscape: () => setEventDetail(null),
+  });
 
   const filteredRows =
     listFilter === "all" ? rows : rows.filter((r) => r.status === listFilter);
@@ -475,7 +482,7 @@ export default function BugReportsSettingsPanel({
       <div className="flex flex-wrap gap-2">
         {([
           ["reports", "Bug reports"],
-          ["events", "Error events"],
+          ["events", "Developer Errors"],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -755,6 +762,7 @@ export default function BugReportsSettingsPanel({
           onPointerDown={() => setDetail(null)}
         >
           <div
+            ref={bugDetailRef}
             role="dialog"
             aria-modal="true"
             aria-label="Bug report detail"
@@ -993,6 +1001,7 @@ export default function BugReportsSettingsPanel({
           onPointerDown={() => setEventDetail(null)}
         >
           <div
+            ref={eventDetailRef}
             role="dialog"
             aria-modal="true"
             aria-label="Error event detail"
@@ -1035,10 +1044,10 @@ export default function BugReportsSettingsPanel({
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
                   onClick={() =>
                     void copyToClipboardOrDownload(
-                      JSON.stringify(eventDetail, null, 2),
-                      `ros-error-event-${eventDetail.id}-all.json`,
+                      buildAiDiagnosticPackage(eventDetail),
+                      `ros-error-event-${eventDetail.id}-ai-diagnostic.md`,
                       () => {
-                        toast("Error event details copied", "success");
+                        toast("AI diagnostic package copied to clipboard", "success");
                       },
                     )
                   }
@@ -1046,21 +1055,19 @@ export default function BugReportsSettingsPanel({
                   <Clipboard className="h-3.5 w-3.5" aria-hidden />
                   Copy AI package
                 </button>
-                {isServerError(eventDetail) ? (
-                  <button
-                    type="button"
-                    className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-app-danger"
-                    onClick={() =>
-                      downloadTextFile(
-                        `ros-server-error-${eventDetail.id}-ai-diagnostic.md`,
-                        buildAiDiagnosticPackage(eventDetail),
-                      )
-                    }
-                  >
-                    <Download className="h-3.5 w-3.5" aria-hidden />
-                    Download AI diagnostic
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-app-danger"
+                  onClick={() =>
+                    downloadTextFile(
+                      `ros-${isServerError(eventDetail) ? "server" : "client"}-error-${eventDetail.id}-ai-diagnostic.md`,
+                      buildAiDiagnosticPackage(eventDetail),
+                    )
+                  }
+                >
+                  <Download className="h-3.5 w-3.5" aria-hidden />
+                  Download AI diagnostic
+                </button>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">

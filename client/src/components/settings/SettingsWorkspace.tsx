@@ -201,8 +201,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   meilisearch: "Search index health, reindex controls, and diagnostics.",
   "help-center": "Help Center content, manuals, and staff guidance publishing.",
   rosie: "ROSIE assistant settings and runtime behavior.",
-  "ros-support-center": "Heartbeats, alerts, bug tracking, integrations, updates.",
-  "ros-operations-center": "Operational readiness, problem routing, and support snapshot.",
+  "ros-operations-center": "Heartbeats, alerts, bug tracking, integrations, updates, operational readiness, and support snapshot.",
   "ros-dev-center": "Developer operations, runtime health, and guarded actions.",
 };
 
@@ -257,8 +256,7 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   fal: Sparkles,
   "help-center": BookOpen,
   rosie: Bot,
-  "ros-support-center": ShieldAlert,
-  "ros-operations-center": Gauge,
+  "ros-operations-center": ShieldAlert,
   "ros-dev-center": Code2,
 };
 
@@ -409,6 +407,10 @@ export default function SettingsWorkspace({
     fetchBackups,
     fetchBackupSettings,
   ]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [activeTab]);
 
   const saveBackupSettings = async () => {
     if (!backupCfg) return;
@@ -1391,7 +1393,7 @@ export default function SettingsWorkspace({
 
             {activeTab === "rosie" && <RosieSettingsPanel />}
             {activeTab === "help-center" && <HelpCenterSettingsPanel />}
-            {(activeTab === "ros-support-center" || activeTab === "ros-operations-center") &&
+            {activeTab === "ros-operations-center" &&
               hasPermission("ops.dev_center.view") && (
                 <RosOperationsCenter
                   onNavigate={navigateOperationsTarget}

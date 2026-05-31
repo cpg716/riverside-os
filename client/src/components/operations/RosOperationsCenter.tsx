@@ -289,6 +289,11 @@ export default function RosOperationsCenter({
     }
   }, [bugReportsDeepLinkId]);
 
+  // Scroll to top on tab changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [activeTab]);
+
   const [loading, setLoading] = useState(true);
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
   const [ops, setOps] = useState<LoadState<OpsHealthSnapshot>>(emptyState());
@@ -539,7 +544,7 @@ export default function RosOperationsCenter({
           ? "Check offline register workstations."
           : "Review open alerts.",
         buttonLabel: "Open Support Center",
-        target: { tab: "settings", section: "ros-support-center" },
+        target: { tab: "settings", section: "ros-operations-center" },
         Icon: ShieldCheck,
       },
     ];

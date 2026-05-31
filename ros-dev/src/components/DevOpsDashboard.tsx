@@ -21,6 +21,7 @@ import {
   Activity,
 } from "lucide-react";
 import { apiGet, apiPost, getServerUrl, setServerConfig, type DiagnosticsSnapshot } from "../lib/api";
+import BugReportsPanel from "./BugReportsPanel";
 
 type HealthStatus = "WARNING" | "CAUTION" | "GOOD";
 
@@ -131,7 +132,13 @@ function statusBadge(status: string, conclusion: string | null) {
 }
 
 export default function DevOpsDashboard() {
-  const [activeTab, setActiveTab] = useState<"overview" | "stations" | "alerts" | "integrations" | "github" | "diagnostics">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "stations" | "alerts" | "integrations" | "github" | "diagnostics" | "bugs">("overview");
+
+  // Scroll to top on tab changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [activeTab]);
+
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<OpsOverview | null>(null);
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
@@ -438,6 +445,7 @@ export default function DevOpsDashboard() {
             { id: "integrations", label: "Integration Health" },
             { id: "github", label: "GitHub Workflows" },
             { id: "diagnostics", label: "Diagnostics & ROSIE" },
+            { id: "bugs", label: "Bugs & Developer Errors" },
           ] as const
         ).map((tab) => (
           <button
@@ -954,6 +962,12 @@ export default function DevOpsDashboard() {
                 )}
               </div>
             )}
+          </section>
+        )}
+
+        {activeTab === "bugs" && (
+          <section className="ui-card p-6 animate-in fade-in duration-300">
+            <BugReportsPanel />
           </section>
         )}
       </div>
