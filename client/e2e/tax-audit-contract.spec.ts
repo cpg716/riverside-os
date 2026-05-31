@@ -64,16 +64,14 @@ type QboJournalLine = {
 };
 
 type NysTaxAuditResponse = {
-  total_lines: number;
-  clothing_footwear_lines: number;
-  local_only_exempt_lines: number;
-  local_only_exempt_net_revenue: string;
-  local_only_exempt_state_tax: string;
-  local_only_exempt_local_tax: string;
-  standard_path_lines: number;
-  standard_path_net: string;
+  from: string;
+  to: string;
+  gross_sales: string;
+  taxable_sales: string;
+  nontaxable_sales: string;
   total_state_tax: string;
   total_local_tax: string;
+  total_tax_collected: string;
 };
 
 function uniqueSuffix(label: string): string {
@@ -488,23 +486,23 @@ test.describe("tax audit contract", () => {
     expect(serviceRes.status()).toBe(200);
 
     const after = await fetchNysTaxAudit(request, day);
-    expect(after.total_lines - before.total_lines).toBeGreaterThanOrEqual(2);
-    expect(after.clothing_footwear_lines - before.clothing_footwear_lines).toBe(1);
-    expect(after.local_only_exempt_lines - before.local_only_exempt_lines).toBe(1);
     expect(
-      parseMoneyToCents(after.local_only_exempt_net_revenue) -
-        parseMoneyToCents(before.local_only_exempt_net_revenue),
-    ).toBe(12000);
+      parseMoneyToCents(after.gross_sales) - parseMoneyToCents(before.gross_sales)
+    ).toBe(18000); // $120.00 clothing + $60.00 service
     expect(
-      parseMoneyToCents(after.local_only_exempt_state_tax) -
-        parseMoneyToCents(before.local_only_exempt_state_tax),
+      parseMoneyToCents(after.taxable_sales) - parseMoneyToCents(before.taxable_sales)
+    ).toBe(6000); // $60.00 service
+    expect(
+      parseMoneyToCents(after.nontaxable_sales) - parseMoneyToCents(before.nontaxable_sales)
+    ).toBe(12000); // $120.00 clothing under threshold
+    expect(
+      parseMoneyToCents(after.total_state_tax) - parseMoneyToCents(before.total_state_tax)
     ).toBe(0);
     expect(
-      parseMoneyToCents(after.local_only_exempt_local_tax) -
-        parseMoneyToCents(before.local_only_exempt_local_tax),
-    ).toBe(570);
+      parseMoneyToCents(after.total_local_tax) - parseMoneyToCents(before.total_local_tax)
+    ).toBe(570); // Local tax on clothing ($2.85 * 2)
     expect(
-      parseMoneyToCents(after.total_local_tax) - parseMoneyToCents(before.total_local_tax),
+      parseMoneyToCents(after.total_tax_collected) - parseMoneyToCents(before.total_tax_collected)
     ).toBe(570);
   });
 

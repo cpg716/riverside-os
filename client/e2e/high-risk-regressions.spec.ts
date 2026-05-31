@@ -140,20 +140,20 @@ test.describe("High-risk API regressions", () => {
 
     expect(admin.status()).toBe(200);
     const j = (await admin.json()) as {
-      threshold_usd?: unknown;
-      total_lines?: unknown;
+      gross_sales?: unknown;
+      taxable_sales?: unknown;
+      nontaxable_sales?: unknown;
       total_state_tax?: unknown;
       total_local_tax?: unknown;
-      local_only_exempt_lines?: unknown;
-      clothing_footwear_lines?: unknown;
+      total_tax_collected?: unknown;
     };
 
-    expect(typeof j.threshold_usd).toBe("string");
-    expect(typeof j.total_lines).toBe("number");
+    expect(typeof j.gross_sales).toBe("string");
+    expect(typeof j.taxable_sales).toBe("string");
+    expect(typeof j.nontaxable_sales).toBe("string");
     expect(typeof j.total_state_tax).toBe("string");
     expect(typeof j.total_local_tax).toBe("string");
-    expect(typeof j.local_only_exempt_lines).toBe("number");
-    expect(typeof j.clothing_footwear_lines).toBe("number");
+    expect(typeof j.total_tax_collected).toBe("string");
   });
 
   test("revenue basis aliases are accepted and shape remains stable", async ({
