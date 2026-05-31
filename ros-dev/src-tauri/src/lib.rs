@@ -217,7 +217,13 @@ async fn check_tailscale_status() -> TailscaleStatus {
         .build()
     {
         Ok(c) => c,
-        Err(_) => return TailscaleStatus { running: false, version: None, tailnet: None },
+        Err(_) => {
+            return TailscaleStatus {
+                running: false,
+                version: None,
+                tailnet: None,
+            }
+        }
     };
 
     let res = client
@@ -228,8 +234,12 @@ async fn check_tailscale_status() -> TailscaleStatus {
     if let Ok(resp) = res {
         if let Ok(json) = resp.json::<serde_json::Value>().await {
             let running = json.get("BackendState").and_then(|s| s.as_str()) == Some("Running");
-            let version = json.get("Version").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let tailnet = json.get("CurrentTailnet")
+            let version = json
+                .get("Version")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let tailnet = json
+                .get("CurrentTailnet")
                 .and_then(|t| t.get("Name"))
                 .and_then(|n| n.as_str())
                 .map(|s| s.to_string());
@@ -240,7 +250,11 @@ async fn check_tailscale_status() -> TailscaleStatus {
             };
         }
     }
-    TailscaleStatus { running: false, version: None, tailnet: None }
+    TailscaleStatus {
+        running: false,
+        version: None,
+        tailnet: None,
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

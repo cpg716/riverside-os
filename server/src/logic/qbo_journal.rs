@@ -514,7 +514,10 @@ pub async fn propose_daily_journal(
     .fetch_one(pool)
     .await?;
 
-    let breakage_total = expired_gc.total_breakage.unwrap_or(Decimal::ZERO).round_dp(2);
+    let breakage_total = expired_gc
+        .total_breakage
+        .unwrap_or(Decimal::ZERO)
+        .round_dp(2);
     if breakage_total > Decimal::ZERO {
         let breakage_account = qbo_map_with_misc_fallback(
             pool,
@@ -524,21 +527,20 @@ pub async fn propose_daily_journal(
         )
         .await?;
 
-        let liability_account = qbo_map_with_misc_fallback(
-            pool,
-            "liability_gift_card",
-            "default",
-            None,
-        )
-        .await?;
+        let liability_account =
+            qbo_map_with_misc_fallback(pool, "liability_gift_card", "default", None).await?;
 
-        if let (Some((br_id, br_name)), Some((liab_id, liab_name))) = (breakage_account, liability_account) {
+        if let (Some((br_id, br_name)), Some((liab_id, liab_name))) =
+            (breakage_account, liability_account)
+        {
             lines.push(JournalLine {
                 qbo_account_id: liab_id,
                 qbo_account_name: liab_name,
                 debit: breakage_total,
                 credit: Decimal::ZERO,
-                memo: format!("Gift card liability relief from expiration (breakage) - {activity_date}"),
+                memo: format!(
+                    "Gift card liability relief from expiration (breakage) - {activity_date}"
+                ),
                 detail: vec![serde_json::json!({
                     "kind": "gift_card_breakage_liability_relief",
                     "expired_count": expired_gc.expired_count,
@@ -2088,7 +2090,11 @@ mod tests {
         let card_id = uuid::Uuid::new_v4();
 
         // First clean up any existing card with this code
-        sqlx::query("DELETE FROM gift_cards WHERE code = $1").bind(&code).execute(&pool).await.ok();
+        sqlx::query("DELETE FROM gift_cards WHERE code = $1")
+            .bind(&code)
+            .execute(&pool)
+            .await
+            .ok();
 
         // Insert card in pool (so it persists outside transaction so sweep can see it and commit)
         sqlx::query(
@@ -2132,6 +2138,10 @@ mod tests {
         assert_eq!(count, 1);
 
         // Clean up
-        sqlx::query("DELETE FROM gift_cards WHERE id = $1").bind(card_id).execute(&pool).await.ok();
+        sqlx::query("DELETE FROM gift_cards WHERE id = $1")
+            .bind(card_id)
+            .execute(&pool)
+            .await
+            .ok();
     }
 }
