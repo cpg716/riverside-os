@@ -313,6 +313,10 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     const wp = params.get("wedding_party");
     if (wp) {
+      if (posMode) {
+        window.history.replaceState({}, "", "/pos");
+        return;
+      }
       setActiveTab("weddings");
       setWeddingReturnTarget("backoffice");
       setWeddingMode(true);
@@ -321,7 +325,7 @@ function App() {
       setPendingWmPartyId(wp);
       window.history.replaceState({}, "", window.location.pathname);
     }
-  }, []);
+  }, [posMode]);
 
   /**
    * Path-based shell entry:
@@ -332,6 +336,10 @@ function App() {
     if (loading) return;
     const settingsRoute = parseSettingsPathname(window.location.pathname);
     if (settingsRoute) {
+      if (posMode) {
+        window.history.replaceState({}, "", "/pos");
+        return;
+      }
       enterBackofficeShell("settings", settingsRoute.section);
       const normalizedUrl = `${settingsRoute.normalizedPath}${window.location.search}${window.location.hash}`;
       const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -346,8 +354,12 @@ function App() {
       setPosMode(true);
       setInsightsMode(false);
       setActiveTab("register");
+    } else {
+      if (posMode) {
+        window.history.replaceState({}, "", "/pos");
+      }
     }
-  }, [loading, enterBackofficeShell]);
+  }, [loading, enterBackofficeShell, posMode]);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -1350,6 +1362,28 @@ function AppShell({
   const [helpDrawerInitialTarget, setHelpDrawerInitialTarget] =
     useState<HelpCenterInitialTarget | null>(null);
   const isAuthenticated = !!(staffCode.trim() && permissionsLoaded && permissions.length > 0);
+
+  // Origin Tracking Effect
+  useEffect(() => {
+    if (!permissionsLoaded) return;
+    if (!staffCode.trim() || permissions.length === 0) {
+      // Unauthenticated state. Record the current mode.
+      if (!sessionStorage.getItem("Originating_Mode")) {
+        sessionStorage.setItem("Originating_Mode", posMode ? "pos" : "backoffice");
+      }
+    } else {
+      // Successfully authenticated/restored credentials.
+      const origin = sessionStorage.getItem("Originating_Mode");
+      if (origin === "pos") {
+        setPosMode(true);
+        setActiveTab("register");
+      } else if (origin === "backoffice") {
+        setPosMode(false);
+      }
+      sessionStorage.removeItem("Originating_Mode");
+    }
+  }, [staffCode, posMode, permissionsLoaded, permissions.length, setPosMode, setActiveTab]);
+
   useEffect(() => {
     // Shell entry tabs should reconcile their owning mode if the parent tab and mode drift.
     if (

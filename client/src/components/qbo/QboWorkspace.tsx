@@ -37,6 +37,14 @@ interface CredentialsPublic {
   is_active: boolean;
 }
 
+interface QboAccount {
+  id: string;
+  name: string;
+  account_type: string | null;
+  account_number: string | null;
+  is_active: boolean;
+}
+
 interface SyncLogRow {
   id: string;
   sync_date: string;
@@ -122,6 +130,131 @@ function qboStageLabel(payload: Record<string, unknown>): string {
   return stage.entry_type === "daily_general_journal_revision"
     ? "Revision"
     : "Daily journal";
+}
+
+function getResolvableMappingKeys(message: string): { key: string; label: string; type: "granular" | "ledger"; source_type?: string; source_id?: string }[] {
+  const matches = message.match(/`([^`]+)`/g);
+  const results: { key: string; label: string; type: "granular" | "ledger"; source_type?: string; source_id?: string }[] = [];
+  if (matches) {
+    for (const m of matches) {
+      const key = m.replace(/`/g, "");
+      if (key === "income_gift_card_breakage") {
+        results.push({ key, label: "Gift Card Breakage Revenue", type: "granular", source_type: "income_gift_card_breakage", source_id: "default" });
+      } else if (key === "liability_gift_card") {
+        results.push({ key, label: "Gift Card Liability", type: "granular", source_type: "liability_gift_card", source_id: "default" });
+      } else if (key === "liability_deposit") {
+        results.push({ key, label: "Customer Deposit Holding", type: "granular", source_type: "liability_deposit", source_id: "default" });
+      } else if (key === "liability_store_credit") {
+        results.push({ key, label: "Store Credit Liability", type: "granular", source_type: "liability_store_credit", source_id: "default" });
+      } else if (key === "expense_loyalty") {
+        results.push({ key, label: "Loyalty/Promo Gift Card Expense", type: "granular", source_type: "expense_loyalty", source_id: "default" });
+      } else if (key === "income_shipping") {
+        results.push({ key, label: "Shipping Income (Fulfillment)", type: "granular", source_type: "income_shipping", source_id: "default" });
+      } else if (key === "income_forfeited_deposit") {
+        results.push({ key, label: "Forfeited Deposit Income", type: "granular", source_type: "income_forfeited_deposit", source_id: "default" });
+      } else if (key === "tax") {
+        results.push({ key, label: "Sales Tax Payable", type: "granular", source_type: "tax", source_id: "SALES_TAX" });
+      } else if (["COGS_FREIGHT", "INV_RECEIVING_CLEARING", "INV_ASSET", "COGS_DEFAULT", "INV_SHRINKAGE", "INV_RTV_CLEARING", "EXP_SHIPPING", "EXP_MERCHANT_FEE", "CASH_ROUNDING", "RMS_CHARGE_FINANCING_CLEARING", "RMS_R2S_PAYMENT_CLEARING", "REFUND_LIABILITY_CLEARING", "REVENUE_SHIPPING", "REVENUE_GIFT_CARD_BREAKAGE"].includes(key)) {
+        results.push({ key, label: `${key.replace(/_/g, " ")} Fallback`, type: "ledger" });
+      }
+    }
+  }
+
+  // Also catch "No QBO tender mapping for `XYZ`; skipped in journal."
+  const tenderMatch = message.match(/No QBO tender mapping for `([^`]+)`/);
+  if (tenderMatch && tenderMatch[1]) {
+    const tenderId = tenderMatch[1];
+    results.push({ key: `tender_${tenderId}`, label: `Tender: ${tenderId.toUpperCase()}`, type: "granular", source_type: "tender", source_id: tenderId });
+  }
+
+  return results;
+}
+
+function InlineMappingResolver({
+  resKey,
+  accounts,
+  onSave,
+}: {
+  resKey: { key: string; label: string; type: "granular" | "ledger"; source_type?: string; source_id?: string };
+  accounts: QboAccount[];
+  onSave: () => Promise<void>;
+}) {
+  const [selectedId, setSelectedId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { toast } = useToast();
+  const { backofficeHeaders } = useBackofficeAuth();
+
+  const handleResolve = async () => {
+    if (!selectedId) return;
+    setBusy(true);
+    try {
+      const h = backofficeHeaders();
+      if (resKey.type === "granular" && resKey.source_type && resKey.source_id) {
+        const name = accounts.find((a) => a.id === selectedId)?.name ?? selectedId;
+        const res = await fetch(`${baseUrl}/api/qbo/granular-mappings`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(h as Record<string, string>),
+          },
+          body: JSON.stringify({
+            source_type: resKey.source_type,
+            source_id: resKey.source_id,
+            qbo_account_id: selectedId,
+            qbo_account_name: name,
+          }),
+        });
+        if (!res.ok) throw new Error("Could not save mapping");
+      } else {
+        const res = await fetch(`${baseUrl}/api/qbo/mappings`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(h as Record<string, string>),
+          },
+          body: JSON.stringify({
+            internal_key: resKey.key,
+            internal_description: `Mapped inline from staging warning for ${resKey.label}`,
+            qbo_account_id: selectedId,
+          }),
+        });
+        if (!res.ok) throw new Error("Could not save mapping");
+      }
+      toast(`Mapped ${resKey.label} successfully!`, "success");
+      await onSave();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Resolution failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-white/10 bg-black/20 p-2 text-xs">
+      <span className="font-bold text-cyan-200">Map {resKey.label} inline:</span>
+      <select
+        value={selectedId}
+        onChange={(e) => setSelectedId(e.target.value)}
+        className="rounded border-none bg-app-surface px-2 py-1 text-xs font-bold text-app-accent-2 outline-none focus:ring-1 focus:ring-app-accent-2"
+        disabled={busy}
+      >
+        <option value="">Select account...</option>
+        {accounts.map((acct) => (
+          <option key={acct.id} value={acct.id}>
+            {acct.name}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={() => void handleResolve()}
+        disabled={!selectedId || busy}
+        className="rounded bg-app-accent px-3 py-1 text-xs font-black uppercase text-white hover:opacity-90 disabled:opacity-50"
+      >
+        {busy ? "Saving..." : "Save Mapping"}
+      </button>
+    </div>
+  );
 }
 
 function classifyQboWarning(message: string, row?: SyncLogRow): QboWarningTone {
@@ -251,6 +384,7 @@ export default function QboWorkspace({
   const [ledger, setLedger] = useState<LedgerMapping[]>([]);
   const [creds, setCreds] = useState<CredentialsPublic | null>(null);
   const [staging, setStaging] = useState<SyncLogRow[]>([]);
+  const [accounts, setAccounts] = useState<QboAccount[]>([]);
   const [busy, setBusy] = useState(false);
   const { toast } = useToast();
 
@@ -272,11 +406,12 @@ export default function QboWorkspace({
 
   const refreshCore = useCallback(async () => {
     const h = backofficeHeaders();
-    const [g, l, cr, st] = await Promise.all([
+    const [g, l, cr, st, ac] = await Promise.all([
       fetch(`${baseUrl}/api/qbo/granular-mappings`, { headers: h }),
       fetch(`${baseUrl}/api/qbo/mappings`, { headers: h }),
       fetch(`${baseUrl}/api/qbo/credentials`, { headers: h }),
       fetch(`${baseUrl}/api/qbo/staging`, { headers: h }),
+      fetch(`${baseUrl}/api/qbo/accounts-cache`, { headers: h }),
     ]);
     if (g.ok) setGranular((await g.json()) as GranularMapping[]);
     if (l.ok) setLedger((await l.json()) as LedgerMapping[]);
@@ -285,6 +420,7 @@ export default function QboWorkspace({
       setCreds(pub);
     }
     if (st.ok) setStaging((await st.json()) as SyncLogRow[]);
+    if (ac.ok) setAccounts((await ac.json()) as QboAccount[]);
   }, [backofficeHeaders]);
 
   useEffect(() => {
@@ -1082,27 +1218,40 @@ export default function QboWorkspace({
                                   <p className="text-[10px] font-black uppercase tracking-widest text-cyan-200">
                                     Accounting review items
                                   </p>
-                                  {warnings.map((warning, index) => (
-                                    <div
-                                      key={`${r.id}-warning-${index}`}
-                                      className={`rounded px-3 py-2 text-[11px] font-semibold ${
-                                        warning.tone === "blocking"
-                                          ? "bg-red-900/50 text-red-100"
-                                          : warning.tone === "warning"
-                                            ? "bg-amber-900/45 text-amber-100"
-                                            : "bg-sky-900/45 text-sky-100"
-                                      }`}
-                                    >
-                                      <span className="mr-2 font-black uppercase">
-                                        {warning.tone === "blocking"
-                                          ? "Blocking"
-                                          : warning.tone === "warning"
-                                            ? "Requires review"
-                                            : "Info"}
-                                      </span>
-                                      {warning.message}
-                                    </div>
-                                  ))}
+                                  {warnings.map((warning, index) => {
+                                    const resolvable = getResolvableMappingKeys(warning.message);
+                                    return (
+                                      <div
+                                        key={`${r.id}-warning-${index}`}
+                                        className={`rounded px-3 py-2 text-[11px] font-semibold ${
+                                          warning.tone === "blocking"
+                                            ? "bg-red-900/50 text-red-100"
+                                            : warning.tone === "warning"
+                                              ? "bg-amber-900/45 text-amber-100"
+                                              : "bg-sky-900/45 text-sky-100"
+                                        }`}
+                                      >
+                                        <div>
+                                          <span className="mr-2 font-black uppercase">
+                                            {warning.tone === "blocking"
+                                              ? "Blocking"
+                                              : warning.tone === "warning"
+                                                ? "Requires review"
+                                                : "Info"}
+                                          </span>
+                                          {warning.message}
+                                        </div>
+                                        {resolvable.map((resKey) => (
+                                          <InlineMappingResolver
+                                            key={`${r.id}-resolve-${resKey.key}`}
+                                            resKey={resKey}
+                                            accounts={accounts}
+                                            onSave={refreshCore}
+                                          />
+                                        ))}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               ) : (
                                 <div className="rounded border border-white/15 bg-black/35 px-3 py-2 text-[11px] font-semibold text-emerald-100">

@@ -109,3 +109,4 @@ pub mod counterpoint_workbench;
 pub mod inventory_brain;
 pub mod rms_account_list_import;
 pub mod wedding_health;
+pub mod integration_heartbeat;

@@ -1023,6 +1023,24 @@ async fn stream_logs(
     Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
+async fn get_connectivity_logs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<crate::logic::integration_heartbeat::ConnectivityLog>>, Response> {
+    let _ = require_view(&state, &headers).await?;
+    let logs = crate::logic::integration_heartbeat::get_connectivity_logs(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "ops get connectivity logs failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "could not load connectivity logs" })),
+            )
+                .into_response()
+        })?;
+    Ok(Json(logs))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health/snapshot", get(get_health_snapshot))
@@ -1049,5 +1067,6 @@ pub fn router() -> Router<AppState> {
         .route("/bugs/overview", get(get_bugs_overview))
         .route("/bugs/link-alert", post(post_bug_alert_link))
         .route("/logs/stream", get(stream_logs))
+        .route("/connectivity-logs", get(get_connectivity_logs))
         .route("/update-check", get(get_update_check))
 }

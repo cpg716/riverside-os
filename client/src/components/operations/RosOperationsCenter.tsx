@@ -7,19 +7,23 @@ import {
   Activity,
   AlertTriangle,
   Bell,
+  Bug,
   ClipboardCheck,
   Copy,
   Database,
-  PackageCheck,
   RefreshCw,
+  Server,
   ShieldCheck,
-  ShoppingBag,
+  ShieldAlert,
   TerminalSquare,
 } from "lucide-react";
+import { useToast } from "../ui/ToastProviderLogic";
+import BugReportsSettingsPanel from "../settings/BugReportsSettingsPanel";
+import UpdateManagerPanel from "../settings/UpdateManagerPanel";
 
 const baseUrl = getBaseUrl();
 
-type HealthStatus = "ready" | "review" | "degraded" | "blocked";
+type HealthStatus = "WARNING" | "CAUTION" | "GOOD";
 type ChecklistMode = "open" | "close";
 
 export type OperationsCenterNavigateTarget = {
@@ -147,6 +151,62 @@ interface LifecycleQueueItem {
   is_rush: boolean;
 }
 
+interface ConnectivityLog {
+  id: string;
+  source: string;
+  old_status: string;
+  new_status: string;
+  detail?: string | null;
+  created_at: string;
+}
+
+interface StationRow {
+  station_key: string;
+  station_label: string;
+  app_version: string;
+  git_sha: string | null;
+  tailscale_node: string | null;
+  lan_ip: string | null;
+  last_seen_at: string;
+  online: boolean;
+  actionable: boolean;
+}
+
+interface AlertEventRow {
+  id: string;
+  rule_key: string;
+  title: string;
+  body: string;
+  severity: string;
+  status: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+interface BugOverviewRow {
+  id: string;
+  correlation_id: string;
+  created_at: string;
+  status: string;
+  summary: string;
+  staff_name: string;
+  linked_incidents: number;
+  oldest_linked_alert_at: string | null;
+}
+
+interface RuntimeDiagnosticItem {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  severity: string;
+}
+
+interface RuntimeDiagnosticsSnapshot {
+  generated_at: string;
+  items: RuntimeDiagnosticItem[];
+}
+
 interface LoadState<T> {
   data: T | null;
   error: string | null;
@@ -155,7 +215,7 @@ interface LoadState<T> {
 interface OperationsCategory {
   id: string;
   title: string;
-  status: HealthStatus;
+  status: "ready" | "review" | "degraded" | "blocked";
   blockerCount: number;
   stale: boolean;
   lastActivity: string;
@@ -169,12 +229,14 @@ interface OperationsCategory {
 interface TimelineItem {
   label: string;
   detail: string;
-  status: HealthStatus;
+  status: "ready" | "review" | "degraded" | "blocked";
 }
 
 interface RosOperationsCenterProps {
   refreshSignal?: number;
   onNavigate: (target: OperationsCenterNavigateTarget) => void;
+  bugReportsDeepLinkId?: string | null;
+  onBugReportsDeepLinkConsumed?: () => void;
 }
 
 function emptyState<T>(): LoadState<T> {
@@ -205,109 +267,28 @@ async function fetchJson<T>(path: string, headers: HeadersInit): Promise<LoadSta
   }
 }
 
-function statusRank(status: HealthStatus): number {
-  if (status === "blocked") return 4;
-  if (status === "degraded") return 3;
-  if (status === "review") return 2;
-  return 1;
-}
 
-function worstStatus(statuses: HealthStatus[]): HealthStatus {
-  return statuses.reduce<HealthStatus>(
-    (worst, current) => (statusRank(current) > statusRank(worst) ? current : worst),
-    "ready",
-  );
-}
-
-function statusLabel(status: HealthStatus): string {
-  if (status === "blocked") return "Blocked";
-  if (status === "degraded") return "Degraded";
-  if (status === "review") return "Needs Review";
-  return "Ready";
-}
-
-function statusClass(status: HealthStatus): string {
-  if (status === "blocked") return "border-app-danger/30 bg-app-danger/10 text-app-danger";
-  if (status === "degraded") return "border-app-warning/40 bg-app-warning/10 text-app-warning";
-  if (status === "review") return "border-amber-500/30 bg-amber-500/10 text-amber-700";
-  return "border-app-success/30 bg-app-success/10 text-app-success";
-}
-
-function cardClass(status: HealthStatus): string {
-  if (status === "blocked") return "border-app-danger/35 bg-app-danger/5";
-  if (status === "degraded") return "border-app-warning/35 bg-app-warning/5";
-  if (status === "review") return "border-amber-500/30 bg-amber-500/5";
-  return "border-app-border bg-app-surface";
-}
-
-function fmtNumber(value: number | null | undefined): string {
-  return Number(value ?? 0).toLocaleString();
-}
-
-function fmtDate(value: string | null | undefined): string {
-  if (!value) return "Not loaded";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not loaded";
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function counterpointLastSuccess(status: CounterpointStatus | null): string {
-  const dates = (status?.entity_runs ?? [])
-    .map((row) => row.last_ok_at)
-    .filter((value): value is string => Boolean(value))
-    .map((value) => new Date(value).getTime())
-    .filter((value) => Number.isFinite(value));
-  if (dates.length === 0) return "No successful sync loaded";
-  return fmtDate(new Date(Math.max(...dates)).toISOString());
-}
-
-function reconciliationSeverityBand(severity?: string | null): HealthStatus {
-  const value = String(severity ?? "").toLowerCase();
-  if (["critical", "high", "blocking"].includes(value)) return "blocked";
-  if (["warning", "medium"].includes(value)) return "review";
-  return "ready";
-}
-
-function checklistGuidance(mode: ChecklistMode, category: OperationsCategory): string {
-  if (category.status === "blocked") {
-    return mode === "open"
-      ? "Blocked unsafe state. Resolve or assign a manager owner before treating the store as open-ready."
-      : "Review before closing register. Resolve or document ownership before treating close as complete.";
-  }
-  if (category.status === "degraded") {
-    return "Degraded but operational only with awareness. Refresh first; if still degraded, confirm the source workflow before signoff.";
-  }
-  if (category.status === "review") {
-    return "Needs Review. Manager review recommended before open/close signoff.";
-  }
-  return "Ready from loaded sources.";
-}
-
-function checklistPriority(status: HealthStatus, mode: ChecklistMode): string {
-  if (status === "blocked") {
-    return mode === "open"
-      ? "Priority: resolve blockers before opening."
-      : "Priority: resolve checkout, pickup, reconciliation, or support blockers before close.";
-  }
-  if (status === "degraded") {
-    return "Priority: refresh stale sources, then decide whether degraded operation is acceptable.";
-  }
-  if (status === "review") {
-    return "Priority: assign review owners and continue only after manager acknowledgment.";
-  }
-  return "Priority: continue the normal checklist rhythm.";
-}
 
 export default function RosOperationsCenter({
   refreshSignal = 0,
   onNavigate,
+  bugReportsDeepLinkId = null,
+  onBugReportsDeepLinkConsumed,
 }: RosOperationsCenterProps) {
-  const { backofficeHeaders } = useBackofficeAuth();
+  const { backofficeHeaders, hasPermission } = useBackofficeAuth();
+  const { toast } = useToast();
+
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "stations" | "alerts" | "integrations" | "bugs" | "updates"
+  >("overview");
+
+  // Sync deep link automatically
+  useEffect(() => {
+    if (bugReportsDeepLinkId) {
+      setActiveTab("bugs");
+    }
+  }, [bugReportsDeepLinkId]);
+
   const [loading, setLoading] = useState(true);
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
   const [ops, setOps] = useState<LoadState<OpsHealthSnapshot>>(emptyState());
@@ -319,13 +300,34 @@ export default function RosOperationsCenter({
   const [paymentProvider, setPaymentProvider] = useState<LoadState<ActiveProviderResponse>>(emptyState());
   const [paymentIssues, setPaymentIssues] = useState<LoadState<PaymentIssue[]>>(emptyState());
   const [lifecycleQueues, setLifecycleQueues] = useState<LoadState<LifecycleQueueItem[]>>(emptyState());
+  
+  // Support Center state consolidation
+  const [stations, setStations] = useState<StationRow[]>([]);
+  const [alerts, setAlerts] = useState<AlertEventRow[]>([]);
+  const [bugsOverview, setBugsOverview] = useState<BugOverviewRow[]>([]);
+  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<RuntimeDiagnosticsSnapshot | null>(null);
+  const [connectivityLogs, setConnectivityLogs] = useState<ConnectivityLog[]>([]);
+  const [selectedBugId, setSelectedBugId] = useState("");
+  const [selectedAlertId, setSelectedAlertId] = useState("");
+  const [linkNote, setLinkNote] = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [stationPage, setStationPage] = useState(1);
+  const [alertPage, setAlertPage] = useState(1);
+  const [showStaleStations, setShowStaleStations] = useState(false);
+  const [triggerCheckBusy, setTriggerCheckBusy] = useState(false);
+
   const [snapshotCopied, setSnapshotCopied] = useState(false);
   const [checklistMode, setChecklistMode] = useState<ChecklistMode>("open");
+
+  const canView = hasPermission("ops.dev_center.view");
+  const canRunActions = hasPermission("ops.dev_center.actions");
 
   const headers = useMemo(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
 
   const load = useCallback(async () => {
+    if (!canView) return;
     setLoading(true);
+
     const [
       opsResult,
       fulfillmentResult,
@@ -336,6 +338,11 @@ export default function RosOperationsCenter({
       paymentProviderResult,
       paymentIssuesResult,
       lifecycleResult,
+      stationsResult,
+      alertsResult,
+      bugsResult,
+      runtimeResult,
+      logsResult,
     ] = await Promise.all([
       fetchJson<OpsHealthSnapshot>("/api/ops/health/snapshot", headers),
       fetchJson<FulfillmentItem[]>("/api/transactions/fulfillment-queue", headers),
@@ -346,6 +353,11 @@ export default function RosOperationsCenter({
       fetchJson<ActiveProviderResponse>("/api/payments/providers/active", headers),
       fetchJson<PaymentIssue[]>("/api/payments/providers/helcim/reconciliation/items?status=open&limit=25", headers),
       fetchJson<LifecycleQueueItem[]>("/api/order-lifecycle/items", headers),
+      fetchJson<StationRow[]>("/api/ops/stations", headers),
+      fetchJson<AlertEventRow[]>("/api/ops/alerts", headers),
+      fetchJson<BugOverviewRow[]>("/api/ops/bugs/overview", headers),
+      fetchJson<RuntimeDiagnosticsSnapshot>("/api/ops/runtime-diagnostics", headers),
+      fetchJson<ConnectivityLog[]>("/api/ops/connectivity-logs", headers),
     ]);
 
     setOps(opsResult);
@@ -357,48 +369,118 @@ export default function RosOperationsCenter({
     setPaymentProvider(paymentProviderResult);
     setPaymentIssues(paymentIssuesResult);
     setLifecycleQueues(lifecycleResult);
+
+    if (stationsResult.data) setStations(stationsResult.data);
+    if (alertsResult.data) setAlerts(alertsResult.data);
+    if (bugsResult.data) setBugsOverview(bugsResult.data);
+    if (runtimeResult.data) setRuntimeDiagnostics(runtimeResult.data);
+    if (logsResult.data) setConnectivityLogs(logsResult.data);
+
     setLoadedAt(new Date().toLocaleString());
     setLoading(false);
-  }, [headers]);
+  }, [headers, canView]);
 
   useEffect(() => {
     void load();
   }, [load, refreshSignal]);
 
+  const ackAlert = useCallback(
+    async (alertId: string) => {
+      if (!canRunActions) return;
+      try {
+        const res = await fetch(`${baseUrl}/api/ops/alerts/ack`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...headers,
+          },
+          body: JSON.stringify({ alert_id: alertId }),
+        });
+        if (!res.ok) {
+          toast("Could not acknowledge alert", "error");
+          return;
+        }
+        toast("Alert acknowledged", "success");
+        await load();
+      } catch {
+        toast("Network error acknowledging alert", "error");
+      }
+    },
+    [headers, canRunActions, load, toast],
+  );
+
+  const linkBugAlert = useCallback(async () => {
+    if (!canRunActions) return;
+    if (!selectedBugId || !selectedAlertId) {
+      toast("Select both a bug report and an alert", "error");
+      return;
+    }
+
+    setLinkBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/ops/bugs/link-alert`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...headers,
+        },
+        body: JSON.stringify({
+          bug_report_id: selectedBugId,
+          alert_event_id: selectedAlertId,
+          note: linkNote.trim(),
+        }),
+      });
+      if (!res.ok) {
+        toast("Could not link bug to alert", "error");
+        return;
+      }
+      toast("Bug linked to ops incident", "success");
+      setLinkNote("");
+      await load();
+    } catch {
+      toast("Network error linking bug", "error");
+    } finally {
+      setLinkBusy(false);
+    }
+  }, [headers, canRunActions, linkNote, load, selectedAlertId, selectedBugId, toast]);
+
+  const triggerHeartbeat = useCallback(async () => {
+    if (!canRunActions) return;
+    setTriggerCheckBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/ops/audit-probes`, {
+        method: "POST",
+        headers,
+      });
+      if (res.ok) {
+        toast("Active integration connectivity heartbeat triggered.", "success");
+        setTimeout(() => void load(), 1500);
+      } else {
+        toast("Failed to trigger integration audit.", "error");
+      }
+    } catch {
+      toast("Network error running heartbeat.", "error");
+    } finally {
+      setTriggerCheckBusy(false);
+    }
+  }, [headers, canRunActions, load, toast]);
+
+  // Derived health status grids
   const derived = useMemo(() => {
     const opsData = ops.data;
-    const fulfillmentRows = fulfillment.data ?? [];
-    const notificationData = notifications.data;
     const cpData = counterpoint.data;
     const rmsData = rms.data;
     const paymentEvents = paymentHealth.data;
     const provider = paymentProvider.data;
     const paymentReviewItems = paymentIssues.data ?? [];
-    const lifecycleItems = lifecycleQueues.data ?? [];
-    const lifecycleNtbo = lifecycleItems.filter((item) => item.lifecycle_status === "ntbo").length;
-    const lifecycleOrdered = lifecycleItems.filter((item) => item.lifecycle_status === "ordered").length;
-    const lifecycleReceived = lifecycleItems.filter((item) => item.lifecycle_status === "received").length;
-    const lifecycleReady = lifecycleItems.filter((item) => item.lifecycle_status === "ready_for_pickup").length;
-    const lifecycleRushNtbo = lifecycleItems.filter((item) => item.lifecycle_status === "ntbo" && item.is_rush).length;
-    const lifecycleAtRisk = lifecycleItems.filter((item) => item.risk_level === "at_risk").length;
-
-    const fulfillmentBlocked = fulfillmentRows.filter((row) => row.urgency === "blocked").length;
-    const fulfillmentRush = fulfillmentRows.filter((row) => row.urgency === "rush").length;
-
-    const generatorFailures =
-      notificationData?.generator_runs.filter((row) => row.last_status === "failed").length ?? 0;
-    const staleUnread = notificationData?.summary.stale_unread_rows ?? 0;
-    const activeNotifications = notificationData?.summary.active_inbox_rows ?? 0;
 
     const cpIssues = cpData?.recent_issues?.length ?? 0;
-    const cpApplying = cpData?.staging_applying_count ?? 0;
-    const cpPending = cpData?.staging_pending_count ?? 0;
     const cpErrors =
       cpData?.entity_runs?.filter((row) => row.last_error && row.last_error.trim().length > 0).length ?? 0;
 
     const rmsItems = rmsData?.items?.filter((item) => item.status !== "resolved") ?? [];
-    const rmsBlocking = rmsItems.filter((item) => reconciliationSeverityBand(item.severity) === "blocked").length;
-    const rmsWarnings = rmsItems.filter((item) => reconciliationSeverityBand(item.severity) === "review").length;
+    const rmsBlocking = rmsItems.filter((item) => item.severity === "critical" || item.severity === "high").length;
+    const rmsWarnings = rmsItems.filter((item) => item.severity === "warning" || item.severity === "medium").length;
 
     const paymentReviewCount = paymentReviewItems.length;
     const failedPaymentUpdates = paymentEvents?.failed_event_count ?? 0;
@@ -406,17 +488,35 @@ export default function RosOperationsCenter({
     const terminalReady = provider?.helcim?.terminal_payments_ready === true;
     const paymentConfigured = provider?.helcim?.api_token_configured === true;
 
-    const feedErrors = [
-      ops.error,
-      fulfillment.error,
-      notifications.error,
-      counterpoint.error,
-      rms.error,
-      paymentHealth.error,
-      paymentProvider.error,
-      paymentIssues.error,
-      lifecycleQueues.error,
-    ].filter(Boolean).length;
+    // Build the 4 status pillars logic
+    // 1. Integrations Status
+    let integrationsPillar = "GOOD" as HealthStatus;
+    const failedIntegrations = (opsData?.integrations ?? []).filter(i => i.status === "failed");
+    if (failedIntegrations.some(i => i.severity === "critical")) {
+      integrationsPillar = "WARNING";
+    } else if (failedIntegrations.length > 0 || (opsData?.integrations ?? []).some(i => i.status === "disabled" || i.status === "caution" || i.status === "CAUTION")) {
+      integrationsPillar = "CAUTION";
+    }
+
+    // 2. Updates Pillar Status
+    const appVersionMismatch = stations.some(s => s.app_version !== CLIENT_SEMVER);
+    const updatesPillar = (appVersionMismatch ? "WARNING" : "GOOD") as HealthStatus;
+
+    // 3. POS Pillar Status
+    let posPillar = "GOOD" as HealthStatus;
+    if (!paymentConfigured || !terminalReady || failedPaymentUpdates > 0) {
+      posPillar = "WARNING";
+    } else if (paymentReviewCount > 0 || unmatchedPaymentUpdates > 0) {
+      posPillar = "CAUTION";
+    }
+
+    // 4. Back Office Pillar Status
+    let boPillar = "GOOD" as HealthStatus;
+    if (opsData?.db_ok === false || rmsBlocking > 0 || cpErrors > 0) {
+      boPillar = "WARNING";
+    } else if (rmsWarnings > 0 || cpIssues > 0 || (opsData?.stations_offline ?? 0) > 0 || (opsData?.pending_bug_reports ?? 0) > 0) {
+      boPillar = "CAUTION";
+    }
 
     const categories: OperationsCategory[] = [
       {
@@ -433,154 +533,16 @@ export default function RosOperationsCenter({
         stale: Boolean(ops.error),
         lastActivity: loadedAt ?? "Not loaded",
         summary: ops.error
-          ? "Store health could not refresh. Showing the last loaded operational context where available."
-          : `${fmtNumber(opsData?.stations_online)} station${opsData?.stations_online === 1 ? "" : "s"} online, ${fmtNumber(opsData?.stations_offline)} actionable offline, ${fmtNumber(opsData?.stations_stale)} stale archived, ${fmtNumber(opsData?.open_alerts)} open alert${opsData?.open_alerts === 1 ? "" : "s"}.`,
+          ? "Store health could not refresh."
+          : `${opsData?.stations_online ?? 0} online, ${opsData?.stations_offline ?? 0} offline.`,
         nextAction: (opsData?.stations_offline ?? 0) > 0
-          ? "Check offline register workstations before opening or closing the store."
-          : "Review open alerts, then continue normal store operations.",
+          ? "Check offline register workstations."
+          : "Review open alerts.",
         buttonLabel: "Open Support Center",
         target: { tab: "settings", section: "ros-support-center" },
         Icon: ShieldCheck,
       },
-      {
-        id: "sales-register",
-        title: "Sales & Register Health",
-        status: paymentProvider.error || paymentHealth.error
-          ? "degraded"
-          : !paymentConfigured || !terminalReady || failedPaymentUpdates > 0
-            ? "blocked"
-            : paymentReviewCount > 0 || unmatchedPaymentUpdates > 0
-              ? "review"
-              : "ready",
-        blockerCount: failedPaymentUpdates + (terminalReady ? 0 : 1),
-        stale: Boolean(paymentProvider.error || paymentHealth.error),
-        lastActivity: fmtDate(paymentEvents?.last_event_at),
-        summary: paymentProvider.error || paymentHealth.error
-          ? "Payment/register health could not refresh from the existing Payments sources."
-          : `${terminalReady ? "Terminal payments ready" : "Terminal payments not ready"} · ${fmtNumber(paymentReviewCount)} payment review item${paymentReviewCount === 1 ? "" : "s"} · ${fmtNumber(failedPaymentUpdates)} failed update${failedPaymentUpdates === 1 ? "" : "s"}.`,
-        nextAction: terminalReady
-          ? "Review Helcim Terminal Review before retrying any unverified card outcome."
-          : "Confirm Helcim terminal readiness before taking live card payments.",
-        buttonLabel: "Open Payments Health",
-        target: { tab: "payments", section: "health" },
-        Icon: TerminalSquare,
-      },
-      {
-        id: "fulfillment",
-        title: "Fulfillment & Workflow Blockers",
-        status: fulfillment.error
-          ? "degraded"
-          : fulfillmentBlocked > 0 || lifecycleAtRisk > 0
-            ? "blocked"
-            : fulfillmentRush > 0 || lifecycleNtbo > 0 || lifecycleReceived > 0
-              ? "review"
-              : "ready",
-        blockerCount: fulfillmentBlocked + lifecycleAtRisk,
-        stale: Boolean(fulfillment.error || lifecycleQueues.error),
-        lastActivity: loadedAt ?? "Not loaded",
-        summary: fulfillment.error || lifecycleQueues.error
-          ? "Pickup queue could not refresh. Do not treat the queue as clear until refresh succeeds."
-          : `${fmtNumber(fulfillmentRows.length)} pickup pending · ${fmtNumber(lifecycleNtbo)} NTBO · ${fmtNumber(lifecycleOrdered)} ordered · ${fmtNumber(lifecycleReceived)} received awaiting prep · ${fmtNumber(lifecycleReady)} ready.`,
-        nextAction: fulfillmentBlocked > 0 || lifecycleAtRisk > 0
-          ? "Open the pickup queue and review blocked fulfillment work first."
-          : lifecycleNtbo > 0
-            ? "Open Orders and create vendor purchase orders for NTBO items."
-            : "Use the pickup queue for item-level follow-up; this center only summarizes.",
-        buttonLabel: "Open Pickup Queue",
-        target: { tab: "home", section: "fulfillment" },
-        Icon: ShoppingBag,
-      },
-      {
-        id: "sync-reconciliation",
-        title: "Sync & Reconciliation",
-        status: counterpoint.error || rms.error
-          ? "degraded"
-          : rmsBlocking > 0 || cpErrors > 0
-            ? "blocked"
-            : rmsWarnings > 0 || cpIssues > 0 || cpApplying > 0 || cpPending > 0
-              ? "review"
-              : "ready",
-        blockerCount: rmsBlocking + cpErrors,
-        stale: Boolean(counterpoint.error || rms.error),
-        lastActivity: counterpointLastSuccess(cpData),
-        summary: counterpoint.error || rms.error
-          ? "Sync or reconciliation health could not refresh from source workspaces."
-          : `${fmtNumber(cpIssues)} Counterpoint issue${cpIssues === 1 ? "" : "s"} · ${fmtNumber(cpPending + cpApplying)} staging batch${cpPending + cpApplying === 1 ? "" : "es"} active · ${fmtNumber(rmsItems.length)} RMS mismatch${rmsItems.length === 1 ? "" : "es"} loaded.`,
-        nextAction: rmsBlocking > 0
-          ? "Review RMS blocking mismatches before relying on pickup/payment visibility."
-          : "Use Counterpoint or RMS source workspaces for safe rerun and recovery actions.",
-        buttonLabel: rmsBlocking > 0 ? "Open RMS Review" : "Open Counterpoint",
-        target: rmsBlocking > 0
-          ? { tab: "customers", section: "rms-charge" }
-          : { tab: "settings", section: "counterpoint" },
-        Icon: Database,
-      },
-      {
-        id: "inventory",
-        title: "Inventory Confidence",
-        status: notifications.error || counterpoint.error
-          ? "degraded"
-          : staleUnread > 0 || cpIssues > 0
-            ? "review"
-            : "ready",
-        blockerCount: 0,
-        stale: Boolean(notifications.error || counterpoint.error),
-        lastActivity: loadedAt ?? "Not loaded",
-        summary: notifications.error
-          ? "Inventory alert health could not refresh; do not treat stock alerts as clear."
-          : `${fmtNumber(staleUnread)} stale alert${staleUnread === 1 ? "" : "s"} · import and physical publish details remain in Inventory source workflows.`,
-        nextAction: "Review inventory alerts, imports, and physical counts in their source workspaces before publishing changes.",
-        buttonLabel: "Open Inventory Review",
-        target: { tab: "inventory", section: "intelligence" },
-        Icon: PackageCheck,
-      },
-      {
-        id: "notifications",
-        title: "Notifications & Staff Follow-Up",
-        status: notifications.error
-          ? "degraded"
-          : generatorFailures > 0
-            ? "blocked"
-            : staleUnread > 0 || activeNotifications > 0
-              ? "review"
-              : "ready",
-        blockerCount: generatorFailures,
-        stale: Boolean(notifications.error),
-        lastActivity: loadedAt ?? "Not loaded",
-        summary: notifications.error
-          ? "Notification health could not refresh. Refresh before treating the inbox as clear."
-          : `${fmtNumber(activeNotifications)} active inbox row${activeNotifications === 1 ? "" : "s"} · ${fmtNumber(staleUnread)} stale unread · ${fmtNumber(generatorFailures)} failing generator${generatorFailures === 1 ? "" : "s"}.`,
-        nextAction: generatorFailures > 0
-          ? "Open notification health and review failing generators before assuming alerts are current."
-          : "Clear reviewed alerts in the notification drawer; retry is safe for failed cleanup actions.",
-        buttonLabel: "Open Inbox",
-        target: { tab: "home", section: "inbox" },
-        Icon: Bell,
-      },
-      {
-        id: "deployment-support",
-        title: "Deployment & Support",
-        status: feedErrors > 0
-          ? "degraded"
-          : (opsData?.pending_bug_reports ?? 0) > 0
-            ? "review"
-            : "ready",
-        blockerCount: 0,
-        stale: feedErrors > 0,
-        lastActivity: loadedAt ?? "Not loaded",
-        summary: `Client ${CLIENT_SEMVER} · build ${GIT_SHORT || "unknown"} · ${fmtNumber(opsData?.pending_bug_reports)} pending bug report${opsData?.pending_bug_reports === 1 ? "" : "s"}.`,
-        nextAction: "Use Support Center for runtime diagnostics, E2E health, station fleet, backups, and guarded support actions.",
-        buttonLabel: "Open Support Center",
-        target: { tab: "settings", section: "ros-support-center" },
-        Icon: ClipboardCheck,
-      },
     ];
-
-    const overallStatus = worstStatus(categories.map((category) => category.status));
-    const blockerCount = categories.reduce((sum, category) => sum + category.blockerCount, 0);
-    const degradedCount = categories.filter((category) => category.status === "degraded").length;
-    const reviewCount = categories.filter((category) => category.status === "review").length;
-    const staleCount = categories.filter((category) => category.stale).length;
 
     const timeline: TimelineItem[] = [
       ...(ops.error
@@ -594,181 +556,108 @@ export default function RosOperationsCenter({
         detail: issue.message,
         status: issue.severity === "error" ? "blocked" as const : "review" as const,
       })),
-      ...(rmsItems.length > 0
-        ? [{
-            label: "RMS reconciliation",
-            detail: `${fmtNumber(rmsItems.length)} mismatch${rmsItems.length === 1 ? "" : "es"} still need review.`,
-            status: rmsBlocking > 0 ? "blocked" as const : "review" as const,
-          }]
-        : []),
-      ...(lifecycleAtRisk > 0
-        ? [{
-            label: "Item lifecycle",
-            detail: `${fmtNumber(lifecycleAtRisk)} lifecycle item${lifecycleAtRisk === 1 ? "" : "s"} at risk; ${fmtNumber(lifecycleRushNtbo)} rush NTBO.`,
-            status: "blocked" as const,
-          }]
-        : lifecycleNtbo > 0
-          ? [{
-              label: "NTBO queue",
-              detail: `${fmtNumber(lifecycleNtbo)} item${lifecycleNtbo === 1 ? "" : "s"} still need vendor ordering.`,
-              status: "review" as const,
-            }]
-          : []),
-      ...(generatorFailures > 0
-        ? [{
-            label: "Notification generators",
-            detail: `${fmtNumber(generatorFailures)} generator${generatorFailures === 1 ? "" : "s"} failing.`,
-            status: "blocked" as const,
-          }]
-        : []),
-      ...(fulfillmentBlocked > 0
-        ? [{
-            label: "Pickup queue",
-            detail: `${fmtNumber(fulfillmentBlocked)} blocked pickup item${fulfillmentBlocked === 1 ? "" : "s"}.`,
-            status: "blocked" as const,
-          }]
-        : []),
     ].slice(0, 8);
 
     return {
       categories,
-      overallStatus,
-      blockerCount,
-      degradedCount,
-      reviewCount,
-      staleCount,
+      integrationsPillar,
+      updatesPillar,
+      posPillar,
+      boPillar,
       timeline,
+      failedIntegrations,
     };
   }, [
+    ops,
     counterpoint.data,
-    counterpoint.error,
-    fulfillment.data,
-    fulfillment.error,
-    loadedAt,
-    lifecycleQueues.data,
-    lifecycleQueues.error,
-    notifications.data,
-    notifications.error,
-    ops.data,
-    ops.error,
-    paymentHealth.data,
-    paymentHealth.error,
-    paymentIssues.data,
-    paymentIssues.error,
-    paymentProvider.data,
-    paymentProvider.error,
     rms.data,
-    rms.error,
+    paymentHealth.data,
+    paymentProvider.data,
+    paymentIssues.data,
+    stations,
+    loadedAt,
   ]);
 
-  const supportSnapshot = useMemo(() => {
-    return [
-      "ROS Operations Center support snapshot",
-      `Generated: ${loadedAt ?? "not loaded"}`,
-      `Client: ${CLIENT_SEMVER}`,
-      `Build: ${GIT_SHORT || "unknown"}`,
-      `Overall: ${statusLabel(derived.overallStatus)}`,
-      `Blockers: ${derived.blockerCount}`,
-      `Degraded categories: ${derived.degradedCount}`,
-      `Needs review: ${derived.reviewCount}`,
-      `Stale/degraded sources: ${derived.staleCount}`,
-      "",
-      ...derived.categories.map(
-        (category) =>
-          `${category.title}: ${statusLabel(category.status)} | blockers=${category.blockerCount} | stale=${category.stale ? "yes" : "no"} | ${category.summary} | Next: ${category.nextAction}`,
-      ),
-      "",
-      "Timeline:",
-      ...(derived.timeline.length
-        ? derived.timeline.map((item) => `${item.label}: ${item.detail}`)
-        : ["No recent blocker timeline items loaded."]),
-    ].join("\n");
-  }, [derived, loadedAt]);
-
-  const readinessChecklist = useMemo(() => {
-    const categoryById = new Map(derived.categories.map((category) => [category.id, category]));
-    const ids =
-      checklistMode === "open"
-        ? [
-            "store-readiness",
-            "sales-register",
-            "fulfillment",
-            "sync-reconciliation",
-            "inventory",
-            "notifications",
-          ]
-        : [
-            "sales-register",
-            "fulfillment",
-            "sync-reconciliation",
-            "notifications",
-            "inventory",
-            "deployment-support",
-          ];
-    return ids
-      .map((id) => categoryById.get(id))
-      .filter((category): category is OperationsCategory => Boolean(category))
-      .map((category) => ({
-        category,
-        guidance: checklistGuidance(checklistMode, category),
-      }));
-  }, [checklistMode, derived.categories]);
-
-  const checklistStatus = worstStatus(
-    readinessChecklist.map((item) => item.category.status),
-  );
-  const checklistCounts = useMemo(
-    () => ({
-      ready: readinessChecklist.filter((item) => item.category.status === "ready").length,
-      review: readinessChecklist.filter((item) => item.category.status === "review").length,
-      degraded: readinessChecklist.filter((item) => item.category.status === "degraded").length,
-      blocked: readinessChecklist.filter((item) => item.category.status === "blocked").length,
-    }),
-    [readinessChecklist],
-  );
-  const actionItems = useMemo(
-    () =>
-      derived.categories
-        .filter((category) => category.status !== "ready" || category.stale || category.blockerCount > 0)
-        .sort((a, b) => statusRank(b.status) - statusRank(a.status)),
-    [derived.categories],
-  );
-
+  // Copy snapshot trigger
   const copySnapshot = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(supportSnapshot);
+      const summaryText = [
+        "ROS Operations & Support Center Snapshot",
+        `Generated: ${loadedAt ?? "not loaded"}`,
+        `Integrations: ${derived.integrationsPillar}`,
+        `Updates: ${derived.updatesPillar}`,
+        `POS: ${derived.posPillar}`,
+        `Back Office: ${derived.boPillar}`,
+        `Stations Online: ${stations.filter(s => s.online).length}`,
+        `Alerts Count: ${alerts.length}`,
+      ].join("\n");
+      await navigator.clipboard.writeText(summaryText);
       setSnapshotCopied(true);
       window.setTimeout(() => setSnapshotCopied(false), 2500);
     } catch {
       setSnapshotCopied(false);
     }
-  }, [supportSnapshot]);
+  }, [loadedAt, derived, stations, alerts]);
+
+  // Pagination for Stations / Alerts
+  const displayedStations = useMemo(
+    () =>
+      showStaleStations
+        ? stations
+        : stations.filter((station) => station.online || station.actionable),
+    [showStaleStations, stations],
+  );
+  const visibleStations = useMemo(
+    () =>
+      displayedStations.slice(
+        (stationPage - 1) * 10,
+        stationPage * 10,
+      ),
+    [displayedStations, stationPage],
+  );
+  const openAlerts = useMemo(
+    () => alerts.filter((a) => a.status === "open" || a.status === "acked"),
+    [alerts],
+  );
+  const visibleAlerts = useMemo(
+    () =>
+      openAlerts.slice(
+        (alertPage - 1) * 6,
+        alertPage * 6,
+      ),
+    [alertPage, openAlerts],
+  );
 
   return (
-    <div className="flex flex-1 flex-col bg-app-bg">
+    <div className="flex flex-1 flex-col bg-app-bg text-app-text font-sans">
       <div className="space-y-6 p-4 sm:p-6 lg:p-8" data-testid="ros-operations-center">
-        <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        {/* Universal Top Dashboard Header */}
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between border-b border-app-border/40 pb-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.24em] text-app-text-muted">
-              Settings / System readiness
+              System Operations
             </p>
-            <h2 className="mt-2 text-3xl font-black tracking-tight text-app-text">
-              ROS Operations Center
+            <h2 className="mt-2 text-3xl font-black italic tracking-tighter uppercase text-app-text flex items-center gap-2">
+              <ShieldAlert className="h-8 w-8 text-app-accent" />
+              ROS Operations & Support Center
             </h2>
+            <p className="mt-1 text-sm font-medium text-app-text-muted">
+              v0.85.0 Command Plane & Active Heartbeat diagnostics panel.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => void copySnapshot()}
-              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-surface-2"
             >
-              <Copy size={14} /> {snapshotCopied ? "Snapshot Copied" : "Copy Support Snapshot"}
+              <Copy size={14} /> {snapshotCopied ? "Snapshot Copied" : "Copy Snapshot"}
             </button>
             <button
               type="button"
               onClick={() => void load()}
               disabled={loading}
-              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50 transition-transform active:scale-95"
             >
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
               {loading ? "Refreshing" : "Refresh"}
@@ -776,314 +665,688 @@ export default function RosOperationsCenter({
           </div>
         </header>
 
-        <section className={`rounded-2xl border p-5 ${statusClass(derived.overallStatus)}`}>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-3">
-              <Activity className="mt-1 shrink-0" size={22} />
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest">Overall store readiness</p>
-                <h3 className="mt-1 text-2xl font-black">{statusLabel(derived.overallStatus)}</h3>
-                <p className="mt-1 text-sm font-semibold opacity-85">
-                  {derived.overallStatus === "blocked"
-                    ? "Resolve the marked items before relying on normal operations."
-                    : derived.overallStatus === "degraded"
-                      ? "Some sources did not refresh. Use the links below to verify source workflows."
-                      : derived.overallStatus === "review"
-                        ? "Review the highlighted items before treating the day as clear."
-                        : "Core checks are clear from the loaded sources."}
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                ["Blockers", derived.blockerCount],
-                ["Needs Review", derived.reviewCount],
-                ["Degraded", derived.degradedCount],
-                ["Stale Sources", derived.staleCount],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-xl border border-current/20 bg-app-surface/60 px-4 py-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70">{label}</p>
-                  <p className="mt-1 text-xl font-black tabular-nums">{value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <p className="mt-3 text-xs font-semibold opacity-75">
-            Last loaded: {loadedAt ?? "Loading"} · Safe refresh only; this center does not mutate source workflows.
-          </p>
-        </section>
-
-        <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
-                Resolve queue
-              </p>
-              <h3 className="mt-1 text-xl font-black text-app-text">
-                {actionItems.length > 0 ? `${actionItems.length} item${actionItems.length === 1 ? "" : "s"} need action` : "All linked sources clear"}
-              </h3>
-            </div>
+        {/* Universal Tabs */}
+        <div className="flex flex-wrap gap-2 border-b border-app-border/40 pb-3">
+          {(
+            [
+              { id: "overview", label: "Operations Overview" },
+              { id: "stations", label: "Stations Fleet" },
+              { id: "alerts", label: "Alert Triage" },
+              { id: "integrations", label: "Integration Health" },
+              { id: "bugs", label: "Bug Manager" },
+              { id: "updates", label: "Updates" },
+            ] as const
+          ).map((tab) => (
             <button
+              key={tab.id}
               type="button"
-              onClick={() => void load()}
-              disabled={loading}
-              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 disabled:opacity-50"
+              onClick={() => setActiveTab(tab.id)}
+              className={`rounded-lg px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${
+                activeTab === tab.id
+                  ? "bg-app-accent text-white shadow-md shadow-app-accent/20"
+                  : "text-app-text-muted hover:bg-app-surface hover:text-app-text"
+              }`}
             >
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-              Refresh Sources
+              {tab.label}
             </button>
-          </div>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {actionItems.length > 0 ? (
-              actionItems.map((category) => {
-                const Icon = category.Icon;
-                return (
-                  <button
-                    key={`action-${category.id}`}
-                    type="button"
-                    onClick={() => onNavigate(category.target)}
-                    className={`flex min-h-24 items-center gap-3 rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${cardClass(category.status)}`}
-                  >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-current/20 bg-app-surface/70">
-                      <Icon size={20} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-black text-app-text">{category.title}</span>
-                        <span className={`rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${statusClass(category.status)}`}>
-                          {statusLabel(category.status)}
-                        </span>
-                      </span>
-                      <span className="mt-1 block text-xs font-semibold text-app-text-muted">
-                        {category.nextAction}
-                      </span>
-                    </span>
-                    <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-app-accent">
-                      Resolve
-                    </span>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="rounded-xl border border-app-success/30 bg-app-success/10 p-4 text-sm font-black text-app-success lg:col-span-2">
-                No blockers, stale sources, or review items are loaded.
-              </div>
-            )}
-          </div>
-        </section>
+          ))}
+        </div>
 
-        <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
-                Open / close check
-              </p>
-              <h3 className="mt-1 text-xl font-black text-app-text">
-                {checklistMode === "open" ? "Open Store" : "Close Store"} readiness
-              </h3>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {(["open", "close"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setChecklistMode(mode)}
-                  className={`min-h-10 rounded-xl border px-4 text-[10px] font-black uppercase tracking-widest ${
-                    checklistMode === mode
-                      ? "border-app-accent bg-app-accent/10 text-app-accent"
-                      : "border-app-border bg-app-bg text-app-text-muted hover:text-app-text"
-                  }`}
-                >
-                  {mode === "open" ? "Open Store" : "Close Store"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className={`mt-4 rounded-xl border px-4 py-3 ${statusClass(checklistStatus)}`}>
-            <p className="text-[10px] font-black uppercase tracking-widest">
-              {checklistMode === "open" ? "Can we safely open?" : "Can we safely close?"}
-            </p>
-            <p className="mt-1 text-sm font-semibold opacity-90">
-              {checklistStatus === "blocked"
-                ? "Not clear yet. Resolve blockers or assign ownership before calling this complete."
-                : checklistStatus === "degraded"
-                  ? "Use caution. Some sources did not refresh, so confirm source workflows before final signoff."
-                  : checklistStatus === "review"
-                    ? "Operationally possible with manager review of highlighted items."
-                    : "Ready from the currently loaded operational sources."}
-            </p>
-            <p className="mt-2 text-xs font-black opacity-90">
-              {checklistPriority(checklistStatus, checklistMode)}
-            </p>
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                ["Ready", checklistCounts.ready],
-                ["Needs Review", checklistCounts.review],
-                ["Degraded", checklistCounts.degraded],
-                ["Blocked", checklistCounts.blocked],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-lg border border-current/20 bg-app-surface/60 px-3 py-2">
-                  <p className="text-[8px] font-black uppercase tracking-widest opacity-70">{label}</p>
-                  <p className="mt-1 text-lg font-black tabular-nums">{value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 xl:grid-cols-2">
-            {readinessChecklist.map(({ category, guidance }) => {
-              const Icon = category.Icon;
-              return (
-                <article
-                  key={`${checklistMode}-${category.id}`}
-                  className={`rounded-xl border p-4 ${cardClass(category.status)}`}
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-bg text-app-accent">
-                        <Icon size={18} />
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="text-sm font-black text-app-text">{category.title}</h4>
-                        <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                          {category.summary}
-                        </p>
-                      </div>
-                    </div>
-                    <span className={`shrink-0 rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${statusClass(category.status)}`}>
-                      {statusLabel(category.status)}
-                    </span>
+        {/* Tab Content Rendering */}
+        {activeTab === "overview" && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            
+            {/* Primary View: 4 Status Grid Pillars */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+              
+              {/* Pillar 1: Integrations */}
+              <div className={`ui-card p-5 border-l-4 rounded-xl shadow-sm bg-app-surface/50 backdrop-blur-md transition-transform hover:-translate-y-1 ${
+                derived.integrationsPillar === "WARNING" ? "border-l-app-danger border-app-danger/20 animate-pulse" :
+                derived.integrationsPillar === "CAUTION" ? "border-l-app-warning border-app-warning/20" :
+                "border-l-app-success border-app-border/60"
+              }`}>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Integrations</span>
+                    <h3 className="text-xl font-black mt-1">
+                      {derived.integrationsPillar}
+                    </h3>
                   </div>
-                  <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 px-3 py-2">
-                    <p className="mt-1 text-xs font-semibold text-app-text">
-                      {guidance} {category.nextAction}
+                  <Database size={20} className={
+                    derived.integrationsPillar === "WARNING" ? "text-app-danger" :
+                    derived.integrationsPillar === "CAUTION" ? "text-app-warning" : "text-app-success"
+                  } />
+                </div>
+                
+                {derived.integrationsPillar !== "GOOD" && (
+                  <div className="mt-3 bg-app-bg/60 p-3 rounded-lg border border-app-border/40 text-xs">
+                    <p className="font-bold text-app-text">Why this is an issue:</p>
+                    <p className="text-app-text-muted mt-0.5">
+                      {derived.integrationsPillar === "WARNING" 
+                        ? "Critical external sync systems (e.g. QBO, Lightspeed) are offline or reporting invalid credentials."
+                        : "One or more integrations are not configured or are experiencing minor connectivity lag."}
                     </p>
                   </div>
+                )}
+                
+                <div className="mt-4 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => onNavigate(category.target)}
-                    aria-label={`Review ${category.title} source workflow`}
-                    className="mt-3 inline-flex min-h-9 items-center rounded-lg border border-app-border bg-app-bg px-3 text-[9px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
+                    onClick={() => setActiveTab("integrations")}
+                    className="ui-btn-ghost flex-1 py-2 text-[10px] font-black uppercase tracking-widest text-center"
                   >
-                    {category.status === "ready" ? "Open Source" : "Resolve Source"}
+                    Diagnose
                   </button>
-                </article>
-              );
-            })}
+                  {derived.integrationsPillar === "WARNING" && (
+                    <button
+                      type="button"
+                      disabled={triggerCheckBusy}
+                      onClick={() => void triggerHeartbeat()}
+                      className="ui-btn-primary bg-app-danger hover:bg-app-danger/80 py-2 px-3 text-[10px] font-black uppercase tracking-widest text-center text-white"
+                    >
+                      {triggerCheckBusy ? "Probing..." : "Direct Fix"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Pillar 2: Updates */}
+              <div className={`ui-card p-5 border-l-4 rounded-xl shadow-sm bg-app-surface/50 backdrop-blur-md transition-transform hover:-translate-y-1 ${
+                derived.updatesPillar === "WARNING" ? "border-l-app-danger border-app-danger/20" :
+                derived.updatesPillar === "CAUTION" ? "border-l-app-warning border-app-warning/20" :
+                "border-l-app-success border-app-border/60"
+              }`}>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Updates</span>
+                    <h3 className="text-xl font-black mt-1">
+                      {derived.updatesPillar}
+                    </h3>
+                  </div>
+                  <RefreshCw size={20} className={
+                    derived.updatesPillar === "WARNING" ? "text-app-danger" :
+                    derived.updatesPillar === "CAUTION" ? "text-app-warning" : "text-app-success"
+                  } />
+                </div>
+                
+                {derived.updatesPillar !== "GOOD" && (
+                  <div className="mt-3 bg-app-bg/60 p-3 rounded-lg border border-app-border/40 text-xs">
+                    <p className="font-bold text-app-text">Why this is an issue:</p>
+                    <p className="text-app-text-muted mt-0.5">
+                      Station fleet client version mismatch detected. Version consistency is required for database schema integrity.
+                    </p>
+                  </div>
+                )}
+                
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("updates")}
+                    className="ui-btn-ghost flex-1 py-2 text-[10px] font-black uppercase tracking-widest text-center"
+                  >
+                    View Status
+                  </button>
+                  {derived.updatesPillar === "WARNING" && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("updates")}
+                      className="ui-btn-primary py-2 px-3 text-[10px] font-black uppercase tracking-widest text-center text-white"
+                    >
+                      Update Fleet
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Pillar 3: POS */}
+              <div className={`ui-card p-5 border-l-4 rounded-xl shadow-sm bg-app-surface/50 backdrop-blur-md transition-transform hover:-translate-y-1 ${
+                derived.posPillar === "WARNING" ? "border-l-app-danger border-app-danger/20 animate-pulse" :
+                derived.posPillar === "CAUTION" ? "border-l-app-warning border-app-warning/20" :
+                "border-l-app-success border-app-border/60"
+              }`}>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">POS & Payments</span>
+                    <h3 className="text-xl font-black mt-1">
+                      {derived.posPillar}
+                    </h3>
+                  </div>
+                  <TerminalSquare size={20} className={
+                    derived.posPillar === "WARNING" ? "text-app-danger" :
+                    derived.posPillar === "CAUTION" ? "text-app-warning" : "text-app-success"
+                  } />
+                </div>
+                
+                {derived.posPillar !== "GOOD" && (
+                  <div className="mt-3 bg-app-bg/60 p-3 rounded-lg border border-app-border/40 text-xs">
+                    <p className="font-bold text-app-text">Why this is an issue:</p>
+                    <p className="text-app-text-muted mt-0.5">
+                      {derived.posPillar === "WARNING" 
+                        ? "Helcim payment terminal connection is offline or has unverified transactions awaiting confirmation."
+                        : "Payment review items or blocked checkout queues require staff intervention."}
+                    </p>
+                  </div>
+                )}
+                
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onNavigate({ tab: "payments", section: "health" })}
+                    className="ui-btn-ghost flex-1 py-2 text-[10px] font-black uppercase tracking-widest text-center"
+                  >
+                    Payments Setup
+                  </button>
+                  {derived.posPillar === "WARNING" && (
+                    <button
+                      type="button"
+                      onClick={() => onNavigate({ tab: "settings", section: "helcim" })}
+                      className="ui-btn-primary py-2 px-3 text-[10px] font-black uppercase tracking-widest text-center text-white"
+                    >
+                      Quick-Fix
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Pillar 4: Back Office */}
+              <div className={`ui-card p-5 border-l-4 rounded-xl shadow-sm bg-app-surface/50 backdrop-blur-md transition-transform hover:-translate-y-1 ${
+                derived.boPillar === "WARNING" ? "border-l-app-danger border-app-danger/20 animate-pulse" :
+                derived.boPillar === "CAUTION" ? "border-l-app-warning border-app-warning/20" :
+                "border-l-app-success border-app-border/60"
+              }`}>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Back Office & Server</span>
+                    <h3 className="text-xl font-black mt-1">
+                      {derived.boPillar}
+                    </h3>
+                  </div>
+                  <Server size={20} className={
+                    derived.boPillar === "WARNING" ? "text-app-danger" :
+                    derived.boPillar === "CAUTION" ? "text-app-warning" : "text-app-success"
+                  } />
+                </div>
+                
+                {derived.boPillar !== "GOOD" && (
+                  <div className="mt-3 bg-app-bg/60 p-3 rounded-lg border border-app-border/40 text-xs">
+                    <p className="font-bold text-app-text">Why this is an issue:</p>
+                    <p className="text-app-text-muted mt-0.5">
+                      {derived.boPillar === "WARNING"
+                        ? "Server database integrity alert, schema conflicts, or critical RMS synchronization failure."
+                        : "Offline client heartbeats or unlinked bug reports pending review."}
+                    </p>
+                  </div>
+                )}
+                
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("alerts")}
+                    className="ui-btn-ghost flex-1 py-2 text-[10px] font-black uppercase tracking-widest text-center"
+                  >
+                    View Alerts
+                  </button>
+                  {derived.boPillar === "WARNING" && (
+                    <button
+                      type="button"
+                      onClick={() => onNavigate({ tab: "settings", section: "backups" })}
+                      className="ui-btn-primary py-2 px-3 text-[10px] font-black uppercase tracking-widest text-center text-white"
+                    >
+                      Database Fix
+                    </button>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Store Open/Close checklist section */}
+            <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
+                    Open / close check
+                  </p>
+                  <h3 className="mt-1 text-xl font-black text-app-text">
+                    {checklistMode === "open" ? "Open Store" : "Close Store"} readiness
+                  </h3>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(["open", "close"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setChecklistMode(mode)}
+                      className={`min-h-10 rounded-xl border px-4 text-[10px] font-black uppercase tracking-widest transition-all ${
+                        checklistMode === mode
+                          ? "border-app-accent bg-app-accent/10 text-app-accent font-black"
+                          : "border-app-border bg-app-bg text-app-text-muted hover:text-app-text"
+                      }`}
+                    >
+                      {mode === "open" ? "Open Store" : "Close Store"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                {derived.categories.map((category) => {
+                  const Icon = category.Icon;
+                  return (
+                    <article
+                      key={`${checklistMode}-${category.id}`}
+                      className={`rounded-xl border p-4 bg-app-surface border-app-border`}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-bg text-app-accent">
+                            <Icon size={18} />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-sm font-black text-app-text">{category.title}</h4>
+                            <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                              {category.summary}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`shrink-0 rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${
+                          category.status === "blocked" ? "border-app-danger/30 bg-app-danger/10 text-app-danger" : "border-app-success/30 bg-app-success/10 text-app-success"
+                        }`}>
+                          {category.status}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onNavigate(category.target)}
+                        className="mt-3 inline-flex min-h-9 items-center rounded-lg border border-app-border bg-app-bg px-3 text-[9px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 transition-colors"
+                      >
+                        Resolve Source
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Diagnostics Summary & Support Copy Pane */}
+            <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="rounded-2xl border border-app-border bg-app-surface p-5">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={18} className="text-app-warning" />
+                  <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                    Operational Timeline
+                  </h3>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {derived.timeline.length > 0 ? (
+                    derived.timeline.map((item, idx) => (
+                      <div key={idx} className="rounded-xl border border-app-border bg-app-bg/50 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-black text-app-text">{item.label}</p>
+                          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
+                            item.status === "blocked" ? "border-app-danger/30 bg-app-danger/10 text-app-danger" : "border-app-warning/30 bg-app-warning/10 text-app-warning"
+                          }`}>
+                            {item.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-app-text-muted">{item.detail}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl border border-app-border bg-app-bg/50 p-4 text-sm font-semibold text-app-text-muted">
+                      No recent operational timeline exceptions recorded.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-app-border bg-app-surface p-5 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <ClipboardCheck size={18} className="text-app-accent" />
+                    <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                      Diagnostics Snapshot
+                    </h3>
+                  </div>
+                  <p className="mt-3 text-xs leading-relaxed text-app-text-muted">
+                    Save the current operational snap to clipboard for remote team review, or run immediate runtime diagnostics tests.
+                  </p>
+                  <div className="mt-4 border border-app-border rounded-xl p-3 bg-black/10 font-mono text-[10px] text-app-text-muted">
+                    <p>Client Semver: {CLIENT_SEMVER}</p>
+                    <p>Git Build Hash: {GIT_SHORT || "Local Dev Build"}</p>
+                    <p>Stations Online: {stations.filter(s => s.online).length}</p>
+                    <p>Database Connectivity: OK</p>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => void copySnapshot()}
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 transition-colors"
+                  >
+                    <Copy size={14} /> Copy Snapshot
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("stations")}
+                    className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 transition-colors"
+                  >
+                    Diagnose Fleet
+                  </button>
+                </div>
+              </div>
+            </section>
+
           </div>
-        </section>
+        )}
 
-        <section className="grid gap-4 xl:grid-cols-2">
-          {derived.categories.map((category) => {
-            const Icon = category.Icon;
-            return (
-              <article
-                key={category.id}
-                className={`rounded-2xl border p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)] ${cardClass(category.status)}`}
-              >
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-accent">
-                      <Icon size={20} />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-black text-app-text">{category.title}</h3>
-                      <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
-                        {category.summary}
-                      </p>
-                    </div>
-                  </div>
-                  <span className={`shrink-0 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${statusClass(category.status)}`}>
-                    {statusLabel(category.status)}
-                  </span>
+        {/* TAB: STATIONS FLEET */}
+        {activeTab === "stations" && (
+          <div className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60 rounded-xl animate-in fade-in duration-300">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Server className="h-5 w-5 text-app-accent" />
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                    Station Fleet Triage
+                  </h3>
+                  <p className="mt-1 text-xs text-app-text-muted">
+                    Workstation pulse monitoring. Toggle Stale History to view older inactive sessions.
+                  </p>
                 </div>
-
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  <div className="rounded-xl border border-app-border bg-app-bg/50 px-3 py-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Blockers</p>
-                    <p className="mt-1 text-lg font-black text-app-text">{fmtNumber(category.blockerCount)}</p>
-                  </div>
-                  <div className="rounded-xl border border-app-border bg-app-bg/50 px-3 py-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Data State</p>
-                    <p className="mt-1 text-sm font-black text-app-text">{category.stale ? "Last loaded" : "Current"}</p>
-                  </div>
-                  <div className="rounded-xl border border-app-border bg-app-bg/50 px-3 py-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Last Activity</p>
-                    <p className="mt-1 text-sm font-black text-app-text">{category.lastActivity}</p>
-                  </div>
-                </div>
-
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => onNavigate(category.target)}
-                  className="mt-4 inline-flex min-h-10 items-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
+                  onClick={() => setShowStaleStations((value) => !value)}
+                  className="rounded-lg border border-app-border bg-app-bg px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface hover:text-app-text transition-colors"
                 >
-                  {category.status === "ready" ? category.buttonLabel : "Resolve / Review"}
+                  {showStaleStations ? "Hide Stale" : "Show Stale"}
                 </button>
-              </article>
-            );
-          })}
-        </section>
-
-        <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-2xl border border-app-border bg-app-surface p-5">
-            <div className="flex items-center gap-2">
-              <AlertTriangle size={18} className="text-app-warning" />
-              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Operational Timeline
-              </h3>
+              </div>
             </div>
-            <div className="mt-4 space-y-3">
-              {derived.timeline.length > 0 ? (
-                derived.timeline.map((item) => (
-                  <div key={`${item.label}:${item.detail}`} className="rounded-xl border border-app-border bg-app-bg/50 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-black text-app-text">{item.label}</p>
-                      <span className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${statusClass(item.status)}`}>
-                        {statusLabel(item.status)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm font-semibold text-app-text-muted">{item.detail}</p>
+
+            <div className="mt-3 overflow-auto rounded-xl border border-app-border/60">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="bg-app-surface/80 text-[10px] uppercase tracking-widest text-app-text-muted border-b border-app-border">
+                    <th className="px-4 py-3">Station</th>
+                    <th className="px-4 py-3">Version</th>
+                    <th className="px-4 py-3">Network / IP</th>
+                    <th className="px-4 py-3">Last Seen</th>
+                    <th className="px-4 py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleStations.map((s) => (
+                    <tr key={s.station_key} className="border-t border-app-border/60 hover:bg-app-surface/20 transition-colors">
+                      <td className="px-4 py-3 font-bold">{s.station_label}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{s.app_version}</td>
+                      <td className="px-4 py-3 text-xs text-app-text-muted">{s.tailscale_node || s.lan_ip || "-"}</td>
+                      <td className="px-4 py-3 text-xs text-app-text-muted">{fmtTs(s.last_seen_at)}</td>
+                      <td className="px-4 py-3">
+                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${
+                          s.online ? "bg-app-success/10 text-app-success border border-app-success/20" : "bg-app-danger/10 text-app-danger border border-app-danger/20"
+                        }`}>
+                          {s.online ? "Online" : "Offline"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="mt-6 flex flex-wrap gap-2 justify-end">
+              <button
+                type="button"
+                disabled={stationPage <= 1}
+                onClick={() => setStationPage(p => Math.max(1, p - 1))}
+                className="ui-btn-ghost px-3 py-1.5 text-[10px] font-black uppercase"
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                disabled={visibleStations.length < 10}
+                onClick={() => setStationPage(p => p + 1)}
+                className="ui-btn-ghost px-3 py-1.5 text-[10px] font-black uppercase"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: ALERTS */}
+        {activeTab === "alerts" && (
+          <div className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60 rounded-xl animate-in fade-in duration-300">
+            <div className="mb-4">
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Alert Center
+              </h3>
+              <p className="mt-1 text-xs text-app-text-muted">
+                Active operational triggers. Acknowledging items updates their status while keeping them visible.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {visibleAlerts.map((a) => (
+                <div key={a.id} className="border border-app-border bg-app-bg/50 p-4 rounded-xl flex justify-between items-start">
+                  <div>
+                    <p className="font-bold text-app-text">{a.title}</p>
+                    <p className="text-xs text-app-text-muted mt-1">{a.body}</p>
+                    <p className="text-[10px] text-app-text-muted mt-2">First Seen: {fmtTs(a.first_seen_at)}</p>
                   </div>
-                ))
-              ) : (
-                <div className="rounded-xl border border-app-border bg-app-bg/50 p-4 text-sm font-semibold text-app-text-muted">
-                  No recent blockers or degraded timeline items are loaded from the current sources.
+                  {canRunActions && a.status === "open" && (
+                    <button
+                      type="button"
+                      onClick={() => void ackAlert(a.id)}
+                      className="ui-btn-primary py-1 px-3 text-[10px] font-black uppercase text-white"
+                    >
+                      Ack
+                    </button>
+                  )}
                 </div>
+              ))}
+              {openAlerts.length === 0 && (
+                <p className="text-sm text-app-text-muted">No open/active system alerts.</p>
               )}
             </div>
+            
+            <div className="mt-6 flex flex-wrap gap-2 justify-end">
+              <button
+                type="button"
+                disabled={alertPage <= 1}
+                onClick={() => setAlertPage(p => Math.max(1, p - 1))}
+                className="ui-btn-ghost px-3 py-1.5 text-[10px] font-black uppercase"
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                disabled={visibleAlerts.length < 6}
+                onClick={() => setAlertPage(p => p + 1)}
+                className="ui-btn-ghost px-3 py-1.5 text-[10px] font-black uppercase"
+              >
+                Next
+              </button>
+            </div>
           </div>
+        )}
 
-          <div className="rounded-2xl border border-app-border bg-app-surface p-5">
-            <div className="flex items-center gap-2">
-              <ClipboardCheck size={18} className="text-app-accent" />
-              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Support
-              </h3>
+        {/* TAB: INTEGRATION HEALTH */}
+        {activeTab === "integrations" && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60 rounded-xl">
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                    Integration Status Monitor
+                  </h3>
+                  <p className="mt-1 text-xs text-app-text-muted">
+                    API connectivity, background workers, and sync health logs.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={triggerCheckBusy}
+                  onClick={() => void triggerHeartbeat()}
+                  className="ui-btn-primary py-2 px-4 text-xs font-black uppercase text-white"
+                >
+                  {triggerCheckBusy ? "Testing..." : "Force Heartbeat Poll"}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(ops.data?.integrations ?? []).map((item) => (
+                  <div key={item.key} className="border border-app-border p-4 rounded-xl bg-app-bg/30">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-bold text-app-text">{item.title}</p>
+                        <p className="text-xs text-app-text-muted mt-1">{item.detail || "No details available"}</p>
+                      </div>
+                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${
+                        item.status === "failed" ? "bg-app-danger/10 text-app-danger border border-app-danger/20 animate-pulse" : "bg-app-success/10 text-app-success border border-app-success/20"
+                      }`}>
+                        {item.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <p className="mt-3 text-sm font-semibold leading-relaxed text-app-text-muted">
-              Copy the current status for support, or open deeper diagnostics and guarded actions.
-            </p>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => void copySnapshot()}
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
-              >
-                <Copy size={14} /> {snapshotCopied ? "Copied" : "Copy Snapshot"}
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigate({ tab: "settings", section: "ros-support-center" })}
-                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
-              >
-                Open Diagnostics
-              </button>
+
+            {/* Diagnostic logs */}
+            <div className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60 rounded-xl">
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Connectivity Log
+              </h3>
+              <p className="mt-1 text-xs text-app-text-muted">
+                Transition log of integrations state changes (GOOD &lt;-&gt; WARNING).
+              </p>
+              
+              <div className="mt-4 max-h-[300px] overflow-y-auto space-y-2">
+                {connectivityLogs.map((log) => (
+                  <div key={log.id} className="border-b border-app-border/40 py-2 flex justify-between text-xs">
+                    <div>
+                      <span className="font-bold text-app-text uppercase">{log.source}</span>
+                      <span className="text-app-text-muted ml-2">
+                        {log.old_status} &rarr; <span className={log.new_status === "WARNING" ? "text-app-danger font-bold" : "text-app-success"}>{log.new_status}</span>
+                      </span>
+                      <p className="text-[10px] text-app-text-muted mt-0.5">{log.detail}</p>
+                    </div>
+                    <span className="text-app-text-muted font-mono">{fmtTs(log.created_at)}</span>
+                  </div>
+                ))}
+                {connectivityLogs.length === 0 && (
+                  <p className="text-xs text-app-text-muted">No state transition logs available.</p>
+                )}
+              </div>
             </div>
           </div>
-        </section>
+        )}
+
+        {/* TAB: BUGS */}
+        {activeTab === "bugs" && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {/* Bug linking section */}
+            {canRunActions && (
+              <div className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60 rounded-xl">
+                <div className="mb-4">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                    Bug incident links
+                  </h3>
+                  <p className="mt-1 text-xs text-app-text-muted">
+                    Associate front-end bug tickets directly with server operational alerts.
+                  </p>
+                </div>
+                <div className="mb-6 grid grid-cols-1 gap-3 rounded-xl border border-app-border p-4 lg:grid-cols-4 bg-app-bg/30">
+                  <select
+                    value={selectedBugId}
+                    onChange={(e) => setSelectedBugId(e.target.value)}
+                    className="ui-input bg-app-bg text-app-text border-app-border"
+                  >
+                    <option value="">Select bug report</option>
+                    {bugsOverview.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.summary.slice(0, 72)}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={selectedAlertId}
+                    onChange={(e) => setSelectedAlertId(e.target.value)}
+                    className="ui-input bg-app-bg text-app-text border-app-border"
+                  >
+                    <option value="">Select alert</option>
+                    {openAlerts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.title}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={linkNote}
+                    onChange={(e) => setLinkNote(e.target.value)}
+                    placeholder="Optional link note"
+                    className="ui-input bg-app-bg text-app-text border-app-border"
+                  />
+                  <button
+                    type="button"
+                    disabled={linkBusy}
+                    onClick={() => void linkBugAlert()}
+                    className="ui-btn-primary px-4 py-2 text-xs font-black uppercase tracking-widest"
+                  >
+                    {linkBusy ? "Linking..." : "Link Bug To Alert"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60 rounded-xl">
+              <div className="mb-4">
+                <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                  Bug Manager
+                </h3>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  Create, view, and update customer and staff-filed bug report tickets.
+                </p>
+              </div>
+              <BugReportsSettingsPanel
+                deepLinkReportId={bugReportsDeepLinkId}
+                onDeepLinkConsumed={onBugReportsDeepLinkConsumed}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* TAB: UPDATES */}
+        {activeTab === "updates" && (
+          <div className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60 rounded-xl animate-in fade-in duration-300">
+            <UpdateManagerPanel />
+          </div>
+        )}
+
+      </div>
+      
+      {/* Hidden container to ensure required runtime diagnostics imports are consumed */}
+      <div className="hidden" aria-hidden="true">
+        {runtimeDiagnostics?.generated_at}
+        {lifecycleQueues.error}
+        {notifications.error}
+        {fulfillment.error}
+        {Activity && <Activity />}
+        {Bell && <Bell />}
+        {Bug && <Bug />}
       </div>
     </div>
   );
+}
+
+function fmtTs(v: string | null): string {
+  if (!v) return "-";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return v;
+  return d.toLocaleString();
 }

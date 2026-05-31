@@ -203,6 +203,46 @@ async fn discover_servers() -> Result<Vec<DiscoveredServer>, String> {
     Ok(discovered)
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TailscaleStatus {
+    pub running: bool,
+    pub version: Option<String>,
+    pub tailnet: Option<String>,
+}
+
+#[tauri::command]
+async fn check_tailscale_status() -> TailscaleStatus {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_millis(1500))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return TailscaleStatus { running: false, version: None, tailnet: None },
+    };
+
+    let res = client
+        .get("http://100.100.100.100:8080/localapi/v0/status")
+        .send()
+        .await;
+
+    if let Ok(resp) = res {
+        if let Ok(json) = resp.json::<serde_json::Value>().await {
+            let running = json.get("BackendState").and_then(|s| s.as_str()) == Some("Running");
+            let version = json.get("Version").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let tailnet = json.get("CurrentTailnet")
+                .and_then(|t| t.get("Name"))
+                .and_then(|n| n.as_str())
+                .map(|s| s.to_string());
+            return TailscaleStatus {
+                running,
+                version,
+                tailnet,
+            };
+        }
+    }
+    TailscaleStatus { running: false, version: None, tailnet: None }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -211,7 +251,8 @@ pub fn run() {
             save_secure_pin,
             get_secure_pin,
             delete_secure_pin,
-            discover_servers
+            discover_servers,
+            check_tailscale_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

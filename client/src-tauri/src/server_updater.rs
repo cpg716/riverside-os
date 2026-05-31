@@ -239,7 +239,6 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
         }
 
         let runner_script_path = temp_dir.join("update-runner.ps1");
-
         // Resolve config path from the detected install root rather than hardcoding.
         let install_root = check_server_local_status()
             .map(|s| s.install_root)
@@ -253,52 +252,96 @@ Write-Host '========================================='
 Write-Host 'Riverside OS: Running Server Update'
 Write-Host '========================================='
 
-Write-Host 'Step 1: Running install-server.ps1...'
-./install-server.ps1 -ConfigPath '{config_path}'
+$installRoot = '{install_root}'
+$serverBin = "$installRoot\server\riverside-server.exe"
+$backupBin = "$installRoot\server\riverside-server.exe.bak"
 
-Write-Host 'Step 2: Running repair-bootstrap-admin.ps1...'
-./repair-bootstrap-admin.ps1 -ConfigPath '{config_path}'
+# 1. Stop all backend services and sidecar processes
+Write-Host 'Stopping backend services and sidecar processes (llama-server, whisper-sidecar)...'
+Get-Process -Name 'llama-server' -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Kill() }}
+Get-Process -Name 'whisper-sidecar' -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Kill() }}
+Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Kill() }}
 
-Write-Host 'Step 3: Updating Backoffice client on this PC...'
-./install-register.ps1 -ConfigPath '{config_path}' -StationMode 'backoffice'
+# 2. Self-Repair: explicitly wipe old python/venv and sherpa-onnx directories to eliminate rot
+Write-Host 'Wiping legacy environment directories (venv, python, sherpa-onnx)...'
+Remove-Item -Path 'C:\ProgramData\riverside-os\venv' -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path 'C:\ProgramData\riverside-os\python' -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path 'C:\ProgramData\riverside-os\sherpa-onnx' -Recurse -Force -ErrorAction SilentlyContinue
 
-Write-Host 'Step 4: Restarting Riverside OS Server...'
-$taskName = '{task_name}'
-$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if ($task) {{
-    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
-    Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue |
-        ForEach-Object {{ $_.Kill(); $_.WaitForExit(5000) }}
-    Start-ScheduledTask -TaskName $taskName
-    Write-Host "  Scheduled task '$taskName' restarted."
-}} else {{
-    Write-Warning "  Scheduled task '$taskName' not found — server may need manual restart."
+# Create a backup of the current binary if it exists
+if (Test-Path -Path $serverBin) {{
+    Write-Host 'Creating backup of existing server binary...'
+    Copy-Item -Path $serverBin -Destination $backupBin -Force -ErrorAction SilentlyContinue
 }}
 
-Write-Host 'Step 5: Waiting for server to become ready...'
-$serverPort = {server_port}
-$ready = $false
-for ($i = 0; $i -lt 30; $i++) {{
-    Start-Sleep -Seconds 2
-    try {{
-        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{health_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-        if ($resp.StatusCode -eq 200) {{ $ready = $true; break }}
-    }} catch {{ }}
-    Write-Host "  Waiting... ($($i * 2)s)"
-}}
-if ($ready) {{
-    Write-Host '  Server is ready.'
-}} else {{
-    Write-Warning '  Server did not respond within 60s — check Windows Task Scheduler.'
-}}
+try {{
+    Write-Host 'Step 1: Running install-server.ps1...'
+    ./install-server.ps1 -ConfigPath '{config_path}'
 
-Write-Host '========================================='
-Write-Host 'Update Complete! Relaunch Riverside on all stations.'
-Write-Host '========================================='
+    Write-Host 'Step 2: Running repair-bootstrap-admin.ps1...'
+    ./repair-bootstrap-admin.ps1 -ConfigPath '{config_path}'
+
+    Write-Host 'Step 3: Updating Backoffice client on this PC...'
+    ./install-register.ps1 -ConfigPath '{config_path}' -StationMode 'backoffice'
+
+    # Checksum verification
+    if (Test-Path -Path $serverBin) {{
+        Write-Host 'Step 4: Verifying binary checksum...'
+        $hash = Get-FileHash -Path $serverBin -Algorithm SHA256
+        Write-Host "  SHA256: $($hash.Hash)"
+    }} else {{
+        throw "Server binary was not installed correctly (missing file)."
+    }}
+
+    Write-Host 'Step 5: Restarting Riverside OS Server...'
+    $taskName = '{task_name}'
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($task) {{
+        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue |
+            ForEach-Object {{ $_.Kill(); $_.WaitForExit(5000) }}
+        Start-ScheduledTask -TaskName $taskName
+        Write-Host "  Scheduled task '$taskName' restarted."
+    }} else {{
+        Write-Warning "  Scheduled task '$taskName' not found — server may need manual restart."
+    }}
+
+    Write-Host 'Step 6: Waiting for server to become ready...'
+    $serverPort = {server_port}
+    $ready = $false
+    for ($i = 0; $i -lt 30; $i++) {{
+        Start-Sleep -Seconds 2
+        try {{
+            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{health_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+            if ($resp.StatusCode -eq 200) {{ $ready = $true; break }}
+        }} catch {{ }}
+        Write-Host "  Waiting... ($($i * 2)s)"
+    }}
+    if ($ready) {{
+        Write-Host '  Server is ready.'
+    }} else {{
+        throw "Server did not respond within 60s."
+    }}
+
+    Write-Host '========================================='
+    Write-Host 'Update Complete! Relaunch Riverside on all stations.'
+    Write-Host '========================================='
+}} catch {{
+    Write-Error "Update failed: $_"
+    if (Test-Path -Path $backupBin) {{
+        Write-Host 'Rolling back to previous server version...'
+        Copy-Item -Path $backupBin -Destination $serverBin -Force -ErrorAction SilentlyContinue
+        Write-Host 'Rollback complete.'
+    }}
+    Write-Host 'Please check server logs for details.'
+    Read-Host 'Press Enter to exit'
+    exit 1
+}}
 Read-Host 'Press Enter to close this window'
-\"#,
+"#,
             script_dir = script_dir.to_string_lossy().replace('\'', "''"),
+            install_root = install_root.replace('\'', "''"),
             config_path = config_path.replace('\'', "''"),
             task_name = contract::SERVER_TASK_NAME,
             server_port = contract::DEFAULT_SERVER_PORT,
@@ -308,7 +351,6 @@ Read-Host 'Press Enter to close this window'
         std::fs::write(&runner_script_path, runner_content)
             .map_err(|e| format!("Failed to write update runner script: {e}"))?;
 
-        // 5. Spawn PowerShell elevated with Verb RunAs to execute the runner
         let spawn_cmd = format!(
             "Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{}\"' -Verb RunAs",
             runner_script_path.to_string_lossy().replace('"', "`\"")

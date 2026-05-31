@@ -1063,12 +1063,20 @@ if (Test-PlaceholderSecret $config.server.database.appPassword) {
   Write-Host "Auto-generated secure database app password." -ForegroundColor Green
 }
 
-if (Test-PlaceholderSecret $config.server.database.adminPassword) {
   $dbHost = $config.server.database.host
   $dbPort = $config.server.database.port
   $dbUser = $config.server.database.adminUser
+  if ([string]::IsNullOrWhiteSpace($dbHost)) { $dbHost = "127.0.0.1" }
+  if (-not $dbPort) { $dbPort = 5432 }
+  if ([string]::IsNullOrWhiteSpace($dbUser)) { $dbUser = "postgres" }
 
-  Write-Host "PostgreSQL admin password is empty/placeholder. Checking local connection..."
+  $psqlCmd = Get-Command psql.exe -ErrorAction SilentlyContinue
+  $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
+    $matches = Get-ChildItem "C:\Program Files\PostgreSQL" -Recurse -Filter psql.exe -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
+    if ($matches) { $matches[0].FullName } else { "psql.exe" }
+  }
+
+  Write-Host "Verifying database connection details..."
   $tcpClient = New-Object System.Net.Sockets.TcpClient
   $connect = $tcpClient.BeginConnect($dbHost, $dbPort, $null, $null)
   $success = $connect.AsyncWaitHandle.WaitOne(1000, $false)
@@ -1076,35 +1084,69 @@ if (Test-PlaceholderSecret $config.server.database.adminPassword) {
     $tcpClient.EndConnect($connect)
     $tcpClient.Close()
 
-    $psqlCmd = Get-Command psql.exe -ErrorAction SilentlyContinue
-    $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
-      $matches = Get-ChildItem "C:\Program Files\PostgreSQL" -Recurse -Filter psql.exe -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
-      if ($matches) { $matches[0].FullName } else { "psql.exe" }
-    }
+    $authenticated = $false
+    $currentPwd = $config.server.database.adminPassword
+    if (Test-PlaceholderSecret $currentPwd) { $currentPwd = "" }
 
-    $env:PGPASSWORD = ""
+    # Test current configured password
+    $env:PGPASSWORD = $currentPwd
     $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
     $env:PGPASSWORD = $null
-
     if ($LASTEXITCODE -eq 0) {
-      Write-Host "PostgreSQL trust authentication detected (no password required)." -ForegroundColor Green
-      Set-SafeProperty $config.server.database "adminPassword" ""
-      $configModified = $true
+      $authenticated = $true
+      Set-SafeProperty $config.server.database "adminPassword" $currentPwd
     } else {
-      foreach ($pwd in @("postgres", "admin", "password")) {
-        $env:PGPASSWORD = $pwd
-        $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
-        $env:PGPASSWORD = $null
-        if ($LASTEXITCODE -eq 0) {
-          Write-Host "Auto-detected PostgreSQL admin password: '$pwd'" -ForegroundColor Green
-          Set-SafeProperty $config.server.database "adminPassword" $pwd
-          $configModified = $true
-          break
+      # Try trust authentication (empty password)
+      $env:PGPASSWORD = ""
+      $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
+      $env:PGPASSWORD = $null
+      if ($LASTEXITCODE -eq 0) {
+        $authenticated = $true
+        Set-SafeProperty $config.server.database "adminPassword" ""
+        $configModified = $true
+        Write-Host "PostgreSQL trust authentication detected (no password required)." -ForegroundColor Green
+      } else {
+        # Try common passwords
+        foreach ($pwd in @("postgres", "admin", "password")) {
+          $env:PGPASSWORD = $pwd
+          $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
+          $env:PGPASSWORD = $null
+          if ($LASTEXITCODE -eq 0) {
+            $authenticated = $true
+            Set-SafeProperty $config.server.database "adminPassword" $pwd
+            $configModified = $true
+            Write-Host "Auto-detected PostgreSQL admin password: '$pwd'" -ForegroundColor Green
+            break
+          }
         }
       }
     }
+
+    # If not authenticated, prompt the user for the password
+    if (-not $authenticated) {
+      Write-Host "--------------------------------------------------------" -ForegroundColor Yellow
+      Write-Host "Database connection failed. Please enter database credentials." -ForegroundColor Yellow
+      Write-Host "--------------------------------------------------------" -ForegroundColor Yellow
+      for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $pwdInput = Read-Host "Enter PostgreSQL password for user '$dbUser'"
+        $env:PGPASSWORD = $pwdInput
+        $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
+        $env:PGPASSWORD = $null
+        if ($LASTEXITCODE -eq 0) {
+          $authenticated = $true
+          Set-SafeProperty $config.server.database "adminPassword" $pwdInput
+          $configModified = $true
+          Write-Host "PostgreSQL password verified successfully." -ForegroundColor Green
+          break
+        } else {
+          Write-Host "Invalid password. Attempt $attempt of 3." -ForegroundColor Red
+        }
+      }
+      if (-not $authenticated) {
+        throw "PostgreSQL authentication failed after 3 attempts. Update your password manually in $ConfigPath."
+      }
+    }
   }
-}
 
 if ($configModified) {
   $configJson = $config | ConvertTo-Json -Depth 8

@@ -430,6 +430,19 @@ $out['psql_found'] = [bool]($psqlPath -and (Test-Path $psqlPath))
 if ($out['psql_found']) {{
     $env:PGPASSWORD = '{password}'
     $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-tAc' 'SELECT version();' 2>&1
+    if ($LASTEXITCODE -ne 0) {{
+        # Try empty/trust
+        $env:PGPASSWORD = ''
+        $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-tAc' 'SELECT version();' 2>&1
+        if ($LASTEXITCODE -ne 0) {{
+            # Try common passwords
+            foreach ($pwd in @('postgres', 'admin', 'password')) {{
+                $env:PGPASSWORD = $pwd
+                $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-tAc' 'SELECT version();' 2>&1
+                if ($LASTEXITCODE -eq 0) {{ break }}
+            }}
+        }}
+    }}
     if ($LASTEXITCODE -eq 0 -and $verResult) {{
         $out.connectable = $true
         $out.version = ($verResult -join '').Trim()

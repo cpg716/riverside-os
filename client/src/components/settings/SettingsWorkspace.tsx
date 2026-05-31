@@ -56,7 +56,7 @@ import StationNetworkPanel from "./StationNetworkPanel";
 import { StaffRoleAccessPanel } from "../staff/StaffAccessPanels";
 import StaffDiscountCapsPanel from "../staff/StaffDiscountCapsPanel";
 import InsightsSettingsPanel from "./InsightsSettingsPanel";
-import RosSupportCenterPanel from "./RosSupportCenterPanel";
+
 import NuorderSettingsPanel from "./NuorderSettingsPanel";
 import GeoapifySettingsPanel from "./GeoapifySettingsPanel";
 import WeatherSettingsPanel from "./WeatherSettingsPanel";
@@ -1391,15 +1391,13 @@ export default function SettingsWorkspace({
 
             {activeTab === "rosie" && <RosieSettingsPanel />}
             {activeTab === "help-center" && <HelpCenterSettingsPanel />}
-            {activeTab === "ros-support-center" && hasPermission("ops.dev_center.view") && (
-              <RosSupportCenterPanel
-                bugReportsDeepLinkId={bugReportsDeepLinkId}
-                onBugReportsDeepLinkConsumed={onBugReportsDeepLinkConsumed}
-              />
-            )}
-            {activeTab === "ros-operations-center" &&
+            {(activeTab === "ros-support-center" || activeTab === "ros-operations-center") &&
               hasPermission("ops.dev_center.view") && (
-                <RosOperationsCenter onNavigate={navigateOperationsTarget} />
+                <RosOperationsCenter
+                  onNavigate={navigateOperationsTarget}
+                  bugReportsDeepLinkId={bugReportsDeepLinkId}
+                  onBugReportsDeepLinkConsumed={onBugReportsDeepLinkConsumed}
+                />
               )}
             {activeTab === "ros-dev-center" &&
               hasPermission("ops.dev_center.view") && (

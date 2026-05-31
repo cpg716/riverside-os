@@ -140,6 +140,72 @@ pub async fn qbo_map_with_misc_fallback(
     Ok(None)
 }
 
+pub async fn sweep_expired_gift_cards(
+    pool: &PgPool,
+    activity_date: NaiveDate,
+) -> Result<(), sqlx::Error> {
+    let business_timezone: String =
+        sqlx::query_scalar("SELECT reporting.effective_store_timezone()")
+            .fetch_one(pool)
+            .await?;
+
+    let mut tx = pool.begin().await?;
+
+    // Find all active, positive-balance liability gift cards that expired on or before activity_date.
+    let expired_cards: Vec<(Uuid, Decimal, String)> = sqlx::query_as(
+        r#"
+        SELECT id, current_balance, code
+        FROM gift_cards
+        WHERE is_liability = TRUE
+          AND current_balance > 0
+          AND card_status = 'active'::gift_card_status
+          AND (expires_at AT TIME ZONE $2)::date <= $1::date
+        FOR UPDATE
+        "#,
+    )
+    .bind(activity_date)
+    .bind(&business_timezone)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for (card_id, balance, code) in expired_cards {
+        // Log event backdated to end of expiration date
+        sqlx::query(
+            r#"
+            INSERT INTO gift_card_events (
+                gift_card_id, event_kind, amount, balance_after, notes, created_at
+            )
+            VALUES ($1, 'expiration_breakage', $2, 0.00, $3, ($4::date + time '23:59:59') AT TIME ZONE $5)
+            "#,
+        )
+        .bind(card_id)
+        .bind(-balance)
+        .bind(format!("Gift card #{code} expired with remaining balance of ${balance}. Swept to breakage."))
+        .bind(activity_date)
+        .bind(&business_timezone)
+        .execute(&mut *tx)
+        .await?;
+
+        // Update card
+        sqlx::query(
+            r#"
+            UPDATE gift_cards
+            SET current_balance = 0.00,
+                card_status = 'depleted'::gift_card_status,
+                notes = COALESCE(notes || CHR(10) || $2, $2)
+            WHERE id = $1
+            "#,
+        )
+        .bind(card_id)
+        .bind(format!("Expired and swept to breakage on {activity_date}."))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Build a proposed journal for recognized fulfillment day (store-local business date).
 /// Pickup / in-store takeaway use fulfillment timestamps; shipped orders use the shared
 /// shipment recognition instant from `report_basis`.
@@ -422,6 +488,79 @@ pub async fn propose_daily_journal(
         } else {
             warnings.push(format!(
                 "Customer-charged shipping of ${shipping_income_total} detected, but no `income_shipping` / default, `REVENUE_SHIPPING`, or MISC mapping exists; shipping income omitted."
+            ));
+        }
+    }
+
+    // ── Gift Card Breakage (liability expiration) ──────────────────────────
+    #[derive(sqlx::FromRow)]
+    struct ExpiredGCAgg {
+        total_breakage: Option<Decimal>,
+        expired_count: i64,
+    }
+
+    let expired_gc: ExpiredGCAgg = sqlx::query_as(
+        r#"
+        SELECT
+            SUM(-amount)::numeric(14, 2) AS total_breakage,
+            COUNT(*)::bigint AS expired_count
+        FROM gift_card_events
+        WHERE event_kind = 'expiration_breakage'
+          AND (created_at AT TIME ZONE $2)::date = $1::date
+        "#,
+    )
+    .bind(activity_date)
+    .bind(&business_timezone)
+    .fetch_one(pool)
+    .await?;
+
+    let breakage_total = expired_gc.total_breakage.unwrap_or(Decimal::ZERO).round_dp(2);
+    if breakage_total > Decimal::ZERO {
+        let breakage_account = qbo_map_with_misc_fallback(
+            pool,
+            "income_gift_card_breakage",
+            "default",
+            Some("REVENUE_GIFT_CARD_BREAKAGE"),
+        )
+        .await?;
+
+        let liability_account = qbo_map_with_misc_fallback(
+            pool,
+            "liability_gift_card",
+            "default",
+            None,
+        )
+        .await?;
+
+        if let (Some((br_id, br_name)), Some((liab_id, liab_name))) = (breakage_account, liability_account) {
+            lines.push(JournalLine {
+                qbo_account_id: liab_id,
+                qbo_account_name: liab_name,
+                debit: breakage_total,
+                credit: Decimal::ZERO,
+                memo: format!("Gift card liability relief from expiration (breakage) - {activity_date}"),
+                detail: vec![serde_json::json!({
+                    "kind": "gift_card_breakage_liability_relief",
+                    "expired_count": expired_gc.expired_count,
+                    "amount": breakage_total
+                })],
+            });
+
+            lines.push(JournalLine {
+                qbo_account_id: br_id,
+                qbo_account_name: br_name,
+                debit: Decimal::ZERO,
+                credit: breakage_total,
+                memo: format!("Gift card breakage revenue recognized - {activity_date}"),
+                detail: vec![serde_json::json!({
+                    "kind": "gift_card_breakage_revenue",
+                    "expired_count": expired_gc.expired_count,
+                    "amount": breakage_total
+                })],
+            });
+        } else {
+            warnings.push(format!(
+                "Gift card breakage of ${breakage_total} detected but `income_gift_card_breakage` or `liability_gift_card` mapping is missing; breakage omitted."
             ));
         }
     }
@@ -1799,6 +1938,10 @@ pub async fn ensure_pending_daily_journal(
         .cloned()
         .collect();
 
+    if let Err(e) = sweep_expired_gift_cards(pool, activity_date).await {
+        tracing::error!(error = %e, ?activity_date, "Failed to sweep expired gift cards before daily journal generation");
+    }
+
     let proposal = propose_daily_journal(pool, activity_date).await?;
     let payload = serde_json::to_value(&proposal)
         .map_err(|e| sqlx::Error::Protocol(format!("serialize QBO proposal: {e}")))?;
@@ -1932,5 +2075,63 @@ mod tests {
         assert!(gift_card_uses_loyalty_expense(Some("promo_gift_card")));
         assert!(!gift_card_uses_loyalty_expense(Some("paid_liability")));
         assert!(!gift_card_uses_loyalty_expense(None));
+    }
+
+    #[tokio::test]
+    async fn test_gift_card_breakage_sweep() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let pool = PgPool::connect(&database_url).await.expect("connect pool");
+
+        let code = format!("GC-EXPIRE-{}", uuid::Uuid::new_v4().simple());
+        let card_id = uuid::Uuid::new_v4();
+
+        // First clean up any existing card with this code
+        sqlx::query("DELETE FROM gift_cards WHERE code = $1").bind(&code).execute(&pool).await.ok();
+
+        // Insert card in pool (so it persists outside transaction so sweep can see it and commit)
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'purchased', 'active', $3, $3, TRUE, NOW() - INTERVAL '5 days')
+            "#,
+        )
+        .bind(card_id)
+        .bind(&code)
+        .bind(Decimal::new(15000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert expired gift card in pool");
+
+        let today = chrono::Utc::now().date_naive();
+        sweep_expired_gift_cards(&pool, today).await.expect("sweep");
+
+        // Check if card is depleted
+        let (bal, status): (Decimal, String) = sqlx::query_as(
+            "SELECT current_balance, card_status::text FROM gift_cards WHERE id = $1",
+        )
+        .bind(card_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load card");
+
+        assert_eq!(bal, Decimal::ZERO);
+        assert_eq!(status, "depleted");
+
+        // Check if event was created
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM gift_card_events WHERE gift_card_id = $1 AND event_kind = 'expiration_breakage'",
+        )
+        .bind(card_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load event count");
+
+        assert_eq!(count, 1);
+
+        // Clean up
+        sqlx::query("DELETE FROM gift_cards WHERE id = $1").bind(card_id).execute(&pool).await.ok();
     }
 }

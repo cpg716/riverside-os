@@ -44,6 +44,7 @@ Each daily report includes:
 
 ### Gift Cards
 - Cards sold (count + value), cards redeemed (shown only when > 0)
+- **Gift Card Breakage (v0.3.5+)** — Sweeps expired purchased gift cards, reducing their balance to zero, updating status to depleted, and staging the unredeemed liability as breakage revenue (debiting liability, crediting breakage income) in QBO.
 
 ### Deposits
 - Deposits received today, deposits released on fulfillment (shown only when > 0)

@@ -183,6 +183,62 @@ export function useCartCheckout({
       const ledgerCents = Math.max(0, ledgerSignals.appliedDepositAmountCents);
       const maxPaidAgainstSaleCents = checkoutTotals.collectTotalCents + (ledgerSignals.roundingAdjustmentCents ?? 0);
 
+      const isZeroBalancePickup =
+        !!pickupTransactionId &&
+        checkoutLines.length > 0 &&
+        checkoutLines.every((l) => l.transaction_line_id) &&
+        tenderPaidCents === 0 &&
+        orderPaymentLines.every((l) => parseMoneyToCents(l.amount) === 0);
+
+      if (isZeroBalancePickup) {
+        if (!navigator.onLine) {
+          toast("Pickups require an online connection.", "error");
+          setCheckoutBusy(false);
+          return null;
+        }
+
+        const deliveredItemIds = checkoutLines
+          .filter((l) => l.transaction_line_id)
+          .map((l) => l.transaction_line_id as string);
+
+        const pickupRes = await fetch(`${baseUrl}/api/transactions/${pickupTransactionId}/pickup`, {
+          method: "POST",
+          headers: { ...apiAuth(), "Content-Type": "application/json" },
+          body: JSON.stringify({
+            delivered_item_ids: deliveredItemIds,
+            actor: op.fullName.trim() || cashierName?.trim() || "Register Pickup Flow",
+            override_readiness: options?.overrideReadiness ?? false,
+            override_reason: options?.overrideReadiness
+              ? (options?.overrideReason ?? "Register pickup override: manager approved release for unready items.")
+              : undefined,
+            register_session_id: sessionId,
+          }),
+        });
+
+        if (!pickupRes.ok) {
+          let b: { error?: string } = {};
+          try {
+            b = await pickupRes.json() as { error?: string };
+          } catch {
+            const text = await pickupRes.text().catch(() => "");
+            b = { error: text || `Pickup failed (${pickupRes.status})` };
+          }
+          throw new Error(b.error || `Pickup failed (${pickupRes.status})`);
+        }
+
+        toast("Pickup completed successfully.", "success");
+        setLastTransactionId(pickupTransactionId);
+
+        if (execution?.clearAfterCheckout !== false) {
+          clearCart();
+          setCheckoutClientId(newCheckoutClientId());
+        }
+        if (execution?.emitSaleCompleted !== false) {
+          onSaleCompleted?.();
+        }
+        return pickupTransactionId;
+      }
+
       if (checkoutTotals.totalCents < 0 && orderPaymentLines.length > 0) {
         toast("Clear transaction payments before recording a refund or exchange credit.", "error");
         setCheckoutBusy(false);

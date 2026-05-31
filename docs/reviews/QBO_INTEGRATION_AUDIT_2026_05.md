@@ -56,11 +56,16 @@ Customer deposits are released into recognized revenue on pickup day:
 - **Drift detection**: Compares day-level deposit total vs release total; warns if drift > $0.01
 - **Per-order drift**: Detects rounding drift from category splits with tolerance threshold
 
-### 2.5 Gift Card Accounting — Liability vs Expense Split
+### 2.5 Gift Card Accounting — Liability, Expense, and Breakage
 - **Purchased cards loaded**: Credit `liability_gift_card` (liability increase)
 - **Purchased card redemption**: Debit `liability_gift_card` (liability relief)
 - **Loyalty/donated/promo redemption**: Debit `expense_loyalty` (expense recognition)
-- Classification determined by `gift_card_uses_liability_relief()` and `gift_card_uses_loyalty_expense()` helpers checking the payment transaction `sub_type` metadata
+- **Automated Expiration Breakage (v0.3.5+)**:
+  - A background task sweeps expired cards on the journal's `activity_date`.
+  - Only liability-bearing cards (`is_liability = TRUE`) are processed: their balance is zeroed, status is marked `'depleted'`, and an `'expiration_breakage'` event is inserted.
+  - The swept breakage balance debits `liability_gift_card` (reducing liability) and credits `income_gift_card_breakage` (or `REVENUE_GIFT_CARD_BREAKAGE` if unmapped).
+  - Promotional, loyalty, and donated gift cards (`is_liability = FALSE`) are excluded from QBO breakage since they represent no cash liability.
+- Classification determined by `gift_card_uses_liability_relief()` and `gift_card_uses_loyalty_expense()` helpers checking the payment transaction `sub_type` metadata.
 
 ### 2.6 Suit Swap Offsets
 Suit/component swap events generate cost-delta journal entries:

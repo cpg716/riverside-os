@@ -504,6 +504,24 @@ async fn launch_server_inner(
         }
     });
 
+    // Integration health check heartbeat: runs every 60 seconds
+    let integration_heartbeat_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            ticker.tick().await;
+            if let Err(e) = crate::logic::integration_heartbeat::run_integration_heartbeat(
+                &integration_heartbeat_state.db,
+                &integration_heartbeat_state.http_client,
+                integration_heartbeat_state.meilisearch.as_ref(),
+            )
+            .await
+            {
+                tracing::error!(error = %e, "Integration health-check heartbeat failed");
+            }
+        }
+    });
+
     // Daily update check: runs every hour, fires the notification at most once per day.
     let update_check_state = state.clone();
     tokio::spawn(async move {

@@ -87,7 +87,15 @@ Historical imported Counterpoint activity should remain auditable but should not
 - Confirm refund, shipping, clearing, and liability evidence before syncing days with returns, store credit, deposits, shipping charges, or gift card activity.
 - If drilldown evidence does not match the visible transaction history, stop and ask for accounting review.
 
+## Inline Mapping Resolution (v0.85.0+)
+
+To accelerate troubleshooting, the QBO Workspace staging review panel displays **Inline Mapping Resolvers** directly underneath any missing mapping warnings:
+- When a proposal fails validation because an account mapping is missing (e.g. `income_gift_card_breakage`, `liability_gift_card`, `COGS_FREIGHT`), a dropdown selector preloaded with the QBO Chart of Accounts appears directly on the warnings line.
+- Select the appropriate QuickBooks account and click **Save Mapping** to commit the configuration immediately.
+- Once saved, click **Stage journal** to regenerate the proposal using the newly established mapping.
+
 ## Related workflows
 
 - [Reports](manual:reports)
 - [Counterpoint Sync Settings](manual:settings-counterpoint-sync-settings-panel)
+

@@ -46,6 +46,8 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 - [ ] Single tender, single category, balanced journal  
 - [ ] Multi-split checkout (multiple tenders)  
 - [ ] Gift card `sub_type` `paid_liability` vs `loyalty_giveaway` / `donated_giveaway` / `promo_gift_card`
+- [ ] Gift card breakage sweep: Expired liability cards (`is_liability = true`) zeroed out, event logged, debits `liability_gift_card` and credits `income_gift_card_breakage` (or `REVENUE_GIFT_CARD_BREAKAGE`)
+- [ ] Gift card breakage bypass: Expired promotional/donated/loyalty cards (`is_liability = false`) are NOT swept, no breakage event generated, no QBO staging journal entry generated
 - [ ] Shipping income mapping is present before syncing a day with customer-charged shipping
 - [ ] Exchange pair (two transactions) does not double-count if only reporting by recognition
 - [ ] Shipped transaction has no QBO revenue before shipment recognition event

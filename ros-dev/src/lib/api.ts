@@ -138,19 +138,10 @@ export interface TailscaleStatus {
 
 export async function checkTailscale(): Promise<TailscaleStatus> {
   try {
-    const res = await fetch("http://100.100.100.100:8080/localapi/v0/status", {
-      method: "GET",
-      signal: AbortSignal.timeout(2000),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return {
-        running: data.BackendState === "Running",
-        version: data.Version,
-        tailnet: data.CurrentTailnet?.Name,
-      };
-    }
-  } catch { /* ignore */ }
+    return await invoke<TailscaleStatus>("check_tailscale_status");
+  } catch (e) {
+    console.error("Native checkTailscale failed:", e);
+  }
   return { running: false };
 }
 
