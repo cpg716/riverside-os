@@ -357,6 +357,8 @@ mod tests {
     use crate::observability::ServerLogRing;
 
     async fn connect_test_db() -> PgPool {
+        let _ =
+            dotenvy::from_filename(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
         let database_url = std::env::var("TEST_DATABASE_URL")
             .or_else(|_| std::env::var("DATABASE_URL"))
             .expect("TEST_DATABASE_URL or DATABASE_URL must be set for tests");

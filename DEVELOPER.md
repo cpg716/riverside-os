@@ -414,9 +414,14 @@ To **avoid that class of issues entirely**, uninstall Homebrew’s compiler and 
 
 ```bash
 npm run check:server          # cargo check with Rust 1.88 on PATH (from repo root)
-rustup run 1.88 cargo test --workspace
+rustup run 1.88 cargo test --workspace -- --test-threads=1
 cd client && npm run build    # tsc --noEmit + vite build
 ```
+
+> [!IMPORTANT]
+> **Sequential Test Run Invariant**: Integration tests write to shared PostgreSQL tables (e.g. `staff`, `product_variants`). Running cargo tests in parallel (the default) will trigger transaction deadlocks and unique constraint errors. Always append `-- --test-threads=1` to sequentialize execution.
+>
+> **Test Environment & Secrets**: Integration tests source configuration using dotenv. If running outside the local dev-server shell, ensure `server/.env` exists or the `DATABASE_URL` environment variable is explicitly exported.
 
 E2E / visual QA (Playwright):
 

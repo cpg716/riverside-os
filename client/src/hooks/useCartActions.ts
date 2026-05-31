@@ -38,7 +38,7 @@ function isCustomerProfileDiscountLine(line: CartLineItem): boolean {
   return line.price_override_reason === CUSTOMER_PROFILE_DISCOUNT_REASON;
 }
 
-function isProfileDiscountEligibleLine(
+function isAutomaticPricingEligible(
   line: CartLineItem,
   rmsPaymentSku?: string | null,
   giftCardLoadSku?: string | null,
@@ -49,51 +49,91 @@ function isProfileDiscountEligibleLine(
   if (giftCardLoadSku && line.sku === giftCardLoadSku) return false;
   if (line.discount_event_id) return false;
   if (line.price_override_reason && !isCustomerProfileDiscountLine(line)) return false;
-  if (line.original_unit_price && !isCustomerProfileDiscountLine(line)) return false;
   return true;
 }
 
-function applyCustomerProfileDiscountToLine(
+function applyCustomerPricingAndDiscounts(
   line: CartLineItem,
-  percent: number,
+  customer: Customer | null,
+  employeeCustomerId: string | null,
   rmsPaymentSku?: string | null,
   giftCardLoadSku?: string | null,
 ): CartLineItem {
-  if (!isProfileDiscountEligibleLine(line, rmsPaymentSku, giftCardLoadSku)) {
+  if (!isAutomaticPricingEligible(line, rmsPaymentSku, giftCardLoadSku)) {
     return line;
   }
 
-  const wasProfileDiscounted = isCustomerProfileDiscountLine(line);
-  const baseCents = parseMoneyToCents(line.original_unit_price ?? line.standard_retail_price);
-  if (percent <= 0) {
-    if (!wasProfileDiscounted) return line;
-    const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", baseCents);
+  const catalogRetailVal = line.catalog_standard_retail_price ?? line.original_unit_price ?? line.standard_retail_price;
+  const catalogRetailCents = parseMoneyToCents(catalogRetailVal);
+  const catalogEmployeeVal = line.catalog_employee_price ?? line.employee_price;
+
+  const isEmployee = Boolean(employeeCustomerId) && customer?.id === employeeCustomerId;
+
+  if (isEmployee) {
+    const hasEmpPrice = catalogEmployeeVal != null && String(catalogEmployeeVal).trim() !== "" && Number(catalogEmployeeVal) > 0;
+    if (hasEmpPrice) {
+      const empCents = parseMoneyToCents(catalogEmployeeVal);
+      if (
+        parseMoneyToCents(line.standard_retail_price) === empCents &&
+        line.original_unit_price === centsToFixed2(catalogRetailCents) &&
+        line.price_override_reason === undefined
+      ) {
+        return line;
+      }
+      const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", empCents);
+      return {
+        ...line,
+        catalog_standard_retail_price: centsToFixed2(catalogRetailCents),
+        catalog_employee_price: catalogEmployeeVal,
+        standard_retail_price: centsToFixed2(empCents),
+        state_tax: stateTax,
+        local_tax: localTax,
+        original_unit_price: centsToFixed2(catalogRetailCents),
+        price_override_reason: undefined,
+      };
+    }
+  }
+
+  const pct = profileDiscountPercent(customer);
+  if (pct > 0) {
+    const nextCents = Math.round(catalogRetailCents * (1 - pct / 100));
+    if (
+      parseMoneyToCents(line.standard_retail_price) === nextCents &&
+      line.original_unit_price === centsToFixed2(catalogRetailCents) &&
+      line.price_override_reason === CUSTOMER_PROFILE_DISCOUNT_REASON
+    ) {
+      return line;
+    }
+    const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", nextCents);
     return {
       ...line,
-      standard_retail_price: centsToFixed2(baseCents),
+      catalog_standard_retail_price: centsToFixed2(catalogRetailCents),
+      catalog_employee_price: catalogEmployeeVal,
+      standard_retail_price: centsToFixed2(nextCents),
       state_tax: stateTax,
       local_tax: localTax,
-      original_unit_price: undefined,
-      price_override_reason: undefined,
+      original_unit_price: centsToFixed2(catalogRetailCents),
+      price_override_reason: CUSTOMER_PROFILE_DISCOUNT_REASON,
     };
   }
 
-  const nextCents = Math.round(baseCents * (1 - percent / 100));
   if (
-    wasProfileDiscounted &&
-    parseMoneyToCents(line.standard_retail_price) === nextCents &&
-    parseMoneyToCents(line.original_unit_price ?? line.standard_retail_price) === baseCents
+    parseMoneyToCents(line.standard_retail_price) === catalogRetailCents &&
+    line.original_unit_price === undefined &&
+    line.price_override_reason === undefined
   ) {
     return line;
   }
-  const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", nextCents);
+  const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", catalogRetailCents);
   return {
     ...line,
-    standard_retail_price: centsToFixed2(nextCents),
+    catalog_standard_retail_price: centsToFixed2(catalogRetailCents),
+    catalog_employee_price: catalogEmployeeVal,
+    standard_retail_price: centsToFixed2(catalogRetailCents),
     state_tax: stateTax,
     local_tax: localTax,
-    original_unit_price: centsToFixed2(baseCents),
-    price_override_reason: CUSTOMER_PROFILE_DISCOUNT_REASON,
+    original_unit_price: undefined,
+    price_override_reason: undefined,
   };
 }
 
@@ -158,14 +198,17 @@ export function useCartActions({
     employeeCustomerId && selectedCustomer?.id === employeeCustomerId
       ? 0
       : profileDiscountPercent(selectedCustomer);
+  const isEmployeeMode =
+    Boolean(employeeCustomerId) && selectedCustomer?.id === employeeCustomerId;
 
   useEffect(() => {
     setLines((prev) => {
       let changed = false;
       const next = prev.map((line) => {
-        const updated = applyCustomerProfileDiscountToLine(
+        const updated = applyCustomerPricingAndDiscounts(
           line,
-          customerDiscountPercent,
+          selectedCustomer,
+          employeeCustomerId,
           rmsPaymentMeta?.sku,
           giftCardLoadMeta?.sku,
         );
@@ -175,8 +218,10 @@ export function useCartActions({
       return changed ? next : prev;
     });
   }, [
+    selectedCustomer,
     customerDiscountPercent,
-    selectedCustomer?.id,
+    isEmployeeMode,
+    employeeCustomerId,
     lines,
     rmsPaymentMeta?.sku,
     giftCardLoadMeta?.sku,
@@ -271,6 +316,8 @@ export function useCartActions({
 
       const newLine: CartLineItem = {
         ...item,
+        catalog_standard_retail_price: item.standard_retail_price,
+        catalog_employee_price: item.employee_price,
         quantity: 1,
         fulfillment: fulfillmentOverride || "takeaway",
         cart_row_id: newCartRowId(),
@@ -296,7 +343,7 @@ export function useCartActions({
         newLine.standard_retail_price = centsToFixed2(empCents);
         newLine.state_tax = stateTax;
         newLine.local_tax = localTax;
-        newLine.original_unit_price = undefined;
+        newLine.original_unit_price = centsToFixed2(parseMoneyToCents(item.standard_retail_price));
         newLine.price_override_reason = undefined;
       }
 

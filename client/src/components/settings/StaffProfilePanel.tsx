@@ -20,7 +20,11 @@ import {
   CalendarDays,
   Package,
   Users,
-  Megaphone
+  Megaphone,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -29,6 +33,18 @@ import {
   STAFF_AVATAR_CATALOG,
   staffAvatarGroupLabel
 } from "../../lib/staffAvatars";
+import ReceiptSummaryModal from "../pos/ReceiptSummaryModal";
+
+interface TransactionListItem {
+  transaction_id: string;
+  display_id: string;
+  booked_at: string;
+  status: string;
+  total_price: string;
+  amount_paid: string;
+  balance_due: string;
+  order_items_summary: string | null;
+}
 
 interface StaffProfile {
   id: string;
@@ -44,6 +60,7 @@ interface StaffProfile {
   avatar_key: string;
   avatar_photo_url: string | null;
   max_discount_percent: string;
+  employee_customer_id: string | null;
   employee_customer_code: string | null;
   notification_preferences: NotificationPreferences;
   podium_user_uid: string | null;
@@ -146,6 +163,56 @@ export default function StaffProfilePanel() {
   );
 
   const baseUrl = getBaseUrl();
+
+  // Personal purchases state and fetching logic
+  const [transactions, setTransactions] = useState<TransactionListItem[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
+  const [txLoading, setTxLoading] = useState(false);
+  const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
+
+  const loadTransactions = useCallback(
+    async (pageNum: number, searchVal: string) => {
+      if (!profile?.employee_customer_id) return;
+      setTxLoading(true);
+      try {
+        const offset = (pageNum - 1) * 10;
+        const sp = new URLSearchParams();
+        sp.set("customer_id", profile.employee_customer_id);
+        sp.set("limit", "10");
+        sp.set("offset", offset.toString());
+        if (searchVal.trim()) {
+          sp.set("search", searchVal.trim());
+        }
+        const res = await fetch(`${baseUrl}/api/transactions?${sp.toString()}`, {
+          headers: backofficeHeaders(),
+        });
+        if (!res.ok) throw new Error("Could not load purchases.");
+        const data = (await res.json()) as { items: TransactionListItem[]; total_count: number };
+        setTransactions(data.items || []);
+        setTotalCount(data.total_count || 0);
+        setPage(pageNum);
+      } catch (e) {
+        toast(
+          e instanceof Error ? e.message : "Error loading personal purchases",
+          "error",
+        );
+      } finally {
+        setTxLoading(false);
+      }
+    },
+    [profile?.employee_customer_id, baseUrl, backofficeHeaders, toast],
+  );
+
+  useEffect(() => {
+    if (profile?.employee_customer_id) {
+      void loadTransactions(1, "");
+    } else {
+      setTransactions([]);
+      setTotalCount(0);
+    }
+  }, [profile?.employee_customer_id, loadTransactions]);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -674,6 +741,185 @@ export default function StaffProfilePanel() {
         </div>
       </div>
 
+      {/* Personal Purchases Section */}
+      <section className="ui-card p-8 border-t-4 border-app-accent relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-app-accent/40 to-transparent" />
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-2xl bg-app-accent/10 flex items-center justify-center text-app-accent">
+              <CreditCard size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-black uppercase tracking-[0.15em] text-app-text italic">
+                Purchase History
+              </h3>
+              <p className="text-xs text-app-text-muted mt-1 font-medium">
+                Review your employee purchases, items, and applied discounts.
+              </p>
+            </div>
+          </div>
+          
+          {profile.employee_customer_id && (
+            <button
+              onClick={() => void loadTransactions(1, searchInput)}
+              className="h-10 w-10 rounded-xl bg-app-surface-2 hover:bg-app-surface-3 flex items-center justify-center text-app-text-muted transition-colors border border-app-border"
+              title="Refresh history"
+            >
+              <RefreshCw size={16} className={txLoading ? "animate-spin" : ""} />
+            </button>
+          )}
+        </div>
+
+        {!profile.employee_customer_id ? (
+          <div className="rounded-[1.5rem] border border-amber-500/20 bg-amber-500/5 p-8 text-center max-w-2xl mx-auto my-4">
+            <ShieldAlert className="mx-auto h-12 w-12 text-amber-500 opacity-60 mb-3" />
+            <h4 className="text-base font-black uppercase text-app-text">No CRM Customer Account Linked</h4>
+            <p className="text-sm text-app-text-muted mt-2 leading-relaxed">
+              Your staff profile is not currently linked to a personal CRM customer account. To view your purchase history and automatically receive your employee discount at checkout, ask a store manager to link your staff record to your CRM profile under the <strong>Team Roster</strong> settings.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* Search Bar */}
+            <div className="flex max-w-md relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted h-5 w-5" />
+              <input
+                type="text"
+                placeholder="Search by receipt ID or product name..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    void loadTransactions(1, searchInput);
+                  }
+                }}
+                className="ui-input w-full pl-12 pr-10 h-12 text-sm font-bold bg-app-surface-2"
+              />
+              {searchInput && (
+                <button
+                  onClick={() => {
+                    setSearchInput("");
+                    void loadTransactions(1, "");
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-app-text-muted hover:text-app-text"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+
+            {txLoading ? (
+              <div className="flex h-36 items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-app-accent" />
+              </div>
+            ) : transactions.length === 0 ? (
+              <div className="ui-card p-12 text-center text-app-text-muted border border-app-border/40 bg-app-surface-2/30">
+                <p className="font-bold text-sm">No purchases found.</p>
+                <p className="text-xs mt-1">If you recently made a purchase, it will appear here once finalized.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="overflow-x-auto rounded-2xl border border-app-border/60 bg-app-surface-2/20">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-app-border/60 bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        <th className="py-4 px-6">Receipt ID</th>
+                        <th className="py-4 px-6">Date</th>
+                        <th className="py-4 px-6">Items Summary</th>
+                        <th className="py-4 px-6 text-right">Total</th>
+                        <th className="py-4 px-6 text-right">Amount Paid</th>
+                        <th className="py-4 px-6">Status</th>
+                        <th className="py-4 px-6 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-app-border/40 text-xs font-semibold text-app-text">
+                      {transactions.map((tx) => (
+                        <tr key={tx.transaction_id} className="hover:bg-app-surface-2/30 transition-colors">
+                          <td className="py-4 px-6 font-black text-app-accent">
+                            {tx.display_id}
+                          </td>
+                          <td className="py-4 px-6 text-app-text-muted">
+                            {new Date(tx.booked_at).toLocaleDateString(undefined, {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </td>
+                          <td className="py-4 px-6 max-w-sm">
+                            <div className="truncate font-medium text-app-text-muted" title={tx.order_items_summary || ""}>
+                              {tx.order_items_summary || "No items"}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6 text-right font-black tabular-nums">
+                            ${parseFloat(tx.total_price).toFixed(2)}
+                          </td>
+                          <td className="py-4 px-6 text-right font-bold text-emerald-500 tabular-nums">
+                            ${parseFloat(tx.amount_paid).toFixed(2)}
+                          </td>
+                          <td className="py-4 px-6">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              tx.status === "completed" || tx.status === "fulfilled"
+                                ? "bg-emerald-500/10 text-emerald-500"
+                                : tx.status === "cancelled" || tx.status === "voided"
+                                ? "bg-red-500/10 text-red-500"
+                                : "bg-amber-500/10 text-amber-500"
+                            }`}>
+                              {tx.status}
+                            </span>
+                          </td>
+                          <td className="py-4 px-6 text-center">
+                            <button
+                              onClick={() => setSelectedTransactionId(tx.transaction_id)}
+                              className="ui-btn-secondary py-1 px-3 text-[10px] uppercase font-black"
+                            >
+                              View Receipt
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                {totalCount > 10 && (
+                  <div className="flex items-center justify-between pt-4 border-t border-app-border/40">
+                    <p className="text-xs text-app-text-muted">
+                      Showing <span className="font-bold text-app-text">{(page - 1) * 10 + 1}</span> to{" "}
+                      <span className="font-bold text-app-text">
+                        {Math.min(page * 10, totalCount)}
+                      </span>{" "}
+                      of <span className="font-bold text-app-text">{totalCount}</span> results
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => void loadTransactions(page - 1, searchInput)}
+                        disabled={page === 1}
+                        className="ui-btn-secondary h-9 w-9 p-0 flex items-center justify-center disabled:opacity-40"
+                        aria-label="Previous page"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <span className="text-xs font-black text-app-text px-2">
+                        {page}
+                      </span>
+                      <button
+                        onClick={() => void loadTransactions(page + 1, searchInput)}
+                        disabled={page * 10 >= totalCount}
+                        className="ui-btn-secondary h-9 w-9 p-0 flex items-center justify-center disabled:opacity-40"
+                        aria-label="Next page"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
       {/* Avatar Picker Modal */}
       {avatarPickerOpen && createPortal(
         <div className="ui-overlay-backdrop animate-in fade-in duration-300">
@@ -782,6 +1028,16 @@ export default function StaffProfilePanel() {
          </div>,
          document.getElementById("drawer-root") || document.body
        )}
+
+      {/* Receipt Summary Modal */}
+      {selectedTransactionId && (
+        <ReceiptSummaryModal
+          transactionId={selectedTransactionId}
+          onClose={() => setSelectedTransactionId(null)}
+          baseUrl={baseUrl}
+          getAuthHeaders={backofficeHeaders as () => Record<string, string>}
+        />
+      )}
     </div>
   );
 }

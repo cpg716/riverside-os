@@ -10920,6 +10920,22 @@ mod tests {
         pool
     }
 
+    async fn next_staff_code(pool: &PgPool) -> String {
+        for _ in 0..128 {
+            let candidate = format!("{:04}", (Uuid::new_v4().as_u128() % 10_000) as u16);
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff WHERE cashier_code = $1)")
+                    .bind(&candidate)
+                    .fetch_one(pool)
+                    .await
+                    .expect("check cashier_code uniqueness");
+            if !exists {
+                return candidate;
+            }
+        }
+        panic!("could not allocate unique 4-digit cashier code for test staff");
+    }
+
     async fn ensure_counterpoint_ingest_quarantine_table(pool: &PgPool) {
         sqlx::query(
             r#"
@@ -14486,6 +14502,12 @@ mod tests {
     #[tokio::test]
     async fn counterpoint_baseline_reset_preserves_bootstrap_and_clears_migration_state() {
         let pool = connect_test_db().await;
+        let preserved_code = next_staff_code(&pool).await;
+        let mut imported_code = next_staff_code(&pool).await;
+        while imported_code == preserved_code {
+            imported_code = next_staff_code(&pool).await;
+        }
+
         let result = async {
             let mut tx = pool.begin().await.expect("begin reset test transaction");
             sqlx::query("INSERT INTO counterpoint_bridge_heartbeat (id) VALUES (1) ON CONFLICT DO NOTHING")
@@ -14524,7 +14546,6 @@ mod tests {
             .expect("insert gift reason map");
 
             let preserved_staff_id = Uuid::new_v4();
-            let preserved_code = format!("{:04}", (Uuid::new_v4().as_u128() % 10_000) as u16);
             let preserved_pin = hash_pin(&preserved_code).expect("hash preserved staff pin");
             sqlx::query(
                 r#"
@@ -14549,7 +14570,6 @@ mod tests {
             .expect("insert preserved staff");
 
             let imported_staff_id = Uuid::new_v4();
-            let imported_code = format!("{:04}", (Uuid::new_v4().as_u128() % 10_000) as u16);
             sqlx::query(
                 r#"
                 INSERT INTO staff (
@@ -14564,7 +14584,7 @@ mod tests {
                 "Counterpoint Reset Imported Staff {}",
                 Uuid::new_v4().simple()
             ))
-            .bind(imported_code)
+            .bind(&imported_code)
             .bind(format!("USR-{}", Uuid::new_v4().simple()))
             .execute(&mut *tx)
             .await

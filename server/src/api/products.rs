@@ -4035,14 +4035,25 @@ mod tests {
     }
 
     async fn connect_test_db() -> PgPool {
+        let _ =
+            dotenvy::from_filename(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
         let database_url = std::env::var("TEST_DATABASE_URL")
             .or_else(|_| std::env::var("DATABASE_URL"))
             .unwrap_or_else(|_| {
                 "postgresql://postgres:password@localhost:5433/riverside_os".into()
             });
-        PgPool::connect(&database_url)
+        let pool = PgPool::connect(&database_url)
             .await
-            .expect("connect test database")
+            .expect("connect test database");
+
+        // Clean up any leaked test SKUs from previous runs to prevent unique constraint failures
+        let _ = sqlx::query(
+            "DELETE FROM product_variants WHERE sku IN ('BASE-SKU', 'OVERRIDE-SKU', 'OOS-SKU', 'OVERRIDE-SKU-2', 'CLEAR-SKU', 'PRICE-SKU', 'NOOP-SKU')"
+        )
+        .execute(&pool)
+        .await;
+
+        pool
     }
 
     async fn next_staff_code(pool: &PgPool) -> String {

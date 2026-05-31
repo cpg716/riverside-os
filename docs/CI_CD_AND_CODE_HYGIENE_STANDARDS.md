@@ -98,6 +98,7 @@ gh run list --status failure --limit 100 --json databaseId --jq '.[].databaseId'
 2. **Clippy Compliance:** Code must pass `cargo clippy --workspace --all-targets -- -D warnings` without warnings.
 3. **Deterministic Formatting:** Always run `cargo fmt --all` before committing (`cargo fmt --all --check` is run in CI).
 4. **Decimal for Currency:** Never use `f32`/`f64` for money. Use `rust_decimal::Decimal`.
+5. **Sequential Integration Testing:** Server integration tests share database tables. Running tests in parallel causes deadlocks or constraint violations. Always run tests sequentially via `cargo test --workspace -- --test-threads=1`. Ensure the local DB is up and the `DATABASE_URL` is configured (loaded from `server/.env`).
 
 ## Validation Workflow
 
@@ -106,6 +107,7 @@ Before pushing any major refactor, executors should run the following locally:
 1. `cd client && npm run lint`
 2. `cargo clippy --workspace --all-targets -- -D warnings`
 3. `cargo fmt --all --check`
-4. `cd client && npm run build` (to catch type errors in production builds)
+4. `cargo test --workspace -- --test-threads=1`
+5. `cd client && npm run build` (to catch type errors in production builds)
 
-**Last reviewed:** 2026-04-09
+**Last reviewed:** 2026-05-31

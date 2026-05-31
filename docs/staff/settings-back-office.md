@@ -79,8 +79,9 @@ Settings appears in these sidebar groups:
 2. Update **Personal Info** (Name, Phone, Email), your **Staff Icon**, or your **Staff Photo**.
 3. **Staff Photo**: Upload a real photo (JPEG, PNG, or WebP, max 10 MB). The system automatically detects the face, crops to a square, and resizes to a uniform 512x512 avatar. Your photo appears everywhere your avatar is shown — Top Bar, Register Overlay, Staff Roster, Notifications, and Staff Search. To revert to an icon avatar, delete the photo.
 4. **CRM Linkage**: Link your profile to your customer account for automatic employee discount application and transaction history.
-5. View-only access (POS mode): Identity-sensitive fields like **Role**, **Economics**, and **Permissions** are read-only to prevent unauthorized modification during sales operations; full management is available in the Back Office.
-6. Save; the sidebar and top-bar identity will update instantly upon confirmation.
+5. **Personal Purchases**: Once linked to your CRM customer profile, a "Purchase History" section will appear at the bottom of the page, allowing you to search past purchases, review applied discounts, and view/reprint receipts.
+6. **View-only access (POS mode)**: Identity-sensitive fields like **Role**, **Economics**, and **Permissions** are read-only to prevent unauthorized modification during sales operations; full management is available in the Back Office.
+7. **Save**: Save your profile changes; the sidebar and top-bar identity will update instantly upon confirmation.
 
 ## General
 
