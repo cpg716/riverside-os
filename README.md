@@ -54,6 +54,14 @@ A dedicated macOS companion app in `ros-dev/` for managing ROS from anywhere:
 - **ROSIE AI analysis** — One-click diagnostic analysis via the local Gemma LLM
 - **Build**: `cd ros-dev && npm install && npm run tauri build`
 
+### Standalone Countersync Desktop Bridge (Windows)
+A native Windows desktop app in `deployment/counterpoint-bridge-gui/` for managing the NCR Counterpoint to ROS sync bridge:
+- **Zero-Config Installer** — Combines the GUI application shell and the Node sync script engine into a single executable package.
+- **Process Console Diagnostics** — Streams stdout/stderr from the child process directly, capturing boot syntax errors and SQL socket errors.
+- **SQL Query Tester** — Safely test query configurations and preview the first 10 rows in an interactive UI grid.
+- **Auto-Config Schema Probe** — Scan company database schemas to verify column alias compatibility.
+- **Build**: `cd deployment/counterpoint-bridge-gui && npm install && npm run build` (Tauri build uses `npx tauri build`)
+
 ## Production Features (v0.80.0+)
 
 Riverside OS v0.80.0+ includes enterprise-grade production hardening features:
@@ -293,6 +301,7 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |
 | `docs/SEARCH_AND_PAGINATION.md` | Search semantics, optional Meilisearch | Devs |
 | `docs/COUNTERPOINT_SYNC_GUIDE.md` | Counterpoint one-time migration bridge, mapping, heartbeats, retirement path | Ops / devs |
+| `docs/COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md` | Windows Desktop sync bridge GUI app setup, controls, and diagnostics manual | Ops / devs / admins |
 | `docs/WEDDING_COUNTERPOINT_CUTOVER_LINKING.md` | Mid-season wedding cutover design for linking imported parties to Counterpoint-synced customers, transactions, and item lifecycle | Ops / devs |
 | `docs/TRANSACTION_RETURNS_EXCHANGES.md` | Refunds, returns, exchanges | Devs |
 | `docs/RECEIPT_BUILDER_AND_DELIVERY.md`| ZPL / Thermal templates and Podium delivery | Devs / ops |
