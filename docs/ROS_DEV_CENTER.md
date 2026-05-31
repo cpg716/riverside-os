@@ -53,6 +53,9 @@ Every guarded action writes an immutable row to `ops_action_audit`.
 - Standalone Companion App (macOS):
 1. Client UI and native shell: `ros-dev/`
 2. Key tools: Native keychain storage, high-performance subnet/Tailscale discovery sweep, ROSIE Gemma LLM local integration.
+3. Status Alignment: Implements the identical WowDash styling and 4 health status pillars (Integrations, Updates, POS, Back Office) matching the primary client app.
+4. Native Tailscale CORS Bypass: Queries the local API CGNAT endpoint natively from the Rust backend (`check_tailscale_status`) to prevent browser-engine CORS blocks in WebViews.
+5. Connectivity Logs & Heartbeat: Supports manual triggers for active probe checks (`POST /api/ops/audit-probes`) and tracks state transition logs in real-time.
 
 ---
 
