@@ -10905,7 +10905,7 @@ mod tests {
         let pool = PgPool::connect(&database_url)
             .await
             .expect("connect test database");
-        
+
         let _ = sqlx::query(
             r#"
             SELECT setval(
