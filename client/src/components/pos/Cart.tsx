@@ -351,6 +351,7 @@ export default function Cart({
   const [salePinError, setSalePinError] = useState<string | null>(null);
   const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
   const [pickupTransactionId, setPickupTransactionId] = useState<string | null>(null);
+  const [pickupPaidAmountCents, setPickupPaidAmountCents] = useState<number>(0);
 
   // --- UI States (Restored to Cart.tsx) ---
   const [checkoutDrawerOpen, setCheckoutDrawerOpen] = useState(false);
@@ -519,6 +520,8 @@ export default function Cart({
     setEditingOrderPaymentAmount("");
     setManagerOverrideApproved(false);
     setManagerOverrideReason("");
+    setPickupTransactionId(null);
+    setPickupPaidAmountCents(0);
   }, [clearCart, resetSaleDateTime]);
 
   const selectedCustomerId = selectedCustomer?.id ?? null;
@@ -938,6 +941,7 @@ export default function Cart({
           : line,
       );
     });
+    setPickupPaidAmountCents(parseMoneyToCents(order.amount_paid ?? "0"));
     toast(`Transaction payment for ${orderPaymentDisplayId} added to this sale.`, "success");
   }, [selectedCustomer, toast]);
 
@@ -1627,6 +1631,7 @@ export default function Cart({
       if (forPickup) {
         // Pickup mode: load unfulfilled items into cart
         setPickupTransactionId(detail.transaction_id);
+        setPickupPaidAmountCents(parseMoneyToCents(detail.amount_paid ?? "0"));
         setManagerOverrideApproved(false);
         setManagerOverrideReason("");
         const balanceDueCents = parseMoneyToCents(detail.balance_due ?? "0");
@@ -3105,6 +3110,7 @@ export default function Cart({
         customerTaxExempt={selectedCustomer?.tax_exempt ?? false}
         customerTaxExemptId={selectedCustomer?.tax_exempt_id ?? null}
         authoritativeDepositCents={0}
+        existingPaidAmountCents={pickupPaidAmountCents}
         profileBlocksCheckout={false}
         onOpenProfileGate={() => {}}
         busy={checkoutBusy}

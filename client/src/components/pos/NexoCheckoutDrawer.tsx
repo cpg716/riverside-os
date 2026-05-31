@@ -392,6 +392,7 @@ export interface NexoCheckoutDrawerProps {
   takeawayDueCents?: number;
   hasLaterItems?: boolean;
   onOpenSplitDeposit?: () => void;
+  existingPaidAmountCents?: number;
 }
 
 export default function NexoCheckoutDrawer({
@@ -425,6 +426,7 @@ export default function NexoCheckoutDrawer({
   shippingCents = 0,
   hasLaterItems = false,
   onOpenSplitDeposit,
+  existingPaidAmountCents = 0,
 }: NexoCheckoutDrawerProps) {
   const baseUrl = getBaseUrl();
   const { backofficeHeaders } = useBackofficeAuth();
@@ -2709,7 +2711,7 @@ export default function NexoCheckoutDrawer({
                 </div>
 
                 <div className="flex-1 space-y-1.5 overflow-y-auto no-scrollbar mb-3">
-                   {applied.length === 0 && depositDisplayCents === 0 && !helcimAttempt && !helcimUnverifiedNotice && (
+                   {applied.length === 0 && depositDisplayCents === 0 && existingPaidAmountCents === 0 && !helcimAttempt && !helcimUnverifiedNotice && (
                      <div className="flex h-full flex-col items-center justify-center py-6 text-center opacity-30">
                         <Wallet size={24} strokeWidth={1} />
                         <p className="mt-2 px-6 text-xs font-black uppercase tracking-wide leading-tight">
@@ -2824,6 +2826,17 @@ export default function NexoCheckoutDrawer({
                          ) : null}
                      </div>
                    )}
+                    {existingPaidAmountCents > 0 && (
+                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-800/60 border border-emerald-500/20 group">
+                         <div className="flex flex-col min-w-0">
+                            <span className="truncate text-xs font-black uppercase text-emerald-400">Prior Deposit / Paid</span>
+                            <span className="mt-0.5 text-[10px] text-zinc-400 font-medium">Applied to this order</span>
+                         </div>
+                         <div className="flex items-center gap-2.5 ml-2 pr-2">
+                            <span className="text-[11px] font-black tabular-nums tracking-tight text-emerald-400">${centsToFixed2(existingPaidAmountCents)}</span>
+                         </div>
+                      </div>
+                    )}
                    {applied.map(p => (
                      <div key={p.id} className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-800/40 border border-white/5 group transition-all hover:bg-zinc-800/80">
                         <div className="flex flex-col min-w-0">
