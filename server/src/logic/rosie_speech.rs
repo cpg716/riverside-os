@@ -81,13 +81,17 @@ fn default_rosie_root_dir() -> Option<PathBuf> {
     #[cfg(windows)]
     {
         if let Some(program_data) = std::env::var_os("ProgramData") {
-            let path = PathBuf::from(program_data).join("riverside-os").join("rosie");
+            let path = PathBuf::from(program_data)
+                .join("riverside-os")
+                .join("rosie");
             if path.exists() {
                 return Some(path);
             }
         }
         if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-            let path = PathBuf::from(local_app_data).join("riverside-os").join("rosie");
+            let path = PathBuf::from(local_app_data)
+                .join("riverside-os")
+                .join("rosie");
             if path.exists() {
                 return Some(path);
             }
@@ -241,10 +245,7 @@ fn resolve_kokoro_model_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
         .or_else(|| {
-            default_rosie_root_dir().map(|root| {
-                root.join("tts")
-                    .join("kokoro-multi-lang-v1_0")
-            })
+            default_rosie_root_dir().map(|root| root.join("tts").join("kokoro-multi-lang-v1_0"))
         })
 }
 

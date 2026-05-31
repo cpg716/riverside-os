@@ -12,7 +12,9 @@ struct BridgeProcessState {
 
 fn strip_quotes(s: &str) -> String {
     let mut val = s.trim().to_string();
-    if (val.starts_with('"') && val.ends_with('"')) || (val.starts_with('\'') && val.ends_with('\'')) {
+    if (val.starts_with('"') && val.ends_with('"'))
+        || (val.starts_with('\'') && val.ends_with('\''))
+    {
         val.remove(0);
         if !val.is_empty() {
             val.pop();
@@ -64,7 +66,11 @@ fn find_bridge_directory(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
 }
 
 #[tauri::command]
-fn start_bridge(app: tauri::AppHandle, state: State<'_, BridgeProcessState>, dry_run: bool) -> Result<String, String> {
+fn start_bridge(
+    app: tauri::AppHandle,
+    state: State<'_, BridgeProcessState>,
+    dry_run: bool,
+) -> Result<String, String> {
     let mut child_guard = state.child.lock().unwrap();
     if child_guard.is_some() {
         if let Some(mut child) = child_guard.take() {
@@ -76,7 +82,10 @@ fn start_bridge(app: tauri::AppHandle, state: State<'_, BridgeProcessState>, dry
     {
         let mut logs = state.logs.lock().unwrap();
         logs.clear();
-        logs.push(format!("[SYSTEM] Starting sync engine (dry_run: {})...", dry_run));
+        logs.push(format!(
+            "[SYSTEM] Starting sync engine (dry_run: {})...",
+            dry_run
+        ));
     }
 
     let bridge_dir = match find_bridge_directory(&app) {
@@ -185,7 +194,10 @@ fn start_bridge(app: tauri::AppHandle, state: State<'_, BridgeProcessState>, dry
         }
         Err(e) => {
             let mut logs = state.logs.lock().unwrap();
-            logs.push(format!("[SYSTEM ERROR] Failed to start Node process: {}", e));
+            logs.push(format!(
+                "[SYSTEM ERROR] Failed to start Node process: {}",
+                e
+            ));
             Err(format!("Failed to start Node process: {}", e))
         }
     }
@@ -261,7 +273,12 @@ fn load_settings(app: tauri::AppHandle) -> Result<BridgeSettings, String> {
 }
 
 #[tauri::command]
-fn save_settings(app: tauri::AppHandle, sql_conn: String, ros_url: String, sync_token: String) -> Result<String, String> {
+fn save_settings(
+    app: tauri::AppHandle,
+    sql_conn: String,
+    ros_url: String,
+    sync_token: String,
+) -> Result<String, String> {
     let bridge_dir = match find_bridge_directory(&app) {
         Some(dir) => dir,
         None => return Err("Could not locate counterpoint-bridge directory.".into()),
@@ -275,12 +292,12 @@ fn save_settings(app: tauri::AppHandle, sql_conn: String, ros_url: String, sync_
     };
 
     let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-    
+
     // Update or insert keys
     let keys = vec![
         ("SQL_CONNECTION_STRING", &sql_conn),
         ("ROS_BASE_URL", &ros_url),
-        ("COUNTERPOINT_SYNC_TOKEN", &sync_token)
+        ("COUNTERPOINT_SYNC_TOKEN", &sync_token),
     ];
 
     for (k, v) in keys {
@@ -312,7 +329,7 @@ fn save_settings(app: tauri::AppHandle, sql_conn: String, ros_url: String, sync_
 fn get_bridge_directory(app: tauri::AppHandle) -> Result<String, String> {
     match find_bridge_directory(&app) {
         Some(dir) => Ok(dir.to_string_lossy().to_string()),
-        None => Err("Not found".into())
+        None => Err("Not found".into()),
     }
 }
 
