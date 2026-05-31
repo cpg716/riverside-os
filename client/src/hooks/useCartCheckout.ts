@@ -219,10 +219,18 @@ export function useCartCheckout({
         for (const line of orderPaymentLines) {
           const amountCents = parseMoneyToCents(line.amount);
           const balanceCents = parseMoneyToCents(line.balance_before);
-          if (amountCents <= 0 || amountCents > balanceCents) {
-            toast("Review the order payment amount before checkout.", "error");
-            setCheckoutBusy(false);
-            return null;
+          if (balanceCents > 0) {
+            if (amountCents <= 0 || amountCents > balanceCents) {
+              toast("Review the order payment amount before checkout.", "error");
+              setCheckoutBusy(false);
+              return null;
+            }
+          } else {
+            if (amountCents !== 0) {
+              toast("Review the order payment amount before checkout.", "error");
+              setCheckoutBusy(false);
+              return null;
+            }
           }
           if (line.customer_id !== selectedCustomer.id) {
             toast("Order payments must belong to the selected customer.", "error");
