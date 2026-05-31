@@ -321,19 +321,19 @@ test.describe("Phase 2: Finance-sensitive endpoint contracts", () => {
     const taxText = await taxRes.text();
     expect(taxRes.status(), `nys-tax-audit: ${taxText.slice(0, 400)}`).toBe(200);
     const tax = JSON.parse(taxText) as {
-      threshold_usd?: unknown;
-      total_lines?: unknown;
-      local_only_exempt_lines?: unknown;
-      clothing_at_or_over_threshold_lines?: unknown;
+      gross_sales?: unknown;
+      taxable_sales?: unknown;
+      nontaxable_sales?: unknown;
       total_state_tax?: unknown;
       total_local_tax?: unknown;
+      total_tax_collected?: unknown;
     };
-    expect(typeof tax.threshold_usd).toBe("string");
-    expect(typeof tax.total_lines).toBe("number");
-    expect(typeof tax.local_only_exempt_lines).toBe("number");
-    expect(typeof tax.clothing_at_or_over_threshold_lines).toBe("number");
+    expect(typeof tax.gross_sales).toBe("string");
+    expect(typeof tax.taxable_sales).toBe("string");
+    expect(typeof tax.nontaxable_sales).toBe("string");
     expect(typeof tax.total_state_tax).toBe("string");
     expect(typeof tax.total_local_tax).toBe("string");
+    expect(typeof tax.total_tax_collected).toBe("string");
 
     const bases = ["booked", "sale", "completed", "pickup"];
     for (const basis of bases) {
