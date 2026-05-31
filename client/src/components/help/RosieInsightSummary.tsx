@@ -70,13 +70,6 @@ export default function RosieInsightSummary({
     }
   }, [allowedActions, facts, getHeaders, hasFacts, loading, mode, surface]);
 
-  if (!hasFacts) return null;
-
-  const visibleBullets = response?.status === "available" ? response.bullets.slice(0, 3) : [];
-  const visibleActions =
-    response?.status === "available" ? (response.suggested_actions ?? []).slice(0, 3) : [];
-  const unavailable = response?.status === "unavailable";
-
   const actionLabel = useMemo(() => {
     switch (surface) {
       case "customer_snapshot":
@@ -95,6 +88,13 @@ export default function RosieInsightSummary({
         return `ROSIE: Analyze ${title}`;
     }
   }, [surface, title]);
+
+  if (!hasFacts) return null;
+
+  const visibleBullets = response?.status === "available" ? response.bullets.slice(0, 3) : [];
+  const visibleActions =
+    response?.status === "available" ? (response.suggested_actions ?? []).slice(0, 3) : [];
+  const unavailable = response?.status === "unavailable";
 
   return (
     <div
