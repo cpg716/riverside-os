@@ -529,6 +529,28 @@ fn default_receiptline_template() -> &'static str {
     "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}\n{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
+fn default_receiptline_pickup_template() -> &'static str {
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+}
+
+fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
+    if d.payments.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec!["| ^Payment History |".to_string(), "---".to_string()];
+    for pay in &d.payments {
+        let date_str = pay.date.format("%m/%d/%Y").to_string();
+        lines.push(format!(
+            "{} {} | {}",
+            date_str,
+            receiptline_escape(&pay.method),
+            money(pay.amount)
+        ));
+    }
+    lines.join("\n")
+}
+
+
 pub fn build_receiptline_markdown(
     d: &ReceiptOrder,
     cfg: &ReceiptConfig,
@@ -536,13 +558,23 @@ pub fn build_receiptline_markdown(
     loyalty: &LoyaltyReceiptData,
 ) -> String {
     let gift = truthy_param(params, "gift");
-    let template = match cfg.receiptline_template.as_deref().map(str::trim) {
-        Some(value) if !value.is_empty() => value,
-        _ => default_receiptline_template(),
+    let is_pickup = params.contains_key("pickup") || truthy_param(params, "pickup");
+    let template = if is_pickup {
+        match cfg.receiptline_pickup_template.as_deref().map(str::trim) {
+            Some(value) if !value.is_empty() => value,
+            _ => default_receiptline_pickup_template(),
+        }
+    } else {
+        match cfg.receiptline_template.as_deref().map(str::trim) {
+            Some(value) if !value.is_empty() => value,
+            _ => default_receiptline_template(),
+        }
     };
     let template = receipt_template_with_slots(template, cfg.show_logo, cfg.show_barcode);
     let title = if gift {
         "| ^^^GIFT RECEIPT |"
+    } else if is_pickup {
+        "| ^^^PICKED UP RECEIPT |"
     } else {
         "| ^^^RECEIPT |"
     };
@@ -657,6 +689,12 @@ pub fn build_receiptline_markdown(
         String::new()
     };
 
+    let payment_history_block = if gift {
+        String::new()
+    } else {
+        receiptline_payment_history_block(d)
+    };
+
     template
         .replace("{{LOGO_IMAGE}}", &logo_image)
         .replace("{{STORE_NAME}}", &store_name)
@@ -669,6 +707,7 @@ pub fn build_receiptline_markdown(
         .replace("{{SALESPERSON_LINE}}", &salesperson_line)
         .replace("{{ITEM_LINES}}", &item_lines)
         .replace("{{PAYMENT_BLOCK}}", payment_block_value)
+        .replace("{{PAYMENT_HISTORY_BLOCK}}", &payment_history_block)
         .replace("{{SUBTOTAL_LINE}}", &subtotal_line)
         .replace("{{TAX_LINE}}", &tax_line)
         .replace("{{TOTAL_SAVINGS_LINE}}", &total_savings_line)

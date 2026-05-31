@@ -287,6 +287,13 @@ pub struct TransactionLineLifecycleEvent {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct TransactionDetailedPayment {
+    pub date: DateTime<Utc>,
+    pub method: String,
+    pub amount: Decimal,
+}
+
 #[derive(Debug, Serialize)]
 pub struct TransactionDetailResponse {
     pub transaction_id: Uuid,
@@ -355,6 +362,8 @@ pub struct TransactionDetailResponse {
     pub customer_review_requests_opt_out: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub void_record: Option<TransactionVoidDetail>,
+    #[serde(default)]
+    pub payments: Vec<TransactionDetailedPayment>,
 }
 
 #[derive(Debug, Serialize)]
@@ -537,6 +546,15 @@ impl TransactionDetailResponse {
                 })
                 .collect(),
             fulfillment_method: self.fulfillment_method,
+            payments: self
+                .payments
+                .iter()
+                .map(|p| receipt_shared::ReceiptPayment {
+                    date: p.date,
+                    method: p.method.clone(),
+                    amount: p.amount,
+                })
+                .collect(),
         })
     }
 }
@@ -598,6 +616,7 @@ mod tests {
             review_invite_suppressed_at: None,
             customer_review_requests_opt_out: false,
             void_record: None,
+            payments: Vec::new(),
         }
     }
 
@@ -1832,10 +1851,7 @@ async fn mark_transaction_pickup(
             .map(|line| {
                 format!(
                     "{} ({}): need {}, have {}",
-                    line.product_name,
-                    line.sku,
-                    line.quantity,
-                    line.stock_on_hand
+                    line.product_name, line.sku, line.quantity, line.stock_on_hand
                 )
             })
             .collect::<Vec<_>>()
@@ -4392,6 +4408,32 @@ pub(crate) async fn load_transaction_detail(
     .fetch_all(pool)
     .await?;
 
+    let payments_db = sqlx::query_as::<_, (DateTime<Utc>, String, Decimal)>(
+        r#"
+        SELECT DISTINCT
+            pt.created_at,
+            pt.payment_method,
+            COALESCE(pa.amount_allocated, pt.amount)::numeric(14,2) AS amount
+        FROM payment_allocations pa
+        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+        WHERE pa.target_transaction_id = $1
+           OR pt.metadata->>'checkout_transaction_id' = $1::text
+        ORDER BY pt.created_at ASC
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_all(pool)
+    .await?;
+
+    let payments = payments_db
+        .into_iter()
+        .map(|(date, method, amount)| TransactionDetailedPayment {
+            date,
+            method,
+            amount,
+        })
+        .collect::<Vec<_>>();
+
     let mut summary_parts: Vec<String> = Vec::new();
     for row in payment_rows {
         let part = pos_rms_charge::payment_method_summary(
@@ -4658,6 +4700,7 @@ pub(crate) async fn load_transaction_detail(
         review_invite_suppressed_at: h.review_invite_suppressed_at,
         customer_review_requests_opt_out: h.customer_review_requests_opt_out,
         void_record,
+        payments,
     })
 }
 
@@ -5714,8 +5757,6 @@ async fn patch_transaction_attribution(
         if prior_sp == line.salesperson_id {
             continue;
         }
-
-
 
         line_attribution_changes += 1;
 

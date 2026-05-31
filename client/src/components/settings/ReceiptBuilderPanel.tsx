@@ -29,6 +29,7 @@ export interface ReceiptConfig {
   receipt_studio_exported_html?: string | null;
   receipt_thermal_mode?: string;
   receiptline_template?: string | null;
+  receiptline_pickup_template?: string | null;
 }
 
 const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
@@ -53,6 +54,30 @@ const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
 {{TENDER_LINE}}
 {{STATUS_LINE}}
 {{TAX_EXEMPT_LINE}}
+---
+{{BARCODE_IMAGE}}
+{{FOOTER_LINES}}
+{{CUT}}`;
+
+const DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE = `{{LOGO_IMAGE}}
+{{HEADER_LINES}}
+{{RECEIPT_TITLE}}
+{{RECEIPT_ID}}
+{{RECEIPT_DATE}}
+{{CUSTOMER_LINE}}
+{{SALESPERSON_LINE}}
+{{CASHIER_LINE}}
+---
+{{ITEM_LINES}}
+---
+{{PAYMENT_HISTORY_BLOCK}}
+{{SUBTOTAL_LINE}}
+{{TAX_LINE}}
+{{TOTAL_SAVINGS_LINE}}
+{{TOTAL_LINE}}
+{{PAID_LINE}}
+{{BALANCE_LINE}}
+{{STATUS_LINE}}
 ---
 {{BARCODE_IMAGE}}
 {{FOOTER_LINES}}
@@ -144,6 +169,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   const [busy, setBusy] = useState(false);
   const [testPrinting, setTestPrinting] = useState(false);
   const [receiptLogoBase64, setReceiptLogoBase64] = useState("");
+  const [activeTab, setActiveTab] = useState<"standard" | "pickup">("standard");
 
   const load = useCallback(async () => {
     setSettingsReady(false);
@@ -215,11 +241,17 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   }
 
   const showLogo = cfg.show_logo !== false;
-  const effectiveTemplate = receiptTemplateWithSlots(
-    cfg.receiptline_template?.trim() || DEFAULT_RECEIPTLINE_TEMPLATE,
-    showLogo,
-    cfg.show_barcode === true,
-  );
+  const effectiveTemplate = activeTab === "standard"
+    ? receiptTemplateWithSlots(
+        cfg.receiptline_template?.trim() || DEFAULT_RECEIPTLINE_TEMPLATE,
+        showLogo,
+        cfg.show_barcode === true,
+      )
+    : receiptTemplateWithSlots(
+        cfg.receiptline_pickup_template?.trim() || DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE,
+        showLogo,
+        cfg.show_barcode === true,
+      );
   const headerLineValues = [
     cfg.show_address ? cfg.store_address?.trim() || "2760 Delaware Ave, Buffalo, NY" : "",
     cfg.show_phone ? cfg.store_phone?.trim() || "(716) 876-2424" : "",
@@ -234,7 +266,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       )
       .replaceAll("{{STORE_NAME}}", `| ^^${escapeReceiptlineText(cfg.store_name)} |`)
       .replaceAll("{{HEADER_LINES}}", centeredLines(headerLineValues))
-      .replaceAll("{{RECEIPT_TITLE}}", "| ^^^RECEIPT |")
+      .replaceAll("{{RECEIPT_TITLE}}", activeTab === "standard" ? "| ^^^RECEIPT |" : "| ^^^PICKED UP RECEIPT |")
       .replaceAll("{{RECEIPT_ID}}", "| Receipt TXN-66736 |")
       .replaceAll("{{RECEIPT_DATE}}", "| 04/26/2026 02:14 AM |")
       .replaceAll("{{CUSTOMER_LINE}}", "Customer: Chris Garcia")
@@ -242,36 +274,53 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replaceAll("{{CASHIER_LINE}}", "Cashier: Alex B.")
       .replaceAll(
         "{{ITEM_LINES}}",
-        [
-          "^^^Taken Today",
-          "1x 100% Lambswool Sweater",
-          "SKU I-1003713601 | $83.80",
-          "Reg $104.75 Sale $83.80 (20% Discount)",
-          "",
-          "^^^PICKED UP",
-          "1x Tuxedo Shirt",
-          "SKU I-40092182 | $65.00",
-          "",
-          "^^^SHIPPED",
-          "1x Silk Tie",
-          "SKU I-50012345 | $45.00",
-          "",
-          "^^^Special Order",
-          "NOTICE: Size 42R requested",
-          "1x Custom Navy Blazer",
-          "SKU I-2004829302 | $295.00",
-        ]
-          .filter(Boolean)
-          .join("\n"),
+        activeTab === "standard"
+          ? [
+              "^^^Taken Today",
+              "1x 100% Lambswool Sweater",
+              "SKU I-1003713601 | $83.80",
+              "Reg $104.75 Sale $83.80 (20% Discount)",
+              "",
+              "^^^PICKED UP",
+              "1x Tuxedo Shirt",
+              "SKU I-40092182 | $65.00",
+              "",
+              "^^^SHIPPED",
+              "1x Silk Tie",
+              "SKU I-50012345 | $45.00",
+              "",
+              "^^^Special Order",
+              "NOTICE: Size 42R requested",
+              "1x Custom Navy Blazer",
+              "SKU I-2004829302 | $295.00",
+            ]
+              .filter(Boolean)
+              .join("\n")
+          : [
+              "1x Tuxedo Jacket (PICKED UP)",
+              "SKU I-40092180 | $350.00",
+              "",
+              "1x Tuxedo Pants (PICKED UP)",
+              "SKU I-40092181 | $150.00",
+            ].join("\n")
       )
       .replaceAll("{{LOYALTY_EARNED}}", cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
       .replaceAll("{{LOYALTY_BALANCE}}", cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "")
       .replaceAll("{{PAYMENT_BLOCK}}", "")
-      .replaceAll("{{SUBTOTAL_LINE}}", "Subtotal | $83.80")
-      .replaceAll("{{TAX_LINE}}", "Taxes | $7.12")
+      .replaceAll(
+        "{{PAYMENT_HISTORY_BLOCK}}",
+        [
+          "| ^Payment History |",
+          "---",
+          "04/10/2026 Cash | $250.00",
+          "04/26/2026 Card | $250.00",
+        ].join("\n")
+      )
+      .replaceAll("{{SUBTOTAL_LINE}}", activeTab === "standard" ? "Subtotal | $83.80" : "Subtotal | $500.00")
+      .replaceAll("{{TAX_LINE}}", activeTab === "standard" ? "Taxes | $7.12" : "Taxes | $42.50")
       .replaceAll("{{TOTAL_SAVINGS_LINE}}", "Total Savings | $20.95")
-      .replaceAll("{{TOTAL_LINE}}", "Total | ^^$90.92")
-      .replaceAll("{{PAID_LINE}}", "Paid | $90.92")
+      .replaceAll("{{TOTAL_LINE}}", activeTab === "standard" ? "Total | ^^$90.92" : "Total | ^^$542.50")
+      .replaceAll("{{PAID_LINE}}", activeTab === "standard" ? "Paid | $90.92" : "Paid | $542.50")
       .replaceAll("{{BALANCE_LINE}}", "")
       .replaceAll("{{TENDER_LINE}}", "Tender | Cash")
       .replaceAll("{{STATUS_LINE}}", "Status | Paid")
@@ -518,9 +567,34 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                 ))}
               </div>
 
+              <div className="flex border-b border-app-border mb-4">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("standard")}
+                  className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${
+                    activeTab === "standard"
+                      ? "border-app-accent text-app-accent font-black"
+                      : "border-transparent text-app-text-muted hover:text-app-text font-bold"
+                  }`}
+                >
+                  Standard Template
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("pickup")}
+                  className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${
+                    activeTab === "pickup"
+                      ? "border-app-accent text-app-accent font-black"
+                      : "border-transparent text-app-text-muted hover:text-app-text font-bold"
+                  }`}
+                >
+                  Picked Up Template
+                </button>
+              </div>
+
               <label className="block">
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                  ReceiptLine Template
+                  {activeTab === "standard" ? "Standard Receipt Template" : "Picked Up Receipt Template"}
                 </span>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {[
@@ -530,43 +604,53 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     ["Totals", "{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}"],
                     ["Barcode", "{{BARCODE_IMAGE}}"],
                     ["Cut", "{{CUT}}"],
-                  ].map(([label, token]) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => {
-                        const tokens = token.split("\n");
-                        let newTemplate = effectiveTemplate.trimEnd();
-                        tokens.forEach(t => {
-                          if (!newTemplate.includes(t)) {
-                            newTemplate += `\n${t}`;
-                          }
-                        });
-                        setCfg({
-                          ...cfg,
-                          receiptline_template: newTemplate,
-                        });
-                      }}
-                      className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:border-app-accent"
-                    >
-                      Add {label}
-                    </button>
-                  ))}
+                    activeTab === "pickup" ? ["Payment History", "{{PAYMENT_HISTORY_BLOCK}}"] : null,
+                  ]
+                    .filter((item): item is [string, string] => item !== null)
+                    .map(([label, token]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => {
+                          const tokens = token.split("\n");
+                          let newTemplate = effectiveTemplate.trimEnd();
+                          tokens.forEach(t => {
+                            if (!newTemplate.includes(t)) {
+                              newTemplate += `\n${t}`;
+                            }
+                          });
+                          setCfg({
+                            ...cfg,
+                            [activeTab === "standard" ? "receiptline_template" : "receiptline_pickup_template"]: newTemplate,
+                          });
+                        }}
+                        className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:border-app-accent"
+                      >
+                        Add {label}
+                      </button>
+                    ))}
                   <button
                     type="button"
                     onClick={() =>
-                      setCfg({ ...cfg, receiptline_template: DEFAULT_RECEIPTLINE_TEMPLATE })
+                      setCfg({
+                        ...cfg,
+                        [activeTab === "standard" ? "receiptline_template" : "receiptline_pickup_template"]:
+                          activeTab === "standard" ? DEFAULT_RECEIPTLINE_TEMPLATE : DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE,
+                      })
                     }
                     className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-amber-700 transition-colors hover:bg-amber-500/15"
                   >
                     <RotateCcw className="h-3 w-3" />
-                    Reset Standard
+                    Reset {activeTab === "standard" ? "Standard" : "Picked Up"}
                   </button>
                 </div>
                 <textarea
                   value={effectiveTemplate}
                   onChange={(e) =>
-                    setCfg({ ...cfg, receiptline_template: e.target.value })
+                    setCfg({
+                      ...cfg,
+                      [activeTab === "standard" ? "receiptline_template" : "receiptline_pickup_template"]: e.target.value,
+                    })
                   }
                   rows={15}
                   spellCheck={false}

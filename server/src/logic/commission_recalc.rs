@@ -1,10 +1,10 @@
+use crate::logic::pricing::round_money_usd;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
+use serde_json::json;
 use sqlx::postgres::PgConnection;
 use sqlx::FromRow;
 use uuid::Uuid;
-use serde_json::json;
-use crate::logic::pricing::round_money_usd;
 
 use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 use crate::logic::sales_commission;
@@ -179,7 +179,7 @@ pub async fn recalc_transaction_line_commission(
 
     // Check if a commission event exists for this line
     let event_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM commission_events WHERE transaction_line_id = $1)"
+        "SELECT EXISTS(SELECT 1 FROM commission_events WHERE transaction_line_id = $1)",
     )
     .bind(transaction_line_id)
     .fetch_one(&mut *conn)
@@ -188,25 +188,43 @@ pub async fn recalc_transaction_line_commission(
     if event_exists {
         if let Some(sid) = salesperson_id {
             // Fetch staff name
-            let staff_name: String = sqlx::query_scalar("SELECT full_name FROM staff WHERE id = $1")
-                .bind(sid)
-                .fetch_optional(&mut *conn)
-                .await?
-                .flatten()
-                .unwrap_or_else(|| "Unassigned".to_string());
+            let staff_name: String =
+                sqlx::query_scalar("SELECT full_name FROM staff WHERE id = $1")
+                    .bind(sid)
+                    .fetch_optional(&mut *conn)
+                    .await?
+                    .flatten()
+                    .unwrap_or_else(|| "Unassigned".to_string());
 
             // Fetch product name
-            let product_name: String = sqlx::query_scalar("SELECT name FROM products WHERE id = $1")
-                .bind(row.product_id)
-                .fetch_optional(&mut *conn)
-                .await?
-                .flatten()
-                .unwrap_or_else(|| "Transaction line".to_string());
+            let product_name: String =
+                sqlx::query_scalar("SELECT name FROM products WHERE id = $1")
+                    .bind(row.product_id)
+                    .fetch_optional(&mut *conn)
+                    .await?
+                    .flatten()
+                    .unwrap_or_else(|| "Transaction line".to_string());
 
-            let event_type = if row.is_internal { "combo_incentive" } else { "sale_commission" };
-            let commissionable_amount = if row.is_internal { Decimal::ZERO } else { row.unit_price * Decimal::from(row.quantity) };
-            let base_commission_amount = if row.is_internal { Decimal::ZERO } else { round_money_usd(commissionable_amount * breakdown.base_rate) };
-            let incentive_amount = if row.is_internal { breakdown.total_commission } else { breakdown.total_commission - base_commission_amount };
+            let event_type = if row.is_internal {
+                "combo_incentive"
+            } else {
+                "sale_commission"
+            };
+            let commissionable_amount = if row.is_internal {
+                Decimal::ZERO
+            } else {
+                row.unit_price * Decimal::from(row.quantity)
+            };
+            let base_commission_amount = if row.is_internal {
+                Decimal::ZERO
+            } else {
+                round_money_usd(commissionable_amount * breakdown.base_rate)
+            };
+            let incentive_amount = if row.is_internal {
+                breakdown.total_commission
+            } else {
+                breakdown.total_commission - base_commission_amount
+            };
 
             let snapshot_json = json!({
                 "transaction_short_id": row.transaction_short_id,
@@ -229,7 +247,7 @@ pub async fn recalc_transaction_line_commission(
                     total_commission_amount = $8,
                     snapshot_json = $9
                 WHERE transaction_line_id = $1
-                "#
+                "#,
             )
             .bind(transaction_line_id)
             .bind(sid)

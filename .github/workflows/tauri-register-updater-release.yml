@@ -1,4 +1,4 @@
-name: Tauri register updater release (Windows)
+name: Tauri Desktop App updater release (Windows)
 
 concurrency:
   group: tauri-register-updater-release

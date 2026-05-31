@@ -193,6 +193,8 @@ export interface PosOrderOptions {
   need_by_date?: string | null;
   fulfillment_mode?: string | null;
   ship_to?: PosShipToForm | null;
+  overrideReadiness?: boolean;
+  overrideReason?: string;
 }
 
 export type NexoTenderTab =

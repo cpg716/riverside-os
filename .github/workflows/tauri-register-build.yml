@@ -1,6 +1,6 @@
-# Manual Windows installer build for the Tauri register desktop.
+# Manual Windows installer build for the Tauri desktop application.
 # Code signing: add your certificate step before `tauri build` if SmartScreen requires it.
-name: Tauri register (Windows)
+name: Tauri Desktop App (Windows)
 
 on:
   workflow_dispatch:

@@ -156,10 +156,13 @@ export default function ReceiptSummaryModal({
       if (extra?.transactionLineIds?.length) {
         sp.set("transaction_line_ids", extra.transactionLineIds.join(","));
       }
+      if (transactionDetail?.status === "fulfilled" || (orderPaymentLines && orderPaymentLines.length > 0)) {
+        sp.set("pickup", "true");
+      }
       const s = sp.toString();
       return s ? `?${s}` : "";
     },
-    [registerSessionId],
+    [registerSessionId, transactionDetail?.status, orderPaymentLines],
   );
 
   const shouldKickCashDrawer = useCallback(() => {

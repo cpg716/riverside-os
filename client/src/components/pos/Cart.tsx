@@ -517,6 +517,8 @@ export default function Cart({
     setOrderPaymentLines([]);
     setEditingOrderPaymentLine(null);
     setEditingOrderPaymentAmount("");
+    setManagerOverrideApproved(false);
+    setManagerOverrideReason("");
   }, [clearCart, resetSaleDateTime]);
 
   const selectedCustomerId = selectedCustomer?.id ?? null;
@@ -1470,6 +1472,9 @@ export default function Cart({
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showVoidAllConfirm, setShowVoidAllConfirm] = useState(false);
+  const [showReadinessOverrideModal, setShowReadinessOverrideModal] = useState(false);
+  const [managerOverrideApproved, setManagerOverrideApproved] = useState(false);
+  const [managerOverrideReason, setManagerOverrideReason] = useState("");
   const [discountPrompt, setDiscountPrompt] = useState<{
     variantId: string;
     nextPriceCents: number;
@@ -1622,6 +1627,8 @@ export default function Cart({
       if (forPickup) {
         // Pickup mode: load unfulfilled items into cart
         setPickupTransactionId(detail.transaction_id);
+        setManagerOverrideApproved(false);
+        setManagerOverrideReason("");
         const balanceDueCents = parseMoneyToCents(detail.balance_due ?? "0");
 
         if (detail.primary_salesperson_id) {
@@ -1702,6 +1709,39 @@ export default function Cart({
     },
     [apiAuth, baseUrl, setSelectedCustomer, toast, setLines, setOrderPaymentLines, setPrimarySalespersonId],
   );
+
+  const handleManagerApproveReadiness = useCallback(async (pin: string) => {
+    try {
+      const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({
+          pin,
+          role: "Admin",
+          authorize_action: "pos_pickup_readiness_override",
+          authorize_metadata: {
+            transaction_id: pickupTransactionId,
+            item_count: lines.filter(l => l.transaction_line_id && l.order_lifecycle_status !== "ready_for_pickup").length,
+          }
+        }),
+      });
+      if (res.ok) {
+        setManagerOverrideApproved(true);
+        setManagerOverrideReason("Register pickup override: manager approved release for unready items.");
+        setShowReadinessOverrideModal(false);
+        // Open checkout drawer
+        setCheckoutDrawerOpen(true);
+        toast("Manager override approved", "success");
+        return true;
+      } else {
+        toast("Manager approval failed. Check the Access PIN and try again.", "error");
+        return false;
+      }
+    } catch {
+      toast("Manager approval is unavailable. Try again or call a manager.", "error");
+      return false;
+    }
+  }, [baseUrl, apiAuth, pickupTransactionId, lines, toast]);
 
   useEffect(() => {
     if (!initialTransactionId) {
@@ -2904,6 +2944,16 @@ export default function Cart({
                  return;
                }
 
+               if (pickupTransactionId) {
+                  const unreadyPickupLines = lines.filter(
+                    (l) => l.transaction_line_id && l.order_lifecycle_status !== "ready_for_pickup"
+                  );
+                  if (unreadyPickupLines.length > 0 && !managerOverrideApproved) {
+                    setShowReadinessOverrideModal(true);
+                    return;
+                  }
+                }
+
                if (lines.length > 0 && hasSpecialOrWeddingLines && !orderReviewOpen) {
                  setOrderReviewOpen(true);
                  return;
@@ -2932,12 +2982,18 @@ export default function Cart({
            >
              <div className="flex flex-col items-start pl-3 sm:pl-5">
                 <span className="text-[9px] font-black uppercase tracking-[0.28em] opacity-70">
-                  {selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name} — Pay` : "Walk-in — Pay"}
+                  {pickupTransactionId && totals.totalCents === 0
+                    ? (selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name} — Pickup` : "Pickup")
+                    : (selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name} — Pay` : "Walk-in — Pay")}
                 </span>
-                <span className="text-2xl font-black tabular-nums tracking-tighter italic sm:text-3xl">${centsToFixed2(totals.totalCents)}</span>
+                <span className="text-2xl font-black tabular-nums tracking-tighter italic sm:text-3xl">
+                  {pickupTransactionId && totals.totalCents === 0 ? "Complete Pickup" : `$${centsToFixed2(totals.totalCents)}`}
+                </span>
              </div>
              <div className="mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 transition-transform group-hover:scale-105 sm:mr-4 sm:h-11 sm:w-11">
-                <span className="text-lg font-black uppercase italic">Pay</span>
+                <span className="text-lg font-black uppercase italic">
+                  {pickupTransactionId && totals.totalCents === 0 ? "Pick" : "Pay"}
+                </span>
              </div>
            </button>
         </div>
@@ -3287,7 +3343,11 @@ export default function Cart({
             return;
           }
           setLastReceiptOrderPaymentLines(orderPaymentLines);
-          await executeCheckout(applied, op, ledger, checkoutOrderOptions || undefined);
+          await executeCheckout(applied, op, ledger, {
+            ...(checkoutOrderOptions || {}),
+            overrideReadiness: managerOverrideApproved,
+            overrideReason: managerOverrideReason || undefined,
+          });
         }}
         allowStoreCredit={!!selectedCustomer}
         appliedPayments={checkoutAppliedPayments}
@@ -3801,6 +3861,14 @@ export default function Cart({
             return false;
           }
         }}
+      />
+
+       <ManagerApprovalModal
+        isOpen={showReadinessOverrideModal}
+        onClose={() => setShowReadinessOverrideModal(false)}
+        title="Authorize Pickup Readiness Override"
+        message="This pickup contains items not marked Ready for Pickup. A manager PIN is required to override readiness check."
+        onApprove={handleManagerApproveReadiness}
       />
 
       <PosExchangeWizard

@@ -90,6 +90,13 @@ After pickup, `recalc_transaction_totals()` recomputes:
 
 **Server**: `server/src/logic/transaction_recalc.rs`
 
+## Pickup Readiness & Manager Override
+
+To prevent prematurely releasing unfulfilled or unready stock:
+- **Rule**: Items must be marked `Ready for Pickup` (or alterations complete) to allow pickup fulfillment.
+- **Tender Enforcement**: During register pickup checkout, if any items in the cart are not yet marked ready for pickup, the checkout is blocked.
+- **Override**: A manager PIN must be entered via the `ManagerApprovalModal` to bypass the readiness check. When authorized, the checkout payload sends `overrideReadiness: true` and the metadata log records the event.
+
 ---
 
 ## Inventory Impact

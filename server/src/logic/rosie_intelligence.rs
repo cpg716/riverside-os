@@ -64,15 +64,30 @@ pub fn record_token_telemetry(
 /// Extract token usage from a JSON response value and record telemetry in the background (fire-and-forget).
 pub fn record_telemetry_from_value(pool: PgPool, provider: &str, body: &serde_json::Value) {
     if let Some(usage) = body.get("usage") {
-        let input_tokens = usage.get("prompt_tokens").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
-        let output_tokens = usage.get("completion_tokens").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
-        let model_name = body.get("model").and_then(|m| m.as_str()).unwrap_or("unknown").to_string();
+        let input_tokens = usage
+            .get("prompt_tokens")
+            .and_then(|t| t.as_i64())
+            .unwrap_or(0) as i32;
+        let output_tokens = usage
+            .get("completion_tokens")
+            .and_then(|t| t.as_i64())
+            .unwrap_or(0) as i32;
+        let model_name = body
+            .get("model")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown")
+            .to_string();
         if input_tokens > 0 || output_tokens > 0 {
-            record_token_telemetry(pool, provider.to_string(), model_name, input_tokens, output_tokens);
+            record_token_telemetry(
+                pool,
+                provider.to_string(),
+                model_name,
+                input_tokens,
+                output_tokens,
+            );
         }
     }
 }
-
 
 /// Query token telemetry summary for cost analysis
 ///
@@ -95,9 +110,7 @@ pub async fn get_token_metrics(pool: &PgPool) -> Result<RosieTokenMetrics, sqlx:
             (SELECT total FROM monthly) AS monthly_tokens
     "#;
 
-    let row = sqlx::query(query)
-        .fetch_one(pool)
-        .await?;
+    let row = sqlx::query(query).fetch_one(pool).await?;
 
     let daily_tokens: i64 = row.get("daily_tokens");
     let monthly_tokens: i64 = row.get("monthly_tokens");

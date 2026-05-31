@@ -1358,7 +1358,7 @@ export default function SettingsWorkspace({
                     </div>
                   </header>
 
-                  <CounterpointSyncSettingsPanel variant="workspace" />
+                  <CounterpointSyncSettingsPanel />
                 </div>
               )}
 

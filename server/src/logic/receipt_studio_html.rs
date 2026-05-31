@@ -367,5 +367,6 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
         fulfillment_method: DbOrderFulfillmentMethod::Pickup,
         cashier_name: Some("Taylor M.".to_string()),
         salesperson_display_name: Some("Alex B.".to_string()),
+        payments: Vec::new(),
     }
 }

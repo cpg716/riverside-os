@@ -252,6 +252,9 @@ pub struct ReceiptConfig {
     /// template from the structured receipt settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub receiptline_template: Option<String>,
+    /// ReceiptLine markdown template for Epson picked-up/completed receipts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receiptline_pickup_template: Option<String>,
 }
 
 fn default_store_name() -> String {
@@ -307,6 +310,7 @@ impl Default for ReceiptConfig {
             receipt_studio_exported_html: None,
             receipt_thermal_mode: default_receipt_thermal_mode(),
             receiptline_template: None,
+            receiptline_pickup_template: None,
         }
     }
 }

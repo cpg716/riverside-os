@@ -47,6 +47,13 @@ pub struct ReceiptPaymentApplication {
 }
 
 #[derive(Debug, Clone)]
+pub struct ReceiptPayment {
+    pub date: DateTime<Utc>,
+    pub method: String,
+    pub amount: Decimal,
+}
+
+#[derive(Debug, Clone)]
 pub struct ReceiptOrder {
     pub transaction_id: Uuid,
     pub transaction_display_id: String,
@@ -69,6 +76,7 @@ pub struct ReceiptOrder {
     pub cashier_name: Option<String>,
     /// Primary salesperson display name, masked as First + Last Initial.
     pub salesperson_display_name: Option<String>,
+    pub payments: Vec<ReceiptPayment>,
 }
 
 pub fn receipt_display_ref(order: &ReceiptOrder) -> String {

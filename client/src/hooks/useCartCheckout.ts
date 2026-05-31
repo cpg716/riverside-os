@@ -459,20 +459,25 @@ export function useCartCheckout({
 
       // Call pickup API after successful checkout when in pickup mode
       if (pickupTransactionId) {
+        const deliveredItemIds = checkoutLines
+          .filter((l) => l.transaction_line_id)
+          .map((l) => l.transaction_line_id);
         try {
           const pickupRes = await fetch(`${baseUrl}/api/transactions/${pickupTransactionId}/pickup`, {
             method: "POST",
             headers: { ...apiAuth(), "Content-Type": "application/json" },
             body: JSON.stringify({
-              delivered_item_ids: lines
-                .filter((l) => l.transaction_line_id)
-                .map((l) => l.transaction_line_id),
+              delivered_item_ids: deliveredItemIds,
               actor: "Register Pickup Flow",
-              override_readiness: false,
+              override_readiness: options?.overrideReadiness ?? false,
+              override_reason: options?.overrideReadiness
+                ? (options?.overrideReason ?? "Register pickup override: manager approved release for unready items.")
+                : undefined,
             }),
           });
           if (pickupRes.ok) {
             toast("Pickup completed successfully.", "success");
+            setLastTransactionId(pickupTransactionId);
           } else {
             const body = await pickupRes.json().catch(() => ({})) as { error?: string };
             toast(body.error ?? "Pickup could not be completed after checkout.", "error");
