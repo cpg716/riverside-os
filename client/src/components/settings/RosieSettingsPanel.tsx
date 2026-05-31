@@ -937,7 +937,7 @@ function RosieTokenMonitor({ backofficeHeaders }: RosieTokenMonitorProps) {
         setMetrics({
           daily: data.daily_tokens || 0,
           monthly: data.monthly_tokens || 0,
-          cost: data.estimated_monthly_cost || 0,
+          cost: Number(data.estimated_monthly_cost) || 0,
         });
       } catch (error) {
         console.error("Failed to fetch ROSIE token metrics:", error);
@@ -968,7 +968,7 @@ function RosieTokenMonitor({ backofficeHeaders }: RosieTokenMonitorProps) {
           </div>
           <div className="space-y-1">
             <p className="text-sm text-app-text-muted">Estimated Monthly Cost</p>
-            <p className="text-2xl font-mono text-green-600">${metrics.cost.toFixed(2)}</p>
+            <p className="text-2xl font-mono text-green-600">${Number(metrics.cost).toFixed(2)}</p>
           </div>
         </div>
       )}
