@@ -175,18 +175,18 @@ if ($SkipVoiceTools) {
   # sherpa-onnx is a Python library — create a venv with uv, then pip install.
   $sherpaInstalled = $false
   $sherpaVenv    = Join-Path $rosieRoot "sherpa-venv"
-  $sherpaVenvPip = Join-Path $sherpaVenv "Scripts\pip.exe"
 
   if ($uvCmd -and (Test-Path $uvCmd)) {
     Write-Host "      uv: $uvCmd"
-    Write-Host "      Creating sherpa-onnx venv..."
-    & $uvCmd venv $sherpaVenv 2>&1 | ForEach-Object { Write-Host "      $_" }
-    if (Test-Path $sherpaVenvPip) {
-      Write-Host "      Installing sherpa-onnx..."
-      & $sherpaVenvPip install --upgrade sherpa-onnx 2>&1 | ForEach-Object { Write-Host "      $_" }
+    Write-Host "      Creating sherpa-onnx venv (Python 3.12)..."
+    & $uvCmd venv --python 3.12 $sherpaVenv 2>&1 | ForEach-Object { Write-Host "      $_" }
+    $venvPython = Join-Path $sherpaVenv "Scripts\python.exe"
+    if (Test-Path $venvPython) {
+      Write-Host "      Installing sherpa-onnx (binary-only wheel via uv)..."
+      & $uvCmd pip install --python $venvPython sherpa-onnx --only-binary=:all: 2>&1 | ForEach-Object { Write-Host "      $_" }
       if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
     } else {
-      Write-Warning "      uv venv did not produce a pip — cannot install sherpa-onnx."
+      Write-Warning "      uv venv did not produce a python.exe — cannot install sherpa-onnx."
     }
   } else {
     Write-Warning "      uv not available — cannot install sherpa-onnx."
