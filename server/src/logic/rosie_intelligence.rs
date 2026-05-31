@@ -226,6 +226,32 @@ pub struct RosieIntelligenceIssue {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RosieCapabilityCategory {
+    Knowledge,
+    DataRetrieval,
+    Workflow,
+    Analysis,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RosieCapability {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub category: RosieCapabilityCategory,
+    pub requires_permission: Option<String>,
+    pub examples: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RosieSelfReflection {
+    pub available_tools: Vec<RosieCapability>,
+    pub knowledge_sources: Vec<String>,
+    pub current_context: Option<String>,
+    pub limitations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RosieIntelligencePack {
     pub policy_pack_version: String,
     pub intelligence_pack_version: String,
@@ -388,6 +414,160 @@ fn latest_generated_artifact_time(root: &Path) -> Option<DateTime<Utc>> {
 
 fn system_time_to_utc(value: SystemTime) -> DateTime<Utc> {
     DateTime::<Utc>::from(value)
+}
+
+/// Get all ROSIE capabilities for self-awareness
+pub fn get_all_capabilities() -> Vec<RosieCapability> {
+    vec![
+        RosieCapability {
+            id: "help_search".to_string(),
+            name: "Help Manual Search".to_string(),
+            description: "Search in-app help manuals for workflow guidance and procedures".to_string(),
+            category: RosieCapabilityCategory::Knowledge,
+            requires_permission: None,
+            examples: vec![
+                "How do I process a refund?".to_string(),
+                "Where is the register close workflow?".to_string(),
+                "How do I add a customer to an order?".to_string(),
+            ],
+        },
+        RosieCapability {
+            id: "customer_search".to_string(),
+            name: "Customer Lookup".to_string(),
+            description: "Search and retrieve customer information from the CRM".to_string(),
+            category: RosieCapabilityCategory::DataRetrieval,
+            requires_permission: Some("customers.view".to_string()),
+            examples: vec![
+                "Find customer John Smith".to_string(),
+                "Show customer order history".to_string(),
+                "What is this customer's balance?".to_string(),
+            ],
+        },
+        RosieCapability {
+            id: "order_search".to_string(),
+            name: "Order Lookup".to_string(),
+            description: "Search and retrieve order information including special orders, custom orders, and wedding orders".to_string(),
+            category: RosieCapabilityCategory::DataRetrieval,
+            requires_permission: Some("orders.view".to_string()),
+            examples: vec![
+                "Find order #12345".to_string(),
+                "Show open special orders".to_string(),
+                "What is the status of this wedding order?".to_string(),
+            ],
+        },
+        RosieCapability {
+            id: "inventory_search".to_string(),
+            name: "Inventory Lookup".to_string(),
+            description: "Search catalog inventory and check stock levels".to_string(),
+            category: RosieCapabilityCategory::DataRetrieval,
+            requires_permission: Some("inventory.view".to_string()),
+            examples: vec![
+                "Find a black tuxedo size 42R".to_string(),
+                "Check stock for SKU ABC123".to_string(),
+                "Show all available vests".to_string(),
+            ],
+        },
+        RosieCapability {
+            id: "reporting_query".to_string(),
+            name: "Curated Reports".to_string(),
+            description: "Run approved reporting queries for sales, inventory, and financial data".to_string(),
+            category: RosieCapabilityCategory::Analysis,
+            requires_permission: Some("reports.view".to_string()),
+            examples: vec![
+                "Show today's sales".to_string(),
+                "What is our current inventory value?".to_string(),
+                "Generate a margin report".to_string(),
+            ],
+        },
+        RosieCapability {
+            id: "workflow_guidance".to_string(),
+            name: "Workflow Guidance".to_string(),
+            description: "Provide step-by-step guidance for Riverside OS workflows based on help manuals".to_string(),
+            category: RosieCapabilityCategory::Workflow,
+            requires_permission: None,
+            examples: vec![
+                "Walk me through the checkout process".to_string(),
+                "How do I handle a return?".to_string(),
+                "Steps for receiving inventory".to_string(),
+            ],
+        },
+        RosieCapability {
+            id: "alteration_lookup".to_string(),
+            name: "Alteration Lookup".to_string(),
+            description: "Search and retrieve alteration work information".to_string(),
+            category: RosieCapabilityCategory::DataRetrieval,
+            requires_permission: Some("alterations.view".to_string()),
+            examples: vec![
+                "Find alteration #789".to_string(),
+                "Show pending alterations".to_string(),
+                "What is the status of this alteration?".to_string(),
+            ],
+        },
+        RosieCapability {
+            id: "wedding_lookup".to_string(),
+            name: "Wedding Lookup".to_string(),
+            description: "Search and retrieve wedding party information".to_string(),
+            category: RosieCapabilityCategory::DataRetrieval,
+            requires_permission: Some("weddings.view".to_string()),
+            examples: vec![
+                "Find wedding for John Smith".to_string(),
+                "Show wedding party members".to_string(),
+                "What is the wedding status?".to_string(),
+            ],
+        },
+        RosieCapability {
+            id: "e2e_manual_generation".to_string(),
+            name: "E2E Manual Generation".to_string(),
+            description: "Generate help center manuals with screenshots using the isolated E2E test environment".to_string(),
+            category: RosieCapabilityCategory::Workflow,
+            requires_permission: Some("help.manage".to_string()),
+            examples: vec![
+                "Generate a manual for the checkout workflow".to_string(),
+                "Create documentation for customer orders with screenshots".to_string(),
+                "Produce help manual for inventory receiving".to_string(),
+            ],
+        },
+        RosieCapability {
+            id: "e2e_workflow_testing".to_string(),
+            name: "E2E Workflow Testing".to_string(),
+            description: "Test workflows for bugs and errors using the isolated E2E test environment without affecting production data".to_string(),
+            category: RosieCapabilityCategory::Workflow,
+            requires_permission: Some("help.manage".to_string()),
+            examples: vec![
+                "Test the checkout workflow for bugs".to_string(),
+                "Verify the refund process works correctly".to_string(),
+                "Run bug test on inventory receiving workflow".to_string(),
+            ],
+        },
+    ]
+}
+
+/// Get ROSIE self-reflection including capabilities, knowledge sources, and limitations
+pub fn get_rosie_self_reflection(context: Option<String>) -> RosieSelfReflection {
+    let pack = load_rosie_intelligence_pack(&repo_root());
+    let knowledge_sources = pack
+        .approved_source_groups
+        .iter()
+        .map(|group| format!("{}: {}", group.label, group.description))
+        .collect();
+
+    RosieSelfReflection {
+        available_tools: get_all_capabilities(),
+        knowledge_sources,
+        current_context: context,
+        limitations: vec![
+            "Cannot modify production data or business logic".to_string(),
+            "Cannot execute SQL queries directly".to_string(),
+            "Cannot bypass permissions or access controls".to_string(),
+            "Cannot write to database tables".to_string(),
+            "Cannot learn from raw production data or PII".to_string(),
+            "Cannot autonomously mutate application code".to_string(),
+            "Cannot perform financial transactions".to_string(),
+            "Cannot access customer payment information".to_string(),
+            "E2E workflows run on isolated test environment only".to_string(),
+            "E2E operations require help.manage permission".to_string(),
+        ],
+    }
 }
 
 #[cfg(test)]

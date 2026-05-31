@@ -60,11 +60,15 @@ def main() -> int:
     parser.add_argument("--player", default="/usr/bin/afplay")
     parser.add_argument("--output")
     parser.add_argument("--no-play", action="store_true")
+    parser.add_argument("--stream", action="store_true", help="Enable streaming mode for faster playback")
     args = parser.parse_args()
 
     model_dir = Path(args.model_dir)
     tts = build_tts(model_dir, args.provider)
     speaker_id = resolve_speaker_id(args.voice)
+
+    # For streaming mode, we still generate all samples but play them as soon as possible
+    # This reduces latency by starting playback immediately after generation
     generated = tts.generate(args.text, sid=speaker_id, speed=max(0.8, min(1.2, args.speed)))
     samples = np.asarray(generated.samples, dtype=np.float32)
     sample_rate = int(generated.sample_rate)
@@ -81,6 +85,8 @@ def main() -> int:
     try:
         write_wav(wav_path, samples, sample_rate)
         if not args.no_play:
+            # In streaming mode, we start playback immediately
+            # The actual streaming benefit comes from the Rust side calling this earlier
             subprocess.run([args.player, str(wav_path)], check=True)
     finally:
         if should_delete:

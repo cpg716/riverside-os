@@ -19,6 +19,7 @@ use serde_json::Value;
 use tokio::process::Command;
 use uuid::Uuid;
 
+use crate::api::e2e_gateway;
 use crate::api::insights::{self, RosieReportingRunRequest};
 use crate::api::{customers, inventory, products, transactions, weddings, AppState};
 use crate::auth::permissions::{effective_permissions_for_staff, ALL_PERMISSION_KEYS, HELP_MANAGE};
@@ -1824,6 +1825,25 @@ async fn rosie_intelligence_refresh(
     }))
 }
 
+async fn rosie_capabilities(
+    State(_state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<crate::logic::rosie_intelligence::RosieSelfReflection>, Response> {
+    // Allow any authenticated staff to query capabilities (no special permission needed)
+    let _staff = middleware::require_staff_with_permission(&_state, &headers, HELP_MANAGE)
+        .await
+        .map_err(|e| e.into_response())?;
+
+    let context = headers
+        .get("x-rosie-context")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    Ok(Json(crate::logic::rosie_intelligence::get_rosie_self_reflection(
+        context,
+    )))
+}
+
 async fn run_command_capture(mut cmd: Command) -> Result<AdminOpsRunOut, Response> {
     let out = cmd.output().await.map_err(|e| {
         (
@@ -1948,12 +1968,28 @@ pub fn router() -> Router<AppState> {
             post(rosie_intelligence_refresh),
         )
         .route(
+            "/rosie/v1/capabilities",
+            get(rosie_capabilities),
+        )
+        .route(
             "/rosie/v1/product-catalog-analyze",
             post(rosie_product_catalog_analysis),
         )
         .route(
             "/rosie/v1/product-catalog-suggest",
             post(rosie_product_catalog_suggestion),
+        )
+        .route(
+            "/rosie/v1/e2e/workflow/run",
+            post(e2e_gateway::rosie_e2e_run_workflow),
+        )
+        .route(
+            "/rosie/v1/e2e/manual/generate",
+            post(e2e_gateway::rosie_e2e_generate_manual),
+        )
+        .route(
+            "/rosie/v1/e2e/workflow/test",
+            post(e2e_gateway::rosie_e2e_test_workflow),
         )
         .route("/admin/manuals", get(admin_list_manuals))
         .route(

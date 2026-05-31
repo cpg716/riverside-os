@@ -17,6 +17,7 @@ pub mod customer_notifications;
 pub mod customers;
 pub mod daily_reports;
 pub mod discount_events;
+pub mod e2e_gateway;
 pub mod gift_cards;
 pub mod hardware;
 pub mod health;

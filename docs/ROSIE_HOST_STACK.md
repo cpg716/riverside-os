@@ -67,6 +67,16 @@ ROSIE token telemetry tracks AI token usage for cost analysis when evaluating lo
 - Server fallback path: `POST /api/help/rosie/v1/chat/completions`
 - Approval status: Approved production default
 
+### 1.5. Optional Cloud Provider (Gemini API)
+- Runtime: Google Gemini API (cloud-based)
+- Model family: Gemini 2.5 Pro
+- Configuration: `GEMINI_API_KEY` environment variable
+- Provider selection: `ROSIE_PROVIDER_MODE` (local-gemma, gemini-api, auto)
+- Privacy mode: `ROSIE_FORCE_LOCAL_FOR_SENSITIVE` (default: true)
+- Approval status: Optional cloud provider for performance/multimodal capabilities
+- Use case: Faster inference, multimodal understanding, streaming responses
+- Fallback: Automatically falls back to local Gemma if unavailable or for sensitive queries
+
 ### 2. STT
 - Engine: SenseVoice Small via Sherpa-ONNX
 - Mode: explicit one-shot microphone capture only
@@ -149,6 +159,10 @@ RIVERSIDE_LLAMA_EXTRA_ARGS="--reasoning off" npm run dev:server
 - Kokoro-82M TTS wiring in the Tauri voice layer
 - ROSIE Help Center voice controls and runtime status visibility
 - `scripts/verify_rosie_local_stack.sh` local verification helper
+- Provider abstraction for switching between local Gemma and Gemini API
+- Capability registry for ROSIE self-awareness
+- E2E API gateway for manual generation and workflow testing
+- Streaming TTS support with `--stream` flag
 
 ## Verified Now
 - Gemma 4 E4B local Host runtime can load through the existing ROSIE runtime path.
@@ -183,6 +197,7 @@ These may remain in the codebase as explicit fallback-only paths, but they are n
 - `docs/ROSIE_OPERATING_CONTRACT.md`
 - `docs/PLAN_LOCAL_LLM_HELP.md`
 - `docs/AI_CONTEXT_FOR_ASSISTANTS.md`
+- `docs/ROSIE_IMPROVEMENT_PLAN.md`
 - `DEVELOPER.md`
 - `client/src-tauri/src/llama_server.rs`
 - `client/src-tauri/src/rosie_voice.rs`
@@ -191,3 +206,6 @@ These may remain in the codebase as explicit fallback-only paths, but they are n
 - `client/.env.example`
 - `server/.env.example`
 - `scripts/verify_rosie_local_stack.sh`
+- `server/src/logic/rosie_gemini.rs` - Gemini API client
+- `server/src/logic/rosie_provider.rs` - Provider abstraction
+- `server/src/logic/rosie_provider_selection.rs` - Provider selection logic

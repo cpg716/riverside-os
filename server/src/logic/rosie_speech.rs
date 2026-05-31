@@ -620,6 +620,7 @@ pub async fn start_tts(
                     provider.as_str(),
                     "--text",
                     text,
+                    "--stream",
                 ])
                 .spawn()
                 .map_err(|error| format!("failed to start ROSIE Kokoro TTS: {error}"))?
@@ -678,6 +679,7 @@ pub async fn synthesize_tts_wav_base64(
                 .to_str()
                 .ok_or_else(|| "invalid ROSIE TTS output path".to_string())?,
             "--no-play",
+            "--stream",
         ])
         .output()
         .await

@@ -37,6 +37,25 @@ It never becomes a system of record and never mutates business logic autonomousl
 - Playbooks are guidance and citation material only; they do not authorize, mutate, close, refund, post, sync, or book anything.
 - Suggested actions may open a guided follow-up or point staff to the correct workflow surface, but final action remains in the normal Riverside OS screen.
 
+## E2E Environment Operations
+- ROSIE may execute workflows on the isolated E2E test environment for manual generation and bug testing.
+- E2E operations require `help.manage` permission and explicit user confirmation.
+- E2E environment uses a deterministic database (seed_e2e.sql) separate from production.
+- E2E operations are read-only by default and use synthetic/test data only.
+- No mutations to production data are permitted through E2E operations.
+- All E2E operations are audit logged and require `HELP_MANAGE` permission.
+- E2E capabilities include:
+  - Manual generation with screenshots via Playwright
+  - Workflow testing for bug detection
+  - Isolated from production database and data
+
+## Capability Self-Awareness
+- ROSIE maintains a capability registry describing available tools and limitations.
+- ROSIE can describe her capabilities via `GET /api/help/rosie/v1/capabilities`.
+- ROSIE understands her knowledge sources (help manuals, staff docs, policy contracts, Store SOP).
+- ROSIE knows her limitations (cannot modify data, execute SQL, bypass permissions, access PII).
+- When ROSIE doesn't know an answer, she searches help manuals first, then states inability clearly.
+
 ## Mutation Rules
 - all writes must:
   - use existing API routes
