@@ -12474,6 +12474,7 @@ mod tests {
 
     #[tokio::test]
     async fn counterpoint_ticket_gift_application_preserves_snapshot_balance() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
         let suffix = Uuid::new_v4().simple().to_string();
         let gift_code = format!("CPGC-{suffix}");

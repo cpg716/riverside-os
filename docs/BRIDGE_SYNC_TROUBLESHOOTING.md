@@ -63,4 +63,21 @@ Ensure these values in `counterpoint-bridge/.env` are intact:
 - **Resolution**: On the Backoffice / Server PC, run `Set-CounterpointBridgeToken.cmd` from the Windows deployment package and paste the exact `COUNTERPOINT_SYNC_TOKEN` from `C:\counterpoint-bridge\.env`. Then close and restart the bridge.
 
 ---
-*Version: v0.70.0 - May 2026*
+
+## 5. Schema Alignment & Testing Tools
+
+If you encounter `Invalid Column` or `Table Not Found` errors when querying Counterpoint:
+
+### Interactive Auto-Config
+Run the following command on the Counterpoint host to automatically detect the schema and rewrite the `.env` settings with optimal fallback columns (such as `DOC_NO` and `DOC_DT`):
+```cmd
+node index.mjs auto-config
+```
+
+### Diagnostic Query Tester API
+Use the built-in query tester to verify SQL extracts without starting a sync.
+- **Test configured entity**: Send a GET request to `http://localhost:3002/api/test-query?query=open_docs` (replace `open_docs` with `customers`, `catalog`, etc.). It will return a 10-row JSON preview of the extraction results.
+- **Test arbitrary SQL**: Send a POST request to `http://localhost:3002/api/test-query` with `{ "sql": "SELECT TOP 5 * FROM PS_DOC_HDR" }` to execute custom probes.
+
+---
+*Version: v0.85.0 - May 2026*

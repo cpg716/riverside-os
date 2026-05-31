@@ -204,6 +204,14 @@ foreach ($doc in @(
 
 if (Test-Path $RegisterBundlePath) {
   Copy-Item "$RegisterBundlePath\*" "$packageRoot\register" -Recurse -Force
+  
+  # Copy bridge installer files to its own clean directory
+  New-Item -ItemType Directory -Force -Path "$packageRoot\counterpoint-sync-bridge" | Out-Null
+  Get-ChildItem "$packageRoot\register" -Recurse -Filter "*counterpoint-bridge-gui*" | ForEach-Object {
+    Copy-Item $_.FullName "$packageRoot\counterpoint-sync-bridge\" -Force
+    Remove-Item $_.FullName -Force
+  }
+
   # Remove deployment manager installer from register directory to save space and prevent confusion
   Get-ChildItem "$packageRoot\register" -Recurse -Filter "*deployment*" -ErrorAction SilentlyContinue | Remove-Item -Force
   Get-ChildItem "$packageRoot\register" -Recurse -Filter "*manager*" -ErrorAction SilentlyContinue | Remove-Item -Force

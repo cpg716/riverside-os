@@ -4,5 +4,6 @@ members = [
     "server",
     "client/src-tauri",
     "deployment/manager-app/src-tauri",
+    "deployment/counterpoint-bridge-gui/src-tauri",
     "ros-dev/src-tauri"
 ]

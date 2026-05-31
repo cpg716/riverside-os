@@ -70,17 +70,36 @@ Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can
 
 5. Run **`START_BRIDGE.cmd`** or `node index.mjs`.
 
-6. **`node index.mjs discover`** (or **`DISCOVER_SCHEMA.cmd`**) — read-only schema probe; no ROS token strictly required for discover-only; use to align `CP_*_QUERY` with your CP/Counterpoint build.
+6. Run **`node index.mjs auto-config`** to interactively probe the SQL database schemas and automatically update your local `.env` with optimized queries and column fallbacks.
+
+7. **`node index.mjs discover`** (or **`DISCOVER_SCHEMA.cmd`**) — read-only schema probe; no ROS token strictly required for discover-only; use to align `CP_*_QUERY` with your CP/Counterpoint build.
+
+8. Run the bridge with **`node index.mjs --dry-run`** to test extraction and print payload summaries safely without modifying the Riverside OS database.
 
 ---
 
-## 4. Operation Modes (v0.7.3+)
+## 3.5. Riverside Countersync GUI Application (Windows Desktop)
+
+For a premium, operator-friendly experience, Riverside OS includes a native Windows desktop GUI application called **Riverside Countersync** (located under `deployment/counterpoint-bridge-gui`). It wraps the background Node sync engine and presents connection and configuration management entirely inside a visual interface.
+
+### Features
+1. **Connection Manager**: Monitor the connection state of the background sync engine, toggle **Dry Run** mode with a single switch, and start or stop the engine dynamically.
+2. **Interactive Sync Dashboard**: View the status of all 15 sync schemas (Staff, Customers, Catalog, etc.), showing duration and records processed. You can trigger targeted single-schema extraction runs with a single click.
+3. **Connection Config & Credentials**: Review, edit, and save your database connection strings, ROS Base URLs, and Security Tokens safely inside the GUI. It persists configuration directly to the bridge `.env` file.
+4. **Auto-Config Schema Probe**: Scan database schemas directly from the GUI to verify column compatibility (e.g. `DOC_NO` alias mappings).
+5. **SQL Query Tester & Previewer**: Safely preview the SQL data to be extracted. Write custom raw SQL probes or test predefined entities, rendering up to a 10-row interactive preview table before importing.
+6. **Process Console**: Direct real-time stdout and stderr output stream from the background process, highlighting success states and precise database connection error logs to accelerate troubleshooting.
+
+---
+
+## 4. Operation Modes (v0.85.0+)
 
 | Mode | Trigger | Behavior |
 |------|---------|----------|
 | **Manual / IDLE** (Default) | Dashboard / Sync Request | Bridge sits idle. Only executes syncs when a staff member clicks "Run" in ROS or the Dashboard. |
 | **Continuous** | Dashboard Toggle | Syncs all enabled entities every 15 minutes (configurable via `POLL_INTERVAL_MS`). |
 | **Run Once** | `RUN_ONCE=1` / `import` | Executes a single pass for that bridge launch, then stops. This is the recommended mode for validation and final cutover runs. |
+| **Dry Run** | `--dry-run` CLI flag | Queries Counterpoint and prints extraction results/previews without sending them to Riverside OS. |
 
 ### The "Sync-on-Demand" Posture
 By default, the bridge starts in **IDLE** mode. This prevents background noise and overlapping syncs during targeted data cleanup. To start a sync while in IDLE:

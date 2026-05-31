@@ -322,8 +322,53 @@ jobs:
           name: server-manager-binary
           path: target/release/ros-server-manager.exe
 
+  build-counterpoint-bridge-gui:
+    needs: validate-scripts
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: deployment/counterpoint-bridge-gui/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+          components: clippy, rustfmt
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "windows-release"
+
+      - name: Cache bridge-gui node_modules
+        id: cache-bridge-gui-node-modules
+        uses: actions/cache@v5
+        with:
+          path: deployment/counterpoint-bridge-gui/node_modules
+          key: windows-bridge-gui-npm-${{ hashFiles('deployment/counterpoint-bridge-gui/package-lock.json') }}
+          restore-keys: windows-bridge-gui-npm-
+
+      - name: Install bridge-gui dependencies
+        if: steps.cache-bridge-gui-node-modules.outputs.cache-hit != 'true'
+        working-directory: deployment/counterpoint-bridge-gui
+        run: npm ci
+
+      - name: Build Counterpoint Bridge GUI binary
+        shell: pwsh
+        run: |
+          cd deployment/counterpoint-bridge-gui
+          npx tauri build
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: counterpoint-bridge-gui-bundle
+          path: target/release/bundle/
+
   assemble-package:
-    needs: [build-register-updater, build-server-binary, build-deployment-manager, build-server-manager]
+    needs: [build-register-updater, build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -369,6 +414,12 @@ jobs:
         with:
           name: server-manager-binary
           path: target/release
+
+      - name: Download bridge GUI bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: counterpoint-bridge-gui-bundle
+          path: target/release/bundle
 
       - name: Ensure CRLF in deployment scripts
         shell: pwsh
@@ -436,4 +487,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw "Failed to upload updater assets to release $tag"
             }
+          }
+          $bridgeGuiFiles = Get-ChildItem -Path "target/release/bundle" -Include "*.msi","*.exe" -Recurse -ErrorAction SilentlyContinue
+          if ($bridgeGuiFiles) {
+            gh release upload $tag $bridgeGuiFiles.FullName --clobber
           }

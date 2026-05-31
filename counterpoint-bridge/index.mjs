@@ -190,6 +190,71 @@ const startLocalServer = () => {
                 runOnce: process.env.RUN_ONCE === "1",
                 migrationPreflight: getMigrationSnapshot(),
             }));
+        } else if (req.url.startsWith('/api/test-query')) {
+            const url = new URL(req.url, `http://${req.headers.host}`);
+            const entity = url.searchParams.get('query');
+
+            const executeQuery = async (sqlText) => {
+                if (!ACTIVE_POOL) {
+                    throw new Error("SQL pool not initialized or connected.");
+                }
+                const request = ACTIVE_POOL.request();
+                let testSql = sqlText.trim();
+                if (/^\s*SELECT\b/i.test(testSql) && !/^\s*SELECT\s+TOP\b/i.test(testSql)) {
+                    testSql = testSql.replace(/^\s*SELECT\b/i, "SELECT TOP 10");
+                }
+                const result = await request.query(testSql);
+                return (result.recordset || []).slice(0, 10);
+            };
+
+            if (entity) {
+                let querySql = effectiveSql[entity];
+                if (!querySql) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: `Unknown query entity: ${entity}. Available options: ${Object.keys(effectiveSql).join(', ')}` }));
+                    return;
+                }
+                const since = (process.env.CP_IMPORT_SINCE ?? "2018-01-01").trim();
+                querySql = querySql.replace(/__CP_IMPORT_SINCE__/g, since);
+
+                executeQuery(querySql)
+                    .then(rows => {
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ success: true, entity, rows }));
+                    })
+                    .catch(err => {
+                        res.writeHead(500, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ success: false, error: err.message, query: querySql }));
+                    });
+            } else if (req.method === 'POST') {
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', () => {
+                    try {
+                        const data = JSON.parse(body);
+                        if (!data.sql) {
+                            res.writeHead(400, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ error: "Missing 'sql' body parameter" }));
+                            return;
+                        }
+                        executeQuery(data.sql)
+                            .then(rows => {
+                                res.writeHead(200, { 'Content-Type': 'application/json' });
+                                res.end(JSON.stringify({ success: true, rows }));
+                            })
+                            .catch(err => {
+                                res.writeHead(500, { 'Content-Type': 'application/json' });
+                                res.end(JSON.stringify({ success: false, error: err.message }));
+                            });
+                    } catch (e) {
+                        res.writeHead(400, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: e.message }));
+                    }
+                });
+            } else {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: "Specify ?query=entity_name or POST { \"sql\": \"...\" }" }));
+            }
         } else if (req.url === '/api/settings') {
             let body = '';
             req.on('data', chunk => { body += chunk; });
@@ -492,6 +557,8 @@ const PREFLIGHT_MODE = process.argv[2] === "preflight";
 const ALIASES_MODE = process.argv[2] === "aliases";
 const NORMALIZATION_MODE = process.argv[2] === "normalization";
 const LIGHTSPEED_REFERENCE_MODE = process.argv[2] === "lightspeed-reference";
+const AUTOCONFIG_MODE = process.argv[2] === "auto-config";
+const DRY_RUN_MODE = process.argv.includes("--dry-run");
 
 const ROS_BASE_URL = (process.env.ROS_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const SYNC_TOKEN = process.env.COUNTERPOINT_SYNC_TOKEN ?? "";
@@ -1026,6 +1093,69 @@ async function rebuildEffectiveSql(pool) {
       fixBits.push("PS_TKT_HIST_*_CELL: replaced DIM_3_VAL → NULL");
     }
 
+    // Gift cards: REAS_COD or REASON_COD injection if missing
+    const syGfc = columnSet(schemaEntries, "SY_GFC");
+    if (syGfc && effectiveSql.gift_cards && !effectiveSql.gift_cards.includes("reason_cod")) {
+      if (syGfc.has("REAS_COD")) {
+        effectiveSql.gift_cards = String(effectiveSql.gift_cards).replace(
+          /\bFROM\s+SY_GFC\b/gi,
+          ", RTRIM(LTRIM(REAS_COD)) AS reason_cod FROM SY_GFC"
+        );
+        fixBits.push("SY_GFC: injected REAS_COD AS reason_cod");
+      } else if (syGfc.has("REASON_COD")) {
+        effectiveSql.gift_cards = String(effectiveSql.gift_cards).replace(
+          /\bFROM\s+SY_GFC\b/gi,
+          ", RTRIM(LTRIM(REASON_COD)) AS reason_cod FROM SY_GFC"
+        );
+        fixBits.push("SY_GFC: injected REASON_COD AS reason_cod");
+      }
+    }
+
+    // Open documents: DOC_ID vs DOC_NO and TKT_DT vs DOC_DT fallbacks
+    const psDocHdr = columnSet(schemaEntries, "PS_DOC_HDR");
+    if (psDocHdr) {
+      if (!psDocHdr.has("DOC_ID") && psDocHdr.has("DOC_NO")) {
+        if (effectiveSql.open_docs) {
+          effectiveSql.open_docs = String(effectiveSql.open_docs)
+            .replace(/\bDOC_ID\b/g, "DOC_NO")
+            .replace(/h\.\[DOC_ID\]/gi, "h.[DOC_NO]")
+            .replace(/h\.DOC_ID/gi, "h.DOC_NO");
+        }
+        if (effectiveSql.open_doc_lines) {
+          effectiveSql.open_doc_lines = String(effectiveSql.open_doc_lines)
+            .replace(/\bDOC_ID\b/g, "DOC_NO");
+        }
+        if (effectiveSql.open_doc_pmt) {
+          effectiveSql.open_doc_pmt = String(effectiveSql.open_doc_pmt)
+            .replace(/\bDOC_ID\b/g, "DOC_NO");
+        }
+        fixBits.push("PS_DOC_HDR: DOC_ID → DOC_NO");
+      }
+      if (!psDocHdr.has("TKT_DT") && psDocHdr.has("DOC_DT")) {
+        if (effectiveSql.open_docs) {
+          effectiveSql.open_docs = String(effectiveSql.open_docs)
+            .replace(/\bTKT_DT\b/g, "DOC_DT")
+            .replace(/h\.\[TKT_DT\]/gi, "h.[DOC_DT]")
+            .replace(/h\.TKT_DT/gi, "h.DOC_DT");
+        }
+        fixBits.push("PS_DOC_HDR: TKT_DT → DOC_DT");
+      }
+
+      // Bypass PS_DOC_HDR_TOT join if it doesn't exist
+      const psDocHdrTot = columnSet(schemaEntries, "PS_DOC_HDR_TOT");
+      if (!psDocHdrTot && effectiveSql.open_docs?.includes("PS_DOC_HDR_TOT")) {
+        effectiveSql.open_docs = String(effectiveSql.open_docs)
+          .replace(/t\.\[TOT\]/gi, "h.[TOT]")
+          .replace(/t\.\[TOT_TND\]/gi, "h.[TOT_TND]")
+          .replace(/t\.TOT_TND/gi, "h.TOT_TND")
+          .replace(/t\.TOT/gi, "h.TOT")
+          .replace(/INNER\s+JOIN\s+PS_DOC_HDR_TOT\s+t\s+ON\s+h\.\[DOC_ID\]\s*=\s*t\.\[DOC_ID\]/gi, "")
+          .replace(/INNER\s+JOIN\s+PS_DOC_HDR_TOT\s+t\s+ON\s+h\.DOC_ID\s*=\s*t\.DOC_ID/gi, "")
+          .replace(/INNER\s+JOIN\s+PS_DOC_HDR_TOT\s+t\s+ON\s+h\.DOC_NO\s*=\s*t\.DOC_NO/gi, "");
+        fixBits.push("PS_DOC_HDR: bypassed PS_DOC_HDR_TOT join");
+      }
+    }
+
     if (fixBits.length > 0) {
       console.info("[auto-schema] column fixups:", fixBits.join("; "));
     }
@@ -1345,6 +1475,26 @@ async function rosPost(entityKey, body) {
   const pathSeg = ENTITY_HTTP_PATH[entityKey];
   if (!pathSeg) {
     throw new Error(`rosPost: unknown entity ${entityKey}`);
+  }
+  if (DRY_RUN_MODE) {
+    let count = 0;
+    let preview = "";
+    if (Array.isArray(body)) {
+      count = body.length;
+      if (count > 0) {
+        preview = JSON.stringify(body[0]);
+      }
+    } else if (body && Array.isArray(body.rows)) {
+      count = body.rows.length;
+      if (count > 0) {
+        preview = JSON.stringify(body.rows[0]);
+      }
+    } else if (body) {
+      count = 1;
+      preview = JSON.stringify(body);
+    }
+    console.info(`[dry-run] Would post entity "${entityKey}" with ${count} records. Preview: ${preview.slice(0, 150)}...`);
+    return { success: true, count, dryRun: true };
   }
   const hdr = bridgeIngestHeaders();
   const directUrl = `/api/sync/counterpoint/${pathSeg}`;
@@ -4093,15 +4243,135 @@ async function runDiscover(pool) {
   }
 }
 
-async function waitForDiscoverClose() {
-  if (!process.stdin.isTTY) return;
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question("\n=== Schema probe finished. Press Enter to close ===\n", () => {
-      rl.close();
-      resolve();
-    });
-  });
+function updateEnvKey(content, key, value) {
+  const regex = new RegExp(`^\\s*#?\\s*${key}\\s*=.*$`, "m");
+  const newLine = `${key}=${value}`;
+  if (regex.test(content)) {
+    return content.replace(regex, newLine);
+  } else {
+    return content + `\n${newLine}`;
+  }
+}
+
+async function runAutoConfig(pool) {
+  console.info("Probing Counterpoint SQL Server database schemas...");
+  const entries = await loadSchemaEntries(pool);
+
+  const psDocHdr = columnSet(entries, "PS_DOC_HDR");
+  const psDocHdrTot = columnSet(entries, "PS_DOC_HDR_TOT");
+  const syGfc = columnSet(entries, "SY_GFC");
+  const arCust = columnSet(entries, "AR_CUST");
+  const imInv = columnSet(entries, "IM_INV");
+
+  const envPath = path.resolve(__dirname, ".env");
+  if (!fs.existsSync(envPath)) {
+    const examplePath = fs.existsSync(path.resolve(__dirname, ".env.example"))
+      ? path.resolve(__dirname, ".env.example")
+      : path.resolve(__dirname, "env.example");
+    if (fs.existsSync(examplePath)) {
+      fs.copyFileSync(examplePath, envPath);
+      console.info("Created .env from template.");
+    } else {
+      fs.writeFileSync(envPath, "");
+      console.info("Created empty .env file.");
+    }
+  }
+
+  let envContent = fs.readFileSync(envPath, "utf8");
+  const changes = [];
+
+  // 1. Open documents DOC_ID vs DOC_NO
+  let docIdCol = "DOC_ID";
+  if (psDocHdr && !psDocHdr.has("DOC_ID") && psDocHdr.has("DOC_NO")) {
+    docIdCol = "DOC_NO";
+    changes.push("PS_DOC_HDR: DOC_ID -> DOC_NO");
+  }
+  let tktDtCol = "TKT_DT";
+  if (psDocHdr && !psDocHdr.has("TKT_DT") && psDocHdr.has("DOC_DT")) {
+    tktDtCol = "DOC_DT";
+    changes.push("PS_DOC_HDR: TKT_DT -> DOC_DT");
+  }
+  let hasTotTable = !!psDocHdrTot;
+  if (!hasTotTable) {
+    changes.push("PS_DOC_HDR: bypassed PS_DOC_HDR_TOT join (table missing)");
+  }
+
+  let openDocsQuery = "";
+  if (hasTotTable) {
+    openDocsQuery = `CP_OPEN_DOCS_QUERY=SELECT RTRIM(LTRIM(CAST(h.[${docIdCol}] AS NVARCHAR(64)))) AS doc_ref, RTRIM(LTRIM(CAST(h.[CUST_NO] AS NVARCHAR(64)))) AS cust_no, CONVERT(varchar, h.[${tktDtCol}], 126) + 'Z' AS booked_at, RTRIM(LTRIM(CAST(h.[USR_ID] AS NVARCHAR(64)))) AS usr_id, RTRIM(LTRIM(CAST(h.[SLS_REP] AS NVARCHAR(64)))) AS sls_rep, RTRIM(LTRIM(h.[DOC_TYP])) AS doc_typ, t.[TOT] AS total_price, t.[TOT_TND] AS amount_paid FROM PS_DOC_HDR h INNER JOIN PS_DOC_HDR_TOT t ON h.[${docIdCol}] = t.[${docIdCol}] WHERE h.[${tktDtCol}] >= '__CP_IMPORT_SINCE__'`;
+  } else {
+    openDocsQuery = `CP_OPEN_DOCS_QUERY=SELECT RTRIM(LTRIM(CAST(h.[${docIdCol}] AS NVARCHAR(64)))) AS doc_ref, RTRIM(LTRIM(CAST(h.[CUST_NO] AS NVARCHAR(64)))) AS cust_no, CONVERT(varchar, h.[${tktDtCol}], 126) + 'Z' AS booked_at, RTRIM(LTRIM(CAST(h.[USR_ID] AS NVARCHAR(64)))) AS usr_id, RTRIM(LTRIM(CAST(h.[SLS_REP] AS NVARCHAR(64)))) AS sls_rep, RTRIM(LTRIM(h.[DOC_TYP])) AS doc_typ, h.[TOT] AS total_price, h.[TOT_TND] AS amount_paid FROM PS_DOC_HDR h WHERE h.[${tktDtCol}] >= '__CP_IMPORT_SINCE__'`;
+  }
+  let openDocLinesQuery = `CP_OPEN_DOC_LINES_QUERY=SELECT RTRIM(LTRIM(CAST(l.${docIdCol} AS NVARCHAR(64)))) AS doc_id, RTRIM(LTRIM(ISNULL(l.BARCOD, l.ITEM_NO))) AS sku, l.QTY_SOLD AS quantity, l.PRC AS unit_price, l.UNIT_COST AS unit_cost, l.LIN_SEQ_NO AS lin_seq_no FROM PS_DOC_LIN l`;
+  let openDocPmtQuery = `CP_OPEN_DOC_PMT_QUERY=SELECT RTRIM(LTRIM(CAST(p.${docIdCol} AS NVARCHAR(64)))) AS doc_id, RTRIM(LTRIM(p.PAY_COD)) AS pmt_typ, p.AMT AS amount FROM PS_DOC_PMT p`;
+
+  envContent = updateEnvKey(envContent, "CP_OPEN_DOCS_QUERY", openDocsQuery.replace("CP_OPEN_DOCS_QUERY=", ""));
+  envContent = updateEnvKey(envContent, "CP_OPEN_DOC_LINES_QUERY", openDocLinesQuery.replace("CP_OPEN_DOC_LINES_QUERY=", ""));
+  envContent = updateEnvKey(envContent, "CP_OPEN_DOC_PMT_QUERY", openDocPmtQuery.replace("CP_OPEN_DOC_PMT_QUERY=", ""));
+
+  // 2. Gift cards
+  let reasonCol = null;
+  if (syGfc) {
+    if (syGfc.has("REAS_COD")) {
+      reasonCol = "REAS_COD";
+      changes.push("SY_GFC: reason_cod -> REAS_COD");
+    } else if (syGfc.has("REASON_COD")) {
+      reasonCol = "REASON_COD";
+      changes.push("SY_GFC: reason_cod -> REASON_COD");
+    }
+  }
+  let giftCardsQuery = "";
+  if (reasonCol) {
+    giftCardsQuery = `SELECT RTRIM(LTRIM(GFC_NO)) AS gift_cert_no, CAST(ISNULL(CURR_AMT, 0) AS DECIMAL(18,2)) AS balance, RTRIM(LTRIM(${reasonCol})) AS reason_cod FROM SY_GFC WHERE ISNULL(CURR_AMT, 0) > 0`;
+  } else {
+    giftCardsQuery = `SELECT RTRIM(LTRIM(GFC_NO)) AS gift_cert_no, CAST(ISNULL(CURR_AMT, 0) AS DECIMAL(18,2)) AS balance FROM SY_GFC WHERE ISNULL(CURR_AMT, 0) > 0`;
+  }
+  envContent = updateEnvKey(envContent, "CP_GIFT_CARDS_QUERY", giftCardsQuery);
+
+  // 3. Cost column
+  let costCol = "LST_COST";
+  if (imInv) {
+    for (const c of ["LST_COST", "AVG_COST", "LAST_COST"]) {
+      if (imInv.has(c)) {
+        costCol = c;
+        break;
+      }
+    }
+  }
+  if (costCol !== "LST_COST") {
+    changes.push(`IM_INV: cost_price -> ${costCol}`);
+  }
+  let catalogQuery = `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS item_no, RTRIM(LTRIM(i.ITEM_NO)) AS product_identity, RTRIM(LTRIM(ISNULL(b.BARCOD, i.ITEM_NO))) AS sku, RTRIM(LTRIM(i.DESCR)) AS descr, RTRIM(LTRIM(i.CATEG_COD)) AS category_name, CAST(ISNULL(i.${costCol}, 0) AS DECIMAL(18,2)) AS cost_price, RTRIM(LTRIM(i.ITEM_VEND_NO)) AS vendor_code, CAST(ISNULL(i.PRC_1, 0) AS DECIMAL(18,2)) AS retail_price, (CASE WHEN ISNULL(i.DIM_COUNT, 0) > 0 THEN 1 ELSE 0 END) AS is_grid FROM IM_ITEM i LEFT JOIN IM_BARCOD b ON i.ITEM_NO = b.ITEM_NO AND b.BARCOD_ID = 'ITEM'`;
+  envContent = updateEnvKey(envContent, "CP_CATALOG_QUERY", catalogQuery);
+
+  // 4. Points column
+  let ptsCol = "LOY_PTS_BAL";
+  if (arCust) {
+    for (const c of ["LOY_PTS_BAL", "PTS_BAL", "LOY_PTS"]) {
+      if (arCust.has(c)) {
+        ptsCol = c;
+        break;
+      }
+    }
+  }
+  if (ptsCol !== "LOY_PTS_BAL") {
+    changes.push(`AR_CUST: pts_bal -> ${ptsCol}`);
+  }
+  let customersQuery = `SELECT RTRIM(LTRIM(c.CUST_NO)) AS customer_code, RTRIM(LTRIM(c.FST_NAM)) AS first_name, RTRIM(LTRIM(c.LST_NAM)) AS last_name, RTRIM(LTRIM(c.NAM)) AS company_name, c.${ptsCol} AS pts_bal, RTRIM(LTRIM(c.EMAIL_ADRS_1)) AS email, RTRIM(LTRIM(c.PHONE_1)) AS phone, RTRIM(LTRIM(c.ADRS_1)) AS address_1, RTRIM(LTRIM(c.CITY)) AS city, RTRIM(LTRIM(c.STATE)) AS state, RTRIM(LTRIM(c.ZIP_COD)) AS zip FROM AR_CUST c ORDER BY c.CUST_NO`;
+  envContent = updateEnvKey(envContent, "CP_CUSTOMERS_QUERY", customersQuery);
+
+  fs.writeFileSync(envPath, envContent, "utf8");
+  console.info("\n══════════════════════════════════════════════════════════════════════");
+  console.info("  Auto-config successfully updated .env file with optimal SQL queries.");
+  if (changes.length > 0) {
+    console.info("  Changes applied:");
+    for (const change of changes) {
+      console.info(`    - ${change}`);
+    }
+  } else {
+    console.info("  Standard schema verified. No special fallback columns were required.");
+  }
+  console.info("══════════════════════════════════════════════════════════════════════\n");
 }
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
@@ -4213,6 +4483,25 @@ async function main() {
     process.exit(0);
   }
 
+  if (AUTOCONFIG_MODE) {
+    if (!CONN.trim()) {
+      console.error("Set SQL_CONNECTION_STRING in .env");
+      process.exit(1);
+    }
+    const pool = createSqlPool();
+    pool.on("error", (err) => console.error("SQL pool error", err));
+    try {
+      await pool.connect();
+      await runAutoConfig(pool);
+    } catch (e) {
+      console.error("[auto-config] failed:", e?.message ?? e);
+      process.exit(1);
+    } finally {
+      await pool.close();
+    }
+    process.exit(0);
+  }
+
   if (DISCOVER_MODE) {
     if (!CONN.trim()) {
       console.error("Set SQL_CONNECTION_STRING in .env (COUNTERPOINT_SYNC_TOKEN not required for discover).");
@@ -4232,7 +4521,6 @@ async function main() {
     } finally {
       await pool.close();
     }
-    await waitForDiscoverClose();
     process.exit(0);
   }
 
@@ -4249,7 +4537,17 @@ async function main() {
   // Start the Bridge Command Dashboard (Port 3002)
   startLocalServer();
 
-  await refreshRosStagingFromHealth();
+  if (DRY_RUN_MODE) {
+    console.info("⚡ DRY-RUN ACTIVE: Bridge will fetch data from Counterpoint but will NOT post updates to Riverside OS.");
+    try {
+      await refreshRosStagingFromHealth();
+    } catch (e) {
+      console.warn(`[dry-run] ROS health check failed (${e?.message ?? e}). Proceeding in dry-run mode without live connection.`);
+      rosStagingEnabled = false;
+    }
+  } else {
+    await refreshRosStagingFromHealth();
+  }
   console.info(
     "ROS sync health OK",
     rosStagingEnabled ? "(counterpoint staging ingest)" : "(direct entity ingest)",
