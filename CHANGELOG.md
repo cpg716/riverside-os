@@ -5,9 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.85.0] - 2026-05-31
 
 ### Added
+- **POS Register GO LIVE Readiness Review**: Systematic end-to-end review of the POS Register (cart, checkout, payments, printing, sessions, offline), Back Office, Settings & Integrations, and Performance. Six critical fixes implemented (A–F):
+  - **Fix A — Session Token Pre-Check**: `useCartCheckout` now probes `GET /api/sessions/current` before tendering. If the session has expired or been closed from another terminal, the cashier gets immediate feedback instead of a late server rejection.
+  - **Fix B — Server-Side Printer Config**: Per-register-lane printer settings (receipt, tag, report printers, cash drawer) are now persisted in `store_settings.pos_station_config`. New endpoints `GET|PATCH /api/settings/printer-config/{register_lane}`. The Register Overlay hydrates settings on lane change and syncs them on successful open.
+  - **Fix C — Offline Queue Recovery UI**: The POS cart header now polls the offline checkout queue every 10s and displays live badges: an amber "syncing" badge when items are queued, and a red "need recovery" badge when blocked items require manual attention.
+  - **Fix D — Receipt Print Retry Queue**: Failed receipt prints are captured in a new `localforage` retry queue (`printRetryQueue.ts`). A "X print retry" danger button appears in the POS header; clicking opens a modal to retry individual jobs or dismiss them.
+  - **Fix E — Dynamic Register Lanes**: The Register Overlay dropdown is no longer hardcoded to 4 lanes. It fetches `max_register_lanes` from the new public endpoint `/api/settings/pos-station-config/public` and generates options dynamically. Migration `058_pos_station_config.sql` adds the JSONB column.
+  - **Fix F — Helcim Terminal Auto-Reconnect**: `NexoCheckoutDrawer` now runs a 4-second fallback polling interval alongside the SSE stream. If the SSE connection drops silently, polling continues to refresh the terminal attempt status until completion or cancellation.
 - **ROSIE Token Telemetry System**: Comprehensive token usage tracking for cost analysis and provider comparison when evaluating local LLMs vs cloud-based APIs:
   - **Database Migration**: `060_rosie_token_telemetry.sql` adds `rosie_token_telemetry` table with fields for model name, provider, input/output tokens, and timestamp. Includes indexes for efficient date-based and provider/model queries.
   - **Non-Blocking Telemetry Recording**: `record_token_telemetry()` function in `rosie_intelligence.rs` uses `tokio::spawn` for fire-and-forget DB inserts, ensuring POS terminal performance is not impacted by telemetry recording.
@@ -63,21 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Async Function**: Converted `handleExportCSV` to async function to support Tauri plugin imports.
 
 ### Migration
-- `060_rosie_token_telemetry.sql` — adds `rosie_token_telemetry` table for tracking AI token usage with indexes on timestamp and provider/model.
-
-## [0.85.0] - 2026-05-28
-
-### Added
-- **POS Register GO LIVE Readiness Review**: Systematic end-to-end review of the POS Register (cart, checkout, payments, printing, sessions, offline), Back Office, Settings & Integrations, and Performance. Six critical fixes implemented (A–F):
-  - **Fix A — Session Token Pre-Check**: `useCartCheckout` now probes `GET /api/sessions/current` before tendering. If the session has expired or been closed from another terminal, the cashier gets immediate feedback instead of a late server rejection.
-  - **Fix B — Server-Side Printer Config**: Per-register-lane printer settings (receipt, tag, report printers, cash drawer) are now persisted in `store_settings.pos_station_config`. New endpoints `GET|PATCH /api/settings/printer-config/{register_lane}`. The Register Overlay hydrates settings on lane change and syncs them on successful open.
-  - **Fix C — Offline Queue Recovery UI**: The POS cart header now polls the offline checkout queue every 10s and displays live badges: an amber "syncing" badge when items are queued, and a red "need recovery" badge when blocked items require manual attention.
-  - **Fix D — Receipt Print Retry Queue**: Failed receipt prints are captured in a new `localforage` retry queue (`printRetryQueue.ts`). A "X print retry" danger button appears in the POS header; clicking opens a modal to retry individual jobs or dismiss them.
-  - **Fix E — Dynamic Register Lanes**: The Register Overlay dropdown is no longer hardcoded to 4 lanes. It fetches `max_register_lanes` from the new public endpoint `/api/settings/pos-station-config/public` and generates options dynamically. Migration `058_pos_station_config.sql` adds the JSONB column.
-  - **Fix F — Helcim Terminal Auto-Reconnect**: `NexoCheckoutDrawer` now runs a 4-second fallback polling interval alongside the SSE stream. If the SSE connection drops silently, polling continues to refresh the terminal attempt status until completion or cancellation.
-
-### Migration
 - `058_pos_station_config.sql` — adds `pos_station_config JSONB` to `store_settings` for lane limits and per-station printer configuration.
+- `060_rosie_token_telemetry.sql` — adds `rosie_token_telemetry` table for tracking AI token usage with indexes on timestamp and provider/model.
 
 ## [0.80.9] - 2026-05-27
 
