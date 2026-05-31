@@ -77,22 +77,27 @@ fn rosie_host_dir() -> Option<PathBuf> {
     })
 }
 
-fn default_rosie_llm_model_path() -> Option<PathBuf> {
-    // Windows production: installer puts the model under %LOCALAPPDATA%\riverside-os\rosie\.
-    // macOS dev: under ~/Library/Application Support/riverside-os/rosie/ (for local stack testing).
-    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-        let win_path = PathBuf::from(local_app_data)
-            .join("riverside-os")
-            .join("rosie")
-            .join("models")
-            .join("gemma-4-e4b")
-            .join("google_gemma-4-E4B-it-Q4_K_M.gguf");
-        if win_path.exists() {
-            return Some(win_path);
+fn default_rosie_root_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        if let Some(program_data) = std::env::var_os("ProgramData") {
+            let path = PathBuf::from(program_data).join("riverside-os").join("rosie");
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            let path = PathBuf::from(local_app_data).join("riverside-os").join("rosie");
+            if path.exists() {
+                return Some(path);
+            }
         }
     }
-    // macOS / Linux fallback for dev workstations.
-    rosie_host_dir().map(|root| {
+    rosie_host_dir()
+}
+
+fn default_rosie_llm_model_path() -> Option<PathBuf> {
+    default_rosie_root_dir().map(|root| {
         root.join("models")
             .join("gemma-4-e4b")
             .join("google_gemma-4-E4B-it-Q4_K_M.gguf")
@@ -113,7 +118,7 @@ fn resolve_sensevoice_model_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
         .or_else(|| {
-            rosie_host_dir().map(|root| {
+            default_rosie_root_dir().map(|root| {
                 root.join("stt")
                     .join("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17")
             })
@@ -145,7 +150,27 @@ fn resolve_rosie_speech_python_path() -> PathBuf {
     // 2. Probe uv tool install locations (platform-specific)
     #[cfg(windows)]
     {
+        if let Ok(program_data) = std::env::var("ProgramData") {
+            let venv_python = PathBuf::from(&program_data)
+                .join("riverside-os")
+                .join("rosie")
+                .join("sherpa-venv")
+                .join("Scripts")
+                .join("python.exe");
+            if venv_python.exists() {
+                return venv_python;
+            }
+        }
         if let Ok(local_app) = std::env::var("LOCALAPPDATA") {
+            let venv_python = PathBuf::from(&local_app)
+                .join("riverside-os")
+                .join("rosie")
+                .join("sherpa-venv")
+                .join("Scripts")
+                .join("python.exe");
+            if venv_python.exists() {
+                return venv_python;
+            }
             // uv tool install puts python here on Windows
             let uv_tool = PathBuf::from(&local_app)
                 .join("uv")
@@ -155,16 +180,6 @@ fn resolve_rosie_speech_python_path() -> PathBuf {
                 .join("python.exe");
             if uv_tool.exists() {
                 return uv_tool;
-            }
-            // Fallback dedicated venv (attempt 3 in installer)
-            let venv_python = PathBuf::from(&local_app)
-                .join("riverside-os")
-                .join("rosie")
-                .join("sherpa-venv")
-                .join("Scripts")
-                .join("python.exe");
-            if venv_python.exists() {
-                return venv_python;
             }
         }
     }
@@ -225,7 +240,12 @@ fn resolve_kokoro_model_dir() -> Option<PathBuf> {
         .ok()
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
-        .or_else(|| rosie_host_dir().map(|root| root.join("tts").join("kokoro-multi-lang-v1_0")))
+        .or_else(|| {
+            default_rosie_root_dir().map(|root| {
+                root.join("tts")
+                    .join("kokoro-multi-lang-v1_0")
+            })
+        })
 }
 
 fn resolve_kokoro_model_path() -> Option<PathBuf> {

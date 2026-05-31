@@ -77,6 +77,25 @@ export default function RosieInsightSummary({
     response?.status === "available" ? (response.suggested_actions ?? []).slice(0, 3) : [];
   const unavailable = response?.status === "unavailable";
 
+  const actionLabel = useMemo(() => {
+    switch (surface) {
+      case "customer_snapshot":
+        return "ROSIE: Generate Customer Snapshot";
+      case "follow_up_opportunities":
+        return "ROSIE: Analyze Follow-Up Opportunities";
+      case "inventory_cleanup":
+        return "ROSIE: Run Inventory Diagnostics";
+      case "receiving_review":
+        return "ROSIE: Analyze Receiving Bay";
+      case "daily_operational_briefing":
+        return "ROSIE: Generate Operations Briefing";
+      case "transaction_readiness":
+        return "ROSIE: Analyze Transaction Readiness";
+      default:
+        return `ROSIE: Analyze ${title}`;
+    }
+  }, [surface, title]);
+
   return (
     <div
       className={`${className || "mt-3"} border-t border-app-border/70 pt-2`}
@@ -90,7 +109,7 @@ export default function RosieInsightSummary({
         aria-label={`${title} ROSIE insight`}
       >
         <Sparkles size={13} aria-hidden />
-        {loading ? "ROSIE thinking..." : "ROSIE insight"}
+        {loading ? "ROSIE thinking..." : actionLabel}
       </button>
       {visibleBullets.length > 0 ? (
         <ul className="mt-2 space-y-1.5 text-[12px] font-semibold text-app-text">

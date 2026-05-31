@@ -67,8 +67,8 @@ Write-Host "  Server .env : $serverEnvPath"
 Write-Host "========================================================"
 Write-Host ""
 
-# ---- Asset directories (%LOCALAPPDATA%\riverside-os\rosie\) ----
-$rosieRoot  = Join-Path $env:LOCALAPPDATA "riverside-os\rosie"
+# # ---- Asset directories (ProgramData or %LOCALAPPDATA%\riverside-os\rosie\) ----
+$rosieRoot  = if ($env:ProgramData) { Join-Path $env:ProgramData "riverside-os\rosie" } else { Join-Path $env:LOCALAPPDATA "riverside-os\rosie" }
 $modelsDir  = Join-Path $rosieRoot "models\gemma-4-e4b"
 $sttDir     = Join-Path $rosieRoot "stt"
 $ttsDir     = Join-Path $rosieRoot "tts"
@@ -174,7 +174,7 @@ if ($SkipVoiceTools) {
 
   # sherpa-onnx is a Python library — create a venv with uv, then pip install.
   $sherpaInstalled = $false
-  $sherpaVenv    = Join-Path $env:LOCALAPPDATA "riverside-os\rosie\sherpa-venv"
+  $sherpaVenv    = Join-Path $rosieRoot "sherpa-venv"
   $sherpaVenvPip = Join-Path $sherpaVenv "Scripts\pip.exe"
 
   if ($uvCmd -and (Test-Path $uvCmd)) {

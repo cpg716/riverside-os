@@ -721,7 +721,7 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
 # Returns the resolved model path (or $null if skipped / failed non-fatally).
 # ---------------------------------------------------------------------------
 function Install-RosieStack($PackageRoot) {
-  $rosieRoot   = Join-Path $env:LOCALAPPDATA "riverside-os\rosie"
+  $rosieRoot   = if ($env:ProgramData) { Join-Path $env:ProgramData "riverside-os\rosie" } else { Join-Path $env:LOCALAPPDATA "riverside-os\rosie" }
   $modelsDir   = Join-Path $rosieRoot "models\gemma-4-e4b"
   $sttDir      = Join-Path $rosieRoot "stt"
   $ttsDir      = Join-Path $rosieRoot "tts"
@@ -821,7 +821,7 @@ function Install-RosieStack($PackageRoot) {
   # Attempt 3: pip install into a uv-managed venv as fallback
   if (-not $sherpaInstalled) {
     Write-Host "ROSIE: Retry 2 - creating dedicated venv with pip..."
-    $sherpaVenv = Join-Path $env:LOCALAPPDATA "riverside-os\rosie\sherpa-venv"
+    $sherpaVenv = Join-Path $rosieRoot "sherpa-venv"
     try {
       & $uvCmd venv --python 3.12 $sherpaVenv 2>&1 | Write-Host
       $sherpaVenvPip = Join-Path $sherpaVenv "Scripts\pip.exe"
