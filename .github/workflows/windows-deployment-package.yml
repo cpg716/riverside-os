@@ -114,6 +114,48 @@ jobs:
           RIVERSIDE_LLAMA_MODEL_PATH: ${{ runner.temp }}\missing-rosie-model.gguf
         run: ./scripts/smoke-rosie-sidecar-package.ps1 -AllowMissingModel
 
+      - name: Cache WiX Toolset
+        id: cache-wix
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/wix314
+          key: wix314-binaries-v1
+
+      - name: Setup WiX Toolset
+        if: steps.cache-wix.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $wixZip = Join-Path $env:RUNNER_TEMP "wix314.zip"
+          $wixDir = Join-Path $env:RUNNER_TEMP "wix314"
+          New-Item -ItemType Directory -Force -Path $wixDir | Out-Null
+          $url = "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"
+          $maxRetries = 5
+          $retryCount = 0
+          $success = $false
+          while (-not $success -and $retryCount -lt $maxRetries) {
+            try {
+              Write-Host "Downloading WiX Toolset (Attempt $($retryCount + 1)/$maxRetries)..."
+              Invoke-WebRequest -Uri $url -OutFile $wixZip -TimeoutSec 60
+              $success = $true
+            } catch {
+              $retryCount++
+              if ($retryCount -lt $maxRetries) {
+                Write-Host "Download failed: $_. Retrying in 10 seconds..."
+                Start-Sleep -Seconds 10
+              } else {
+                throw $_
+              }
+            }
+          }
+          Write-Host "Extracting WiX Toolset..."
+          Expand-Archive -Path $wixZip -DestinationPath $wixDir -Force
+
+      - name: Set WiX Path
+        shell: pwsh
+        run: |
+          $wixDir = Join-Path $env:RUNNER_TEMP "wix314"
+          echo "TAURI_WIX_DIR=$wixDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Build signed register updater bundle
         shell: pwsh
         working-directory: client
@@ -258,6 +300,48 @@ jobs:
         working-directory: deployment/manager-app
         run: npm ci
 
+      - name: Cache WiX Toolset
+        id: cache-wix
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/wix314
+          key: wix314-binaries-v1
+
+      - name: Setup WiX Toolset
+        if: steps.cache-wix.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $wixZip = Join-Path $env:RUNNER_TEMP "wix314.zip"
+          $wixDir = Join-Path $env:RUNNER_TEMP "wix314"
+          New-Item -ItemType Directory -Force -Path $wixDir | Out-Null
+          $url = "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"
+          $maxRetries = 5
+          $retryCount = 0
+          $success = $false
+          while (-not $success -and $retryCount -lt $maxRetries) {
+            try {
+              Write-Host "Downloading WiX Toolset (Attempt $($retryCount + 1)/$maxRetries)..."
+              Invoke-WebRequest -Uri $url -OutFile $wixZip -TimeoutSec 60
+              $success = $true
+            } catch {
+              $retryCount++
+              if ($retryCount -lt $maxRetries) {
+                Write-Host "Download failed: $_. Retrying in 10 seconds..."
+                Start-Sleep -Seconds 10
+              } else {
+                throw $_
+              }
+            }
+          }
+          Write-Host "Extracting WiX Toolset..."
+          Expand-Archive -Path $wixZip -DestinationPath $wixDir -Force
+
+      - name: Set WiX Path
+        shell: pwsh
+        run: |
+          $wixDir = Join-Path $env:RUNNER_TEMP "wix314"
+          echo "TAURI_WIX_DIR=$wixDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Build Deployment Manager binary
         shell: pwsh
         run: |
@@ -302,6 +386,48 @@ jobs:
         if: steps.cache-server-manager-node-modules.outputs.cache-hit != 'true'
         working-directory: deployment/server-manager-app
         run: npm ci
+
+      - name: Cache WiX Toolset
+        id: cache-wix
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/wix314
+          key: wix314-binaries-v1
+
+      - name: Setup WiX Toolset
+        if: steps.cache-wix.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $wixZip = Join-Path $env:RUNNER_TEMP "wix314.zip"
+          $wixDir = Join-Path $env:RUNNER_TEMP "wix314"
+          New-Item -ItemType Directory -Force -Path $wixDir | Out-Null
+          $url = "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"
+          $maxRetries = 5
+          $retryCount = 0
+          $success = $false
+          while (-not $success -and $retryCount -lt $maxRetries) {
+            try {
+              Write-Host "Downloading WiX Toolset (Attempt $($retryCount + 1)/$maxRetries)..."
+              Invoke-WebRequest -Uri $url -OutFile $wixZip -TimeoutSec 60
+              $success = $true
+            } catch {
+              $retryCount++
+              if ($retryCount -lt $maxRetries) {
+                Write-Host "Download failed: $_. Retrying in 10 seconds..."
+                Start-Sleep -Seconds 10
+              } else {
+                throw $_
+              }
+            }
+          }
+          Write-Host "Extracting WiX Toolset..."
+          Expand-Archive -Path $wixZip -DestinationPath $wixDir -Force
+
+      - name: Set WiX Path
+        shell: pwsh
+        run: |
+          $wixDir = Join-Path $env:RUNNER_TEMP "wix314"
+          echo "TAURI_WIX_DIR=$wixDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build ROS Server Manager binary
         shell: pwsh
@@ -355,6 +481,48 @@ jobs:
         if: steps.cache-bridge-gui-node-modules.outputs.cache-hit != 'true'
         working-directory: deployment/counterpoint-bridge-gui
         run: npm ci
+
+      - name: Cache WiX Toolset
+        id: cache-wix
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/wix314
+          key: wix314-binaries-v1
+
+      - name: Setup WiX Toolset
+        if: steps.cache-wix.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $wixZip = Join-Path $env:RUNNER_TEMP "wix314.zip"
+          $wixDir = Join-Path $env:RUNNER_TEMP "wix314"
+          New-Item -ItemType Directory -Force -Path $wixDir | Out-Null
+          $url = "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"
+          $maxRetries = 5
+          $retryCount = 0
+          $success = $false
+          while (-not $success -and $retryCount -lt $maxRetries) {
+            try {
+              Write-Host "Downloading WiX Toolset (Attempt $($retryCount + 1)/$maxRetries)..."
+              Invoke-WebRequest -Uri $url -OutFile $wixZip -TimeoutSec 60
+              $success = $true
+            } catch {
+              $retryCount++
+              if ($retryCount -lt $maxRetries) {
+                Write-Host "Download failed: $_. Retrying in 10 seconds..."
+                Start-Sleep -Seconds 10
+              } else {
+                throw $_
+              }
+            }
+          }
+          Write-Host "Extracting WiX Toolset..."
+          Expand-Archive -Path $wixZip -DestinationPath $wixDir -Force
+
+      - name: Set WiX Path
+        shell: pwsh
+        run: |
+          $wixDir = Join-Path $env:RUNNER_TEMP "wix314"
+          echo "TAURI_WIX_DIR=$wixDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build Counterpoint Bridge GUI binary
         shell: pwsh
