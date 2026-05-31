@@ -805,6 +805,13 @@ function Install-RosieStack($PackageRoot) {
 
   Write-Host "ROSIE: Installing sherpa-onnx Python runtime via uv..."
   $sherpaInstalled = $false
+
+  # Pre-fetch Python 3.12 to guarantee uv has a valid runtime
+  try {
+    Write-Host "ROSIE: Fetching standalone Python 3.12 via uv..."
+    & $uvCmd python install 3.12 2>&1 | Write-Host
+  } catch { }
+
   # Attempt 1: uv tool install with pinned Python 3.12
   try {
     & $uvCmd tool install --force --python 3.12 sherpa-onnx 2>&1 | Write-Host
@@ -824,9 +831,9 @@ function Install-RosieStack($PackageRoot) {
     $sherpaVenv = Join-Path $rosieRoot "sherpa-venv"
     try {
       & $uvCmd venv --python 3.12 $sherpaVenv 2>&1 | Write-Host
-      $sherpaVenvPip = Join-Path $sherpaVenv "Scripts\pip.exe"
-      if (Test-Path $sherpaVenvPip) {
-        & $sherpaVenvPip install --upgrade sherpa-onnx 2>&1 | Write-Host
+      $venvPython = Join-Path $sherpaVenv "Scripts\python.exe"
+      if (Test-Path $venvPython) {
+        & $uvCmd pip install --python $venvPython sherpa-onnx --only-binary=:all: 2>&1 | Write-Host
         if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
       }
     } catch { }

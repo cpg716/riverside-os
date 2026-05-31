@@ -178,6 +178,9 @@ if ($SkipVoiceTools) {
 
   if ($uvCmd -and (Test-Path $uvCmd)) {
     Write-Host "      uv: $uvCmd"
+    Write-Host "      Ensuring Python 3.12 is downloaded and registered by uv..."
+    & $uvCmd python install 3.12 2>&1 | ForEach-Object { Write-Host "      $_" }
+    
     Write-Host "      Creating sherpa-onnx venv (Python 3.12)..."
     & $uvCmd venv --python 3.12 $sherpaVenv 2>&1 | ForEach-Object { Write-Host "      $_" }
     $venvPython = Join-Path $sherpaVenv "Scripts\python.exe"
