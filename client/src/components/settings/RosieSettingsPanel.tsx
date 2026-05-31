@@ -55,7 +55,6 @@ export default function RosieSettingsPanel() {
     localRuntimeStatus != null &&
     activeTtsEngine !== "kokoro" &&
     activeTtsEngine !== "unavailable";
-  const hostVoiceRuntimeAvailable = localRuntimeStatus != null;
 
   useEffect(() => {
     saveLocalRosieSettings(localSettings);
@@ -320,73 +319,55 @@ export default function RosieSettingsPanel() {
             </p>
           ) : (
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-sm">
-                <p className="font-black uppercase tracking-widest text-app-text">LLM</p>
-                <p className="mt-2 font-medium text-app-text-muted">
-                  Runtime: <span className="text-app-text">{localRuntimeStatus.llm.runtime_name}</span>
-                </p>
-                <p className="mt-1 font-medium text-app-text-muted">
-                  Model: <span className="text-app-text">{localRuntimeStatus.llm.model_name}</span>
-                </p>
-                <p className="mt-1 font-medium text-app-text-muted">
-                  Status: <span className="text-app-text">{localRuntimeStatus.llm.model_present ? (localRuntimeStatus.llm.running ? "Loaded" : "Not loaded") : "Missing"}</span>
-                </p>
-                <p className="mt-1 font-medium text-app-text-muted">
-                  Provider: <span className="text-app-text">{localRuntimeStatus.llm.provider}</span>
-                </p>
-                <p className="mt-1 break-all text-xs font-medium text-app-text-muted">
-                  {localRuntimeStatus.llm.model_path ?? "No model path configured"}
-                </p>
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-black uppercase tracking-widest text-app-text">LLM</p>
+                  <div className={`h-2 w-2 rounded-full ${localRuntimeStatus.llm.model_present && localRuntimeStatus.llm.running ? "bg-green-500" : "bg-red-500"}`} />
+                </div>
+                <p className="mt-3 text-sm font-bold text-app-text">{localRuntimeStatus.llm.model_name}</p>
+                <p className="mt-1 text-xs text-app-text-muted">{localRuntimeStatus.llm.runtime_name}</p>
+                <div className="mt-3 flex items-center gap-2 text-xs">
+                  <span className="text-app-text-muted">Status:</span>
+                  <span className={`font-medium ${localRuntimeStatus.llm.model_present && localRuntimeStatus.llm.running ? "text-green-600" : "text-red-600"}`}>
+                    {localRuntimeStatus.llm.model_present ? (localRuntimeStatus.llm.running ? "Running" : "Stopped") : "Missing"}
+                  </span>
+                </div>
               </div>
-              <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-sm">
-                <p className="font-black uppercase tracking-widest text-app-text">Speech To Text</p>
-                <p className="mt-2 font-medium text-app-text-muted">
-                  Engine: <span className="text-app-text">{localRuntimeStatus.stt.engine_name}</span>
-                </p>
-                <p className="mt-1 font-medium text-app-text-muted">
-                  Status: <span className="text-app-text">{localRuntimeStatus.stt.model_present ? "Ready" : "Missing"}</span>
-                </p>
-                <p className="mt-1 font-medium text-app-text-muted">
-                  Active path: <span className="text-app-text">{localRuntimeStatus.stt.active_engine}</span>
-                </p>
-                <p className="mt-1 font-medium text-app-text-muted">
-                  Fallback: <span className="text-app-text">{localRuntimeStatus.stt.fallback_engine_name}</span>
-                </p>
-                <p className="mt-1 break-all text-xs font-medium text-app-text-muted">
-                  {localRuntimeStatus.stt.model_path ?? "No STT model path configured"}
-                </p>
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-black uppercase tracking-widest text-app-text">Speech To Text</p>
+                  <div className={`h-2 w-2 rounded-full ${localRuntimeStatus.stt.model_present ? "bg-green-500" : "bg-red-500"}`} />
+                </div>
+                <p className="mt-3 text-sm font-bold text-app-text">{localRuntimeStatus.stt.engine_name}</p>
+                <p className="mt-1 text-xs text-app-text-muted">Active: {localRuntimeStatus.stt.active_engine}</p>
+                <div className="mt-3 flex items-center gap-2 text-xs">
+                  <span className="text-app-text-muted">Fallback:</span>
+                  <span className="font-medium text-app-text">{localRuntimeStatus.stt.fallback_engine_name}</span>
+                </div>
               </div>
-              <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-sm">
-                <p className="font-black uppercase tracking-widest text-app-text">Speech Output</p>
-                <p className="mt-2 font-medium text-app-text-muted">
-                  Engine: <span className="text-app-text">{localRuntimeStatus.tts.engine_name}</span>
-                </p>
-                <p className="mt-1 font-medium text-app-text-muted">
-                  Status: <span className="text-app-text">{localRuntimeStatus.tts.model_present ? "Ready" : "Missing"}</span>
-                </p>
-                <p className="mt-1 font-medium text-app-text-muted">
-                  Active path: <span className="text-app-text">{localRuntimeStatus.tts.active_engine}</span>
-                </p>
-                <p className="mt-1 font-medium text-app-text-muted">
-                  State: <span className="text-app-text">{localRuntimeStatus.tts.speaking ? "Speaking" : "Idle"}</span>
-                </p>
-                <p className="mt-1 break-all text-xs font-medium text-app-text-muted">
-                  {localRuntimeStatus.tts.model_path ?? localRuntimeStatus.tts.command_path}
-                </p>
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-black uppercase tracking-widest text-app-text">Speech Output</p>
+                  <div className={`h-2 w-2 rounded-full ${localRuntimeStatus.tts.model_present ? "bg-green-500" : "bg-red-500"}`} />
+                </div>
+                <p className="mt-3 text-sm font-bold text-app-text">{localRuntimeStatus.tts.engine_name}</p>
+                <p className="mt-1 text-xs text-app-text-muted">Active: {localRuntimeStatus.tts.active_engine}</p>
+                <div className="mt-3 flex items-center gap-2 text-xs">
+                  <span className="text-app-text-muted">State:</span>
+                  <span className={`font-medium ${localRuntimeStatus.tts.speaking ? "text-blue-600" : "text-gray-600"}`}>
+                    {localRuntimeStatus.tts.speaking ? "Speaking" : "Idle"}
+                  </span>
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface p-5">
+        <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4">
             <div>
-              <p className="text-sm font-black uppercase tracking-widest text-app-text">
-                Enable ROSIE
-              </p>
-              <p className="mt-2 text-sm font-medium text-app-text-muted">
-                Allows chat transport for this workstation.
-              </p>
+              <p className="text-sm font-bold text-app-text">Enable ROSIE</p>
+              <p className="mt-1 text-xs text-app-text-muted">Chat transport for this workstation</p>
             </div>
             <input
               type="checkbox"
@@ -396,15 +377,10 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface p-5">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4">
             <div>
-              <p className="text-sm font-black uppercase tracking-widest text-app-text">
-                Local First
-              </p>
-              <p className="mt-2 text-sm font-medium text-app-text-muted">
-                Tauri tries the approved Host stack first, then falls back to
-                Axum if direct transport fails.
-              </p>
+              <p className="text-sm font-bold text-app-text">Local First</p>
+              <p className="mt-1 text-xs text-app-text-muted">Try Host stack first, then Axum fallback</p>
             </div>
             <input
               type="checkbox"
@@ -416,13 +392,8 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="rounded-2xl border border-app-border bg-app-surface p-5">
-            <p className="text-sm font-black uppercase tracking-widest text-app-text">
-              Response Style
-            </p>
-            <p className="mt-2 text-sm font-medium text-app-text-muted">
-              Controls whether ROSIE answers stay concise or add more context.
-            </p>
+          <label className="rounded-xl border border-app-border bg-app-surface p-4">
+            <p className="text-sm font-bold text-app-text">Response Style</p>
             <select
               value={localSettings.response_style}
               onChange={(e) =>
@@ -430,22 +401,17 @@ export default function RosieSettingsPanel() {
                   response_style: e.target.value === "detailed" ? "detailed" : "concise",
                 })
               }
-              className="ui-input mt-4 w-full"
+              className="ui-input mt-3 w-full"
             >
               <option value="concise">Concise</option>
               <option value="detailed">Detailed</option>
             </select>
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface p-5">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4">
             <div>
-              <p className="text-sm font-black uppercase tracking-widest text-app-text">
-                Show Citations
-              </p>
-              <p className="mt-2 text-sm font-medium text-app-text-muted">
-                Keeps manual and policy references visible when the Ask ROSIE UI
-                is wired on top of this transport.
-              </p>
+              <p className="text-sm font-bold text-app-text">Show Citations</p>
+              <p className="mt-1 text-xs text-app-text-muted">Show manual and policy references</p>
             </div>
             <input
               type="checkbox"
@@ -457,15 +423,10 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface p-5">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4">
             <div>
-              <p className="text-sm font-black uppercase tracking-widest text-app-text">
-                Voice Enabled
-              </p>
-              <p className="mt-2 text-sm font-medium text-app-text-muted">
-                Enables ROSIE voice input/output controls for this workstation.
-                Voice replies run through the shared host ROSIE runtime.
-              </p>
+              <p className="text-sm font-bold text-app-text">Voice Enabled</p>
+              <p className="mt-1 text-xs text-app-text-muted">Voice input/output controls</p>
             </div>
             <input
               type="checkbox"
@@ -477,15 +438,10 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-5">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface/60 p-4">
             <div>
-              <p className="text-sm font-black uppercase tracking-widest text-app-text">
-                Speak Responses
-              </p>
-              <p className="mt-2 text-sm font-medium text-app-text-muted">
-                Speaks the normal text response after ROSIE finishes answering
-                when the host voice runtime is available.
-              </p>
+              <p className="text-sm font-bold text-app-text">Speak Responses</p>
+              <p className="mt-1 text-xs text-app-text-muted">Speak text after answering</p>
             </div>
             <input
               type="checkbox"
@@ -498,38 +454,14 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="rounded-2xl border border-app-border bg-app-surface p-5">
-            <div>
-              <p className="text-sm font-black uppercase tracking-widest text-app-text">
-                Voice
-              </p>
-              <p className="mt-2 text-sm font-medium text-app-text-muted">
-                Selects the spoken ROSIE voice preset for replies.
-              </p>
+          <label className="rounded-xl border border-app-border bg-app-surface p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-bold text-app-text">Voice</p>
+              <div className={`h-2 w-2 rounded-full ${kokoroVoiceControlsAvailable ? "bg-green-500" : "bg-yellow-500"}`} />
             </div>
-            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface-2 p-4 text-xs font-medium text-app-text-muted">
-              <p>
-                TTS engine status:{" "}
-                <strong className="text-app-text">
-                  {!hostVoiceRuntimeAvailable
-                    ? "Host runtime unavailable"
-                    : kokoroVoiceControlsAvailable
-                    ? "Using curated ROSIE voices"
-                    : ttsFallbackActive
-                      ? "Using native desktop fallback"
-                      : "TTS unavailable"}
-                </strong>
-              </p>
-              <p className="mt-2">
-                {!hostVoiceRuntimeAvailable
-                  ? "This workstation could not reach the host ROSIE voice runtime, so spoken replies are unavailable right now."
-                  : kokoroVoiceControlsAvailable
-                  ? "The host machine is on the approved Kokoro path. ROSIE only shows the curated voices we have chosen for staff use."
-                  : ttsFallbackActive
-                    ? "The host machine is not currently using Kokoro. Spoken replies may still work through the approved host fallback, but voice selection is disabled because that path does not support ROSIE voice presets."
-                    : "Speech output is currently unavailable on this workstation."}
-              </p>
-            </div>
+            <p className="mt-1 text-xs text-app-text-muted">
+              {kokoroVoiceControlsAvailable ? "Kokoro voices available" : ttsFallbackActive ? "Using desktop fallback" : "TTS unavailable"}
+            </p>
             <select
               value={localSettings.selected_voice}
               disabled={!localSettings.voice_enabled || !kokoroVoiceControlsAvailable}
@@ -538,7 +470,7 @@ export default function RosieSettingsPanel() {
                   selected_voice: e.target.value,
                 })
               }
-              className="ui-input mt-4 w-full disabled:cursor-not-allowed disabled:opacity-50"
+              className="ui-input mt-3 w-full disabled:cursor-not-allowed disabled:opacity-50"
             >
               {ROSIE_KOKORO_VOICE_OPTIONS.map((voice) => (
                 <option key={voice.value} value={voice.value}>
@@ -546,12 +478,7 @@ export default function RosieSettingsPanel() {
                 </option>
               ))}
             </select>
-            <p className="mt-3 text-xs font-medium text-app-text-muted">
-              ROSIE uses a small curated set instead of exposing raw Kokoro
-              speaker numbers. Use preview before saving because these labels
-              describe the preset, not a guaranteed gender.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-3">
+            <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={testSelectedVoice}
@@ -560,38 +487,30 @@ export default function RosieSettingsPanel() {
                   !kokoroVoiceControlsAvailable ||
                   localRuntimeStatus?.tts.model_present === false
                 }
-                className="ui-btn-secondary px-4 py-2 text-[11px] font-black uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
+                className="ui-btn-secondary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Test Selected Voice
+                Test
               </button>
               <button
                 type="button"
                 onClick={stopVoicePreview}
                 disabled={!voicePreviewSpeaking}
-                className="ui-btn-secondary px-4 py-2 text-[11px] font-black uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
+                className="ui-btn-secondary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Stop Preview
+                Stop
               </button>
             </div>
-            <p className="mt-3 text-xs font-medium text-app-text-muted">
-              Test sentence: {ROSIE_VOICE_TEST_SENTENCE}
-            </p>
           </label>
 
-          <label className="rounded-2xl border border-app-border bg-app-surface p-5">
-            <p className="text-sm font-black uppercase tracking-widest text-app-text">
-              Speech Rate
-            </p>
-            <p className="mt-2 text-sm font-medium text-app-text-muted">
-              Narrow playback range for ROSIE voice replies.
-            </p>
+          <label className="rounded-xl border border-app-border bg-app-surface p-4">
+            <p className="text-sm font-bold text-app-text">Speech Rate</p>
             <select
               value={String(localSettings.speech_rate)}
               disabled={!localSettings.voice_enabled}
               onChange={(e) =>
                 updateLocalSettings({ speech_rate: Number(e.target.value) })
               }
-              className="ui-input mt-4 w-full disabled:cursor-not-allowed disabled:opacity-50"
+              className="ui-input mt-3 w-full disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="0.8">Slow</option>
               <option value="1">Normal</option>
@@ -599,14 +518,10 @@ export default function RosieSettingsPanel() {
             </select>
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface p-5">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4">
             <div>
-              <p className="text-sm font-black uppercase tracking-widest text-app-text">
-                Microphone Enabled
-              </p>
-              <p className="mt-2 text-sm font-medium text-app-text-muted">
-                Lets Ask ROSIE capture audio and transcribe it into the normal text flow.
-              </p>
+              <p className="text-sm font-bold text-app-text">Microphone Enabled</p>
+              <p className="mt-1 text-xs text-app-text-muted">Capture audio for transcription</p>
             </div>
             <input
               type="checkbox"
@@ -619,13 +534,8 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="rounded-2xl border border-app-border bg-app-surface p-5">
-            <p className="text-sm font-black uppercase tracking-widest text-app-text">
-              Microphone Mode
-            </p>
-            <p className="mt-2 text-sm font-medium text-app-text-muted">
-              Push-to-talk starts recording while you hold the mic button. Toggle starts and stops on tap.
-            </p>
+          <label className="rounded-xl border border-app-border bg-app-surface p-4">
+            <p className="text-sm font-bold text-app-text">Microphone Mode</p>
             <select
               value={localSettings.microphone_mode}
               disabled={!localSettings.voice_enabled || !localSettings.microphone_enabled}
@@ -634,7 +544,7 @@ export default function RosieSettingsPanel() {
                   microphone_mode: e.target.value === "toggle" ? "toggle" : "push_to_talk",
                 })
               }
-              className="ui-input mt-4 w-full disabled:cursor-not-allowed disabled:opacity-50"
+              className="ui-input mt-3 w-full disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="push_to_talk">Push To Talk</option>
               <option value="toggle">Toggle</option>
@@ -739,29 +649,26 @@ export default function RosieSettingsPanel() {
       )}
 
       {canManageIntelligence && (
-        <section className="ui-card p-8" data-testid="rosie-intelligence-section">
+        <section className="ui-card p-6" data-testid="rosie-intelligence-section">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Governed Intelligence Pack
+                Intelligence Pack
               </h3>
-              <p className="mt-2 max-w-3xl text-sm font-medium text-app-text-muted">
-                ROSIE improves only from approved manuals, staff docs, contract
-                docs, generated Help outputs, and optional curated redacted
-                traces. It does not learn from raw production data, unrestricted
-                conversation history, or autonomous prompt mutation.
+              <p className="mt-1 text-xs text-app-text-muted">
+                Approved knowledge sources for ROSIE
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => void loadIntelligenceStatus()}
                 disabled={intelligenceBusy}
-                className="ui-btn-secondary flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest"
+                className="ui-btn-secondary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest"
                 data-testid="rosie-intelligence-reload"
               >
                 <RefreshCw
-                  className={`h-4 w-4 ${intelligenceBusy ? "animate-spin" : ""}`}
+                  className={`h-3 w-3 ${intelligenceBusy ? "animate-spin" : ""}`}
                 />
                 Reload
               </button>
@@ -769,129 +676,99 @@ export default function RosieSettingsPanel() {
                 type="button"
                 onClick={() => void runIntelligenceRefresh(false)}
                 disabled={intelligenceBusy}
-                className="ui-btn-secondary flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest"
+                className="ui-btn-secondary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest"
                 data-testid="rosie-intelligence-refresh"
               >
                 <RefreshCw
-                  className={`h-4 w-4 ${intelligenceBusy ? "animate-spin" : ""}`}
+                  className={`h-3 w-3 ${intelligenceBusy ? "animate-spin" : ""}`}
                 />
-                Refresh Pack
+                Refresh
               </button>
               <button
                 type="button"
                 onClick={() => void runIntelligenceRefresh(true)}
                 disabled={intelligenceBusy}
-                className="ui-btn-primary flex items-center gap-2 px-4 py-2 text-[11px] font-black uppercase tracking-widest"
+                className="ui-btn-primary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest"
                 data-testid="rosie-intelligence-refresh-reindex"
               >
                 <RefreshCw
-                  className={`h-4 w-4 ${intelligenceBusy ? "animate-spin" : ""}`}
+                  className={`h-3 w-3 ${intelligenceBusy ? "animate-spin" : ""}`}
                 />
-                Refresh + Reindex Help
+                Refresh + Reindex
               </button>
             </div>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-app-border bg-app-surface/60 p-5 text-sm font-medium text-app-text-muted">
-            {!intelligenceLoaded && "Loading governed intelligence status…"}
+          <div className="mt-4 rounded-xl border border-app-border bg-app-surface/60 p-4 text-sm font-medium text-app-text-muted">
+            {!intelligenceLoaded && "Loading intelligence status…"}
             {intelligenceLoaded && intelligenceStatus == null && (
-              <span>You need help.manage permission to review ROSIE intelligence governance.</span>
+              <span>Requires help.manage permission</span>
             )}
             {intelligenceStatus != null && (
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  <span>
-                    Policy pack:{" "}
-                    <strong className="text-app-text">
-                      {intelligenceStatus.pack.policy_pack_version}
-                    </strong>
-                  </span>
-                  <span>
-                    Intelligence pack:{" "}
-                    <strong className="text-app-text">
-                      {intelligenceStatus.pack.intelligence_pack_version}
-                    </strong>
-                  </span>
-                  <span>
-                    Last generated Help artifact:{" "}
-                    <strong className="text-app-text">
-                      {formatTimestamp(intelligenceStatus.pack.last_generated_at)}
-                    </strong>
-                  </span>
-                  <span>
-                    Last Help reindex:{" "}
-                    <strong className="text-app-text">
-                      {formatTimestamp(intelligenceStatus.last_reindex_at)}
-                    </strong>
-                  </span>
-                  <span>
-                    Workstation runtime available:{" "}
-                    <strong className="text-app-text">
-                      {intelligenceStatus.node_available ? "Yes" : "No"}
-                    </strong>
-                  </span>
-                  <span>
-                    Meilisearch configured:{" "}
-                    <strong className="text-app-text">
-                      {intelligenceStatus.meilisearch_configured ? "Yes" : "No"}
-                    </strong>
-                  </span>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg bg-app-surface-2 p-3">
+                    <p className="text-[10px] uppercase tracking-widest text-app-text-muted">Policy Pack</p>
+                    <p className="mt-1 text-sm font-bold text-app-text">{intelligenceStatus.pack.policy_pack_version}</p>
+                  </div>
+                  <div className="rounded-lg bg-app-surface-2 p-3">
+                    <p className="text-[10px] uppercase tracking-widest text-app-text-muted">Intelligence Pack</p>
+                    <p className="mt-1 text-sm font-bold text-app-text">{intelligenceStatus.pack.intelligence_pack_version}</p>
+                  </div>
+                  <div className="rounded-lg bg-app-surface-2 p-3">
+                    <p className="text-[10px] uppercase tracking-widest text-app-text-muted">Last Generated</p>
+                    <p className="mt-1 text-sm font-bold text-app-text">{formatTimestamp(intelligenceStatus.pack.last_generated_at)}</p>
+                  </div>
+                  <div className="rounded-lg bg-app-surface-2 p-3">
+                    <p className="text-[10px] uppercase tracking-widest text-app-text-muted">Last Reindex</p>
+                    <p className="mt-1 text-sm font-bold text-app-text">{formatTimestamp(intelligenceStatus.last_reindex_at)}</p>
+                  </div>
+                  <div className="rounded-lg bg-app-surface-2 p-3">
+                    <p className="text-[10px] uppercase tracking-widest text-app-text-muted">Runtime</p>
+                    <p className={`mt-1 text-sm font-bold ${intelligenceStatus.node_available ? "text-green-600" : "text-red-600"}`}>
+                      {intelligenceStatus.node_available ? "Available" : "Unavailable"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-app-surface-2 p-3">
+                    <p className="text-[10px] uppercase tracking-widest text-app-text-muted">Meilisearch</p>
+                    <p className={`mt-1 text-sm font-bold ${intelligenceStatus.meilisearch_configured ? "text-green-600" : "text-red-600"}`}>
+                      {intelligenceStatus.meilisearch_configured ? "Configured" : "Not configured"}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {intelligenceStatus.pack.approved_source_groups.map((group) => (
                     <div
                       key={group.key}
-                      className="rounded-2xl border border-app-border bg-app-surface p-4"
+                      className="rounded-xl border border-app-border bg-app-surface p-3"
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <h4 className="text-xs font-black uppercase tracking-widest text-app-text">
-                          {group.label}
-                        </h4>
-                        <span className="rounded-full border border-app-border bg-app-surface-2 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-app-text">
-                          {group.source_count} source{group.source_count === 1 ? "" : "s"}
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className="text-xs font-bold text-app-text">{group.label}</h4>
+                        <span className="rounded-full bg-app-surface-2 px-2 py-0.5 text-[10px] font-bold text-app-text">
+                          {group.source_count}
                         </span>
                       </div>
-                      <p className="mt-2 text-xs leading-relaxed text-app-text-muted">
-                        {group.description}
-                      </p>
-                      <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface-2/80 p-3">
-                        <p className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">
-                          Paths
-                        </p>
-                        <div className="mt-2 space-y-1 font-mono text-[11px] text-app-text-muted">
-                          {group.source_paths.slice(0, 4).map((path) => (
-                            <p key={path}>{path}</p>
-                          ))}
-                          {group.source_paths.length > 4 && (
-                            <p>+{group.source_paths.length - 4} more approved paths</p>
-                          )}
-                          {group.source_paths.length === 0 && <p>No approved files enabled.</p>}
-                        </div>
-                      </div>
+                      <p className="mt-1 text-xs text-app-text-muted">{group.description}</p>
                     </div>
                   ))}
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  <div className="rounded-2xl border border-app-border bg-app-surface p-4">
-                    <h4 className="text-xs font-black uppercase tracking-widest text-app-text">
-                      Excluded Sources
-                    </h4>
-                    <div className="mt-3 space-y-2 text-sm text-app-text-muted">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-app-border bg-app-surface p-3">
+                    <h4 className="text-xs font-bold text-app-text">Excluded Sources</h4>
+                    <div className="mt-2 space-y-1 text-xs text-app-text-muted">
                       {intelligenceStatus.pack.excluded_source_rules.map((rule) => (
                         <p key={rule}>- {rule}</p>
                       ))}
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-app-border bg-app-surface p-4">
-                    <h4 className="text-xs font-black uppercase tracking-widest text-app-text">
-                      Governance Issues
-                    </h4>
-                    <div className="mt-3 space-y-2 text-sm text-app-text-muted">
+                  <div className="rounded-xl border border-app-border bg-app-surface p-3">
+                    <h4 className="text-xs font-bold text-app-text">Governance Issues</h4>
+                    <div className="mt-2 space-y-1 text-xs text-app-text-muted">
                       {intelligenceStatus.pack.issues_detected.length === 0 && (
-                        <p>No approved-source drift is currently detected.</p>
+                        <p className="text-green-600">No issues detected</p>
                       )}
                       {intelligenceStatus.pack.issues_detected.map((issue) => (
                         <p key={`${issue.path}:${issue.issue}`}>

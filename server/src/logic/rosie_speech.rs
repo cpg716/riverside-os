@@ -399,7 +399,18 @@ pub async fn runtime_status(state: &RosieSpeechState) -> Result<RosieHostRuntime
             running: resolve_llm_running(&upstream_url).await,
         },
         stt: RosieHostSttStatus {
-            engine_name: "SenseVoice Small via Sherpa-ONNX".to_string(),
+            engine_name: if sensevoice_ready {
+                "SenseVoice Small via Sherpa-ONNX".to_string()
+            } else if command_exists(&whisper_cli_path)
+                && whisper_model_path
+                    .as_ref()
+                    .map(|path| path.exists())
+                    .unwrap_or(false)
+            {
+                "Whisper.cpp".to_string()
+            } else {
+                "Unavailable".to_string()
+            },
             provider: resolve_sherpa_provider(),
             active_engine: if sensevoice_ready {
                 "sensevoice".to_string()
@@ -429,7 +440,13 @@ pub async fn runtime_status(state: &RosieSpeechState) -> Result<RosieHostRuntime
                 .unwrap_or(false),
         },
         tts: RosieHostTtsStatus {
-            engine_name: "Kokoro-82M via Sherpa-ONNX".to_string(),
+            engine_name: if kokoro_ready {
+                "Kokoro-82M via Sherpa-ONNX".to_string()
+            } else if command_exists(&tts_fallback_command_path) {
+                "Host Speech Command".to_string()
+            } else {
+                "Unavailable".to_string()
+            },
             provider: resolve_sherpa_provider(),
             active_engine: if kokoro_ready {
                 "kokoro".to_string()
