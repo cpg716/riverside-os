@@ -105,6 +105,8 @@ interface RegisterDaySummary {
   online_order_count: number;
   appointment_count: number;
   new_wedding_parties_count: number;
+  cash_collected: string;
+  deposits_collected: string;
 }
 
 type OperationalFeedKey =
@@ -1928,7 +1930,7 @@ export default function OperationalHome({
           ariaLabel="Open Daily Sales"
         />
         <DashboardStatsCard
-          title="Register Close"
+          title="Register Status"
           value={feedLoadErrors.registerSessions ? "Not loaded" : registerCloseStats.reconciling > 0 ? registerCloseStats.reconciling : registerCloseStats.openDrawers}
           icon={ClipboardCheck}
           trend={{
@@ -1939,7 +1941,7 @@ export default function OperationalHome({
           color={registerCloseStats.reconciling > 0 ? "orange" : "green"}
           className="min-h-[142px] p-4"
           onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
-          ariaLabel="Open Register Close Review"
+          ariaLabel="Open Register Status"
         />
         <DashboardStatsCard
           title="Pickup Queue"
@@ -2297,7 +2299,7 @@ export default function OperationalHome({
           </DashboardGridCard>
 
           <DashboardGridCard
-            title="Register Close"
+            title="Till Control"
             subtitle="Open drawers and close-review pressure"
             icon={ClipboardCheck}
             actionLabel="Open Reports"
@@ -2327,6 +2329,19 @@ export default function OperationalHome({
                 onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
                 ariaLabel="Open Register Reports"
               />
+            </div>
+            <div className="mt-4 flex items-center justify-between rounded-xl bg-app-surface-3/40 p-3.5 border border-app-border/60">
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Running Cash Total
+                </p>
+                <p className="text-[9px] font-semibold text-app-text-muted mt-0.5">
+                  Today's cash sales and float additions
+                </p>
+              </div>
+              <div className="text-base font-black text-emerald-500 tabular-nums">
+                {feedLoadErrors.todaySummary ? "—" : todaySummary ? money(todaySummary.cash_collected) : "$0.00"}
+              </div>
             </div>
             <div className="mt-4 space-y-2">
               {openRegisterSessions.slice(0, 4).map((session) => (
