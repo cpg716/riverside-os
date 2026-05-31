@@ -86,7 +86,10 @@ impl GeminiClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(format!("Gemini API returned HTTP {}: {}", status, error_text));
+            return Err(format!(
+                "Gemini API returned HTTP {}: {}",
+                status, error_text
+            ));
         }
 
         response
@@ -96,11 +99,7 @@ impl GeminiClient {
     }
 
     /// Send a text-to-speech request to Gemini API
-    pub async fn text_to_speech(
-        &self,
-        text: &str,
-        voice: &str,
-    ) -> Result<Vec<u8>, String> {
+    pub async fn text_to_speech(&self, text: &str, voice: &str) -> Result<Vec<u8>, String> {
         let url = format!(
             "{}/v1beta/models/{}:generateContent?key={}",
             self.config.base_url, self.config.model, self.config.api_key
@@ -131,7 +130,10 @@ impl GeminiClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(format!("Gemini TTS returned HTTP {}: {}", status, error_text));
+            return Err(format!(
+                "Gemini TTS returned HTTP {}: {}",
+                status, error_text
+            ));
         }
 
         response
@@ -142,10 +144,7 @@ impl GeminiClient {
     }
 
     /// Send a speech-to-text request to Gemini API
-    pub async fn speech_to_text(
-        &self,
-        audio_data: &[u8],
-    ) -> Result<String, String> {
+    pub async fn speech_to_text(&self, audio_data: &[u8]) -> Result<String, String> {
         let url = format!(
             "{}/v1beta/models/{}:generateContent?key={}",
             self.config.base_url, self.config.model, self.config.api_key
@@ -179,7 +178,10 @@ impl GeminiClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(format!("Gemini STT returned HTTP {}: {}", status, error_text));
+            return Err(format!(
+                "Gemini STT returned HTTP {}: {}",
+                status, error_text
+            ));
         }
 
         let result: Value = response

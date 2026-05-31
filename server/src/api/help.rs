@@ -1841,9 +1841,9 @@ async fn rosie_capabilities(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    Ok(Json(crate::logic::rosie_intelligence::get_rosie_self_reflection(
-        context,
-    )))
+    Ok(Json(
+        crate::logic::rosie_intelligence::get_rosie_self_reflection(context),
+    ))
 }
 
 async fn run_command_capture(mut cmd: Command) -> Result<AdminOpsRunOut, Response> {
@@ -1969,10 +1969,7 @@ pub fn router() -> Router<AppState> {
             "/rosie/v1/intelligence/refresh",
             post(rosie_intelligence_refresh),
         )
-        .route(
-            "/rosie/v1/capabilities",
-            get(rosie_capabilities),
-        )
+        .route("/rosie/v1/capabilities", get(rosie_capabilities))
         .route(
             "/rosie/v1/product-catalog-analyze",
             post(rosie_product_catalog_analysis),

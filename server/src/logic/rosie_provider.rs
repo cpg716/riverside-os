@@ -79,7 +79,10 @@ impl RosieLLMProvider for LocalGemmaProvider {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(format!("Gemma API returned HTTP {}: {}", status, error_text));
+            return Err(format!(
+                "Gemma API returned HTTP {}: {}",
+                status, error_text
+            ));
         }
 
         response
@@ -124,7 +127,9 @@ impl RosieLLMProvider for GeminiProvider {
             })
             .collect();
 
-        self.client.chat_completion(gemini_messages, 0.7, false).await
+        self.client
+            .chat_completion(gemini_messages, 0.7, false)
+            .await
     }
 }
 

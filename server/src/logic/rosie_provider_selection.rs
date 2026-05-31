@@ -74,8 +74,7 @@ pub async fn select_llm_provider(
     match config.mode {
         RosieProviderMode::LocalGemma => {
             tracing::info!("Using local Gemma provider (forced by configuration)");
-            LocalGemmaProvider::from_env()
-                .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
+            LocalGemmaProvider::from_env().map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
         }
         RosieProviderMode::GeminiApi => {
             tracing::info!("Using Gemini API provider (forced by configuration)");
@@ -83,8 +82,7 @@ pub async fn select_llm_provider(
                 .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
                 .or_else(|_| {
                     tracing::warn!("Gemini API provider unavailable, falling back to local Gemma");
-                    LocalGemmaProvider::from_env()
-                        .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
+                    LocalGemmaProvider::from_env().map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
                 })
         }
         RosieProviderMode::Auto => {
@@ -106,8 +104,7 @@ pub async fn select_llm_provider(
                     .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
                     .or_else(|_| {
                         tracing::warn!("Local Gemma unavailable, trying Gemini API");
-                        GeminiProvider::from_env()
-                            .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
+                        GeminiProvider::from_env().map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
                     })
             }
         }
@@ -142,9 +139,9 @@ async fn should_use_gemini(config: &RosieProviderConfig, query_type: &QueryType)
     if gemini_available && local_available {
         match query_type {
             QueryType::Sensitive => false,
-            QueryType::Help => true,  // Gemini is faster for help queries
-            QueryType::Conversation => true,  // Better for conversational AI
-            QueryType::Analysis => true,  // Better reasoning capabilities
+            QueryType::Help => true, // Gemini is faster for help queries
+            QueryType::Conversation => true, // Better for conversational AI
+            QueryType::Analysis => true, // Better reasoning capabilities
         }
     } else if gemini_available {
         true
@@ -198,10 +195,19 @@ mod tests {
 
     #[test]
     fn test_provider_mode_from_str() {
-        assert_eq!(RosieProviderMode::from_str("local"), RosieProviderMode::LocalGemma);
-        assert_eq!(RosieProviderMode::from_str("gemini"), RosieProviderMode::GeminiApi);
+        assert_eq!(
+            RosieProviderMode::from_str("local"),
+            RosieProviderMode::LocalGemma
+        );
+        assert_eq!(
+            RosieProviderMode::from_str("gemini"),
+            RosieProviderMode::GeminiApi
+        );
         assert_eq!(RosieProviderMode::from_str("auto"), RosieProviderMode::Auto);
-        assert_eq!(RosieProviderMode::from_str("unknown"), RosieProviderMode::Auto);
+        assert_eq!(
+            RosieProviderMode::from_str("unknown"),
+            RosieProviderMode::Auto
+        );
     }
 
     #[test]

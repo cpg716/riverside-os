@@ -96,7 +96,10 @@ async fn execute_e2e_workflow(
 ) -> Result<E2EWorkflowResponse, String> {
     let script_path = e2e_workflow_script_path();
     if !script_path.exists() {
-        return Err(format!("E2E workflow script not found: {}", script_path.display()));
+        return Err(format!(
+            "E2E workflow script not found: {}",
+            script_path.display()
+        ));
     }
 
     if dry_run {
@@ -109,8 +112,8 @@ async fn execute_e2e_workflow(
         });
     }
 
-    let params_json = serde_json::to_string(params)
-        .map_err(|e| format!("Failed to serialize params: {}", e))?;
+    let params_json =
+        serde_json::to_string(params).map_err(|e| format!("Failed to serialize params: {}", e))?;
 
     let output = Command::new("node")
         .arg(script_path)
@@ -132,18 +135,28 @@ async fn execute_e2e_workflow(
         .map_err(|e| format!("Failed to parse E2E workflow output: {}", e))?;
 
     Ok(E2EWorkflowResponse {
-        success: result.get("success").and_then(|v| v.as_bool()).unwrap_or(false),
+        success: result
+            .get("success")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         screenshots: result
             .get("screenshots")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default(),
         output: result
             .get("output")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        error: result.get("error").and_then(|v| v.as_str()).map(String::from),
+        error: result
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         dry_run: false,
     })
 }
