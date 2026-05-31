@@ -550,7 +550,6 @@ fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
     lines.join("\n")
 }
 
-
 pub fn build_receiptline_markdown(
     d: &ReceiptOrder,
     cfg: &ReceiptConfig,

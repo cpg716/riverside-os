@@ -91,7 +91,7 @@ async fn get_tailscale_ips() -> Vec<(String, String)> {
                         });
 
                     if let Some(ips_arr) = peer.get("TailscaleIPs").and_then(|i| i.as_array()) {
-                        if let Some(ip) = ips_arr.get(0).and_then(|ip| ip.as_str()) {
+                        if let Some(ip) = ips_arr.first().and_then(|ip| ip.as_str()) {
                             list.push((ip.to_string(), dns_name.unwrap_or_else(|| ip.to_string())));
                         }
                     }
@@ -113,45 +113,42 @@ async fn scan_ip(
     let addr = SocketAddr::new(ip, 3000);
 
     let stream = TcpStream::connect(&addr);
-    match tokio::time::timeout(Duration::from_millis(400), stream).await {
-        Ok(Ok(_)) => {
-            let client = match reqwest::Client::builder()
-                .timeout(Duration::from_millis(1000))
-                .build()
-            {
-                Ok(c) => c,
-                Err(_) => return None,
-            };
-            let url = format!("http://{}:3000", ip_str);
-            let req = client
-                .get(format!("{}/api/health", url))
-                .header("x-riverside-staff-code", "");
+    if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(400), stream).await {
+        let client = match reqwest::Client::builder()
+            .timeout(Duration::from_millis(1000))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return None,
+        };
+        let url = format!("http://{ip_str}:3000");
+        let req = client
+            .get(format!("{url}/api/health"))
+            .header("x-riverside-staff-code", "");
 
-            if let Ok(res) = req.send().await {
-                if res.status().is_success() {
-                    let version = if let Ok(json) = res.json::<serde_json::Value>().await {
-                        json.get("version")
-                            .and_then(|v| v.as_str())
-                            .map(|v| v.to_string())
-                    } else {
-                        None
-                    };
-                    let name = match (host_name, version) {
-                        (Some(h), Some(v)) => Some(format!("{} (v{})", h, v)),
-                        (None, Some(v)) => Some(format!("Riverside OS v{}", v)),
-                        (Some(h), None) => Some(h),
-                        (None, None) => Some("Riverside OS".to_string()),
-                    };
-                    return Some(DiscoveredServer {
-                        url,
-                        name,
-                        tailscale: is_ts,
-                        latency_ms: start.elapsed().as_millis() as u32,
-                    });
-                }
+        if let Ok(res) = req.send().await {
+            if res.status().is_success() {
+                let version = if let Ok(json) = res.json::<serde_json::Value>().await {
+                    json.get("version")
+                        .and_then(|v| v.as_str())
+                        .map(|v| v.to_string())
+                } else {
+                    None
+                };
+                let name = match (host_name, version) {
+                    (Some(h), Some(v)) => Some(format!("{h} (v{v})")),
+                    (None, Some(v)) => Some(format!("Riverside OS v{v}")),
+                    (Some(h), None) => Some(h),
+                    (None, None) => Some("Riverside OS".to_string()),
+                };
+                return Some(DiscoveredServer {
+                    url,
+                    name,
+                    tailscale: is_ts,
+                    latency_ms: start.elapsed().as_millis() as u32,
+                });
             }
         }
-        _ => {}
     }
     None
 }
@@ -174,7 +171,7 @@ async fn discover_servers() -> Result<Vec<DiscoveredServer>, String> {
     // 2. Queue local subnet
     if let Some(prefix) = get_local_subnet_prefix() {
         for i in 1..=254 {
-            let ip = format!("{}.{}", prefix, i);
+            let ip = format!("{prefix}.{i}");
             let sem = semaphore.clone();
             join_set.spawn(async move {
                 let _permit = sem.acquire().await.ok();
@@ -185,7 +182,7 @@ async fn discover_servers() -> Result<Vec<DiscoveredServer>, String> {
         let fallbacks = vec!["192.168.1", "192.168.0", "10.0.0", "10.0.1"];
         for prefix in fallbacks {
             for i in 1..=254 {
-                let ip = format!("{}.{}", prefix, i);
+                let ip = format!("{prefix}.{i}");
                 let sem = semaphore.clone();
                 join_set.spawn(async move {
                     let _permit = sem.acquire().await.ok();
