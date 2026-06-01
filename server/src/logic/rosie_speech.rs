@@ -611,6 +611,7 @@ pub async fn synthesize_tts_wav_base64(
         .unwrap_or("5")
         .to_string();
     let speed = rate_multiplier.to_string();
+    let provider = "native".to_string();
     let wav_path = temp_voice_prefix("tts-output", "wav");
     let output = tokio::process::Command::new(&python_path)
         .arg(script_path)
