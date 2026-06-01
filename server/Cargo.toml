@@ -72,7 +72,7 @@ tracing-opentelemetry = "0.28"
 lettre = "0.11"
 imap = "2"
 native-tls = "0.2"
-mail-parser = "0.10"
+mail-parser = "0.11"
 
 [dev-dependencies]
 wiremock = "0.6"
