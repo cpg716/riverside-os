@@ -5089,12 +5089,11 @@ async fn post_customer_podium_review_invite(
 ) -> Result<Json<serde_json::Value>, CustomerError> {
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
 
-    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT phone, email FROM customers WHERE id = $1"
-    )
-    .bind(customer_id)
-    .fetch_optional(&state.db)
-    .await?;
+    let row: Option<(Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT phone, email FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .fetch_optional(&state.db)
+            .await?;
 
     let Some((phone, email)) = row else {
         return Err(CustomerError::NotFound);
@@ -5116,7 +5115,7 @@ async fn post_customer_podium_review_invite(
 
     let opt_out: bool = if has_review_opt_out {
         sqlx::query_scalar::<_, Option<bool>>(
-            "SELECT review_requests_opt_out FROM customers WHERE id = $1"
+            "SELECT review_requests_opt_out FROM customers WHERE id = $1",
         )
         .bind(customer_id)
         .fetch_optional(&state.db)
@@ -5137,7 +5136,8 @@ async fn post_customer_podium_review_invite(
     let email_opt = email.as_deref().filter(|e| podium::looks_like_email(e));
     if phone_opt.is_none() && email_opt.is_none() {
         return Err(CustomerError::BadRequest(
-            "Customer needs a valid phone number or email address to send a review request.".to_string(),
+            "Customer needs a valid phone number or email address to send a review request."
+                .to_string(),
         ));
     }
 
