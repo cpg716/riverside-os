@@ -5,7 +5,6 @@ param(
   [switch]$SkipMigrations,
   [switch]$SkipFirewall,
   [switch]$SkipRosieSetup,
-  [switch]$SkipVoiceTools,
   [switch]$NoStart,
   [switch]$SkipPostgresInstall
 )
@@ -717,11 +716,11 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
 
 # ---------------------------------------------------------------------------
 # ROSIE AI Stack Setup
-# Downloads the pinned Gemma GGUF, installs Sherpa-ONNX for SenseVoice STT
-# and Kokoro TTS. All assets land in %LOCALAPPDATA%\riverside-os\rosie\.
+# Downloads the pinned Gemma GGUF. Voice tools (sherpa-onnx) removed.
+# All assets land in %LOCALAPPDATA%\riverside-os\rosie\.
 # Returns the resolved model path (or $null if skipped / failed non-fatally).
 # ---------------------------------------------------------------------------
-function Install-RosieStack($PackageRoot, [switch]$SkipVoiceTools) {
+function Install-RosieStack($PackageRoot) {
   $rosieRoot   = if ($env:ProgramData) { Join-Path $env:ProgramData "riverside-os\rosie" } else { Join-Path $env:LOCALAPPDATA "riverside-os\rosie" }
   $modelsDir   = Join-Path $rosieRoot "models\gemma-4-e4b"
   $sttDir      = Join-Path $rosieRoot "stt"
@@ -776,120 +775,8 @@ function Install-RosieStack($PackageRoot, [switch]$SkipVoiceTools) {
     }
   }
 
-  # ---- 2. Sherpa-ONNX (SenseVoice STT + Kokoro TTS) via uv -----
-  if ($SkipVoiceTools) {
-    Write-Host "ROSIE: Voice tools skipped (-SkipVoiceTools). STT/TTS will use Windows fallback."
-  } else {
-    $uvCmd = Get-Command uv.exe -ErrorAction SilentlyContinue
-    if (-not $uvCmd) {
-      # Try the standard uv install location and the user profile local bin
-      $uvLocal = Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe"
-      $uvUserProfile = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
-      if (Test-Path $uvUserProfile) {
-        $uvCmd = $uvUserProfile
-      } elseif (Test-Path $uvLocal) {
-        $uvCmd = $uvLocal
-      } else {
-        Write-Host "ROSIE: Installing uv (Python toolchain manager)..."
-        try {
-          Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
-          if (Test-Path $uvUserProfile) {
-            $uvCmd = $uvUserProfile
-          } else {
-            $uvCmd = Join-Path $env:LOCALAPPDATA "Programs\uv\uv.exe"
-          }
-        } catch {
-          Write-Warning "ROSIE: Could not install uv. SenseVoice STT and Kokoro TTS will be unavailable. Install uv manually from https://astral.sh/uv."
-          return $modelDest
-        }
-      }
-    } else {
-      $uvCmd = $uvCmd.Source
-    }
-
-    Write-Host "ROSIE: Installing sherpa-onnx Python runtime via uv..."
-    $sherpaInstalled = $false
-
-    # Pre-fetch Python 3.12 to guarantee uv has a valid runtime
-    try {
-      Write-Host "ROSIE: Fetching standalone Python 3.12 via uv..."
-      & $uvCmd python install 3.12 2>&1 | Write-Host
-    } catch { }
-
-    # Attempt 1: uv tool install with pinned Python 3.12
-    try {
-      & $uvCmd tool install --force --python 3.12 sherpa-onnx 2>&1 | Write-Host
-      if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
-    } catch { }
-    # Attempt 2: uv tool install without pinned Python
-    if (-not $sherpaInstalled) {
-      Write-Host "ROSIE: Retry 1 - sherpa-onnx without pinned Python version..."
-      try {
-        & $uvCmd tool install --force sherpa-onnx 2>&1 | Write-Host
-        if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
-      } catch { }
-    }
-    # Attempt 3: pip install into a uv-managed venv as fallback
-    if (-not $sherpaInstalled) {
-      Write-Host "ROSIE: Retry 2 - creating dedicated venv with pip..."
-      $sherpaVenv = Join-Path $rosieRoot "sherpa-venv"
-      try {
-        & $uvCmd venv --python 3.12 $sherpaVenv 2>&1 | Write-Host
-        $venvPython = Join-Path $sherpaVenv "Scripts\python.exe"
-        if (Test-Path $venvPython) {
-          & $uvCmd pip install --python $venvPython sherpa-onnx --only-binary=:all: 2>&1 | Write-Host
-          if ($LASTEXITCODE -eq 0) { $sherpaInstalled = $true }
-        }
-      } catch { }
-    }
-    if ($sherpaInstalled) {
-      Write-Host "ROSIE: sherpa-onnx installed successfully."
-    } else {
-      Write-Warning "ROSIE: sherpa-onnx install FAILED after all retries. Voice STT/TTS will not be available. Check network connectivity and try again."
-    }
-
-    # ---- 3. SenseVoice STT model -----
-    $sensevoiceDir  = Join-Path $sttDir "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-    $sensevoiceUrl  = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2"
-    $sensevoiceModel = Join-Path $sensevoiceDir "model.int8.onnx"
-    if (-not (Test-Path $sensevoiceModel)) {
-      New-Item -ItemType Directory -Force -Path $sttDir | Out-Null
-      $tarDest = Join-Path $env:TEMP "sensevoice.tar.bz2"
-      Write-Host "ROSIE: Downloading SenseVoice STT model..."
-      try {
-        Invoke-WebRequest -Uri $sensevoiceUrl -OutFile $tarDest -UseBasicParsing
-        Write-Host "ROSIE: Extracting SenseVoice model..."
-        & tar.exe -xjf $tarDest -C $sttDir
-        Remove-Item $tarDest -Force -ErrorAction SilentlyContinue
-        Write-Host "ROSIE: SenseVoice STT model installed."
-      } catch {
-        Write-Warning "ROSIE: SenseVoice download failed: $($_.Exception.Message). Voice input will fall back to Windows Speech."
-      }
-    } else {
-      Write-Host "ROSIE: SenseVoice STT model already present."
-    }
-
-    # ---- 4. Kokoro TTS model -----
-    $kokoroDir    = Join-Path $ttsDir "kokoro-multi-lang-v1_0"
-    $kokoroModel  = Join-Path $kokoroDir "model.onnx"
-    $kokoroUrl    = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
-    if (-not (Test-Path $kokoroModel)) {
-      New-Item -ItemType Directory -Force -Path $ttsDir | Out-Null
-      $tarDest = Join-Path $env:TEMP "kokoro.tar.bz2"
-      Write-Host "ROSIE: Downloading Kokoro TTS model..."
-      try {
-        Invoke-WebRequest -Uri $kokoroUrl -OutFile $tarDest -UseBasicParsing
-        Write-Host "ROSIE: Extracting Kokoro TTS model..."
-        & tar.exe -xjf $tarDest -C $ttsDir
-        Remove-Item $tarDest -Force -ErrorAction SilentlyContinue
-        Write-Host "ROSIE: Kokoro TTS model installed."
-      } catch {
-        Write-Warning "ROSIE: Kokoro download failed: $($_.Exception.Message). Voice output will fall back to Windows TTS."
-      }
-    } else {
-      Write-Host "ROSIE: Kokoro TTS model already present."
-    }
-  }
+  # ---- 2. Voice tools (sherpa-onnx) removed ----
+  Write-Host "ROSIE: Voice tools (sherpa-onnx) not installed. STT/TTS will use Windows fallback."
 
   Write-Host "ROSIE: Stack setup complete. Model: $modelDest"
   return $modelDest
@@ -1345,7 +1232,7 @@ if ($script:postgresReachable) {
 $rosieModelPath = $null
 if (-not $SkipRosieSetup) {
   Write-Host "`n--- ROSIE AI Stack Setup ---"
-  $rosieModelPath = Install-RosieStack $ScriptRoot -SkipVoiceTools:$SkipVoiceTools
+  $rosieModelPath = Install-RosieStack $ScriptRoot
   if ($rosieModelPath) {
     Write-Host "ROSIE model path: $rosieModelPath"
   } else {
