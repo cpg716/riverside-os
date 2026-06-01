@@ -670,6 +670,7 @@ export function CustomerRelationshipHubDrawer({
     string | null
   >(null);
   const [contactSyncBusy, setContactSyncBusy] = useState(false);
+  const [reviewInviteBusy, setReviewInviteBusy] = useState(false);
   const [communicationTimeline, setCommunicationTimeline] = useState<
     CommunicationTimelineRow[]
   >([]);
@@ -808,6 +809,29 @@ export function CustomerRelationshipHubDrawer({
       toast("Could not sync customer to Podium.", "error");
     } finally {
       setContactSyncBusy(false);
+    }
+  }, [baseUrl, customer.id, apiAuth, toast]);
+
+  const sendPodiumReviewInvite = useCallback(async () => {
+    setReviewInviteBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/${customer.id}/podium/review-invite`,
+        {
+          method: "POST",
+          headers: apiAuth(),
+        },
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(err.error ?? "Could not send review request.", "error");
+        return;
+      }
+      toast("Review request sent through Podium.", "success");
+    } catch {
+      toast("Could not send review request.", "error");
+    } finally {
+      setReviewInviteBusy(false);
     }
   }, [baseUrl, customer.id, apiAuth, toast]);
 
@@ -3479,6 +3503,11 @@ export function CustomerRelationshipHubDrawer({
                             Add a phone number on the Profile tab to send SMS.
                           </p>
                         ) : null}
+                        {hub.phone && (!profileDraft.transactional_sms_opt_in && !profileDraft.marketing_sms_opt_in) ? (
+                          <p className="mb-3 rounded-xl border border-app-warning/25 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-warning">
+                            Warning: This customer has opted out of all SMS communications.
+                          </p>
+                        ) : null}
                         <div className="mb-2 flex flex-wrap items-center gap-2">
                           <button
                             type="button"
@@ -3552,6 +3581,11 @@ export function CustomerRelationshipHubDrawer({
                         {!hub.email ? (
                           <p className="mb-3 rounded-xl border border-app-warning/25 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
                             Add an email address on the Profile tab before sending.
+                          </p>
+                        ) : null}
+                        {hub.email && (!profileDraft.transactional_email_opt_in && !profileDraft.marketing_email_opt_in) ? (
+                          <p className="mb-3 rounded-xl border border-app-warning/25 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-warning">
+                            Warning: This customer has opted out of all email communications.
                           </p>
                         ) : null}
                         <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -4325,14 +4359,25 @@ export function CustomerRelationshipHubDrawer({
                         No marketing channels enabled yet.
                       </p>
                     ) : null}
-                    <button
-                      type="button"
-                      disabled={contactSyncBusy}
-                      onClick={() => void syncPodiumContact()}
-                      className="mt-3 inline-flex items-center gap-2 rounded-xl border border-app-accent/30 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-50"
-                    >
-                      {contactSyncBusy ? "Syncing..." : "Sync to Podium Contacts"}
-                    </button>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <button
+                        type="button"
+                        disabled={contactSyncBusy}
+                        onClick={() => void syncPodiumContact()}
+                        className="inline-flex items-center gap-2 rounded-xl border border-app-accent/30 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-50"
+                      >
+                        {contactSyncBusy ? "Syncing..." : "Sync to Podium Contacts"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={reviewInviteBusy || profileDraft.review_requests_opt_out}
+                        onClick={() => void sendPodiumReviewInvite()}
+                        className="inline-flex items-center gap-2 rounded-xl border border-app-success/30 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-50"
+                        title={profileDraft.review_requests_opt_out ? "Customer has opted out of reviews" : undefined}
+                      >
+                        {reviewInviteBusy ? "Sending..." : "Send Review Request"}
+                      </button>
+                    </div>
                   </section>
 
                   <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">

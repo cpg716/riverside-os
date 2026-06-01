@@ -2884,6 +2884,10 @@ pub fn router() -> Router<AppState> {
             "/{customer_id}/podium/contact-sync",
             post(post_customer_podium_contact_sync),
         )
+        .route(
+            "/{customer_id}/podium/review-invite",
+            post(post_customer_podium_review_invite),
+        )
         .route("/{customer_id}/weddings", get(list_customer_weddings))
         .route(
             "/{customer_id}/couple-link",
@@ -5076,6 +5080,86 @@ async fn post_customer_podium_contact_sync(
         ))
     })?;
     Ok(Json(result))
+}
+
+async fn post_customer_podium_review_invite(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT phone, email FROM customers WHERE id = $1"
+    )
+    .bind(customer_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let Some((phone, email)) = row else {
+        return Err(CustomerError::NotFound);
+    };
+
+    let has_review_opt_out: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'customers'
+              AND column_name = 'review_requests_opt_out'
+        )
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(false);
+
+    let opt_out: bool = if has_review_opt_out {
+        sqlx::query_scalar::<_, Option<bool>>(
+            "SELECT review_requests_opt_out FROM customers WHERE id = $1"
+        )
+        .bind(customer_id)
+        .fetch_optional(&state.db)
+        .await?
+        .flatten()
+        .unwrap_or(false)
+    } else {
+        false
+    };
+
+    if opt_out {
+        return Err(CustomerError::BadRequest(
+            "Customer has opted out of review requests.".to_string(),
+        ));
+    }
+
+    let phone_opt = phone.as_deref().and_then(podium::normalize_phone_e164);
+    let email_opt = email.as_deref().filter(|e| podium::looks_like_email(e));
+    if phone_opt.is_none() && email_opt.is_none() {
+        return Err(CustomerError::BadRequest(
+            "Customer needs a valid phone number or email address to send a review request.".to_string(),
+        ));
+    }
+
+    let invite = podium::create_podium_review_invite(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        phone.as_deref(),
+        email.as_deref(),
+    )
+    .await
+    .map_err(|e| {
+        CustomerError::PodiumUnavailable(format!(
+            "Could not send Podium review invite ({e}). Check Integration credentials."
+        ))
+    })?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "provider_id": invite.provider_id,
+        "review_url": invite.review_url,
+    })))
 }
 
 async fn get_podium_conversation_assignees(

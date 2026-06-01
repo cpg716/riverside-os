@@ -1023,6 +1023,10 @@ export default function ReceiptSummaryModal({
                 </label>
               </div>
             </div>
+          ) : transactionDetail?.customer_review_requests_opt_out === true ? (
+            <p className="shrink-0 rounded-xl border border-app-warning/20 bg-app-warning/5 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-app-warning">
+              This customer has opted out of review requests in their profile.
+            </p>
           ) : transactionDetail?.review_invite_sent_at || transactionDetail?.review_invite_suppressed_at ? (
             <p className="shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
               Review invite choice already saved for this transaction.

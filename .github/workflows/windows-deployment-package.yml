@@ -642,6 +642,18 @@ jobs:
               throw "Failed to create GitHub release $tag"
             }
           }
+          
+          # Delete any older duplicate deployment packages for this version on the release
+          $release = gh release view $tag --json assets | ConvertFrom-Json
+          if ($release -and $release.assets) {
+            foreach ($asset in $release.assets) {
+              if ($asset.name -like "RiversideOS-v$version-*-Windows-Deployment.zip") {
+                Write-Host "Deleting older deployment asset: $($asset.name)"
+                gh release delete-asset $tag $asset.name --yes
+              }
+            }
+          }
+
           $zipFiles = Get-ChildItem -Path "dist/deployment" -Filter "*.zip" -ErrorAction SilentlyContinue
           if (-not $zipFiles) {
             throw "No deployment package ZIP found in dist/deployment/"

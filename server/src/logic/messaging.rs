@@ -41,11 +41,11 @@ async fn load_customer_messaging_row(
 }
 
 fn email_opt_in_ok(row: &CustomerMessagingRow) -> bool {
-    row.transactional_email_opt_in || row.marketing_email_opt_in
+    row.transactional_email_opt_in
 }
 
 fn sms_opt_in_ok(row: &CustomerMessagingRow) -> bool {
-    row.transactional_sms_opt_in || row.marketing_sms_opt_in
+    row.transactional_sms_opt_in
 }
 
 fn fmt_money_dec(d: Decimal) -> String {
