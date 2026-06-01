@@ -611,19 +611,55 @@ pub async fn import_cp_csv_reference(
             .map_err(WorkbenchError::Database)?;
     }
 
-    let batch_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO counterpoint_csv_reference_batches (source_file_name, source_file_hash, row_count, status)
-        VALUES ($1, $2, $3, 'active')
-        RETURNING id
-        "#,
-    )
-    .bind(source_file_name)
-    .bind(payload.source_file_hash.trim())
-    .bind(payload.rows.len() as i32)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(WorkbenchError::Database)?;
+    let batch_id: Uuid = if !payload.replace {
+        let existing: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM counterpoint_csv_reference_batches WHERE source_file_hash = $1 AND status = 'active'"
+        )
+        .bind(payload.source_file_hash.trim())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(WorkbenchError::Database)?;
+
+        if let Some(id) = existing {
+            sqlx::query(
+                "UPDATE counterpoint_csv_reference_batches SET row_count = row_count + $1 WHERE id = $2"
+            )
+            .bind(payload.rows.len() as i32)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(WorkbenchError::Database)?;
+            id
+        } else {
+            sqlx::query_scalar(
+                r#"
+                INSERT INTO counterpoint_csv_reference_batches (source_file_name, source_file_hash, row_count, status)
+                VALUES ($1, $2, $3, 'active')
+                RETURNING id
+                "#,
+            )
+            .bind(source_file_name)
+            .bind(payload.source_file_hash.trim())
+            .bind(payload.rows.len() as i32)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(WorkbenchError::Database)?
+        }
+    } else {
+        sqlx::query_scalar(
+            r#"
+            INSERT INTO counterpoint_csv_reference_batches (source_file_name, source_file_hash, row_count, status)
+            VALUES ($1, $2, $3, 'active')
+            RETURNING id
+            "#,
+        )
+        .bind(source_file_name)
+        .bind(payload.source_file_hash.trim())
+        .bind(payload.rows.len() as i32)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(WorkbenchError::Database)?
+    };
 
     let mut inserted = 0usize;
     for chunk in payload.rows.chunks(3_000) {

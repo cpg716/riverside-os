@@ -931,8 +931,11 @@ export default function CounterpointSyncSettingsPanel() {
         return;
       }
 
+      const CHUNK_SIZE = 2000;
+      let success = true;
+
       if (type === "lightspeed") {
-        const rows = parsed.map((row, i) => ({
+        const allRows = parsed.map((row, i) => ({
           sku: row["SKU"] || row["sku"] || row["Sku"] || "",
           handle: row["Handle"] || row["handle"] || null,
           name: row["Name"] || row["Title"] || row["name"] || row["Product Name"] || null,
@@ -947,29 +950,41 @@ export default function CounterpointSyncSettingsPanel() {
           raw_row: row,
         }));
 
-        const res = await fetch(
-          `${baseUrl}/api/settings/counterpoint-sync/workbench/upload-lightspeed-csv`,
-          {
-            method: "POST",
-            headers: { ...headers(), "Content-Type": "application/json" },
-            body: JSON.stringify({
-              source_file_name: file.name,
-              source_file_hash: fileHash,
-              replace: true,
-              rows,
-            }),
-          },
-        );
-        if (res.ok) {
-          toast(`Enrichment catalog loaded: ${rows.length} product entries`, "success");
+        for (let idx = 0; idx < allRows.length; idx += CHUNK_SIZE) {
+          const chunk = allRows.slice(idx, idx + CHUNK_SIZE);
+          const isFirst = idx === 0;
+          const progress = Math.min(100, Math.round(((idx + chunk.length) / allRows.length) * 100));
+          toast(`Uploading Lightspeed CSV: ${progress}%...`, "info");
+
+          const res = await fetch(
+            `${baseUrl}/api/settings/counterpoint-sync/workbench/upload-lightspeed-csv`,
+            {
+              method: "POST",
+              headers: { ...headers(), "Content-Type": "application/json" },
+              body: JSON.stringify({
+                source_file_name: file.name,
+                source_file_hash: fileHash,
+                replace: isFirst,
+                rows: chunk,
+              }),
+            },
+          );
+
+          if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            toast(j.error ?? "Failed to save CSV reference mapping.", "error");
+            success = false;
+            break;
+          }
+        }
+
+        if (success) {
+          toast(`Enrichment catalog loaded: ${allRows.length} product entries`, "success");
           void fetchDsHealth();
           void fetchMergePreview();
-        } else {
-          const j = await res.json().catch(() => ({}));
-          toast(j.error ?? "Failed to save CSV reference mapping.", "error");
         }
       } else {
-        const rows = parsed.map((row, i) => ({
+        const allRows = parsed.map((row, i) => ({
           item_no: row["Item No"] || row["ITEM_NO"] || row["item_no"] || row["ItemNo"] || row["Item #"] || "",
           description: row["Description"] || row["DESCR"] || row["description"] || null,
           long_description: row["Long Description"] || row["LONG_DESCR"] || null,
@@ -984,21 +999,36 @@ export default function CounterpointSyncSettingsPanel() {
           raw_row: row,
         }));
 
-        const res = await fetch(
-          `${baseUrl}/api/settings/counterpoint-sync/workbench/upload-cp-csv`,
-          {
-            method: "POST",
-            headers: { ...headers(), "Content-Type": "application/json" },
-            body: JSON.stringify({
-              source_file_name: file.name,
-              source_file_hash: fileHash,
-              replace: true,
-              rows,
-            }),
-          },
-        );
-        if (res.ok) {
-          toast(`Counterpoint backup CSV cached: ${rows.length} rows`, "success");
+        for (let idx = 0; idx < allRows.length; idx += CHUNK_SIZE) {
+          const chunk = allRows.slice(idx, idx + CHUNK_SIZE);
+          const isFirst = idx === 0;
+          const progress = Math.min(100, Math.round(((idx + chunk.length) / allRows.length) * 100));
+          toast(`Uploading Counterpoint CSV: ${progress}%...`, "info");
+
+          const res = await fetch(
+            `${baseUrl}/api/settings/counterpoint-sync/workbench/upload-cp-csv`,
+            {
+              method: "POST",
+              headers: { ...headers(), "Content-Type": "application/json" },
+              body: JSON.stringify({
+                source_file_name: file.name,
+                source_file_hash: fileHash,
+                replace: isFirst,
+                rows: chunk,
+              }),
+            },
+          );
+
+          if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            toast(j.error ?? "Failed to save CSV reference mapping.", "error");
+            success = false;
+            break;
+          }
+        }
+
+        if (success) {
+          toast(`Counterpoint backup CSV cached: ${allRows.length} rows`, "success");
           void fetchDsHealth();
           void fetchMergePreview();
           void fetchInventoryVerification();
