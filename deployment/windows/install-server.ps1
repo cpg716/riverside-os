@@ -716,7 +716,8 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
 
 # ---------------------------------------------------------------------------
 # ROSIE AI Stack Setup
-# Downloads the pinned Gemma GGUF. Voice tools (sherpa-onnx) removed.
+# Downloads the pinned Gemma GGUF, SenseVoice STT model, and Kokoro TTS model.
+# Sherpa-ONNX runtime is not installed.
 # All assets land in %LOCALAPPDATA%\riverside-os\rosie\.
 # Returns the resolved model path (or $null if skipped / failed non-fatally).
 # ---------------------------------------------------------------------------
@@ -775,8 +776,47 @@ function Install-RosieStack($PackageRoot) {
     }
   }
 
-  # ---- 2. Voice tools (sherpa-onnx) removed ----
-  Write-Host "ROSIE: Voice tools (sherpa-onnx) not installed. STT/TTS will use Windows fallback."
+  # ---- 2. SenseVoice STT model (sherpa-onnx runtime not installed) -----
+  $sensevoiceDir  = Join-Path $sttDir "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
+  $sensevoiceUrl  = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2"
+  $sensevoiceModel = Join-Path $sensevoiceDir "model.int8.onnx"
+  if (-not (Test-Path $sensevoiceModel)) {
+    New-Item -ItemType Directory -Force -Path $sttDir | Out-Null
+    $tarDest = Join-Path $env:TEMP "sensevoice.tar.bz2"
+    Write-Host "ROSIE: Downloading SenseVoice STT model..."
+    try {
+      Invoke-WebRequest -Uri $sensevoiceUrl -OutFile $tarDest -UseBasicParsing
+      Write-Host "ROSIE: Extracting SenseVoice model..."
+      & tar.exe -xjf $tarDest -C $sttDir
+      Remove-Item $tarDest -Force -ErrorAction SilentlyContinue
+      Write-Host "ROSIE: SenseVoice STT model installed."
+    } catch {
+      Write-Warning "ROSIE: SenseVoice download failed: $($_.Exception.Message). Voice input will fall back to Windows Speech."
+    }
+  } else {
+    Write-Host "ROSIE: SenseVoice STT model already present."
+  }
+
+  # ---- 3. Kokoro TTS model (sherpa-onnx runtime not installed) -----
+  $kokoroDir    = Join-Path $ttsDir "kokoro-multi-lang-v1_0"
+  $kokoroModel  = Join-Path $kokoroDir "model.onnx"
+  $kokoroUrl    = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
+  if (-not (Test-Path $kokoroModel)) {
+    New-Item -ItemType Directory -Force -Path $ttsDir | Out-Null
+    $tarDest = Join-Path $env:TEMP "kokoro.tar.bz2"
+    Write-Host "ROSIE: Downloading Kokoro TTS model..."
+    try {
+      Invoke-WebRequest -Uri $kokoroUrl -OutFile $tarDest -UseBasicParsing
+      Write-Host "ROSIE: Extracting Kokoro TTS model..."
+      & tar.exe -xjf $tarDest -C $ttsDir
+      Remove-Item $tarDest -Force -ErrorAction SilentlyContinue
+      Write-Host "ROSIE: Kokoro TTS model installed."
+    } catch {
+      Write-Warning "ROSIE: Kokoro download failed: $($_.Exception.Message). Voice output will fall back to Windows TTS."
+    }
+  } else {
+    Write-Host "ROSIE: Kokoro TTS model already present."
+  }
 
   Write-Host "ROSIE: Stack setup complete. Model: $modelDest"
   return $modelDest
