@@ -65,7 +65,7 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "react-window": "^2.2.7",
-    "receiptline": "^4.0.0",
+    "receiptline": "^4.0.1",
     "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1",
     "stream-browserify": "^3.0.0",
