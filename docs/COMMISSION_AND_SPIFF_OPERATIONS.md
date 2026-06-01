@@ -8,6 +8,7 @@ The intended store rule is:
 - Staff rate changes are effective-dated; the new rate applies from that date forward.
 - Category, product, and variant percentage overrides are retired from the staff workflow.
 - SPIFFs and combo incentives remain as fixed-dollar add-ons.
+- Employee-purchase transactions carry zero commission for all staff (base rate and incentives are suppressed to 0%).
 - Commission reporting can be reviewed by day, week, month, year, or custom period.
 - The normal payroll review is the prior calendar month, reviewed on the first payday of the new month.
 - Returns and exchanges affect the period in which the return/exchange happens.

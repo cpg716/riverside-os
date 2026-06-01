@@ -78,7 +78,9 @@ Attach **before** completing tax-sensitive or loyalty-linked sales if your SOP r
 
 When adding or completing a customer profile at the register, the **Address** field may show street-address suggestions after you start typing. Selecting a suggestion checks that address with Shippo, then fills **Address**, **City**, **State**, and **ZIP**. If Shippo corrects the ZIP, use the corrected ZIP shown in the address field status. If lookup is slow, unavailable, or no match appears, type the address manually and continue; checkout and customer save must not wait on address lookup.
 
-**Employee pricing:** If the attached customer is your **linked employee CRM profile** (set by an admin on **Staff → Team**), new lines default to **employee price** when the catalog provides it; checkout still validates prices against allowed tiers.
+**Employee pricing:** If the attached customer is your **linked employee CRM profile** (set by an admin on **Staff → Team**), new lines default to **employee price** when the catalog provides it (checkout still validates prices against allowed tiers). Employee-purchase transactions carry zero commission for sales staff.
+
+**Customer Profile discounts:** Customers can have a pre-set discount percentage on their profile (configured in their Customer Profile under Back Office). When a customer with a profile discount is attached to the sale, the discount is automatically applied to all eligible merchandise items in the cart (excluding alterations, gift card loads, and RMS payments). The discounted price is shown in the cart, and the line item is labeled with "Customer profile discount" for auditing.
 
 ## Wedding customers at the register
 
