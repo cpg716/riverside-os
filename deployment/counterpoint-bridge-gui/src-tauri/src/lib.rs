@@ -288,7 +288,15 @@ fn save_settings(
     let mut content = if env_path.exists() {
         std::fs::read_to_string(&env_path).map_err(|e| e.to_string())?
     } else {
-        String::new()
+        let example_path = bridge_dir.join("env.example");
+        let dot_example_path = bridge_dir.join(".env.example");
+        if example_path.exists() {
+            std::fs::read_to_string(&example_path).unwrap_or_default()
+        } else if dot_example_path.exists() {
+            std::fs::read_to_string(&dot_example_path).unwrap_or_default()
+        } else {
+            String::new()
+        }
     };
 
     let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
