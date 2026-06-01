@@ -80,7 +80,7 @@
   "devDependencies": {
     "@dicebear/adventurer": "^9.4.2",
     "@dicebear/avataaars": "^9.4.2",
-    "@dicebear/core": "^9.4.2",
+    "@dicebear/core": "^10.0.1",
     "@dicebear/lorelei": "^9.4.2",
     "@eslint/js": "^9.0.0",
     "@playwright/test": "^1.58.2",
