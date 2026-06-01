@@ -148,6 +148,16 @@ Transactions Workspace → Find Customer's Transaction → Pickup OR Ship
     → Inventory Adjusted → Balance Recalced → Status Updated
 ```
 
+### Combined Takeaway & Pickup (Register Flow)
+
+When a customer makes a new purchase (takeaway) and picks up an existing order/layaway/alteration (or pays a remaining balance) in the same register session:
+1. **Tender & Sales Split**: The POS cart allows cashiers to load the historical transaction for pickup/payment and add new takeaway items to the cart simultaneously.
+2. **API and DB Split**:
+   - The new takeaway items and the balance payment amount (`order_payments` array) are sent to `POST /api/transactions/checkout` to create a **new Transaction Record** (which records today's sales revenue, collects today's sales tax, and attributes today's salesperson commission).
+   - Immediately following successful checkout, the client makes a separate `POST /api/transactions/{id}/pickup` call to update the logistical status of the original transaction's lines to "Picked Up," which triggers the deferred revenue recognition and commission rules of the original salesperson who booked the order.
+   - This ensures that a historical transaction's line-item logistics and a new transaction's financial payments are kept completely decoupled and traceably auditable.
+
+
 ---
 
 ## QuickBooks Integration
