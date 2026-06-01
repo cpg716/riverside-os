@@ -213,7 +213,6 @@ fn resolve_tts_fallback_command_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/usr/bin/say"))
 }
 
-
 fn resolve_llama_provider() -> String {
     std::env::var("RIVERSIDE_LLAMA_PROVIDER").unwrap_or_else(|_| "llama.cpp".into())
 }
