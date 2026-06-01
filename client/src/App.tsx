@@ -361,6 +361,13 @@ function App() {
     }
   }, [loading, enterBackofficeShell, posMode]);
 
+  // Save active POS tab while register is open
+  useEffect(() => {
+    if (posMode && isRegisterOpen && activeTab) {
+      sessionStorage.setItem("ros.pos.active_tab", activeTab);
+    }
+  }, [posMode, isRegisterOpen, activeTab]);
+
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const applyTheme = () => {
@@ -427,11 +434,16 @@ function App() {
 
     setWeddingMode(false);
     setInsightsMode(false);
-    setActiveTab("register");
+    const savedTab = sessionStorage.getItem("ros.pos.active_tab") as SidebarTabId | null;
+    setActiveTab(savedTab || "register");
+    sessionStorage.removeItem("ros.pos.active_tab");
     setPosMode(true);
   };
 
   const handleSessionClosed = () => {
+    if (activeTab && activeTab !== "register") {
+      sessionStorage.setItem("ros.pos.active_tab", activeTab);
+    }
     setShowCloseModal(false);
     setIsRegisterOpen(false);
     setSessionId(null);
@@ -1372,19 +1384,24 @@ function AppShell({
       // Unauthenticated state. Record the current mode.
       if (!sessionStorage.getItem("Originating_Mode")) {
         sessionStorage.setItem("Originating_Mode", posMode ? "pos" : "backoffice");
+        if (posMode) {
+          sessionStorage.setItem("Originating_Tab", activeTab);
+        }
       }
     } else {
       // Successfully authenticated/restored credentials.
       const origin = sessionStorage.getItem("Originating_Mode");
       if (origin === "pos") {
         setPosMode(true);
-        setActiveTab("register");
+        const savedTab = sessionStorage.getItem("Originating_Tab") as SidebarTabId | null;
+        setActiveTab(savedTab || "register");
       } else if (origin === "backoffice") {
         setPosMode(false);
       }
       sessionStorage.removeItem("Originating_Mode");
+      sessionStorage.removeItem("Originating_Tab");
     }
-  }, [staffCode, posMode, permissionsLoaded, permissions.length, setPosMode, setActiveTab]);
+  }, [staffCode, posMode, permissionsLoaded, permissions.length, setPosMode, setActiveTab, activeTab]);
 
   useEffect(() => {
     // Shell entry tabs should reconcile their owning mode if the parent tab and mode drift.
@@ -1499,7 +1516,6 @@ function AppShell({
             onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
             activeSubSection={activeSubSection}
             onSubSectionChange={setActiveSubSection}
-            onExitPosMode={handleExitPosMode}
             isRegisterOpen={isRegisterOpen}
             cashierName={cashierName}
             cashierCode={cashierCode}

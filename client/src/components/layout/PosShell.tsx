@@ -58,7 +58,6 @@ export interface SessionOpenedPayload {
 interface PosShellProps {
   activeTab: SidebarTabId;
   onTabChange: (tab: SidebarTabId) => void;
-  onExitPosMode: () => void;
   isRegisterOpen: boolean;
   cashierName: string | null;
   cashierCode: string | null;
@@ -95,7 +94,6 @@ interface PosShellProps {
 }
 
 export default function PosShell({
-  onExitPosMode,
   isRegisterOpen,
   cashierName,
   cashierCode,
@@ -375,7 +373,10 @@ export default function PosShell({
               {!isRegisterOpen ? (
                 <RegisterOverlay
                   onSessionOpened={handleSessionOpenedWithAuth}
-                  onCancel={onExitPosMode}
+                  onCancel={() => {
+                    const savedTab = sessionStorage.getItem("ros.pos.active_tab") as SidebarTabId | null;
+                    setActivePosTab(savedTab && savedTab !== "register" ? (savedTab as PosTabId) : "pos-dashboard");
+                  }}
                 />
               ) : sessionId ? (
                 <Cart
@@ -404,7 +405,7 @@ export default function PosShell({
                   }}
                   onSaleCompleted={() => setActivePosTab("register")}
                   onRegisterTransactionCommitted={onRegisterTransactionCommitted}
-                  onExitPosMode={onExitPosMode}
+                  onExitPosMode={() => setActivePosTab("pos-dashboard")}
                 />
               ) : null}
             </div>
