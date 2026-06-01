@@ -155,66 +155,11 @@ fn resolve_rosie_speech_python_path() -> PathBuf {
         return p;
     }
 
-    // 2. Windows: dedicated sherpa-venv created by the installer
-    #[cfg(windows)]
-    {
-        if let Ok(program_data) = std::env::var("ProgramData") {
-            let venv_python = PathBuf::from(&program_data)
-                .join("riverside-os")
-                .join("rosie")
-                .join("sherpa-venv")
-                .join("Scripts")
-                .join("python.exe");
-            if venv_python.exists() {
-                return venv_python;
-            }
-        }
-        if let Ok(local_app) = std::env::var("LOCALAPPDATA") {
-            let venv_python = PathBuf::from(&local_app)
-                .join("riverside-os")
-                .join("rosie")
-                .join("sherpa-venv")
-                .join("Scripts")
-                .join("python.exe");
-            if venv_python.exists() {
-                return venv_python;
-            }
-            // Legacy: uv tool install location (older installs)
-            let uv_tool = PathBuf::from(&local_app)
-                .join("uv")
-                .join("tools")
-                .join("sherpa-onnx")
-                .join("Scripts")
-                .join("python.exe");
-            if uv_tool.exists() {
-                return uv_tool;
-            }
-        }
-    }
-
-    // 3. macOS/Linux: uv tool install location
-    #[cfg(not(windows))]
-    {
-        if let Ok(home) = std::env::var("HOME") {
-            let uv_tool = PathBuf::from(&home)
-                .join(".local")
-                .join("share")
-                .join("uv")
-                .join("tools")
-                .join("sherpa-onnx")
-                .join("bin")
-                .join("python");
-            if uv_tool.exists() {
-                return uv_tool;
-            }
-        }
-    }
-
-    // 4. Not found — return a non-existent path; callers check command_exists()
+    // 2. Not found — return a non-existent path; callers check command_exists()
     PathBuf::from(if cfg!(windows) {
-        r"C:\nonexistent\sherpa-venv\Scripts\python.exe"
+        r"C:\nonexistent\python.exe"
     } else {
-        "/nonexistent/sherpa-onnx/bin/python"
+        "/nonexistent/python"
     })
 }
 
@@ -268,9 +213,6 @@ fn resolve_tts_fallback_command_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/usr/bin/say"))
 }
 
-fn resolve_sherpa_provider() -> String {
-    std::env::var("RIVERSIDE_SHERPA_PROVIDER").unwrap_or_else(|_| "cpu".into())
-}
 
 fn resolve_llama_provider() -> String {
     std::env::var("RIVERSIDE_LLAMA_PROVIDER").unwrap_or_else(|_| "llama.cpp".into())
@@ -382,8 +324,8 @@ pub fn rosie_local_runtime_status(
             running: llama_running,
         },
         stt: RosieLocalSttStatus {
-            engine_name: "SenseVoice Small via Sherpa-ONNX".to_string(),
-            provider: resolve_sherpa_provider(),
+            engine_name: "SenseVoice Small via WhisperCpp".to_string(),
+            provider: "whispercpp".to_string(),
             active_engine: if sensevoice_ready {
                 "sensevoice".to_string()
             } else if command_exists(&whisper_cli_path)
@@ -392,7 +334,7 @@ pub fn rosie_local_runtime_status(
                     .map(|path| path.exists())
                     .unwrap_or(false)
             {
-                "whisper_fallback".to_string()
+                "whisper".to_string()
             } else {
                 "unavailable".to_string()
             },
@@ -412,8 +354,8 @@ pub fn rosie_local_runtime_status(
                 .unwrap_or(false),
         },
         tts: RosieLocalTtsStatus {
-            engine_name: "Kokoro-82M via Sherpa-ONNX".to_string(),
-            provider: resolve_sherpa_provider(),
+            engine_name: "Kokoro-82M via KokoroNative".to_string(),
+            provider: "kokoronative".to_string(),
             active_engine: if kokoro_ready {
                 "kokoro".to_string()
             } else if command_exists(&tts_fallback_command_path) {
@@ -461,7 +403,6 @@ async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String
     ) {
         let python_path = resolve_rosie_speech_python_path();
         if command_exists(&python_path) {
-            let provider = resolve_sherpa_provider();
             let output = tokio::process::Command::new(&python_path)
                 .arg(script_path)
                 .args([
@@ -477,8 +418,6 @@ async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String
                     wav_path
                         .to_str()
                         .ok_or_else(|| "invalid ROSIE voice capture path".to_string())?,
-                    "--provider",
-                    provider.as_str(),
                     "--language",
                     "en",
                     "--use-itn",
@@ -597,7 +536,6 @@ pub async fn rosie_tts_speak(
                 .unwrap_or("adam")
                 .to_string();
             let speed = rate_multiplier.to_string();
-            let provider = resolve_sherpa_provider();
             tokio::process::Command::new(&python_path)
                 .arg(script_path)
                 .args([
@@ -609,8 +547,6 @@ pub async fn rosie_tts_speak(
                     voice_name.as_str(),
                     "--speed",
                     speed.as_str(),
-                    "--provider",
-                    provider.as_str(),
                     "--text",
                     text.as_str(),
                 ])

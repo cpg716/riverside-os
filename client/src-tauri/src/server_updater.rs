@@ -262,11 +262,10 @@ Get-Process -Name 'llama-server' -ErrorAction SilentlyContinue | ForEach-Object 
 Get-Process -Name 'whisper-sidecar' -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Kill() }}
 Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue | ForEach-Object {{ $_.Kill() }}
 
-# 2. Self-Repair: explicitly wipe old python/venv and sherpa-onnx directories to eliminate rot
-Write-Host 'Wiping legacy environment directories (venv, python, sherpa-onnx)...'
+# 2. Self-Repair: explicitly wipe old python/venv directories to eliminate rot
+Write-Host 'Wiping legacy environment directories (venv, python)...'
 Remove-Item -Path 'C:\ProgramData\riverside-os\venv' -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path 'C:\ProgramData\riverside-os\python' -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path 'C:\ProgramData\riverside-os\sherpa-onnx' -Recurse -Force -ErrorAction SilentlyContinue
 
 # Create a backup of the current binary if it exists
 if (Test-Path -Path $serverBin) {{
