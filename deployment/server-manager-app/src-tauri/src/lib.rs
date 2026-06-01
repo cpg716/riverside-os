@@ -373,13 +373,39 @@ $out.server = @{
 if (-not $task) { [void]$issues.Add(@{ severity = 'critical'; title = 'Server startup task is missing'; detail = 'The local Windows scheduled task for Riverside OS Server is not registered.'; action = 'update_server' }) }
 if ($serverProcesses.Count -eq 0) { [void]$issues.Add(@{ severity = 'critical'; title = 'Server process is not running'; detail = 'The API cannot serve registers or Back Office if riverside-server.exe is stopped.'; action = 'start_server' }) }
 
-$health = Test-Http "$apiBase/api/health"
-$ready = Test-Http "$apiBase/api/ready"
-$live = Test-Http "$apiBase/api/live"
-$version = Test-Http "$apiBase/api/version"
-$out.api = @{ health = $health; ready = $ready; live = $live; version = $version }
-if (-not $health.ok) { [void]$issues.Add(@{ severity = 'critical'; title = 'API health is unreachable'; detail = $health.error; action = 'restart_server' }) }
-elseif (-not $ready.ok) { [void]$issues.Add(@{ severity = 'warning'; title = 'API is live but not ready'; detail = $ready.error; action = 'run_audit' }) }
+# Deployment Handshake: Check deployment.status before polling API
+$deploymentStatusPath = 'C:\ProgramData\RiversideOS\deployment.status'
+$deploymentStatus = $null
+if (Test-Path $deploymentStatusPath) {
+  try {
+    $deploymentStatus = Get-Content $deploymentStatusPath -Raw | ConvertFrom-Json
+  } catch { }
+}
+$out.deployment_status = if ($deploymentStatus) { $deploymentStatus.status } else { 'unknown' }
+
+# Only poll API if database is READY (not MIGRATING or AUTH_FAILED)
+$shouldPollApi = $true
+if ($deploymentStatus) {
+  if ($deploymentStatus.status -eq 'MIGRATING') {
+    $shouldPollApi = $false
+    [void]$issues.Add(@{ severity = 'warning'; title = 'Database is migrating'; detail = 'Database migrations are in progress. API health check skipped.'; action = 'run_audit' })
+  } elseif ($deploymentStatus.status -eq 'AUTH_FAILED') {
+    $shouldPollApi = $false
+    [void]$issues.Add(@{ severity = 'critical'; title = 'Database authentication failed'; detail = 'Database password is missing or invalid. Update server.database.adminPassword in config.'; action = 'update_server' })
+  }
+}
+
+if ($shouldPollApi) {
+  $health = Test-Http "$apiBase/api/health"
+  $ready = Test-Http "$apiBase/api/ready"
+  $live = Test-Http "$apiBase/api/live"
+  $version = Test-Http "$apiBase/api/version"
+  $out.api = @{ health = $health; ready = $ready; live = $live; version = $version }
+  if (-not $health.ok) { [void]$issues.Add(@{ severity = 'critical'; title = 'API health is unreachable'; detail = $health.error; action = 'restart_server' }) }
+  elseif (-not $ready.ok) { [void]$issues.Add(@{ severity = 'warning'; title = 'API is live but not ready'; detail = $ready.error; action = 'run_audit' }) }
+} else {
+  $out.api = @{ health = @{ ok = $false; status = 0; error = 'Skipped due to deployment status' }; ready = @{ ok = $false; status = 0; error = 'Skipped due to deployment status' }; live = @{ ok = $false; status = 0; error = 'Skipped due to deployment status' }; version = @{ ok = $false; status = 0; error = 'Skipped due to deployment status' } }
+}
 
 $pgSvc = Get-Service | Where-Object { $_.Name -like 'postgresql*' -or $_.DisplayName -like 'PostgreSQL*' } | Sort-Object Name -Descending | Select-Object -First 1
 $psqlPath = if ($db -and $db.psqlPath) { "$($db.psqlPath)" } else { '' }
