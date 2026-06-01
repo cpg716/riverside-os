@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from "react";
-import { 
-  ArrowLeft, 
-  Package, 
-  CircleDollarSign, 
+import {
+  ArrowLeft,
+  Package,
+  CircleDollarSign,
   ShoppingCart,
   Plus
 } from "lucide-react";
@@ -44,11 +44,11 @@ const SIZE_ORDER: Record<string, number> = {
 function getSortScore(val: string): number {
   const upper = val.toUpperCase().trim();
   if (SIZE_ORDER[upper] !== undefined) return SIZE_ORDER[upper];
-  
+
   // Try to parse numeric size (e.g. "34", "36R", "10.5")
   const numericMatch = val.match(/^(\d+(\.\d+)?)/);
   if (numericMatch) return 1000 + parseFloat(numericMatch[1]);
-  
+
   return 5000; // Fallback for colors/other attributes
 }
 
@@ -95,7 +95,7 @@ export default function VariantSelectionModal({
         result.push(val);
       }
     });
-    
+
     // Proper Size Ordering
     return result.sort((a, b) => {
        const scoreA = getSortScore(a);
@@ -105,7 +105,7 @@ export default function VariantSelectionModal({
     });
   }, [product, matchingVariants, currentStepIndex, isSelectionComplete]);
 
-  const finalVariant = isSelectionComplete && matchingVariants.length === 1 ? matchingVariants[0] : null;
+  const finalVariant = isSelectionComplete && matchingVariants.length >= 1 ? matchingVariants[0] : null;
 
   const handleNumpadKey = (key: string) => {
     if (key === "CLR") {
@@ -162,14 +162,14 @@ export default function VariantSelectionModal({
               <ArrowLeft size={24} />
             </button>
           )}
-          
+
           <button
             type="button"
             disabled={!isSelectionComplete || !finalVariant}
             onClick={() => finalVariant && onSelect(finalVariant, priceOverride || undefined)}
             className={`group relative flex h-16 flex-1 items-center justify-center overflow-hidden rounded-2xl border-b-4 transition-all active:scale-[0.98] active:translate-y-1 ${
               isSelectionComplete && finalVariant
-               ? "bg-emerald-600 border-emerald-800 text-white shadow-xl shadow-emerald-500/40 hover:bg-emerald-500" 
+               ? "bg-emerald-600 border-emerald-800 text-white shadow-xl shadow-emerald-500/40 hover:bg-emerald-500"
                : "bg-app-surface-2 border-app-input-border text-app-text-muted cursor-not-allowed opacity-50"
             }`}
           >
@@ -253,7 +253,7 @@ export default function VariantSelectionModal({
                        <button onClick={() => setPriceOverride("")} className="text-[9px] font-black text-red-500 hover:underline uppercase tracking-tighter">Reset</button>
                     )}
                  </div>
-                 
+
                  <div className="flex h-12 items-center justify-center rounded-2xl bg-app-surface-2 px-6 ring-2 ring-app-border transition-all shadow-inner overflow-hidden">
                     <span className={`text-2xl font-black tabular-nums transition-colors ${priceOverride ? "text-app-text" : "text-app-text-muted opacity-50"}`}>
                       $
@@ -267,8 +267,8 @@ export default function VariantSelectionModal({
                  <div className="grid grid-cols-4 gap-2">
                     <div className="grid grid-cols-3 gap-2 col-span-3">
                        {["1","2","3","4","5","6","7","8","9",".","0","CLR"].map(k => (
-                         <button 
-                           key={k} 
+                         <button
+                           key={k}
                            onClick={() => handleNumpadKey(k)}
                            className={`flex h-16 items-center justify-center rounded-xl text-xl font-black transition-all active:scale-90 ${k === 'CLR' ? 'bg-app-surface-2 text-app-text-muted' : 'bg-app-surface shadow-sm ring-1 ring-app-border text-app-text hover:ring-app-text'}`}
                          >
@@ -277,14 +277,14 @@ export default function VariantSelectionModal({
                        ))}
                     </div>
                     <div className="grid grid-cols-1 gap-2">
-                       <button 
+                       <button
                          onClick={() => handleNumpadKey("%")}
                          className="flex h-16 flex-col items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xl active:scale-90 hover:bg-indigo-500 transition-all"
                        >
                          <span className="text-sm font-black">%</span>
                          <span className="text-[9px] font-bold uppercase opacity-80">Disc</span>
                        </button>
-                       <button 
+                       <button
                          onClick={() => handleNumpadKey("$")}
                          className="flex h-16 flex-col items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xl active:scale-90 hover:bg-indigo-500 transition-all"
                        >
