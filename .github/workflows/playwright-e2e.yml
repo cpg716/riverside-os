@@ -38,7 +38,7 @@ jobs:
 
       - name: Cache client node_modules
         id: cache-node-modules
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: client/node_modules
           key: e2e-node-modules-${{ hashFiles('client/package-lock.json') }}
@@ -52,13 +52,13 @@ jobs:
         run: cd client && npm run build
 
       - name: Upload Server Binary
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: server-binary
           path: target/debug/riverside-server
 
       - name: Upload Frontend Bundle
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
           path: client/dist/
@@ -131,7 +131,7 @@ jobs:
 
       - name: Restore client node_modules
         id: cache-node-modules
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: client/node_modules
           key: e2e-node-modules-${{ hashFiles('client/package-lock.json') }}
@@ -143,7 +143,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: cache-playwright
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('client/package-lock.json') }}
@@ -154,12 +154,12 @@ jobs:
         run: cd client && npx playwright install chromium --with-deps
 
       - name: Download Server Binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: server-binary
 
       - name: Download Frontend Bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: frontend-dist
           path: dist
@@ -233,7 +233,7 @@ jobs:
 
       - name: Upload blocking lane report
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: playwright-report-blocking-shard-${{ matrix.shard }}
           path: |
@@ -536,7 +536,7 @@ jobs:
 
       - name: Restore client node_modules
         id: cache-node-modules
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: client/node_modules
           key: e2e-node-modules-${{ hashFiles('client/package-lock.json') }}
@@ -548,7 +548,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: cache-playwright
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ hashFiles('client/package-lock.json') }}
@@ -559,12 +559,12 @@ jobs:
         run: cd client && npx playwright install chromium --with-deps
 
       - name: Download Server Binary
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: server-binary
 
       - name: Download Frontend Bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: frontend-dist
           path: dist
@@ -637,7 +637,7 @@ jobs:
 
       - name: Upload nightly lane report
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: playwright-report-nightly-shard-${{ matrix.shard }}
           path: |

@@ -66,7 +66,7 @@ jobs:
 
       - name: Cache client node_modules
         id: cache-client-node-modules
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: client/node_modules
           key: windows-client-npm-${{ hashFiles('client/package-lock.json') }}
@@ -219,7 +219,7 @@ jobs:
           } | ConvertTo-Json -Depth 4 | Set-Content -Path "updater-dist/riverside-updater-build-manifest.json" -NoNewline
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v4
         with:
           name: tauri-windows-updater-dist
           path: client/updater-dist/

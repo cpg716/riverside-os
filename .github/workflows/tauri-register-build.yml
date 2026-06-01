@@ -25,7 +25,7 @@ jobs:
 
       - name: Cache client node_modules
         id: cache-client-node-modules
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: client/node_modules
           key: windows-client-npm-${{ hashFiles('client/package-lock.json') }}
@@ -45,7 +45,7 @@ jobs:
       - name: Build Tauri bundle
         run: npm run tauri:build
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v4
         with:
           name: tauri-windows-bundle
           path: target/release/bundle/
