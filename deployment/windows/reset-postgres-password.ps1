@@ -39,14 +39,13 @@ if ($config.server.database.adminUser) {
 }
 
 if ([string]::IsNullOrWhiteSpace($NewPassword)) {
-  # Auto-generate a secure password if none provided
-  $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-  $random = New-Object System.Random
-  $NewPassword = ""
-  for ($i = 0; $i -lt 16; $i++) {
-    $NewPassword += $chars[$random.Next(0, $chars.Length)]
+  # Read password from config file
+  if ($config.server.database.adminPassword) {
+    $NewPassword = $config.server.database.adminPassword
+    Write-Host "Using admin password from config file." -ForegroundColor Cyan
+  } else {
+    throw "No password provided and adminPassword not found in config file. Please set server.database.adminPassword in $ConfigPath"
   }
-  Write-Host "No password provided. Auto-generated new password." -ForegroundColor Cyan
 }
 
 # 1. Locate PostgreSQL Data Directory
@@ -111,10 +110,14 @@ $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
 
 $resetSql = "ALTER USER ""$dbUser"" WITH PASSWORD '$NewPassword';"
 $env:PGPASSWORD = ""
-& $psqlPath -U $dbUser -h 127.0.0.1 -p 5432 -d postgres -c $resetSql -t 2>&1
+$output = & $psqlPath -U $dbUser -h 127.0.0.1 -p 5432 -d postgres -c $resetSql -t 2>&1
 if ($LASTEXITCODE -ne 0) {
   # Try without specifying host just in case
-  & $psqlPath -U $dbUser -d postgres -c $resetSql -t 2>&1
+  $output = & $psqlPath -U $dbUser -d postgres -c $resetSql -t 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $errorMsg = $output | Out-String
+    throw "Failed to reset PostgreSQL password: $errorMsg"
+  }
 }
 
 # 6. Restore pg_hba.conf
@@ -127,12 +130,23 @@ Write-Host "Restarting PostgreSQL service again to enforce passwords..."
 Restart-Service -Name $serviceName -Force
 Start-Sleep -Seconds 3
 
-# 8. Save new password to config
+# 8. Verify Credentials - attempt non-interactive psql connection
+Write-Host "Verifying credentials with non-interactive psql connection..."
+$env:PGPASSWORD = $NewPassword
+$verifyOutput = & $psqlPath -U $dbUser -h 127.0.0.1 -p 5432 -d postgres -c "SELECT 1;" -t 2>&1
+$env:PGPASSWORD = $null
+if ($LASTEXITCODE -ne 0) {
+  $errorMsg = $verifyOutput | Out-String
+  throw "Credential verification failed after password reset: $errorMsg"
+}
+Write-Host "Credential verification successful." -ForegroundColor Green
+
+# 9. Save new password to config
 if ($config.server) {
   if (-not $config.server.database) {
     $config.server | Add-Member -MemberType NoteProperty -Name "database" -Value (New-Object PSObject)
   }
-  
+
   $db = $config.server.database
   $exists = $db.psobject.properties.match("adminPassword").Count -gt 0
   if ($exists) {
@@ -140,7 +154,7 @@ if ($config.server) {
   } else {
     $db | Add-Member -MemberType NoteProperty -Name "adminPassword" -Value $NewPassword
   }
-  
+
   $configJson = $config | ConvertTo-Json -Depth 8
   Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
   Write-Host "Successfully saved new admin password to $ConfigPath" -ForegroundColor Green

@@ -46,6 +46,45 @@ function Set-SafeProperty($Object, $Name, $Value) {
   }
 }
 
+$deploymentStatusPath = "C:\ProgramData\RiversideOS\deployment.status"
+$deploymentLogPath = "C:\ProgramData\RiversideOS\deployment-manager.log"
+
+function Write-DeploymentStatus([string]$Status, [string]$Message = "") {
+  $statusDir = Split-Path $deploymentStatusPath -Parent
+  if (-not (Test-Path $statusDir)) {
+    New-Item -ItemType Directory -Path $statusDir -Force | Out-Null
+  }
+  $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+  $statusJson = @{
+    status = $Status
+    timestamp = $timestamp
+    message = $Message
+  } | ConvertTo-Json
+  Set-Content -Path $deploymentStatusPath -Value $statusJson -Encoding UTF8
+}
+
+function Get-DeploymentStatus {
+  if (Test-Path $deploymentStatusPath) {
+    try {
+      $content = Get-Content $deploymentStatusPath -Raw | ConvertFrom-Json
+      return $content
+    } catch {
+      return $null
+    }
+  }
+  return $null
+}
+
+function Write-DeploymentLog([string]$Message) {
+  $logDir = Split-Path $deploymentLogPath -Parent
+  if (-not (Test-Path $logDir)) {
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+  }
+  $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+  $logEntry = "[$timestamp] $Message"
+  Add-Content -Path $deploymentLogPath -Value $logEntry -Encoding UTF8
+}
+
 function Find-PsqlPath {
   $cmd = Get-Command psql.exe -ErrorAction SilentlyContinue
   if ($cmd) { return $cmd.Source }
@@ -859,6 +898,7 @@ function Test-CoreIdentityMigrationApplied($PsqlPath, $DatabaseUrl) {
 }
 
 function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
+  Write-DeploymentStatus "MIGRATING" "Starting database migrations"
   $files = Get-ChildItem $MigrationsDir -Filter "*.sql" |
     Where-Object { $_.Name -match '^\d+[a-zA-Z]?_.*\.sql$' } |
     Sort-Object @{ Expression = { Get-MigrationSortKey $_ } }
@@ -1054,35 +1094,24 @@ if (Test-PlaceholderSecret $config.server.database.appPassword) {
       }
     }
 
-    # If not authenticated, prompt the user for the password
+    # If not authenticated, fail gracefully with config file reference
     if (-not $authenticated) {
-      Write-Host "--------------------------------------------------------" -ForegroundColor Yellow
-      Write-Host "Database connection failed. Please enter database credentials." -ForegroundColor Yellow
-      Write-Host "--------------------------------------------------------" -ForegroundColor Yellow
-      for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $pwdInput = Read-Host "Enter PostgreSQL password for user '$dbUser'"
-        $env:PGPASSWORD = $pwdInput
-        $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
-        $env:PGPASSWORD = $null
-        if ($LASTEXITCODE -eq 0) {
-          $authenticated = $true
-          Set-SafeProperty $config.server.database "adminPassword" $pwdInput
-          $configModified = $true
-          Write-Host "PostgreSQL password verified successfully." -ForegroundColor Green
-          break
-        } else {
-          Write-Host "Invalid password. Attempt $attempt of 3." -ForegroundColor Red
-        }
-      }
-      if (-not $authenticated) {
-        throw "PostgreSQL authentication failed after 3 attempts. Update your password manually in $ConfigPath."
-      }
+      Write-DeploymentStatus "AUTH_FAILED" "Database password missing or invalid in config"
+      Write-Host "--------------------------------------------------------" -ForegroundColor Red
+      Write-Host "Database password missing in config" -ForegroundColor Red
+      Write-Host "--------------------------------------------------------" -ForegroundColor Red
+      Write-Host "The PostgreSQL admin password is not set or invalid in $ConfigPath" -ForegroundColor Yellow
+      Write-Host "Please update the 'server.database.adminPassword' field in the config file." -ForegroundColor Yellow
+      Write-Host "Opening config file in Notepad..." -ForegroundColor Yellow
+      Start-Process notepad.exe $ConfigPath
+      throw "Database password missing in config. Please update server.database.adminPassword in $ConfigPath"
     }
   }
 
 if ($configModified) {
   $configJson = $config | ConvertTo-Json -Depth 8
   Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
+  Write-DeploymentLog "Writing config to $ConfigPath"
   Write-Host "Auto-saved resolved credentials and passwords to $ConfigPath." -ForegroundColor Green
 }
 # $packageManifest already loaded at script startup
@@ -1325,3 +1354,4 @@ $summary = "Riverside OS Server install complete.`n" +
   "Config: $envPath"
 Set-Content -Path (Join-Path $installRoot "deployment-summary.txt") -Value $summary -Encoding UTF8
 Write-Host $summary
+Write-DeploymentStatus "READY" "Installation completed successfully"
