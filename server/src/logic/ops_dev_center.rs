@@ -1899,7 +1899,13 @@ pub async fn collect_integrations(
                 }
                 match r.last_ok_at {
                     Some(ok) if ok < stale_threshold => Some(format!("{} (stale)", r.entity)),
-                    None => Some(format!("{} (never succeeded)", r.entity)),
+                    None => {
+                        if r.updated_at < stale_threshold {
+                            None
+                        } else {
+                            Some(format!("{} (never succeeded)", r.entity))
+                        }
+                    }
                     _ => None,
                 }
             })
