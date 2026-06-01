@@ -305,7 +305,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "operations-operational-home",
     title: "Operations Home",
-    summary: "Store-wide command center for daily changes, source-linked timeline planning, attention items, register close status, and optional daily briefing.",
+    summary: "Store-wide command center for daily changes, source-linked timeline planning, attention items, register status, till control, and optional daily briefing.",
     markdown: manual_33_raw,
     tags: ["operations","dashboard","timeline","calendar","action-board","triage","weddings","alterations"],
   },

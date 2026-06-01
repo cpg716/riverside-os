@@ -2,7 +2,7 @@
 id: operations-operational-home
 title: "Operations Home"
 order: 1047
-summary: "Store-wide command center for daily changes, source-linked timeline planning, attention items, register close status, and optional daily briefing."
+summary: "Store-wide command center for daily changes, source-linked timeline planning, attention items, register status, till control, and optional daily briefing."
 source: client/src/components/operations/OperationalHome.tsx
 last_scanned: 2026-05-10
 tags: operations, dashboard, timeline, calendar, action-board, triage, weddings, alterations
@@ -21,11 +21,11 @@ status: approved
 
 ## What this is
 
-Operations Home is the staff command center for the day. It keeps deterministic operational facts first: what changed, what needs attention, whether registers are open or closing, and where staff should go next.
+Operations Home is the staff command center for the day. It keeps deterministic operational facts first: what changed, what needs attention, whether registers are open, till control state, and where staff should go next.
 
 ## How to use it
 
-1. Review the top KPI strip for sales, register close, pickup, alterations, inventory, and attention pressure.
+1. Review the top KPI strip for sales, register status, pickup, alterations, inventory, and attention pressure.
 2. Review **What Changed Today** for movement since the last shift.
 3. Review **What Needs Attention** for blockers and warnings.
 4. Follow the card or row into the owning workflow before taking action.
@@ -41,7 +41,7 @@ Timeline rows are not editable. Open the row and make changes in the source work
 
 ## What to check first
 
-Start with the KPI strip, then **What Changed Today** and **What Needs Attention**. These cards show current operational signals such as movement, register close status, blockers, warnings, weddings, alterations, pickups, and inventory work.
+Start with the KPI strip, then **What Changed Today** and **What Needs Attention**. These cards show current operational signals such as movement, register status, till control, blockers, warnings, weddings, alterations, pickups, and inventory work.
 
 Successful **no issues** states are different from failed feeds. If a feed cannot load, Operations Home shows a quiet degraded indicator instead of looking calm or empty.
 
