@@ -62,10 +62,27 @@ fn clip_item_name(name: &str, max_chars: usize) -> String {
     if cleaned.len() <= max_chars {
         return cleaned;
     }
-    // Clip at a word boundary when possible, then add '…'
-    let clipped = &cleaned[..max_chars.saturating_sub(1)];
-    let boundary = clipped.rfind(' ').unwrap_or(clipped.len());
-    format!("{}…", &cleaned[..boundary])
+    // Find the last word boundary before max_chars
+    // Use max_chars - 2 to leave room for the ellipsis
+    let clip_limit = max_chars.saturating_sub(2);
+    if clip_limit < 5 {
+        // If max_chars is too small, just hard clip
+        return format!(
+            "{}…",
+            &cleaned[..max_chars.min(cleaned.len()).saturating_sub(1)]
+        );
+    }
+    let clipped = &cleaned[..clip_limit];
+    let boundary = clipped.rfind(' ');
+
+    // Only use word boundary if it leaves at least 3 characters
+    // Otherwise hard clip to avoid tiny fragments
+    let end_idx = match boundary {
+        Some(idx) if idx >= 3 => idx,
+        _ => clip_limit,
+    };
+
+    format!("{}…", &cleaned[..end_idx])
 }
 
 fn receiptline_logo_image() -> String {
@@ -537,7 +554,7 @@ fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
     if d.payments.is_empty() {
         return String::new();
     }
-    let mut lines = vec!["| ^Payment History |".to_string(), "---".to_string()];
+    let mut lines = vec!["| ^^^Payment History |".to_string(), "---".to_string()];
     for pay in &d.payments {
         let date_str = pay.date.format("%m/%d/%Y").to_string();
         lines.push(format!(
