@@ -3711,6 +3711,12 @@ pub async fn execute_checkout(
                 )
                 .await?;
                 // CoreCard posting event refs removed with CoreCard integration
+                rms_notifications.push(pos_rms_charge::RmsChargeNotify {
+                    payment_transaction_id: payment_tx_id,
+                    amount: split.amount,
+                    method: method.to_string(),
+                    metadata: split.metadata.clone(),
+                });
             }
 
             if let Some(slot) = payment_tx_ids_by_split.get_mut(split_index) {

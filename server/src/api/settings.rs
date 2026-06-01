@@ -225,11 +225,11 @@ pub struct ReceiptConfig {
     pub show_barcode: bool,
     #[serde(default = "default_true")]
     pub show_logo: bool,
-    #[serde(default)]
+    #[serde(default = "default_store_address")]
     pub store_address: String,
-    #[serde(default)]
+    #[serde(default = "default_store_phone")]
     pub store_phone: String,
-    #[serde(default)]
+    #[serde(default = "default_store_email")]
     pub store_email: String,
     #[serde(default)]
     pub header_lines: Vec<String>,
@@ -262,6 +262,15 @@ fn default_store_name() -> String {
 }
 fn default_true() -> bool {
     true
+}
+fn default_store_address() -> String {
+    "6470 Transit Rd, Depew, NY".to_string()
+}
+fn default_store_phone() -> String {
+    "(716) 833-8401".to_string()
+}
+fn default_store_email() -> String {
+    "info@riversidemens.com".to_string()
 }
 fn default_timezone() -> String {
     "America/New_York".to_string()
@@ -300,9 +309,9 @@ impl Default for ReceiptConfig {
             show_loyalty_balance: true,
             show_barcode: false,
             show_logo: true,
-            store_address: String::new(),
-            store_phone: String::new(),
-            store_email: String::new(),
+            store_address: default_store_address(),
+            store_phone: default_store_phone(),
+            store_email: default_store_email(),
             header_lines: Vec::new(),
             footer_lines: default_footer(),
             timezone: default_timezone(),
