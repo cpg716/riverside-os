@@ -713,6 +713,11 @@ export default function TransactionDetailDrawer({
   const [internalErrorMessage, setInternalErrorMessage] = useState<string | null>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
+  const [pendingSwapVariant, setPendingSwapVariant] = useState<{
+    variant_id: string;
+    sku: string;
+    variation_label: string | null;
+  } | null>(null);
   const [editQuantity, setEditQuantity] = useState("1");
   const [editUnitPrice, setEditUnitPrice] = useState("");
   const [editFulfillment, setEditFulfillment] =
@@ -836,11 +841,13 @@ export default function TransactionDetailDrawer({
     setEditVariantLabel(item.variation_label ?? null);
     setEditLifecycleStatus(item.order_lifecycle_status ?? "ntbo");
     setEditError(null);
+    setPendingSwapVariant(null);
   }, []);
   const cancelLineEdit = useCallback(() => {
     if (editBusy) return;
     setEditingLineId(null);
     setEditError(null);
+    setPendingSwapVariant(null);
   }, [editBusy]);
 
   const openReadyModal = useCallback((item: TransactionDrawerItem) => {
@@ -1025,6 +1032,44 @@ export default function TransactionDetailDrawer({
 
   const submitLineEdit = useCallback(
     async (item: TransactionDrawerItem) => {
+      if (pendingSwapVariant) {
+        if (!item.transaction_line_id || !detail) return;
+        setEditBusy(true);
+        setEditError(null);
+        try {
+          const res = await fetch(
+            `${baseUrl}/api/transactions/${detail.transaction_id}/items/${item.transaction_line_id}/suit-swap`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...auth(),
+              },
+              body: JSON.stringify({
+                in_variant_id: pendingSwapVariant.variant_id,
+              }),
+            }
+          );
+          if (!res.ok) {
+            const b = await res.json().catch(() => ({}));
+            throw new Error(b.error ?? "Suit Swap failed");
+          }
+          const out = await res.json();
+          toast(`Suit Swap complete: ${out.old_sku} → ${out.new_sku}`, "success");
+          setPendingSwapVariant(null);
+          setEditingLineId(null);
+          if (onLifecycleChanged) {
+            await onLifecycleChanged();
+          }
+          void load();
+        } catch (error) {
+          setEditError(error instanceof Error ? error.message : "Suit Swap failed");
+        } finally {
+          setEditBusy(false);
+        }
+        return;
+      }
+
       if (!orderActions?.updateLine || !item.transaction_line_id) return;
       const quantity = Number.parseInt(editQuantity.trim(), 10);
       if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -1089,7 +1134,20 @@ export default function TransactionDetailDrawer({
         setEditBusy(false);
       }
     },
-    [editFulfillment, editLifecycleStatus, editQuantity, editUnitPrice, editVariantId, orderActions],
+    [
+      editFulfillment,
+      editLifecycleStatus,
+      editQuantity,
+      editUnitPrice,
+      editVariantId,
+      orderActions,
+      pendingSwapVariant,
+      detail,
+      auth,
+      load,
+      onLifecycleChanged,
+      toast,
+    ],
   );
 
   const subtitle = detail ? (
@@ -1965,11 +2023,15 @@ export default function TransactionDetailDrawer({
                                     placeholder="Search this item for the correct size or variation"
                                     onSelect={(variant) => {
                                       if (variant.product_id !== item.product_id) {
-                                        setEditError(
-                                          "Use Delete and Add when changing to a different item.",
-                                        );
+                                        setPendingSwapVariant({
+                                          variant_id: variant.variant_id,
+                                          sku: variant.sku,
+                                          variation_label: variant.variation_label ?? null,
+                                        });
+                                        setEditError(null);
                                         return;
                                       }
+                                      setPendingSwapVariant(null);
                                       setEditVariantId(variant.variant_id);
                                       setEditVariantSku(variant.sku);
                                       setEditVariantLabel(variant.variation_label ?? null);
@@ -1978,6 +2040,17 @@ export default function TransactionDetailDrawer({
                                   />
                                 </div>
                               </div>
+                              {pendingSwapVariant && (
+                                <div className="sm:col-span-3 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">
+                                    Suit Component Swap Mode
+                                  </p>
+                                  <p className="mt-1 text-[11px] font-semibold text-app-text-muted leading-relaxed">
+                                    You selected a different product (<strong>{pendingSwapVariant.sku}</strong>{pendingSwapVariant.variation_label ? ` · ${pendingSwapVariant.variation_label}` : ""}).
+                                    Saving will perform a Suit Component Swap, updating inventory allocations and recording net cost deltas in the ledger.
+                                  </p>
+                                </div>
+                              )}
                               {item.order_lifecycle_status === "needs_measurements" ||
                               item.order_lifecycle_status === "ntbo" ? (
                                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-3">
