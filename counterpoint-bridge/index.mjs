@@ -1229,6 +1229,8 @@ function validateCounterpointSyncDependencyPlan() {
     );
   }
   // Allow empty queries when auto-schema or maximal scope is enabled
+  const CP_AUTO_SCHEMA = (process.env.CP_AUTO_SCHEMA ?? "1").trim() !== "0";
+  const CP_IMPORT_SCOPE = (process.env.CP_IMPORT_SCOPE ?? "default").trim().toLowerCase();
   const allowEmptyQueries = CP_AUTO_SCHEMA || CP_IMPORT_SCOPE === "maximal";
 
   if (SYNC_OPEN_DOCS && !String(effectiveSql.open_docs ?? "").trim() && !allowEmptyQueries) {
