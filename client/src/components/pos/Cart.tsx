@@ -24,7 +24,6 @@ import {
   Pencil,
   AlertTriangle,
   Printer,
-  Shirt,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
@@ -50,7 +49,6 @@ import ProductIntelligenceDrawer from "./ProductIntelligenceDrawer";
 import PosSaleCashierSignInOverlay from "./PosSaleCashierSignInOverlay";
 import { CustomerRelationshipHubDrawer } from "../customers/CustomerRelationshipHubDrawer";
 import PosExchangeWizard from "./PosExchangeWizard";
-import PosSuitSwapWizard from "./PosSuitSwapWizard";
 import WeddingLookupDrawer, { type WeddingMember } from "./WeddingLookupDrawer";
 import PosShippingModal, {
   type PosShippingSelection,
@@ -375,7 +373,6 @@ export default function Cart({
   const [customerProfileHubOpen, setCustomerProfileHubOpen] = useState(false);
   const [checkoutOrderOptions, setCheckoutOrderOptions] = useState<PosOrderOptions | null>(null);
   const [cashAdjustOpen, setCashAdjustOpen] = useState(false);
-  const [suitSwapWizardOpen, setSuitSwapWizardOpen] = useState(false);
   const [openDepositPrompt, setOpenDepositPrompt] = useState<OpenDepositPrompt | null>(null);
   const [intelligenceVariantId, setIntelligenceVariantId] = useState<string | null>(null);
   const [showPrintRetryPanel, setShowPrintRetryPanel] = useState(false);
@@ -1863,7 +1860,6 @@ export default function Cart({
       !checkoutOperator ||
       checkoutDrawerOpen ||
       exchangeWizardOpen ||
-      suitSwapWizardOpen ||
       weddingDrawerOpen ||
       measDrawerOpen ||
       customerProfileHubOpen ||
@@ -1877,7 +1873,7 @@ export default function Cart({
       intelligenceVariantId !== null ||
       lastTransactionId !== null,
     [
-      checkoutOperator, checkoutDrawerOpen, exchangeWizardOpen, suitSwapWizardOpen,
+      checkoutOperator, checkoutDrawerOpen, exchangeWizardOpen,
       weddingDrawerOpen, measDrawerOpen, customerProfileHubOpen, cashAdjustOpen,
       giftCardLoadOpen, activeVariationSelection, showClearConfirm, showWalkinConfirm,
       showVoidAllConfirm, discountPrompt, intelligenceVariantId, lastTransactionId,
@@ -2259,20 +2255,6 @@ export default function Cart({
                 <ArrowLeftRight size={16} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
                   Exchange / Return
-                </span>
-              </button>
-              <button
-                type="button"
-                data-testid="pos-suit-swap-trigger"
-                onClick={() => {
-                  if (!ensureSaleCashier()) return;
-                  setSuitSwapWizardOpen(true);
-                }}
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-border bg-app-surface-2 px-2.5 text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
-              >
-                <Shirt size={16} />
-                <span className="text-[10px] font-black uppercase tracking-widest">
-                  Suit Swap
                 </span>
               </button>
             </div>
@@ -3906,13 +3888,7 @@ export default function Cart({
         onContinueToReplacement={handleExchangeReturnHandoff}
       />
 
-      <PosSuitSwapWizard
-        open={suitSwapWizardOpen}
-        onClose={() => setSuitSwapWizardOpen(false)}
-        sessionId={sessionId}
-        baseUrl={baseUrl}
-        apiAuth={() => ({ ...apiAuth() })}
-      />
+
 
       <WeddingLookupDrawer
         isOpen={weddingDrawerOpen}

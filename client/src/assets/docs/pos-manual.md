@@ -2,13 +2,13 @@
 id: pos
 title: "Register (POS)"
 order: 0
-summary: "Opening the till, dashboard, ringing sales, suit swap, checkout, wedding lookup."
+summary: "Opening the till, dashboard, ringing sales, checkout, wedding lookup."
 tags: pos, register, checkout
 ---
 
 # Register (POS) — staff guide
 
-This guide covers day-to-day use of the in-store register: opening the till, the home dashboard, ringing sales, swapping a suit on an existing order, and taking payment.
+This guide covers day-to-day use of the in-store register: opening the till, the home dashboard, ringing sales, and taking payment.
 
 ---
 

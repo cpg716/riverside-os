@@ -26,7 +26,7 @@ The Orders workspace is the main place to review unfulfilled Special, Custom, an
 - Filter order work by **Special Order**, **Custom**, or **Wedding**.
 - Open order work to see items, balances, and available actions.
 - Open an order to see pickup versus shipping mode, remaining work, fulfilled work, and release-blocking balance cues at a glance.
-- Edit an open order line directly in the drawer when staff only need to adjust quantity, unit price, or fulfillment without leaving the workspace.
+- Edit an open order line directly in the drawer when staff need to adjust quantity, unit price, or fulfillment, or perform a Suit Component Swap when changing parts of a suit to a different product variation/SKU (recording inventory updates and QBO ledger cost/retail deltas automatically).
 - Open order work in POS when staff need to review it from the register or copy its unfulfilled lines into a new sale.
 - After Register checkout activity, reopen the parent Transaction Record or return to Orders to see the latest authoritative data instead of a stale snapshot.
 - Use the `Order Integrity` summary at the top of the workspace to quickly see which visible orders are still waiting on booking details, still carrying balance due, or already showing action-needed / overdue follow-up counts from the existing pipeline stats feed.

@@ -74,7 +74,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos",
     title: "Register (POS)",
-    summary: "Opening the till, dashboard, ringing sales, suit swap, checkout, wedding lookup.",
+    summary: "Opening the till, dashboard, ringing sales, checkout, wedding lookup.",
     markdown: manual_0_raw,
     tags: ["pos","register","checkout"],
   },
