@@ -1228,37 +1228,40 @@ function validateCounterpointSyncDependencyPlan() {
       "SYNC_STORE_CREDIT_OPENING=1: set CP_CUSTOMER_STORE_CREDIT_EXISTS (EXISTS body: SELECT 1 … matching c.CUST_NO with balance > 0) or customers with only store credit are skipped by CP_CUSTOMERS_QUERY.",
     );
   }
-  if (SYNC_OPEN_DOCS && !String(effectiveSql.open_docs ?? "").trim()) {
+  // Allow empty queries when auto-schema or maximal scope is enabled
+  const allowEmptyQueries = CP_AUTO_SCHEMA || CP_IMPORT_SCOPE === "maximal";
+
+  if (SYNC_OPEN_DOCS && !String(effectiveSql.open_docs ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_OPEN_DOCS=1 requires a non-empty CP_OPEN_DOCS_QUERY.");
   }
-  if (SYNC_TICKETS && !String(effectiveSql.tickets ?? "").trim()) {
+  if (SYNC_TICKETS && !String(effectiveSql.tickets ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_TICKETS=1 requires a non-empty CP_TICKETS_QUERY.");
   }
-  if (SYNC_CATEGORY_MASTERS && !String(effectiveSql.category_masters ?? "").trim()) {
+  if (SYNC_CATEGORY_MASTERS && !String(effectiveSql.category_masters ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_CATEGORY_MASTERS=1 requires a non-empty CP_CATEGORY_MASTERS_QUERY (set SYNC_CATEGORY_MASTERS=0 to skip).");
   }
-  if (SYNC_CATALOG && !String(effectiveSql.catalog ?? "").trim()) {
+  if (SYNC_CATALOG && !String(effectiveSql.catalog ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_CATALOG=1 requires a non-empty CP_CATALOG_QUERY (or CP_IMPORT_SCOPE=maximal).");
   }
-  if (SYNC_CUSTOMERS && !String(effectiveSql.customers ?? "").trim()) {
+  if (SYNC_CUSTOMERS && !String(effectiveSql.customers ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_CUSTOMERS=1 requires a non-empty CP_CUSTOMERS_QUERY (or CP_IMPORT_SCOPE=maximal).");
   }
-  if (SYNC_VENDORS && SYNC_VENDORS_FILTERED && !String(effectiveSql.vendors_filtered ?? "").trim()) {
+  if (SYNC_VENDORS && SYNC_VENDORS_FILTERED && !String(effectiveSql.vendors_filtered ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_VENDORS_FILTERED=1 requires a non-empty CP_VENDORS_QUERY.");
   }
-  if (SYNC_INVENTORY && !String(effectiveSql.inventory ?? "").trim()) {
+  if (SYNC_INVENTORY && !String(effectiveSql.inventory ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_INVENTORY=1 requires a non-empty CP_INVENTORY_QUERY (or CP_IMPORT_SCOPE=maximal).");
   }
-  if (SYNC_VENDOR_ITEMS && !String(effectiveSql.vend_item ?? "").trim()) {
+  if (SYNC_VENDOR_ITEMS && !String(effectiveSql.vend_item ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_VENDOR_ITEMS=1 requires a non-empty CP_VEND_ITEM_QUERY (or CP_IMPORT_SCOPE=maximal).");
   }
-  if (SYNC_CUSTOMER_NOTES && !String(effectiveSql.customer_notes ?? "").trim()) {
+  if (SYNC_CUSTOMER_NOTES && !String(effectiveSql.customer_notes ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_CUSTOMER_NOTES=1 requires a non-empty CP_CUSTOMER_NOTES_QUERY.");
   }
-  if (SYNC_LOYALTY_HIST && !String(effectiveSql.loyalty ?? "").trim()) {
+  if (SYNC_LOYALTY_HIST && !String(effectiveSql.loyalty ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_LOYALTY_HIST=1 requires a non-empty CP_LOYALTY_HIST_QUERY.");
   }
-  if (SYNC_GIFT_CARDS && !String(effectiveSql.gift_cards ?? "").trim()) {
+  if (SYNC_GIFT_CARDS && !String(effectiveSql.gift_cards ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_GIFT_CARDS=1 requires a non-empty CP_GIFT_CARDS_QUERY.");
   }
 
@@ -1266,7 +1269,8 @@ function validateCounterpointSyncDependencyPlan() {
     SYNC_STAFF &&
     !String(effectiveSql.users ?? "").trim() &&
     !String(effectiveSql.sales_reps ?? "").trim() &&
-    !String(effectiveSql.buyers ?? "").trim()
+    !String(effectiveSql.buyers ?? "").trim() &&
+    !allowEmptyQueries
   ) {
     errors.push(
       "SYNC_STAFF=1 requires at least one non-empty query among CP_USERS_QUERY, CP_SALES_REPS_QUERY, CP_BUYERS_QUERY.",
