@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Trash2,
   X,
+  Shirt,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
@@ -713,11 +714,11 @@ export default function TransactionDetailDrawer({
   const [internalErrorMessage, setInternalErrorMessage] = useState<string | null>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
-  const [pendingSwapVariant, setPendingSwapVariant] = useState<{
-    variant_id: string;
-    sku: string;
-    variation_label: string | null;
-  } | null>(null);
+  const [suitSwapTarget, setSuitSwapTarget] = useState<TransactionDrawerItem | null>(null);
+  const [suitSwapSku, setSuitSwapSku] = useState("");
+  const [suitSwapNote, setSuitSwapNote] = useState("");
+  const [suitSwapBusy, setSuitSwapBusy] = useState(false);
+  const [suitSwapError, setSuitSwapError] = useState<string | null>(null);
   const [editQuantity, setEditQuantity] = useState("1");
   const [editUnitPrice, setEditUnitPrice] = useState("");
   const [editFulfillment, setEditFulfillment] =
@@ -841,14 +842,25 @@ export default function TransactionDetailDrawer({
     setEditVariantLabel(item.variation_label ?? null);
     setEditLifecycleStatus(item.order_lifecycle_status ?? "ntbo");
     setEditError(null);
-    setPendingSwapVariant(null);
   }, []);
   const cancelLineEdit = useCallback(() => {
     if (editBusy) return;
     setEditingLineId(null);
     setEditError(null);
-    setPendingSwapVariant(null);
   }, [editBusy]);
+
+  const beginSuitSwap = useCallback((item: TransactionDrawerItem) => {
+    setSuitSwapTarget(item);
+    setSuitSwapSku("");
+    setSuitSwapNote("");
+    setSuitSwapError(null);
+  }, []);
+
+  const closeSuitSwap = useCallback(() => {
+    if (suitSwapBusy) return;
+    setSuitSwapTarget(null);
+    setSuitSwapError(null);
+  }, [suitSwapBusy]);
 
   const openReadyModal = useCallback((item: TransactionDrawerItem) => {
     setReadyTarget(item);
@@ -1030,46 +1042,53 @@ export default function TransactionDetailDrawer({
     }
   }, [detail, editingLineId]);
 
+  const submitSuitSwap = async () => {
+    if (!suitSwapTarget || !suitSwapSku.trim() || !detail) return;
+    setSuitSwapBusy(true);
+    setSuitSwapError(null);
+    try {
+      const scanRes = await fetch(
+        `${baseUrl}/api/inventory/scan/${encodeURIComponent(suitSwapSku.trim())}`,
+        { headers: auth() }
+      );
+      if (!scanRes.ok) {
+        throw new Error("Could not resolve replacement SKU.");
+      }
+      const scanned = await scanRes.json();
+      const res = await fetch(
+        `${baseUrl}/api/transactions/${detail.transaction_id}/items/${suitSwapTarget.transaction_line_id}/suit-swap`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...auth(),
+          },
+          body: JSON.stringify({
+            in_variant_id: scanned.variant_id,
+            note: suitSwapNote.trim() || null,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b.error ?? "Suit Swap failed");
+      }
+      const out = await res.json();
+      toast(`Suit Swap complete: ${out.old_sku} → ${out.new_sku}`, "success");
+      setSuitSwapTarget(null);
+      if (onLifecycleChanged) {
+        await onLifecycleChanged();
+      }
+      void load();
+    } catch (error) {
+      setSuitSwapError(error instanceof Error ? error.message : "Suit Swap failed");
+    } finally {
+      setSuitSwapBusy(false);
+    }
+  };
+
   const submitLineEdit = useCallback(
     async (item: TransactionDrawerItem) => {
-      if (pendingSwapVariant) {
-        if (!item.transaction_line_id || !detail) return;
-        setEditBusy(true);
-        setEditError(null);
-        try {
-          const res = await fetch(
-            `${baseUrl}/api/transactions/${detail.transaction_id}/items/${item.transaction_line_id}/suit-swap`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                ...auth(),
-              },
-              body: JSON.stringify({
-                in_variant_id: pendingSwapVariant.variant_id,
-              }),
-            }
-          );
-          if (!res.ok) {
-            const b = await res.json().catch(() => ({}));
-            throw new Error(b.error ?? "Suit Swap failed");
-          }
-          const out = await res.json();
-          toast(`Suit Swap complete: ${out.old_sku} → ${out.new_sku}`, "success");
-          setPendingSwapVariant(null);
-          setEditingLineId(null);
-          if (onLifecycleChanged) {
-            await onLifecycleChanged();
-          }
-          void load();
-        } catch (error) {
-          setEditError(error instanceof Error ? error.message : "Suit Swap failed");
-        } finally {
-          setEditBusy(false);
-        }
-        return;
-      }
-
       if (!orderActions?.updateLine || !item.transaction_line_id) return;
       const quantity = Number.parseInt(editQuantity.trim(), 10);
       if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -1141,12 +1160,6 @@ export default function TransactionDetailDrawer({
       editUnitPrice,
       editVariantId,
       orderActions,
-      pendingSwapVariant,
-      detail,
-      auth,
-      load,
-      onLifecycleChanged,
-      toast,
     ],
   );
 
@@ -1930,18 +1943,27 @@ export default function TransactionDetailDrawer({
                               </button>
                             ) : null}
                             {orderActions?.canModify &&
-                            detail.status !== "cancelled" &&
-                            !item.is_fulfilled &&
-                            orderActions.updateLine &&
-                            item.transaction_line_id ? (
-                              <button
-                                type="button"
-                                onClick={() => beginLineEdit(item)}
-                                className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent/10"
-                              >
-                                Edit
-                              </button>
-                            ) : null}
+                             detail.status !== "cancelled" &&
+                             !item.is_fulfilled &&
+                             orderActions.updateLine &&
+                             item.transaction_line_id ? (
+                               <div className="flex items-center gap-1">
+                                 <button
+                                   type="button"
+                                   onClick={() => beginLineEdit(item)}
+                                   className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent/10"
+                                 >
+                                   Edit
+                                 </button>
+                                 <button
+                                   type="button"
+                                   onClick={() => beginSuitSwap(item)}
+                                   className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-600 transition-colors hover:bg-emerald-600/10"
+                                 >
+                                   Suit Swap
+                                 </button>
+                               </div>
+                             ) : null}
                             {orderActions?.canModify &&
                             detail.status !== "cancelled" &&
                             orderActions.deleteLine &&
@@ -2023,15 +2045,11 @@ export default function TransactionDetailDrawer({
                                     placeholder="Search this item for the correct size or variation"
                                     onSelect={(variant) => {
                                       if (variant.product_id !== item.product_id) {
-                                        setPendingSwapVariant({
-                                          variant_id: variant.variant_id,
-                                          sku: variant.sku,
-                                          variation_label: variant.variation_label ?? null,
-                                        });
-                                        setEditError(null);
+                                        setEditError(
+                                          "Use Delete and Add when changing to a different item.",
+                                        );
                                         return;
                                       }
-                                      setPendingSwapVariant(null);
                                       setEditVariantId(variant.variant_id);
                                       setEditVariantSku(variant.sku);
                                       setEditVariantLabel(variant.variation_label ?? null);
@@ -2040,17 +2058,6 @@ export default function TransactionDetailDrawer({
                                   />
                                 </div>
                               </div>
-                              {pendingSwapVariant && (
-                                <div className="sm:col-span-3 rounded-xl border border-amber-500/25 bg-amber-500/5 p-3">
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">
-                                    Suit Component Swap Mode
-                                  </p>
-                                  <p className="mt-1 text-[11px] font-semibold text-app-text-muted leading-relaxed">
-                                    You selected a different product (<strong>{pendingSwapVariant.sku}</strong>{pendingSwapVariant.variation_label ? ` · ${pendingSwapVariant.variation_label}` : ""}).
-                                    Saving will perform a Suit Component Swap, updating inventory allocations and recording net cost deltas in the ledger.
-                                  </p>
-                                </div>
-                              )}
                               {item.order_lifecycle_status === "needs_measurements" ||
                               item.order_lifecycle_status === "ntbo" ? (
                                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-3">
@@ -2382,6 +2389,94 @@ export default function TransactionDetailDrawer({
                     className="flex-1 rounded-xl border-b-4 border-app-success bg-app-success px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"
                   >
                     {pickupBusy ? "Releasing..." : pickupOverride ? "Release with Override" : "Release Ready Lines"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            drawerRoot,
+          )
+        : null}
+
+      {suitSwapTarget && drawerRoot
+        ? createPortal(
+            <div className="ui-overlay-backdrop z-200 flex items-center justify-center p-4">
+              <div className="ui-modal w-full max-w-lg">
+                <div className="ui-modal-header flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Shirt className="h-5 w-5 text-emerald-600 animate-pulse" />
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Suit Component Swap
+                      </p>
+                      <h3 className="mt-1 text-lg font-black text-app-text">
+                        Swap Component: {suitSwapTarget.product_name}
+                      </h3>
+                      <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
+                        Current SKU: {suitSwapTarget.sku} · Qty {suitSwapTarget.quantity}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeSuitSwap}
+                    disabled={suitSwapBusy}
+                    className="rounded-xl p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                    aria-label="Close suit swap"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="ui-modal-body space-y-4">
+                  <p className="text-xs text-app-text-muted leading-relaxed">
+                    A Suit Component Swap exchanges parts of a suit (e.g. swap pants, vests, coats). The removed item returns to floor stock inventory, and the new item is pulled from inventory. Price, cost, and NYS/Erie taxes are automatically recalculated.
+                  </p>
+                  
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Replacement SKU
+                      <input
+                        className="ui-input mt-1 w-full font-mono text-sm"
+                        value={suitSwapSku}
+                        onChange={(e) => setSuitSwapSku(e.target.value)}
+                        placeholder="Scan or type replacement SKU"
+                        disabled={suitSwapBusy}
+                      />
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Swap Note
+                      <input
+                        className="ui-input mt-1 w-full text-sm"
+                        value={suitSwapNote}
+                        onChange={(e) => setSuitSwapNote(e.target.value)}
+                        placeholder="e.g., Exchanged pants size 32 for 34"
+                        disabled={suitSwapBusy}
+                      />
+                    </label>
+                  </div>
+
+                  {suitSwapError && (
+                    <p className="text-xs font-semibold text-rose-600">{suitSwapError}</p>
+                  )}
+                </div>
+                <div className="ui-modal-footer flex gap-2">
+                  <button
+                    type="button"
+                    onClick={closeSuitSwap}
+                    disabled={suitSwapBusy}
+                    className="flex-1 rounded-xl border border-app-border bg-app-surface px-4 py-3 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submitSuitSwap()}
+                    disabled={suitSwapBusy || !suitSwapSku.trim()}
+                    className="flex-1 rounded-xl border-b-4 border-app-success bg-app-success px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"
+                  >
+                    {suitSwapBusy ? "Swapping..." : "Confirm Suit Swap"}
                   </button>
                 </div>
               </div>
