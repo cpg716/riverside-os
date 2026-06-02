@@ -24,6 +24,7 @@ import {
   Pencil,
   AlertTriangle,
   Printer,
+  Shirt,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
@@ -2258,6 +2259,20 @@ export default function Cart({
                 <ArrowLeftRight size={16} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
                   Exchange / Return
+                </span>
+              </button>
+              <button
+                type="button"
+                data-testid="pos-suit-swap-trigger"
+                onClick={() => {
+                  if (!ensureSaleCashier()) return;
+                  setSuitSwapWizardOpen(true);
+                }}
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-border bg-app-surface-2 px-2.5 text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
+              >
+                <Shirt size={16} />
+                <span className="text-[10px] font-black uppercase tracking-widest">
+                  Suit Swap
                 </span>
               </button>
             </div>
