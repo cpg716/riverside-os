@@ -2485,32 +2485,33 @@ pub async fn import_lightspeed_normalization_reference(
 
     let mut tx = pool.begin().await?;
 
-    let (batch_id, batch_name, batch_hash, batch_row_count, batch_status, batch_imported_at) = if let Some((id, active_hash)) = active_batch {
-        if !payload.replace && active_hash == source_file_hash {
-            sqlx::query("UPDATE lightspeed_normalization_batches SET row_count = row_count + $1 WHERE id = $2")
+    let (batch_id, batch_name, batch_hash, batch_row_count, batch_status, batch_imported_at) =
+        if let Some((id, active_hash)) = active_batch {
+            if !payload.replace && active_hash == source_file_hash {
+                sqlx::query("UPDATE lightspeed_normalization_batches SET row_count = row_count + $1 WHERE id = $2")
                 .bind(payload.rows.len() as i32)
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
-            
-            let b: (String, String, i32, String, DateTime<Utc>) = sqlx::query_as(
+
+                let b: (String, String, i32, String, DateTime<Utc>) = sqlx::query_as(
                 "SELECT source_file_name, source_file_hash, row_count, status, imported_at FROM lightspeed_normalization_batches WHERE id = $1"
             )
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
-            
-            (id, b.0, b.1, b.2, b.3, b.4)
-        } else if !payload.replace {
-            return Err(CounterpointSyncError::InvalidPayload(
+
+                (id, b.0, b.1, b.2, b.3, b.4)
+            } else if !payload.replace {
+                return Err(CounterpointSyncError::InvalidPayload(
                 "an active Lightspeed normalization reference batch already exists; rerun with --replace".into()
             ));
-        } else {
-            sqlx::query("DELETE FROM lightspeed_normalization_batches")
-                .execute(&mut *tx)
-                .await?;
+            } else {
+                sqlx::query("DELETE FROM lightspeed_normalization_batches")
+                    .execute(&mut *tx)
+                    .await?;
 
-            let b: (Uuid, String, String, i32, String, DateTime<Utc>) = sqlx::query_as(
+                let b: (Uuid, String, String, i32, String, DateTime<Utc>) = sqlx::query_as(
                 r#"
                 INSERT INTO lightspeed_normalization_batches (source_file_name, source_file_hash, row_count, status)
                 VALUES ($1, $2, $3, 'active')
@@ -2522,10 +2523,10 @@ pub async fn import_lightspeed_normalization_reference(
             .bind(payload.rows.len() as i32)
             .fetch_one(&mut *tx)
             .await?;
-            (b.0, b.1, b.2, b.3, b.4, b.5)
-        }
-    } else {
-        let b: (Uuid, String, String, i32, String, DateTime<Utc>) = sqlx::query_as(
+                (b.0, b.1, b.2, b.3, b.4, b.5)
+            }
+        } else {
+            let b: (Uuid, String, String, i32, String, DateTime<Utc>) = sqlx::query_as(
             r#"
             INSERT INTO lightspeed_normalization_batches (source_file_name, source_file_hash, row_count, status)
             VALUES ($1, $2, $3, 'active')
@@ -2537,8 +2538,8 @@ pub async fn import_lightspeed_normalization_reference(
         .bind(payload.rows.len() as i32)
         .fetch_one(&mut *tx)
         .await?;
-        (b.0, b.1, b.2, b.3, b.4, b.5)
-    };
+            (b.0, b.1, b.2, b.3, b.4, b.5)
+        };
 
     let batch = LightspeedNormalizationReferenceBatchSummary {
         id: batch_id,
