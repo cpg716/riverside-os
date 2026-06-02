@@ -875,7 +875,7 @@ async function loadSchemaEntries(pool) {
 
 async function rebuildEffectiveSql(pool) {
   initEffectiveSqlFromConstants();
-  const scope = (process.env.CP_IMPORT_SCOPE ?? "default").trim().toLowerCase();
+  const scope = (process.env.CP_IMPORT_SCOPE ?? "maximal").trim().toLowerCase();
   const autoOn = (process.env.CP_AUTO_SCHEMA ?? "1").trim() !== "0";
   let invCost = "LST_COST";
   let imVendCol = "";
@@ -1228,10 +1228,8 @@ function validateCounterpointSyncDependencyPlan() {
       "SYNC_STORE_CREDIT_OPENING=1: set CP_CUSTOMER_STORE_CREDIT_EXISTS (EXISTS body: SELECT 1 … matching c.CUST_NO with balance > 0) or customers with only store credit are skipped by CP_CUSTOMERS_QUERY.",
     );
   }
-  // Allow empty queries when auto-schema or maximal scope is enabled
-  const CP_AUTO_SCHEMA = (process.env.CP_AUTO_SCHEMA ?? "1").trim() !== "0";
-  const CP_IMPORT_SCOPE = (process.env.CP_IMPORT_SCOPE ?? "default").trim().toLowerCase();
-  const allowEmptyQueries = CP_AUTO_SCHEMA || CP_IMPORT_SCOPE === "maximal";
+  // Always allow empty queries - use auto-schema and built-in fallbacks by default
+  const allowEmptyQueries = true;
 
   if (SYNC_OPEN_DOCS && !String(effectiveSql.open_docs ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_OPEN_DOCS=1 requires a non-empty CP_OPEN_DOCS_QUERY.");
