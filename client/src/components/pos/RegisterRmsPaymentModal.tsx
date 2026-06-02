@@ -328,7 +328,7 @@ export default function RegisterRmsPaymentModal({
                       onSelectCustomer(null);
                       clearSummary();
                     }}
-                    className="shrink-0 rounded-full bg-white/10 p-1.5 transition-colors hover:bg-white/20"
+                    className="shrink-0 rounded-full bg-app-surface/10 p-1.5 transition-colors hover:bg-app-surface/20"
                     aria-label="Remove customer"
                   >
                     <X size={14} />

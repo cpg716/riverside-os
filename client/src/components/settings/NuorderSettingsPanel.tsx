@@ -81,7 +81,7 @@ export default function NuorderSettingsPanel() {
     <div className="ui-card p-8 border-indigo-500/20 bg-gradient-to-br from-indigo-500/5 to-transparent">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white ring-1 ring-black/5">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-app-surface ring-1 ring-black/5">
             <IntegrationBrandLogo
               brand="nuorder"
               kind="icon"
@@ -94,7 +94,7 @@ export default function NuorderSettingsPanel() {
               <IntegrationBrandLogo
                 brand="nuorder"
                 kind="wordmark"
-                className="inline-flex rounded-2xl border border-app-border bg-white px-4 py-2 shadow-sm"
+                className="inline-flex rounded-2xl border border-app-border bg-app-surface px-4 py-2 shadow-sm"
                 imageClassName="h-8 w-auto object-contain"
               />
             </div>

@@ -56,7 +56,7 @@ export default function ConstantContactSettingsPanel() {
   const [lists, setLists] = useState<ConstantContactList[]>([]);
   const [targetListId, setTargetListId] = useState("");
   const [listMappings, setListMappings] = useState<Record<string, string>>({});
-  
+
   // Tag segment management (add new tag to list mapping mapping)
   const [newTag, setNewTag] = useState("");
   const [newTagListId, setNewTagListId] = useState("");
@@ -278,7 +278,7 @@ export default function ConstantContactSettingsPanel() {
           <IntegrationBrandLogo
             brand="constant_contact"
             kind="wordmark"
-            className="inline-flex rounded-2xl border border-blue-500/20 bg-white px-4 py-2 shadow-sm"
+            className="inline-flex rounded-2xl border border-blue-500/20 bg-app-surface px-4 py-2 shadow-sm"
             imageClassName="h-10 w-auto object-contain"
           />
         </div>

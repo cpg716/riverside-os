@@ -519,7 +519,7 @@ export default function StaffEditDrawer({
                       className={`w-8 h-4 rounded-full transition-colors relative ${active ? "bg-emerald-500" : "bg-app-border"}`}
                     >
                       <div
-                        className={`absolute top-1 w-2 h-2 rounded-full bg-white transition-all ${active ? "left-5" : "left-1"}`}
+                        className={`absolute top-1 w-2 h-2 rounded-full bg-app-surface transition-all ${active ? "left-5" : "left-1"}`}
                       />
                     </div>
                   </div>

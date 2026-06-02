@@ -652,7 +652,7 @@ const tryParseDateFromSheetName = (name: string): Date | null => {
     "jan", "feb", "mar", "apr", "may", "jun",
     "jul", "aug", "sep", "oct", "nov", "dec"
   ];
-  
+
   // Try "April 26", "Apr 26", "April26", "Apr26", "4/26", "4-26"
   // Month Match: optionally followed by space or just the number
   const monthMatch = norm.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*(\d+)/);
@@ -724,20 +724,20 @@ const buildStaffPrintDocument = (
         const ymd = toYmdLocal(addDays(weekStart, wd));
         const dayEvents = events.filter(e => e.event_date === ymd);
         const hasHoliday = dayEvents.some(e => e.kind === "holiday");
-        
+
         return `<td style="font-size: 16px; font-weight: 900; color: ${hasHoliday ? "#d32f2f" : "#795548"}; vertical-align: top; padding: 4px; border-bottom: 2pt solid #000">
           ${dayEvents.map(e => `<div style="${e.kind === "holiday" ? "text-align: center; border: 1pt solid #d32f2f; background: #ffebee; padding: 2px; border-radius: 4px; margin-bottom: 2px" : "margin-bottom: 3px"}">${e.kind === "holiday" ? "★ " : "• "}${escapeForPrint(e.label).toUpperCase()}</div>`).join("")}
         </td>`;
       }).join("")}
     </tr>
   `;
-  
+
   rowsHtml += eventsHtml;
-  
+
   for (const s of printableSchedules) {
     // Coarse grouping for separators: group all 'support' roles together
     const currentGroup = s.role.toLowerCase().includes("support") ? "support" : s.role.toLowerCase();
-    
+
     if (lastGroup && currentGroup !== lastGroup) {
       rowsHtml += `
         <tr class="group-separator">
@@ -761,11 +761,11 @@ const buildStaffPrintDocument = (
             const hasMeeting = dayEventsForShift.some(e => e.kind === "meeting");
             const hasHoliday = dayEventsForShift.some(e => e.kind === "holiday");
             const hasStoreEvent = dayEventsForShift.some(e => e.kind === "store_event");
-            
+
             const label = w?.shift_label || "";
             const isOff = !w?.works;
             let text = "";
-            
+
             if (!isOff) {
               text = label || "Working";
             } else {
@@ -824,35 +824,35 @@ const buildStaffPrintDocument = (
       padding-top: 2mm;
       flex-shrink: 0;
     }
-    h1 { 
-      margin: 0; 
-      font-size: ${compactMode ? "42px" : "52px"}; 
-      font-weight: 900; 
-      letter-spacing: 0.12em; 
-      text-transform: uppercase; 
+    h1 {
+      margin: 0;
+      font-size: ${compactMode ? "42px" : "52px"};
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
       line-height: 1;
     }
     .print-header h1::after {
       content: "";
     }
-    .week-label { 
-      margin: 0; 
-      font-size: 18px; 
-      font-weight: 800; 
-      text-transform: uppercase; 
+    .week-label {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 800;
+      text-transform: uppercase;
       color: #333;
     }
-    .print-table-wrap { 
+    .print-table-wrap {
       flex-grow: 1;
       min-height: 0;
       margin: 2mm 0;
     }
-    .schedule-table { 
-      width: 100%; 
+    .schedule-table {
+      width: 100%;
       height: 100%;
-      border-collapse: collapse; 
-      table-layout: fixed; 
-      border: 1.5pt solid #000; 
+      border-collapse: collapse;
+      table-layout: fixed;
+      border: 1.5pt solid #000;
     }
     .schedule-table th,
     .schedule-table td {
@@ -861,11 +861,11 @@ const buildStaffPrintDocument = (
       vertical-align: middle;
       padding: ${compactMode ? "0.5mm" : "1.5mm"} 1mm;
     }
-    .schedule-table th { 
-      background: #f0f0f0; 
-      color: #000; 
-      font-size: 11px; 
-      font-weight: 900; 
+    .schedule-table th {
+      background: #f0f0f0;
+      color: #000;
+      font-size: 11px;
+      font-weight: 900;
       text-transform: uppercase;
       height: ${compactMode ? "5mm" : "6.8mm"};
     }
@@ -880,11 +880,11 @@ const buildStaffPrintDocument = (
       background: #000 !important;
       border: 1pt solid #000 !important;
     }
-    
-    .print-footer-row { 
-      display: flex; 
-      justify-content: space-between; 
-      align-items: flex-end; 
+
+    .print-footer-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
       flex-shrink: 0;
       padding-top: 1mm;
     }
@@ -894,16 +894,16 @@ const buildStaffPrintDocument = (
       padding: 3px 8px;
       background: #fff;
     }
-    .print-footer-left h4 { 
-      margin: 0 0 2px; 
-      font-size: 10px; 
-      font-weight: 900; 
-      text-transform: uppercase; 
+    .print-footer-left h4 {
+      margin: 0 0 2px;
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
       border-bottom: 1pt solid #d32f2f;
       padding-bottom: 1px;
       color: #d32f2f;
     }
-    .print-sunday-entry { 
+    .print-sunday-entry {
       display: flex;
       flex-direction: column;
       margin-bottom: 2px;
@@ -922,14 +922,14 @@ const buildStaffPrintDocument = (
       text-transform: uppercase;
       line-height: 1;
     }
-    
-    .print-footer-right { 
-      width: 30%; 
-      text-align: right; 
-      font-size: 9px; 
-      font-weight: 800; 
-      text-transform: uppercase; 
-      color: #666; 
+
+    .print-footer-right {
+      width: 30%;
+      text-align: right;
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #666;
       line-height: 1.4;
     }
   </style>
@@ -940,7 +940,7 @@ const buildStaffPrintDocument = (
       <h1>Riverside Men's Shop</h1>
       <div class="week-label">Store Schedule: ${escapeForPrint(weekLabel)}</div>
     </div>
-    
+
     <div class="print-table-wrap">
       <table class="schedule-table">
         <thead>
@@ -991,7 +991,7 @@ const buildStaffPrintDocument = (
           }
         </div>
       </div>
-      
+
       <div class="print-footer-right">
         <div>Riverside OS • Staff Scheduler</div>
         <div>Authorized Week: ${escapeForPrint(weekLabel)}</div>
@@ -999,12 +999,12 @@ const buildStaffPrintDocument = (
       </div>
     </div>
   </div>
-  
+
   <script>
     window.onload = () => {
       setTimeout(() => {
         window.print();
-        // Optional: window.close(); 
+        // Optional: window.close();
       }, 250);
     };
   </script>
@@ -1522,7 +1522,7 @@ export default function StaffWeeklyGridView() {
         const existingIdx = currentSchedules.findIndex(
           (s) => s.staff_id === staff.id,
         );
-        
+
         // Prepare a full 7-day schedule, defaulting to OFF for all days.
         // This ensures that days missing from the Excel sheet (like Sunday in some sheets)
         // are explicitly marked as OFF rather than falling back to the template.
@@ -1592,20 +1592,20 @@ export default function StaffWeeklyGridView() {
 
       for (const worksheet of sortedWorksheets) {
         const wsName = worksheet.name.trim().toLowerCase();
-        
+
         let targetWeekStart: Date | null = null;
         if (planningMode === "template") {
           if (wsName !== "master") continue;
         } else {
           targetWeekStart = tryParseDateFromSheetName(worksheet.name);
           if (!targetWeekStart && wsName !== "master") continue;
-          
+
           // If it's a MASTER sheet and we are in week mode, we can use it as a baseline if we have nothing else,
           // but usually we skip it or use it to populate the current week.
           if (wsName === "master" && seenSheets === 0) {
             targetWeekStart = weekStart;
           }
-          
+
           if (!targetWeekStart) continue;
 
           // Limit to April - July for safety (Months 3 to 6)
@@ -1613,7 +1613,7 @@ export default function StaffWeeklyGridView() {
           if (m < 3 || m > 6) continue;
         }
 
-        const isCurrentWeek = planningMode === "template" 
+        const isCurrentWeek = planningMode === "template"
           ? wsName === "master"
           : (targetWeekStart && targetWeekStart.getTime() === weekStart.getTime());
 
@@ -1652,7 +1652,7 @@ export default function StaffWeeklyGridView() {
             };
             bulkSchedules.push(entry);
           }
-          
+
           if (bulkSchedules.length > 0) {
             const weekStr = toYmdLocal(sundayStart(targetWeekStart));
             await fetch(`${baseUrl}/api/staff/schedule/weeks/${weekStr}`, {
@@ -1812,7 +1812,7 @@ export default function StaffWeeklyGridView() {
             onClick={() => setPlanningMode("week")}
             className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
               planningMode === "week"
-                ? "bg-white text-app-text shadow-sm"
+                ? "bg-app-surface text-app-text shadow-sm"
                 : "text-app-text-muted hover:text-app-text"
             }`}
           >
@@ -1823,7 +1823,7 @@ export default function StaffWeeklyGridView() {
             onClick={() => setPlanningMode("template")}
             className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
               planningMode === "template"
-                ? "bg-white text-app-text shadow-sm"
+                ? "bg-app-surface text-app-text shadow-sm"
                 : "text-app-text-muted hover:text-app-text"
             }`}
           >
@@ -2041,7 +2041,7 @@ export default function StaffWeeklyGridView() {
               .map((ex) => (
                 <div
                   key={ex.id}
-                  className="flex items-center gap-2 rounded-xl bg-white p-2 shadow-sm dark:bg-app-surface-3"
+                  className="flex items-center gap-2 rounded-xl bg-app-surface p-2 shadow-sm dark:bg-app-surface-3"
                 >
                   <div className="h-2 w-2 rounded-full bg-app-accent" />
                   <div className="flex flex-col">
@@ -2125,8 +2125,8 @@ export default function StaffWeeklyGridView() {
                               setShowEventModal(true);
                             }}
                             className={`group/evt relative min-h-11 w-full rounded-md border p-2 text-left transition-colors ${
-                              e.kind === "holiday" 
-                                ? "bg-red-100 border-red-300 hover:bg-red-200" 
+                              e.kind === "holiday"
+                                ? "bg-red-100 border-red-300 hover:bg-red-200"
                                 : "bg-amber-100 border-amber-200 hover:bg-amber-200"
                             }`}
                           >
@@ -2200,16 +2200,16 @@ export default function StaffWeeklyGridView() {
                     );
                     const isOverride = w.works && !w.base_works;
                     const isRemoved = !w.works && w.base_works;
-                    
+
                     return (
                       <td key={i} className="px-1 py-1 align-middle">
                         <div className="relative group/cell">
                           <input
                             type="text"
                             disabled={!canEdit}
-                            className={`w-full rounded-xl border-2 px-2 py-3 text-center text-xs font-black transition-all focus:border-app-accent focus:bg-white focus:ring-4 focus:ring-app-accent/5 dark:focus:bg-app-surface-3 ${
+                            className={`w-full rounded-xl border-2 px-2 py-3 text-center text-xs font-black transition-all focus:border-app-accent focus:bg-app-surface focus:ring-4 focus:ring-app-accent/5 dark:focus:bg-app-surface-3 ${
                               w.is_highlighted
-                                ? "border-amber-500 bg-[#fff176] text-black shadow-lg shadow-amber-400/20"
+                                ? "border-amber-500 bg-[#fff176] text-black shadow-lg shadow-amber-400/20 dark:bg-amber-500/20 dark:text-amber-100"
                                 : !w.works
                                   ? "border-transparent text-app-text-muted opacity-40 italic bg-transparent"
                                   : conflict
@@ -2231,7 +2231,7 @@ export default function StaffWeeklyGridView() {
                           />
                           {/* Conflict / Request Off Indicator */}
                           {conflict && (
-                            <div 
+                            <div
                               className="absolute -top-1 -left-1 z-30 rounded-full bg-red-600 border-2 border-white p-0.5 text-white shadow-md animate-pulse"
                               title={`${conflict.kind.replace("_", " ")}: ${conflict.notes || "No notes"}`}
                             >
@@ -2241,9 +2241,9 @@ export default function StaffWeeklyGridView() {
 
                            {/* Override Warning Indicator (Extra Shift: Scheduled on day off) */}
                            {isOverride && !conflict && (
-                             <div 
+                             <div
                                className="absolute -top-1 -left-1 z-20 rounded-full bg-amber-500 border-2 border-white p-0.5 text-white shadow-sm cursor-help"
-                               title={`Extra Shift: This day is normally OFF in the Master Template${w.base_shift_label ? ` (${w.base_shift_label})` : ""}`} 
+                               title={`Extra Shift: This day is normally OFF in the Master Template${w.base_shift_label ? ` (${w.base_shift_label})` : ""}`}
                              >
                                <AlertCircle size={10} />
                              </div>
@@ -2251,9 +2251,9 @@ export default function StaffWeeklyGridView() {
 
                            {/* Removed Warning Indicator (Normally works, but marked OFF) */}
                            {isRemoved && !conflict && (
-                             <div 
+                             <div
                                className="absolute -top-1 -left-1 z-20 rounded-full bg-slate-400 border-2 border-white p-0.5 text-white shadow-sm cursor-help"
-                               title={`Removed: Normally works ${w.base_shift_label || "this day"} in Master Template`} 
+                               title={`Removed: Normally works ${w.base_shift_label || "this day"} in Master Template`}
                              >
                                <AlertCircle size={10} />
                              </div>
@@ -2262,14 +2262,14 @@ export default function StaffWeeklyGridView() {
                           {/* Event / Meeting Indicator */}
                           {planningMode === "week" && (() => {
                             const ymd = toYmdLocal(addDays(sundayStart(weekCursor), i));
-                            const myEvents = events.filter(e => 
+                            const myEvents = events.filter(e =>
                               e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id))
                             );
                             if (myEvents.length === 0) return null;
                             return (
                               <div className="absolute -top-1 -right-1 flex gap-0.5 z-20">
                                 {myEvents.map(e => (
-                                  <div 
+                                  <div
                                     key={e.id}
                                     title={`${e.kind === "holiday" ? "Holiday" : e.kind === "store_event" ? "Event" : "Meeting"}: ${e.label}${e.notes ? ` (${e.notes})` : ""}`}
                                     className={`w-4 h-4 rounded-full border-2 border-white shadow-sm flex items-center justify-center text-[8px] text-white font-black ${
@@ -2303,8 +2303,8 @@ export default function StaffWeeklyGridView() {
               ))}
 
               {/* Coverage Summary Row */}
-              <tr className="bg-app-surface-3/50 font-black text-[10px] uppercase tracking-widest print:bg-white">
-                <td className="sticky left-0 bg-app-surface-3/50 z-10 border-r border-app-border px-4 py-4 align-middle text-app-text-muted print:bg-white">
+              <tr className="bg-app-surface-3/50 font-black text-[10px] uppercase tracking-widest print:bg-app-surface">
+                <td className="sticky left-0 bg-app-surface-3/50 z-10 border-r border-app-border px-4 py-4 align-middle text-app-text-muted print:bg-app-surface">
                   Daily Coverage Summary
                 </td>
                 {coverageStats.map((stat, i) => (
@@ -2352,7 +2352,7 @@ export default function StaffWeeklyGridView() {
                     </div>
                   </td>
                 ))}
-                <td className="bg-app-surface-3/50 print:bg-white"></td>
+                <td className="bg-app-surface-3/50 print:bg-app-surface"></td>
               </tr>
               {schedules.length === 0 && (
                 <tr>
@@ -2533,7 +2533,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
           <div className="flex gap-4">
             <label className="flex-1">
               <span className="text-[10px] font-black uppercase text-app-text-muted mb-1 block">Type</span>
-              <select 
+              <select
                 value={kind}
                 onChange={e => setKind(e.target.value)}
                 className="ui-input w-full bg-app-surface-2"
@@ -2546,7 +2546,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
             <label className="flex-[2]">
               <span className="text-[10px] font-black uppercase text-app-text-muted mb-1 block">Label</span>
               <div className="flex gap-2">
-                <input 
+                <input
                   value={label}
                   onChange={e => setLabel(e.target.value)}
                   className="ui-input w-full"
@@ -2558,7 +2558,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
 
           <label className="block">
             <span className="text-[10px] font-black uppercase text-app-text-muted mb-1 block">Notes (Optional)</span>
-            <textarea 
+            <textarea
               value={notes}
               onChange={e => setNotes(e.target.value)}
               className="ui-input w-full h-20 py-2"
@@ -2569,7 +2569,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black uppercase text-app-text-muted">Attendance</span>
-              <button 
+              <button
                 onClick={() => setAllStaff(!allStaff)}
                 className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest transition-all ${
                   allStaff ? "bg-amber-500 text-white" : "bg-app-surface-2 text-app-text-muted"
@@ -2583,7 +2583,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
               <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2 rounded-xl bg-app-surface-2/40 border border-app-border">
                 {staffList.map(s => (
                   <label key={s.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-app-surface-2 cursor-pointer transition-colors">
-                    <input 
+                    <input
                       type="checkbox"
                       checked={attendees.includes(s.id)}
                       onChange={e => {
@@ -2602,7 +2602,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
 
         <div className="flex items-center gap-3 pt-2">
           {event.id && (
-            <button 
+            <button
               onClick={() => setConfirmDeleteOpen(true)}
               disabled={busy}
               className="flex items-center justify-center gap-2 p-3 rounded-2xl border border-red-500/20 text-red-500 hover:bg-red-500/10 transition-colors"
@@ -2610,13 +2610,13 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
               <Trash2 size={18} />
             </button>
           )}
-          <button 
+          <button
             onClick={onClose}
             className="flex-1 p-3 rounded-2xl border border-app-border font-black text-[11px] uppercase tracking-widest hover:bg-app-surface-2 transition-colors"
           >
             Cancel
           </button>
-          <button 
+          <button
             onClick={() => void save()}
             disabled={busy}
             className="flex-1 p-3 rounded-2xl bg-app-accent text-white font-black text-[11px] uppercase tracking-widest shadow-lg shadow-app-accent/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"

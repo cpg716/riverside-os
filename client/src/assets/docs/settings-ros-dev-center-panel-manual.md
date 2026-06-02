@@ -4,7 +4,7 @@ title: "ROS Dev Center"
 order: 1115
 summary: "Developer and support diagnostics for checking Riverside OS health safely."
 source: client/src/components/settings/RosDevCenterPanel.tsx
-last_scanned: 2026-05-10
+last_scanned: 2026-06-02
 tags: settings-ros-dev-center-panel, support, diagnostics, dev-center
 status: approved
 ---

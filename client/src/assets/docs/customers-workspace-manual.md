@@ -4,7 +4,7 @@ title: "Customers Workspace"
 order: 1005
 summary: "Review customer accounts, open the relationship hub, and use the right workspace for customer history versus RMS support."
 source: client/src/components/customers/CustomersWorkspace.tsx
-last_scanned: 2026-04-21
+last_scanned: 2026-06-02
 tags: customers, support, relationships, duplicate-review
 ---
 

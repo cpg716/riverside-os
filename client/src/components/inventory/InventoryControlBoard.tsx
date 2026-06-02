@@ -2205,7 +2205,7 @@ export default function InventoryControlBoard({
             <button
               type="button"
               onClick={openScannedProduct}
-              className="rounded-lg border border-white/40 bg-white/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white hover:bg-white/20 transition-all"
+              className="rounded-lg border border-white/40 bg-app-surface/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white hover:bg-app-surface/20 transition-all"
             >
               View Item
             </button>

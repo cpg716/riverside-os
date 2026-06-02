@@ -1333,7 +1333,7 @@ export default function ReceiptSummaryModal({
                     {receiptPreviewError}
                   </div>
                 ) : receiptPreviewHtml?.trim().startsWith("<svg") ? (
-                  <div className="min-h-full overflow-x-auto rounded-[2rem] bg-[#f0f0f0] p-4 shadow-inner sm:p-6">
+                  <div className="min-h-full overflow-x-auto rounded-[2rem] bg-white p-4 shadow-inner sm:p-6">
                     <div
                       className="receiptline-preview mx-auto w-full max-w-[360px] [&_svg]:h-auto [&_svg]:w-full"
                       dangerouslySetInnerHTML={{ __html: receiptPreviewHtml }}

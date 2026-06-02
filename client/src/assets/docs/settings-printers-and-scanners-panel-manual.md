@@ -4,7 +4,7 @@ title: "Printers And Scanners Panel (settings)"
 order: 1109
 summary: "Configure workstation receipt, tag, report printer targets and verify scanner input."
 source: client/src/components/settings/PrintersAndScannersPanel.tsx
-last_scanned: 2026-04-26
+last_scanned: 2026-06-02
 tags: settings-printers-and-scanners-panel, settings, printers, scanners, hardware
 status: approved
 ---

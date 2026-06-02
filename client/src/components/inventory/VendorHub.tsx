@@ -83,7 +83,7 @@ export default function VendorHub() {
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingBrandId, setDeletingBrandId] = useState<string | null>(null);
-  
+
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [sourceVendorId, setSourceVendorId] = useState("");
   const [merging, setMerging] = useState(false);
@@ -493,7 +493,7 @@ export default function VendorHub() {
         </>
       )}
 
-      <DashboardGridCard 
+      <DashboardGridCard
         title="Optional Brand Links"
         subtitle={`${brands.length} brand link${brands.length === 1 ? "" : "s"}`}
         icon={TrendingUp}
@@ -565,7 +565,7 @@ export default function VendorHub() {
                  <h3 className="text-2xl font-black uppercase tracking-tight">Merge Vendors</h3>
                  <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Clean up duplicate vendor records</p>
                </div>
-               <div className="relative z-10 h-16 w-16 rounded-[24px] bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white">
+               <div className="relative z-10 h-16 w-16 rounded-[24px] bg-app-surface/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white">
                  <Merge size={32} />
                </div>
                {/* Decorative background circle */}
@@ -589,7 +589,7 @@ export default function VendorHub() {
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Duplicate to Remove</label>
                   <div className="relative">
-                    <select 
+                    <select
                       value={sourceVendorId}
                       onChange={(e) => setSourceVendorId(e.target.value)}
                       className="ui-input w-full h-14 text-sm font-black pl-5 appearance-none bg-app-surface-2 border-app-border"
@@ -607,13 +607,13 @@ export default function VendorHub() {
               </div>
 
               <div className="mt-12 flex gap-3">
-                 <button 
+                 <button
                    onClick={() => setShowMergeModal(false)}
                    className="flex-1 py-4 bg-app-surface-2 rounded-2xl text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-border/40 transition-all active:scale-95"
                  >
                    Cancel
                  </button>
-                 <button 
+                 <button
                    disabled={!sourceVendorId || merging}
                    onClick={() => void handleMerge()}
                    className="flex-1 py-4 bg-emerald-600 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-600/30 hover:brightness-110 disabled:opacity-50 transition-all active:scale-95 border-b-4 border-emerald-800"

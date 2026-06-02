@@ -48,14 +48,14 @@ export default function TransactionAttributionModal({
   onSaved,
 }: Props) {
   const { backofficeHeaders, staffRole, staffPin } = useBackofficeAuth();
-  
+
   const hasAccess = staffRole === "admin";
-  
+
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
-  
+
   useShellBackdropLayer(true);
 
   const [staff, setStaff] = useState<StaffRow[]>([]);
@@ -125,7 +125,7 @@ export default function TransactionAttributionModal({
 
   const save = async () => {
     if (!detail) return;
-    
+
     // If user has global access, use their session PIN. Otherwise require manual manager approval.
     const pin = (hasAccess ? staffPin : managerPin).trim();
     if (pin.length !== 4) {
@@ -139,7 +139,7 @@ export default function TransactionAttributionModal({
         ? lineMap[it.transaction_line_id]
         : null,
     }));
-    
+
     const primary_salesperson_id = primaryId.trim() ? primaryId : null;
     setSaving(true);
     setErr(null);
@@ -230,7 +230,7 @@ export default function TransactionAttributionModal({
                     <h3 className="text-xs font-black uppercase tracking-[0.2em] text-app-text italic">1. Line Attribution</h3>
                     {detail.operator_name && <span className="text-[9px] font-bold text-app-text-muted uppercase tracking-widest opacity-50">Origin: {detail.operator_name}</span>}
                   </div>
-                  
+
                   <div className="custom-scrollbar max-h-[40vh] space-y-3 overflow-y-auto pr-2 sm:max-h-[400px]">
                     {detail.items.map((it) => (
                       <div key={it.transaction_line_id} className="group relative rounded-2xl border-4 border-app-border bg-app-surface p-4 transition-all hover:border-app-accent/40 shadow-sm">
@@ -301,7 +301,7 @@ export default function TransactionAttributionModal({
                       <div className="space-y-2 text-center">
                         <label className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted block">Current Manager</label>
                         <select
-                          className="ui-input w-full p-3 text-center font-black bg-white/5 border-app-border/40"
+                          className="ui-input w-full p-3 text-center font-black bg-app-surface-2/50 border-app-border/40"
                           value={localStorage.getItem("ros_last_staff_id") || ""}
                           onChange={(e) => localStorage.setItem("ros_last_staff_id", e.target.value)}
                         >

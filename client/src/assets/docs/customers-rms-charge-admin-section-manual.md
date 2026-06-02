@@ -4,7 +4,7 @@ title: "RMS Charge Workspace"
 order: 1008
 summary: "Review linked RMS Charge accounts, recent activity, open issues, and reconciliation support for the selected customer."
 source: client/src/components/customers/RmsChargeAdminSection.tsx
-last_scanned: 2026-04-21
+last_scanned: 2026-06-02
 tags: customers, rms-charge, corecard, support, reconciliation
 ---
 

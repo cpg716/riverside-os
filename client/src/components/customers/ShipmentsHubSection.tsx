@@ -747,7 +747,7 @@ export default function ShipmentsHubSection({
             <IntegrationBrandLogo
               brand="shippo"
               kind="wordmark"
-              className="inline-flex rounded-2xl border border-lime-500/20 bg-white px-4 py-2 shadow-sm"
+              className="inline-flex rounded-2xl border border-lime-500/20 bg-app-surface px-4 py-2 shadow-sm"
               imageClassName="h-10 w-auto object-contain"
             />
           </div>
@@ -1344,7 +1344,7 @@ export default function ShipmentsHubSection({
                           <IntegrationBrandLogo
                             brand="shippo"
                             kind="icon"
-                            className="inline-flex rounded-lg bg-white p-1 ring-1 ring-black/5"
+                            className="inline-flex rounded-lg bg-app-surface p-1 ring-1 ring-black/5"
                             imageClassName="h-4 w-4 object-contain"
                           />
                           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">

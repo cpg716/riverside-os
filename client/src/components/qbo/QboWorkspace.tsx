@@ -750,7 +750,7 @@ export default function QboWorkspace({
           <IntegrationBrandLogo
             brand="qbo"
             kind="wordmark"
-            className="inline-flex rounded-2xl border border-emerald-500/20 bg-white px-3 py-2 shadow-sm"
+            className="inline-flex rounded-2xl border border-emerald-500/20 bg-app-surface px-3 py-2 shadow-sm"
             imageClassName="h-10 w-auto object-contain"
           />
           <div>

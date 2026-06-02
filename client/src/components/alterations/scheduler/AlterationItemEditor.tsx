@@ -31,10 +31,10 @@ const COMMON_TASKS = [
   { label: "Shorten Jacket", bucket: "jacket", units: 6 },
 ];
 
-export default function AlterationItemEditor({ 
-  alterationId, 
-  apiAuth, 
-  onItemsChanged 
+export default function AlterationItemEditor({
+  alterationId,
+  apiAuth,
+  onItemsChanged
 }: AlterationItemEditorProps) {
   const [items, setItems] = useState<AlterationOrderItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,8 +107,8 @@ export default function AlterationItemEditor({
       const res = await fetch(`${baseUrl}/api/alterations/${alterationId}/items/${item.id}`, {
         method: "PATCH",
         headers: { ...apiAuth(), "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          completed_at: item.completed_at ? null : new Date().toISOString() 
+        body: JSON.stringify({
+          completed_at: item.completed_at ? null : new Date().toISOString()
         }),
       });
       if (res.ok) {
@@ -139,20 +139,20 @@ export default function AlterationItemEditor({
 
       <div className="space-y-2">
         {items.map((item) => (
-          <div 
-            key={item.id} 
+          <div
+            key={item.id}
             className={`group flex items-center justify-between p-3 rounded-lg border transition-all ${
-              item.completed_at 
-                ? "bg-emerald-500/10 border-emerald-500/30 opacity-70" 
-                : "bg-white/5 border-white/10 hover:border-white/20"
+              item.completed_at
+                ? "bg-emerald-500/10 border-emerald-500/30 opacity-70"
+                : "bg-app-surface/5 border-white/10 hover:border-white/20"
             }`}
           >
             <div className="flex items-center gap-3">
-              <button 
+              <button
                 onClick={() => toggleComplete(item)}
                 className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
-                  item.completed_at 
-                    ? "bg-emerald-500 border-emerald-500 text-white" 
+                  item.completed_at
+                    ? "bg-emerald-500 border-emerald-500 text-white"
                     : "border-app-border hover:border-app-text"
                 }`}
               >
@@ -167,7 +167,7 @@ export default function AlterationItemEditor({
                 </p>
               </div>
             </div>
-            <button 
+            <button
               onClick={() => removeItem(item.id)}
               className="p-1.5 opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-400 transition-all"
             >
@@ -189,7 +189,7 @@ export default function AlterationItemEditor({
             <button
               key={task.label}
               onClick={() => addItem(task)}
-              className="px-2.5 py-1.5 rounded-full bg-white/5 hover:bg-blue-500/20 border border-white/10 hover:border-blue-500/50 text-[11px] text-white/70 hover:text-white transition-all flex items-center gap-1.5"
+              className="px-2.5 py-1.5 rounded-full bg-app-surface/5 hover:bg-blue-500/20 border border-white/10 hover:border-blue-500/50 text-[11px] text-white/70 hover:text-white transition-all flex items-center gap-1.5"
             >
               <Plus className="w-3 h-3" />
               {task.label}
@@ -208,7 +208,7 @@ export default function AlterationItemEditor({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-[10px] text-app-text-muted uppercase font-bold">Label</label>
-              <input 
+              <input
                 autoFocus
                 className="w-full bg-app-surface border border-app-border rounded-lg px-3 py-2 text-sm text-app-text focus:outline-none focus:border-app-accent/50"
                 value={newItem.label}
@@ -218,7 +218,7 @@ export default function AlterationItemEditor({
             </div>
             <div className="space-y-1">
               <label className="text-[10px] text-white/40 uppercase font-bold">Bucket</label>
-              <select 
+              <select
                 className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50"
                 value={newItem.bucket}
                 onChange={e => setNewItem({...newItem, bucket: e.target.value as AlterationOrderItem["capacity_bucket"]})}
@@ -233,29 +233,29 @@ export default function AlterationItemEditor({
             <div className="flex items-center gap-3">
               <label className="text-[10px] text-white/40 uppercase font-bold">Units</label>
               <div className="flex items-center gap-2">
-                <button 
+                <button
                   onClick={() => setNewItem({...newItem, units: Math.max(1, newItem.units - 1)})}
-                  className="w-7 h-7 rounded bg-white/5 flex items-center justify-center hover:bg-white/10"
+                  className="w-7 h-7 rounded bg-app-surface/5 flex items-center justify-center hover:bg-app-surface/10"
                 >
                   -
                 </button>
                 <span className="w-8 text-center text-sm font-bold">{newItem.units}</span>
-                <button 
+                <button
                   onClick={() => setNewItem({...newItem, units: newItem.units + 1})}
-                  className="w-7 h-7 rounded bg-white/5 flex items-center justify-center hover:bg-white/10"
+                  className="w-7 h-7 rounded bg-app-surface/5 flex items-center justify-center hover:bg-app-surface/10"
                 >
                   +
                 </button>
               </div>
             </div>
             <div className="flex gap-2">
-              <button 
+              <button
                 onClick={() => setAdding(false)}
                 className="px-3 py-1.5 text-xs text-white/50 hover:text-white"
               >
                 Cancel
               </button>
-              <button 
+              <button
                 disabled={!newItem.label.trim()}
                 onClick={() => addItem(newItem)}
                 className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-xs font-bold text-white transition-all shadow-lg shadow-blue-500/20"

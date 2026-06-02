@@ -4,7 +4,7 @@ title: "Receipt Settings Panel (settings)"
 order: 1097
 summary: "Adjust standard Epson receipt content for receipt printing and delivery."
 source: client/src/components/settings/ReceiptBuilderPanel.tsx
-last_scanned: 2026-04-26
+last_scanned: 2026-06-02
 tags: settings-receipt-builder-panel, settings, receipt, printing
 status: approved
 ---

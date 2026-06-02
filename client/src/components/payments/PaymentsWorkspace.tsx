@@ -524,7 +524,7 @@ function SectionButton({
       <span className="inline-flex items-center gap-2">
         {label}
         {badge && badge > 0 ? (
-          <span className={`rounded-full px-2 py-0.5 text-xs font-black ${active ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"}`}>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-black ${active ? "bg-app-surface/20 text-white" : "bg-amber-100 text-amber-800"}`}>
             {badge > 99 ? "99+" : badge}
           </span>
         ) : null}

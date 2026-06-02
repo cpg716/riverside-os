@@ -4,7 +4,7 @@ title: "Commission Reports Panel (staff)"
 order: 1104
 summary: "Review fulfillment-based commission reporting by staff and period."
 source: client/src/components/staff/CommissionPayoutsPanel.tsx
-last_scanned: 2026-04-25
+last_scanned: 2026-06-02
 tags: staff-commission-payouts-panel, component, commission, reporting
 status: approved
 ---

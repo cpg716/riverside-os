@@ -4,7 +4,7 @@ title: "Shipping & Fulfillment Guide"
 order: 1061
 summary: "Guide to quoting current-sale shipping at the Register and tracking shipments after checkout."
 source: client/src/components/pos/Cart.tsx
-last_scanned: 2026-04-11
+last_scanned: 2026-06-02
 tags: pos, shipping, shippo, fulfillment, back-office
 ---
 

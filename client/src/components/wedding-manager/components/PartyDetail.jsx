@@ -783,10 +783,10 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                     body { -webkit-print-color-adjust: exact; }
                     .no-print, .print\\:hidden { display: none !important; }
                     .print-only { display: block !important; }
-                    
+
                     /* Compact Layout */
-                    .print-container { 
-                        font-size: 10px; 
+                    .print-container {
+                        font-size: 10px;
                         inline-size: 100%;
                         max-inline-size: 100%;
                     }
@@ -799,7 +799,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                     }
                     .print-header h1 { font-size: 18px; font-weight: bold; margin: 0; }
                     .print-header p { margin: 0; font-size: 12px; }
-                    
+
                     .print-grid {
                         display: grid;
                         grid-template-columns: 1fr 1fr 1fr;
@@ -808,13 +808,13 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                     }
                     .print-box { border: 1px solid #ccc; padding: 5px; border-radius: 4px; }
                     .print-box h3 { font-size: 11px; font-weight: bold; border-block-end: 1px solid #eee; margin-block-end: 3px; padding-block-end: 2px; }
-                    
+
                     /* Table Compact */
                     .print-table { inline-size: 100%; border-collapse: collapse; font-size: 9px; }
                     .print-table th { background: #f0f0f0; font-weight: bold; text-align: start; padding: 4px; border-block-end: 1px solid #000; }
                     .print-table td { padding: 4px; border-block-end: 1px solid #ddd; vertical-align: top; }
                     .print-table tr:nth-child(even) { background: #f9f9f9; }
-                    
+
                     /* Hide default UI */
                     nav, header, footer, button { display: none !important; }
                     .min-h-screen { block-size: auto; overflow: visible; }
@@ -1007,7 +1007,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                                 <div>
                                     <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
                                         {party.trackingLabel || party.name}
-                                        <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest bg-white/15 text-white/90">
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest bg-app-surface/15 text-white/90">
                                             {legacyIndividual ? 'Party' : 'Wedding Party'}
                                         </span>
                                     </h2>
@@ -1036,7 +1036,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                             </button>
                             <button type="button"
                                 onClick={() => setIsHistoryModalOpen(true)}
-                                className="flex items-center gap-2 px-4 py-2 bg-white/10 text-white hover:bg-white/20 hover:text-white transition-all font-bold rounded-lg border-2 border-white/20 shadow-sm active:scale-95 text-xs uppercase tracking-wider"
+                                className="flex items-center gap-2 px-4 py-2 bg-app-surface/10 text-white hover:bg-app-surface/20 hover:text-white transition-all font-bold rounded-lg border-2 border-white/20 shadow-sm active:scale-95 text-xs uppercase tracking-wider"
                                 title="View Party Audit History"
                             >
                                 <Icon name="History" size={16} /> History
@@ -1288,7 +1288,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                             </div>
                         </div>
                     </div>
- 
+
 	                    {/* Manager financials */}
 	                    {financialContext?.analytics && (
 	                        <div className="bg-app-surface rounded-lg shadow-sm border border-app-border overflow-hidden transition-colors">
@@ -1343,16 +1343,16 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                                             </div>
                                         </div>
                                         <div className="w-full bg-app-surface-2 rounded-full h-3 border border-app-border">
-                                            <div 
+                                            <div
                                                 className={`h-3 rounded-full transition-all duration-700 ${financialContext.analytics.qualification_count >= 5 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-gold-500'}`}
                                                 style={{ inlineSize: `${Math.min(100, (financialContext.analytics.qualification_count / 5) * 100)}%` }}
                                             ></div>
                                         </div>
                                         {financialContext.analytics.qualification_count >= 5 && (
                                             <div className="mt-2 text-[10px] font-bold text-emerald-700 flex items-center gap-1">
-                                                <Icon name="CheckCircle" size={12} /> Qualification Met! 
-                                                {financialContext.analytics.free_suits_marked > 0 
-                                                    ? ` (${financialContext.analytics.free_suits_marked} Marked Free)` 
+                                                <Icon name="CheckCircle" size={12} /> Qualification Met!
+                                                {financialContext.analytics.free_suits_marked > 0
+                                                    ? ` (${financialContext.analytics.free_suits_marked} Marked Free)`
                                                     : " Mark a member as 'Promo Free' in details."}
                                             </div>
                                         )}

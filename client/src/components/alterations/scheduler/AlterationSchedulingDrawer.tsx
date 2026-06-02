@@ -114,7 +114,7 @@ export default function AlterationSchedulingDrawer({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/10 bg-white/5">
+        <div className="flex items-center justify-between p-6 border-b border-white/10 bg-app-surface/5">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-app-accent/10 border border-app-accent/20 flex items-center justify-center text-app-accent">
               <Scissors className="w-6 h-6" />

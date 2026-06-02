@@ -105,11 +105,11 @@ export default function AlterationSmartScheduler({
         pant_units: pantUnits.toString(),
         due_date: dueDate!.split('T')[0],
       });
-      
+
       const res = await fetch(`${baseUrl}/api/alterations/suggest-slots?${q}`, {
         headers: apiAuth(),
       });
-      
+
       if (res.ok) {
         const data = await res.json();
         setSlots(data);
@@ -218,7 +218,7 @@ export default function AlterationSmartScheduler({
 
   if (!dueDate) {
     return (
-      <div className="p-6 text-center border border-dashed border-white/10 rounded-xl bg-white/5">
+      <div className="p-6 text-center border border-dashed border-white/10 rounded-xl bg-app-surface/5">
         <Calendar className="w-8 h-8 text-white/20 mx-auto mb-2" />
         <p className="text-sm text-white/40">Set a Due Date first to find work days</p>
       </div>
@@ -229,7 +229,7 @@ export default function AlterationSmartScheduler({
     return (
       <div className="space-y-3 animate-pulse">
         {[1, 2, 3].map(i => (
-          <div key={i} className="h-14 bg-white/5 rounded-xl border border-white/10" />
+          <div key={i} className="h-14 bg-app-surface/5 rounded-xl border border-white/10" />
         ))}
       </div>
     );
@@ -306,7 +306,7 @@ export default function AlterationSmartScheduler({
           <p className="text-xs text-red-200/70">{error}</p>
         </div>
       ) : slots.length === 0 ? (
-        <div className="p-6 text-center border border-dashed border-white/10 rounded-xl bg-white/5">
+        <div className="p-6 text-center border border-dashed border-white/10 rounded-xl bg-app-surface/5">
           <AlertTriangle className="w-6 h-6 text-yellow-500/50 mx-auto mb-2" />
           <p className="text-sm text-white/40 font-medium">Over Capacity</p>
           <p className="text-[11px] text-white/30 max-w-[200px] mx-auto mt-1">
@@ -318,20 +318,20 @@ export default function AlterationSmartScheduler({
           {slots.map((slot, idx) => {
             const isSelected = currentFittingAt && toDateKey(currentFittingAt) === slot.date;
             const dateObj = slotDate(slot.date); // Midday to avoid TZ shifts
-            
+
             return (
               <button
                 key={slot.date}
                 onClick={() => selectSlot(slot.date)}
                 className={`w-full group flex items-center justify-between p-3 rounded-xl border transition-all ${
-                  isSelected 
-                    ? "bg-purple-600/20 border-purple-500 shadow-lg shadow-purple-500/10" 
-                    : "bg-white/5 border-white/10 hover:border-white/30 hover:bg-white/10"
+                  isSelected
+                    ? "bg-purple-600/20 border-purple-500 shadow-lg shadow-purple-500/10"
+                    : "bg-app-surface/5 border-white/10 hover:border-white/30 hover:bg-app-surface/10"
                 }`}
               >
                 <div className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-lg flex flex-col items-center justify-center ${
-                    isSelected ? "bg-purple-500 text-white" : "bg-white/5 text-white/60 group-hover:text-white"
+                    isSelected ? "bg-purple-500 text-white" : "bg-app-surface/5 text-white/60 group-hover:text-white"
                   }`}>
                     <span className="text-[10px] uppercase font-bold leading-none">{MONTH_FORMATTER.format(dateObj)}</span>
                     <span className="text-lg font-bold leading-none mt-0.5">{dateObj.getDate()}</span>
@@ -352,7 +352,7 @@ export default function AlterationSmartScheduler({
                     </div>
                   </div>
                 </div>
-                
+
                 {isSelected ? (
                   <CheckCircle2 className="w-5 h-5 text-purple-400" />
                 ) : (

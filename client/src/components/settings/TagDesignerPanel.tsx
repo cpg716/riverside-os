@@ -174,7 +174,7 @@ function HBarcodeRow({ sku }: { sku: string }) {
 function VBarcodeCol({ sku, side }: { sku: string; side: "left" | "right" }) {
   const border = side === "left" ? "border-r" : "border-l";
   return (
-    <div className={`flex ${border} border-black/20 bg-white`} style={{ width: 52 }}>
+    <div className={`flex ${border} border-black/20 bg-app-surface`} style={{ width: 52 }}>
       <div className="flex w-[14px] items-center justify-center">
         <span className="text-[7px] font-extrabold tracking-wider text-black whitespace-nowrap" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>{sku}</span>
       </div>
@@ -191,7 +191,7 @@ function VBarcodeCol({ sku, side }: { sku: string; side: "left" | "right" }) {
 
 /* ── 6 layout renderers ── */
 
-const tagCls = "rounded border border-black bg-white overflow-hidden";
+const tagCls = "rounded border border-black bg-app-surface overflow-hidden";
 
 /** Standard: info top, price+footer bottom, barcode strip at very bottom */
 function TagPreviewStandard({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
@@ -390,7 +390,7 @@ export default function TagDesignerPanel() {
                     onClick={() => updateDraft("tagLayout", lo.id)}
                     className={`group rounded-xl border p-1 text-left transition-all ${active ? "border-app-accent bg-app-surface-2 shadow ring-1 ring-app-accent/30" : "border-app-border bg-app-surface hover:border-app-input-border"}`}
                   >
-                    <div className={`mb-1.5 h-[52px] overflow-hidden rounded-lg border ${active ? "border-app-accent/40 bg-white" : "border-slate-200 bg-slate-50"}`}>
+                    <div className={`mb-1.5 h-[52px] overflow-hidden rounded-lg border ${active ? "border-app-accent/40 bg-app-surface" : "border-slate-200 bg-slate-50"}`}>
                       <LayoutThumb id={lo.id} />
                     </div>
                     <p className="px-0.5 text-[10px] font-bold text-app-text">{lo.label}</p>
@@ -492,7 +492,7 @@ export default function TagDesignerPanel() {
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
+          <div className="rounded-xl border border-slate-200 bg-app-surface p-2.5 shadow-sm">
             <div className="grid gap-2.5">
               {SAMPLE_ITEMS.map((item) => (
                 <TagPreview key={item.sku} item={item} config={normalizedDraft} footer={previewFooterLine} />

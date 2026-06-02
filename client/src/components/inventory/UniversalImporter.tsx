@@ -316,8 +316,8 @@ export default function UniversalImporter() {
            >
              <ArrowRight size={14} className="rotate-180" /> Back to Upload
            </button>
-          
-           <DashboardGridCard 
+
+           <DashboardGridCard
              title="Column Matching"
              subtitle="Match CSV headers to Riverside fields"
              icon={Table}
@@ -352,7 +352,7 @@ export default function UniversalImporter() {
                   </select>
                 </div>
               ))}
-              
+
               <div className="rounded-2xl border border-dotted border-app-border bg-app-surface/20 p-6">
                 <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text opacity-60">
                   Category Fallback
@@ -418,7 +418,7 @@ export default function UniversalImporter() {
         <div className="animate-in zoom-in group relative overflow-hidden rounded-[3rem] bg-app-text p-12 text-white shadow-[0_40px_100px_rgba(0,0,0,0.4)] transition-all duration-700">
            {/* Background glow */}
            <div className="absolute -top-40 -left-40 h-[600px] w-[600px] rounded-full bg-app-accent/10 blur-[120px] pointer-events-none" />
-          
+
           <button
             type="button"
             onClick={() =>
@@ -438,7 +438,7 @@ export default function UniversalImporter() {
                 {rows.length.toLocaleString()} rows detected · Catalog-only field map
               </p>
             </div>
-            <div className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/5 px-6 py-3 font-black uppercase tracking-widest text-emerald-400 text-[9px] backdrop-blur-md">
+            <div className="flex items-center gap-3 rounded-2xl border border-white/5 bg-app-surface/5 px-6 py-3 font-black uppercase tracking-widest text-emerald-400 text-[9px] backdrop-blur-md">
               <CheckCircle2 size={16} /> Catalog-only import
             </div>
           </div>
@@ -474,19 +474,19 @@ export default function UniversalImporter() {
 
           {summary && (
             <div className="relative z-10 mb-12 grid gap-4 sm:grid-cols-4">
-              <div className="p-6 rounded-[2rem] bg-white/5 border border-white/5 backdrop-blur-md">
+              <div className="p-6 rounded-[2rem] bg-app-surface/5 border border-white/5 backdrop-blur-md">
                 <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">Created</p>
                 <p className="text-3xl font-black text-emerald-400">{summary.products_created}</p>
               </div>
-              <div className="p-6 rounded-[2rem] bg-white/5 border border-white/5 backdrop-blur-md">
+              <div className="p-6 rounded-[2rem] bg-app-surface/5 border border-white/5 backdrop-blur-md">
                 <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">Updated</p>
                 <p className="text-3xl font-black text-app-accent-2">{summary.products_updated}</p>
               </div>
-              <div className="p-6 rounded-[2rem] bg-white/5 border border-white/5 backdrop-blur-md">
+              <div className="p-6 rounded-[2rem] bg-app-surface/5 border border-white/5 backdrop-blur-md">
                 <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">Variants</p>
                 <p className="text-3xl font-black">{summary.variants_synced}</p>
               </div>
-              <div className="p-6 rounded-[2rem] bg-white/5 border border-white/5 backdrop-blur-md">
+              <div className="p-6 rounded-[2rem] bg-app-surface/5 border border-white/5 backdrop-blur-md">
                 <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">Skipped</p>
                 <p className="text-3xl font-black text-amber-400">{summary.rows_skipped}</p>
               </div>
@@ -501,7 +501,7 @@ export default function UniversalImporter() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                  {Object.entries(mapping).map(([k, v]) => (
-                   <div key={k} className="flex flex-col p-4 rounded-xl bg-white/5 border border-white/5">
+                   <div key={k} className="flex flex-col p-4 rounded-xl bg-app-surface/5 border border-white/5">
                       <span className="text-[8px] font-black uppercase tracking-widest opacity-40 mb-1">{k}</span>
                       <span className="text-[11px] font-bold text-app-accent-2 truncate">{v || "—"}</span>
                    </div>
@@ -531,7 +531,7 @@ export default function UniversalImporter() {
                     Retrying is safe after reviewing skipped rows or mapping errors. Existing SKU matches update catalog details; this screen does not overwrite live stock counts.
                   </p>
                 </div>
-                <div className="p-6 rounded-2xl bg-white/5 border border-white/5">
+                <div className="p-6 rounded-2xl bg-app-surface/5 border border-white/5">
 	                  <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-3">Default Category</p>
                   <select
                     value={categoryId}

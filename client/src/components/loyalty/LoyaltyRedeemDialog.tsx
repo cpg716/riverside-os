@@ -120,12 +120,12 @@ export function LoyaltyRedeemDialog({
         {/* Accent background */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(var(--app-accent-rgb),0.2),transparent_70%)] opacity-50" />
         <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.03] to-purple-500/[0.03] pointer-events-none" />
-        
+
         <button
           type="button"
           onClick={onClose}
           disabled={busy}
-          className="absolute right-8 top-8 z-20 p-3 rounded-2xl bg-white/5 text-app-text-muted hover:bg-white/10 hover:text-white transition-all disabled:opacity-50 border border-white/5 backdrop-blur-xl"
+          className="absolute right-8 top-8 z-20 p-3 rounded-2xl bg-app-surface/5 text-app-text-muted hover:bg-app-surface/10 hover:text-white transition-all disabled:opacity-50 border border-white/5 backdrop-blur-xl"
         >
           <X className="h-5 w-5" />
         </button>
@@ -154,9 +154,9 @@ export function LoyaltyRedeemDialog({
           </div>
 
           {/* Points/Reward Summary - High Impact Glassmorphism */}
-          <div className="mb-10 overflow-hidden rounded-[40px] border border-amber-500/40 bg-white/[0.02] p-8 shadow-inner relative group/pool">
+          <div className="mb-10 overflow-hidden rounded-[40px] border border-amber-500/40 bg-app-surface/[0.02] p-8 shadow-inner relative group/pool">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
-            
+
             <div className="flex items-end justify-between relative z-10">
               <div className="space-y-1">
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-600/70">Current Points</p>
@@ -177,7 +177,7 @@ export function LoyaltyRedeemDialog({
                 </div>
               </div>
             </div>
-            
+
             <div className="mt-8 flex items-center gap-3 rounded-2xl bg-amber-500/[0.04] p-4 border border-amber-500/10 transition-all duration-500 group-hover/pool:bg-amber-500/[0.08]">
                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-500">
                    <TrendingDown size={16} strokeWidth={3} />

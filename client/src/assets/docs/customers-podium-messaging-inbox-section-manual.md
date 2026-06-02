@@ -4,7 +4,7 @@ title: "Podium Inbox"
 order: 1007
 summary: "Review shared Podium SMS and email threads from Operations or POS, then open the full conversation in the Customer Hub."
 source: client/src/components/customers/PodiumMessagingInboxSection.tsx
-last_scanned: 2026-05-17
+last_scanned: 2026-06-02
 tags: customers, podium, messaging, inbox, communications
 ---
 

@@ -4,7 +4,7 @@ title: "Gift Cards Workspace"
 order: 1010
 summary: "Look up cards, issue purchased, donated, loyalty, or promo cards, and review liability-safe activity."
 source: client/src/components/gift-cards/GiftCardsWorkspace.tsx
-last_scanned: 2026-05-10
+last_scanned: 2026-06-02
 tags: gift-cards, back-office, staff-manual, promo
 status: approved
 ---

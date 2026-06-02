@@ -303,7 +303,7 @@ function MemberGroup({ title, members, tone }: { title: string; members: Readine
             </div>
             <div className="mt-3 space-y-2">
                 {members.length ? members.slice(0, 5).map((member) => (
-                    <div key={member.wedding_member_id} className="rounded-lg bg-white/70 px-3 py-2">
+                    <div key={member.wedding_member_id} className="rounded-lg bg-app-surface/70 px-3 py-2">
                         <div className="flex items-start justify-between gap-2">
                             <p className="text-sm font-black text-app-text">{member.customer_name}</p>
                             {parseFloat(member.balance_due || '0') > 0 ? (

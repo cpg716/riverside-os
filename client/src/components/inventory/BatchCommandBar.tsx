@@ -42,7 +42,7 @@ export const BatchCommandBar: React.FC<BatchCommandBarProps> = ({
           <span className="text-[11px] font-black uppercase tracking-widest">{selectedCount} Selected</span>
           <button
             onClick={onClearSelection}
-            className="ml-2 rounded-full p-0.5 hover:bg-white/20 transition-colors"
+            className="ml-2 rounded-full p-0.5 hover:bg-app-surface/20 transition-colors"
           >
             <X size={12} strokeWidth={3} />
           </button>

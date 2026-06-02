@@ -114,7 +114,7 @@ export default function AttachOrderToWeddingModal({
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]" onClick={onClose}>
-      <div 
+      <div
         className="w-full max-w-xl rounded-3xl border border-app-border bg-app-surface shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
@@ -195,7 +195,7 @@ export default function AttachOrderToWeddingModal({
                       key={p.id}
                       type="button"
                       onClick={() => setSelectedPartyId(p.id)}
-                      className={`w-full p-4 rounded-2xl border text-left transition-all ${selectedPartyId === p.id ? "border-app-accent bg-app-accent/10" : "border-app-border bg-app-surface-2/50 hover:border-app-accent/30 hover:bg-white shadow-sm"}`}
+                      className={`w-full p-4 rounded-2xl border text-left transition-all ${selectedPartyId === p.id ? "border-app-accent bg-app-accent/10" : "border-app-border bg-app-surface-2/50 hover:border-app-accent/30 hover:bg-app-surface shadow-sm"}`}
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div className="min-w-0">

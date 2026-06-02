@@ -116,7 +116,7 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
           <div className="flex items-center gap-3">
             <div
               className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                started ? "bg-emerald-500/20" : "bg-white/15"
+                started ? "bg-emerald-500/20" : "bg-app-surface/15"
               }`}
             >
               {started ? (
@@ -137,7 +137,7 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
           <button
             type="button"
             onClick={() => void handleClose()}
-            className="rounded-xl border border-white/10 p-2 text-white/50 transition hover:bg-white/10 hover:text-white"
+            className="rounded-xl border border-white/10 p-2 text-white/50 transition hover:bg-app-surface/10 hover:text-white"
             aria-label="Close scanner"
           >
             <X size={18} />
@@ -201,7 +201,7 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
             <button
               type="button"
               onClick={() => void startCamera()}
-              className="w-full rounded-xl bg-black/40 py-2.5 text-xs font-black uppercase tracking-widest text-white transition hover:bg-white/15"
+              className="w-full rounded-xl bg-black/40 py-2.5 text-xs font-black uppercase tracking-widest text-white transition hover:bg-app-surface/15"
             >
               Retry Camera
             </button>

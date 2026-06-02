@@ -4,7 +4,7 @@ title: "Pickup Queue"
 order: 1053
 summary: "Prioritize ready, rush, due-soon, and blocked orders from the Operations pickup queue."
 source: client/src/components/operations/FulfillmentCommandCenter.tsx
-last_scanned: 2026-04-22
+last_scanned: 2026-06-02
 tags: operations, pickup-queue, orders, ready-for-pickup, rush
 ---
 

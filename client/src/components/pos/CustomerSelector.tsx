@@ -327,7 +327,7 @@ export default function CustomerSelector({
     if (variant === "posStrip") {
       const stripIdentityInner = (
         <>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/20">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-app-surface/20">
             <User size={16} />
           </div>
           <div className="min-w-0 flex-1">
@@ -335,7 +335,7 @@ export default function CustomerSelector({
               {selectedCustomer.first_name} {selectedCustomer.last_name}
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-bold uppercase tracking-widest text-blue-100/95">
-              <span className="rounded bg-white/20 px-1 py-0.5">Active</span>
+              <span className="rounded bg-app-surface/20 px-1 py-0.5">Active</span>
               <span className="tabular-nums">{selectedCustomer.customer_code || "\u2014"}</span>
               {selectedCustomer.phone ? (
                 <span className="tabular-nums opacity-90">{selectedCustomer.phone}</span>
@@ -351,7 +351,7 @@ export default function CustomerSelector({
               <button
                 type="button"
                 onClick={() => onViewCustomer(selectedCustomer)}
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg -mx-1 px-1 py-0.5 text-left outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/40"
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg -mx-1 px-1 py-0.5 text-left outline-none transition-colors hover:bg-app-surface/10 focus-visible:ring-2 focus-visible:ring-app-accent/40"
                 aria-label="Open customer profile"
               >
                 {stripIdentityInner}
@@ -363,7 +363,7 @@ export default function CustomerSelector({
               <button
                 type="button"
                 onClick={() => onOpenMeasurements()}
-                className="shrink-0 rounded-xl border border-white/25 bg-white/10 p-1.5 transition-colors hover:bg-white/20"
+                className="shrink-0 rounded-xl border border-app-border/25 bg-app-surface/10 p-1.5 transition-colors hover:bg-app-surface/20"
                 title="Edit measurements (vault)"
                 aria-label="Edit measurements vault"
               >
@@ -373,7 +373,7 @@ export default function CustomerSelector({
             <button
               type="button"
               onClick={() => onSelect(null)}
-              className="shrink-0 rounded-full p-1.5 transition-colors hover:bg-white/10"
+              className="shrink-0 rounded-full p-1.5 transition-colors hover:bg-app-surface/10"
               aria-label="Remove customer from sale"
             >
               <X size={16} />
@@ -405,7 +405,7 @@ export default function CustomerSelector({
       <div className="space-y-3 rounded-xl bg-blue-600 p-4 text-white shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-app-surface/20">
               <User size={20} />
             </div>
             <div className="min-w-0">
@@ -416,7 +416,7 @@ export default function CustomerSelector({
                 {selectedCustomer.customer_code || "\u2014"}
               </div>
               <div className="flex items-center gap-3 mt-1.5 opacity-80">
-                <span className="text-[10px] font-bold uppercase tracking-widest bg-white/20 px-1.5 py-0.5 rounded-md">
+                <span className="text-[10px] font-bold uppercase tracking-widest bg-app-surface/20 px-1.5 py-0.5 rounded-md">
                    Active
                 </span>
                 {selectedCustomer.phone && (
@@ -431,13 +431,13 @@ export default function CustomerSelector({
           <button
             type="button"
             onClick={() => onSelect(null)}
-            className="shrink-0 rounded-full p-2 transition-colors hover:bg-white/10"
+            className="shrink-0 rounded-full p-2 transition-colors hover:bg-app-surface/10"
           >
             <X size={18} />
           </button>
         </div>
         {weddingMemberships.length > 0 && (
-          <div className="rounded-lg bg-white/10 p-3">
+          <div className="rounded-lg bg-app-surface/10 p-3">
             <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-blue-100">
               Weddings ({weddingMemberships.length})
             </p>
@@ -489,7 +489,7 @@ export default function CustomerSelector({
               id="pos-customer-results"
               ref={resultsPanelRef}
               role="listbox"
-              className={`absolute left-0 right-0 z-100 max-h-[min(78vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-[#fffdfa] text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none dark:bg-[#202a38] ${
+              className={`absolute left-0 right-0 z-100 max-h-[min(78vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-app-surface text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none ${
                 openResultsUpward ? "bottom-full mb-2" : "top-full mt-2"
               }`}
             >

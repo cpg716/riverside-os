@@ -4,7 +4,7 @@ title: "Receipt Preview and Delivery"
 order: 1068
 summary: "Preview, print, text, or email the completed sale receipt."
 source: client/src/components/pos/ReceiptSummaryModal.tsx
-last_scanned: 2026-05-17
+last_scanned: 2026-06-02
 tags: pos-receipt-summary-modal, pos, receipt, printing
 status: approved
 ---

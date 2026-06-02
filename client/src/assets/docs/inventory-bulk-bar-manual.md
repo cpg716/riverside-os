@@ -4,7 +4,7 @@ title: "Inventory Bulk Bar (inventory)"
 order: 1015
 summary: "Selection toolbar for inventory list actions including bulk retail price-tag printing."
 source: client/src/components/inventory/InventoryBulkBar.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-06-02
 tags: inventory-bulk-bar, inventory, bulk-actions, retail-price-tags
 status: approved
 ---

@@ -11,7 +11,7 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
             SELECT 1
             FROM information_schema.tables
             WHERE table_schema = 'public' AND table_name = 'ros_schema_migrations'
-        );
+        )
     ";
 
     let ledger_exists: bool = sqlx::query_scalar(ledger_exists_query)

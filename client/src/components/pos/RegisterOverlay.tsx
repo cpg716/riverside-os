@@ -846,7 +846,7 @@ export default function RegisterOverlay({
           <div className="relative hidden flex-col justify-between border-r border-app-border/40 bg-app-surface/30 p-6 lg:flex">
             <div>
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white p-2 shadow-sm">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-surface p-2 shadow-sm">
                   <img
                     src={RiversideJustLogo}
                     alt="Riverside OS"

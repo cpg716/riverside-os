@@ -63,6 +63,7 @@ import OrderReviewModal from "./OrderReviewModal";
 import PosAlterationIntakeModal from "./PosAlterationIntakeModal";
 import ManagerApprovalModal from "./ManagerApprovalModal";
 import PromptModal from "../ui/PromptModal";
+import PosSuitSwapWizard from "./PosSuitSwapWizard";
 
 export type { CheckoutPayload } from "./types";
 
@@ -1483,6 +1484,8 @@ export default function Cart({
     originalPriceCents: number;
     reason: string;
   } | null>(null);
+  const [suitSwapWizardOpen, setSuitSwapWizardOpen] = useState(false);
+  const [showSuitSwapApproval, setShowSuitSwapApproval] = useState(false);
   // roleMaxDiscountPct moved up
 
   const [posStaffList, setPosStaffList] = useState<PosStaffRow[]>([]);
@@ -2783,6 +2786,19 @@ export default function Cart({
                     Void all
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (hasAccess) {
+                      setSuitSwapWizardOpen(true);
+                    } else {
+                      setShowSuitSwapApproval(true);
+                    }
+                  }}
+                  className="rounded-lg border border-app-accent/25 bg-app-accent/8 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent transition-all duration-150 hover:bg-app-accent/12 hover:text-app-text active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20"
+                >
+                  Suit Swap
+                </button>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-app-text-muted">
@@ -2992,7 +3008,7 @@ export default function Cart({
                   {pickupTransactionId && totals.totalCents === 0 ? "Complete Pickup" : `$${centsToFixed2(totals.totalCents)}`}
                 </span>
              </div>
-             <div className="mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 transition-transform group-hover:scale-105 sm:mr-4 sm:h-11 sm:w-11">
+             <div className="mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-app-surface/20 transition-transform group-hover:scale-105 sm:mr-4 sm:h-11 sm:w-11">
                 <span className="text-lg font-black uppercase italic">
                   {pickupTransactionId && totals.totalCents === 0 ? "Pick" : "Pay"}
                 </span>
@@ -3872,6 +3888,49 @@ export default function Cart({
         title="Authorize Pickup Readiness Override"
         message="This pickup contains items not marked Ready for Pickup. A manager PIN is required to override readiness check."
         onApprove={handleManagerApproveReadiness}
+      />
+
+      <ManagerApprovalModal
+        isOpen={showSuitSwapApproval}
+        onClose={() => setShowSuitSwapApproval(false)}
+        title="Authorize Suit Component Swap"
+        message="Suit/component swaps modify inventory and financial records. A manager PIN is required for audit logging."
+        onApprove={async (pin) => {
+          try {
+            const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...apiAuth() },
+              body: JSON.stringify({
+                pin,
+                role: "Admin",
+                authorize_action: "pos_suit_component_swap",
+                authorize_metadata: {
+                  register_session_id: sessionId,
+                }
+              }),
+            });
+            if (res.ok) {
+              setShowSuitSwapApproval(false);
+              setSuitSwapWizardOpen(true);
+              return true;
+            } else {
+              await res.json().catch(() => ({}));
+              toast("Manager approval failed. Check the Access PIN and try again.", "error");
+              return false;
+            }
+          } catch {
+            toast("Manager approval is unavailable. Try again or call a manager.", "error");
+            return false;
+          }
+        }}
+      />
+
+      <PosSuitSwapWizard
+        open={suitSwapWizardOpen}
+        onClose={() => setSuitSwapWizardOpen(false)}
+        sessionId={sessionId}
+        baseUrl={baseUrl}
+        apiAuth={() => ({ ...apiAuth() })}
       />
 
       <PosExchangeWizard

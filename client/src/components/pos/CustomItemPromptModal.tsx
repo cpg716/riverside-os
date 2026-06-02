@@ -17,7 +17,7 @@ interface CustomItemPromptModalProps {
     itemType: string;
     price: string;
     needByDate: string | null;
-    isRush: boolean; 
+    isRush: boolean;
     needsGiftWrap: boolean;
     taxCategory: TaxCategory;
     customSku: string;
@@ -1014,7 +1014,7 @@ export default function CustomItemPromptModal({
                 }`}
               >
                 <div
-                  className={`absolute left-0.5 top-0.5 h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out ${
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 transform rounded-full bg-app-surface shadow-sm transition-transform duration-200 ease-in-out ${
                     isRush ? "translate-x-4" : "translate-x-0"
                   }`}
                 />
@@ -1038,7 +1038,7 @@ export default function CustomItemPromptModal({
                 }`}
               >
                 <div
-                  className={`absolute left-0.5 top-0.5 h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out ${
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 transform rounded-full bg-app-surface shadow-sm transition-transform duration-200 ease-in-out ${
                     needsGiftWrap ? "translate-x-4" : "translate-x-0"
                   }`}
                 />

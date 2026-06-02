@@ -578,7 +578,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="ml-auto rounded-lg p-2 hover:bg-white/15"
+            className="ml-auto rounded-lg p-2 hover:bg-app-surface/15"
             aria-label="Close"
           >
             <X size={22} />
@@ -674,7 +674,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
                   type="button"
                   onClick={() => { setScanMode(m); warmUpAudio(); }}
                   className={`flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-bold uppercase transition ${
-                    scanMode === m ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"
+                    scanMode === m ? "bg-app-surface/15 text-white" : "text-white/40 hover:text-white/70"
                   }`}
                 >
                   {m === "laser" ? <Barcode size={12} /> : <Camera size={12} />}
@@ -712,14 +712,14 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
               type="button"
               disabled={receivingClosed}
               onClick={markAllRemaining}
-              className="flex items-center gap-1.5 rounded-lg border border-white/20 bg-black/30 px-3 py-2 text-[9px] font-bold uppercase text-white/70 hover:bg-white/10 disabled:opacity-30 transition-all"
+              className="flex items-center gap-1.5 rounded-lg border border-white/20 bg-black/30 px-3 py-2 text-[9px] font-bold uppercase text-white/70 hover:bg-app-surface/10 disabled:opacity-30 transition-all"
             >
               <CheckSquare size={13} /> Fill All
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg p-1.5 text-white/40 hover:bg-white/10 hover:text-white transition-colors"
+              className="rounded-lg p-1.5 text-white/40 hover:bg-app-surface/10 hover:text-white transition-colors"
               aria-label="Close"
             >
               <X size={18} />

@@ -4,7 +4,7 @@ title: "Customer Relationship Hub"
 order: 1004
 summary: "Review customer profile, snapshot, orders, alterations, loyalty, messages, measurements, and timeline."
 source: client/src/components/customers/CustomerRelationshipHubDrawer.tsx
-last_scanned: 2026-05-10
+last_scanned: 2026-06-02
 tags: customers, relationship-hub, support, profile
 status: approved
 ---

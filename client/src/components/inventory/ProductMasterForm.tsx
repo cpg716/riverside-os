@@ -561,22 +561,22 @@ export default function ProductMasterForm({
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2 space-y-1">
+                <div className="sm:col-span-2 flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Product Name</label>
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Italian Wool Suit (Super 120s)"
                     autoFocus
-                    className="ui-input h-12 text-sm font-bold"
+                    className="ui-input h-12 text-sm font-bold w-full"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Category</label>
                   <select
                     value={categoryId}
                     onChange={(e) => setCategoryId(e.target.value)}
-                    className="ui-input h-12 text-sm font-bold"
+                    className="ui-input h-12 text-sm font-bold w-full"
                   >
                     <option value="">Select category...</option>
                     {categories.map((c) => (
@@ -584,12 +584,12 @@ export default function ProductMasterForm({
                     ))}
                   </select>
                 </div>
-                <div className="space-y-1">
+                <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Primary Vendor</label>
                   <select
                     value={primaryVendorId}
                     onChange={(e) => setPrimaryVendorId(e.target.value)}
-                    className="ui-input h-12 text-sm font-bold"
+                    className="ui-input h-12 text-sm font-bold w-full"
                   >
                     <option value="">Select vendor...</option>
                     {vendors.map((v) => (
@@ -599,23 +599,23 @@ export default function ProductMasterForm({
                     ))}
                   </select>
                 </div>
-                <div className="space-y-1">
+                <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Brand <span className="text-app-text-muted/50">(optional)</span></label>
                   <input
                     value={brand}
                     onChange={(e) => setBrand(e.target.value)}
                     placeholder="Hickey Freeman, David Donahue..."
-                    className="ui-input h-12 text-sm font-bold"
+                    className="ui-input h-12 text-sm font-bold w-full"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Description <span className="text-app-text-muted/50">(optional)</span></label>
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="Fit, fabric, care, or selling notes..."
                     rows={2}
-                    className="ui-input py-2.5 text-sm font-bold resize-none"
+                    className="ui-input py-2.5 text-sm font-bold resize-none w-full"
                   />
                 </div>
               </div>
@@ -634,9 +634,9 @@ export default function ProductMasterForm({
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1">
+                <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Retail Price (USD)</label>
-                  <div className="relative">
+                  <div className="relative w-full">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-app-text-muted/40">$</span>
                     <input
                       value={baseRetail}
@@ -644,13 +644,13 @@ export default function ProductMasterForm({
                       type="number"
                       min="0"
                       step="0.01"
-                      className="ui-input h-14 pl-9 text-xl font-black tabular-nums"
+                      className="ui-input h-14 pl-9 text-xl font-black tabular-nums w-full"
                     />
                   </div>
                 </div>
-                <div className="space-y-1">
+                <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Vendor Cost (USD)</label>
-                  <div className="relative">
+                  <div className="relative w-full">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-app-text-muted/40">$</span>
                     <input
                       value={baseCost}
@@ -658,7 +658,7 @@ export default function ProductMasterForm({
                       type="number"
                       min="0"
                       step="0.01"
-                      className="ui-input h-14 pl-9 text-xl font-black tabular-nums text-app-text-muted"
+                      className="ui-input h-14 pl-9 text-xl font-black tabular-nums text-app-text-muted w-full"
                     />
                   </div>
                 </div>
@@ -1087,7 +1087,7 @@ export default function ProductMasterForm({
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-bold text-app-text truncate">{img.url}</p>
                           <p className="text-[10px] text-app-text-muted truncate mt-0.5">{img.alt_text || "No alt text set"}</p>
-                          
+
                           <div className="flex gap-2 mt-1">
                             {img.is_hero ? (
                               <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-bold text-amber-600">
@@ -1213,7 +1213,7 @@ export default function ProductMasterForm({
           <aside className="space-y-4">
             <div className="rounded-3xl border border-app-border bg-app-surface p-5 shadow-sm sticky top-6">
               <p className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted mb-4">Web Listing Preview</p>
-              
+
               <div className="rounded-2xl border border-app-border bg-app-surface-2 overflow-hidden shadow-sm">
                 {/* Image */}
                 <div className="h-44 bg-app-surface flex items-center justify-center border-b border-app-border/40 relative">
@@ -1239,7 +1239,7 @@ export default function ProductMasterForm({
                     ${baseRetail}
                   </span>
                 </div>
-                
+
                 {/* Details */}
                 <div className="p-4 space-y-2">
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -1258,7 +1258,7 @@ export default function ProductMasterForm({
                   <p className="text-[10px] text-app-text-muted line-clamp-3 leading-relaxed">
                     {webDescription.trim() || description || "No description provided."}
                   </p>
-                  
+
                   {webTagsRaw.trim() && (
                     <div className="flex items-center gap-1 flex-wrap pt-1 border-t border-app-border/30">
                       <Tag size={8} className="text-app-text-muted shrink-0" />
@@ -1277,7 +1277,7 @@ export default function ProductMasterForm({
                 <p className="font-bold text-app-text flex items-center gap-1">
                   <Sparkles size={10} className="text-app-accent" /> Google Search Preview
                 </p>
-                <div className="bg-white border border-gray-200 rounded p-2 text-left font-sans select-none pointer-events-none">
+                <div className="bg-app-surface border border-app-border rounded p-2 text-left font-sans select-none pointer-events-none">
                   <div className="text-[#1a0dab] hover:underline text-xs truncate font-medium">
                     {seoMetaTitle.trim() || webTitle.trim() || name || "Italian Wool Suit"} | Riverside
                   </div>

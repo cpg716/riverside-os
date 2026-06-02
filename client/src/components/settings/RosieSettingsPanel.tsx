@@ -364,7 +364,7 @@ export default function RosieSettingsPanel() {
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4 cursor-pointer">
             <div>
               <p className="text-sm font-bold text-app-text">Enable ROSIE</p>
               <p className="mt-1 text-xs text-app-text-muted">Chat transport for this workstation</p>
@@ -373,11 +373,11 @@ export default function RosieSettingsPanel() {
               type="checkbox"
               checked={localSettings.enabled}
               onChange={(e) => updateLocalSettings({ enabled: e.target.checked })}
-              className="h-5 w-5 rounded border-app-border text-app-accent focus:ring-app-accent"
+              className="h-5 w-5 rounded border-app-input-border bg-app-input-bg text-app-accent focus:ring-app-accent"
             />
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4 cursor-pointer">
             <div>
               <p className="text-sm font-bold text-app-text">Local First</p>
               <p className="mt-1 text-xs text-app-text-muted">Try Host stack first, then Axum fallback</p>
@@ -388,12 +388,15 @@ export default function RosieSettingsPanel() {
               onChange={(e) =>
                 updateLocalSettings({ local_first: e.target.checked })
               }
-              className="h-5 w-5 rounded border-app-border text-app-accent focus:ring-app-accent"
+              className="h-5 w-5 rounded border-app-input-border bg-app-input-bg text-app-accent focus:ring-app-accent"
             />
           </label>
 
-          <label className="rounded-xl border border-app-border bg-app-surface p-4">
-            <p className="text-sm font-bold text-app-text">Response Style</p>
+          <div className="rounded-xl border border-app-border bg-app-surface p-4 flex flex-col justify-between">
+            <div>
+              <p className="text-sm font-bold text-app-text">Response Style</p>
+              <p className="mt-1 text-xs text-app-text-muted">Concise or detailed answers</p>
+            </div>
             <select
               value={localSettings.response_style}
               onChange={(e) =>
@@ -406,9 +409,9 @@ export default function RosieSettingsPanel() {
               <option value="concise">Concise</option>
               <option value="detailed">Detailed</option>
             </select>
-          </label>
+          </div>
 
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4 cursor-pointer">
             <div>
               <p className="text-sm font-bold text-app-text">Show Citations</p>
               <p className="mt-1 text-xs text-app-text-muted">Show manual and policy references</p>
@@ -419,11 +422,11 @@ export default function RosieSettingsPanel() {
               onChange={(e) =>
                 updateLocalSettings({ show_citations: e.target.checked })
               }
-              className="h-5 w-5 rounded border-app-border text-app-accent focus:ring-app-accent"
+              className="h-5 w-5 rounded border-app-input-border bg-app-input-bg text-app-accent focus:ring-app-accent"
             />
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4 cursor-pointer">
             <div>
               <p className="text-sm font-bold text-app-text">Voice Enabled</p>
               <p className="mt-1 text-xs text-app-text-muted">Voice input/output controls</p>
@@ -434,11 +437,11 @@ export default function RosieSettingsPanel() {
               onChange={(e) =>
                 updateLocalSettings({ voice_enabled: e.target.checked })
               }
-              className="h-5 w-5 rounded border-app-border text-app-accent focus:ring-app-accent"
+              className="h-5 w-5 rounded border-app-input-border bg-app-input-bg text-app-accent focus:ring-app-accent"
             />
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface/60 p-4">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface/60 p-4 cursor-pointer">
             <div>
               <p className="text-sm font-bold text-app-text">Speak Responses</p>
               <p className="mt-1 text-xs text-app-text-muted">Speak text after answering</p>
@@ -450,18 +453,20 @@ export default function RosieSettingsPanel() {
               onChange={(e) =>
                 updateLocalSettings({ speak_responses: e.target.checked })
               }
-              className="h-5 w-5 rounded border-app-border text-app-accent focus:ring-app-accent disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-5 w-5 rounded border-app-input-border bg-app-input-bg text-app-accent focus:ring-app-accent disabled:cursor-not-allowed disabled:opacity-50"
             />
           </label>
 
-          <label className="rounded-xl border border-app-border bg-app-surface p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-bold text-app-text">Voice</p>
-              <div className={`h-2 w-2 rounded-full ${kokoroVoiceControlsAvailable ? "bg-green-500" : "bg-yellow-500"}`} />
+          <div className="rounded-xl border border-app-border bg-app-surface p-4 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-bold text-app-text">Voice</p>
+                <div className={`h-2 w-2 rounded-full ${kokoroVoiceControlsAvailable ? "bg-green-500" : "bg-yellow-500"}`} />
+              </div>
+              <p className="mt-1 text-xs text-app-text-muted">
+                {kokoroVoiceControlsAvailable ? "Kokoro voices available" : ttsFallbackActive ? "Using desktop fallback" : "TTS unavailable"}
+              </p>
             </div>
-            <p className="mt-1 text-xs text-app-text-muted">
-              {kokoroVoiceControlsAvailable ? "Kokoro voices available" : ttsFallbackActive ? "Using desktop fallback" : "TTS unavailable"}
-            </p>
             <select
               value={localSettings.selected_voice}
               disabled={!localSettings.voice_enabled || !kokoroVoiceControlsAvailable}
@@ -500,10 +505,13 @@ export default function RosieSettingsPanel() {
                 Stop
               </button>
             </div>
-          </label>
+          </div>
 
-          <label className="rounded-xl border border-app-border bg-app-surface p-4">
-            <p className="text-sm font-bold text-app-text">Speech Rate</p>
+          <div className="rounded-xl border border-app-border bg-app-surface p-4 flex flex-col justify-between">
+            <div>
+              <p className="text-sm font-bold text-app-text">Speech Rate</p>
+              <p className="mt-1 text-xs text-app-text-muted">Control the TTS speed</p>
+            </div>
             <select
               value={String(localSettings.speech_rate)}
               disabled={!localSettings.voice_enabled}
@@ -516,9 +524,9 @@ export default function RosieSettingsPanel() {
               <option value="1">Normal</option>
               <option value="1.2">Fast</option>
             </select>
-          </label>
+          </div>
 
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4">
+          <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4 cursor-pointer">
             <div>
               <p className="text-sm font-bold text-app-text">Microphone Enabled</p>
               <p className="mt-1 text-xs text-app-text-muted">Capture audio for transcription</p>
@@ -530,12 +538,15 @@ export default function RosieSettingsPanel() {
               onChange={(e) =>
                 updateLocalSettings({ microphone_enabled: e.target.checked })
               }
-              className="h-5 w-5 rounded border-app-border text-app-accent focus:ring-app-accent disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-5 w-5 rounded border-app-input-border bg-app-input-bg text-app-accent focus:ring-app-accent disabled:cursor-not-allowed disabled:opacity-50"
             />
           </label>
 
-          <label className="rounded-xl border border-app-border bg-app-surface p-4">
-            <p className="text-sm font-bold text-app-text">Microphone Mode</p>
+          <div className="rounded-xl border border-app-border bg-app-surface p-4 flex flex-col justify-between">
+            <div>
+              <p className="text-sm font-bold text-app-text">Microphone Mode</p>
+              <p className="mt-1 text-xs text-app-text-muted">Push to talk or toggle behavior</p>
+            </div>
             <select
               value={localSettings.microphone_mode}
               disabled={!localSettings.voice_enabled || !localSettings.microphone_enabled}
@@ -549,7 +560,7 @@ export default function RosieSettingsPanel() {
               <option value="push_to_talk">Push To Talk</option>
               <option value="toggle">Toggle</option>
             </select>
-          </label>
+          </div>
         </div>
       </section>
 

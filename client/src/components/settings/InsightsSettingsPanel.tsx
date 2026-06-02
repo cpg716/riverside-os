@@ -109,7 +109,7 @@ const InsightsSettingsPanel: React.FC = () => {
           <IntegrationBrandLogo
             brand="metabase"
             kind="wordmark"
-            className="inline-flex rounded-2xl border border-app-border bg-white px-4 py-2 shadow-sm"
+            className="inline-flex rounded-2xl border border-app-border bg-app-surface px-4 py-2 shadow-sm"
             imageClassName="h-10 w-auto object-contain"
           />
         </div>
@@ -120,7 +120,7 @@ const InsightsSettingsPanel: React.FC = () => {
       <section className="ui-card p-8 max-w-4xl border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-transparent shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
           <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-inner ring-1 ring-black/5">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-app-surface shadow-inner ring-1 ring-black/5">
               <IntegrationBrandLogo
                 brand="metabase"
                 kind="icon"
@@ -131,7 +131,7 @@ const InsightsSettingsPanel: React.FC = () => {
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Business Intelligence Layer</h3>
               <p className="text-xs text-app-text-muted mt-1 max-w-xl leading-relaxed">
-                Phase 2 reporting uses the <code className="font-mono text-[10px] bg-white/40 dark:bg-black/20 px-1 rounded">reporting</code> schema. 
+                Phase 2 reporting uses the <code className="font-mono text-[10px] bg-app-surface/40 dark:bg-black/20 px-1 rounded">reporting</code> schema.
                 Configure how the insights engine connects to the operational database.
               </p>
             </div>

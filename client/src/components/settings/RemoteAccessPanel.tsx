@@ -923,7 +923,7 @@ export default function RemoteAccessPanel() {
                   </div>
                 </div>
 
-                <div className="p-6 rounded-2xl bg-white/50 border border-app-border flex items-center justify-between gap-6">
+                <div className="p-6 rounded-2xl bg-app-surface/50 border border-app-border flex items-center justify-between gap-6">
                   <div className="flex-1">
                     <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
                       Local satellite address
@@ -966,7 +966,7 @@ export default function RemoteAccessPanel() {
                     ) : null}
                   </div>
                   {qrCodeData ? (
-                    <div className="shrink-0 p-2 bg-white rounded-xl shadow-lg border border-app-border">
+                    <div className="shrink-0 p-2 bg-app-surface rounded-xl shadow-lg border border-app-border">
                       <img
                         src={qrCodeData}
                         alt="Private client QR Code"

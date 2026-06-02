@@ -334,7 +334,7 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
             onClick={() => setConfig({ ...config, enabled: !config.enabled })}
           >
             <span
-              className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${config.enabled ? "translate-x-6" : "translate-x-1"}`}
+              className={`inline-block h-4 w-4 rounded-full bg-app-surface transition-transform ${config.enabled ? "translate-x-6" : "translate-x-1"}`}
             />
           </button>
         </div>
@@ -358,7 +358,7 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
             }
           >
             <span
-              className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${config.auto_send_after_close ? "translate-x-6" : "translate-x-1"}`}
+              className={`inline-block h-4 w-4 rounded-full bg-app-surface transition-transform ${config.auto_send_after_close ? "translate-x-6" : "translate-x-1"}`}
             />
           </button>
         </div>
@@ -381,7 +381,7 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
             }
           >
             <span
-              className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${config.include_qbo_status ? "translate-x-6" : "translate-x-1"}`}
+              className={`inline-block h-4 w-4 rounded-full bg-app-surface transition-transform ${config.include_qbo_status ? "translate-x-6" : "translate-x-1"}`}
             />
           </button>
         </div>
@@ -404,7 +404,7 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
             }
           >
             <span
-              className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${config.include_inventory_activity ? "translate-x-6" : "translate-x-1"}`}
+              className={`inline-block h-4 w-4 rounded-full bg-app-surface transition-transform ${config.include_inventory_activity ? "translate-x-6" : "translate-x-1"}`}
             />
           </button>
         </div>

@@ -247,7 +247,7 @@ export default function AddressAutocompleteInput({
         </span>
       ) : null}
       {open && suggestions.length > 0 ? (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-app-border bg-[#fffdfa] shadow-2xl ring-1 ring-black/10 dark:bg-[#202a38]">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-2xl ring-1 ring-black/10">
           {suggestions.map((suggestion) => (
             <button
               key={suggestion.id}

@@ -1403,7 +1403,7 @@ export default function CloseRegisterModal({
               <p className="text-[10px] font-black uppercase tracking-widest">
                 {closeReady ? "Ready to close" : "Close blocked"}
               </p>
-              <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest">
+              <span className="rounded-full bg-app-surface/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest">
                 {closeReady ? "All checks clear" : `${closeBlockers.length} action${closeBlockers.length === 1 ? "" : "s"}`}
               </span>
             </div>

@@ -1751,7 +1751,7 @@ export default function NexoCheckoutDrawer({
               <button
                 type="button"
                 onClick={() => void loadProviderSettings()}
-                className="shrink-0 rounded-md border border-app-danger/30 bg-white px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-danger hover:bg-app-danger hover:text-white"
+                className="shrink-0 rounded-md border border-app-danger/30 bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-danger hover:bg-app-danger hover:text-white"
               >
                 Retry
               </button>
@@ -2010,7 +2010,7 @@ export default function NexoCheckoutDrawer({
       <div className="relative flex h-full flex-col overflow-hidden bg-app-bg">
 
         {busy && (
-          <div className="absolute inset-0 z-50 bg-white/60 dark:bg-black/60 backdrop-blur-md flex flex-col items-center justify-center">
+          <div className="absolute inset-0 z-50 bg-app-surface/60 backdrop-blur-md flex flex-col items-center justify-center">
              <div className="h-20 w-20 rounded-full border-4 border-app-accent border-t-transparent animate-spin mb-6" />
              <p className="text-xl font-black uppercase italic tracking-wider text-app-text">Recording Sale...</p>
           </div>
@@ -2796,7 +2796,7 @@ export default function NexoCheckoutDrawer({
                                type="button"
                                disabled={helcimAttemptLoading}
                                onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
-                               className="min-h-9 rounded-lg border border-white/10 bg-white/5 px-2.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-colors hover:bg-white/10 disabled:opacity-50"
+                               className="min-h-9 rounded-lg border border-white/10 bg-app-surface-2/50 px-2.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-colors hover:bg-app-surface-2 disabled:opacity-50"
                              >
                                {helcimAttemptLoading ? "Refreshing" : "Refresh now"}
                              </button>

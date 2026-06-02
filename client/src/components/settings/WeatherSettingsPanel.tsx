@@ -87,7 +87,7 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
           <IntegrationBrandLogo
             brand="weather"
             kind="icon"
-            className="inline-flex rounded-3xl border border-sky-500/20 bg-white p-2 shadow-sm"
+            className="inline-flex rounded-3xl border border-sky-500/20 bg-app-surface p-2 shadow-sm"
             imageClassName="h-12 w-12 rounded-2xl object-cover"
           />
         </div>
@@ -95,7 +95,7 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
         <p className="text-sm text-app-text-muted mt-2 font-medium">Configure live weather snapshots for the dashboard and Golden Rule logs.</p>
       </header>
 
-      <form 
+      <form
         onSubmit={(e) => {
           e.preventDefault();
           void saveWeatherSettings();
@@ -104,7 +104,7 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
       >
         <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
           <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-inner ring-1 ring-black/5">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-app-surface shadow-inner ring-1 ring-black/5">
               <IntegrationBrandLogo
                 brand="weather"
                 kind="icon"

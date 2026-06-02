@@ -93,7 +93,7 @@ export default function ManagerApprovalModal({
   if (!root) return null;
 
   return createPortal(
-    <div 
+    <div
       className="fixed inset-0 z-[200] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4 backdrop-blur-md"
       onClick={onClose}
     >
@@ -145,7 +145,7 @@ export default function ManagerApprovalModal({
                 Approving Manager
               </label>
               <select
-                className="ui-input w-full text-center font-black bg-white/5 border-app-border/40"
+                className="ui-input w-full text-center font-black bg-app-surface-2/50 border-app-border/40"
                 value={selectedManagerId}
                 onChange={(e) => {
                   setSelectedManagerId(e.target.value);

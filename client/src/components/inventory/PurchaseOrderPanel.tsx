@@ -593,28 +593,28 @@ export default function PurchaseOrderPanel({
 
       {/* ── NTBO Queue (order mode only, collapsible) ── */}
       {!isReceiveMode && ntboItems.length > 0 && (
-        <div className="rounded-2xl border border-amber-400/30 bg-amber-50/50 shadow-sm overflow-hidden">
+        <div className="rounded-2xl border ui-tint-warning shadow-sm overflow-hidden">
           <button
             type="button"
             onClick={() => setNtboExpanded(!ntboExpanded)}
-            className="flex w-full items-center justify-between px-5 py-3 hover:bg-amber-100/30 transition-colors"
+            className="flex w-full items-center justify-between px-5 py-3 hover:bg-app-surface-2/40 transition-colors"
           >
             <div className="flex items-center gap-3">
-              <span className="flex h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-              <span className="text-sm font-bold text-amber-900">
+              <span className="flex h-2 w-2 animate-pulse rounded-full bg-app-warning" />
+              <span className="text-sm font-bold text-app-text">
                 {ntboItems.length} customer order item{ntboItems.length === 1 ? "" : "s"} need vendor ordering
               </span>
             </div>
-            <span className="text-xs font-bold text-amber-700">{ntboExpanded ? "Collapse" : "Expand"}</span>
+            <span className="text-xs font-bold text-app-text-muted">{ntboExpanded ? "Collapse" : "Expand"}</span>
           </button>
 
           {ntboExpanded && (
-            <div className="border-t border-amber-400/20 px-5 py-4 space-y-4">
+            <div className="border-t border-app-border/40 px-5 py-4 space-y-4">
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={ntboVendorId}
                   onChange={(e) => setNtboVendorId(e.target.value)}
-                  className="h-9 min-w-[200px] rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold"
+                  className="ui-input h-10 min-w-[200px] text-xs font-bold"
                   disabled={!canManageLifecycle || ntboPoBusy}
                 >
                   <option value="">Select vendor for PO...</option>
@@ -626,14 +626,14 @@ export default function PurchaseOrderPanel({
                   type="button"
                   onClick={() => void createPoFromNtbo()}
                   disabled={!canManageLifecycle || !ntboVendorId || selectedNtboIds.size === 0 || ntboPoBusy}
-                  className="h-9 rounded-lg bg-amber-600 px-4 text-xs font-bold text-white disabled:opacity-40 transition-all active:scale-95"
+                  className="h-10 rounded-xl bg-app-accent px-4 text-xs font-bold text-white disabled:opacity-40 transition-all active:scale-95 shadow-md shadow-app-accent/20"
                 >
                   {ntboPoBusy ? "Working..." : `${selectedDraftForNtbo ? "Add to " + selectedDraftForNtbo.po_number : "Start PO"} (${selectedNtboIds.size})`}
                 </button>
                 {selectedDraftForNtbo && (
                   <span className="text-[10px] font-bold text-app-accent">→ Adding to {selectedDraftForNtbo.po_number}</span>
                 )}
-                {ntboError && <span className="text-xs font-bold text-red-600">{ntboError}</span>}
+                {ntboError && <span className="text-xs font-bold text-app-danger">{ntboError}</span>}
               </div>
 
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -643,7 +643,9 @@ export default function PurchaseOrderPanel({
                     <label
                       key={item.transaction_line_id}
                       className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors ${
-                        isChecked ? "border-amber-400 bg-amber-100/60" : "border-amber-200 bg-white hover:border-amber-300"
+                        isChecked
+                          ? "border-app-warning bg-app-warning/10 shadow-sm"
+                          : "border-app-border bg-app-surface hover:border-app-warning/60"
                       }`}
                     >
                       <input
@@ -658,17 +660,17 @@ export default function PurchaseOrderPanel({
                             return next;
                           });
                         }}
-                        className="mt-0.5 h-4 w-4 accent-amber-600"
+                        className="mt-0.5 h-4 w-4 rounded border-app-input-border bg-app-input-bg text-app-accent focus:ring-app-accent"
                       />
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-app-text truncate">{item.quantity}× {item.product_name}</p>
                         <p className="text-[10px] text-app-text-muted truncate">{item.customer_name} · {item.sku}</p>
                         <div className="mt-1.5 flex flex-wrap gap-1">
                           {item.is_rush && (
-                            <span className="rounded-full bg-red-100 border border-red-200 px-2 py-px text-[8px] font-bold uppercase text-red-700">Rush</span>
+                            <span className="rounded-full bg-app-danger/10 border border-app-danger/20 px-2 py-px text-[8px] font-bold uppercase text-app-danger">Rush</span>
                           )}
                           {item.need_by_date && (
-                            <span className="rounded-full bg-amber-100 border border-amber-200 px-2 py-px text-[8px] font-bold text-amber-800">Need {dateDisplay(item.need_by_date)}</span>
+                            <span className="rounded-full bg-app-warning/10 border border-app-warning/20 px-2 py-px text-[8px] font-bold text-app-warning">Need {dateDisplay(item.need_by_date)}</span>
                           )}
                         </div>
                       </div>
@@ -899,7 +901,7 @@ export default function PurchaseOrderPanel({
               Non-Inventory Items Needed ({nonInventoryNeeds.length})
             </h3>
           </div>
-          <div className="rounded-xl border border-amber-200 bg-white overflow-hidden">
+          <div className="rounded-xl border border-amber-200 bg-app-surface overflow-hidden">
             <table className="w-full text-left text-[11px]">
               <thead className="bg-amber-50 border-b border-amber-200">
                 <tr>

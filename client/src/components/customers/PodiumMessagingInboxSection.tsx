@@ -599,7 +599,7 @@ export default function PodiumMessagingInboxSection({
             <IntegrationBrandLogo
               brand="podium"
               kind="icon"
-              className="inline-flex rounded-xl border border-app-border bg-white p-2 shadow-sm"
+              className="inline-flex rounded-xl border border-app-border bg-app-surface p-2 shadow-sm"
               imageClassName="h-5 w-5 object-contain"
             />
           </div>

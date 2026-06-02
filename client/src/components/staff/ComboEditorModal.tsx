@@ -142,7 +142,7 @@ export default function ComboEditorModal({
           </div>
           <button
             onClick={onClose}
-            className="rounded-full p-2 text-slate-500 hover:bg-white/5 hover:text-white transition-colors"
+            className="rounded-full p-2 text-slate-500 hover:bg-app-surface/5 hover:text-white transition-colors"
           >
             <X size={20} />
           </button>

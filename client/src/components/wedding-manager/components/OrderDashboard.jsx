@@ -228,7 +228,7 @@ const OrderDashboard = ({ onBack }) => {
     }, [orderItems]);
 
     return (
-        <div className="fixed inset-0 z-50 bg-[#F8FAFC] flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="fixed inset-0 z-50 bg-app-surface flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Premium Header */}
             <div className="bg-app-surface px-8 py-6 flex justify-between items-center border-b border-app-border/80 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
                 <div className="flex items-center gap-6">

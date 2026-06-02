@@ -20,13 +20,20 @@ pub async fn log_postgres_startup_context(pool: &PgPool) {
     let row = sqlx::query_as::<_, PostgresStartupContext>(
         r#"
         SELECT
-            current_database() AS current_database,
+            current_database AS current_database,
             current_user::text AS db_user,
-            NULLIF(inet_server_addr()::text, '') AS server_inet,
-            inet_server_port() AS server_port,
+            NULLIF(inet_server_addr::text, '') AS server_inet,
+            inet_server_port AS server_port,
             COALESCE(current_setting('search_path', true), '') AS search_path,
             to_regclass('public.weather_snapshot_finalize_ledger')::text AS weather_finalize_ledger,
             to_regclass('public.weather_vc_daily_usage')::text AS weather_vc_daily_usage
+        FROM (
+            SELECT
+                current_database(),
+                current_user,
+                inet_server_addr(),
+                inet_server_port()
+        ) AS pg_info
         "#,
     )
     .fetch_one(pool)

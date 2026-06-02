@@ -300,7 +300,7 @@ export default function DiscountEventsPanel() {
       <main className="grid min-h-0 flex-1 gap-8 lg:grid-cols-[1fr_400px]">
         <div className="flex flex-col gap-8 overflow-y-auto no-scrollbar pb-20 px-2">
           {/* ANALYTICS SNAPSHOT */}
-          <DashboardGridCard 
+          <DashboardGridCard
             title="Promotion Performance"
             subtitle="Historical Audit"
             icon={BarChart3}
@@ -575,7 +575,7 @@ export default function DiscountEventsPanel() {
 
               <div className="space-y-4">
                 <select
-                  className="w-full h-12 bg-white/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
+                  className="w-full h-12 bg-app-surface/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
                   value={editScopeType}
                   onChange={(e) => {
                     const value = e.target.value;
@@ -601,7 +601,7 @@ export default function DiscountEventsPanel() {
 
                 {editScopeType === "category" && (
                   <select
-                    className="w-full h-12 bg-white/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
+                    className="w-full h-12 bg-app-surface/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
                     value={editCategoryId}
                     onChange={(e) => setEditCategoryId(e.target.value)}
                   >
@@ -618,7 +618,7 @@ export default function DiscountEventsPanel() {
 
                 {editScopeType === "vendor" && (
                   <select
-                    className="w-full h-12 bg-white/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
+                    className="w-full h-12 bg-app-surface/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
                     value={editVendorId}
                     onChange={(e) => setEditVendorId(e.target.value)}
                   >
@@ -644,7 +644,7 @@ export default function DiscountEventsPanel() {
                       {vars.map((v) => (
                         <div
                           key={v.variant_id}
-                          className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 group"
+                          className="flex items-center justify-between p-3 rounded-xl bg-app-surface/5 border border-white/10 group"
                         >
                           <div className="flex flex-col">
                             <span className="text-[10px] font-black uppercase tracking-tight">
@@ -677,7 +677,7 @@ export default function DiscountEventsPanel() {
 
                 <button
                   onClick={patchSelectedScope}
-                  className="w-full h-14 bg-white text-violet-600 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:brightness-110 active:scale-95 transition-all"
+                  className="w-full h-14 bg-app-surface text-violet-600 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:brightness-110 active:scale-95 transition-all"
                 >
                   Save Area
                 </button>

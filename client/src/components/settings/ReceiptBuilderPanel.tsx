@@ -699,7 +699,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
             <h3 className="mb-6 text-[10px] font-black uppercase tracking-widest text-app-text">
               {EPSON_RECEIPT_PAPER} Epson preview
             </h3>
-            <div className="mb-4 rounded-2xl border border-app-border bg-white p-4">
+            <div className="mb-4 rounded-2xl border border-app-border bg-app-surface p-4">
               <img
                 src={RiversideReceiptLogo}
                 alt="Riverside Men's Shop receipt logo"
@@ -709,7 +709,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                 Active receipt logo
               </p>
             </div>
-            <div className="flex justify-center overflow-x-auto rounded-[2rem] bg-[#f0f0f0] p-4 shadow-inner sm:p-6">
+            <div className="flex justify-center overflow-x-auto rounded-[2rem] bg-white p-4 shadow-inner sm:p-6">
               <div
                 className="receiptline-preview w-full max-w-[360px] [&_svg]:h-auto [&_svg]:w-full"
                 dangerouslySetInnerHTML={{ __html: receiptLineSvg }}

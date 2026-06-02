@@ -4,7 +4,7 @@ title: "Purchase Orders and Vendor Paperwork"
 order: 1023
 summary: "Create, review, refresh, and receive purchase orders or vendor paperwork."
 source: client/src/components/inventory/PurchaseOrderPanel.tsx
-last_scanned: 2026-05-10
+last_scanned: 2026-06-02
 tags: inventory-purchase-order-panel, inventory, purchase-orders, vendors
 status: approved
 ---

@@ -4,7 +4,7 @@ title: "Helcim Settings"
 order: 1088
 summary: "Configure Helcim API credentials, terminal device codes, webhook setup, and test mode without exposing payment secrets."
 source: client/src/components/settings/HelcimSettingsPanel.tsx
-last_scanned: 2026-05-12
+last_scanned: 2026-06-02
 tags: settings, helcim, payments, webhook, terminal
 status: approved
 ---

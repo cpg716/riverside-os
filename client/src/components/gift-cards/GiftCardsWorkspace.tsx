@@ -281,7 +281,7 @@ function IssueForm({ mode, onDone }: IssueFormProps) {
       ) : null}
       <div className="space-y-1">
         <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Link Customer (optional)</span>
-        <CustomerSearchInput 
+        <CustomerSearchInput
           onSelect={(c) => {
             setCustomerId(c.id);
             setCustomerLabel(`${c.first_name} ${c.last_name}`.trim());
@@ -524,13 +524,13 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-700">
                <s.icon size={80} />
             </div>
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/40 shadow-xl dark:bg-black/20 border border-white/20">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-app-surface/40 shadow-xl dark:bg-black/20 border border-white/20">
               <s.icon size={26} className={s.color} />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-start gap-2">
                 <p className="min-w-0 flex-1 text-[10px] font-black uppercase leading-tight tracking-[0.12em] text-app-text-muted opacity-80">{s.label}</p>
-                <span className="max-w-20 shrink-0 rounded-full bg-black/5 px-1.5 py-0.5 text-center text-[8px] font-black leading-tight tabular-nums text-app-text-muted dark:bg-white/5">{s.trend}</span>
+                <span className="max-w-20 shrink-0 rounded-full bg-black/5 px-1.5 py-0.5 text-center text-[8px] font-black leading-tight tabular-nums text-app-text-muted dark:bg-app-surface/5">{s.trend}</span>
               </div>
               <p className={`max-w-full whitespace-nowrap font-black leading-none tabular-nums tracking-tight text-app-text ${summaryValueSize(s.val)}`}>{s.val}</p>
             </div>
@@ -739,7 +739,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
                   </td>
                   <td className="py-4 pr-4">
                     <span className={`ui-pill text-[9px] font-black uppercase tracking-widest ${
-                      c.card_status === 'active' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 
+                      c.card_status === 'active' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
                       c.card_status === 'void' ? 'bg-app-danger/10 text-app-danger border border-app-danger/20' :
                       'bg-app-surface-2 text-app-text-muted border border-app-border'
                     }`}>
