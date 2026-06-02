@@ -52,8 +52,8 @@ export interface InventoryTagPrintConfig {
 const STORAGE_KEY = "ros.inventory.tagPrintConfig";
 
 const DEFAULT_CONFIG: InventoryTagPrintConfig = {
-  widthInches: 4,
-  heightInches: 2.5,
+  widthInches: 2.25,
+  heightInches: 1.25,
   showSku: true,
   showProductName: true,
   showVariation: true,
@@ -128,21 +128,25 @@ function zplTextBlock(parts: string[], x: number, y: number, item: InventoryTagI
   const variation = item.variation?.trim() || "Standard";
   const sku = escapeZplField(item.sku);
 
-  if (config.showSku) { parts.push(zplField(x, y, 28, 26, sku)); y += 38; }
-  for (const line of nameLines) { parts.push(zplField(x, y, 44, 40, line)); y += 50; }
-  if (config.showVariation) { parts.push(zplField(x, y + 2, 28, 26, escapeZplField(variation))); y += 34; }
-  if (config.showBrand && item.brand) { parts.push(zplField(x, y + 2, 26, 24, escapeZplField(item.brand))); y += 32; }
+  // Match font sizes to live preview (11px, 14px, 11px, 10px) converted to ZPL dots at 203 DPI
+  // 11px ≈ 22 dots, 14px ≈ 28 dots, 10px ≈ 20 dots
+  if (config.showSku) { parts.push(zplField(x, y, 22, 20, sku)); y += 30; }
+  for (const line of nameLines) { parts.push(zplField(x, y, 28, 26, line)); y += 34; }
+  if (config.showVariation) { parts.push(zplField(x, y + 2, 22, 20, escapeZplField(variation))); y += 28; }
+  if (config.showBrand && item.brand) { parts.push(zplField(x, y + 2, 20, 18, escapeZplField(item.brand))); y += 26; }
   return y;
 }
 
 function zplPriceBlock(parts: string[], x: number, y: number, maxY: number, item: InventoryTagItem, config: InventoryTagPrintConfig): void {
   if (!config.showPrice) return;
   const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
+  // Match font sizes to live preview (24px/16px) converted to ZPL dots at 203 DPI
+  // 24px ≈ 48 dots, 16px ≈ 32 dots, 10px ≈ 20 dots
   const pH = config.priceSize === "large" ? 48 : 32;
-  const pW = config.priceSize === "large" ? 44 : 28;
-  const pY = Math.max(y + 8, maxY - pH - 36);
+  const pW = config.priceSize === "large" ? 48 : 32;
+  const pY = Math.max(y + 8, maxY - pH - 28);
   if (isPromo) {
-    parts.push(zplField(x, pY - 22, 20, 18, `Reg ${escapeZplField(item.regularPrice!)}`));
+    parts.push(zplField(x, pY - 20, 20, 18, `Reg ${escapeZplField(item.regularPrice!)}`));
     parts.push(zplField(x, pY, pH, pW, escapeZplField(item.salePrice!)));
   } else if (item.price) {
     parts.push(zplField(x, pY, pH, pW, escapeZplField(item.price)));
@@ -168,7 +172,9 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     zplPriceBlock(parts, textX, y, height - 32, item, config);
     if (config.showBarcode && sku) {
       parts.push(`^FO${m},${m}^A0R,20,18^FD${sku}^FS`);
-      parts.push(`^FO${m + 22},${m}^BY2^BCR,${height - m * 2 - 20},N,N,N^FD${sku}^FS`);
+      // Match HTML preview barcode height of 22px ≈ 44 dots at 203 DPI
+      const bcH = 44;
+      parts.push(`^FO${m + 22},${m}^BY2^BCR,${bcH},N,N,N^FD${sku}^FS`);
     }
   } else if (layout === "barcode-right") {
     const bcZone = config.showBarcode ? Math.round(width * 0.15) : 0;
@@ -179,11 +185,13 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     if (config.showBarcode && sku) {
       const lblX = width - bcZone - 4;
       parts.push(`^FO${lblX},${m}^A0R,20,18^FD${sku}^FS`);
+      // Match HTML preview barcode height of 22px ≈ 44 dots at 203 DPI
+      const bcH = 44;
       const bcX = lblX + 22;
-      parts.push(`^FO${bcX},${m}^BY2^BCR,${height - m * 2 - 20},N,N,N^FD${sku}^FS`);
+      parts.push(`^FO${bcX},${m}^BY2^BCR,${bcH},N,N,N^FD${sku}^FS`);
     }
   } else if (layout === "price-hero") {
-    const pH = config.priceSize === "large" ? 52 : 36;
+    const pH = config.priceSize === "large" ? 48 : 32;
     const pW = config.priceSize === "large" ? 48 : 32;
     let y = m;
     if (config.showPrice) {
@@ -200,7 +208,8 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     const chars = Math.max(14, Math.floor((width - m * 2) / 20));
     zplTextBlock(parts, m, y, item, config, chars);
     if (config.showBarcode && sku) {
-      const bcH = Math.min(48, Math.round(height * 0.12));
+      // Match HTML preview barcode height of 22px ≈ 44 dots at 203 DPI
+      const bcH = 44;
       parts.push(`^FO${m},${height - bcH - 24}^BY2^BCN,${bcH},Y,N,N^FD${sku}^FS`);
     }
   } else if (layout === "compact") {
@@ -210,14 +219,16 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     const rightX = halfW + 8;
     zplPriceBlock(parts, rightX, m, height - 32, item, config);
     if (config.showBarcode && sku) {
-      const bcH = Math.min(40, Math.round(height * 0.1));
+      // Match HTML preview barcode height of 22px ≈ 44 dots at 203 DPI
+      const bcH = 44;
       parts.push(`^FO${rightX},${height - bcH - 24}^BY2^BCN,${bcH},Y,N,N^FD${sku}^FS`);
     }
     void y;
   } else {
     const chars = Math.max(14, Math.floor((width - m * 2) / 20));
     const y = zplTextBlock(parts, m, m, item, config, chars);
-    const bcH = config.showBarcode ? Math.min(50, Math.round(height * 0.14)) : 0;
+    // Match HTML preview barcode height of 22px ≈ 44 dots at 203 DPI
+    const bcH = config.showBarcode ? 44 : 0;
     const bcReserve = config.showBarcode ? bcH + 28 : 0;
     zplPriceBlock(parts, m, y, height - bcReserve - 24, item, config);
     if (config.showBarcode && sku) {
@@ -225,7 +236,7 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     }
   }
 
-  if (footer) { parts.push(zplField(m, height - 22, 18, 16, footer)); }
+  if (footer) { parts.push(zplField(m, height - 22, 16, 14, footer)); }
   parts.push("^XZ");
   return parts.join("\n");
 }
@@ -404,42 +415,50 @@ function generateBarcodeSvgScript(): string {
 
 function buildDocument(items: InventoryTagItem[], config: InventoryTagPrintConfig): string {
   const pages = items.map((i) => renderTag(i, config)).join("\n");
-  const pSz = config.priceSize === "large" ? "28px" : "16px";
+  // Match font sizes exactly to live preview in TagDesignerPanel
+  const pSz = config.priceSize === "large" ? "24px" : "16px";
   const hIn = Math.max(1, config.heightInches - 0.12);
+
+  // Use fixed pixel width for screen display to match live preview (300px)
+  const TAG_PX = 300;
+  const tagPxWidth = TAG_PX;
+  const tagPxHeight = Math.round(TAG_PX * (Math.max(1, config.heightInches) / Math.max(2, config.widthInches)));
+
   return `<!DOCTYPE html><html><head><title>Inventory tags (${items.length})</title>
 <style>
 @page{size:${config.widthInches}in ${config.heightInches}in;margin:0.04in;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:Inter,Outfit,"Aptos","Segoe UI",sans-serif;color:#000;background:#fff;}
-.tag-page{page-break-after:always;width:100%;height:${hIn}in;}
+html,body{font-family:Inter,Outfit,"Aptos","Segoe UI",sans-serif;color:#000;background:#fff;margin:0;padding:0;}
+body{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px;}
+.tag-page{page-break-after:always;width:${tagPxWidth}px;height:${tagPxHeight}px;flex-shrink:0;}
 .tag-page:last-child{page-break-after:auto;}
 .tag-shell{display:flex;flex-direction:column;height:100%;border:1px solid #000;overflow:hidden;}
 .t-body{flex:1;display:flex;flex-direction:column;gap:2px;padding:6px 10px 4px;min-width:0;overflow:hidden;}
-.t-sku{font:700 13px/1.2 inherit;letter-spacing:.06em;text-transform:uppercase;color:#000;}
-.t-name{font:900 22px/1.08 inherit;letter-spacing:-.02em;color:#000;}
-.t-var{font:600 14px/1.2 inherit;color:#111;}
-.t-brand{font:700 12px/1.2 inherit;text-transform:uppercase;letter-spacing:.04em;color:#222;}
-.t-price{font:900 ${pSz}/1.1 inherit;letter-spacing:-.02em;margin-top:auto;color:#000;}
+.t-sku{font:800 11px/1.2 inherit;letter-spacing:.05em;text-transform:uppercase;color:#000;}
+.t-name{font:900 14px/1.15 inherit;letter-spacing:-.01em;color:#000;}
+.t-var{font:700 11px/1.2 inherit;color:#000;}
+.t-brand{font:700 10px/1.2 inherit;text-transform:uppercase;letter-spacing:.05em;color:#000;}
+.t-price{font:900 ${pSz}/1 inherit;letter-spacing:-.01em;margin-top:auto;color:#000;}
 .t-price-block{margin-top:auto;}
-.t-price-reg{font:600 13px/1.2 inherit;color:#222;}
+.t-price-reg{font:700 10px/1.2 inherit;color:#000;}
 .t-price-reg s{text-decoration:line-through;}
-.t-price-sale{font:900 ${pSz}/1.1 inherit;letter-spacing:-.02em;color:#000;}
-.t-savings{font:700 11px/1.2 inherit;color:#111;}
-.t-footer{font:700 8px/1.2 inherit;letter-spacing:.08em;text-transform:uppercase;color:#333;margin-top:auto;padding-top:2px;}
-/* Barcode horizontal row */
-.t-bc-row{display:flex;align-items:center;gap:6px;padding:4px 10px;border-top:1px solid #ccc;}
-.t-bc-row-lg{padding:6px 10px;}
-.t-bc.t-bc-h{display:flex;align-items:center;gap:6px;flex:1;min-width:0;}
-.t-bc.t-bc-h .t-bc-svg{flex:1;height:32px;display:block;}
-.t-bc-row-lg .t-bc-h .t-bc-svg{height:42px;}
+.t-price-sale{font:900 ${pSz}/1 inherit;letter-spacing:-.01em;color:#000;}
+.t-savings{font:700 10px/1.2 inherit;color:#000;}
+.t-footer{font:700 8px/1.2 inherit;letter-spacing:.1em;text-transform:uppercase;color:#000;margin-top:auto;padding-top:2px;}
+/* Barcode horizontal row - match live preview px-2 py-0.5 */
+.t-bc-row{display:flex;align-items:center;gap:4px;padding:2px 8px;border-top:1px solid rgba(0,0,0,0.2);height:32px;}
+.t-bc-row-lg{padding:2px 8px;}
+.t-bc.t-bc-h{display:flex;align-items:center;gap:4px;flex:1;min-width:0;}
+.t-bc.t-bc-h .t-bc-svg{flex:1;height:22px;display:block;}
+.t-bc-row-lg .t-bc-h .t-bc-svg{height:22px;}
 .t-bc.t-bc-h .t-bc-lbl{font:700 10px/1 inherit;letter-spacing:.04em;white-space:nowrap;color:#000;}
 /* Barcode vertical column (barcode-left and barcode-right layouts) */
 .tag-bc-right{flex-direction:row!important;}
 .tag-bc-right>.t-body{flex:1;}
 .tag-bc-left{flex-direction:row!important;}
 .tag-bc-left>.t-body{flex:1;}
-.tag-bc-left .t-bc-col{border-left:none;border-right:1px solid #ccc;}
-.t-bc-col{display:flex;border-left:1px solid #ccc;}
+.tag-bc-left .t-bc-col{border-left:none;border-right:1px solid #000;}
+.t-bc-col{display:flex;border-left:1px solid #000;}
 .t-bc.t-bc-v{display:flex;height:100%;}
 .t-bc-v-lbl{width:0.18in;display:flex;align-items:center;justify-content:center;background:#f8f8f8;writing-mode:vertical-rl;transform:rotate(180deg);font:700 10px/1 inherit;letter-spacing:.05em;white-space:nowrap;color:#000;}
 .t-bc-v-bars{width:0.38in;display:flex;align-items:center;justify-content:center;padding:4px 2px;writing-mode:vertical-rl;transform:rotate(180deg);}
@@ -452,6 +471,10 @@ body{font-family:Inter,Outfit,"Aptos","Segoe UI",sans-serif;color:#000;backgroun
 .tag-compact .t-col-right{flex:0.9;display:flex;flex-direction:column;gap:4px;padding:6px 8px 4px;border-left:1px solid #ddd;align-items:flex-end;justify-content:space-between;text-align:right;}
 .tag-compact .t-bc.t-bc-h{flex-direction:column;align-items:flex-end;}
 .tag-compact .t-bc.t-bc-h .t-bc-svg{width:100%;height:28px;flex:none;}
+@media print{
+  body{padding:0;gap:0;}
+  .tag-page{width:${config.widthInches}in;height:${hIn}in;page-break-after:always;}
+}
 </style></head><body>${pages}${config.showBarcode ? generateBarcodeSvgScript() : ""}</body></html>`;
 }
 
@@ -474,7 +497,42 @@ export function openInventoryTagsPreviewWindow(
     ...getInventoryTagPrintConfig(),
     ...overrideConfig,
   };
-  const w = window.open("", "_blank", "width=520,height=420");
+
+  // Check if running in Tauri environment
+  const isTauriEnv = typeof window !== "undefined" &&
+    (window as unknown as { __TAURI__?: unknown }).__TAURI__;
+
+  if (isTauriEnv) {
+    // For Tauri, write to a temporary file and open it
+    const html = buildDocument(items, config);
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+
+    // Also try to open in new window for preview with appropriate size
+    try {
+      const w = window.open(url, "_blank", "width=350,height=500");
+      if (w) {
+        w.focus();
+        // Don't auto-print in Tauri preview - let user choose
+        return "browser";
+      }
+    } catch (e) {
+      console.warn("Tauri window.open failed", e);
+    }
+
+    // Fallback: download the file
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "tag-preview.html";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    return "browser";
+  }
+
+  // Browser/PWA: use window.open approach with appropriate size
+  const w = window.open("", "_blank", "width=350,height=500");
   if (!w) {
     return "blocked";
   }

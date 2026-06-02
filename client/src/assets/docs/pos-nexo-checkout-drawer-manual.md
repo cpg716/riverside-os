@@ -38,6 +38,7 @@ Choose the tender type on the left, then collect the amount in the center panel.
 - **Manual card** is for approved keyed-card workflows.
 - **Cash**, **check**, **gift card**, **store credit**, and other tenders remain separate so the sale ledger stays auditable.
 - Store credit and open deposit redemptions are not treated as cash or card tender revenue.
+- **Cash rounding is currently off.** Cash payments and cash refunds require the exact-cent balance. When pennyless cash rounding is enabled later, it must be recorded as a transaction-level adjustment on the main Transaction Record, not as a separate Transaction Record, pickup, deposit, or orphaned payment activity.
 
 ## Terminal display
 
@@ -48,6 +49,8 @@ If a card attempt is canceled and retried, use the current checkout status befor
 ## Keypad and amount controls
 
 Use **Full balance** for the normal path. Use **Split payment** only when the customer is paying with more than one tender.
+
+While cash rounding is off, **Full balance** loads the exact-cent amount for every tender, including cash. If future rounding is enabled, only the cash portion may round, and the receipt/history must show the adjustment on the same Transaction Record.
 
 The amount keypad is sized for register use while keeping the payment status, sale summary, and balance due visible. Any instructions for the selected tender should remain visible below the keypad without needing to scroll.
 

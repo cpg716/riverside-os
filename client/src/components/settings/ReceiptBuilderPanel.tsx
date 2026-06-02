@@ -6,7 +6,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { printRawEscPosBase64 } from "../../lib/printerBridge";
 import { useToast } from "../ui/ToastProviderLogic";
 
-const EPSON_RECEIPT_CPL = 42;
+const EPSON_RECEIPT_CPL = 48;
 const EPSON_RECEIPT_PAPER = "80mm";
 const RECEIPT_LOGO_WIDTH_PX = 384;
 

@@ -375,10 +375,12 @@ export default function ReceiptSummaryModal({
         if (typeof escposPayload.receiptline_markdown === "string" && escposPayload.receiptline_markdown.trim()) {
           try {
             const receiptlineCommand = transform(escposPayload.receiptline_markdown, {
-              cpl: 42,
+              cpl: 48,
               encoding: "cp437",
               command: "escpos",
               cutting: true,
+              spacing: false,
+              margin: "full",
             });
             printableBase64 = binaryStringToBase64(String(receiptlineCommand));
           } catch (receiptlineError) {
@@ -711,8 +713,10 @@ export default function ReceiptSummaryModal({
         if (payload.receiptline_markdown?.trim()) {
           return String(
             transform(payload.receiptline_markdown, {
-              cpl: 42,
+              cpl: 48,
               encoding: "cp437",
+              spacing: false,
+              margin: "full",
             }),
           );
         }

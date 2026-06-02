@@ -7,6 +7,7 @@ import {
   Tag,
   DollarSign,
   Type,
+  Printer,
 } from "lucide-react";
 import {
   type InventoryTagItem,
@@ -16,6 +17,7 @@ import {
   buildInventoryTagFooterLine,
   getInventoryTagPrintConfig,
   openInventoryTagsPreviewWindow,
+  openInventoryTagsWindow,
   saveInventoryTagPrintConfig,
 } from "../inventory/labelPrint";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -140,15 +142,15 @@ function InfoLines({ item, config }: { item: InventoryTagItem; config: Inventory
 function PriceLines({ item, config, sizeOverride }: { item: InventoryTagItem; config: InventoryTagPrintConfig; sizeOverride?: string }) {
   if (!config.showPrice) return null;
   const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
-  const sz = sizeOverride ?? (config.priceSize === "large" ? "text-[20px]" : "text-[14px]");
+  const sz = sizeOverride ?? (config.priceSize === "large" ? "text-[24px]" : "text-[16px]");
   if (isPromo) {
     const rn = parseFloat(item.regularPrice!.replace(/[^0-9.]/g, ""));
     const sn = parseFloat(item.salePrice!.replace(/[^0-9.]/g, ""));
     const sav = isFinite(rn) && isFinite(sn) && rn > sn ? `$${(rn - sn).toFixed(2)}` : "";
     return (
       <div className="truncate">
-        <span className="text-[9px] font-bold text-black line-through">Reg {item.regularPrice}</span>
-        {sav && <span className="ml-1 text-[9px] font-bold text-black">You save {sav}</span>}
+        <span className="text-[10px] font-bold text-black line-through">Reg {item.regularPrice}</span>
+        {sav && <span className="ml-1 text-[10px] font-bold text-black">You save {sav}</span>}
         <div className={`${sz} font-black text-black leading-none`}>{item.salePrice}</div>
       </div>
     );
@@ -164,9 +166,9 @@ function FooterLine({ text }: { text: string }) {
 
 function HBarcodeRow({ sku }: { sku: string }) {
   return (
-    <div className="flex items-center gap-1 border-t border-black/20 px-2 py-0.5" style={{ height: 28 }}>
-      <BarcodeSvg text={sku} className="h-[18px] flex-1 text-black" />
-      <span className="shrink-0 text-[9px] font-bold text-black">{sku}</span>
+    <div className="flex items-center gap-1 border-t border-black/20 px-2 py-0.5" style={{ height: 32 }}>
+      <BarcodeSvg text={sku} className="h-[22px] flex-1 text-black" />
+      <span className="shrink-0 text-[10px] font-bold text-black">{sku}</span>
     </div>
   );
 }
@@ -174,14 +176,14 @@ function HBarcodeRow({ sku }: { sku: string }) {
 function VBarcodeCol({ sku, side }: { sku: string; side: "left" | "right" }) {
   const border = side === "left" ? "border-r" : "border-l";
   return (
-    <div className={`flex ${border} border-black/20 bg-app-surface`} style={{ width: 52 }}>
-      <div className="flex w-[14px] items-center justify-center">
-        <span className="text-[7px] font-extrabold tracking-wider text-black whitespace-nowrap" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>{sku}</span>
+    <div className={`flex ${border} border-black/20 bg-white`} style={{ width: 56 }}>
+      <div className="flex w-[16px] items-center justify-center">
+        <span className="text-[8px] font-extrabold tracking-wider text-black whitespace-nowrap" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>{sku}</span>
       </div>
       <div className="relative flex-1 overflow-hidden">
         <div className="absolute inset-0 flex items-center justify-center">
           <div style={{ width: "140%", transform: "rotate(90deg)" }}>
-            <BarcodeSvg text={sku} className="text-black" style={{ height: 30 }} />
+            <BarcodeSvg text={sku} className="text-black" style={{ height: 36 }} />
           </div>
         </div>
       </div>
@@ -191,14 +193,14 @@ function VBarcodeCol({ sku, side }: { sku: string; side: "left" | "right" }) {
 
 /* ── 6 layout renderers ── */
 
-const tagCls = "rounded border border-black bg-app-surface overflow-hidden";
+const tagCls = "rounded border border-black bg-white overflow-hidden";
 
 /** Standard: info top, price+footer bottom, barcode strip at very bottom */
 function TagPreviewStandard({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
   return (
     <div className={tagCls} style={{ height: tagH(config) }}>
       <div className="flex h-full flex-col">
-        <div className="flex flex-1 flex-col justify-between overflow-hidden p-2">
+        <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
           <div><InfoLines item={item} config={config} /></div>
           <div><PriceLines item={item} config={config} /><FooterLine text={footer} /></div>
         </div>
@@ -213,10 +215,10 @@ function TagPreviewPriceHero({ item, config, footer }: { item: InventoryTagItem;
   return (
     <div className={tagCls} style={{ height: tagH(config) }}>
       <div className="flex h-full flex-col">
-        <div className="shrink-0 border-b border-black/10 px-2 py-1">
+        <div className="shrink-0 border-b border-black/10 px-1.5 py-1">
           <PriceLines item={item} config={config} sizeOverride={config.priceSize === "large" ? "text-[24px]" : "text-[16px]"} />
         </div>
-        <div className="flex flex-1 flex-col justify-between overflow-hidden p-2">
+        <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
           <div><InfoLines item={item} config={config} /></div>
           <FooterLine text={footer} />
         </div>
@@ -231,7 +233,7 @@ function TagPreviewBarcodeLeft({ item, config, footer }: { item: InventoryTagIte
   return (
     <div className={`flex ${tagCls}`} style={{ height: tagH(config) }}>
       {config.showBarcode && <VBarcodeCol sku={item.sku} side="left" />}
-      <div className="flex flex-1 flex-col justify-between overflow-hidden p-2">
+      <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
         <div><InfoLines item={item} config={config} /></div>
         <div><PriceLines item={item} config={config} /><FooterLine text={footer} /></div>
       </div>
@@ -243,7 +245,7 @@ function TagPreviewBarcodeLeft({ item, config, footer }: { item: InventoryTagIte
 function TagPreviewBarcodeRight({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
   return (
     <div className={`flex ${tagCls}`} style={{ height: tagH(config) }}>
-      <div className="flex flex-1 flex-col justify-between overflow-hidden p-2">
+      <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
         <div><InfoLines item={item} config={config} /></div>
         <div><PriceLines item={item} config={config} /><FooterLine text={footer} /></div>
       </div>
@@ -257,7 +259,7 @@ function TagPreviewBarcodeBottom({ item, config, footer }: { item: InventoryTagI
   return (
     <div className={tagCls} style={{ height: tagH(config) }}>
       <div className="flex h-full flex-col">
-        <div className="flex flex-1 flex-col justify-between overflow-hidden p-2">
+        <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
           <div><InfoLines item={item} config={config} /></div>
           <div><PriceLines item={item} config={config} /><FooterLine text={footer} /></div>
         </div>
@@ -271,16 +273,16 @@ function TagPreviewBarcodeBottom({ item, config, footer }: { item: InventoryTagI
 function TagPreviewCompact({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
   return (
     <div className={`flex ${tagCls}`} style={{ height: tagH(config) }}>
-      <div className="flex flex-1 flex-col justify-between overflow-hidden p-2">
+      <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
         <div><InfoLines item={item} config={config} /></div>
         <FooterLine text={footer} />
       </div>
-      <div className="flex flex-col justify-between overflow-hidden border-l border-black/20 p-2 text-right" style={{ width: "40%" }}>
+      <div className="flex flex-col justify-between overflow-hidden border-l border-black/20 p-1.5 text-right" style={{ width: "40%" }}>
         <PriceLines item={item} config={config} />
         {config.showBarcode && (
           <div>
-            <BarcodeSvg text={item.sku} className="h-[18px] w-full text-black" />
-            <div className="text-[8px] font-bold text-black">{item.sku}</div>
+            <BarcodeSvg text={item.sku} className="h-[22px] w-full text-black" />
+            <div className="text-[9px] font-bold text-black">{item.sku}</div>
           </div>
         )}
       </div>
@@ -339,6 +341,7 @@ export default function TagDesignerPanel() {
   const handleSave = () => { const next = saveInventoryTagPrintConfig(draft); setDraft(next); setBaselineConfig(next); toast("Tag layout saved.", "success"); };
   const handleReset = () => { const r = getInventoryTagPrintConfig(); setDraft(r); setBaselineConfig(r); toast("Restored to your last saved layout.", "info"); };
   const handlePreview = () => { openInventoryTagsPreviewWindow(SAMPLE_ITEMS, normalizedDraft); toast("Print preview opened.", "success"); };
+  const handlePrint = async () => { const result = await openInventoryTagsWindow(SAMPLE_ITEMS, normalizedDraft); if (result === "direct") { toast("Tag sent to Zebra 2844 printer.", "success"); } else { toast("Print preview opened.", "success"); } };
 
   const previewFooterLine = buildInventoryTagFooterLine(normalizedDraft.footerText);
 
@@ -358,6 +361,7 @@ export default function TagDesignerPanel() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={handlePrint} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Printer size={16} /> Print</button>
             <button type="button" onClick={handlePreview} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Eye size={16} /> Print preview</button>
             <button type="button" onClick={handleReset} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><RotateCcw size={16} /> Undo changes</button>
             <button type="button" onClick={handleSave} className="inline-flex items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-sm font-black text-white shadow-sm transition-colors hover:brightness-110"><Save size={16} /> Save layout</button>
@@ -492,7 +496,7 @@ export default function TagDesignerPanel() {
             </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-app-surface p-2.5 shadow-sm">
+          <div className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
             <div className="grid gap-2.5">
               {SAMPLE_ITEMS.map((item) => (
                 <TagPreview key={item.sku} item={item} config={normalizedDraft} footer={previewFooterLine} />

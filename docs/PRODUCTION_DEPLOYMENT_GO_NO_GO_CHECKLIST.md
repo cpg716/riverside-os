@@ -63,7 +63,7 @@ Verification run on 2026-05-25: `cargo check`, `cargo clippy`, `cargo fmt`, `npm
 - [x] `npm run test:e2e:high-risk` — passed locally on 2026-04-25; suite reported 4 passed, 2 built-in skips.
 - [x] `npm run test:e2e:phase2` — passed locally on 2026-04-25; suite reported 3 passed, 2 built-in skips.
 - [x] `npm run test:e2e:tender` — passed locally on 2026-04-25; suite reported 11 passed.
-- [x] Checkout tender financial contract: `client/e2e/checkout-tender-financial-contract.spec.ts` covers missing check number rejection, split allocation across current sale + existing transaction balance, and cash rounding QBO impact.
+- [x] Checkout tender financial contract: `client/e2e/checkout-tender-financial-contract.spec.ts` covers missing check number rejection, split allocation across current sale + existing transaction balance, and historical cash rounding QBO impact. Current POS operation keeps cash rounding off.
 - [x] Formerly quarantined POS UI specs run locally without `ROS_QUARANTINE_UNSTABLE_POS_E2E`; targeted subset reported 6 passed on 2026-04-25.
 - [x] QBO hardening unit slice: `cargo test --manifest-path server/Cargo.toml qbo::tests:: --lib` reported 6 passed on 2026-04-25.
 - [x] Backup path safety unit slice: `cargo test --manifest-path server/Cargo.toml backups::tests:: --lib` reported 2 passed on 2026-04-25.
@@ -108,7 +108,7 @@ Verification run on 2026-05-25: `cargo check`, `cargo clippy`, `cargo fmt`, `npm
 - [ ] Attach Register #2 and Register #3.
 - [ ] Complete cash, check, card, gift card, loyalty, RMS, and split-tender sale drills.
 - [ ] Verify check tender requires check number.
-- [ ] Complete cash rounding sale and verify reporting/QBO staging.
+- [ ] Complete odd-cent cash sale with rounding off and verify exact-cent checkout, receipt, reporting, and QBO staging.
 - [ ] Close exact-cash Z report.
 - [ ] Close cash-discrepancy Z report and verify notes + notification.
 - [ ] Confirm register close is blocked while checkout queue has pending or blocked entries.
@@ -125,7 +125,7 @@ Verification run on 2026-05-25: `cargo check`, `cargo clippy`, `cargo fmt`, `npm
 
 ## Accounting Drill
 
-- [ ] QBO mappings are complete for tenders, revenue, COGS, inventory, tax, deposits, gift cards, loyalty, shipping, RMS, merchant fees, and rounding.
+- [ ] QBO mappings are complete for tenders, revenue, COGS, inventory, tax, deposits, gift cards, loyalty, shipping, RMS, and merchant fees. Cash rounding mapping is required only when pennyless rounding is explicitly enabled.
 - [ ] Proposed journal is balanced before approval.
 - [ ] Unbalanced journal cannot approve or sync.
 - [ ] Failed QBO sync records a failed log and notification.

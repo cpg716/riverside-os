@@ -443,6 +443,8 @@ export default function CounterpointSyncSettingsPanel() {
   // CSV files state
   const [dsHealth, setDsHealth] = useState<DataSourcesHealth | null>(null);
   const [csvUploading, setCsvUploading] = useState<string | null>(null);
+  const [csvUploadProgress, setCsvUploadProgress] = useState<number>(0);
+  const [csvUploadStatus, setCsvUploadStatus] = useState<string | null>(null);
   const lsFileRef = useRef<HTMLInputElement>(null);
   const cpFileRef = useRef<HTMLInputElement>(null);
 
@@ -922,12 +924,15 @@ export default function CounterpointSyncSettingsPanel() {
   /* ── CSV Upload ── */
   const handleCsvUpload = async (file: File, type: "lightspeed" | "counterpoint") => {
     setCsvUploading(type);
+    setCsvUploadProgress(0);
+    setCsvUploadStatus(`Parsing ${file.name}...`);
     try {
       const text = await file.text();
       const fileHash = await hashString(text);
       const parsed = parseCsvRows(text);
       if (parsed.length === 0) {
         toast("CSV contains no record rows.", "error");
+        setCsvUploadStatus(null);
         return;
       }
 
@@ -950,11 +955,13 @@ export default function CounterpointSyncSettingsPanel() {
           raw_row: row,
         }));
 
+        setCsvUploadStatus(`Uploading ${allRows.length} Lightspeed product entries...`);
+
         for (let idx = 0; idx < allRows.length; idx += CHUNK_SIZE) {
           const chunk = allRows.slice(idx, idx + CHUNK_SIZE);
           const isFirst = idx === 0;
           const progress = Math.min(100, Math.round(((idx + chunk.length) / allRows.length) * 100));
-          toast(`Uploading Lightspeed CSV: ${progress}%...`, "info");
+          setCsvUploadProgress(progress);
 
           const res = await fetch(
             `${baseUrl}/api/settings/counterpoint-sync/workbench/upload-lightspeed-csv`,
@@ -973,12 +980,14 @@ export default function CounterpointSyncSettingsPanel() {
           if (!res.ok) {
             const j = await res.json().catch(() => ({}));
             toast(j.error ?? "Failed to save CSV reference mapping.", "error");
+            setCsvUploadStatus("Upload failed");
             success = false;
             break;
           }
         }
 
         if (success) {
+          setCsvUploadStatus(`Successfully loaded ${allRows.length} product entries`);
           toast(`Enrichment catalog loaded: ${allRows.length} product entries`, "success");
           void fetchDsHealth();
           void fetchMergePreview();
@@ -999,11 +1008,13 @@ export default function CounterpointSyncSettingsPanel() {
           raw_row: row,
         }));
 
+        setCsvUploadStatus(`Uploading ${allRows.length} Counterpoint inventory rows...`);
+
         for (let idx = 0; idx < allRows.length; idx += CHUNK_SIZE) {
           const chunk = allRows.slice(idx, idx + CHUNK_SIZE);
           const isFirst = idx === 0;
           const progress = Math.min(100, Math.round(((idx + chunk.length) / allRows.length) * 100));
-          toast(`Uploading Counterpoint CSV: ${progress}%...`, "info");
+          setCsvUploadProgress(progress);
 
           const res = await fetch(
             `${baseUrl}/api/settings/counterpoint-sync/workbench/upload-cp-csv`,
@@ -1022,12 +1033,14 @@ export default function CounterpointSyncSettingsPanel() {
           if (!res.ok) {
             const j = await res.json().catch(() => ({}));
             toast(j.error ?? "Failed to save CSV reference mapping.", "error");
+            setCsvUploadStatus("Upload failed");
             success = false;
             break;
           }
         }
 
         if (success) {
+          setCsvUploadStatus(`Successfully cached ${allRows.length} Counterpoint rows`);
           toast(`Counterpoint backup CSV cached: ${allRows.length} rows`, "success");
           void fetchDsHealth();
           void fetchMergePreview();
@@ -1036,8 +1049,13 @@ export default function CounterpointSyncSettingsPanel() {
       }
     } catch (e) {
       toast(`CSV parsing failure: ${e}`, "error");
+      setCsvUploadStatus("Parsing failed");
     } finally {
       setCsvUploading(null);
+      setTimeout(() => {
+        setCsvUploadProgress(0);
+        setCsvUploadStatus(null);
+      }, 3000);
     }
   };
 
@@ -1136,28 +1154,31 @@ export default function CounterpointSyncSettingsPanel() {
   };
 
   /* ── Step approvals (Backend Step Gate) ── */
-  // const approveSubStep = async (stepKey: string) => {
-  //   try {
-  //     const res = await fetch(
-  //       `${baseUrl}/api/settings/counterpoint-sync/workbench/approve-step`,
-  //       {
-  //         method: "POST",
-  //         headers: { ...headers(), "Content-Type": "application/json" },
-  //         body: JSON.stringify({ step: stepKey }),
-  //       },
-  //     );
-  //     if (res.ok) {
-  //       const data = await res.json();
-  //       toast(`Sub-section '${stepKey}' verified.`, "success");
-  //       if (data.next_step_unlocked) {
-  //         setActiveSubStep(data.next_step_unlocked);
-  //       }
-  //       void fetchWorkbenchState();
-  //     }
-  //   } catch {
-  //     toast("Step verification failed", "error");
-  //   }
-  // };
+  const approveSubStep = async (stepKey: string) => {
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/workbench/approve-step`,
+        {
+          method: "POST",
+          headers: { ...headers(), "Content-Type": "application/json" },
+          body: JSON.stringify({ step: stepKey }),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        toast(`Sub-section '${stepKey}' verified.`, "success");
+        if (data.next_step_unlocked) {
+          setActiveSubStep(data.next_step_unlocked);
+        }
+        void fetchWorkbenchState();
+      } else {
+        const j = await res.json().catch(() => ({}));
+        toast(j.error ?? "Step verification failed", "error");
+      }
+    } catch {
+      toast("Step verification failed", "error");
+    }
+  };
 
   const resetWorkbench = async () => {
     setWorkbenchResetBusy(true);
@@ -1442,11 +1463,20 @@ export default function CounterpointSyncSettingsPanel() {
                   <tbody className="divide-y divide-app-border">
                     {status?.entity_runs.map((run) => (
                       <tr key={run.entity}>
-                        <td className="px-3 py-2 font-bold uppercase text-[10px] tracking-wide">
-                          {run.entity.replace(/_/g, " ")}
+                        <td className="px-3 py-2">
+                          <div className="font-bold uppercase text-[10px] tracking-wide">{run.entity.replace(/_/g, " ")}</div>
+                          {run.records_processed === 0 && !run.last_error && (
+                            <div className="text-[9px] text-amber-600 dark:text-amber-400 mt-0.5">No data returned - check SQL query</div>
+                          )}
                         </td>
-                        <td className="px-3 py-2 font-mono text-[11px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                          {fmtNum(run.records_processed)} rows
+                        <td className="px-3 py-2">
+                          <div className={`font-mono text-[11px] font-semibold tabular-nums ${
+                            run.records_processed === 0
+                              ? "text-amber-600 dark:text-amber-400"
+                              : "text-emerald-600 dark:text-emerald-400"
+                          }`}>
+                            {fmtNum(run.records_processed)} rows
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-app-text-muted">
                           {run.last_ok_at ? new Date(run.last_ok_at).toLocaleTimeString() : "Pending"}
@@ -1456,6 +1486,11 @@ export default function CounterpointSyncSettingsPanel() {
                             <span className="text-red-500 font-medium inline-flex items-center gap-1">
                               <AlertTriangle className="h-3.5 w-3.5" />
                               {run.last_error}
+                            </span>
+                          ) : run.records_processed === 0 ? (
+                            <span className="text-amber-600 dark:text-amber-400 inline-flex items-center gap-1 font-medium">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              No Data
                             </span>
                           ) : (
                             <span className="text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1 font-semibold">
@@ -1512,18 +1547,35 @@ export default function CounterpointSyncSettingsPanel() {
             </div>
           </div>
 
-          <div className="border-t border-app-border pt-4 flex justify-between">
-            <p className="text-xs text-app-text-muted leading-relaxed">
-              Verify that all core database entities are staged. When complete, advance to step 2 to clean up the imported product catalog.
-            </p>
-            <button
-              type="button"
-              onClick={() => setActiveStep(2)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-            >
-              Advance to Inventory Mapping
-              <ChevronRight className="h-4 w-4" />
-            </button>
+          <div className="border-t border-app-border pt-4">
+            <div className="flex justify-between items-start gap-4">
+              <div className="flex-1">
+                <p className="text-xs text-app-text-muted leading-relaxed">
+                  Verify that all core database entities are staged. When complete, advance to step 2 to clean up the imported product catalog.
+                </p>
+                {status?.entity_runs.some(r => r.records_processed === 0 && !r.last_error) && (
+                  <div className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2">
+                    <p className="text-[10px] text-amber-700 dark:text-amber-300">
+                      <strong>Zero rows detected:</strong> Some entities returned no data. Auto-schema handles column detection, so this is likely due to:
+                    </p>
+                    <ul className="text-[9px] text-amber-600 dark:text-amber-400 mt-1 list-disc list-inside">
+                      <li>WHERE clause filtering (e.g., gift cards with zero balance, notes older than CP_IMPORT_SINCE)</li>
+                      <li>Tables genuinely have no data</li>
+                      <li>Use Bridge GUI "Test Query" to verify data exists in Counterpoint</li>
+                      <li>Temporarily remove WHERE clauses in bridge .env to test if data exists</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveStep(2)}
+                className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+              >
+                Advance to Inventory Mapping
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </section>
       )}
@@ -1537,6 +1589,32 @@ export default function CounterpointSyncSettingsPanel() {
               <p className="text-xs text-app-text-muted mt-0.5">
                 Merge categories, map vendor records, utilize ROSIE AI name enrichment, and resolve barcode SKU gaps.
               </p>
+              {workbenchState?.inventory_summary && (
+                <div className="mt-2 flex gap-2 flex-wrap">
+                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-1">
+                    <span className="text-[9px] text-emerald-700 dark:text-emerald-300 font-medium">{fmtNum(workbenchState.inventory_summary.products)} Products</span>
+                  </div>
+                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-1">
+                    <span className="text-[9px] text-emerald-700 dark:text-emerald-300 font-medium">{fmtNum(workbenchState.inventory_summary.variants)} Variants</span>
+                  </div>
+                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-1">
+                    <span className="text-[9px] text-emerald-700 dark:text-emerald-300 font-medium">{fmtNum(workbenchState.inventory_summary.categories)} Categories</span>
+                  </div>
+                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-1">
+                    <span className="text-[9px] text-emerald-700 dark:text-emerald-300 font-medium">{fmtNum(workbenchState.inventory_summary.vendors)} Vendors</span>
+                  </div>
+                  {workbenchState.inventory_summary.variants_missing_barcode > 0 && (
+                    <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-2 py-1">
+                      <span className="text-[9px] text-amber-700 dark:text-amber-300 font-medium">{fmtNum(workbenchState.inventory_summary.variants_missing_barcode)} Missing Barcodes</span>
+                    </div>
+                  )}
+                  {workbenchState.inventory_summary.quarantine_count > 0 && (
+                    <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-2 py-1">
+                      <span className="text-[9px] text-red-700 dark:text-red-300 font-medium">{fmtNum(workbenchState.inventory_summary.quarantine_count)} Quarantined</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex gap-2">
               <button
@@ -1686,11 +1764,22 @@ export default function CounterpointSyncSettingsPanel() {
                 </div>
               </div>
               <div className="pt-2 flex justify-end">
+                {csvUploadStatus && (
+                  <div className="flex-1 mr-4">
+                    <div className="text-[10px] font-medium text-app-text-muted mb-1">{csvUploadStatus}</div>
+                    <div className="h-2 bg-app-surface-2 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-app-accent transition-all duration-300 ease-out"
+                        style={{ width: `${csvUploadProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
                 <button
                   type="button"
-                  onClick={() => {/* setConfirmApproveSubStep("data_sources") */}}
-                  disabled={subStepStatus("data_sources") === "complete"}
-                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  onClick={() => void approveSubStep("data_sources")}
+                  disabled={subStepStatus("data_sources") === "complete" || csvUploading !== null}
+                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
                 >
                   Confirm & Lock CSV Sources
                   <CheckCircle2 className="h-3.5 w-3.5" />
@@ -1777,9 +1866,9 @@ export default function CounterpointSyncSettingsPanel() {
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => {/* setConfirmApproveSubStep("categories") */}}
+                  onClick={() => void approveSubStep("categories")}
                   disabled={subStepStatus("categories") === "complete"}
-                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
                 >
                   Verify Category Links
                   <CheckCircle2 className="h-3.5 w-3.5" />
@@ -1802,9 +1891,9 @@ export default function CounterpointSyncSettingsPanel() {
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => {/* setConfirmApproveSubStep("vendors") */}}
+                  onClick={() => void approveSubStep("vendors")}
                   disabled={subStepStatus("vendors") === "complete"}
-                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
                 >
                   Verify Vendors List
                   <CheckCircle2 className="h-3.5 w-3.5" />
@@ -2120,9 +2209,9 @@ export default function CounterpointSyncSettingsPanel() {
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => {/* setConfirmApproveSubStep("verification") */}}
+                  onClick={() => void approveSubStep("verification")}
                   disabled={subStepStatus("verification") === "complete"}
-                  className="ui-btn-primary px-6 py-2.5 text-xs font-black uppercase tracking-wider inline-flex items-center gap-1.5"
+                  className="ui-btn-primary px-6 py-2.5 text-xs font-black uppercase tracking-wider inline-flex items-center gap-1.5 disabled:opacity-50"
                 >
                   Approve & Finalize Catalog Mappings
                   <CheckCircle2 className="h-4 w-4" />

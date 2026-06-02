@@ -63,7 +63,7 @@ Manual store-credit adjustments are audit-sensitive and should only post to QBO 
 
 ## Shipping, alterations, and clearing accounts
 
-Customer-charged shipping posts to the mapped Shipping income account on the same completed business date as the sale. Alteration service lines, refund queue clearing, forfeited deposit income, RMS clearing, and cash rounding each require their own mapped accounts before syncing days that contain that activity.
+Customer-charged shipping posts to the mapped Shipping income account on the same completed business date as the sale. Alteration service lines, refund queue clearing, forfeited deposit income, and RMS clearing each require their own mapped accounts before syncing days that contain that activity. Cash rounding is currently off; when enabled later, cash rounding requires its own mapped account and must post from the rounding adjustment on the main Transaction Record, not from a separate Transaction Record, pickup, deposit, or orphaned payment activity.
 
 QBO posts use the staging row as the retry identity. Re-sending the same approved staging row uses the same request id so retry behavior stays recoverable.
 
@@ -98,4 +98,3 @@ To accelerate troubleshooting, the QBO Workspace staging review panel displays *
 
 - [Reports](manual:reports)
 - [Counterpoint Sync Settings](manual:settings-counterpoint-sync-settings-panel)
-

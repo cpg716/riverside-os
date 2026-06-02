@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.5] - 2026-06-02
+
+### Added
+- **Counterpoint Bridge GUI Optimization**: Major performance and UX improvements to the Counterpoint Bridge GUI application:
+  - **Performance Enhancements**: Reduced polling frequency from 2s to 5s, added React useCallback/useMemo hooks for preventing unnecessary re-renders, implemented state change detection to only update React state when data actually changes, added cache control to fetch calls for fresh data, and memoized entity stats rendering.
+  - **Modern UI Design**: Added real-time sync progress bar with percentage indicator and Zap icon, improved sync state display with animated spinner when syncing, enhanced visual hierarchy with icons and color-coded status, gradient buttons with hover effects, smooth transitions and animations, and clean professional layout with sidebar navigation.
+  - **Riverside OS Integration**: Added direct workflow link button that opens the Riverside OS Counterpoint Sync workflow at `/settings/integrations/counterpoint-sync`, enabling seamless navigation between Bridge GUI and Riverside OS for complete GO LIVE workflow.
+  - **Complete Entity Coverage**: Bridge GUI supports all 15 entities (Staff, Sales Reps, Vendors, Customers, Store Credits, Customer Notes, Categories, Catalog, Inventory, Vendor Items, Gift Cards, Orders/Tickets, Open Documents, Loyalty History, Receiving) with auto-schema detection for column name alignment.
+
+### Fixed
+- **Receipt Centering Issue**: Fixed ESC/POS receipt printing centering by:
+  - Adding `spacing: false` and `margin: "full"` options to receiptline transform in both print and preview functions in `ReceiptSummaryModal.tsx`
+  - Adding `^^` prefix to centered lines in `receipt_escpos.rs` `centered_lines` function to ensure receiptline treats them as centered/bold
+  - These changes ensure proper centering of header and footer lines on thermal printers.
+
+### Changed
+- **Counterpoint Bridge GUI Code Quality**: Fixed all Tailwind class lint warnings by updating to newer Tailwind CSS syntax (bg-gradient-to-r → bg-linear-to-r, hover:bg-white/[0.02] → hover:bg-white/2, etc.).
+
 ## [0.85.0] - 2026-05-31
 
 ### Added

@@ -35,7 +35,7 @@ Special and Custom stay separate operational contracts. Custom is not just anoth
 
 ### 1. Booking (Transactions)
 When the cashier completes checkout, a Transaction is generated. If items cannot be taken away immediately, those `transaction_lines` are mapped to new or existing Fulfillment Orders.
-- **Rounding Adjustments**: For cash transactions, the `rounding_adjustment` field records the delta between the calculated total and the physical cash collected (Pennyless/Swedish Rounding). This ensures the balance due is accurately reduced to zero without altering line-item prices.
+- **Rounding Adjustments**: Pennyless/Swedish cash rounding is currently **OFF**, so checkout settles cash transactions to the exact cent. When enabled later, `rounding_adjustment` records the delta between the calculated total and the physical cash collected on the main Transaction Record. It must not create a separate Transaction Record, pickup, deposit, or orphaned payment activity, and it must not alter line-item prices.
 
 ### Item Lifecycle Source of Truth
 

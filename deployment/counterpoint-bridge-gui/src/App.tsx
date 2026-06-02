@@ -1,20 +1,23 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { 
-  Database, 
-  Settings as SettingsIcon, 
-  Activity, 
-  Terminal, 
-  Play, 
-  Search, 
-  CheckCircle, 
-  AlertTriangle, 
-  RefreshCw, 
-  Sparkles, 
-  Trash2 
+import {
+  Database,
+  Settings as SettingsIcon,
+  Activity,
+  Terminal,
+  Play,
+  Search,
+  CheckCircle,
+  AlertTriangle,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  ArrowUpRight,
+  Zap
 } from "lucide-react";
 
 const BRIDGE_API = "http://localhost:3002";
+const ROS_BASE_URL = "http://localhost:3000";
 
 interface EntityStat {
   lastSync: string | null;
@@ -26,6 +29,7 @@ interface EntityStat {
 interface BridgeState {
   isSyncing: boolean;
   currentEntity: string | null;
+  currentProgress: number; // 0-100
   totalRecordsLastRun: number;
   lastRunDurationMs: number;
   lastRun: string | null;
@@ -62,6 +66,7 @@ function App() {
   const [statusMessage, setStatusMessage] = useState("");
   const [autodetectedFields, setAutodetectedFields] = useState<string[]>([]);
   const [isAutoconfiguring, setIsAutoconfiguring] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
   const [testQueryEntity, setTestQueryEntity] = useState("customers");
   const [testQuerySql, setTestQuerySql] = useState("");
   const [testQueryResults, setTestQueryResults] = useState<any[]>([]);
@@ -113,16 +118,28 @@ function App() {
     };
   }, []);
 
-  // Poll local bridge server status and Tauri process state
+  // Poll local bridge server status and Tauri process state (optimized with longer interval)
   useEffect(() => {
-    const interval = setInterval(async () => {
+    let mounted = true;
+    let lastBridgeState: BridgeState | null = null;
+    let lastRustLogs: string[] = [];
+
+    const pollStatus = async () => {
+      if (!mounted) return;
+
       // 1. Check background subprocess status from Tauri
       try {
         const engine = await invoke<{ is_running: boolean; exit_code: number | null; rust_logs: string[] }>("get_engine_status");
-        setIsProcessRunning(engine.is_running);
-        setRustLogs(engine.rust_logs);
-        if (!engine.is_running && engine.exit_code !== null) {
-          setStatusMessage(`Sync engine exited with code: ${engine.exit_code}`);
+        if (mounted) {
+          setIsProcessRunning(engine.is_running);
+          // Only update logs if they changed
+          if (JSON.stringify(engine.rust_logs) !== JSON.stringify(lastRustLogs)) {
+            setRustLogs(engine.rust_logs);
+            lastRustLogs = engine.rust_logs;
+          }
+          if (!engine.is_running && engine.exit_code !== null) {
+            setStatusMessage(`Sync engine exited with code: ${engine.exit_code}`);
+          }
         }
       } catch (e) {
         console.error("Failed to query Tauri engine status:", e);
@@ -130,20 +147,36 @@ function App() {
 
       // 2. Query HTTP control API
       try {
-        const res = await fetch(`${BRIDGE_API}/api/status`);
-        if (res.ok) {
+        const res = await fetch(`${BRIDGE_API}/api/status`, { cache: 'no-store' });
+        if (res.ok && mounted) {
           const data = await res.json();
-          setBridgeState(data);
+          // Only update state if it changed
+          if (JSON.stringify(data) !== JSON.stringify(lastBridgeState)) {
+            setBridgeState(data);
+            lastBridgeState = data;
+            // Update progress if syncing
+            if (data.isSyncing && data.currentProgress !== undefined) {
+              setSyncProgress(data.currentProgress);
+            }
+          }
           setIsConnected(true);
-        } else {
+        } else if (mounted) {
           setIsConnected(false);
         }
       } catch (e) {
-        setIsConnected(false);
+        if (mounted) setIsConnected(false);
       }
-    }, 2000);
+    };
 
-    return () => clearInterval(interval);
+    // Initial poll
+    pollStatus();
+    // Poll every 5 seconds instead of 2 seconds for better performance
+    const interval = setInterval(pollStatus, 5000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // Auto scroll logs
@@ -177,31 +210,35 @@ function App() {
     }
   };
 
-  const triggerFullSync = async () => {
+  const triggerFullSync = useCallback(async () => {
     if (!isConnected) return;
     try {
       setStatusMessage("Starting full Counterpoint extraction...");
-      await fetch(`${BRIDGE_API}/api/trigger-entity?name=full`);
+      setSyncProgress(0);
+      const res = await fetch(`${BRIDGE_API}/api/trigger-entity?name=full`);
+      if (!res.ok) throw new Error('Failed to trigger sync');
     } catch (e: any) {
       setStatusMessage(`Failed to trigger sync: ${e.message}`);
     }
-  };
+  }, [isConnected]);
 
-  const triggerSingleSync = async (key: string) => {
+  const triggerSingleSync = useCallback(async (key: string) => {
     if (!isConnected) return;
     try {
       setStatusMessage(`Extracting ${key}...`);
-      await fetch(`${BRIDGE_API}/api/trigger-entity?name=${key}`);
+      setSyncProgress(0);
+      const res = await fetch(`${BRIDGE_API}/api/trigger-entity?name=${key}`);
+      if (!res.ok) throw new Error('Failed to trigger sync');
     } catch (e: any) {
       setStatusMessage(`Failed to trigger ${key} sync: ${e.message}`);
     }
-  };
+  }, [isConnected]);
 
-  const runAutoConfig = async () => {
+  const runAutoConfig = useCallback(async () => {
     setIsAutoconfiguring(true);
     setStatusMessage("Probing database schemas for configurations...");
     try {
-      const response = await fetch(`${BRIDGE_API}/api/test-query?query=customers`);
+      const response = await fetch(`${BRIDGE_API}/api/test-query?query=customers`, { cache: 'no-store' });
       const data = await response.json();
       if (data.success) {
         setAutodetectedFields([
@@ -219,14 +256,14 @@ function App() {
     } finally {
       setIsAutoconfiguring(false);
     }
-  };
+  }, []);
 
-  const testConfiguredQuery = async () => {
+  const testConfiguredQuery = useCallback(async () => {
     setTestingQuery(true);
     setTestQueryError("");
     setTestQueryResults([]);
     try {
-      const res = await fetch(`${BRIDGE_API}/api/test-query?query=${testQueryEntity}`);
+      const res = await fetch(`${BRIDGE_API}/api/test-query?query=${testQueryEntity}`, { cache: 'no-store' });
       const data = await res.json();
       if (data.success) {
         setTestQueryResults(data.rows || []);
@@ -238,9 +275,9 @@ function App() {
     } finally {
       setTestingQuery(false);
     }
-  };
+  }, [testQueryEntity]);
 
-  const testCustomSql = async () => {
+  const testCustomSql = useCallback(async () => {
     if (!testQuerySql.trim()) return;
     setTestingQuery(true);
     setTestQueryError("");
@@ -250,6 +287,7 @@ function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sql: testQuerySql }),
+        cache: 'no-store'
       });
       const data = await res.json();
       if (data.success) {
@@ -262,20 +300,29 @@ function App() {
     } finally {
       setTestingQuery(false);
     }
-  };
+  }, [testQuerySql]);
 
-  const fmtDuration = (ms: number) => {
+  const fmtDuration = useCallback((ms: number) => {
     if (!ms) return "—";
     if (ms < 1000) return `${ms}ms`;
     return `${(ms / 1000).toFixed(1)}s`;
-  };
+  }, []);
+
+  // Memoize entity stats to prevent unnecessary re-renders
+  const entityStatsMemo = useMemo(() => {
+    return ENTITIES.map((e) => {
+      const st = bridgeState?.entityStats?.[e.key];
+      const isRunning = bridgeState?.currentEntity === e.key;
+      return { entity: e, stat: st, isRunning };
+    });
+  }, [bridgeState]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#08090c] text-[#e0e4ec] overflow-hidden select-none">
       {/* Top Header Bar */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#0f1117]/80 backdrop-blur-md z-10 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center shadow-lg shadow-orange-500/20">
+          <div className="w-10 h-10 rounded-xl bg-linear-to-br from-[#f97316] to-[#ea580c] flex items-center justify-center shadow-lg shadow-orange-500/20">
             <Database className="w-5 h-5 text-white" />
           </div>
           <div>
@@ -286,8 +333,8 @@ function App() {
 
         <div className="flex items-center gap-4">
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-wider ${
-            isConnected 
-              ? "bg-green-500/10 border-green-500/20 text-green-400" 
+            isConnected
+              ? "bg-green-500/10 border-green-500/20 text-green-400"
               : "bg-red-500/10 border-red-500/20 text-red-400"
           }`}>
             <span className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"}`} />
@@ -302,23 +349,23 @@ function App() {
                 handleStartBridge(isDry);
               }}
               className={`px-3 py-1 text-[10px] font-bold rounded-lg transition-all ${
-                dryRun 
-                  ? "bg-amber-500/25 text-amber-400 border border-amber-500/30" 
+                dryRun
+                  ? "bg-amber-500/25 text-amber-400 border border-amber-500/30"
                   : "text-gray-400 hover:text-white"
               }`}
             >
               DRY RUN {dryRun ? "ON" : "OFF"}
             </button>
             {isProcessRunning ? (
-              <button 
-                onClick={handleStopBridge} 
+              <button
+                onClick={handleStopBridge}
                 className="px-3 py-1 text-[10px] font-bold text-red-400 bg-red-500/15 rounded-lg hover:bg-red-500/25 border border-red-500/20 transition-all"
               >
                 Stop Engine
               </button>
             ) : (
-              <button 
-                onClick={() => handleStartBridge(dryRun)} 
+              <button
+                onClick={() => handleStartBridge(dryRun)}
                 className="px-3 py-1 text-[10px] font-bold text-green-400 bg-green-500/15 rounded-lg hover:bg-green-500/25 border border-green-500/20 transition-all"
               >
                 Start Engine
@@ -335,8 +382,8 @@ function App() {
           <button
             onClick={() => setActiveTab("dashboard")}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold tracking-wide transition-all ${
-              activeTab === "dashboard" 
-                ? "bg-[#f97316]/10 text-[#f97316] border border-[#f97316]/20 font-bold" 
+              activeTab === "dashboard"
+                ? "bg-[#f97316]/10 text-[#f97316] border border-[#f97316]/20 font-bold"
                 : "text-gray-400 hover:bg-white/5 hover:text-white"
             }`}
           >
@@ -346,8 +393,8 @@ function App() {
           <button
             onClick={() => setActiveTab("settings")}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold tracking-wide transition-all ${
-              activeTab === "settings" 
-                ? "bg-[#f97316]/10 text-[#f97316] border border-[#f97316]/20 font-bold" 
+              activeTab === "settings"
+                ? "bg-[#f97316]/10 text-[#f97316] border border-[#f97316]/20 font-bold"
                 : "text-gray-400 hover:bg-white/5 hover:text-white"
             }`}
           >
@@ -357,8 +404,8 @@ function App() {
           <button
             onClick={() => setActiveTab("tester")}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold tracking-wide transition-all ${
-              activeTab === "tester" 
-                ? "bg-[#f97316]/10 text-[#f97316] border border-[#f97316]/20 font-bold" 
+              activeTab === "tester"
+                ? "bg-[#f97316]/10 text-[#f97316] border border-[#f97316]/20 font-bold"
                 : "text-gray-400 hover:bg-white/5 hover:text-white"
             }`}
           >
@@ -368,8 +415,8 @@ function App() {
           <button
             onClick={() => setActiveTab("logs")}
             className={`flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-semibold tracking-wide transition-all ${
-              activeTab === "logs" 
-                ? "bg-[#f97316]/10 text-[#f97316] border border-[#f97316]/20 font-bold" 
+              activeTab === "logs"
+                ? "bg-[#f97316]/10 text-[#f97316] border border-[#f97316]/20 font-bold"
                 : "text-gray-400 hover:bg-white/5 hover:text-white"
             }`}
           >
@@ -377,10 +424,19 @@ function App() {
             Process Console
           </button>
 
-          <div className="mt-auto p-4 rounded-xl bg-[#161922] border border-white/5 text-[10px] text-gray-500">
-            <div className="font-semibold text-gray-400 mb-1">Local Bridge API</div>
-            <div>Listening on:</div>
-            <div className="font-mono text-[#f97316] mt-0.5">{BRIDGE_API}</div>
+          <div className="mt-auto flex flex-col gap-3">
+            <button
+              onClick={() => window.open(`${ROS_BASE_URL}/settings/integrations/counterpoint-sync`, '_blank')}
+              className="flex items-center justify-center gap-2 px-4 py-3 bg-linear-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-xs font-bold uppercase rounded-xl transition-all shadow-lg shadow-orange-500/20"
+            >
+              <ArrowUpRight className="w-4 h-4" />
+              Open Riverside OS Sync Workflow
+            </button>
+            <div className="p-4 rounded-xl bg-[#161922] border border-white/5 text-[10px] text-gray-500">
+              <div className="font-semibold text-gray-400 mb-1">Local Bridge API</div>
+              <div>Listening on:</div>
+              <div className="font-mono text-[#f97316] mt-0.5">{BRIDGE_API}</div>
+            </div>
           </div>
         </aside>
 
@@ -392,14 +448,24 @@ function App() {
               <div className="grid grid-cols-4 gap-4">
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
                   <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Sync State</div>
-                  <div className="text-lg font-bold text-white mt-1">
-                    {bridgeState?.isSyncing ? "Syncing..." : "Idle"}
+                  <div className="text-lg font-bold text-white mt-1 flex items-center gap-2">
+                    {bridgeState?.isSyncing ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 text-orange-500 animate-spin" />
+                        Syncing
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                        Idle
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
                   <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Records Last Sync</div>
                   <div className="text-lg font-bold text-orange-500 mt-1">
-                    {bridgeState?.totalRecordsLastRun ?? "—"}
+                    {bridgeState?.totalRecordsLastRun?.toLocaleString() ?? "—"}
                   </div>
                 </div>
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
@@ -422,6 +488,27 @@ function App() {
                   </button>
                 </div>
               </div>
+
+              {/* Sync Progress Bar */}
+              {bridgeState?.isSyncing && (
+                <div className="bg-[#0f1117] border border-white/5 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-orange-500" />
+                      <span className="text-xs font-bold text-white uppercase tracking-wider">
+                        {bridgeState.currentEntity ? `Extracting ${bridgeState.currentEntity}` : "Processing"}
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono text-orange-400">{syncProgress}%</span>
+                  </div>
+                  <div className="h-2 bg-[#08090c] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-linear-to-r from-orange-600 to-orange-500 transition-all duration-300 ease-out"
+                      style={{ width: `${syncProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Extraction Errors Panel */}
               {bridgeState?.entityStats && Object.entries(bridgeState.entityStats).some(([_, stat]) => stat.error) && (
@@ -456,37 +543,33 @@ function App() {
                   {dryRun && <span className="text-[10px] text-amber-400 font-bold uppercase tracking-widest bg-amber-500/10 px-2 py-0.5 rounded">DRY RUN PREVENTING WRITES</span>}
                 </div>
                 <div className="divide-y divide-white/5 max-h-[500px] overflow-y-auto">
-                  {ENTITIES.map((e) => {
-                    const st = bridgeState?.entityStats?.[e.key];
-                    const isRunning = bridgeState?.currentEntity === e.key;
-                    return (
-                      <div key={e.key} className="flex items-center justify-between px-5 py-3 hover:bg-white/[0.02] transition-all">
-                        <div className="flex items-center gap-3">
-                          <span className="text-base flex items-center justify-center w-6 h-6">
-                            {isRunning ? <RefreshCw className="w-4 h-4 text-[#f97316] animate-spin" /> : e.icon}
-                          </span>
-                          <span className="text-xs font-semibold text-white">{e.label}</span>
-                        </div>
-                        <div className="flex items-center gap-6">
-                          <div className="text-right">
-                            <div className="text-[10px] font-medium text-gray-500">Processed</div>
-                            <div className="text-xs font-bold text-white">{st?.recordCount ?? 0} rows</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-[10px] font-medium text-gray-500">Time</div>
-                            <div className="text-xs font-bold text-white">{st?.durationMs ? fmtDuration(st.durationMs) : "—"}</div>
-                          </div>
-                          <button
-                            onClick={() => triggerSingleSync(e.key)}
-                            disabled={!isConnected || bridgeState?.isSyncing}
-                            className="px-3 py-1.5 bg-[#161922] border border-white/5 hover:border-orange-500/30 hover:text-orange-500 text-[10px] font-bold uppercase rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                          >
-                            Extract
-                          </button>
-                        </div>
+                  {entityStatsMemo.map(({ entity: e, stat: st, isRunning }) => (
+                    <div key={e.key} className="flex items-center justify-between px-5 py-3 hover:bg-white/2 transition-all">
+                      <div className="flex items-center gap-3">
+                        <span className="text-base flex items-center justify-center w-6 h-6">
+                          {isRunning ? <RefreshCw className="w-4 h-4 text-[#f97316] animate-spin" /> : e.icon}
+                        </span>
+                        <span className="text-xs font-semibold text-white">{e.label}</span>
                       </div>
-                    );
-                  })}
+                      <div className="flex items-center gap-6">
+                        <div className="text-right">
+                          <div className="text-[10px] font-medium text-gray-500">Processed</div>
+                          <div className="text-xs font-bold text-white">{st?.recordCount ?? 0} rows</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] font-medium text-gray-500">Time</div>
+                          <div className="text-xs font-bold text-white">{st?.durationMs ? fmtDuration(st.durationMs) : "—"}</div>
+                        </div>
+                        <button
+                          onClick={() => triggerSingleSync(e.key)}
+                          disabled={!isConnected || bridgeState?.isSyncing}
+                          className="px-3 py-1.5 bg-[#161922] border border-white/5 hover:border-orange-500/30 hover:text-orange-500 text-[10px] font-bold uppercase rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                        >
+                          Extract
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -496,7 +579,7 @@ function App() {
             <div className="flex flex-col gap-6 max-w-3xl">
               <div className="bg-[#0f1117] border border-white/5 rounded-xl p-6 flex flex-col gap-4">
                 <h3 className="text-xs font-extrabold uppercase tracking-wider text-white border-b border-white/5 pb-3">Bridge Config & Schema Alignment</h3>
-                
+
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">SQL Server Connection String</label>
                   <input
@@ -635,7 +718,7 @@ function App() {
                       </thead>
                       <tbody className="divide-y divide-white/5 font-mono text-[10px]">
                         {testQueryResults.map((row, idx) => (
-                          <tr key={idx} className="hover:bg-white/[0.01]">
+                          <tr key={idx} className="hover:bg-white/1">
                             {Object.values(row).map((val: any, cellIdx) => (
                               <td key={cellIdx} className="px-4 py-2 text-gray-300 truncate max-w-xs">
                                 {val === null ? "NULL" : String(val)}
@@ -685,7 +768,7 @@ function App() {
                     <div key={i} className="flex gap-4">
                       <span className={`break-all ${
                         logLine.toLowerCase().includes("error") || logLine.toLowerCase().includes("failed") || logLine.includes("[ERROR]")
-                          ? "text-red-400" 
+                          ? "text-red-400"
                           : logLine.includes("[SYSTEM]")
                           ? "text-amber-400 font-bold"
                           : logLine.toLowerCase().includes("ok") || logLine.toLowerCase().includes("completed") || logLine.toLowerCase().includes("success")

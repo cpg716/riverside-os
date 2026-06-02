@@ -19,7 +19,7 @@ use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_shared::{order_status_label, receipt_display_ref, ReceiptOrder};
 use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
-const CPL: usize = 42;
+const CPL: usize = 48;
 const RECEIPT_LOGO_WIDTH_PX: u32 = 384;
 const RECEIPT_LOGO_IMAGE: &[u8] =
     include_bytes!("../../../client/src/assets/images/riverside_logo.jpg");
@@ -53,8 +53,8 @@ fn receiptline_escape(s: &str) -> String {
 
 /// Truncate a product name so it fits the left column of a two-column
 /// receiptline row (`name | price`).  The receiptline library wraps the
-/// left column independently; at CPL = 42 the left column is effectively
-/// limited to ~28 chars before the price column (" | $999.99" ≈ 10 chars)
+/// left column independently; at CPL = 48 the left column is effectively
+/// limited to ~34 chars before the price column (" | $999.99" ≈ 10 chars)
 /// and the separator eat the rest. Hard-clipping here prevents a single
 /// trailing character from being pushed to a second line.
 fn clip_item_name(name: &str, max_chars: usize) -> String {
@@ -378,7 +378,7 @@ fn centered_lines(lines: &[String]) -> String {
         .iter()
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
-        .map(|line| format!("| {} |", receiptline_escape(line)))
+        .map(|line| format!("| ^^{} |", receiptline_escape(line)))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -481,7 +481,7 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
                 .map(|v| format!(" ({v})"))
                 .unwrap_or_default();
             let name_raw = format!("{}x {}{var}", it.quantity, it.product_name);
-            let name = receiptline_escape(&clip_item_name(&name_raw, 28));
+            let name = receiptline_escape(&clip_item_name(&name_raw, 34));
 
             if gift {
                 out_lines.push(name);

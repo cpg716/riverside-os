@@ -125,13 +125,13 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
    - **Reason Required**: A valid reason (e.g. Resale, Exempt Org) MUST be selected.
    - Taxes will be struck through, and the **Balance Due** will update automatically.
 6. **Pennyless (Swedish Rounding):**
-   - Riverside OS uses **Pennyless** (Swedish Rounding) for all **CASH** transactions.
-   - **How it works**: For cash payments and refunds, the total is rounded to the nearest **$0.05**.
+   - Pennyless cash rounding is currently **OFF**. Cash payments and cash refunds must settle to the exact cent shown in checkout.
+   - When Riverside enables it later, rounding applies only to the **CASH** portion of the main Transaction Record and rounds to the nearest **$0.05**.
      - $3.22 rounds to $3.20.
      - $3.23 rounds to $3.25.
-   - **Important**: This rounding ONLY applies when the **CASH** tab is selected in the checkout drawer. If the customer switches to CARD or another method, the original unrounded total ($3.22) is required.
-   - **Suggested Amounts**: When you tap **Full Balance** in the CASH tab, the system will automatically suggest the rounded amount (e.g., $3.20). Use **Split Payment** when the customer is using more than one tender.
-   - **Receipt Integrity**: The printed receipt will show the original total and a "Rounding Adjustment" so the transaction balances to zero.
+   - **Important**: Rounding must never create a separate Transaction Record, pickup, deposit, or orphaned payment activity. It belongs on the main Transaction Record being settled.
+   - **Suggested Amounts**: While rounding is off, **Full Balance** in the CASH tab suggests the exact-cent amount. Use **Split Payment** when the customer is using more than one tender.
+   - **Receipt Integrity**: While rounding is off, receipts show exact-cent totals and payments. When rounding is enabled later, receipts must show the rounding adjustment as part of the same Transaction Record.
 7. **Partial payment / deposit (when shown):** Use the keypad, then tap **Set Deposit** to show the amount due now. Checkout will show **Collecting partial payment** and the remaining balance stays on the Transaction Record. Use **Add Payment** with cash/card to collect the deposit amount. **Split Deposit Payer** opens wedding lookup in **group pay** mode so one payer can split deposit amounts across members. If your sale is **fulfillment lines only** (no take-home items) and you are **not** using a split wedding payout list, you may be able to tap **Complete Sale** with **only** a deposit set — follow store policy.
 8. **Combined New Purchases & Pickups**: Cashiers can process a new takeaway purchase and release/pickup an existing order, layaway, or alteration (even with outstanding balances) in a single register flow:
    - **Load the Pickup/Payment**: Attach the customer, click **Orders**, and select the transaction to load unfulfilled items for pickup. This populates the cart with the pickup items (flagged with their original transaction line IDs) and adds an **Order Payment** line for any remaining balance.

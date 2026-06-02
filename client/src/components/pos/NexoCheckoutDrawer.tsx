@@ -27,6 +27,8 @@ import {
   type NexoTenderTab
 } from "./types";
 
+const CASH_ROUNDING_ENABLED = false;
+
 interface PaymentProviderSettings {
   active_provider: "helcim";
   helcim: {
@@ -579,7 +581,9 @@ export default function NexoCheckoutDrawer({
   }, [effectiveTotalDue, paidSoFarCents, depositDisplayCents]);
 
   const cashRounding = useMemo(() => {
-    if (tab !== "cash" || remainingCents === 0) return { adjustment: 0, rounded: remainingCents };
+    if (!CASH_ROUNDING_ENABLED || tab !== "cash" || remainingCents === 0) {
+      return { adjustment: 0, rounded: remainingCents };
+    }
     // Preserving sign for refunds
     const absRem = Math.abs(remainingCents);
     const absRounded = calculateSwedishRounding(absRem);
@@ -591,7 +595,7 @@ export default function NexoCheckoutDrawer({
   }, [tab, remainingCents]);
 
   const cashRoundedBalanceSettled =
-    tab === "cash" && remainingCents !== 0 && cashRounding.rounded === 0;
+    CASH_ROUNDING_ENABLED && tab === "cash" && remainingCents !== 0 && cashRounding.rounded === 0;
   const taxExemptNoteRequired =
     isTaxExempt &&
     !taxExemptReason.startsWith("Customer tax exempt") &&
@@ -1591,8 +1595,14 @@ export default function NexoCheckoutDrawer({
     const depositCents = parseMoneyToCents(appliedDepositAmount.trim());
 
     // Calculate final rounding if last payment was not explicitly added or if we are at full balance
-    const finalRoundingCents = (tab === "cash" && remainingCents !== 0) ? cashRounding.adjustment : 0;
-    const finalCashDue = (tab === "cash" && remainingCents !== 0) ? cashRounding.rounded : undefined;
+    const finalRoundingCents =
+      CASH_ROUNDING_ENABLED && tab === "cash" && remainingCents !== 0
+        ? cashRounding.adjustment
+        : 0;
+    const finalCashDue =
+      CASH_ROUNDING_ENABLED && tab === "cash" && remainingCents !== 0
+        ? cashRounding.rounded
+        : undefined;
 
     await onFinalize(applied, operator, {
       appliedDepositAmountCents: Math.max(0, depositCents),
