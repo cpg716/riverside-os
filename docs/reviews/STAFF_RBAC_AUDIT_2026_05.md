@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of authentication (Argon2 PIN hashing, POS staff auth), RBAC permission model (role-based + per-staff overrides), commission engine (category rates, fixed SPIFFs, combo incentives), admin staff management, and audit logging.
 

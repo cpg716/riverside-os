@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-01
 **Auditor:** Antigravity (AI assistant)
-**Target Version:** v0.85.0+ (Go-Live Ready)
+**Target Version:** v0.85.5+ (Go-Live Ready)
 **Status:** **100% PRODUCTION READY** (0 Blockers, 0 Security Gaps)
 
 ---

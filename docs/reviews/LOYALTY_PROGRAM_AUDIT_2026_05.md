@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of points accrual (`try_accrue_for_order`), clawback (full reversal, partial return), redemption flow, admin adjustments, customer couple resolution, and Podium notification integration.
 

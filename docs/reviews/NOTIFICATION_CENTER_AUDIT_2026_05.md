@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of notification lifecycle — canonical storage (`app_notification`), per-staff inbox delivery (`staff_notification`), deduplication (ON CONFLICT dedupe_key), audience resolution (roles/permissions/staff_ids/all_staff), notification bundling, shared read propagation, health monitoring (generator runs, volume metrics, stale detection), and cleanup/archival.
 

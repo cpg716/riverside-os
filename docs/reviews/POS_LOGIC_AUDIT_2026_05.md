@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** POS meta helpers — RMS charge management (lookup, purchase, reversal), gift card load line resolution, POS-initiated shipping rate quotes (Shippo integration), permission enforcement for financial operations.
 

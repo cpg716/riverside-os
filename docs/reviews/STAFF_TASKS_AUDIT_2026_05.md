@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-25
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of recurring staff task system — template-driven checklist management, lazy materialization (no penalty on days off), period-based deduplication, working-day guard integration, team-wide instance view, history tracking, and notification sweep materialization.
 

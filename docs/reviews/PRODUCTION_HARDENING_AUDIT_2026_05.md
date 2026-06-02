@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-25
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** Re-verification of all P1/P2 findings from the April 2026 Production Hardening audit, plus tracing of backup/restore system (local + cloud + replication), strict production enforcement, WAL archive monitoring, and v0.80.6 remediation appendix (CFP-001 through CFP-006).
 

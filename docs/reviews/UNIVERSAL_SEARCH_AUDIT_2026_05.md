@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08 (as part of Technical Audit)
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of universal search aggregation — permission-scoped multi-source query, Meilisearch hybrid fallback to SQL, 8 parallel data sources, operational search (18+ domains), help corpus search, SKU exact match, and shortcut intent matching.
 

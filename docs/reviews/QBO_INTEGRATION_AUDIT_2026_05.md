@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08 (updated 2026-05-23, 2026-05-27)
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of `propose_daily_journal` — fulfillment-day revenue recognition, tender mapping, returns contra-revenue, deposit release, gift card accounting, suit swap offsets, inventory transactions, freight, RMS financing, merchant fee recon, refund liability clearing, and balance verification.
 

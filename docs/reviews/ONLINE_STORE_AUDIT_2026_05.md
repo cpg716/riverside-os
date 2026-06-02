@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-25
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of the public-facing online store — product catalog (slug-based), customer account auth (JWT + password), checkout session lifecycle (create → payment → confirmation), coupon/promotion engine, Helcim payment provider, shipping rate integration, tax computation, and Meilisearch-backed catalog search.
 

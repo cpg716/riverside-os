@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** Order lifecycle state machine, line returns, suit/component swaps, fulfillment triage, inventory adjustments, refund queue, commission recalculation
 

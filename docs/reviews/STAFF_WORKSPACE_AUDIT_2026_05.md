@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-25
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of staff scheduling — weekly availability templates, per-week published schedules, day-level exceptions (absence/override), working-day resolution via PostgreSQL function, floor staff listing with shift labels, absence management with appointment reassignment, and eligibility queries.
 

@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of the POS offline checkout queue (`offlineQueue.ts`) — enqueue, flush/replay, 4xx blocking, idempotency, auth header sanitization, queue state management, and register-close interaction.
 

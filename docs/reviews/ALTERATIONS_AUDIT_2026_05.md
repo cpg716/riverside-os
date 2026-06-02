@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of alteration work order lifecycle (create → items → fitting → complete → pickup), capacity-aware scheduling (jacket/pant units per day), suggested slot finding, alteration order items with capacity buckets, pickup receipt generation, alteration card, and Meilisearch integration.
 

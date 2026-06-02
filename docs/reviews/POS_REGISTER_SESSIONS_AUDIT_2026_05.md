@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `e8edc0f4`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of register session lifecycle (open → attach → reconcile → close), Z-close reconciliation, cash management (paid in/out), Helcim close review, till group model, parked sale purge, and post-close asynchronous operations (EOD snapshot, QBO journal staging, daily financial report).
 
