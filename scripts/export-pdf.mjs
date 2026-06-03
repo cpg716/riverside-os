@@ -548,7 +548,7 @@ async function main() {
     headerTemplate: "<div></div>", // Hide default header
     footerTemplate: `
       <div style="font-family: 'Inter', sans-serif; font-size: 8px; width: 100%; display: flex; justify-content: space-between; padding: 0 1.5cm; color: #94a3b8; font-weight: 500;">
-        <span>Riverside OS v0.70.2 Deployment Guide</span>
+        <span>Riverside OS v${version} Deployment Guide</span>
         <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
       </div>
     `,
