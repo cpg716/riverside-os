@@ -24,6 +24,36 @@ If runtime code, env notes, or workstation setup drift from this file, this file
 - Voice does not create a second assistant path.
 - Tool execution, RBAC, and ROSIE governance remain server-validated.
 
+### Zero-Python Binary Deployment Model (v0.85.5+)
+
+ROSIE is a **Zero-Python** stack. No Python interpreter, `pip`, `venv`, or `uv` is required on any workstation or server.
+
+All runtime components are pre-compiled native binaries invoked directly by the server and Tauri processes:
+
+| Component | Binary | Acquired via |
+|---|---|---|
+| **STT** | `sherpa-onnx-offline.exe` | `Install-RosieAiStack.ps1` downloads sherpa-onnx v1.13.2 from GitHub Releases |
+| **TTS** | `sherpa-onnx-offline-tts.exe` | Same sherpa-onnx release package |
+| **LLM** | `llama-server.exe` | Bundled in deployment package or provided manually |
+
+**Binary path on Windows:** `C:\RiversideOS\rosie\bin\`
+
+**Model paths on Windows:**
+
+| Asset | Path |
+|---|---|
+| SenseVoice STT model | `C:\RiversideOS\rosie\stt\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17\` |
+| Kokoro TTS model | `C:\RiversideOS\rosie\tts\kokoro-multi-lang-v1_0\` |
+| Gemma GGUF | `C:\RiversideOS\rosie\models\gemma-4-e4b\google_gemma-4-E4B-it-Q4_K_M.gguf` |
+
+**Acquisition behaviour:** Binaries and models are **never committed to git**. The deployment ZIP may optionally pre-bundle them for air-gapped installs. If absent, `Install-RosieAiStack.ps1` downloads them automatically on first run. A failed Gemma GGUF download is a warning (not fatal) — STT/TTS remain functional.
+
+**Version pins** (update the `$SHERPA_VERSION` block at the top of `Install-RosieAiStack.ps1`):
+- sherpa-onnx: **v1.13.2** (Windows x64)
+- STT model: `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`
+- TTS model: `kokoro-multi-lang-v1_0`
+- LLM: `bartowski/google_gemma-4-E4B-it-Q4_K_M.gguf` (SHA256-pinned)
+
 ## Token Telemetry and Cost Monitoring
 
 ### Purpose

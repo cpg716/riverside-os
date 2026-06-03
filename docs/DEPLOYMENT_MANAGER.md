@@ -93,10 +93,11 @@ When `install-server.ps1` or `apply-riverside-migrations.ps1` runs:
 
 ### Postgres Admin Password Auto-Detection
 If the PostgreSQL admin password is left blank or as a placeholder:
-*   The script attempts to connect to the local PostgreSQL instance on port 5432 using **empty/blank credentials** (checking for standard dev "trust authentication").
-*   If that fails, it cycles through common default admin passwords (`postgres`, `admin`, `password`).
+*   The script probes the local PostgreSQL instance using the `psql -w` (no-interactive-prompt) flag. This ensures psql **immediately exits with a non-zero code** if the password is wrong rather than opening a console password prompt.
+*   The probe sequence is: configured password → trust/empty → common defaults (`postgres`, `admin`, `password`).
 *   If a connection is successfully established, the script **automatically writes the working password** to `riverside-deployment.config.json`.
-*   If no local instance is found, and the manager is installing a new PostgreSQL instance, it generates a new admin password and registers it.
+*   If no connection succeeds, the installer prints a clear error pointing to `riverside-deployment.config.json` and exits — no hanging password prompts, no looping console dialogs.
+*   `Invoke-NativeCommand` (the low-level process wrapper used by all psql calls) redirects stdin and closes it immediately, which prevents any child process from opening an interactive prompt on the console window.
 
 ---
 
@@ -270,7 +271,23 @@ When the daily update check detects a newer release on GitHub, it broadcasts an 
 The manager exposes utilities to connect and enhance the Riverside OS environment after the core system is installed.
 
 ### Install ROSIE AI Stack (`Install-RosieAiStack.ps1`)
-Downloads and configures the local AI copilot dependencies (Gemma GGUF models, SenseVoice, and Kokoro TTS) into the `%LOCALAPPDATA%\riverside-os\rosie` directory, ensuring offline capabilities are ready for the ROSIE worker.
+
+Downloads and configures the local AI copilot runtime into `C:\RiversideOS\rosie\`. ROSIE is a **Zero-Python, binary-only** stack — no Python interpreters, `pip`, `venv`, or `uv` are required.
+
+**What the installer does (in order):**
+
+| Step | Description |
+|---|---|
+| **1 — Binaries** | Copies `sherpa-onnx-offline.exe` / `sherpa-onnx-offline-tts.exe` from the deployment package if bundled. If not present, downloads the pinned **sherpa-onnx v1.13.2** tar.bz2 from GitHub Releases and extracts the executables + required DLLs to `rosie\bin\`. |
+| **2 — STT Models** | Copies or downloads **SenseVoice Small (int8)** from HuggingFace — `model.int8.onnx` + `tokens.txt` — into `rosie\stt\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17\`. |
+| **3 — TTS Models** | Copies or downloads **Kokoro-82M** from HuggingFace — `model.onnx`, `voices.bin`, `tokens.txt`, `espeak-ng-data\` — into `rosie\tts\kokoro-multi-lang-v1_0\`. |
+| **4 — Gemma GGUF** | Verifies SHA256 of the pinned Gemma 4 E4B GGUF or downloads from Hugging Face. A download failure is a **warning** (not a fatal error) so STT/TTS remain functional even without the LLM. |
+| **5 — `.env` Patch** | Writes `RIVERSIDE_LLAMA_MODEL_PATH`, `RIVERSIDE_LLAMA_HOST`, and `RIVERSIDE_LLAMA_PORT` into the server `.env` file (skipped when called by `install-server.ps1` which handles this itself via the returned model path). |
+
+**Version pins** are defined at the top of the script — update the `$SHERPA_VERSION`, `$STT_MODEL_DIR`, and `$TTS_MODEL_DIR` variables to upgrade components.
+
+> [!NOTE]
+> Binaries and models are **never committed to the git repository**. The deployment ZIP may optionally pre-bundle them under `rosie\bin\`, `rosie\stt\`, and `rosie\tts\` for air-gapped installs. If absent, the installer downloads them automatically on first run.
 
 ### Set Counterpoint Bridge Token (`set-counterpoint-bridge-token.ps1`)
 Generates or rotates the 48-character `COUNTERPOINT_SYNC_TOKEN` required to secure the bridge between Riverside OS and legacy NCR Counterpoint POS systems.
