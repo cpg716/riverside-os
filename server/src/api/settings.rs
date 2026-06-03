@@ -2685,8 +2685,14 @@ async fn get_pos_station_config_public(
         .get("max_register_lanes")
         .and_then(|v| v.as_i64())
         .unwrap_or(4) as i16;
+    // Defaults to false so existing installs without this key are unaffected.
+    let cash_rounding_enabled = raw
+        .get("cash_rounding_enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     Ok(Json(json!({
         "max_register_lanes": max_lanes,
+        "cash_rounding_enabled": cash_rounding_enabled,
     })))
 }
 

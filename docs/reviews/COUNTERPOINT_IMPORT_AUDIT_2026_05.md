@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-25
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `cac08918`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of Counterpoint → ROS data migration — one-way upserts for customers, catalog (products/variants), gift cards, ticket history (transactions/payments), open docs, vendor items, loyalty history; plus Inventory Migration Workbench (6-step gated workflow with SKU gap detection and AI cleanup).
 

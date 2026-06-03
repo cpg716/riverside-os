@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-25
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `cac08918`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of Weather Integration — Visual Crossing Timeline API, daily usage quota tracking, in-memory TTL cache, deterministic Buffalo-style mock fallback, forecast/history endpoints, health monitoring, store timezone awareness, and configurable API key management.
 

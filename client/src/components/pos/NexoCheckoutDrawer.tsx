@@ -27,7 +27,8 @@ import {
   type NexoTenderTab
 } from "./types";
 
-const CASH_ROUNDING_ENABLED = false;
+// Cash rounding is configured in Settings → Register (Terminal Overrides).
+// Value is fetched from /api/settings/pos-station-config/public on drawer open.
 
 interface PaymentProviderSettings {
   active_provider: "helcim";
@@ -469,6 +470,27 @@ export default function NexoCheckoutDrawer({
   const [rmsLoading, setRmsLoading] = useState(false);
   const [rmsProgramPickerOpen, setRmsProgramPickerOpen] = useState(false);
 
+  // ── Cash rounding (fetched from server on open) ──────────────────────────
+  const [cashRoundingEnabled, setCashRoundingEnabled] = useState(false);
+  const cashRoundingFetchedRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      cashRoundingFetchedRef.current = false;
+      return;
+    }
+    if (cashRoundingFetchedRef.current) return;
+    cashRoundingFetchedRef.current = true;
+    fetch(`${baseUrl}/api/settings/pos-station-config/public`)
+      .then((r) => r.json())
+      .then((data: { cash_rounding_enabled?: boolean }) => {
+        setCashRoundingEnabled(data.cash_rounding_enabled ?? false);
+      })
+      .catch(() => {
+        /* leave at false — safe fallback */
+      });
+  }, [isOpen, baseUrl]);
+  // ─────────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!isOpen || tab !== "gift_card") return;
     const frame = window.requestAnimationFrame(() => {
@@ -581,7 +603,7 @@ export default function NexoCheckoutDrawer({
   }, [effectiveTotalDue, paidSoFarCents, depositDisplayCents]);
 
   const cashRounding = useMemo(() => {
-    if (!CASH_ROUNDING_ENABLED || tab !== "cash" || remainingCents === 0) {
+    if (!cashRoundingEnabled || tab !== "cash" || remainingCents === 0) {
       return { adjustment: 0, rounded: remainingCents };
     }
     // Preserving sign for refunds
@@ -592,10 +614,10 @@ export default function NexoCheckoutDrawer({
       adjustment: rounded - remainingCents,
       rounded
     };
-  }, [tab, remainingCents]);
+  }, [tab, remainingCents, cashRoundingEnabled]);
 
   const cashRoundedBalanceSettled =
-    CASH_ROUNDING_ENABLED && tab === "cash" && remainingCents !== 0 && cashRounding.rounded === 0;
+    cashRoundingEnabled && tab === "cash" && remainingCents !== 0 && cashRounding.rounded === 0;
   const taxExemptNoteRequired =
     isTaxExempt &&
     !taxExemptReason.startsWith("Customer tax exempt") &&
@@ -1596,11 +1618,11 @@ export default function NexoCheckoutDrawer({
 
     // Calculate final rounding if last payment was not explicitly added or if we are at full balance
     const finalRoundingCents =
-      CASH_ROUNDING_ENABLED && tab === "cash" && remainingCents !== 0
+      cashRoundingEnabled && tab === "cash" && remainingCents !== 0
         ? cashRounding.adjustment
         : 0;
     const finalCashDue =
-      CASH_ROUNDING_ENABLED && tab === "cash" && remainingCents !== 0
+      cashRoundingEnabled && tab === "cash" && remainingCents !== 0
         ? cashRounding.rounded
         : undefined;
 

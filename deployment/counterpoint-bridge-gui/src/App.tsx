@@ -792,7 +792,7 @@ function App() {
       {/* Footer Status Panel */}
       <footer className="px-6 py-2.5 border-t border-white/5 bg-[#0f1117] text-[9px] font-bold uppercase tracking-wider text-gray-600 flex justify-between shrink-0">
         <div>Status: <span className="text-gray-400 font-semibold">{statusMessage || "Sync bridge loaded."}</span></div>
-        <div>Tauri GUI Host · v0.85.0</div>
+        <div>Tauri GUI Host · v0.85.5</div>
       </footer>
     </div>
   );

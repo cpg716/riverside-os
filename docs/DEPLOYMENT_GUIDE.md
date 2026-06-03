@@ -1204,8 +1204,8 @@ Riverside OS uses GitHub Actions for continuous integration and automated depend
 2. Write release notes to `docs/releases/vX.Y.Z-release-notes.md`
 3. Commit, tag, and push:
    ```bash
-   git commit -m "release: v0.70.3"
-   git tag v0.70.3
+   git commit -m "release: v0.85.5"
+   git tag v0.85.5
    git push origin main --tags
    ```
 4. The `tauri-register-updater-release` workflow triggers automatically, builds the signed installer, and publishes `latest.json` to the GitHub release — visible to all Tauri auto-updaters.

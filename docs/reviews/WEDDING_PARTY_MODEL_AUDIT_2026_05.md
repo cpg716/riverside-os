@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-25
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `cac08918`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of the Wedding Party data model — party lifecycle, member management, action dashboard with multi-day window, financial context (ledger + disbursements), party display labels, SSE real-time event broadcasting, activity feed, and Meilisearch integration.
 

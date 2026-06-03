@@ -1228,8 +1228,12 @@ function validateCounterpointSyncDependencyPlan() {
       "SYNC_STORE_CREDIT_OPENING=1: set CP_CUSTOMER_STORE_CREDIT_EXISTS (EXISTS body: SELECT 1 … matching c.CUST_NO with balance > 0) or customers with only store credit are skipped by CP_CUSTOMERS_QUERY.",
     );
   }
-  // Always allow empty queries - use auto-schema and built-in fallbacks by default
-  const allowEmptyQueries = true;
+  // Allow empty queries when auto-schema is active (CP_AUTO_SCHEMA=1, the default).
+  // In auto-schema mode the engine generates SQL at runtime from INFORMATION_SCHEMA,
+  // so queries are legitimately empty at validation time.
+  // When auto-schema is explicitly disabled (CP_AUTO_SCHEMA=0), restore full validation
+  // so manual-SQL mode gets clear startup errors instead of silent empty syncs.
+  const allowEmptyQueries = (process.env.CP_AUTO_SCHEMA ?? "1").trim() !== "0";
 
   if (SYNC_OPEN_DOCS && !String(effectiveSql.open_docs ?? "").trim() && !allowEmptyQueries) {
     errors.push("SYNC_OPEN_DOCS=1 requires a non-empty CP_OPEN_DOCS_QUERY.");

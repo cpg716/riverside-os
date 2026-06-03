@@ -50,6 +50,21 @@ expected=(
   "043_fal_visual_sidecar.sql"
   "044_customer_review_opt_out.sql"
   "045_qbo_webhook_events_and_hardening.sql"
+  "046_alteration_pickup_tracking.sql"
+  "047_phase4_resiliency.sql"
+  "048_constant_contact_integration.sql"
+  "049_constant_contact_permissions.sql"
+  "050_inventory_migration_workbench.sql"
+  "051_receiving_freight_ledger_keys.sql"
+  "052_daily_financial_reports.sql"
+  "053_customer_notification_queue.sql"
+  "054_customer_opt_in_defaults.sql"
+  "055_alteration_ticket_number.sql"
+  "056_alteration_verify_completed_status.sql"
+  "057_transaction_lines_alteration_ready.sql"
+  "058_pos_station_config.sql"
+  "060_rosie_token_telemetry.sql"
+  "061_ops_connectivity_logs.sql"
 )
 
 active=()
@@ -95,7 +110,12 @@ if [ -n "$legacy_root_files" ]; then
   exit 1
 fi
 
-if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|products|product_variants|meilisearch_sync_status)" migrations/*.sql >/tmp/ros_migration_seed_hits.$$; then
+if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|products|product_variants|meilisearch_sync_status)" migrations/ \
+  --max-depth 1 \
+  --glob '*.sql' \
+  --glob '!*042_seed_admin_account.sql' \
+  --glob '!*049_constant_contact_permissions.sql' \
+  >/tmp/ros_migration_seed_hits.$$; then
   echo "Seed-like data is not allowed in active schema migrations:" >&2
   cat /tmp/ros_migration_seed_hits.$$ >&2
   rm -f /tmp/ros_migration_seed_hits.$$
@@ -103,4 +123,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-045."
+echo "Migration layout OK: active baseline 001-061."

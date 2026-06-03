@@ -23,16 +23,16 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 - [x] **Separate PWA vs register builds:** `client/.env.pwa.example`, `client/.env.register.example` (copy to `.env.pwa` / `.env.register`, gitignored). Scripts: `npm run build:pwa`, `npm run build:register`. Tauri uses `beforeBuildCommand`: `npm run build:register` in `client/src-tauri/tauri.conf.json`.
 - [x] **Version display:** Settings → **Updates** shows one Riverside version and reports **Update incomplete** if Windows app, server API, or PWA/web files do not match. Settings → General → **About this build** keeps diagnostic build/API details.
 
-### A.1 Current release artifact status (2026-05-23)
+### A.1 Current release artifact status (2026-06-03)
 
-- [x] Target Riverside version is now **`v0.80.8`** across root, client/PWA, server, Tauri, and Deployment Manager metadata.
+- [x] Target Riverside version is now **`v0.85.5`** across root, client/PWA, server, Tauri, and Deployment Manager metadata.
 - [x] The Windows updater release workflow publishes `latest.json`, the Windows MSI, `.sig`, and an updater build manifest for the same Riverside version.
-- [x] The Windows deployment package workflow publishes `RiversideOS-v0.80.8-Windows-Deployment.zip` containing the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
+- [x] The Windows deployment package workflow publishes `RiversideOS-v0.85.5-Windows-Deployment.zip` containing the server binary, web bundle, register installer, Deployment Manager, migrations, and PowerShell scripts.
 - [x] The macOS ROS Dev Center workflow publishes a universal Apple Silicon / Intel DMG for DevOps companion access.
 - [x] Release workflows run `npm run check:version` so mismatched release metadata blocks packaging.
 - [ ] Before installing Windows stations, confirm the target GitHub release does not retain older Riverside MSI/signature assets beside the current release assets.
-- [ ] Latest `main` **Lint Checks** must be green on the `v0.80.8` release commit before calling the current head release-ready.
-- [ ] Latest `main` **Playwright E2E** must be green on the `v0.80.8` release commit before calling the current head release-ready. Use the release-certification evidence plus a fresh CI run after commit/push.
+- [ ] Latest `main` **Lint Checks** must be green on the `v0.85.5` release commit before calling the current head release-ready.
+- [ ] Latest `main` **Playwright E2E** must be green on the `v0.85.5` release commit before calling the current head release-ready. Use the release-certification evidence plus a fresh CI run after commit/push.
 
 ---
 

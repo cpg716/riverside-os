@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `cac08918`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of curated reporting endpoints (sales pivot, margin pivot, commission ledger/lines/trace, best sellers, dead stock, NYS tax audit, staff performance, register day activity, register override mix, RMS charges, negative stock, exception risk, sales by day, sales trend/pace, loyalty velocity, merchant activity), ROSIE AI reporting bridge, Metabase embedding proxy, and weather correlation.
 

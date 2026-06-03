@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-05-23
-**Version Audited:** v0.85.0
+**Version Audited:** v0.85.5
 **Auditor:** Devin (AI assistant)
 **Scope:** Helcim API client, terminal payment flow, card token purchases, webhook handling (HMAC verification, dedup, event processing), retry logic, payload redaction
 

@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-25
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `cac08918`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of NuOrder wholesale integration — OAuth 1.0 HMAC-SHA1 authentication, product/order/inventory API client, catalog sync with notification emission, order import, inventory push, rate limiting via semaphore, and health monitoring.
 

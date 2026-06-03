@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `cac08918`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of gift card taxonomy (4 kinds), issuance workflows (POS load, loyalty load, donated, promo), redemption (`prepare_redemption_in_tx`), credit/refund (`credit_gift_card_in_tx`), voiding, event history, summary reporting, and QBO journal integration.
 

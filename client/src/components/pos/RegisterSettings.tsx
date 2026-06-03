@@ -1,7 +1,9 @@
 import React from "react";
 import { warmUpPosAudio, playPosScanSuccess, type PosSoundProfile } from "../../lib/posAudio";
 import { getBaseUrl } from "../../lib/apiConfig";
-import { Volume2, Printer } from "lucide-react";
+import { Volume2, Printer, DollarSign } from "lucide-react";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 
 
 interface RegisterSettingsProps {
@@ -17,6 +19,7 @@ export default function RegisterSettings({
   lifecycleStatus,
   onRefreshMeta
 }: RegisterSettingsProps) {
+  const { backofficeHeaders } = useBackofficeAuth();
   const [soundProfile, setSoundProfile] = React.useState<PosSoundProfile>(() => {
     const saved = window.localStorage.getItem("ros.pos.soundProfile");
     if (saved === "classic" || saved === "soft" || saved === "modern" || saved === "retro" || saved === "silent") {
@@ -32,6 +35,46 @@ export default function RegisterSettings({
   const [tagPrinterIp, setTagPrinterIp] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.tag.ip") || "127.0.0.1");
   const [reportPrinterIp, setReportPrinterIp] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.report.ip") || "");
   const [autoPrintReports, setAutoPrintReports] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.report.autoPrint") === "true");
+
+  // ── Cash Rounding (server-persisted) ────────────────────────────────────────
+  const [cashRoundingEnabled, setCashRoundingEnabled] = React.useState<boolean>(false);
+  const [cashRoundingLoading, setCashRoundingLoading] = React.useState(true);
+  const [cashRoundingSaving, setCashRoundingSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    const baseUrl = getBaseUrl();
+    fetch(`${baseUrl}/api/settings/pos-station-config/public`)
+      .then((r) => r.json())
+      .then((data: { cash_rounding_enabled?: boolean }) => {
+        setCashRoundingEnabled(data.cash_rounding_enabled ?? false);
+      })
+      .catch(() => {/* leave at false */})
+      .finally(() => setCashRoundingLoading(false));
+  }, []);
+
+  const toggleCashRounding = async () => {
+    const next = !cashRoundingEnabled;
+    setCashRoundingSaving(true);
+    try {
+      const baseUrl = getBaseUrl();
+      const res = await fetch(`${baseUrl}/api/settings/pos-station-config`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...mergedPosStaffHeaders(backofficeHeaders),
+        },
+        body: JSON.stringify({ cash_rounding_enabled: next }),
+      });
+      if (res.ok) {
+        setCashRoundingEnabled(next);
+      }
+    } catch (e) {
+      console.error("Failed to save cash rounding setting", e);
+    } finally {
+      setCashRoundingSaving(false);
+    }
+  };
+  // ────────────────────────────────────────────────────────────────────────────
 
   const [busy, setBusy] = React.useState(false);
 
@@ -79,7 +122,7 @@ export default function RegisterSettings({
       <header className="shrink-0 border-b border-app-border bg-app-surface px-4 py-4 shadow-sm sm:px-8 sm:py-6">
         <h2 className="text-2xl font-black tracking-tight italic">Terminal Overrides</h2>
         <p className="text-xs font-semibold uppercase tracking-widest text-app-text-muted mt-1">
-          Hardware Bridging & Device Logic
+          Hardware Bridging &amp; Device Logic
         </p>
       </header>
 
@@ -108,13 +151,54 @@ export default function RegisterSettings({
             </section>
           )}
 
+          {/* ── Cash Rounding ─────────────────────────────────────────────── */}
+          <section className="space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-app-accent/10 text-app-accent">
+                <DollarSign size={20} />
+              </div>
+              <div>
+                <h3 className="text-lg font-black tracking-tight">Cash Rounding</h3>
+                <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">Swedish-style rounding to nearest $0.05 on cash transactions</p>
+              </div>
+            </div>
+            <div className="ui-card p-6 border-app-border space-y-4">
+              <button
+                type="button"
+                id="toggle-cash-rounding"
+                disabled={cashRoundingLoading || cashRoundingSaving}
+                onClick={() => void toggleCashRounding()}
+                className={`flex w-full items-center justify-between rounded-xl border p-4 transition-all disabled:opacity-60 ${cashRoundingEnabled ? 'border-app-text bg-app-accent/10 border-2' : 'border-app-border bg-app-surface'}`}
+              >
+                <div className="text-left">
+                  <p className="text-sm font-black uppercase italic tracking-tighter">
+                    Cash Rounding {cashRoundingEnabled ? "Enabled" : "Disabled"}
+                  </p>
+                  <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">
+                    {cashRoundingEnabled
+                      ? "Cash due amounts rounded to nearest $0.05"
+                      : "Cash due shown at exact cent precision"}
+                  </p>
+                </div>
+                <div className={`h-6 w-12 rounded-full p-1 transition-colors ${cashRoundingEnabled ? 'bg-app-text shadow-inner' : 'bg-app-border'}`}>
+                  <div className={`h-4 w-4 rounded-full bg-app-surface shadow-sm transition-transform ${cashRoundingEnabled ? 'translate-x-6 shadow-lg' : 'translate-x-0'}`} />
+                </div>
+              </button>
+              <p className="text-[11px] font-semibold leading-relaxed text-app-text-muted">
+                When enabled, cash balance-due amounts are rounded to the nearest $0.05 (e.g. $14.97 → $14.95, $14.98 → $15.00).
+                Card, gift card, and all other tender types always use exact amounts.
+                This setting is store-wide and applies to all registers.
+              </p>
+            </div>
+          </section>
+
           <section className="space-y-6">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-app-accent/10 text-app-accent">
                  <Volume2 size={20} />
               </div>
               <div>
-                <h3 className="text-lg font-black tracking-tight">Audio & Feedback</h3>
+                <h3 className="text-lg font-black tracking-tight">Audio &amp; Feedback</h3>
                 <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">Aural signals for high-velocity scanning</p>
               </div>
             </div>
@@ -144,7 +228,7 @@ export default function RegisterSettings({
                  <Printer size={20} />
               </div>
               <div>
-                <h3 className="text-lg font-black tracking-tight">Printer & Peripherals</h3>
+                <h3 className="text-lg font-black tracking-tight">Printer &amp; Peripherals</h3>
                 <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">Assigned Hardware Nodes</p>
               </div>
             </div>

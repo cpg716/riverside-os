@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-25
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `cac08918`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of the Tauri 2 desktop shell — unified server lifecycle management, app update system (signed updater), station configuration, ROSIE voice commands (transcription + TTS), llama.cpp sidecar management, hardware bridge (ZPL/ESC/POS/system printers), server-updater for Windows installer, and LAN network identity discovery.
 

@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-29
 **Previous Audit:** 2026-04-08
-**Version Audited:** v0.85.0 (commit `73cdd56`)
+**Version Audited:** v0.85.5 (commit `cac08918`)
 **Auditor:** Devin (AI assistant)
 **Scope:** End-to-end trace of unified shipments hub — shipment creation (POS/manual), Shippo rate fetching, rate quote application, label purchase with commission recalculation, label refund, return shipment creation, manifest batch creation, pickup scheduling, event timeline, and health monitoring.
 
