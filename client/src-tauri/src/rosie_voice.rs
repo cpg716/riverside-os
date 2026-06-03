@@ -218,7 +218,7 @@ fn parse_sherpa_onnx_offline_output(stdout: &str) -> String {
         }
     }
 
-    if let Some(last_line) = stdout.lines().filter(|l| !l.trim().is_empty()).last() {
+    if let Some(last_line) = stdout.lines().filter(|l| !l.trim().is_empty()).next_back() {
         if let Some(pos) = last_line.find("]:") {
             return last_line[pos + 2..]
                 .trim()
