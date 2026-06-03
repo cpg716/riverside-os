@@ -1475,7 +1475,6 @@ async fn settings_maps_staff_patch(
     Ok(Json(json!({ "updated": true })))
 }
 
-
 async fn settings_reset_preview(
     State(state): State<AppState>,
     headers: HeaderMap,

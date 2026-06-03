@@ -554,4 +554,3 @@ pub async fn patch_staff_map(
         .await?;
     Ok(r.rows_affected() > 0)
 }
-

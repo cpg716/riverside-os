@@ -835,7 +835,10 @@ fn build_counterpoint_identity_preflight_report(
 
     for row in &rows {
         let invalid = if entity == "catalog" || entity == "inventory" {
-            row.normalized_sku.as_deref().map(|sku| sku.trim().is_empty()).unwrap_or(true)
+            row.normalized_sku
+                .as_deref()
+                .map(|sku| sku.trim().is_empty())
+                .unwrap_or(true)
         } else {
             row.normalized_sku
                 .as_deref()
