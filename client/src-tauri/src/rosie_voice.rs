@@ -220,7 +220,11 @@ fn parse_sherpa_onnx_offline_output(stdout: &str) -> String {
 
     if let Some(last_line) = stdout.lines().filter(|l| !l.trim().is_empty()).last() {
         if let Some(pos) = last_line.find("]:") {
-            return last_line[pos + 2..].trim().trim_matches('"').trim().to_string();
+            return last_line[pos + 2..]
+                .trim()
+                .trim_matches('"')
+                .trim()
+                .to_string();
         }
         return last_line.trim().trim_matches('"').trim().to_string();
     }
@@ -289,9 +293,8 @@ pub fn rosie_local_runtime_status(
     let asr_present = command_exists(&asr_bin);
     let sensevoice_model_path = resolve_sensevoice_model_path();
     let sensevoice_tokens_path = resolve_sensevoice_tokens_path();
-    let sensevoice_ready = asr_present
-        && sensevoice_model_path.is_some()
-        && sensevoice_tokens_path.is_some();
+    let sensevoice_ready =
+        asr_present && sensevoice_model_path.is_some() && sensevoice_tokens_path.is_some();
 
     let tts_bin = resolve_tts_binary_path();
     let tts_present = command_exists(&tts_bin);
@@ -386,7 +389,9 @@ async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String
                 &format!("--tokens={}", tokens.to_string_lossy()),
                 "--num-threads=2",
                 "--decoding-method=greedy_search",
-                wav_path.to_str().ok_or_else(|| "invalid wav path".to_string())?,
+                wav_path
+                    .to_str()
+                    .ok_or_else(|| "invalid wav path".to_string())?,
             ])
             .output()
             .await
@@ -401,10 +406,7 @@ async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String
             return Err("ROSIE STT did not detect any speech in the audio.".to_string());
         } else {
             let stderr_str = String::from_utf8_lossy(&output.stderr);
-            return Err(format!(
-                "SenseVoice STT failed: {}",
-                stderr_str.trim()
-            ));
+            return Err(format!("SenseVoice STT failed: {}", stderr_str.trim()));
         }
     }
 
@@ -486,7 +488,9 @@ pub async fn rosie_tts_speak(
         c
     };
 
-    let child = cmd.spawn().map_err(|e| format!("failed to spawn TTS process: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to spawn TTS process: {e}"))?;
 
     *state
         .0
