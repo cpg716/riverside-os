@@ -766,14 +766,17 @@ pub async fn get_merge_preview(
     let name_conflicts: Vec<MergeConflictRow> = sqlx::query_as::<_, (String, String, Option<String>, Option<String>)>(
         r#"
         WITH ros_items AS (
-            SELECT p.catalog_handle AS item_no, p.name AS ros_name
+            SELECT p.id AS product_id, p.catalog_handle AS item_no, p.name AS ros_name
             FROM products p WHERE p.data_source = 'counterpoint' AND p.catalog_handle IS NOT NULL
         ),
         ls_items AS (
-            SELECT r.sku, r.product_name
+            SELECT pv.product_id, MAX(r.product_name) AS product_name
             FROM lightspeed_normalization_reference_rows r
             JOIN lightspeed_normalization_batches b ON b.id = r.batch_id
-            WHERE b.status = 'active'
+            JOIN product_variant_barcode_aliases alias ON alias.normalized_alias = lower(trim(r.sku))
+            JOIN product_variants pv ON pv.id = alias.variant_id
+            WHERE b.status = 'active' AND alias.alias_type = 'counterpoint_b_sku' AND alias.status = 'active'
+            GROUP BY pv.product_id
         ),
         cp_csv_items AS (
             SELECT r.item_no, r.description
@@ -787,7 +790,7 @@ pub async fn get_merge_preview(
             ls.product_name AS ls_name,
             csv.description AS csv_name
         FROM ros_items ros
-        LEFT JOIN ls_items ls ON lower(trim(ls.sku)) = lower(trim(ros.item_no))
+        LEFT JOIN ls_items ls ON ls.product_id = ros.product_id
         LEFT JOIN cp_csv_items csv ON lower(trim(csv.item_no)) = lower(trim(ros.item_no))
         WHERE (ls.product_name IS NOT NULL AND lower(trim(ls.product_name)) != lower(trim(ros.ros_name)))
            OR (csv.description IS NOT NULL AND lower(trim(csv.description)) != lower(trim(ros.ros_name)))
