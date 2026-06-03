@@ -461,7 +461,7 @@ function Invoke-PsqlFile($PsqlPath, $DatabaseUrl, $FilePath) {
 }
 
 function Invoke-PsqlScalar($PsqlPath, $DatabaseUrl, [string]$Sql) {
-  $result = & $PsqlPath $DatabaseUrl -tAc $Sql
+  $result = & $PsqlPath $DatabaseUrl -tAc -w $Sql
   if ($LASTEXITCODE -ne 0) {
     throw "psql scalar query failed. $($result -join "`n")"
   }
@@ -508,7 +508,7 @@ function Get-DatabaseEncoding($PsqlPath, $Db, [string]$DatabaseName) {
   $env:PGPASSWORD = $Db.adminPassword
   try {
     $adminUrl = "postgresql://$($Db.adminUser)@$($Db.host):$($Db.port)/$DatabaseName"
-    $encoding = & $PsqlPath $adminUrl -tAc "SHOW server_encoding;"
+    $encoding = & $PsqlPath $adminUrl -tAc -w "SHOW server_encoding;"
     if ($LASTEXITCODE -ne 0) {
       throw "Could not check encoding for database '$DatabaseName'."
     }
@@ -773,6 +773,18 @@ function Install-RosieStack($PackageRoot) {
     return $null
   }
 
+  # Stop the LLM scheduled task and any llama-server / sherpa processes before
+  # running the installer so that bundled DLLs (e.g. ggml-base.dll) are never
+  # locked when the installer tries to overwrite them.
+  Stop-ScheduledTask -TaskName "Riverside OS LLM Host" -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 1
+  @("llama-server", "sherpa-onnx-offline", "sherpa-onnx-offline-tts", "sherpa-onnx") | ForEach-Object {
+    Get-Process -Name $_ -ErrorAction SilentlyContinue | ForEach-Object {
+      Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
+  }
+  Start-Sleep -Seconds 2
+
   Write-Host "ROSIE: Delegating to $installerPath with -SkipEnvPatch..."
   try {
     # Call the installer script, passing the target install root and -SkipEnvPatch
@@ -823,7 +835,7 @@ function Get-MigrationSortKey($File) {
 }
 
 function Get-MigrationLedgerExists($PsqlPath, $DatabaseUrl) {
-  $ledgerCheck = & $PsqlPath $DatabaseUrl -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ros_schema_migrations');"
+  $ledgerCheck = & $PsqlPath $DatabaseUrl -tAc -w "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ros_schema_migrations');"
   if ($LASTEXITCODE -ne 0) {
     throw "Could not check migration ledger."
   }
@@ -832,7 +844,7 @@ function Get-MigrationLedgerExists($PsqlPath, $DatabaseUrl) {
 
 function Get-MigrationApplied($PsqlPath, $DatabaseUrl, [string]$Version) {
   $migrationVersion = Escape-SqlLiteral $Version
-  $applied = & $PsqlPath $DatabaseUrl -tAc "SELECT EXISTS(SELECT 1 FROM ros_schema_migrations WHERE version = '$migrationVersion');"
+  $applied = & $PsqlPath $DatabaseUrl -tAc -w "SELECT EXISTS(SELECT 1 FROM ros_schema_migrations WHERE version = '$migrationVersion');"
   return (($applied -join "").Trim() -eq "t")
 }
 
@@ -842,7 +854,7 @@ function Add-MigrationLedgerEntry($PsqlPath, $DatabaseUrl, [string]$Version) {
 }
 
 function Test-CoreIdentityMigrationApplied($PsqlPath, $DatabaseUrl) {
-  $result = & $PsqlPath $DatabaseUrl -tAc "SELECT to_regclass('public.store_settings') IS NOT NULL AND to_regclass('public.variant_sku_seq') IS NOT NULL;"
+  $result = & $PsqlPath $DatabaseUrl -tAc -w "SELECT to_regclass('public.store_settings') IS NOT NULL AND to_regclass('public.variant_sku_seq') IS NOT NULL;"
   return (($result -join "").Trim() -eq "t")
 }
 
@@ -1183,7 +1195,7 @@ if ($script:postgresReachable) {
       Invoke-PsqlAdmin $psql $db $roleSql
       $env:PGPASSWORD = $db.adminPassword
       try {
-        $exists = & $psql "postgresql://$($db.adminUser)@$($db.host):$($db.port)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname = '$databaseName';"
+        $exists = & $psql "postgresql://$($db.adminUser)@$($db.host):$($db.port)/postgres" -tAc -w "SELECT 1 FROM pg_database WHERE datname = '$databaseName';"
         if (($exists -join "").Trim() -ne "1") {
           Invoke-PsqlAdmin $psql $db "CREATE DATABASE ""$databaseName"" WITH OWNER ""$appUser"" TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C';"
         }

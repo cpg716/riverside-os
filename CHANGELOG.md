@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.85.5] - 2026-06-02
+## [0.85.5] - 2026-06-03
 
 ### Added
 - **Counterpoint Bridge GUI Optimization**: Major performance and UX improvements to the Counterpoint Bridge GUI application:
@@ -19,9 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Adding `spacing: false` and `margin: "full"` options to receiptline transform in both print and preview functions in `ReceiptSummaryModal.tsx`
   - Adding `^^` prefix to centered lines in `receipt_escpos.rs` `centered_lines` function to ensure receiptline treats them as centered/bold
   - These changes ensure proper centering of header and footer lines on thermal printers.
+- **Deployment: PostgreSQL password prompts eliminated**: All bare `psql` calls in `install-server.ps1` that were missing the `-w` (no-password) flag have been fixed. `Invoke-PsqlScalar`, `Get-DatabaseEncoding`, `Get-MigrationLedgerExists`, `Get-MigrationApplied`, `Test-CoreIdentityMigrationApplied`, and the database existence check now all pass `-w`, ensuring psql never opens an interactive password prompt in any shell context (GUI-spawned child process or terminal).
+- **Deployment: ROSIE `ggml-base.dll` locked during update**: `install-server.ps1` and `Install-RosieAiStack.ps1` now stop the `Riverside OS LLM Host` scheduled task and kill `llama-server`, `sherpa-onnx-offline`, and related processes before overwriting any ROSIE binaries. Prevents Windows from refusing to copy DLLs held open by a running process on incremental updates.
+- **Deployment: ROSIE `sherpa-onnx` download aborted by CDN**: `Invoke-Download` in `Install-RosieAiStack.ps1` now retries up to 3 times with exponential backoff (2 s → 4 s), cleaning up partial files between attempts. Resolves "The request was aborted: The connection was closed unexpectedly" failures on GitHub CDN drops during large binary downloads.
 
 ### Changed
 - **Counterpoint Bridge GUI Code Quality**: Fixed all Tailwind class lint warnings by updating to newer Tailwind CSS syntax (bg-gradient-to-r → bg-linear-to-r, hover:bg-white/[0.02] → hover:bg-white/2, etc.).
+
 
 ## [0.85.0] - 2026-05-31
 

@@ -105,15 +105,33 @@ $TTS_ESPEAK_FILES = @(
   "espeak-ng-data/lang/de/de"
 )
 
-# ---- Helper: download with optional HF auth ----
-function Invoke-Download([string]$Url, [string]$OutFile, [string]$Label) {
+# ---- Helper: download with optional HF auth and automatic retry ----
+function Invoke-Download([string]$Url, [string]$OutFile, [string]$Label, [int]$MaxRetries = 3) {
   Write-Host "      Downloading $Label..."
   $headers = @{}
   $effectiveToken = if ($HfToken) { $HfToken } elseif ($env:HF_TOKEN) { $env:HF_TOKEN } else { "" }
   if ($effectiveToken -and $Url -like "*huggingface.co*") {
     $headers["Authorization"] = "Bearer $effectiveToken"
   }
-  Invoke-WebRequest -Uri $Url -OutFile $OutFile -Headers $headers -UseBasicParsing
+  $attempt = 0
+  $lastErr = $null
+  while ($attempt -lt $MaxRetries) {
+    $attempt++
+    try {
+      if (Test-Path $OutFile) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
+      Invoke-WebRequest -Uri $Url -OutFile $OutFile -Headers $headers -UseBasicParsing
+      return  # success
+    } catch {
+      $lastErr = $_.Exception.Message
+      Write-Warning "      Download attempt $attempt/$MaxRetries failed: $lastErr"
+      if ($attempt -lt $MaxRetries) {
+        $sleepSec = [math]::Pow(2, $attempt)  # 2s, 4s
+        Write-Host "      Retrying in $sleepSec seconds..."
+        Start-Sleep -Seconds $sleepSec
+      }
+    }
+  }
+  throw "Download failed after $MaxRetries attempts for '$Label': $lastErr"
 }
 
 # ---- Helper: download a single HuggingFace file ----
@@ -140,6 +158,19 @@ New-Item -ItemType Directory -Force -Path $binDestDir | Out-Null
 $requiredBinaries = @("sherpa-onnx-offline.exe", "sherpa-onnx-offline-tts.exe")
 $bundledLlama    = Join-Path $pkgBinDir "llama-server.exe"
 $destLlama       = Join-Path $binDestDir "llama-server.exe"
+
+# Stop any running ROSIE / llama-server processes BEFORE copying binaries.
+# Without this, Windows will refuse to overwrite DLLs that are held open
+# by a running process (e.g. ggml-base.dll), causing an "access denied" error.
+Write-Host "      Stopping any running ROSIE / LLM processes before file copy..."
+Stop-ScheduledTask -TaskName "Riverside OS LLM Host" -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+@("llama-server", "sherpa-onnx-offline", "sherpa-onnx-offline-tts", "sherpa-onnx") | ForEach-Object {
+  Get-Process -Name $_ -ErrorAction SilentlyContinue | ForEach-Object {
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+  }
+}
+Start-Sleep -Seconds 2
 
 # Copy any binaries that ARE in the package
 if (Test-Path $pkgBinDir) {
