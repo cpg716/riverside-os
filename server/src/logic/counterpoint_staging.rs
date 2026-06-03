@@ -541,3 +541,17 @@ pub async fn list_staff_map(pool: &PgPool) -> Result<Vec<StaffMapRow>, sqlx::Err
     .fetch_all(pool)
     .await
 }
+
+pub async fn patch_staff_map(
+    pool: &PgPool,
+    id: i64,
+    ros_staff_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let r = sqlx::query("UPDATE counterpoint_staff_map SET ros_staff_id = $2 WHERE id = $1")
+        .bind(id)
+        .bind(ros_staff_id)
+        .execute(pool)
+        .await?;
+    Ok(r.rows_affected() > 0)
+}
+

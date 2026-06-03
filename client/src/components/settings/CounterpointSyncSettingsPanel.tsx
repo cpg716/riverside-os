@@ -1168,7 +1168,11 @@ export default function CounterpointSyncSettingsPanel() {
         const data = await res.json();
         toast(`Sub-section '${stepKey}' verified.`, "success");
         if (data.next_step_unlocked) {
-          setActiveSubStep(data.next_step_unlocked);
+          if (stepKey === "vendors") {
+            setActiveSubStep("staff");
+          } else {
+            setActiveSubStep(data.next_step_unlocked);
+          }
         }
         void fetchWorkbenchState();
       } else {
@@ -1644,22 +1648,22 @@ export default function CounterpointSyncSettingsPanel() {
               { key: "categories", label: "2. Category Mappings" },
               { key: "vendors", label: "3. Vendor Mappings" },
               { key: "staff", label: "4. Staff Mappings" },
-              { key: "ai_review", label: "5. ROSIE AI Copilot" },
+              { key: "catalog", label: "5. ROSIE AI Copilot" },
               { key: "sku_gaps", label: "6. Barcode SKU Gaps" },
               { key: "verification", label: "7. Preview & Approve" },
             ].map((sub) => {
               const active = activeSubStep === sub.key;
-              const isSubStepLocked = subStepStatus(sub.key === "ai_review" ? "catalog" : sub.key) === "locked";
+              const isSubStepLocked = subStepStatus(sub.key === "staff" ? "catalog" : sub.key) === "locked";
               return (
                 <button
                   key={sub.key}
                   type="button"
-                  disabled={isSubStepLocked && sub.key !== "ai_review"}
+                  disabled={isSubStepLocked}
                   onClick={() => setActiveSubStep(sub.key)}
                   className={`px-3 py-2 rounded-lg text-xs uppercase tracking-wide border transition-all shrink-0 ${
                     active
                       ? "bg-app-warning/15 text-app-warning border-app-warning/50 font-bold"
-                      : isSubStepLocked && sub.key !== "ai_review"
+                      : isSubStepLocked
                         ? "opacity-40 cursor-not-allowed border-app-border"
                         : "bg-app-bg text-app-text-muted hover:text-app-text border-app-border"
                   }`}
@@ -1775,15 +1779,26 @@ export default function CounterpointSyncSettingsPanel() {
                     </div>
                   </div>
                 )}
-                <button
-                  type="button"
-                  onClick={() => void approveSubStep("data_sources")}
-                  disabled={subStepStatus("data_sources") === "complete" || csvUploading !== null}
-                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-                >
-                  Confirm & Lock CSV Sources
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                </button>
+                {subStepStatus("data_sources") === "complete" ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveSubStep("categories")}
+                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  >
+                    Proceed to Category Mappings
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void approveSubStep("data_sources")}
+                    disabled={csvUploading !== null}
+                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
+                  >
+                    Confirm & Lock CSV Sources
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1864,15 +1879,25 @@ export default function CounterpointSyncSettingsPanel() {
                 </table>
               </div>
               <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => void approveSubStep("categories")}
-                  disabled={subStepStatus("categories") === "complete"}
-                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-                >
-                  Verify Category Links
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                </button>
+                {subStepStatus("categories") === "complete" ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveSubStep("vendors")}
+                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  >
+                    Proceed to Vendor Mappings
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void approveSubStep("categories")}
+                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  >
+                    Verify Category Links
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1889,15 +1914,25 @@ export default function CounterpointSyncSettingsPanel() {
                 <span className="text-base font-black text-emerald-600">{fmtNum(workbenchState?.inventory_summary?.vendors)} vendors</span>
               </div>
               <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => void approveSubStep("vendors")}
-                  disabled={subStepStatus("vendors") === "complete"}
-                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-                >
-                  Verify Vendors List
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                </button>
+                {subStepStatus("vendors") === "complete" ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveSubStep("staff")}
+                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  >
+                    Proceed to Staff Mappings
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void approveSubStep("vendors")}
+                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  >
+                    Verify Vendors List
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1947,10 +1982,10 @@ export default function CounterpointSyncSettingsPanel() {
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setActiveSubStep("ai_review")}
-                  className="ui-btn-secondary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  onClick={() => setActiveSubStep("catalog")}
+                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
                 >
-                  Save & Advance to ROSIE AI
+                  Proceed to ROSIE AI Copilot
                   <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
@@ -1958,7 +1993,7 @@ export default function CounterpointSyncSettingsPanel() {
           )}
 
           {/* Sub-step 5: AI Naming Review */}
-          {activeSubStep === "ai_review" && (
+          {activeSubStep === "catalog" && (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
@@ -2020,15 +2055,37 @@ export default function CounterpointSyncSettingsPanel() {
                   </div>
                 </div>
               )}
-              <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setActiveSubStep("sku_gaps")}
-                  className="ui-btn-secondary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                >
-                  Advance to SKU Gaps
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+              <div className="pt-2 flex justify-end gap-2">
+                {subStepStatus("catalog") === "complete" ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveSubStep("sku_gaps")}
+                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  >
+                    Proceed to Barcode SKU Gaps
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void approveSubStep("catalog")}
+                      className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                    >
+                      Verify Naming & Category AI Mappings
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSubStep("sku_gaps")}
+                      disabled={true}
+                      className="ui-btn-secondary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
+                    >
+                      Advance to SKU Gaps
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -2117,7 +2174,7 @@ export default function CounterpointSyncSettingsPanel() {
                       type="button"
                       onClick={() => void assignSkus()}
                       disabled={skuAssignBusy || Object.keys(skuAssignments).length === 0}
-                      className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                      className="ui-btn-secondary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
                     >
                       Save Barcode Assignments
                     </button>
@@ -2130,6 +2187,39 @@ export default function CounterpointSyncSettingsPanel() {
                   </span>
                 </div>
               )}
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-app-border/40">
+                {subStepStatus("sku_gaps") === "complete" ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveSubStep("verification")}
+                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                  >
+                    Proceed to Preview & Approve
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void approveSubStep("sku_gaps")}
+                      className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                    >
+                      Verify Barcode SKU Gaps
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSubStep("verification")}
+                      disabled={true}
+                      className="ui-btn-secondary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
+                    >
+                      Advance to Preview & Approve
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           )}
 
@@ -2207,15 +2297,21 @@ export default function CounterpointSyncSettingsPanel() {
               </div>
 
               <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => void approveSubStep("verification")}
-                  disabled={subStepStatus("verification") === "complete"}
-                  className="ui-btn-primary px-6 py-2.5 text-xs font-black uppercase tracking-wider inline-flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  Approve & Finalize Catalog Mappings
-                  <CheckCircle2 className="h-4 w-4" />
-                </button>
+                {subStepStatus("verification") === "complete" ? (
+                  <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl">
+                    <CheckCircle2 className="h-5 w-5" />
+                    Catalog mappings approved! Click below to proceed.
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void approveSubStep("verification")}
+                    className="ui-btn-primary px-6 py-2.5 text-xs font-black uppercase tracking-wider inline-flex items-center gap-1.5"
+                  >
+                    Approve & Finalize Catalog Mappings
+                    <CheckCircle2 className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             </div>
           )}

@@ -834,11 +834,14 @@ fn build_counterpoint_identity_preflight_report(
     }
 
     for row in &rows {
-        let invalid = row
-            .normalized_sku
-            .as_deref()
-            .map(|sku| !is_valid_counterpoint_b_sku(sku))
-            .unwrap_or(true);
+        let invalid = if entity == "catalog" || entity == "inventory" {
+            row.normalized_sku.as_deref().map(|sku| sku.trim().is_empty()).unwrap_or(true)
+        } else {
+            row.normalized_sku
+                .as_deref()
+                .map(|sku| !is_valid_counterpoint_b_sku(sku))
+                .unwrap_or(true)
+        };
         if invalid {
             invalid_sku_rows += 1;
             affected_refs.insert((row.reference.row_number, row.reference.cell_number));
@@ -11156,7 +11159,7 @@ mod tests {
         assert_eq!(report.summary.total_rows, 6);
         assert_eq!(report.summary.variant_rows_checked, 6);
         assert!(report.summary.has_errors);
-        assert_eq!(report.summary.invalid_sku_rows, 2);
+        assert_eq!(report.summary.invalid_sku_rows, 1);
         assert_eq!(report.summary.duplicate_normalized_b_sku_values, 1);
         assert_eq!(report.summary.duplicate_counterpoint_item_key_values, 1);
         assert_eq!(report.summary.conflicting_sku_family_values, 1);
@@ -11165,12 +11168,11 @@ mod tests {
             1
         );
         assert_eq!(report.summary.info_count, 0);
-        assert_eq!(report.summary.warning_count, 1);
+        assert_eq!(report.summary.warning_count, 0);
         assert_eq!(report.summary.quarantine_count, 1);
         assert_eq!(report.summary.blocking_count, 4);
         assert!(report.summary.has_blocking_issues);
         assert!(issue_types.contains("blank_sku"));
-        assert!(issue_types.contains("generated_or_service_non_b_sku"));
         assert!(issue_types.contains("duplicate_normalized_b_sku"));
         assert!(issue_types.contains("duplicate_counterpoint_item_key"));
         assert!(issue_types.contains("conflicting_sku_family_mapping"));
@@ -11188,12 +11190,6 @@ mod tests {
             Some("I-100")
         );
         assert_eq!(duplicate_sku.sample_rows[0].option_values, vec!["RED"]);
-
-        let generated = preflight_issue(&report, "generated_or_service_non_b_sku");
-        assert_eq!(generated.severity, "WARNING");
-        assert!(generated.affects_ingest_rows);
-        assert!(generated.should_quarantine);
-        assert!(generated.safe_to_continue_other_rows);
 
         let blank = preflight_issue(&report, "blank_sku");
         assert_eq!(blank.severity, "QUARANTINE");
@@ -11914,7 +11910,7 @@ mod tests {
         assert_eq!(report.summary.total_rows, 4);
         assert_eq!(report.summary.variant_rows_checked, 5);
         assert!(report.summary.has_errors);
-        assert_eq!(report.summary.invalid_sku_rows, 1);
+        assert_eq!(report.summary.invalid_sku_rows, 0);
         assert_eq!(report.summary.duplicate_normalized_b_sku_values, 1);
         assert_eq!(report.summary.duplicate_counterpoint_item_key_values, 1);
         assert_eq!(report.summary.conflicting_sku_family_values, 1);
@@ -11922,22 +11918,15 @@ mod tests {
             report.summary.conflicting_sku_counterpoint_item_key_values,
             1
         );
-        assert_eq!(report.summary.info_count, 1);
+        assert_eq!(report.summary.info_count, 0);
         assert_eq!(report.summary.warning_count, 0);
         assert_eq!(report.summary.quarantine_count, 0);
         assert_eq!(report.summary.blocking_count, 4);
         assert!(report.summary.has_blocking_issues);
-        assert!(issue_types.contains("parent_item_sku"));
         assert!(issue_types.contains("duplicate_normalized_b_sku"));
         assert!(issue_types.contains("duplicate_counterpoint_item_key"));
         assert!(issue_types.contains("conflicting_sku_family_mapping"));
         assert!(issue_types.contains("conflicting_sku_counterpoint_item_key_mapping"));
-
-        let parent_item = preflight_issue(&report, "parent_item_sku");
-        assert_eq!(parent_item.severity, "INFO");
-        assert!(!parent_item.affects_ingest_rows);
-        assert!(!parent_item.should_quarantine);
-        assert!(parent_item.safe_to_continue_other_rows);
 
         let duplicate_sku = preflight_issue(&report, "duplicate_normalized_b_sku");
         assert_eq!(duplicate_sku.severity, "BLOCKING");
@@ -12082,13 +12071,13 @@ mod tests {
             .await
             .expect("cleanup quarantine inventory product");
 
-        assert_eq!(summary.updated, 1);
-        assert_eq!(summary.skipped, 3);
-        assert_eq!(summary.quarantined, 3);
+        assert_eq!(summary.updated, 2);
+        assert_eq!(summary.skipped, 2);
+        assert_eq!(summary.quarantined, 2);
         assert_eq!(clean_stock, 7);
         assert_eq!(duplicate_stock, 0);
-        assert_eq!(generated_stock, 0);
-        assert_eq!(quarantine_count, 3);
+        assert_eq!(generated_stock, 11);
+        assert_eq!(quarantine_count, 2);
         assert_eq!(duplicate_issue_count, 2);
     }
 

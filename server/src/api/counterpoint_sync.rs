@@ -1429,6 +1429,53 @@ async fn settings_maps_staff_list(
     Ok(Json(json!(rows)))
 }
 
+async fn settings_maps_staff_patch(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    headers: HeaderMap,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+
+    let ros_staff_id_str = payload
+        .get("ros_staff_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "ros_staff_id required" })),
+            )
+        })?;
+
+    let ros_staff_id = Uuid::parse_str(ros_staff_id_str).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid ros_staff_id UUID" })),
+        )
+    })?;
+
+    let ok = counterpoint_staging::patch_staff_map(&state.db, id, ros_staff_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    if !ok {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "row not found" })),
+        ));
+    }
+
+    Ok(Json(json!({ "updated": true })))
+}
+
+
 async fn settings_reset_preview(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1672,6 +1719,7 @@ pub fn settings_router() -> Router<AppState> {
         .route("/maps/gift-reason", get(settings_maps_gift_list))
         .route("/maps/gift-reason/{id}", patch(settings_maps_gift_patch))
         .route("/maps/staff", get(settings_maps_staff_list))
+        .route("/maps/staff/{id}", patch(settings_maps_staff_patch))
 }
 
 #[cfg(test)]

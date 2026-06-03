@@ -977,7 +977,20 @@ pub async fn fetch_ai_review_items(
                 SELECT
                     p.catalog_handle AS item_no,
                     p.name AS current_name,
-                    p.description,
+                    COALESCE(
+                        p.description,
+                        NULLIF(
+                            TRIM(
+                                CONCAT(
+                                    (SELECT COALESCE(r.description, r.long_description, '') FROM counterpoint_csv_reference_rows r WHERE r.item_no = p.catalog_handle LIMIT 1),
+                                    (SELECT CASE WHEN r.category_code IS NOT NULL THEN CONCAT(' [CP Cat: ', r.category_code, ']') ELSE '' END FROM counterpoint_csv_reference_rows r WHERE r.item_no = p.catalog_handle LIMIT 1),
+                                    (SELECT CASE WHEN r.product_name IS NOT NULL THEN CONCAT(' | LS Ref: ', r.product_name) ELSE '' END FROM lightspeed_normalization_reference_rows r INNER JOIN product_variants v ON v.product_id = p.id WHERE r.normalized_sku = lower(trim(both from v.sku)) LIMIT 1),
+                                    (SELECT CASE WHEN r.product_category IS NOT NULL THEN CONCAT(' [LS Cat: ', r.product_category, ']') ELSE '' END FROM lightspeed_normalization_reference_rows r INNER JOIN product_variants v ON v.product_id = p.id WHERE r.normalized_sku = lower(trim(both from v.sku)) LIMIT 1)
+                                )
+                            ),
+                            ''
+                        )
+                    ) AS description,
                     c.name AS category
                 FROM products p
                 LEFT JOIN categories c ON c.id = p.category_id
@@ -1015,7 +1028,20 @@ pub async fn fetch_ai_review_items(
                 SELECT
                     p.catalog_handle AS item_no,
                     p.name AS current_name,
-                    p.description,
+                    COALESCE(
+                        p.description,
+                        NULLIF(
+                            TRIM(
+                                CONCAT(
+                                    (SELECT COALESCE(r.description, r.long_description, '') FROM counterpoint_csv_reference_rows r WHERE r.item_no = p.catalog_handle LIMIT 1),
+                                    (SELECT CASE WHEN r.category_code IS NOT NULL THEN CONCAT(' [CP Cat: ', r.category_code, ']') ELSE '' END FROM counterpoint_csv_reference_rows r WHERE r.item_no = p.catalog_handle LIMIT 1),
+                                    (SELECT CASE WHEN r.product_name IS NOT NULL THEN CONCAT(' | LS Ref: ', r.product_name) ELSE '' END FROM lightspeed_normalization_reference_rows r INNER JOIN product_variants v ON v.product_id = p.id WHERE r.normalized_sku = lower(trim(both from v.sku)) LIMIT 1),
+                                    (SELECT CASE WHEN r.product_category IS NOT NULL THEN CONCAT(' [LS Cat: ', r.product_category, ']') ELSE '' END FROM lightspeed_normalization_reference_rows r INNER JOIN product_variants v ON v.product_id = p.id WHERE r.normalized_sku = lower(trim(both from v.sku)) LIMIT 1)
+                                )
+                            ),
+                            ''
+                        )
+                    ) AS description,
                     NULL::text AS category
                 FROM products p
                 WHERE p.data_source = 'counterpoint'

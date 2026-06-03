@@ -623,8 +623,7 @@ const SYNC_VENDORS = process.env.SYNC_VENDORS === "1";
 const SYNC_VENDORS_FILTERED = process.env.SYNC_VENDORS_FILTERED === "1";
 const SYNC_CUSTOMER_NOTES = process.env.SYNC_CUSTOMER_NOTES === "1";
 const SYNC_CATEGORY_MASTERS = process.env.SYNC_CATEGORY_MASTERS !== "0";
-const SYNC_STAFF = process.env.SYNC_STAFF === "1";
-const SYNC_LOYALTY_HIST = process.env.SYNC_LOYALTY_HIST === "1";
+const SYNC_LOYALTY_HIST = false; // Forced false: we only need current loyalty balances, no history.
 const SYNC_VENDOR_ITEMS = process.env.SYNC_VENDOR_ITEMS === "1";
 const SYNC_STORE_CREDIT_OPENING = process.env.SYNC_STORE_CREDIT_OPENING === "1";
 const SYNC_OPEN_DOCS = process.env.SYNC_OPEN_DOCS === "1";
@@ -646,7 +645,7 @@ const CP_CATALOG_CELLS_QUERY = applyCounterpointSqlCompat(
   expandImportSince(process.env.CP_CATALOG_CELLS_QUERY ?? ""),
 );
 const CP_GIFT_CARDS_QUERY = expandImportSince(process.env.CP_GIFT_CARDS_QUERY ?? "");
-const CP_GFC_HIST_QUERY = expandImportSince(process.env.CP_GFC_HIST_QUERY ?? "");
+const CP_GFC_HIST_QUERY = ""; // Forced empty: we only need current gift balances, no history.
 const CP_TICKETS_QUERY = applyCounterpointSqlCompat(
   expandImportSince(process.env.CP_TICKETS_QUERY ?? "").replace(/ORDER\s+BY\s+.*$/i, ""),
 );
@@ -659,8 +658,8 @@ const CP_TICKET_PAYMENTS_QUERY = applyCounterpointSqlCompat(
 const CP_TICKET_CELLS_QUERY = applyCounterpointSqlCompat(
   expandImportSince(process.env.CP_TICKET_CELLS_QUERY ?? ""),
 );
-const CP_TICKET_GIFT_QUERY = expandImportSince(process.env.CP_TICKET_GIFT_QUERY ?? "");
-const CP_LOYALTY_HIST_QUERY = expandImportSince(process.env.CP_LOYALTY_HIST_QUERY ?? "");
+const CP_TICKET_GIFT_QUERY = ""; // Forced empty: we only need current gift balances, no history.
+const CP_LOYALTY_HIST_QUERY = ""; // Forced empty: we only need current loyalty balances, no history.
 const CP_VEND_ITEM_QUERY = applyCounterpointSqlCompat(
   applyImItemVendorColumn(expandImportSince(process.env.CP_VEND_ITEM_QUERY ?? "")),
 );
