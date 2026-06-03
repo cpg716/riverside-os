@@ -761,104 +761,47 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
 # Returns the resolved model path (or $null if skipped / failed non-fatally).
 # ---------------------------------------------------------------------------
 function Install-RosieStack($PackageRoot) {
-  $rosieRoot   = if ($env:ProgramData) { Join-Path $env:ProgramData "riverside-os\rosie" } else { Join-Path $env:LOCALAPPDATA "riverside-os\rosie" }
-  $modelsDir   = Join-Path $rosieRoot "models\gemma-4-e4b"
-  $sttDir      = Join-Path $rosieRoot "stt"
-  $ttsDir      = Join-Path $rosieRoot "tts"
-
-  # ---- 1. LLM Model (pinned GGUF via MODEL_PIN.json) -----
-  $pinPath = Join-Path $PackageRoot "rosie\MODEL_PIN.json"
-  if (-not (Test-Path $pinPath)) {
-    Write-Warning "ROSIE: MODEL_PIN.json not found at $pinPath. Skipping model download. Copy it from tools/ros-gemma/MODEL_PIN.json into the deployment package."
+  $installerPath = Join-Path $PackageRoot "Install-RosieAiStack.ps1"
+  if (-not (Test-Path $installerPath)) {
+    Write-Warning "ROSIE: Install-RosieAiStack.ps1 not found at $installerPath. Cannot set up ROSIE stack."
     return $null
   }
-  $pin     = Get-Content -Raw $pinPath | ConvertFrom-Json
-  $modelDest = Join-Path $modelsDir $pin.filename
-  New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 
-  $needsDownload = $true
+  Write-Host "ROSIE: Delegating to $installerPath with -SkipEnvPatch..."
+  try {
+    # Call the installer script, passing the target install root and -SkipEnvPatch
+    & $installerPath -ServerInstallRoot $installRoot -SkipEnvPatch
+  } catch {
+    Write-Warning "ROSIE: Install-RosieAiStack.ps1 execution failed: $($_.Exception.Message)"
+    return $null
+  }
+
+  # Verify the rosie_ready flag in C:\RiversideOS\rosie\rosie_ready to confirm deployment success
+  $rosieRoot = Join-Path $installRoot "rosie"
+  $readyFlag = Join-Path $rosieRoot "rosie_ready"
+  if (-not (Test-Path $readyFlag)) {
+    Write-Warning "ROSIE: rosie_ready flag file was not found at $readyFlag. ROSIE installation failed or was incomplete."
+    return $null
+  }
+
+  # Resolve model destination using MODEL_PIN.json or release default
+  $pinPath = Join-Path $PackageRoot "rosie\MODEL_PIN.json"
+  $modelFilename = "google_gemma-4-E4B-it-Q4_K_M.gguf"
+  if (Test-Path $pinPath) {
+    try {
+      $pin = Get-Content -Raw $pinPath | ConvertFrom-Json
+      if ($pin.filename) { $modelFilename = $pin.filename }
+    } catch {}
+  }
+
+  $modelDest = Join-Path $rosieRoot "models\gemma-4-e4b\$modelFilename"
   if (Test-Path $modelDest) {
-    Write-Host "ROSIE: Verifying existing model SHA256..."
-    $existingHash = (Get-FileHash -Algorithm SHA256 -Path $modelDest).Hash.ToLowerInvariant()
-    if ($existingHash -eq $pin.sha256.ToLowerInvariant()) {
-      Write-Host "ROSIE: Model already present and verified: $modelDest"
-      $needsDownload = $false
-    } else {
-      Write-Warning "ROSIE: Existing model hash mismatch. Re-downloading."
-      Remove-Item $modelDest -Force
-    }
-  }
-
-  if ($needsDownload) {
-    $modelUrl = "https://huggingface.co/$($pin.huggingface_model_id)/resolve/$($pin.revision)/$($pin.filename)"
-    Write-Host "ROSIE: Downloading Gemma model (~$([math]::Round($pin.size_bytes / 1GB, 1)) GB)..."
-    Write-Host "ROSIE: From: $modelUrl"
-    Write-Host "ROSIE: To:   $modelDest"
-    try {
-      $headers = @{}
-      if ($env:HF_TOKEN) { $headers["Authorization"] = "Bearer $env:HF_TOKEN" }
-
-      $oldProgress = $ProgressPreference
-      $ProgressPreference = 'SilentlyContinue'
-      Invoke-WebRequest -Uri $modelUrl -OutFile $modelDest -Headers $headers -UseBasicParsing
-      $ProgressPreference = $oldProgress
-
-      $gotHash = (Get-FileHash -Algorithm SHA256 -Path $modelDest).Hash.ToLowerInvariant()
-      if ($gotHash -ne $pin.sha256.ToLowerInvariant()) {
-        Remove-Item $modelDest -Force
-        throw "SHA256 mismatch after download: expected $($pin.sha256) got $gotHash"
-      }
-      Write-Host "ROSIE: Model downloaded and verified."
-    } catch {
-      Write-Warning "ROSIE: Model download failed: $($_.Exception.Message). ROSIE will be unavailable until the model is installed manually."
-      return $null
-    }
-  }
-
-  # ---- 2. SenseVoice STT model (sherpa-onnx runtime not installed) -----
-  $sensevoiceDir  = Join-Path $sttDir "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-  $sensevoiceUrl  = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2"
-  $sensevoiceModel = Join-Path $sensevoiceDir "model.int8.onnx"
-  if (-not (Test-Path $sensevoiceModel)) {
-    New-Item -ItemType Directory -Force -Path $sttDir | Out-Null
-    $tarDest = Join-Path $env:TEMP "sensevoice.tar.bz2"
-    Write-Host "ROSIE: Downloading SenseVoice STT model..."
-    try {
-      Invoke-WebRequest -Uri $sensevoiceUrl -OutFile $tarDest -UseBasicParsing
-      Write-Host "ROSIE: Extracting SenseVoice model..."
-      & tar.exe -xjf $tarDest -C $sttDir
-      Remove-Item $tarDest -Force -ErrorAction SilentlyContinue
-      Write-Host "ROSIE: SenseVoice STT model installed."
-    } catch {
-      Write-Warning "ROSIE: SenseVoice download failed: $($_.Exception.Message). Voice input will fall back to Windows Speech."
-    }
+    Write-Host "ROSIE: Setup verified successfully. Model path: $modelDest"
+    return $modelDest
   } else {
-    Write-Host "ROSIE: SenseVoice STT model already present."
+    Write-Warning "ROSIE: Model file not found at $modelDest despite rosie_ready flag."
+    return $null
   }
-
-  # ---- 3. Kokoro TTS model (sherpa-onnx runtime not installed) -----
-  $kokoroDir    = Join-Path $ttsDir "kokoro-multi-lang-v1_0"
-  $kokoroModel  = Join-Path $kokoroDir "model.onnx"
-  $kokoroUrl    = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
-  if (-not (Test-Path $kokoroModel)) {
-    New-Item -ItemType Directory -Force -Path $ttsDir | Out-Null
-    $tarDest = Join-Path $env:TEMP "kokoro.tar.bz2"
-    Write-Host "ROSIE: Downloading Kokoro TTS model..."
-    try {
-      Invoke-WebRequest -Uri $kokoroUrl -OutFile $tarDest -UseBasicParsing
-      Write-Host "ROSIE: Extracting Kokoro TTS model..."
-      & tar.exe -xjf $tarDest -C $ttsDir
-      Remove-Item $tarDest -Force -ErrorAction SilentlyContinue
-      Write-Host "ROSIE: Kokoro TTS model installed."
-    } catch {
-      Write-Warning "ROSIE: Kokoro download failed: $($_.Exception.Message). Voice output will fall back to Windows TTS."
-    }
-  } else {
-    Write-Host "ROSIE: Kokoro TTS model already present."
-  }
-
-  Write-Host "ROSIE: Stack setup complete. Model: $modelDest"
-  return $modelDest
 }
 
 function Set-MachineEnvironmentFromServerConfig($Config) {

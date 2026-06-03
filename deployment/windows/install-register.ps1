@@ -307,7 +307,7 @@ if (Test-Path $localConfigPath) {
       }
     }
   } catch {
-    Write-Warning "Could not read existing station config at $localConfigPath: $($_.Exception.Message)"
+    Write-Warning "Could not read existing station config at ${localConfigPath}: $($_.Exception.Message)"
   }
 }
 

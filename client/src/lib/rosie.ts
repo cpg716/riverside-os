@@ -335,11 +335,6 @@ export type RosieLocalRuntimeStatus = {
     model_name: string;
     model_path?: string | null;
     model_present: boolean;
-    fallback_engine_name: string;
-    fallback_cli_path: string;
-    fallback_cli_present: boolean;
-    fallback_model_path?: string | null;
-    fallback_model_present: boolean;
   };
   tts: {
     engine_name: string;
@@ -350,9 +345,6 @@ export type RosieLocalRuntimeStatus = {
     model_name: string;
     model_path?: string | null;
     model_present: boolean;
-    fallback_engine_name: string;
-    fallback_command_path: string;
-    fallback_command_present: boolean;
     speaking: boolean;
   };
 };

@@ -41,11 +41,6 @@ pub struct RosieHostSttStatus {
     pub model_name: String,
     pub model_path: Option<String>,
     pub model_present: bool,
-    pub fallback_engine_name: String,
-    pub fallback_cli_path: String,
-    pub fallback_cli_present: bool,
-    pub fallback_model_path: Option<String>,
-    pub fallback_model_present: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,9 +53,6 @@ pub struct RosieHostTtsStatus {
     pub model_name: String,
     pub model_path: Option<String>,
     pub model_present: bool,
-    pub fallback_engine_name: String,
-    pub fallback_command_path: String,
-    pub fallback_command_present: bool,
     pub speaking: bool,
 }
 
@@ -117,16 +109,10 @@ fn resolve_llama_model_path() -> Option<PathBuf> {
 }
 
 fn resolve_sensevoice_model_dir() -> Option<PathBuf> {
-    std::env::var("RIVERSIDE_SENSEVOICE_MODEL_DIR")
-        .ok()
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .or_else(|| {
-            default_rosie_root_dir().map(|root| {
-                root.join("stt")
-                    .join("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17")
-            })
-        })
+    default_rosie_root_dir().map(|root| {
+        root.join("stt")
+            .join("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17")
+    })
 }
 
 fn resolve_sensevoice_model_path() -> Option<PathBuf> {
@@ -141,58 +127,54 @@ fn resolve_sensevoice_tokens_path() -> Option<PathBuf> {
         .filter(|path| path.exists())
 }
 
-fn resolve_rosie_speech_python_path() -> PathBuf {
-    // 1. Explicit env var override
-    if let Some(p) = std::env::var("RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH")
-        .ok()
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty() && path.exists())
+fn resolve_asr_binary_path() -> PathBuf {
+    #[cfg(windows)]
     {
-        return p;
+        if let Some(root) = default_rosie_root_dir() {
+            let path = root.join("bin").join("sherpa-onnx-offline.exe");
+            if path.exists() {
+                return path;
+            }
+        }
+        PathBuf::from(r"C:\RiversideOS\rosie\bin\sherpa-onnx-offline.exe")
     }
-
-    // 2. Not found — return a clearly nonexistent path; callers check command_exists()
-    PathBuf::from(if cfg!(windows) {
-        r"C:\nonexistent\python.exe"
-    } else {
-        "/nonexistent/python"
-    })
+    #[cfg(not(windows))]
+    {
+        if let Some(root) = default_rosie_root_dir() {
+            let path = root.join("bin").join("sherpa-onnx-offline");
+            if path.exists() {
+                return path;
+            }
+        }
+        PathBuf::from("/nonexistent/sherpa-onnx-offline")
+    }
 }
 
-fn resolve_whisper_model_path() -> Option<PathBuf> {
-    std::env::var("RIVERSIDE_WHISPER_MODEL_PATH")
-        .ok()
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .or_else(|| rosie_host_dir().map(|root| root.join("models").join("ggml-small.en.bin")))
-        .filter(|path| path.exists())
-        .or_else(|| {
-            home_dir().map(|home| {
-                home.join("Library")
-                    .join("Application Support")
-                    .join("superwhisper")
-                    .join("ggml-small.en.bin")
-            })
-        })
-        .filter(|path| path.exists())
-}
-
-fn resolve_whisper_cli_path() -> PathBuf {
-    std::env::var("RIVERSIDE_WHISPER_CLI_PATH")
-        .ok()
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| PathBuf::from("/opt/homebrew/bin/whisper-cli"))
+fn resolve_tts_binary_path() -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Some(root) = default_rosie_root_dir() {
+            let path = root.join("bin").join("sherpa-onnx-offline-tts.exe");
+            if path.exists() {
+                return path;
+            }
+        }
+        PathBuf::from(r"C:\RiversideOS\rosie\bin\sherpa-onnx-offline-tts.exe")
+    }
+    #[cfg(not(windows))]
+    {
+        if let Some(root) = default_rosie_root_dir() {
+            let path = root.join("bin").join("sherpa-onnx-offline-tts");
+            if path.exists() {
+                return path;
+            }
+        }
+        PathBuf::from("/nonexistent/sherpa-onnx-offline-tts")
+    }
 }
 
 fn resolve_kokoro_model_dir() -> Option<PathBuf> {
-    std::env::var("RIVERSIDE_KOKORO_MODEL_DIR")
-        .ok()
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .or_else(|| {
-            default_rosie_root_dir().map(|root| root.join("tts").join("kokoro-multi-lang-v1_0"))
-        })
+    default_rosie_root_dir().map(|root| root.join("tts").join("kokoro-multi-lang-v1_0"))
 }
 
 fn resolve_kokoro_model_path() -> Option<PathBuf> {
@@ -201,12 +183,45 @@ fn resolve_kokoro_model_path() -> Option<PathBuf> {
         .filter(|path| path.exists())
 }
 
-fn resolve_tts_fallback_command_path() -> PathBuf {
-    std::env::var("RIVERSIDE_TTS_FALLBACK_COMMAND_PATH")
-        .ok()
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| PathBuf::from("/usr/bin/say"))
+fn parse_sherpa_onnx_offline_output(stdout: &str) -> String {
+    if let Some(start) = stdout.find('{') {
+        if let Some(end) = stdout.rfind('}') {
+            if end > start {
+                let json_str = &stdout[start..=end];
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    if let Some(text) = val.get("text").and_then(|t| t.as_str()) {
+                        return text.trim().to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    for line in stdout.lines() {
+        if line.contains("Recognition result for") {
+            if let Some(pos) = line.find(':') {
+                let text = line[pos + 1..].trim();
+                if text.starts_with('{') {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(text) {
+                        if let Some(t) = val.get("text").and_then(|t| t.as_str()) {
+                            return t.trim().to_string();
+                        }
+                    }
+                }
+                let text = text.trim_matches('"');
+                return text.trim().to_string();
+            }
+        }
+    }
+
+    if let Some(last_line) = stdout.lines().filter(|l| !l.trim().is_empty()).last() {
+        if let Some(pos) = last_line.find("]:") {
+            return last_line[pos + 2..].trim().trim_matches('"').trim().to_string();
+        }
+        return last_line.trim().trim_matches('"').trim().to_string();
+    }
+
+    stdout.trim().to_string()
 }
 
 fn resolve_llama_provider() -> String {
@@ -304,25 +319,19 @@ pub async fn runtime_status(state: &RosieSpeechState) -> Result<RosieHostRuntime
         .map(|value| value.to_string())
         .unwrap_or_else(|| "8080".to_string());
 
-    let sensevoice_python = resolve_rosie_speech_python_path();
-    let sensevoice_script_present = bundled_script_path("rosie_sensevoice_transcribe.py").is_some();
+    let asr_bin = resolve_asr_binary_path();
+    let asr_present = command_exists(&asr_bin);
     let sensevoice_model_path = resolve_sensevoice_model_path();
     let sensevoice_tokens_path = resolve_sensevoice_tokens_path();
-    let sensevoice_ready = command_exists(&sensevoice_python)
-        && sensevoice_script_present
+    let sensevoice_ready = asr_present
         && sensevoice_model_path.is_some()
         && sensevoice_tokens_path.is_some();
 
-    let whisper_cli_path = resolve_whisper_cli_path();
-    let whisper_model_path = resolve_whisper_model_path();
-
-    let kokoro_python = resolve_rosie_speech_python_path();
-    let kokoro_script_present = bundled_script_path("rosie_kokoro_tts.py").is_some();
+    let tts_bin = resolve_tts_binary_path();
+    let tts_present = command_exists(&tts_bin);
     let kokoro_model_path = resolve_kokoro_model_path();
-    let kokoro_ready =
-        command_exists(&kokoro_python) && kokoro_script_present && kokoro_model_path.is_some();
+    let kokoro_ready = tts_present && kokoro_model_path.is_some();
 
-    let tts_fallback_command_path = resolve_tts_fallback_command_path();
     let speaking = speech_state_speaking(state).await?;
 
     Ok(RosieHostRuntimeStatus {
@@ -341,72 +350,36 @@ pub async fn runtime_status(state: &RosieSpeechState) -> Result<RosieHostRuntime
             running: resolve_llm_running(&upstream_url).await,
         },
         stt: RosieHostSttStatus {
-            engine_name: if sensevoice_ready {
-                "SenseVoice Small via WhisperCpp".to_string()
-            } else if command_exists(&whisper_cli_path)
-                && whisper_model_path
-                    .as_ref()
-                    .map(|path| path.exists())
-                    .unwrap_or(false)
-            {
-                "Whisper.cpp".to_string()
-            } else {
-                "Unavailable".to_string()
-            },
-            provider: "whispercpp".to_string(),
+            engine_name: "SenseVoice Small via Sherpa-ONNX".to_string(),
+            provider: "sherpa-onnx".to_string(),
             active_engine: if sensevoice_ready {
                 "sensevoice".to_string()
-            } else if command_exists(&whisper_cli_path)
-                && whisper_model_path
-                    .as_ref()
-                    .map(|path| path.exists())
-                    .unwrap_or(false)
-            {
-                "whisper".to_string()
             } else {
                 "unavailable".to_string()
             },
-            cli_path: sensevoice_python.display().to_string(),
-            cli_present: command_exists(&sensevoice_python) && sensevoice_script_present,
+            cli_path: asr_bin.display().to_string(),
+            cli_present: asr_present,
             model_name: "SenseVoice Small".to_string(),
             model_path: sensevoice_model_path
                 .as_ref()
                 .map(|path| path.display().to_string()),
             model_present: sensevoice_model_path.is_some() && sensevoice_tokens_path.is_some(),
-            fallback_engine_name: "whisper.cpp".to_string(),
-            fallback_cli_path: whisper_cli_path.display().to_string(),
-            fallback_cli_present: command_exists(&whisper_cli_path),
-            fallback_model_path: whisper_model_path.map(|path| path.display().to_string()),
-            fallback_model_present: resolve_whisper_model_path()
-                .map(|path| path.exists())
-                .unwrap_or(false),
         },
         tts: RosieHostTtsStatus {
-            engine_name: if kokoro_ready {
-                "Kokoro-82M via KokoroNative".to_string()
-            } else if command_exists(&tts_fallback_command_path) {
-                "Host Speech Command".to_string()
-            } else {
-                "Unavailable".to_string()
-            },
-            provider: "kokoronative".to_string(),
+            engine_name: "Kokoro-82M via Sherpa-ONNX".to_string(),
+            provider: "sherpa-onnx".to_string(),
             active_engine: if kokoro_ready {
                 "kokoro".to_string()
-            } else if command_exists(&tts_fallback_command_path) {
-                "host_fallback".to_string()
             } else {
                 "unavailable".to_string()
             },
-            command_path: kokoro_python.display().to_string(),
-            command_present: command_exists(&kokoro_python) && kokoro_script_present,
+            command_path: tts_bin.display().to_string(),
+            command_present: tts_present,
             model_name: "Kokoro-82M".to_string(),
             model_path: kokoro_model_path
                 .as_ref()
                 .map(|path| path.display().to_string()),
             model_present: kokoro_model_path.is_some(),
-            fallback_engine_name: "Host speech command".to_string(),
-            fallback_command_path: tts_fallback_command_path.display().to_string(),
-            fallback_command_present: command_exists(&tts_fallback_command_path),
             speaking,
         },
     })
@@ -428,112 +401,42 @@ pub async fn transcribe_wav(audio_base64: &str) -> Result<String, String> {
 }
 
 async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String> {
-    if let (Some(script_path), Some(model_path), Some(tokens_path)) = (
-        bundled_script_path("rosie_sensevoice_transcribe.py"),
-        resolve_sensevoice_model_path(),
-        resolve_sensevoice_tokens_path(),
-    ) {
-        let python_path = resolve_rosie_speech_python_path();
-        if command_exists(&python_path) {
-            let output = tokio::process::Command::new(&python_path)
-                .arg(script_path)
-                .args([
-                    "--model",
-                    model_path
-                        .to_str()
-                        .ok_or_else(|| "invalid SenseVoice model path".to_string())?,
-                    "--tokens",
-                    tokens_path
-                        .to_str()
-                        .ok_or_else(|| "invalid SenseVoice tokens path".to_string())?,
-                    "--input",
-                    wav_path
-                        .to_str()
-                        .ok_or_else(|| "invalid ROSIE voice capture path".to_string())?,
-                    "--language",
-                    "en",
-                    "--use-itn",
-                ])
-                .output()
-                .await
-                .map_err(|error| format!("failed to start ROSIE SenseVoice STT: {error}"))?;
+    let binary_path = resolve_asr_binary_path();
+    let model_path = resolve_sensevoice_model_path();
+    let tokens_path = resolve_sensevoice_tokens_path();
 
-            if output.status.success() {
-                let transcript = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !transcript.is_empty() {
-                    return Ok(transcript);
-                }
-            } else {
-                tracing::warn!(
-                    stderr = %String::from_utf8_lossy(&output.stderr).trim(),
-                    "SenseVoice STT failed, trying whisper fallback"
-                );
+    if command_exists(&binary_path) && model_path.is_some() && tokens_path.is_some() {
+        let model = model_path.unwrap();
+        let tokens = tokens_path.unwrap();
+        let output = tokio::process::Command::new(&binary_path)
+            .args([
+                &format!("--sense-voice-model={}", model.to_string_lossy()),
+                &format!("--tokens={}", tokens.to_string_lossy()),
+                "--num-threads=2",
+                "--decoding-method=greedy_search",
+                wav_path.to_str().ok_or_else(|| "invalid wav path".to_string())?,
+            ])
+            .output()
+            .await
+            .map_err(|e| format!("failed to start ROSIE SenseVoice STT: {e}"))?;
+
+        if output.status.success() {
+            let stdout_str = String::from_utf8_lossy(&output.stdout);
+            let transcript = parse_sherpa_onnx_offline_output(&stdout_str);
+            if !transcript.is_empty() {
+                return Ok(transcript);
             }
+            return Err("ROSIE STT did not detect any speech in the audio.".to_string());
+        } else {
+            let stderr_str = String::from_utf8_lossy(&output.stderr);
+            return Err(format!(
+                "SenseVoice STT failed: {}",
+                stderr_str.trim()
+            ));
         }
     }
 
-    let whisper_cli = resolve_whisper_cli_path();
-    if !command_exists(&whisper_cli) {
-        return Err(format!(
-            "ROSIE STT engine is not installed at {}",
-            whisper_cli.display()
-        ));
-    }
-
-    let whisper_model = resolve_whisper_model_path().ok_or_else(|| {
-        "SenseVoice is not configured and no whisper fallback model was found".to_string()
-    })?;
-    if !whisper_model.exists() {
-        return Err(format!(
-            "ROSIE whisper fallback model is missing at {}",
-            whisper_model.display()
-        ));
-    }
-
-    let output_prefix = temp_voice_prefix("voice-output", "txt");
-    let output_stem = output_prefix.with_extension("");
-
-    let output = tokio::process::Command::new(&whisper_cli)
-        .args([
-            "-m",
-            whisper_model
-                .to_str()
-                .ok_or_else(|| "invalid whisper model path".to_string())?,
-            "-f",
-            wav_path
-                .to_str()
-                .ok_or_else(|| "invalid voice capture path".to_string())?,
-            "-l",
-            "en",
-            "-otxt",
-            "-of",
-            output_stem
-                .to_str()
-                .ok_or_else(|| "invalid whisper output path".to_string())?,
-            "-np",
-            "-nt",
-        ])
-        .output()
-        .await
-        .map_err(|error| format!("failed to start ROSIE whisper fallback: {error}"))?;
-
-    let transcript_path = output_stem.with_extension("txt");
-    let transcript = tokio::fs::read_to_string(&transcript_path)
-        .await
-        .map_err(|error| format!("failed to read ROSIE whisper transcript: {error}"))?;
-    let _ = tokio::fs::remove_file(&transcript_path).await;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("ROSIE whisper fallback failed: {}", stderr.trim()));
-    }
-
-    let normalized = transcript.trim().to_string();
-    if normalized.is_empty() {
-        return Err("ROSIE STT did not detect any speech.".to_string());
-    }
-
-    Ok(normalized)
+    Err("ROSIE SenseVoice STT is not configured or binary is missing.".to_string())
 }
 
 pub async fn start_tts(
@@ -549,42 +452,62 @@ pub async fn start_tts(
         let _ = child.kill().await;
     }
 
-    let child = if let (Some(script_path), Some(model_dir)) = (
-        bundled_script_path("rosie_kokoro_tts.py"),
-        resolve_kokoro_model_dir(),
-    ) {
-        let python_path = resolve_rosie_speech_python_path();
-        if command_exists(&python_path) && resolve_kokoro_model_path().is_some() {
-            let voice_name = voice
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or("adam")
-                .to_string();
-            let speed = rate_multiplier.to_string();
-            tokio::process::Command::new(&python_path)
-                .arg(script_path)
-                .args([
-                    "--model-dir",
-                    model_dir
-                        .to_str()
-                        .ok_or_else(|| "invalid Kokoro model directory".to_string())?,
-                    "--voice",
-                    voice_name.as_str(),
-                    "--speed",
-                    speed.as_str(),
-                    "--text",
-                    text,
-                    "--stream",
-                ])
-                .spawn()
-                .map_err(|error| format!("failed to start ROSIE Kokoro TTS: {error}"))?
-        } else {
-            let command_path = resolve_tts_fallback_command_path();
-            fallback_tts_process(&command_path, text, rate_multiplier)?
-        }
+    let binary = resolve_tts_binary_path();
+    let model_dir = resolve_kokoro_model_dir().ok_or("Kokoro model dir not found")?;
+    let model_path = model_dir.join("model.onnx");
+    let voices_path = model_dir.join("voices.bin");
+    let tokens_path = model_dir.join("tokens.txt");
+    let data_dir = model_dir.join("espeak-ng-data");
+
+    if !command_exists(&binary) || !model_path.exists() {
+        return Err("ROSIE Kokoro TTS is not configured or binary is missing.".to_string());
+    }
+
+    let temp_wav = temp_voice_prefix("tts-speak", "wav");
+    let sid = voice
+        .and_then(|v| v.parse::<i32>().ok())
+        .unwrap_or(5);
+
+    let sid_str = sid.to_string();
+    let speed_str = rate_multiplier.to_string();
+
+    let mut cmd = if cfg!(windows) {
+        let cmd_str = format!(
+            "\"{}\" --kokoro-model=\"{}\" --kokoro-voices=\"{}\" --kokoro-tokens=\"{}\" --kokoro-data-dir=\"{}\" --output-filename=\"{}\" --sid={} --speed={} \"{}\" && powershell -c \"(New-Object Media.SoundPlayer '{}').PlaySync()\"",
+            binary.to_string_lossy(),
+            model_path.to_string_lossy(),
+            voices_path.to_string_lossy(),
+            tokens_path.to_string_lossy(),
+            data_dir.to_string_lossy(),
+            temp_wav.to_string_lossy(),
+            sid_str,
+            speed_str,
+            text.replace('"', "\\\""),
+            temp_wav.to_string_lossy()
+        );
+        let mut c = tokio::process::Command::new("cmd.exe");
+        c.args(["/C", &cmd_str]);
+        c
     } else {
-        let command_path = resolve_tts_fallback_command_path();
-        fallback_tts_process(&command_path, text, rate_multiplier)?
+        let cmd_str = format!(
+            "\"{}\" --kokoro-model=\"{}\" --kokoro-voices=\"{}\" --kokoro-tokens=\"{}\" --kokoro-data-dir=\"{}\" --output-filename=\"{}\" --sid={} --speed={} \"{}\" && afplay \"{}\"",
+            binary.to_string_lossy(),
+            model_path.to_string_lossy(),
+            voices_path.to_string_lossy(),
+            tokens_path.to_string_lossy(),
+            data_dir.to_string_lossy(),
+            temp_wav.to_string_lossy(),
+            sid_str,
+            speed_str,
+            text.replace('"', "\\\""),
+            temp_wav.to_string_lossy()
+        );
+        let mut c = tokio::process::Command::new("sh");
+        c.args(["-c", &cmd_str]);
+        c
     };
+
+    let child = cmd.spawn().map_err(|e| format!("failed to spawn TTS process: {e}"))?;
 
     *guard = Some(child);
     Ok("ROSIE TTS started".to_string())
@@ -596,43 +519,35 @@ pub async fn synthesize_tts_wav_base64(
     voice: Option<&str>,
 ) -> Result<String, String> {
     let rate_multiplier = rate.unwrap_or(1.0).clamp(0.8, 1.2);
-    let script_path = bundled_script_path("rosie_kokoro_tts.py")
-        .ok_or_else(|| "ROSIE Kokoro TTS script is not installed on the host.".to_string())?;
+    let binary = resolve_tts_binary_path();
     let model_dir = resolve_kokoro_model_dir()
-        .ok_or_else(|| "ROSIE Kokoro model directory is not configured on the host.".to_string())?;
-    let python_path = resolve_rosie_speech_python_path();
-    if !command_exists(&python_path) || resolve_kokoro_model_path().is_none() {
-        return Err("ROSIE Kokoro TTS is not available on the host.".to_string());
+        .ok_or_else(|| "ROSIE Kokoro model directory is not configured.".to_string())?;
+
+    if !command_exists(&binary) || resolve_kokoro_model_path().is_none() {
+        return Err("ROSIE Kokoro TTS is not available.".to_string());
     }
 
-    let voice_name = voice
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or("5")
-        .to_string();
-    let speed = rate_multiplier.to_string();
-    let provider = "native".to_string();
-    let wav_path = temp_voice_prefix("tts-output", "wav");
-    let output = tokio::process::Command::new(&python_path)
-        .arg(script_path)
+    let model_path = model_dir.join("model.onnx");
+    let voices_path = model_dir.join("voices.bin");
+    let tokens_path = model_dir.join("tokens.txt");
+    let data_dir = model_dir.join("espeak-ng-data");
+
+    let sid = voice
+        .and_then(|v| v.parse::<i32>().ok())
+        .unwrap_or(5);
+
+    let temp_wav = temp_voice_prefix("tts-synth", "wav");
+
+    let output = tokio::process::Command::new(&binary)
         .args([
-            "--model-dir",
-            model_dir
-                .to_str()
-                .ok_or_else(|| "invalid Kokoro model directory".to_string())?,
-            "--voice",
-            voice_name.as_str(),
-            "--speed",
-            speed.as_str(),
-            "--provider",
-            provider.as_str(),
-            "--text",
+            &format!("--kokoro-model={}", model_path.to_string_lossy()),
+            &format!("--kokoro-voices={}", voices_path.to_string_lossy()),
+            &format!("--kokoro-tokens={}", tokens_path.to_string_lossy()),
+            &format!("--kokoro-data-dir={}", data_dir.to_string_lossy()),
+            &format!("--output-filename={}", temp_wav.to_string_lossy()),
+            &format!("--sid={}", sid),
+            &format!("--speed={}", rate_multiplier),
             text,
-            "--output",
-            wav_path
-                .to_str()
-                .ok_or_else(|| "invalid ROSIE TTS output path".to_string())?,
-            "--no-play",
-            "--stream",
         ])
         .output()
         .await
@@ -640,35 +555,16 @@ pub async fn synthesize_tts_wav_base64(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let _ = tokio::fs::remove_file(&wav_path).await;
+        let _ = tokio::fs::remove_file(&temp_wav).await;
         return Err(format!("ROSIE Kokoro TTS failed: {}", stderr.trim()));
     }
 
-    let audio_bytes = tokio::fs::read(&wav_path)
+    let audio_bytes = tokio::fs::read(&temp_wav)
         .await
         .map_err(|error| format!("failed to read ROSIE synthesized speech: {error}"))?;
-    let _ = tokio::fs::remove_file(&wav_path).await;
+    let _ = tokio::fs::remove_file(&temp_wav).await;
+
     Ok(BASE64_STANDARD.encode(audio_bytes))
-}
-
-fn fallback_tts_process(
-    command_path: &Path,
-    text: &str,
-    rate_multiplier: f32,
-) -> Result<Child, String> {
-    if !command_exists(command_path) {
-        return Err(format!(
-            "ROSIE TTS engine is not available at {}",
-            command_path.display()
-        ));
-    }
-
-    let words_per_minute = (175.0 * rate_multiplier).round().to_string();
-
-    tokio::process::Command::new(command_path)
-        .args(["-r", &words_per_minute, text])
-        .spawn()
-        .map_err(|error| format!("failed to start ROSIE TTS fallback: {error}"))
 }
 
 pub async fn stop_tts(state: &RosieSpeechState) -> Result<String, String> {

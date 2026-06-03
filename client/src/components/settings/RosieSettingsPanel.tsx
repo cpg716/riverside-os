@@ -51,10 +51,6 @@ export default function RosieSettingsPanel() {
   );
   const activeTtsEngine = localRuntimeStatus?.tts.active_engine ?? "unavailable";
   const kokoroVoiceControlsAvailable = activeTtsEngine === "kokoro";
-  const ttsFallbackActive =
-    localRuntimeStatus != null &&
-    activeTtsEngine !== "kokoro" &&
-    activeTtsEngine !== "unavailable";
 
   useEffect(() => {
     saveLocalRosieSettings(localSettings);
@@ -341,8 +337,10 @@ export default function RosieSettingsPanel() {
                 <p className="mt-3 text-sm font-bold text-app-text">{localRuntimeStatus.stt.engine_name}</p>
                 <p className="mt-1 text-xs text-app-text-muted">Active: {localRuntimeStatus.stt.active_engine}</p>
                 <div className="mt-3 flex items-center gap-2 text-xs">
-                  <span className="text-app-text-muted">Fallback:</span>
-                  <span className="font-medium text-app-text">{localRuntimeStatus.stt.fallback_engine_name}</span>
+                  <span className="text-app-text-muted">Status:</span>
+                  <span className={`font-medium ${localRuntimeStatus.stt.model_present ? "text-green-600" : "text-red-600"}`}>
+                    {localRuntimeStatus.stt.model_present ? "Ready" : "Missing Model"}
+                  </span>
                 </div>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
@@ -464,7 +462,7 @@ export default function RosieSettingsPanel() {
                 <div className={`h-2 w-2 rounded-full ${kokoroVoiceControlsAvailable ? "bg-green-500" : "bg-yellow-500"}`} />
               </div>
               <p className="mt-1 text-xs text-app-text-muted">
-                {kokoroVoiceControlsAvailable ? "Kokoro voices available" : ttsFallbackActive ? "Using desktop fallback" : "TTS unavailable"}
+                {kokoroVoiceControlsAvailable ? "Kokoro voices available" : "TTS unavailable"}
               </p>
             </div>
             <select

@@ -107,7 +107,7 @@ If Riverside Settings cannot open because the API is down, manage the server fro
 
 Hotfix/support actions included in v0.80.9 packages:
 
-- **`Install-RosieAiStack.cmd`** installs the ROSIE AI models and Python voice tools, patches the server `.env` to make the local LLM reachable via `RIVERSIDE_LLAMA_UPSTREAM`, and restarts the server. Use this to restore ROSIE AI features on existing Server PCs without a full reinstall.
+- **`Install-RosieAiStack.cmd`** copies the precompiled ROSIE AI binaries (llama-server, sherpa-onnx) and models, verifies the Gemma GGUF model integrity, patches the server `.env` to make the local LLM reachable, and restarts the server. Use this to restore ROSIE AI features on existing Server PCs without a full reinstall.
 - **`Repair-RiversideCredentialsKey.cmd`** repairs the installed server credential key, writes it to both `C:\RiversideOS\server\.env` and the Windows machine environment, and restarts the `Riverside OS Server` task. Use this when Backoffice Settings says `RIVERSIDE_CREDENTIALS_KEY` must be set before integration credentials can be saved.
 - **`Set-CounterpointBridgeToken.cmd`** prompts for the exact `COUNTERPOINT_SYNC_TOKEN` from the Counterpoint bridge `.env`, writes that same token to the Riverside server environment, and restarts the server. Use this when the Counterpoint bridge reaches Riverside but fails with `health 401`.
 
@@ -151,7 +151,7 @@ The script:
 - Copies bundled docs into `C:\RiversideOS\release\docs` for help/reindex workflows when enabled.
 - Creates/updates the PostgreSQL app role and database.
 - Applies pending migrations using `psql`.
-- Downloads the pinned ROSIE LLM model (Gemma E4B) and installs the sherpa-onnx Python voice stack.
+- Extracts precompiled ROSIE binaries (llama-server, sherpa-onnx-offline, sherpa-onnx-offline-tts) and models, and verifies the Gemma GGUF model hash (matching `MODEL_PIN.json`).
 - Writes `C:\RiversideOS\server\.env`.
 - Adds the inbound firewall rule for the configured server port.
 - Creates a startup scheduled task named `Riverside OS Server`.

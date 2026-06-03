@@ -121,9 +121,70 @@ if (-not $success) {
     }
 }
 
-# 4b. ROSIE / llama-server loopback
+# 4b. ROSIE AI Stack Checks
 Write-Host ""
-Write-Host "--- ROSIE Host LLM Checks ---" -ForegroundColor Blue
+Write-Host "--- ROSIE AI Stack Checks ---" -ForegroundColor Blue
+
+$contractInstallRoot = "C:\RiversideOS"
+if ($config -and $config.server -and $config.server.installRoot) {
+    $contractInstallRoot = $config.server.installRoot
+}
+$rosieRoot = Join-Path $contractInstallRoot "rosie"
+$readyFlag = Join-Path $rosieRoot "rosie_ready"
+
+if (Test-Path $readyFlag) {
+    Write-Host "[OK] ROSIE stack ready flag file found at $readyFlag." -ForegroundColor Green
+} else {
+    Write-Host "[FAIL] ROSIE stack ready flag file is missing at $readyFlag. ROSIE was not installed correctly." -ForegroundColor Red
+}
+
+# Verify precompiled binaries
+$requiredBinaries = @(
+    "llama-server.exe",
+    "sherpa-onnx-offline.exe",
+    "sherpa-onnx-offline-tts.exe"
+)
+foreach ($bin in $requiredBinaries) {
+    $binPath = Join-Path $rosieRoot "bin\$bin"
+    if (Test-Path $binPath) {
+        Write-Host "[OK] Binary verified: $bin" -ForegroundColor Green
+    } else {
+        Write-Host "[FAIL] Binary missing: $binPath" -ForegroundColor Red
+    }
+}
+
+# Verify models
+$sensevoiceModel = Join-Path $rosieRoot "stt\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17\model.int8.onnx"
+if (Test-Path $sensevoiceModel) {
+    Write-Host "[OK] STT (SenseVoice) model verified: $sensevoiceModel" -ForegroundColor Green
+} else {
+    Write-Host "[FAIL] STT (SenseVoice) model missing at $sensevoiceModel" -ForegroundColor Red
+}
+
+$kokoroModel = Join-Path $rosieRoot "tts\kokoro-multi-lang-v1_0\model.onnx"
+if (Test-Path $kokoroModel) {
+    Write-Host "[OK] TTS (Kokoro) model verified: $kokoroModel" -ForegroundColor Green
+} else {
+    Write-Host "[FAIL] TTS (Kokoro) model missing at $kokoroModel" -ForegroundColor Red
+}
+
+# Verify Gemma GGUF model via MODEL_PIN.json
+$pinPath = Join-Path $packageRoot "rosie\MODEL_PIN.json"
+$gemmaFilename = "google_gemma-4-E4B-it-Q4_K_M.gguf"
+if (Test-Path $pinPath) {
+    try {
+        $pin = Get-Content -Raw $pinPath | ConvertFrom-Json
+        if ($pin.filename) { $gemmaFilename = $pin.filename }
+    } catch {}
+}
+$gemmaModelPath = Join-Path $rosieRoot "models\gemma-4-e4b\$gemmaFilename"
+if (Test-Path $gemmaModelPath) {
+    Write-Host "[OK] LLM (Gemma GGUF) model verified: $gemmaModelPath" -ForegroundColor Green
+} else {
+    Write-Host "[FAIL] LLM (Gemma GGUF) model missing at $gemmaModelPath" -ForegroundColor Red
+}
+
+# Network connection and Scheduled Task checks
 $llamaHost = "127.0.0.1"
 $llamaPort = 8080
 if ($config -and $config.server -and $config.server.environment) {
