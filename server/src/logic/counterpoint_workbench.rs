@@ -770,13 +770,25 @@ pub async fn get_merge_preview(
             FROM products p WHERE p.data_source = 'counterpoint' AND p.catalog_handle IS NOT NULL
         ),
         ls_items AS (
-            SELECT pv.product_id, MAX(r.product_name) AS product_name
+            SELECT p.id AS product_id, MAX(r.product_name) AS product_name
             FROM lightspeed_normalization_reference_rows r
             JOIN lightspeed_normalization_batches b ON b.id = r.batch_id
-            JOIN product_variant_barcode_aliases alias ON alias.normalized_alias = lower(trim(r.sku))
-            JOIN product_variants pv ON pv.id = alias.variant_id
-            WHERE b.status = 'active' AND alias.alias_type = 'counterpoint_b_sku' AND alias.status = 'active'
-            GROUP BY pv.product_id
+            JOIN products p ON p.data_source = 'counterpoint' AND p.catalog_handle IS NOT NULL AND (
+                -- Strategy A: Tag Match (Lightspeed Tag = Counterpoint Item # I-XXXXX)
+                lower(trim(r.tags)) = lower(trim(p.catalog_handle))
+                OR r.tags LIKE '%' || p.catalog_handle || '%'
+                -- Strategy B: SKU Match (Lightspeed SKU = Counterpoint Variant B-SKU Barcode)
+                OR EXISTS (
+                    SELECT 1 FROM product_variants pv
+                    JOIN product_variant_barcode_aliases alias ON alias.variant_id = pv.id
+                    WHERE pv.product_id = p.id
+                      AND alias.alias_type = 'counterpoint_b_sku'
+                      AND alias.status = 'active'
+                      AND alias.normalized_alias = lower(trim(r.sku))
+                )
+            )
+            WHERE b.status = 'active'
+            GROUP BY p.id
         ),
         cp_csv_items AS (
             SELECT r.item_no, r.description
