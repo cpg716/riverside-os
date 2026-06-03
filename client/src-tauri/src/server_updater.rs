@@ -280,8 +280,8 @@ try {{
     Write-Host 'Step 2: Running repair-bootstrap-admin.ps1...'
     ./repair-bootstrap-admin.ps1 -ConfigPath '{config_path}'
 
-    Write-Host 'Step 3: Updating Backoffice client on this PC...'
-    ./install-register.ps1 -ConfigPath '{config_path}' -StationMode 'backoffice'
+    Write-Host 'Step 3: Updating client app on this PC (preserving existing config)...'
+    ./install-register.ps1 -ConfigPath '{config_path}'
 
     # Checksum verification
     if (Test-Path -Path $serverBin) {{

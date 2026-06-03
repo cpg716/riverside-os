@@ -384,7 +384,9 @@ export default function UpdateManagerPanel() {
                 Windows app
               </h3>
               <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
-                Updates this Windows station to the current Riverside release.
+                {serverLocalStatus?.is_local
+                  ? "Updates this Windows station. (Note: Running the server update below automatically updates the app on this PC)."
+                  : "Updates this Windows station to the current Riverside release."}
               </p>
             </div>
           </div>
@@ -476,7 +478,7 @@ export default function UpdateManagerPanel() {
                 </h3>
                 <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
                   {serverLocalStatus?.is_local
-                    ? "This is the Main Hub. Updates run directly on this PC."
+                    ? "This is the Main Hub. Updates run directly on this PC and atomically update both the server and desktop app."
                     : "Go to the Main Hub (server PC) to run server updates."}
                 </p>
               </div>
@@ -585,7 +587,9 @@ export default function UpdateManagerPanel() {
                 {serverUpdateBusy ? (
                   <><RefreshCw className="h-4 w-4 animate-spin" />Updating...</>
                 ) : serverUpdateCheck?.update_available ? (
-                  `Update server to v${serverUpdateCheck.latest_version}`
+                  serverLocalStatus?.is_local
+                    ? `Update Server & Client App to v${serverUpdateCheck.latest_version}`
+                    : `Update server to v${serverUpdateCheck.latest_version}`
                 ) : (
                   "Server is up to date"
                 )}
@@ -606,7 +610,7 @@ export default function UpdateManagerPanel() {
                 {[
                   "On the Main Hub, open Settings → Updates.",
                   "Confirm the update window (before 10 AM or after 6 PM).",
-                  "Click \"Update server\" — it downloads, installs, and migrates automatically.",
+                  "Click \"Update Server & Client App\" — it downloads, installs, and migrates automatically.",
                   "Relaunch Riverside on all stations when prompted.",
                 ].map((step, i) => (
                   <li key={i} className="flex gap-2">

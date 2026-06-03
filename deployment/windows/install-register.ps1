@@ -289,6 +289,28 @@ if (-not (Test-Path $ConfigPath)) {
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 Ensure-RegisterConfigDefaults $config
 
+$programData = $env:PROGRAMDATA
+if (-not $programData) {
+  $programData = "C:\ProgramData"
+}
+$localConfigPath = Join-Path $programData "RiversideOS\station-config.json"
+
+if (Test-Path $localConfigPath) {
+  try {
+    $localConfig = Get-Content $localConfigPath -Raw | ConvertFrom-Json
+    if ($localConfig -and $localConfig.register) {
+      Write-Host "Found existing station configuration at $localConfigPath. Preserving settings."
+      foreach ($prop in $localConfig.register.PSObject.Properties) {
+        if ($null -ne $prop.Value) {
+          Set-SafeProperty $config.register $prop.Name $prop.Value
+        }
+      }
+    }
+  } catch {
+    Write-Warning "Could not read existing station config at $localConfigPath: $($_.Exception.Message)"
+  }
+}
+
 if ($packageManifest -and $packageManifest.releaseVersion) {
   if ($config.releaseVersion -ne $packageManifest.releaseVersion) {
     Set-SafeProperty $config "releaseVersion" $packageManifest.releaseVersion
