@@ -415,10 +415,16 @@ function Invoke-NativeCommand([string]$FilePath, [string[]]$Arguments) {
   $psi.UseShellExecute = $false
   $psi.RedirectStandardOutput = $true
   $psi.RedirectStandardError = $true
+  # Redirect stdin so psql (and other tools) can NEVER open an interactive
+  # password prompt in the console window. If PGPASSWORD is wrong the tool
+  # will exit non-zero immediately instead of blocking.
+  $psi.RedirectStandardInput = $true
 
   $process = New-Object System.Diagnostics.Process
   $process.StartInfo = $psi
   [void]$process.Start()
+  # Close stdin immediately so the child never blocks waiting for input.
+  $process.StandardInput.Close()
   $stdout = $process.StandardOutput.ReadToEnd()
   $stderr = $process.StandardError.ReadToEnd()
   $process.WaitForExit()
@@ -438,7 +444,7 @@ function Invoke-Psql($PsqlPath, $DatabaseUrl, $Sql) {
   try {
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText($temp.FullName, $Sql, $utf8NoBom)
-    $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-f", $temp.FullName)
+    $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-w", "-f", $temp.FullName)
     if ($exitCode -ne 0) {
       throw "psql failed with exit code $exitCode. $script:lastNativeCommandOutput"
     }
@@ -448,7 +454,7 @@ function Invoke-Psql($PsqlPath, $DatabaseUrl, $Sql) {
 }
 
 function Invoke-PsqlFile($PsqlPath, $DatabaseUrl, $FilePath) {
-  $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-1", "-f", $FilePath)
+  $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-1", "-w", "-f", $FilePath)
   if ($exitCode -ne 0) {
     throw "psql failed with exit code $exitCode. $script:lastNativeCommandOutput"
   }
@@ -1003,29 +1009,31 @@ if (Test-PlaceholderSecret $config.server.database.appPassword) {
     $currentPwd = $config.server.database.adminPassword
     if (Test-PlaceholderSecret $currentPwd) { $currentPwd = "" }
 
-    # Test current configured password
+    # Test current configured password.
+    # -w (--no-password) prevents psql from ever opening an interactive prompt;
+    # if the password is wrong it exits non-zero immediately.
     $env:PGPASSWORD = $currentPwd
-    $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
-    $env:PGPASSWORD = $null
+    $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -w -c "SELECT 1;" -t 2>&1
+    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
     if ($LASTEXITCODE -eq 0) {
       $authenticated = $true
       Set-SafeProperty $config.server.database "adminPassword" $currentPwd
     } else {
-      # Try trust authentication (empty password)
+      # Try trust authentication (empty/no password)
       $env:PGPASSWORD = ""
-      $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
-      $env:PGPASSWORD = $null
+      $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -w -c "SELECT 1;" -t 2>&1
+      Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
       if ($LASTEXITCODE -eq 0) {
         $authenticated = $true
         Set-SafeProperty $config.server.database "adminPassword" ""
         $configModified = $true
         Write-Host "PostgreSQL trust authentication detected (no password required)." -ForegroundColor Green
       } else {
-        # Try common passwords
+        # Try common default passwords
         foreach ($pwd in @("postgres", "admin", "password")) {
           $env:PGPASSWORD = $pwd
-          $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
-          $env:PGPASSWORD = $null
+          $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -w -c "SELECT 1;" -t 2>&1
+          Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
           if ($LASTEXITCODE -eq 0) {
             $authenticated = $true
             Set-SafeProperty $config.server.database "adminPassword" $pwd

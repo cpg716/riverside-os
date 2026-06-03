@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [string]$ConfigPath = ""
 )
@@ -29,10 +29,13 @@ function Invoke-NativeCommand([string]$FilePath, [string[]]$Arguments) {
   $psi.UseShellExecute = $false
   $psi.RedirectStandardOutput = $true
   $psi.RedirectStandardError = $true
+  # Close stdin so psql can never open an interactive password prompt.
+  $psi.RedirectStandardInput = $true
 
   $process = New-Object System.Diagnostics.Process
   $process.StartInfo = $psi
   [void]$process.Start()
+  $process.StandardInput.Close()
   $stdout = $process.StandardOutput.ReadToEnd()
   $stderr = $process.StandardError.ReadToEnd()
   $process.WaitForExit()
@@ -52,7 +55,7 @@ function Invoke-Psql($PsqlPath, $DatabaseUrl, $Sql) {
   try {
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText($temp.FullName, $Sql, $utf8NoBom)
-    $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-f", $temp.FullName)
+    $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-w", "-f", $temp.FullName)
     if ($exitCode -ne 0) {
       throw "psql failed with exit code $exitCode. $script:lastNativeCommandOutput"
     }
