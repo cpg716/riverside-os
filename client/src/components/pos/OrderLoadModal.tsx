@@ -35,6 +35,7 @@ export interface OrderItem {
   unit_price: string;
   fulfillment: string;
   order_lifecycle_status?: string | null;
+  alteration_status?: string | null;
   is_fulfilled: boolean;
   is_rush?: boolean;
   need_by_date?: string | null;
@@ -237,12 +238,20 @@ export default function OrderLoadModal({
       : "No payment is on this order yet. Confirm receiving and pickup status before collecting money.";
   };
 
-  const lineLifecycleLabel = (status?: string | null) => {
+  const lineLifecycleLabel = (status?: string | null, alterationStatus?: string | null) => {
+    if (status === "received" && alterationStatus) {
+      if (alterationStatus === "intake") {
+        return "Scheduled for Alterations";
+      }
+      if (alterationStatus === "in_work" || alterationStatus === "verify_completed") {
+        return "In Alterations";
+      }
+    }
     switch (status) {
       case "needs_measurements":
         return "Needs Measurements";
       case "ntbo":
-        return "Ready to Order";
+        return "Need to be ordered (NTBO)";
       case "ordered":
         return "Ordered";
       case "received":
@@ -645,12 +654,13 @@ export default function OrderLoadModal({
                         </span>
                         <span
                           className={`mt-2 w-fit rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${
-                            item.order_lifecycle_status === "needs_measurements"
+                            item.order_lifecycle_status === "needs_measurements" ||
+                            (item.order_lifecycle_status === "received" && item.alteration_status)
                               ? "border-app-warning/25 bg-app-warning/10 text-app-warning"
                               : "border-app-border bg-app-surface text-app-text-muted"
                           }`}
                         >
-                          {lineLifecycleLabel(item.order_lifecycle_status)}
+                          {lineLifecycleLabel(item.order_lifecycle_status, item.alteration_status)}
                         </span>
                         {item.fulfillment === "wedding_order" && (
                           <span className="mt-1 text-[10px] font-bold uppercase tracking-widest text-rose-600">

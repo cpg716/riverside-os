@@ -305,7 +305,22 @@ pub async fn query_paged_transactions(
                             WHEN oi.order_lifecycle_status = 'needs_measurements' THEN 'Needs measurements'
                             WHEN oi.order_lifecycle_status = 'picked_up' THEN 'Picked up'
                             WHEN oi.order_lifecycle_status = 'ready_for_pickup' THEN 'Ready for pickup'
-                            WHEN oi.order_lifecycle_status = 'received' THEN 'Received'
+                            WHEN oi.order_lifecycle_status = 'received' THEN
+                                COALESCE(
+                                    (
+                                        SELECT 
+                                            CASE 
+                                                WHEN alt.status = 'intake' THEN 'Scheduled for Alterations'
+                                                WHEN alt.status IN ('in_work', 'verify_completed') THEN 'In Alterations'
+                                                ELSE 'Received'
+                                            END
+                                        FROM alteration_orders alt
+                                        WHERE alt.source_transaction_line_id = oi.id
+                                        ORDER BY alt.created_at DESC
+                                        LIMIT 1
+                                    ),
+                                    'Received'
+                                )
                             WHEN oi.order_lifecycle_status = 'ordered' THEN 'Ordered'
                             ELSE 'NTBO'
                         END

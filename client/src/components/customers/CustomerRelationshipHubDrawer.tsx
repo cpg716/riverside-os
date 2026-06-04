@@ -291,6 +291,8 @@ function customerTimelineKindLabel(kind: string): string {
       return "Appointment";
     case "shipping":
       return "Shipment update";
+    case "void":
+      return "Void";
     default:
       return humanizeToken(kind);
   }
@@ -2039,6 +2041,7 @@ export function CustomerRelationshipHubDrawer({
         measurement: "bg-violet-500",
         appointment: "bg-indigo-500",
         shipping: "bg-teal-500",
+        void: "bg-red-500",
       }) as Record<string, string>,
     [],
   );

@@ -83,6 +83,7 @@ interface OrderItem {
   local_tax: string;
   fulfillment: FulfillmentKind;
   order_lifecycle_status?: string;
+  alteration_status?: string | null;
   /** Takeaway lines can be fulfilled at checkout; orders at pickup. */
   is_fulfilled: boolean;
 }
@@ -169,6 +170,10 @@ function formatLifecycleStatusLabel(status: string | null | undefined) {
       return "Ordered";
     case "received":
       return "Received";
+    case "scheduled for alterations":
+      return "Scheduled for Alterations";
+    case "in alterations":
+      return "In Alterations";
     case "ready for pickup":
       return "Ready for Pickup";
     case "picked up":

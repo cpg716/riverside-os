@@ -124,7 +124,6 @@ pub async fn query_customer_transaction_history(
               AND (crp.unlinked_at IS NULL OR o.booked_at <= crp.unlinked_at)
         )) "#,
     );
-    qb.push(" AND o.status != 'cancelled'::order_status ");
     match q.record_scope {
         CustomerHistoryRecordScope::Transactions => {
             // Counterpoint tickets belong in Transactions; Counterpoint open docs do not.

@@ -20,6 +20,7 @@ import {
   Clock,
   Search,
   ShieldAlert,
+  RefreshCw,
 } from "lucide-react";
 import ReceiptSummaryModal from "./ReceiptSummaryModal";
 import PosVoidTransactionModal, { type PosVoidTransactionTarget } from "./PosVoidTransactionModal";
@@ -29,6 +30,20 @@ import { openProfessionalDailySalesPrint, openProfessionalZReportPrint } from ".
 import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
+
+const isBookedToday = (occurredAtStr?: string | null) => {
+  if (!occurredAtStr) return false;
+  const occurredDate = new Date(occurredAtStr).toDateString();
+  const todayDate = new Date().toDateString();
+  return occurredDate === todayDate;
+};
+
+const isBeforeBatchCloseout = () => {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  return hours < 21 || (hours === 21 && minutes < 30);
+};
 
 type PresetId = "today" | "yesterday" | "this_week" | "this_month" | "this_year" | "custom";
 type ZPresetId = "recent" | "today" | "yesterday" | "this_week" | "this_month" | "custom";
@@ -400,11 +415,13 @@ export default function RegisterReports({
   onOpenWeddingParty,
   deepLinkTransactionId,
   onDeepLinkConsumed,
+  onOpenRefundInRegister,
 }: {
   sessionId: string | null;
   onOpenWeddingParty?: (partyId: string) => void;
   deepLinkTransactionId?: string | null;
   onDeepLinkConsumed?: () => void;
+  onOpenRefundInRegister?: (transactionId: string) => void;
 }) {
   const [view, setView] = useState<"dashboard" | "activity" | "z-reports">("dashboard");
   const [preset, setPreset] = useState<PresetId>("today");
@@ -783,9 +800,22 @@ export default function RegisterReports({
           return false;
         }
         const payload = (await res.json()) as {
+          status: string;
+          transaction_id: string;
           reversal_status?: string;
           refundable_amount?: string;
+          pop_cash_drawer?: boolean;
         };
+
+        if (payload.pop_cash_drawer) {
+          try {
+            const { printRawEscPosBase64 } = await import("../../lib/printerBridge");
+            await printRawEscPosBase64("G3AAMvo=");
+          } catch (e) {
+            console.error("Cash drawer pop failed during void", e);
+          }
+        }
+
         const amount = payload.refundable_amount ? `$${payload.refundable_amount}` : "the paid balance";
         toast(
           payload.reversal_status === "no_refund_due"
@@ -794,10 +824,14 @@ export default function RegisterReports({
           "success",
         );
         setVoidTarget(null);
-        const bookedData = await fetchSummary("booked");
-        if (bookedData) setSummaryBooked(bookedData);
-        const fulfilledData = await fetchSummary("fulfilled");
-        if (fulfilledData) setSummary(fulfilledData);
+        if (payload.reversal_status === "pending_refund" && onOpenRefundInRegister) {
+          onOpenRefundInRegister(payload.transaction_id);
+        } else {
+          const bookedData = await fetchSummary("booked");
+          if (bookedData) setSummaryBooked(bookedData);
+          const fulfilledData = await fetchSummary("fulfilled");
+          if (fulfilledData) setSummary(fulfilledData);
+        }
         return true;
       } catch {
         toast("Transaction void is unavailable. Try again or call a manager.", "error");
@@ -806,7 +840,7 @@ export default function RegisterReports({
         setVoidBusy(false);
       }
     },
-    [apiAuth, fetchSummary, sessionId, toast, voidTarget],
+    [apiAuth, fetchSummary, sessionId, toast, voidTarget, onOpenRefundInRegister],
   );
 
   return (
@@ -1164,18 +1198,37 @@ export default function RegisterReports({
                              >
                                <Search size={14} /> Detail
                              </button>
-                             <button
-                               type="button"
-                               onClick={() => {
-                                 const target = activityVoidTarget(row);
-                                 if (target) setVoidTarget(target);
-                               }}
-                               disabled={!activityTransactionId(row)}
-                               className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 py-2 text-sm font-black text-app-danger shadow-sm transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                             >
-                               <ShieldAlert size={14} /> Void
-                             </button>
-                          </div>
+                             {(() => {
+                                const transactionId = activityTransactionId(row);
+                                const canVoid = isBookedToday(row.occurred_at) && isBeforeBatchCloseout();
+                                return canVoid ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const target = activityVoidTarget(row);
+                                      if (target) setVoidTarget(target);
+                                    }}
+                                    disabled={!transactionId}
+                                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-app-danger/30 bg-app-danger/10 px-3 py-2 text-sm font-black text-app-danger shadow-sm transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    <ShieldAlert size={14} /> Void
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (transactionId && onOpenRefundInRegister) {
+                                        onOpenRefundInRegister(transactionId);
+                                      }
+                                    }}
+                                    disabled={!transactionId}
+                                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-black text-emerald-500 shadow-sm transition-all hover:bg-emerald-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    <RefreshCw size={14} /> Refund
+                                  </button>
+                                );
+                              })()}
+                            </div>
                         </div>
 
                         {/* 2. Items Ledger (Middle) */}

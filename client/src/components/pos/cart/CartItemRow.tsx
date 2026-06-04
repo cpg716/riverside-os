@@ -2,6 +2,7 @@ import { Edit3, Gift, Scissors, Trash2, Tag } from "lucide-react";
 import { type CartLineItem, type FulfillmentKind, type PosStaffRow } from "../types";
 import { centsToFixed2, parseMoneyToCents } from "../../../lib/money";
 import StaffMiniSelector from "../../ui/StaffMiniSelector";
+import { isCustomOrderSku } from "../../../lib/customOrders";
 
 interface CartItemRowProps {
   line: CartLineItem;
@@ -59,9 +60,11 @@ export function CartItemRow({
       : 0;
 
   const laterLabel =
-    orderLaterFulfillment === "wedding_order"
-      ? "Order"
-      : "Order"; 
+    line.fulfillment === "custom" || isCustomOrderSku(line.sku) || line.custom_item_type
+      ? "Order (Custom)"
+      : orderLaterFulfillment === "wedding_order"
+        ? "Order (Wedding)"
+        : "Order (Special)";
 
   const isPickupLine = Boolean(line.transaction_line_id);
 
@@ -117,6 +120,21 @@ export function CartItemRow({
             {line.gift_card_load_code ? (
               <span className="rounded bg-app-info/12 px-1.5 py-0.5 font-mono text-[10px] font-black text-app-info ring-1 ring-app-info/15">
                 #{line.gift_card_load_code}
+              </span>
+            ) : null}
+            {line.fulfillment !== "takeaway" ? (
+              <span className={`rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest border ${
+                line.fulfillment === "custom"
+                  ? "border-app-info/20 bg-app-info/10 text-app-info"
+                  : line.fulfillment === "wedding_order"
+                    ? "border-app-danger/20 bg-app-danger/10 text-app-danger"
+                    : "border-app-warning/20 bg-app-warning/10 text-app-warning"
+              }`}>
+                {line.fulfillment === "custom"
+                  ? "ORDER (Custom)"
+                  : line.fulfillment === "wedding_order"
+                    ? "ORDER (Wedding)"
+                    : "ORDER (Special)"}
               </span>
             ) : null}
           </div>

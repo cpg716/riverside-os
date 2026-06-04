@@ -14,60 +14,45 @@ A completed-sale void is not a delete. ROS keeps the original Transaction Record
 
 Use a completed-sale void only when the original sale should no longer count as a sale and the reversal needs to stay traceable for register close, reporting, QBO, RMS, and customer history.
 
+## Voids vs. Refunds: The Settlement Boundary
+
+Voids and refunds handle transaction reversals differently based on whether the payment has settled:
+
+* **Voids (Unsettled Transactions)**: A void cancels a transaction before it settles. This is only possible **before the daily Helcim card batch closeout** (end of business day). Voiding cancels the temporary bank hold, and the transaction is removed from the customer's pending card statement without money moving.
+* **Refunds (Settled Transactions)**: Once the daily batch is closed and sent for settlement, a void is technically impossible. The system disables the "Void" option and forces a **Refund** workflow. Refunds issue a credit back to the settled charge, which takes 2–3 business days to post to the card holder.
+
+## Digital Ledger Flow (Reversal Steps)
+
+When you click **Void** on the POS UI, the system executes these three phases:
+
+1. **Payment Reversal (Helcim API)**: Sends a 'Void' command to Helcim to release the hold on card transactions.
+2. **Local Ledger Reversal**: Updates the transaction status to `'voided'` and zeroes out net sales.
+3. **Audit History & Customer Profile**: A permanent audit log of the void (identifying the manager who authorized it and the reason) is written and displayed on the **Customer's Profile Timeline**.
+4. **Inventory Reintegration**: Takeaway items are automatically returned to Stock on Hand (SOH).
+
+## Register & Tender Management
+
+To ensure financial auditability, initiating a void automatically opens the **Register Overlay** to manage the tender reversal (Credit Card release, Cash out, or Check cancellation). This guarantees that drawer totals and register sessions reconcile perfectly at the end of the day.
+
 ## Before approving
 
 Manager confirms:
 
-1. The transaction is the correct customer, date, amount, and receipt.
-2. The reason is specific enough for later review.
-3. The tender reversal is clear: cash, card, split tender, gift card, store credit, or no refund due.
-4. Any card outcome is known. Do not retry or void around an uncertain provider result.
-5. Inventory impact is understood. Takeaway fulfilled items may restock; order-style fulfillment does not silently put stock back.
-6. Wedding, deposit, RMS Charge, or open balance context is understood before proceeding.
+1. **Unsettled Status**: The transaction is from the current day and the card batch has not yet settled (otherwise, use Refund).
+2. **Identity & Authorization**: Manager enters their Access PIN to authenticate the override.
+3. **Specific Reason**: A clear, descriptive reason is entered for the audit trail.
+4. **Drawer Integration**: Confirm the Register Drawer is open to record cash/check tender adjustments.
 
 ## Void a completed sale
 
-1. POS -> **Reports**.
-2. In **Daily Sales**, find the completed transaction in Activity.
-3. Confirm customer, amount, tender, and timestamp.
-4. Tap **Void**.
-5. Read the impact list in the modal.
-6. Enter a clear reason.
-7. Manager selects their identity and enters their **Access PIN**.
-8. Confirm the completion message:
-   - **Refund workflow opened** means money still needs to be returned through the refund process.
-   - **No refund balance remains** means the transaction was already unpaid or fully refunded.
-
-## After the void
-
-Do not treat the void as finished until the reversal state is resolved.
-
-- Cash refunds are paid from the drawer through the refund flow.
-- Card refunds use the Helcim refund path when original provider evidence exists.
-- Gift-card refunds credit the selected gift card.
-- Store-credit refunds credit the customer's store credit ledger.
-- Split tenders keep the tender breakdown visible for reconciliation.
-- Loyalty accrual is reversed when applicable.
-
-## Reconciliation review
-
-At close or daily review, manager checks:
-
-- void reason and manager approver
-- refund queue status
-- refund tender evidence
-- restock impact
-- customer-facing receipt/history expectations
-- QBO staging warnings or revision rows
-- RMS/R2S follow-up if the transaction touched RMS Charge
-
-## When to stop and escalate
-
-- Card or Helcim status is unclear.
-- Customer wants a different refund tender than store policy allows.
-- The transaction includes wedding group payments, deposits, RMS Charge, or partially fulfilled items and the correct reversal is not obvious.
-- The void modal or refund processor fails.
-- The transaction already has confusing refund history.
+1. Go to POS -> **Reports**.
+2. Under **Daily Sales**, find the completed transaction in the Activity listing.
+3. Verify that the transaction is unsettled (the **Void** button will be active).
+4. Tap **Void**. This will launch the Register Overlay.
+5. Enter a detailed reason for the void.
+6. Verify the manager identity and enter your **Access PIN**.
+7. Complete the tender adjustments in the Register overlay.
+8. Verify that the void event shows up on the customer's activity timeline.
 
 ---
 
@@ -79,4 +64,4 @@ At close or daily review, manager checks:
 - [qbo-bridge.md](qbo-bridge.md)
 - [../TRANSACTION_RETURNS_EXCHANGES.md](../TRANSACTION_RETURNS_EXCHANGES.md)
 
-**Last reviewed:** 2026-05-17
+**Last reviewed:** 2026-06-03

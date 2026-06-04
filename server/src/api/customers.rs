@@ -5519,6 +5519,17 @@ struct MarketingEmailEventTimelineRow {
     provider: String,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct VoidTimelineRow {
+    id: Uuid,
+    transaction_id: Uuid,
+    display_id: Option<String>,
+    created_at: DateTime<Utc>,
+    reason: String,
+    refundable_amount: Decimal,
+    manager_name: Option<String>,
+}
+
 async fn build_customer_timeline(
     pool: &sqlx::PgPool,
     customer_id: Uuid,
@@ -5550,7 +5561,6 @@ async fn build_customer_timeline(
                   AND (crp.unlinked_at IS NULL OR o.booked_at <= crp.unlinked_at)
             )
         )
-          AND o.status != 'cancelled'::order_status
         GROUP BY o.id, o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.booked_at
         ORDER BY o.booked_at DESC
         LIMIT 25
@@ -5744,6 +5754,41 @@ async fn build_customer_timeline(
     .fetch_all(pool)
     .await?;
 
+    let voids = sqlx::query_as::<_, VoidTimelineRow>(
+        r#"
+        SELECT
+            v.id,
+            v.transaction_id,
+            COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
+            v.created_at,
+            v.reason,
+            v.refundable_amount,
+            m.full_name AS manager_name
+        FROM transaction_void_records v
+        INNER JOIN transactions o ON o.id = v.transaction_id
+        LEFT JOIN staff m ON m.id = v.manager_staff_id
+        WHERE (
+            o.customer_id = $1
+            OR EXISTS (
+                SELECT 1
+                FROM customer_relationship_periods crp
+                WHERE (
+                    (crp.parent_customer_id = $1 AND crp.child_customer_id = o.customer_id)
+                    OR
+                    (crp.child_customer_id = $1 AND crp.parent_customer_id = o.customer_id)
+                )
+                  AND v.created_at >= crp.linked_at
+                  AND (crp.unlinked_at IS NULL OR v.created_at <= crp.unlinked_at)
+            )
+        )
+        ORDER BY v.created_at DESC
+        LIMIT 25
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
+
     let mut events: Vec<CustomerTimelineEvent> = Vec::new();
 
     for o in orders {
@@ -5878,6 +5923,27 @@ async fn build_customer_timeline(
             summary,
             reference_id: Some(ev.id),
             reference_type: Some("marketing_email_event".to_string()),
+            wedding_party_id: None,
+        });
+    }
+
+    for v in voids {
+        let display_id = v.display_id.unwrap_or_else(|| short_order_ref(v.transaction_id));
+        let manager_info = match v.manager_name {
+            Some(ref name) => format!(" by {name}"),
+            None => "".to_string(),
+        };
+        let summary = format!(
+            "Transaction {display_id} voided{manager_info} (${} refund queued): {}",
+            v.refundable_amount,
+            v.reason
+        );
+        events.push(CustomerTimelineEvent {
+            at: v.created_at,
+            kind: "void".to_string(),
+            summary,
+            reference_id: Some(v.transaction_id),
+            reference_type: Some("transaction".to_string()),
             wedding_party_id: None,
         });
     }

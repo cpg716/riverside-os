@@ -1,11 +1,13 @@
-# Staff Manual: Custom Orders & Rush Tracking
+# Staff Manual: Custom Orders & Lifecycle Tracking
 
-This guide covers **Custom orders** for made-to-measure garments like suits, sport coats, slacks, and individualized shirts, plus the rush flags that help staff follow them.
+This guide covers **Custom orders** for made-to-measure garments like suits, sport coats, slacks, and individualized shirts, plus the rush flags and order lifecycle statuses that help staff follow them.
 
 ## 1. When to use a Custom order
 Use a **Custom** order when the garment itself is a made-to-measure or custom garment.
 
-Use a **Special Order** when we normally carry the item and just need to order it in.
+* **Custom Order**: Use for custom-tailored garments. These automatically default to the **Custom** fulfillment kind and carry specific custom order measurement forms.
+* **Special Order**: Use when we normally carry the item and just need to order it in.
+* **Wedding Order**: Tied to a wedding party member.
 
 Use a **Custom** order when the garment is one of these custom SKUs:
 - `100` — HSM Custom Suit
@@ -13,77 +15,63 @@ Use a **Custom** order when the garment is one of these custom SKUs:
 - `110` — HSM Custom Slacks
 - `200` — Individualized Custom Shirt
 
-These SKUs should stay in the **Custom** bucket from booking through pickup.
+These SKUs automatically default to the **Custom** fulfillment bucket and will display a yellow **ORDER (Custom)** badge in the cart.
 
 ## 2. Booking a Custom item in POS
-1. Add the custom garment SKU to the cart.
-2. When the **Custom Order** window opens, confirm the garment type and enter:
-   - **Sale Price**
+1. Add/scan the custom garment SKU to the cart.
+2. The POS will automatically set the line fulfillment to **ORDER (Custom)** and display the custom measurement form overlay.
+3. Enter the required custom details:
+   - **Sale Price** (Retail price is entered at booking)
    - **Need By Date** if the customer has one
    - **Rush** if the order needs extra follow-up
-   - **Gift Wrap** if requested
-   - the key vendor-form references for that garment
-3. Tap **Add to Cart** to add the custom line to the sale.
+   - Vendor-form references and measurement selections
+4. Tap **Add to Cart**.
+5. The cart item row will show the yellow **ORDER (Custom)** badge. If you toggle it or apply shipping, the system coerces the line to remain **Custom** rather than reverting to a Special Order.
 
-Important:
-- **Retail price is entered at booking.**
-- **Vendor cost is not entered at booking.**
-- **Actual vendor cost is entered when the garment is received.**
-- ROS now stores the main booking references from the vendor form, but the full handwritten form can still stay with the paper packet.
+*Note: Vendor cost is not entered at booking. The actual vendor cost is entered later when the garment is received.*
 
-### Structured details captured at booking
+## 3. Order Lifecycle Status Paths
 
-For **HSM** custom garments, ROS now stores:
-- garment description
-- fabric reference
-- style reference
-- garment type
-- model code
-- lining / trim reference
-- coat, pant, and vest size anchors
-- coat length and pant inseam
-- left/right sleeve and out measurements
-- lapel, vent, and button-stance selections
-- fabric reservation number
-- reservation or reference number
-- short custom notes
+Order items move through a strict lifecycle path shown on the **Customer Orders** dashboard and the **Transaction Details** drawer:
 
-For **Individualized Shirts**, ROS now stores:
-- shirt description
-- fabric reference
-- style reference
-- collar style
-- cuff style
-- previous order number
-- try-on size and shaping
-- collar size, tail length, and yoke
-- right/left sleeve and cuff measurements
-- shoulder line
-- front, back, tail, button, and pocket selections
-- vendor order or reference number
-- fit notes
-- short custom notes
+```
+[Needs Measurements] (Optional)
+       │
+       ▼
+[Need to be ordered (NTBO)]
+       │
+       ▼
+[Ordered] (Assigned to PO)
+       │
+       ▼
+[Received] (Physically in store) ──► Is there a linked alteration?
+       │                                  │ (Yes: intake)
+       │                                  ├──► [Scheduled for Alterations] (Amber Badge)
+       │                                  │ (Yes: in-work / verify-completed)
+       │                                  └──► [In Alterations] (Amber Badge)
+       ▼
+[Ready for Pickup] (Staff sets manually after alterations / checks clear)
+       │
+       ▼
+[Picked Up] (Final handoff)
+```
 
-ROS still does **not** digitize the full handwritten measurement sheet. Keep the vendor paper form with the order packet for anything not captured on screen.
+### Dynamic Alterations Status Tracking
+If a custom item is **Received** but alterations are required before the customer can pick it up:
+* The system automatically tracks the linked alteration order status.
+* If the alteration order is in **Intake**, the item status displays as **Scheduled for Alterations** (amber badge).
+* If the alteration order is **In Work** or **Verify Completed**, the status displays as **In Alterations** (amber badge).
+* If the alteration order is completed/ready, the status returns to **Received** (blue badge).
+* This prevents the item from being marked as **Ready for Pickup** without manager override.
 
-## 3. Rush orders and deadlines
-Marking an order as **Rush** or setting a **Need By Date** helps staff:
-- spot the order faster in Orders and fulfillment views
-- see that the garment has a deadline
-- follow up with the vendor and the customer before the pickup date
+### Marking "Ready for Pickup"
+Once the custom item is received and all associated alterations are complete and verified, staff must **manually** mark the line as **Ready for Pickup** inside the Transaction Record details. This triggers the automatic SMS and email notifications to the customer.
 
-## 4. Receiving and cost entry
+## 4. Receiving and Cost Entry
 When the custom garment arrives:
 1. Receive it through the normal purchasing / receiving workflow.
 2. Enter the actual vendor cost from the receipt or invoice at that time.
 3. Keep the order in the **Custom** bucket so pickup and reporting still reflect the correct order type.
-
-## 5. Fulfillment
-Custom items are still fulfillment orders.
-1. Book the order in POS with the agreed sale price and any needed rush or due-date flags.
-2. Track it in **Orders** under the **Custom** filter.
-3. Enter the actual cost when the garment is received.
-4. Complete pickup and any remaining payment through the normal order workflow.
 
 ---
 *For workflow issues with Custom orders, contact a manager or administrator.*

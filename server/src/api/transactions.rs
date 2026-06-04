@@ -231,6 +231,8 @@ pub struct TransactionDetailItem {
     pub local_tax: Decimal,
     pub fulfillment: DbFulfillmentType,
     pub order_lifecycle_status: DbOrderItemLifecycleStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alteration_status: Option<String>,
     /// Takeaway lines fulfilled at checkout; special transactions fulfill at pickup.
     pub is_fulfilled: bool,
     pub is_internal: bool,
@@ -636,6 +638,7 @@ mod tests {
             local_tax: Decimal::new(500, 2),
             fulfillment: DbFulfillmentType::Takeaway,
             order_lifecycle_status: DbOrderItemLifecycleStatus::PickedUp,
+            alteration_status: None,
             is_fulfilled: true,
             is_internal: false,
             custom_item_type: None,
@@ -864,6 +867,7 @@ struct OrderItemRow {
     local_tax: Decimal,
     fulfillment: DbFulfillmentType,
     order_lifecycle_status: DbOrderItemLifecycleStatus,
+    alteration_status: Option<String>,
     is_fulfilled: bool,
     is_internal: bool,
     custom_item_type: Option<String>,
@@ -1018,6 +1022,7 @@ pub struct VoidTransactionResponse {
     pub tender_summary: serde_json::Value,
     pub inventory_summary: serde_json::Value,
     pub detail: TransactionDetailResponse,
+    pub pop_cash_drawer: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2218,6 +2223,16 @@ async fn load_void_record(
     Ok(row)
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct LinkedPaymentRow {
+    id: Uuid,
+    payment_method: String,
+    payment_provider: Option<String>,
+    amount: Decimal,
+    provider_transaction_id: Option<String>,
+    metadata: Option<serde_json::Value>,
+}
+
 async fn post_transaction_void(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,
@@ -2255,6 +2270,7 @@ async fn post_transaction_void(
         Decimal,
         Decimal,
         Option<Uuid>,
+        DateTime<Utc>,
     );
 
     let session_open: Option<bool> = sqlx::query_scalar(
@@ -2282,7 +2298,8 @@ async fn post_transaction_void(
             COALESCE(total_price, 0)::numeric(14,2),
             COALESCE(amount_paid, 0)::numeric(14,2),
             COALESCE(balance_due, 0)::numeric(14,2),
-            operator_id
+            operator_id,
+            booked_at
         FROM transactions
         WHERE id = $1
         FOR UPDATE
@@ -2299,6 +2316,7 @@ async fn post_transaction_void(
         amount_paid,
         balance_due,
         _operator_id,
+        booked_at,
     )) = header
     else {
         return Err(TransactionError::NotFound);
@@ -2307,6 +2325,14 @@ async fn post_transaction_void(
     if original_status == DbOrderStatus::Cancelled {
         return Err(TransactionError::InvalidPayload(
             "cancelled transactions cannot be voided".to_string(),
+        ));
+    }
+
+    let booked_date = booked_at.date_naive();
+    let current_date = Utc::now().date_naive();
+    if booked_date < current_date {
+        return Err(TransactionError::InvalidPayload(
+            "Transaction was booked on a previous day and has been settled. Please use the Refund workflow.".to_string(),
         ));
     }
 
@@ -2389,12 +2415,205 @@ async fn post_transaction_void(
         "restock_rule": "takeaway lines that were fulfilled are returned to stock; order-style lines are not restocked"
     });
 
+    let linked_payments: Vec<LinkedPaymentRow> = sqlx::query_as(
+        r#"
+        SELECT
+            pt.id,
+            pt.payment_method,
+            pt.payment_provider,
+            pt.amount::numeric(14,2) AS amount,
+            pt.provider_transaction_id,
+            pt.metadata
+        FROM payment_allocations pa
+        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+        WHERE pa.target_transaction_id = $1
+          AND pa.amount_allocated > 0
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let mut pop_cash_drawer = false;
+
+    for payment in &linked_payments {
+        if payment.payment_method == "cash" || payment.payment_method == "check" {
+            sqlx::query(
+                r#"
+                UPDATE payment_transactions
+                SET status = 'canceled',
+                    amount = 0,
+                    net_amount = 0,
+                    metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                WHERE id = $1
+                "#,
+            )
+            .bind(payment.id)
+            .bind(json!({
+                "voided_by_transaction_id": transaction_id,
+                "voided_at": Utc::now()
+            }))
+            .execute(&mut *tx)
+            .await?;
+
+            if payment.payment_method == "cash" {
+                pop_cash_drawer = true;
+            }
+        } else if payment.payment_provider.as_deref() == Some("helcim") {
+            if let Some(ref prov_tx_id) = payment.provider_transaction_id {
+                let config = helcim::HelcimConfig::from_env();
+                if config.simulator_enabled() {
+                    sqlx::query(
+                        r#"
+                        UPDATE payment_transactions
+                        SET status = 'canceled',
+                            amount = 0,
+                            net_amount = 0,
+                            metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                        WHERE id = $1
+                        "#,
+                    )
+                    .bind(payment.id)
+                    .bind(json!({
+                        "voided_by_transaction_id": transaction_id,
+                        "voided_at": Utc::now(),
+                        "helcim_reverse_simulated": true
+                    }))
+                    .execute(&mut *tx)
+                    .await?;
+                } else {
+                    let original_tx_id = prov_tx_id.trim().parse::<i64>().map_err(|_| {
+                        TransactionError::InvalidPayload("Invalid Helcim transaction ID format".to_string())
+                    })?;
+
+                    let request = helcim::HelcimCardReverseRequest {
+                        card_transaction_id: original_tx_id,
+                        ip_address: "127.0.0.1".to_string(),
+                        ecommerce: false,
+                    };
+
+                    let attempt_id = Uuid::new_v4();
+                    let idempotency_key = format!("helcim-void-reversal-{attempt_id}");
+
+                    match helcim::process_card_reverse(&state.http_client, &config, request, &idempotency_key).await {
+                        Ok(transaction) => {
+                            let status = transaction.normalized_status();
+                            sqlx::query(
+                                r#"
+                                UPDATE payment_transactions
+                                SET status = 'canceled',
+                                    amount = 0,
+                                    net_amount = 0,
+                                    metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                                WHERE id = $1
+                                "#,
+                            )
+                            .bind(payment.id)
+                            .bind(json!({
+                                "voided_by_transaction_id": transaction_id,
+                                "voided_at": Utc::now(),
+                                "helcim_reversed_status": status,
+                                "helcim_reversed_transaction_id": transaction.transaction_id_string()
+                            }))
+                            .execute(&mut *tx)
+                            .await?;
+                        }
+                        Err(error) => {
+                            let err_lower = error.to_lowercase();
+                            if err_lower.contains("settled") || err_lower.contains("batch closed") || err_lower.contains("cannot reverse") {
+                                return Err(TransactionError::InvalidPayload(
+                                    "This card transaction has already been settled and cannot be voided. Please use the Refund workflow instead.".to_string()
+                                ));
+                            } else {
+                                return Err(TransactionError::InvalidPayload(
+                                    format!("Helcim card reversal failed: {error}")
+                                ));
+                            }
+                        }
+                    }
+                }
+            } else {
+                sqlx::query(
+                    r#"
+                    UPDATE payment_transactions
+                    SET status = 'canceled',
+                        amount = 0,
+                        net_amount = 0,
+                        metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(payment.id)
+                .bind(json!({
+                    "voided_by_transaction_id": transaction_id,
+                    "voided_at": Utc::now(),
+                    "missing_provider_tx_id": true
+                }))
+                .execute(&mut *tx)
+                .await?;
+            }
+        } else if payment.payment_method == "gift_card" || payment.payment_method == "store_credit" {
+            if let Some(ref metadata) = payment.metadata {
+                if let Some(gc_code) = metadata.get("gift_card_code").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()) {
+                    sqlx::query(
+                        r#"
+                        UPDATE gift_cards
+                        SET balance = balance + $2
+                        WHERE card_code = $1
+                        "#,
+                    )
+                    .bind(gc_code)
+                    .bind(payment.amount)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+            }
+
+            sqlx::query(
+                r#"
+                UPDATE payment_transactions
+                SET status = 'canceled',
+                    amount = 0,
+                    net_amount = 0,
+                    metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                WHERE id = $1
+                "#,
+            )
+            .bind(payment.id)
+            .bind(json!({
+                "voided_by_transaction_id": transaction_id,
+                "voided_at": Utc::now()
+            }))
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            sqlx::query(
+                r#"
+                UPDATE payment_transactions
+                SET status = 'canceled',
+                    amount = 0,
+                    net_amount = 0,
+                    metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                WHERE id = $1
+                "#,
+            )
+            .bind(payment.id)
+            .bind(json!({
+                "voided_by_transaction_id": transaction_id,
+                "voided_at": Utc::now()
+            }))
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
     sqlx::query(
         r#"
         UPDATE transactions
         SET status = 'cancelled'::order_status,
             total_price = 0,
-            balance_due = -COALESCE(amount_paid, 0)
+            amount_paid = 0,
+            balance_due = 0
         WHERE id = $1
         "#,
     )
@@ -2406,41 +2625,9 @@ async fn post_transaction_void(
         .await
         .map_err(TransactionError::Database)?;
 
-    let current_paid: Decimal = sqlx::query_scalar(
-        "SELECT COALESCE(amount_paid, 0)::numeric(14,2) FROM transactions WHERE id = $1",
-    )
-    .bind(transaction_id)
-    .fetch_one(&mut *tx)
-    .await?;
-
-    let refundable_amount = if current_paid > Decimal::ZERO {
-        current_paid.round_dp(2)
-    } else {
-        Decimal::ZERO
-    };
-    let mut refund_queue_id: Option<Uuid> = None;
-    let reversal_status = if refundable_amount > Decimal::ZERO {
-        let queue_id: Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO transaction_refund_queue (transaction_id, customer_id, amount_due, reason)
-            VALUES ($1, $2, $3, 'Transaction void; refund/reversal required')
-            ON CONFLICT (transaction_id) WHERE (is_open = true)
-            DO UPDATE SET
-                amount_due = transaction_refund_queue.amount_refunded + EXCLUDED.amount_due,
-                reason = transaction_refund_queue.reason || '; Transaction void; refund/reversal required'
-            RETURNING id
-            "#,
-        )
-        .bind(transaction_id)
-        .bind(customer_id)
-        .bind(refundable_amount)
-        .fetch_one(&mut *tx)
-        .await?;
-        refund_queue_id = Some(queue_id);
-        "pending_refund"
-    } else {
-        "no_refund_due"
-    };
+    let refundable_amount = Decimal::ZERO;
+    let refund_queue_id: Option<Uuid> = None;
+    let reversal_status = "no_refund_due";
 
     let void_record_id: Uuid = sqlx::query_scalar(
         r#"
@@ -2510,21 +2697,19 @@ async fn post_transaction_void(
     let _ = log_staff_access(
         &state.db,
         manager.id,
-        "pos_transaction_void",
+        "transaction_voided",
         json!({
             "transaction_id": transaction_id,
             "void_record_id": void_record_id,
-            "register_session_id": body.register_session_id,
-            "refundable_amount": refundable_amount,
             "reason": body.reason.trim(),
         }),
     )
     .await;
 
-    spawn_meilisearch_transaction_upsert(&state, transaction_id);
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
+
     Ok(Json(VoidTransactionResponse {
-        status: "voided".to_string(),
+        status: "success".to_string(),
         transaction_id,
         void_record_id,
         reversal_status: reversal_status.to_string(),
@@ -2533,6 +2718,7 @@ async fn post_transaction_void(
         tender_summary,
         inventory_summary,
         detail,
+        pop_cash_drawer,
     }))
 }
 
@@ -4348,6 +4534,13 @@ pub(crate) async fn load_transaction_detail(
             COALESCE(oi.local_tax, 0) AS local_tax,
             oi.fulfillment,
             oi.order_lifecycle_status,
+            (
+                SELECT status::text 
+                FROM alteration_orders 
+                WHERE source_transaction_line_id = oi.id 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            ) AS alteration_status,
             oi.is_fulfilled,
             COALESCE(oi.is_internal, false) AS is_internal,
             NULLIF(TRIM(oi.custom_item_type), '') AS custom_item_type,
@@ -4533,6 +4726,7 @@ pub(crate) async fn load_transaction_detail(
             local_tax: r.local_tax,
             fulfillment: r.fulfillment,
             order_lifecycle_status: r.order_lifecycle_status,
+            alteration_status: r.alteration_status,
             is_fulfilled: r.is_fulfilled,
             is_internal: r.is_internal,
             custom_item_type: r.custom_item_type,

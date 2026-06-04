@@ -68,8 +68,10 @@ interface PosShellProps {
   pendingPosCustomer: Customer | null;
   pendingPosTransactionId: string | null;
   pendingPosTransactionForPickup: boolean;
+  pendingPosTransactionForRefund: boolean;
   setPendingPosTransactionId: (transactionId: string | null) => void;
   setPendingPosTransactionForPickup: (forPickup: boolean) => void;
+  setPendingPosTransactionForRefund: (forRefund: boolean) => void;
   setPendingPosCustomer: (c: Customer | null) => void;
   clearPendingPosCustomer: () => void;
   clearPendingPosTransaction: () => void;
@@ -104,8 +106,10 @@ export default function PosShell({
   pendingPosCustomer,
   pendingPosTransactionId,
   pendingPosTransactionForPickup,
+  pendingPosTransactionForRefund,
   setPendingPosTransactionId,
   setPendingPosTransactionForPickup,
+  setPendingPosTransactionForRefund,
   setPendingPosCustomer,
   clearPendingPosCustomer,
   clearPendingPosTransaction,
@@ -389,6 +393,7 @@ export default function PosShell({
                   onInitialCustomerConsumed={clearPendingPosCustomer}
                   initialTransactionId={pendingPosTransactionId}
                   initialTransactionForPickup={pendingPosTransactionForPickup}
+                  initialTransactionForRefund={pendingPosTransactionForRefund}
                   onInitialTransactionConsumed={clearPendingPosTransaction}
                   managerMode={managerMode}
                   initialWeddingLookupOpen={false}
@@ -537,7 +542,17 @@ export default function PosShell({
               </Suspense>
             </div>
           )}
-          {activePosTab === "reports" && <RegisterReports sessionId={sessionId} />}
+          {activePosTab === "reports" && (
+            <RegisterReports
+              sessionId={sessionId}
+              onOpenRefundInRegister={(transactionId) => {
+                setPendingPosTransactionId(transactionId);
+                setPendingPosTransactionForRefund(true);
+                clearPendingPosCustomer();
+                setActivePosTab("register");
+              }}
+            />
+          )}
           {activePosTab === "payments" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Payments...</div>}>

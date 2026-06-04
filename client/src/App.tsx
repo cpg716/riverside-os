@@ -196,6 +196,7 @@ function App() {
     null,
   );
   const [pendingPosTransactionForPickup, setPendingPosTransactionForPickup] = useState(false);
+  const [pendingPosTransactionForRefund, setPendingPosTransactionForRefund] = useState(false);
   const [transactionsDeepLinkTxnId, setTransactionsDeepLinkTxnId] = useState<
     string | null
   >(null);
@@ -470,6 +471,7 @@ function App() {
     () => {
       setPendingPosTransactionId(null);
       setPendingPosTransactionForPickup(false);
+      setPendingPosTransactionForRefund(false);
     },
     [],
   );
@@ -1103,8 +1105,10 @@ function App() {
             setPendingPosCustomer={setPendingPosCustomer}
             pendingPosTransactionId={pendingPosTransactionId}
             pendingPosTransactionForPickup={pendingPosTransactionForPickup}
+            pendingPosTransactionForRefund={pendingPosTransactionForRefund}
             setPendingPosTransactionId={setPendingPosTransactionId}
             setPendingPosTransactionForPickup={setPendingPosTransactionForPickup}
+            setPendingPosTransactionForRefund={setPendingPosTransactionForRefund}
             clearPendingPosCustomer={clearPendingPosCustomer}
             clearPendingPosTransaction={clearPendingPosTransaction}
             pendingWeddingPosLink={pendingWeddingPosLink}
@@ -1216,8 +1220,10 @@ interface AppShellProps {
   setPendingPosCustomer: (c: Customer | null) => void;
   pendingPosTransactionId: string | null;
   pendingPosTransactionForPickup: boolean;
+  pendingPosTransactionForRefund: boolean;
   setPendingPosTransactionId: (id: string | null) => void;
   setPendingPosTransactionForPickup: (forPickup: boolean) => void;
+  setPendingPosTransactionForRefund: (forRefund: boolean) => void;
   clearPendingPosCustomer: () => void;
   clearPendingPosTransaction: () => void;
   pendingWeddingPosLink: RosOpenRegisterFromWmDetail | null;
@@ -1304,8 +1310,10 @@ function AppShell({
   pendingPosCustomer,
   pendingPosTransactionId,
   pendingPosTransactionForPickup,
+  pendingPosTransactionForRefund,
   setPendingPosTransactionId,
   setPendingPosTransactionForPickup,
+  setPendingPosTransactionForRefund,
   setPendingPosCustomer,
   clearPendingPosCustomer,
   clearPendingPosTransaction,
@@ -1527,8 +1535,10 @@ function AppShell({
             pendingPosCustomer={pendingPosCustomer}
             pendingPosTransactionId={pendingPosTransactionId}
             pendingPosTransactionForPickup={pendingPosTransactionForPickup}
+            pendingPosTransactionForRefund={pendingPosTransactionForRefund}
             setPendingPosTransactionId={setPendingPosTransactionId}
             setPendingPosTransactionForPickup={setPendingPosTransactionForPickup}
+            setPendingPosTransactionForRefund={setPendingPosTransactionForRefund}
             setPendingPosCustomer={setPendingPosCustomer}
             clearPendingPosCustomer={clearPendingPosCustomer}
             clearPendingPosTransaction={clearPendingPosTransaction}

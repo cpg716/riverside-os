@@ -314,12 +314,21 @@ export function useCartActions({
         );
       }
 
+      let initialFulfillment = fulfillmentOverride;
+      if (!initialFulfillment) {
+        if (isCustomOrderSku(item.sku) || item.custom_item_type || (item as Partial<CartLineItem>).fulfillment === "custom") {
+          initialFulfillment = "custom";
+        } else {
+          initialFulfillment = "takeaway";
+        }
+      }
+
       const newLine: CartLineItem = {
         ...item,
         catalog_standard_retail_price: item.standard_retail_price,
         catalog_employee_price: item.employee_price,
         quantity: 1,
-        fulfillment: fulfillmentOverride || "takeaway",
+        fulfillment: initialFulfillment,
         cart_row_id: newCartRowId(),
       };
 
@@ -537,14 +546,20 @@ export function useCartActions({
       toast("Gift card load must stay on Take Now.", "info");
       return;
     }
+
+    let resolvedNext = next;
+    if (line && next !== "takeaway" && (isCustomOrderSku(line.sku) || line.custom_item_type)) {
+      resolvedNext = "custom";
+    }
+
     setLines((prev) =>
       prev.map((l) =>
         l.cart_row_id === rowId
           ? {
               ...l,
-              fulfillment: next,
+              fulfillment: resolvedNext,
               order_lifecycle_status:
-                next === "takeaway" ? undefined : l.order_lifecycle_status,
+                resolvedNext === "takeaway" ? undefined : l.order_lifecycle_status,
             }
           : l,
       )

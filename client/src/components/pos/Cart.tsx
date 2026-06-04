@@ -56,7 +56,7 @@ import PosShippingModal, {
 import type { WeddingMembership } from "./customerProfileTypes";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import { newCartRowId, scanPayloadToResolvedItem } from "../../lib/posUtils";
-import { customOrderItemTypeForSku } from "../../lib/customOrders";
+import { customOrderItemTypeForSku, isCustomOrderSku } from "../../lib/customOrders";
 import CustomItemPromptModal from "./CustomItemPromptModal";
 import OrderLoadModal, { type CustomerOrder, type OrderItem } from "./OrderLoadModal";
 import OrderReviewModal from "./OrderReviewModal";
@@ -266,6 +266,7 @@ interface CartProps {
   onInitialTransactionConsumed?: () => void;
   /** When true, loading the transaction is for pickup flow - will auto-add balance payment and call pickup API after checkout */
   initialTransactionForPickup?: boolean;
+  initialTransactionForRefund?: boolean;
   initialWeddingLookupOpen?: boolean;
   managerMode?: boolean;
   /** From Wedding Manager: pre-link customer + wedding member for wedding_order checkout. */
@@ -296,6 +297,7 @@ export default function Cart({
   initialTransactionId = null,
   onInitialTransactionConsumed,
   initialTransactionForPickup = false,
+  initialTransactionForRefund = false,
   managerMode = false,
   // initialWeddingLookupOpen removed
   initialWeddingPosLink = null,
@@ -955,9 +957,11 @@ export default function Cart({
       }
       const resolved = scanPayloadToResolvedItem((await scanRes.json()) as Record<string, unknown>);
       const fulfillment =
-        order.order_kind === "wedding_order" || order.wedding_member_id
-          ? "wedding_order"
-          : "special_order";
+        isCustomOrderSku(resolved.sku) || resolved.custom_item_type
+          ? "custom"
+          : order.order_kind === "wedding_order" || order.wedding_member_id
+            ? "wedding_order"
+            : "special_order";
       const addRes = await fetch(`${baseUrl}/api/transactions/${order.id}/items`, {
         method: "POST",
         headers: {
@@ -1594,7 +1598,7 @@ export default function Cart({
   }, [initialCustomer, onInitialCustomerConsumed, setSelectedCustomer]);
 
   const loadTransactionIntoRegister = useCallback(
-    async (transactionId: string, forPickup: boolean = false) => {
+    async (transactionId: string, forPickup: boolean = false, forRefund: boolean = false) => {
       const res = await fetch(`${baseUrl}/api/transactions/${transactionId}`, {
         headers: apiAuth(),
       });
@@ -1604,6 +1608,75 @@ export default function Cart({
       }
 
       const detail = (await res.json()) as HandoffOrderDetail;
+
+      if (forRefund) {
+        if (!detail.customer) {
+          toast("This Transaction Record has no customer attached, so it cannot be loaded for refund.", "error");
+          return false;
+        }
+
+        setSelectedCustomer({
+          id: detail.customer.id,
+          customer_code: detail.customer.customer_code ?? "",
+          first_name: detail.customer.first_name,
+          last_name: detail.customer.last_name,
+          company_name: detail.customer.company_name ?? null,
+          email: detail.customer.email ?? null,
+          phone: detail.customer.phone ?? null,
+        });
+
+        // Clear everything else
+        setLines([]);
+        setCheckoutAppliedPayments([]);
+        setCheckoutDepositLedger("");
+        setOrderPaymentLines([]);
+        setEditingOrderPaymentLine(null);
+        setEditingOrderPaymentAmount("");
+        setPosShipping(null);
+
+        const refundAmountCents = parseMoneyToCents(detail.amount_paid ?? "0");
+        if (refundAmountCents <= 0) {
+          toast("No refundable paid amount exists on this transaction.", "error");
+          return false;
+        }
+
+        const receiptLabel = detail.transaction_display_id ?? detail.transaction_id.slice(0, 8).toUpperCase();
+        const rowId = newCartRowId();
+
+        const firstItem = detail.items?.[0];
+        const productId = firstItem?.product_id || "00000000-0000-0000-0000-000000000000";
+        const variantId = firstItem?.variant_id || "00000000-0000-0000-0000-000000000000";
+        const itemLabel = firstItem ? firstItem.product_name : "Voided transaction items";
+
+        const refundCreditLine: CartLineItem = {
+          product_id: productId,
+          variant_id: variantId,
+          sku: `RETURN-${receiptLabel}`,
+          name: `Refund credit ${receiptLabel}`,
+          variation_label: itemLabel,
+          standard_retail_price: centsToFixed2(refundAmountCents),
+          unit_cost: "0.00",
+          state_tax: "0.00",
+          local_tax: "0.00",
+          tax_category: "other",
+          quantity: -1,
+          fulfillment: "takeaway",
+          cart_row_id: rowId,
+          price_override_reason: "pending_return_refund",
+          original_unit_price: centsToFixed2(refundAmountCents),
+          return_tender_original_transaction_id: detail.transaction_id,
+          return_tender_receipt_label: receiptLabel,
+          return_tender_refund_cents: refundAmountCents,
+        };
+
+        setLines([refundCreditLine]);
+        setSelectedLineKey(rowId);
+
+        setCheckoutDrawerOpen(true);
+        toast(`Refund credit for ${receiptLabel} loaded. Select the refund tender to finish the void.`, "success");
+        return true;
+      }
+
       const unfulfilled = (detail.items ?? []).filter(
         (item) => !item.is_fulfilled && !item.is_internal,
       );
@@ -1713,7 +1786,22 @@ export default function Cart({
       );
       return true;
     },
-    [apiAuth, baseUrl, setSelectedCustomer, toast, setLines, setOrderPaymentLines, setPrimarySalespersonId],
+    [
+      apiAuth,
+      baseUrl,
+      setSelectedCustomer,
+      toast,
+      setLines,
+      setOrderPaymentLines,
+      setPrimarySalespersonId,
+      setSelectedLineKey,
+      setCheckoutDrawerOpen,
+      setCheckoutAppliedPayments,
+      setCheckoutDepositLedger,
+      setEditingOrderPaymentLine,
+      setEditingOrderPaymentAmount,
+      setPosShipping,
+    ],
   );
 
   const handleManagerApproveReadiness = useCallback(async (pin: string) => {
@@ -1762,14 +1850,14 @@ export default function Cart({
     }
     initialTransactionApplyingRef.current = initialTransactionId;
     void (async () => {
-      await loadTransactionIntoRegister(initialTransactionId, initialTransactionForPickup);
+      await loadTransactionIntoRegister(initialTransactionId, initialTransactionForPickup, initialTransactionForRefund);
       initialTransactionAppliedRef.current = initialTransactionId;
       if (initialTransactionApplyingRef.current === initialTransactionId) {
         initialTransactionApplyingRef.current = null;
       }
       onInitialTransactionConsumed?.();
     })();
-  }, [initialTransactionId, initialTransactionForPickup, loadTransactionIntoRegister, onInitialTransactionConsumed, saleHydrated]);
+  }, [initialTransactionId, initialTransactionForPickup, initialTransactionForRefund, loadTransactionIntoRegister, onInitialTransactionConsumed, saleHydrated]);
 
   useEffect(() => {
     if (!initialWeddingPosLink?.member?.customer_id) return;
@@ -3100,7 +3188,7 @@ export default function Cart({
           if (next && lines.some(l => l.fulfillment === "takeaway")) {
             setLines(prev => prev.map(l => ({
               ...l,
-              fulfillment: l.fulfillment === "takeaway" ? "special_order" as const : l.fulfillment
+              fulfillment: l.fulfillment === "takeaway" ? (isCustomOrderSku(l.sku) || l.custom_item_type ? "custom" as const : "special_order" as const) : l.fulfillment
             })));
             toast("Switched takeaway items to Special Order for shipping.", "info");
           }

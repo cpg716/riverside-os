@@ -59,6 +59,7 @@ export interface TransactionDrawerItem {
   local_tax?: string;
   fulfillment: string;
   order_lifecycle_status?: string;
+  alteration_status?: string | null;
   is_fulfilled: boolean;
   is_internal?: boolean;
   custom_item_type?: string | null;
@@ -321,7 +322,15 @@ function orderKindLabel(detail: TransactionDrawerDetail): string {
   return "Transaction";
 }
 
-function lifecycleStatusLabel(value?: string | null) {
+function lifecycleStatusLabel(value?: string | null, alterationStatus?: string | null) {
+  if (value === "received" && alterationStatus) {
+    if (alterationStatus === "intake") {
+      return "Scheduled for Alterations";
+    }
+    if (alterationStatus === "in_work" || alterationStatus === "verify_completed") {
+      return "In Alterations";
+    }
+  }
   switch (value) {
     case "needs_measurements":
       return "Needs measurements";
@@ -1856,7 +1865,7 @@ export default function TransactionDetailDrawer({
                       {group.items.map((item) => {
                     const itemId = item.order_item_id ?? item.transaction_line_id;
                     const returnedQty = item.quantity_returned ?? 0;
-                    const lifecycleLabel = lifecycleStatusLabel(item.order_lifecycle_status);
+                    const lifecycleLabel = lifecycleStatusLabel(item.order_lifecycle_status, item.alteration_status);
                     return (
                       <div
                         key={itemId ?? `${item.sku}-${item.product_name}`}
@@ -1897,7 +1906,7 @@ export default function TransactionDetailDrawer({
                                       item.order_lifecycle_status === "ready_for_pickup"
                                       ? "success"
                                       : item.order_lifecycle_status === "received"
-                                        ? "info"
+                                        ? (item.alteration_status === "intake" || item.alteration_status === "in_work" || item.alteration_status === "verify_completed" ? "warning" : "info")
                                         : "warning",
                                   )}`}
                                 >
@@ -2328,7 +2337,7 @@ export default function TransactionDetailDrawer({
                           <li key={item.transaction_line_id} className="flex justify-between gap-3">
                             <span>{item.product_name}</span>
                             <span className="shrink-0 text-app-text-muted">
-                              {lifecycleStatusLabel(item.order_lifecycle_status) ?? "Not ready"}
+                              {lifecycleStatusLabel(item.order_lifecycle_status, item.alteration_status) ?? "Not ready"}
                             </span>
                           </li>
                         ))}
