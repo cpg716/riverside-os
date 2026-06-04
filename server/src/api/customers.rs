@@ -5928,15 +5928,16 @@ async fn build_customer_timeline(
     }
 
     for v in voids {
-        let display_id = v.display_id.unwrap_or_else(|| short_order_ref(v.transaction_id));
+        let display_id = v
+            .display_id
+            .unwrap_or_else(|| short_order_ref(v.transaction_id));
         let manager_info = match v.manager_name {
             Some(ref name) => format!(" by {name}"),
             None => "".to_string(),
         };
         let summary = format!(
             "Transaction {display_id} voided{manager_info} (${} refund queued): {}",
-            v.refundable_amount,
-            v.reason
+            v.refundable_amount, v.reason
         );
         events.push(CustomerTimelineEvent {
             at: v.created_at,

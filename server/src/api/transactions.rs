@@ -2483,7 +2483,9 @@ async fn post_transaction_void(
                     .await?;
                 } else {
                     let original_tx_id = prov_tx_id.trim().parse::<i64>().map_err(|_| {
-                        TransactionError::InvalidPayload("Invalid Helcim transaction ID format".to_string())
+                        TransactionError::InvalidPayload(
+                            "Invalid Helcim transaction ID format".to_string(),
+                        )
                     })?;
 
                     let request = helcim::HelcimCardReverseRequest {
@@ -2495,7 +2497,14 @@ async fn post_transaction_void(
                     let attempt_id = Uuid::new_v4();
                     let idempotency_key = format!("helcim-void-reversal-{attempt_id}");
 
-                    match helcim::process_card_reverse(&state.http_client, &config, request, &idempotency_key).await {
+                    match helcim::process_card_reverse(
+                        &state.http_client,
+                        &config,
+                        request,
+                        &idempotency_key,
+                    )
+                    .await
+                    {
                         Ok(transaction) => {
                             let status = transaction.normalized_status();
                             sqlx::query(
@@ -2520,14 +2529,17 @@ async fn post_transaction_void(
                         }
                         Err(error) => {
                             let err_lower = error.to_lowercase();
-                            if err_lower.contains("settled") || err_lower.contains("batch closed") || err_lower.contains("cannot reverse") {
+                            if err_lower.contains("settled")
+                                || err_lower.contains("batch closed")
+                                || err_lower.contains("cannot reverse")
+                            {
                                 return Err(TransactionError::InvalidPayload(
                                     "This card transaction has already been settled and cannot be voided. Please use the Refund workflow instead.".to_string()
                                 ));
                             } else {
-                                return Err(TransactionError::InvalidPayload(
-                                    format!("Helcim card reversal failed: {error}")
-                                ));
+                                return Err(TransactionError::InvalidPayload(format!(
+                                    "Helcim card reversal failed: {error}"
+                                )));
                             }
                         }
                     }
@@ -2552,9 +2564,15 @@ async fn post_transaction_void(
                 .execute(&mut *tx)
                 .await?;
             }
-        } else if payment.payment_method == "gift_card" || payment.payment_method == "store_credit" {
+        } else if payment.payment_method == "gift_card" || payment.payment_method == "store_credit"
+        {
             if let Some(ref metadata) = payment.metadata {
-                if let Some(gc_code) = metadata.get("gift_card_code").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()) {
+                if let Some(gc_code) = metadata
+                    .get("gift_card_code")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
                     sqlx::query(
                         r#"
                         UPDATE gift_cards
