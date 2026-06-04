@@ -99,7 +99,7 @@ const TL_EFFECTIVE_JOIN: &str = r#"
         ) orl ON orl.transaction_line_id = oi.id
     "#;
 
-async fn ledger_fallback(
+async fn ledger_mapping(
     pool: &PgPool,
     internal_key: &str,
 ) -> Result<Option<(String, String)>, sqlx::Error> {
@@ -117,25 +117,21 @@ async fn ledger_fallback(
     Ok(row.map(|(id, nm)| (id.clone(), nm.unwrap_or(id))))
 }
 
-pub async fn qbo_map_with_misc_fallback(
+pub async fn qbo_map_with_default_mapping(
     pool: &PgPool,
     source_type: &str,
     source_id: &str,
-    internal_fallback: Option<&str>,
+    default_ledger_key: Option<&str>,
 ) -> Result<Option<(String, String)>, sqlx::Error> {
     // 1. Specific mapping
     if let Some(m) = qbo_map_name(pool, source_type, source_id).await? {
         return Ok(Some(m));
     }
-    // 2. Ledger fallback (if applicable)
-    if let Some(key) = internal_fallback {
-        if let Some(m) = ledger_fallback(pool, key).await? {
+    // 2. Explicit default ledger mapping (if applicable)
+    if let Some(key) = default_ledger_key {
+        if let Some(m) = ledger_mapping(pool, key).await? {
             return Ok(Some(m));
         }
-    }
-    // 3. MISC fallback
-    if let Some((aid, aname)) = qbo_map_name(pool, "MISC_FALLBACK", "default").await? {
-        return Ok(Some((aid, format!("MISC: {aname} ({source_type})"))));
     }
     Ok(None)
 }
@@ -362,7 +358,7 @@ pub async fn propose_daily_journal(
     let mut lines: Vec<JournalLine> = Vec::new();
 
     if !rounding_total.is_zero() {
-        if let Some((aid, aname)) = ledger_fallback(pool, "CASH_ROUNDING").await? {
+        if let Some((aid, aname)) = ledger_mapping(pool, "CASH_ROUNDING").await? {
             let abs_amt = rounding_total.abs().round_dp(2);
             // rounding_adjustment is (RoundedCash - ExactPrice)
             // If RoundedCash > ExactPrice, adjustment is positive (Income/Credit)
@@ -411,7 +407,7 @@ pub async fn propose_daily_journal(
     let gift_card_load_total = gift_card_load.total.unwrap_or(Decimal::ZERO).round_dp(2);
     if gift_card_load_total > Decimal::ZERO {
         if let Some((aid, aname)) =
-            qbo_map_with_misc_fallback(pool, "liability_gift_card", "default", None).await?
+            qbo_map_with_default_mapping(pool, "liability_gift_card", "default", None).await?
         {
             lines.push(JournalLine {
                 qbo_account_id: aid,
@@ -463,9 +459,13 @@ pub async fn propose_daily_journal(
 
     let shipping_income_total = shipping_income.total.unwrap_or(Decimal::ZERO).round_dp(2);
     if !shipping_income_total.is_zero() {
-        if let Some((aid, aname)) =
-            qbo_map_with_misc_fallback(pool, "income_shipping", "default", Some("REVENUE_SHIPPING"))
-                .await?
+        if let Some((aid, aname)) = qbo_map_with_default_mapping(
+            pool,
+            "income_shipping",
+            "default",
+            Some("REVENUE_SHIPPING"),
+        )
+        .await?
         {
             let abs_amount = shipping_income_total.abs();
             let (debit, credit) = if shipping_income_total > Decimal::ZERO {
@@ -487,7 +487,7 @@ pub async fn propose_daily_journal(
             });
         } else {
             warnings.push(format!(
-                "Customer-charged shipping of ${shipping_income_total} detected, but no `income_shipping` / default, `REVENUE_SHIPPING`, or MISC mapping exists; shipping income omitted."
+                "Customer-charged shipping of ${shipping_income_total} detected, but no `income_shipping` / default or `REVENUE_SHIPPING` mapping exists; shipping income omitted."
             ));
         }
     }
@@ -519,7 +519,7 @@ pub async fn propose_daily_journal(
         .unwrap_or(Decimal::ZERO)
         .round_dp(2);
     if breakage_total > Decimal::ZERO {
-        let breakage_account = qbo_map_with_misc_fallback(
+        let breakage_account = qbo_map_with_default_mapping(
             pool,
             "income_gift_card_breakage",
             "default",
@@ -528,7 +528,7 @@ pub async fn propose_daily_journal(
         .await?;
 
         let liability_account =
-            qbo_map_with_misc_fallback(pool, "liability_gift_card", "default", None).await?;
+            qbo_map_with_default_mapping(pool, "liability_gift_card", "default", None).await?;
 
         if let (Some((br_id, br_name)), Some((liab_id, liab_name))) =
             (breakage_account, liability_account)
@@ -610,16 +610,20 @@ pub async fn propose_daily_journal(
                 continue;
             }
             let cat_label = "_uncategorized".to_string();
-            let inv = qbo_map_with_misc_fallback(
+            let inv = qbo_map_with_default_mapping(
                 pool,
                 "category_inventory",
                 &cat_label,
                 Some("INV_ASSET"),
             )
             .await?;
-            let off =
-                qbo_map_with_misc_fallback(pool, "category_cogs", &cat_label, Some("COGS_DEFAULT"))
-                    .await?;
+            let off = qbo_map_with_default_mapping(
+                pool,
+                "category_cogs",
+                &cat_label,
+                Some("COGS_DEFAULT"),
+            )
+            .await?;
             let (Some((inv_id, inv_name)), Some((off_id, off_name))) = (inv, off) else {
                 warnings.push(format!(
                     "Suit swap {0}→{1} net cost delta {2} — set `INV_ASSET` and `COGS_DEFAULT` in ledger_mappings to stage offset lines.",
@@ -694,7 +698,7 @@ pub async fn propose_daily_journal(
             .map(|u| u.to_string())
             .unwrap_or_else(|| "_uncategorized".to_string());
 
-        let (fallback_key, debit_internal, memo_prefix) = match itx.tx_type.as_str() {
+        let (offset_mapping_key, debit_internal, memo_prefix) = match itx.tx_type.as_str() {
             "po_receipt" => (
                 Some("INV_RECEIVING_CLEARING"),
                 "INV_RECEIVING_CLEARING",
@@ -715,19 +719,23 @@ pub async fn propose_daily_journal(
                         "Inventory Adjustment (Shrinkage)",
                     )
                 } else {
-                    // This is "found" inventory. Usually debit asset, credit a fallback income/cogs-reversal.
-                    (None, "REVENUE_FALLBACK", "Inventory Adjustment (Found)")
+                    // This is "found" inventory. Usually debit asset, credit a configured adjustment income/cogs-reversal account.
+                    (
+                        None,
+                        "REVENUE_INVENTORY_ADJUSTMENT",
+                        "Inventory Adjustment (Found)",
+                    )
                 }
             }
         };
 
         let inv_asset =
-            qbo_map_with_misc_fallback(pool, "category_inventory", &cat_label, Some("INV_ASSET"))
+            qbo_map_with_default_mapping(pool, "category_inventory", &cat_label, Some("INV_ASSET"))
                 .await?;
-        let offset = if let Some(fb) = fallback_key {
-            ledger_fallback(pool, fb).await?
+        let offset = if let Some(mapping_key) = offset_mapping_key {
+            ledger_mapping(pool, mapping_key).await?
         } else {
-            ledger_fallback(pool, debit_internal).await?
+            ledger_mapping(pool, debit_internal).await?
         };
 
         if let (Some((inv_id, inv_name)), Some((off_id, off_name))) = (inv_asset, offset) {
@@ -769,7 +777,7 @@ pub async fn propose_daily_journal(
         } else {
             warnings.push(format!(
                 "Inventory {} transaction for category `{}` skipped — set mappings for INV_ASSET and {}.",
-                itx.tx_type, cat_label, fallback_key.unwrap_or("REVENUE_FALLBACK")
+                itx.tx_type, cat_label, offset_mapping_key.unwrap_or("REVENUE_INVENTORY_ADJUSTMENT")
             ));
         }
     }
@@ -798,8 +806,8 @@ pub async fn propose_daily_journal(
         .unwrap_or(Decimal::ZERO)
         .round_dp(2);
     if !freight_total.is_zero() {
-        let freight_account = ledger_fallback(pool, "COGS_FREIGHT").await?;
-        let clearing_account = ledger_fallback(pool, "INV_RECEIVING_CLEARING").await?;
+        let freight_account = ledger_mapping(pool, "COGS_FREIGHT").await?;
+        let clearing_account = ledger_mapping(pool, "INV_RECEIVING_CLEARING").await?;
 
         if let (Some((fr_id, fr_name)), Some((cl_id, cl_name))) =
             (freight_account, clearing_account)
@@ -852,9 +860,9 @@ pub async fn propose_daily_journal(
         } else if is_store_credit {
             qbo_map_name(pool, "liability_store_credit", "default").await?
         } else if is_loyalty_gc {
-            qbo_map_with_misc_fallback(pool, "expense_loyalty", "default", None).await?
+            qbo_map_with_default_mapping(pool, "expense_loyalty", "default", None).await?
         } else if is_paid_liability_gc {
-            qbo_map_with_misc_fallback(pool, "liability_gift_card", "default", None).await?
+            qbo_map_with_default_mapping(pool, "liability_gift_card", "default", None).await?
         } else {
             None
         };
@@ -863,7 +871,7 @@ pub async fn propose_daily_journal(
         } else if is_open_deposit || is_store_credit {
             None
         } else if is_rms_financing {
-            qbo_map_with_misc_fallback(
+            qbo_map_with_default_mapping(
                 pool,
                 "MISC_PAYMENT",
                 "default",
@@ -871,13 +879,13 @@ pub async fn propose_daily_journal(
             )
             .await?
         } else {
-            qbo_map_with_misc_fallback(pool, "tender", sid, None).await?
+            qbo_map_with_default_mapping(pool, "tender", sid, None).await?
         };
         let (aid, aname) = match mapped {
             Some(m) => {
                 if is_loyalty_gc && liability_mapped.is_none() {
                     warnings.push(
-                        "Gift card loyalty/promo redemption uses tender fallback — set `expense_loyalty` / default for expense recognition.".to_string(),
+                        "Gift card loyalty/promo redemption uses tender mapping — set `expense_loyalty` / default for expense recognition.".to_string(),
                     );
                 } else if is_paid_liability_gc && liability_mapped.is_none() {
                     warnings.push(
@@ -963,7 +971,7 @@ pub async fn propose_daily_journal(
         // post the fee as an expense and credit the clearing account (leaving the net in clearing).
         let fees = t.total_merchant_fee.unwrap_or(Decimal::ZERO);
         if sid.to_lowercase().contains("card") && !fees.is_zero() {
-            if let Some((fee_aid, fee_aname)) = qbo_map_with_misc_fallback(
+            if let Some((fee_aid, fee_aname)) = qbo_map_with_default_mapping(
                 pool,
                 "expense_merchant_fee",
                 "default",
@@ -1045,7 +1053,7 @@ pub async fn propose_daily_journal(
         .iter()
         .map(|r| r.cogs_restock.unwrap_or(Decimal::ZERO))
         .sum();
-    if restock_cogs_total > Decimal::ZERO && ledger_fallback(pool, "INV_ASSET").await?.is_none() {
+    if restock_cogs_total > Decimal::ZERO && ledger_mapping(pool, "INV_ASSET").await?.is_none() {
         warnings.push(
             "Return-day restocks present but `INV_ASSET` has no ledger_mapping — restock inventory lines may be omitted until mapped."
                 .to_string(),
@@ -1066,7 +1074,7 @@ pub async fn propose_daily_journal(
             .unwrap_or_else(|| "_uncategorized".to_string());
 
         if np > Decimal::ZERO {
-            if let Some(mapped) = qbo_map_with_misc_fallback(
+            if let Some(mapped) = qbo_map_with_default_mapping(
                 pool,
                 "category_revenue",
                 &cat_label,
@@ -1088,7 +1096,7 @@ pub async fn propose_daily_journal(
                 });
             } else {
                 warnings.push(format!(
-                    "Return-day product contra for category `{cat_label}` skipped — no revenue or MISC mapping."
+                    "Return-day product contra for category `{cat_label}` skipped — no category revenue mapping."
                 ));
             }
         }
@@ -1096,7 +1104,7 @@ pub async fn propose_daily_journal(
         let tax_ret = (ts + tl).round_dp(2);
         if tax_ret > Decimal::ZERO {
             if let Some((tid, tnm)) =
-                qbo_map_with_misc_fallback(pool, "tax", "SALES_TAX", None).await?
+                qbo_map_with_default_mapping(pool, "tax", "SALES_TAX", None).await?
             {
                 lines.push(JournalLine {
                     qbo_account_id: tid,
@@ -1115,16 +1123,20 @@ pub async fn propose_daily_journal(
         }
 
         if cr > Decimal::ZERO {
-            let inv = qbo_map_with_misc_fallback(
+            let inv = qbo_map_with_default_mapping(
                 pool,
                 "category_inventory",
                 &cat_label,
                 Some("INV_ASSET"),
             )
             .await?;
-            let cogs_a =
-                qbo_map_with_misc_fallback(pool, "category_cogs", &cat_label, Some("COGS_DEFAULT"))
-                    .await?;
+            let cogs_a = qbo_map_with_default_mapping(
+                pool,
+                "category_cogs",
+                &cat_label,
+                Some("COGS_DEFAULT"),
+            )
+            .await?;
             if let (Some((cogs_id, cogs_nm)), Some((inv_id, inv_nm))) = (cogs_a, inv) {
                 lines.push(JournalLine {
                     qbo_account_id: inv_id.clone(),
@@ -1395,7 +1407,7 @@ pub async fn propose_daily_journal(
             .or_insert(Decimal::ZERO) += release_amount;
 
         if let Some((lid, lnm)) =
-            qbo_map_with_misc_fallback(pool, "liability_deposit", "default", None).await?
+            qbo_map_with_default_mapping(pool, "liability_deposit", "default", None).await?
         {
             lines.push(JournalLine {
                 qbo_account_id: lid,
@@ -1413,7 +1425,7 @@ pub async fn propose_daily_journal(
             });
         } else if !warned_missing_deposit_liability_mapping {
             warnings.push(
-                "Deposit release detected but no `liability_deposit` / default or MISC mapping; release debit omitted.".to_string(),
+                "Deposit release detected but no `liability_deposit` / default mapping; release debit omitted.".to_string(),
             );
             warned_missing_deposit_liability_mapping = true;
         }
@@ -1461,9 +1473,9 @@ pub async fn propose_daily_journal(
 
         if net > Decimal::ZERO {
             let mapped = if let Some(custom_key) = custom_mapping_key {
-                qbo_map_with_misc_fallback(pool, "custom_revenue", custom_key, None)
+                qbo_map_with_default_mapping(pool, "custom_revenue", custom_key, None)
                     .await?
-                    .or(qbo_map_with_misc_fallback(
+                    .or(qbo_map_with_default_mapping(
                         pool,
                         "category_revenue",
                         &cat_label,
@@ -1471,7 +1483,7 @@ pub async fn propose_daily_journal(
                     )
                     .await?)
             } else {
-                qbo_map_with_misc_fallback(
+                qbo_map_with_default_mapping(
                     pool,
                     "category_revenue",
                     &cat_label,
@@ -1483,7 +1495,7 @@ pub async fn propose_daily_journal(
                 m
             } else {
                 warnings.push(format!(
-                    "No revenue or MISC mapping for category `{cat_label}`; revenue omitted."
+                    "No revenue mapping for category `{cat_label}`; revenue omitted."
                 ));
                 continue;
             };
@@ -1520,9 +1532,9 @@ pub async fn propose_daily_journal(
 
         if cogs > Decimal::ZERO {
             let inv = if let Some(custom_key) = custom_mapping_key {
-                qbo_map_with_misc_fallback(pool, "custom_inventory", custom_key, None)
+                qbo_map_with_default_mapping(pool, "custom_inventory", custom_key, None)
                     .await?
-                    .or(qbo_map_with_misc_fallback(
+                    .or(qbo_map_with_default_mapping(
                         pool,
                         "category_inventory",
                         &cat_label,
@@ -1530,7 +1542,7 @@ pub async fn propose_daily_journal(
                     )
                     .await?)
             } else {
-                qbo_map_with_misc_fallback(
+                qbo_map_with_default_mapping(
                     pool,
                     "category_inventory",
                     &cat_label,
@@ -1539,9 +1551,9 @@ pub async fn propose_daily_journal(
                 .await?
             };
             let cogs_a = if let Some(custom_key) = custom_mapping_key {
-                qbo_map_with_misc_fallback(pool, "custom_cogs", custom_key, None)
+                qbo_map_with_default_mapping(pool, "custom_cogs", custom_key, None)
                     .await?
-                    .or(qbo_map_with_misc_fallback(
+                    .or(qbo_map_with_default_mapping(
                         pool,
                         "category_cogs",
                         &cat_label,
@@ -1549,8 +1561,13 @@ pub async fn propose_daily_journal(
                     )
                     .await?)
             } else {
-                qbo_map_with_misc_fallback(pool, "category_cogs", &cat_label, Some("COGS_DEFAULT"))
-                    .await?
+                qbo_map_with_default_mapping(
+                    pool,
+                    "category_cogs",
+                    &cat_label,
+                    Some("COGS_DEFAULT"),
+                )
+                .await?
             };
 
             if let (Some((cogs_id, cogs_nm)), Some((inv_id, inv_nm))) = (cogs_a, inv) {
@@ -1580,7 +1597,7 @@ pub async fn propose_daily_journal(
         let tax_total = ts + tl;
         if tax_total > Decimal::ZERO {
             if let Some((tid, tnm)) =
-                qbo_map_with_misc_fallback(pool, "tax", "SALES_TAX", None).await?
+                qbo_map_with_default_mapping(pool, "tax", "SALES_TAX", None).await?
             {
                 lines.push(JournalLine {
                     qbo_account_id: tid,
@@ -1592,7 +1609,7 @@ pub async fn propose_daily_journal(
                 });
             } else {
                 warnings.push(
-                    "Sales tax collected but no `tax` / SALES_TAX or MISC mapping; add qbo_mappings row."
+                    "Sales tax collected but no `tax` / SALES_TAX mapping; add qbo_mappings row."
                         .to_string(),
                 );
             }
@@ -1622,7 +1639,7 @@ pub async fn propose_daily_journal(
 
     if !deposit_inflow.is_zero() {
         if let Some((lid, lnm)) =
-            qbo_map_with_misc_fallback(pool, "liability_deposit", "default", None).await?
+            qbo_map_with_default_mapping(pool, "liability_deposit", "default", None).await?
         {
             let abs_in = deposit_inflow.abs();
             let (debit, credit) = if deposit_inflow > Decimal::ZERO {
@@ -1672,9 +1689,10 @@ pub async fn propose_daily_journal(
     if let Some(f_amt) = forfeit_row.total_forfeited {
         if f_amt > Decimal::ZERO {
             let lib =
-                qbo_map_with_misc_fallback(pool, "liability_deposit", "default", None).await?;
-            let inc = qbo_map_with_misc_fallback(pool, "income_forfeited_deposit", "default", None)
-                .await?;
+                qbo_map_with_default_mapping(pool, "liability_deposit", "default", None).await?;
+            let inc =
+                qbo_map_with_default_mapping(pool, "income_forfeited_deposit", "default", None)
+                    .await?;
 
             if let (Some((lib_id, lib_nm)), Some((inc_id, inc_nm))) = (lib, inc) {
                 lines.push(JournalLine {
@@ -1721,7 +1739,7 @@ pub async fn propose_daily_journal(
     .await?;
 
     if alteration_service_net > Decimal::ZERO {
-        if let Some((aid, aname)) = qbo_map_with_misc_fallback(
+        if let Some((aid, aname)) = qbo_map_with_default_mapping(
             pool,
             "income_alterations",
             "default",
@@ -1739,7 +1757,7 @@ pub async fn propose_daily_journal(
             });
         } else {
             warnings.push(
-                "Charged alteration service lines detected but no `income_alterations` / default, `REVENUE_ALTERATIONS`, or MISC mapping; revenue omitted."
+                "Charged alteration service lines detected but no `income_alterations` / default or `REVENUE_ALTERATIONS` mapping; revenue omitted."
                     .to_string(),
             );
         }
@@ -1760,7 +1778,7 @@ pub async fn propose_daily_journal(
     .await?;
 
     if rms_payment_net > Decimal::ZERO {
-        if let Some((aid, aname)) = qbo_map_with_misc_fallback(
+        if let Some((aid, aname)) = qbo_map_with_default_mapping(
             pool,
             "MISC_PAYMENT",
             "default",
@@ -1778,7 +1796,7 @@ pub async fn propose_daily_journal(
             });
         } else {
             warnings.push(
-                "R2S RMS payment lines detected but mapping missing; verify RMS_R2S_PAYMENT_CLEARING or MISC fallback."
+                "R2S RMS payment lines detected but mapping missing; verify RMS_R2S_PAYMENT_CLEARING."
                     .to_string(),
             );
         }
@@ -1799,7 +1817,7 @@ pub async fn propose_daily_journal(
     .await?;
 
     if rms_payment_reversal_net > Decimal::ZERO {
-        if let Some((aid, aname)) = qbo_map_with_misc_fallback(
+        if let Some((aid, aname)) = qbo_map_with_default_mapping(
             pool,
             "MISC_PAYMENT",
             "default",
@@ -1817,7 +1835,7 @@ pub async fn propose_daily_journal(
             });
         } else {
             warnings.push(
-                "R2S RMS payment reversals detected but mapping missing; verify RMS_R2S_PAYMENT_CLEARING or MISC fallback."
+                "R2S RMS payment reversals detected but mapping missing; verify RMS_R2S_PAYMENT_CLEARING."
                     .to_string(),
             );
         }
@@ -1841,7 +1859,7 @@ pub async fn propose_daily_journal(
     let refund_liability_delta = (refund_liability_created - refund_liability_relieved).round_dp(2);
 
     if !refund_liability_delta.is_zero() {
-        if let Some((aid, aname)) = qbo_map_with_misc_fallback(
+        if let Some((aid, aname)) = qbo_map_with_default_mapping(
             pool,
             "liability_refund_queue",
             "default",
@@ -1936,7 +1954,7 @@ pub async fn ensure_pending_daily_journal(
 
     let locked_rows: Vec<(Uuid, String, Option<String>)> = existing_rows
         .iter()
-        .filter(|(_, status, _)| status == "approved" || status == "synced")
+        .filter(|(_, status, _)| status == "approved" || status == "synced" || status == "voided")
         .cloned()
         .collect();
 
@@ -2077,6 +2095,34 @@ mod tests {
         assert!(gift_card_uses_loyalty_expense(Some("promo_gift_card")));
         assert!(!gift_card_uses_loyalty_expense(Some("paid_liability")));
         assert!(!gift_card_uses_loyalty_expense(None));
+    }
+
+    #[test]
+    fn staging_metadata_marks_voided_rows_as_revisions() {
+        let activity_date = NaiveDate::from_ymd_opt(2026, 6, 4).unwrap();
+        let previous_id = Uuid::new_v4();
+        let payload = with_staging_metadata(
+            json!({ "activity_date": activity_date, "lines": [] }),
+            activity_date,
+            &[(
+                previous_id,
+                "voided".to_string(),
+                Some("QBO-JE-123".to_string()),
+            )],
+        );
+
+        assert_eq!(
+            payload
+                .pointer("/qbo_stage/entry_type")
+                .and_then(Value::as_str),
+            Some("daily_general_journal_revision")
+        );
+        assert_eq!(
+            payload
+                .pointer("/qbo_stage/revision_of/0/status")
+                .and_then(Value::as_str),
+            Some("voided")
+        );
     }
 
     #[tokio::test]

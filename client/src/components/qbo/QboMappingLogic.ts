@@ -61,10 +61,10 @@ export const QBO_MATRIX_FINANCIAL_ACCOUNTS = [
     placeholder: "Forfeited deposit income",
   },
   {
-    key: "misc_fallback",
-    label: "Unmapped activity review holding",
-    help: "Last-resort holding account for journal rows that still need accounting review after all specific mappings are checked.",
-    placeholder: "Accounting review holding",
+    key: "gift_card_breakage_income",
+    label: "Gift card breakage income",
+    help: "Expired purchased gift card balances recognized as income after liability relief.",
+    placeholder: "Gift card breakage income",
   },
 ] as const;
 
@@ -105,8 +105,8 @@ export function matrixKeyToGranular(
   if (key === "forfeited_deposit_income") {
     return { source_type: "income_forfeited_deposit", source_id: "default" };
   }
-  if (key === "misc_fallback") {
-    return { source_type: "MISC_FALLBACK", source_id: "default" };
+  if (key === "gift_card_breakage_income") {
+    return { source_type: "income_gift_card_breakage", source_id: "default" };
   }
   let m = /^rev_(.+)$/.exec(key);
   if (m) return { source_type: "category_revenue", source_id: m[1] };
@@ -166,8 +166,8 @@ export function granularToMatrixKey(
       return source_id === "default" ? "refund_queue_liability" : null;
     case "income_forfeited_deposit":
       return source_id === "default" ? "forfeited_deposit_income" : null;
-    case "MISC_FALLBACK":
-      return source_id === "default" ? "misc_fallback" : null;
+    case "income_gift_card_breakage":
+      return source_id === "default" ? "gift_card_breakage_income" : null;
     default:
       return null;
   }

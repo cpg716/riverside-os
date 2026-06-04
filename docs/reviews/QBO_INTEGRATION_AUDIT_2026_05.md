@@ -41,7 +41,7 @@ The tender mapping engine handles 10+ distinct payment scenarios:
 | RMS payment collection | Pass-through with reversal support |
 | Negative amounts (refunds) | Credit to tender account (cash out) |
 
-**Fallback chain**: Specific mapping → ledger fallback → MISC_FALLBACK → warning if unmapped.
+**Mapping chain**: Specific mapping → explicit ledger mapping → warning/blocking review if unmapped.
 
 ### 2.3 Returns — Contra-Revenue on Activity Date
 Returns recorded on `activity_date` generate:
@@ -78,7 +78,7 @@ Suit/component swap events generate cost-delta journal entries:
 Covers `po_receipt`, `adjustment`, `damaged`, `return_to_vendor`, `physical_inventory`:
 - Each type maps to specific clearing/expense accounts
 - Shrinkage (negative adjustments): Credit Inventory, Debit Shrinkage
-- Found inventory (positive adjustments): Debit Inventory, Credit Revenue Fallback
+- Found inventory (positive adjustments): Debit Inventory, Credit `REVENUE_INVENTORY_ADJUSTMENT`
 
 ### 2.8 Inbound Freight
 Freight from receiving events posts to `COGS_FREIGHT` expense with offset to `INV_RECEIVING_CLEARING`. Freight is explicitly NOT part of COGS — it has its own account.
@@ -162,7 +162,7 @@ The journal proposal engine performs three levels of verification:
 This triple-verification provides high confidence in journal accuracy before any QBO sync.
 
 ### 5.2 Positive: Defensive Mapping Strategy
-Every accounting scenario has a 3-tier fallback: specific mapping → ledger mapping → MISC_FALLBACK. When no mapping exists, the line is **omitted with a warning** rather than posting to a wrong account. This is the correct behavior for a staging system.
+Every accounting scenario uses explicit mappings only: specific mapping → ledger mapping. When no mapping exists, the line is **omitted with a warning** rather than posting to a generic holding account. This is the correct behavior for production staging because missing mappings must be resolved before sync.
 
 ### 5.3 Informational: Journal Size
 The `propose_daily_journal` function is 1,600+ lines of accounting logic. While well-structured with inline struct definitions and clear sections, this is a large single function. The complexity is inherent to the accounting domain — breaking it up would sacrifice the clear sequential flow. No refactoring recommended.
@@ -171,4 +171,4 @@ The `propose_daily_journal` function is 1,600+ lines of accounting logic. While 
 
 ## 6. Conclusion
 
-**0 blockers, 0 regressions.** The QBO Integration subsystem is production-ready with the most thorough accounting journal engine reviewed in this audit series. The mapping-first staging workflow, triple-verification balance checks, and defensive fallback strategy make this a robust financial bridge.
+**0 blockers, 0 regressions.** The QBO Integration subsystem is production-ready with the most thorough accounting journal engine reviewed in this audit series. The mapping-first staging workflow, triple-verification balance checks, and explicit mapping strategy make this a robust financial bridge.

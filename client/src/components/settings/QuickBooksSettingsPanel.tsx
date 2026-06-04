@@ -62,37 +62,37 @@ const baseUrl = getBaseUrl();
 const LEGACY_ROWS: { key: string; label: string; description: string }[] = [
   {
     key: "REVENUE_CLOTHING",
-    label: "Fallback clothing revenue",
-    description: "Fallback revenue (unmapped category)",
+    label: "Default clothing revenue",
+    description: "Default revenue account for clothing categories",
   },
   {
     key: "REVENUE_FOOTWEAR",
-    label: "Fallback footwear revenue",
-    description: "Footwear revenue fallback",
+    label: "Default footwear revenue",
+    description: "Default revenue account for footwear categories",
   },
   {
     key: "REVENUE_SERVICE",
-    label: "Fallback service revenue",
-    description: "Service / alterations fallback",
+    label: "Default service revenue",
+    description: "Default revenue account for service lines",
   },
   {
     key: "REVENUE_ALTERATIONS",
     label: "Alterations revenue",
-    description: "Alterations revenue fallback",
+    description: "Default revenue account for alterations",
   },
   {
     key: "REVENUE_SHIPPING",
     label: "Shipping income",
-    description: "Customer-charged shipping income fallback",
+    description: "Customer-charged shipping income account",
   },
   {
-    key: "REVENUE_FALLBACK",
-    label: "Unmapped revenue review",
-    description: "Fallback income for unclassified positive inventory adjustments",
+    key: "REVENUE_INVENTORY_ADJUSTMENT",
+    label: "Inventory adjustment income",
+    description: "Income account for unclassified positive inventory adjustments",
   },
   {
     key: "INV_ASSET",
-    label: "Inventory asset fallback",
+    label: "Default inventory asset",
     description: "Default inventory asset",
   },
   {
@@ -106,8 +106,13 @@ const LEGACY_ROWS: { key: string; label: string; description: string }[] = [
     description: "Inventory value moving out through vendor returns",
   },
   {
+    key: "INV_RECEIVING_CLEARING",
+    label: "Receiving clearing",
+    description: "Offset for received inventory and inbound freight before AP posting",
+  },
+  {
     key: "COGS_DEFAULT",
-    label: "Cost of goods sold fallback",
+    label: "Default cost of goods sold",
     description: "Default COGS",
   },
   {
@@ -143,7 +148,7 @@ const LEGACY_ROWS: { key: string; label: string; description: string }[] = [
   {
     key: "REFUND_LIABILITY_CLEARING",
     label: "Refund holding account",
-    description: "Refund queue liability fallback",
+    description: "Refund queue liability account",
   },
 ];
 
@@ -341,7 +346,7 @@ export default function QuickBooksSettingsPanel({
     });
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(j.error ?? "Could not save fallback mapping");
+      throw new Error(j.error ?? "Could not save default mapping");
     }
     await loadMappingData();
   };
@@ -357,7 +362,7 @@ export default function QuickBooksSettingsPanel({
     });
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(j.error ?? "Could not clear fallback mapping");
+      throw new Error(j.error ?? "Could not clear default mapping");
     }
     await loadMappingData();
   };
@@ -605,7 +610,7 @@ export default function QuickBooksSettingsPanel({
 
         <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface-2 shadow-sm">
           <div className="border-b border-app-border px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Global fallback mappings
+            Required default mappings
           </div>
           <table className="w-full text-left text-sm">
             <thead className="bg-app-surface text-[9px] font-black uppercase tracking-widest text-app-text-muted">
@@ -641,7 +646,7 @@ export default function QuickBooksSettingsPanel({
                             toast(
                               ex instanceof Error
                                 ? ex.message
-                                : "Could not update fallback mapping",
+                                : "Could not update default mapping",
                               "error",
                             ),
                           );

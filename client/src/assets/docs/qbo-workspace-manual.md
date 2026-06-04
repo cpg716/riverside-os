@@ -34,7 +34,7 @@ QBO Workspace is the review and staging area for QuickBooks Online journal propo
 
 Review the proposal date, totals, journal lines, balance status, and drilldown evidence before syncing.
 
-After a register is closed for the day, ROS stages the daily journal for that store-local business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a pending row when accounting opens. If the day is already staged but still pending, staging refreshes the same row with the latest facts. If the day was already approved or synced and later sales, returns, deposits, or payment-date corrections change the day, ROS creates a revision proposal for the same business date.
+After a register is closed for the day, ROS stages the daily journal for that store-local business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a pending row when accounting opens. If the day is already staged but still pending, staging refreshes the same row with the latest facts. If the day was already approved, synced, or voided and later sales, returns, deposits, or payment-date corrections change the day, ROS creates a revision proposal for the same business date.
 
 ### Connection health
 

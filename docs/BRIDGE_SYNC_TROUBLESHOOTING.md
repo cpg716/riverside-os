@@ -80,4 +80,4 @@ Use the built-in query tester to verify SQL extracts without starting a sync.
 - **Test arbitrary SQL**: Send a POST request to `http://localhost:3002/api/test-query` with `{ "sql": "SELECT TOP 5 * FROM PS_DOC_HDR" }` to execute custom probes.
 
 ---
-*Version: v0.85.0 - May 2026*
+*Version: v0.90.0 - June 2026*

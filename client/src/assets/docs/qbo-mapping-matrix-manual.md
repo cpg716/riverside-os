@@ -22,11 +22,11 @@ The Mapping Matrix is the configuration engine that tells Riverside OS where to 
 
 ## What this is
 
-Use the **Mapping Matrix** to link Riverside categories, payment tenders, and fallback accounts to your QuickBooks Online Chart of Accounts. 
+Use the **Mapping Matrix** to link Riverside categories, payment tenders, and required default accounts to your QuickBooks Online Chart of Accounts.
 
 ## What this is
 
-Use this matrix to map Riverside categories, tenders, and fallback accounts to the correct QuickBooks Online chart-of-accounts records.
+Use this matrix to map Riverside categories, tenders, and required default accounts to the correct QuickBooks Online chart-of-accounts records.
 
 ## Mapping categories
 
@@ -43,11 +43,13 @@ Map each payment method (Cash, Check, Card) to its respective clearing or asset 
 - **Standard Tenders**: Map to "Cash on Hand" or your primary bank account.
 - **Merchant Tenders**: **IMPORTANT:** We recommend mapping these to a "Merchant Clearing" (Other Current Asset) account rather than your checking account.
 
-### 3. Global Fallbacks
-These are safety accounts used when a specific mapping is missing or for global logic:
+### 3. Required Defaults
+These are explicit accounts used by global financial logic:
 - **Merchant Processing Fees**: Map this to your "Merchant Fees" or "Bank Charges" expense account.
 - **Sales Tax**: Map to your "Sales Tax Payable" liability account.
 - **Shipping Expense**: Map to your outbound shipping freight account.
+- **Receiving Clearing**: Map `INV_RECEIVING_CLEARING` before relying on receiving or freight journal rows.
+- **Gift Card Breakage Income**: Map expired purchased-card breakage separately from normal sales revenue.
 
 ## How to map an account
 
@@ -58,7 +60,7 @@ These are safety accounts used when a specific mapping is missing or for global 
 
 ## Tips
 
-- **Balanced Journals**: If you leave a required account unmapped, the daily journal will use a "MISC FALLBACK" account and include a warning in the staging queue.
+- **Balanced Journals**: If you leave a required account unmapped, the daily journal includes a warning in the staging queue and must be resolved before posting.
 - **New Accounts**: If you create a new account in QuickBooks, you must click **"Refresh QBO accounts"** at the top of the matrix to see it in the list.
 - **Clearing Account Reconcile**: Use the "Transfer" feature in QuickBooks to move funds from your "Merchant Clearing" account to your "Checking" account once the daily settlement hits your bank statement.
 

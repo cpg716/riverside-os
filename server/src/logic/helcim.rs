@@ -1666,13 +1666,22 @@ fn value_to_string(value: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn helcim_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     #[tokio::test]
     async fn health_check_returns_not_configured_when_token_and_simulator_missing() {
+        let _guard = helcim_env_lock();
         let previous_token = std::env::var("HELCIM_API_TOKEN").ok();
         let previous_sim = std::env::var("HELCIM_SIMULATOR_ENABLED").ok();
+        let previous_strict = std::env::var("RIVERSIDE_STRICT_PRODUCTION").ok();
         std::env::remove_var("HELCIM_API_TOKEN");
         std::env::remove_var("HELCIM_SIMULATOR_ENABLED");
+        std::env::remove_var("RIVERSIDE_STRICT_PRODUCTION");
         let health = health_check(&reqwest::Client::new()).await;
         assert!(!health.configured);
         assert!(!health.reachable);
@@ -1688,10 +1697,14 @@ mod tests {
         if let Some(v) = previous_sim {
             std::env::set_var("HELCIM_SIMULATOR_ENABLED", v);
         }
+        if let Some(v) = previous_strict {
+            std::env::set_var("RIVERSIDE_STRICT_PRODUCTION", v);
+        }
     }
 
     #[tokio::test]
     async fn health_check_returns_reachable_when_simulator_enabled() {
+        let _guard = helcim_env_lock();
         let previous_token = std::env::var("HELCIM_API_TOKEN").ok();
         let previous_sim = std::env::var("HELCIM_SIMULATOR_ENABLED").ok();
         let previous_strict = std::env::var("RIVERSIDE_STRICT_PRODUCTION").ok();
@@ -1719,6 +1732,8 @@ mod tests {
         }
         if let Some(v) = previous_strict {
             std::env::set_var("RIVERSIDE_STRICT_PRODUCTION", v);
+        } else {
+            std::env::remove_var("RIVERSIDE_STRICT_PRODUCTION");
         }
     }
     use serde_json::json;

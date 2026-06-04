@@ -2251,7 +2251,7 @@ async fn retry_failed(
         "TxnDate": sync_date,
         "Line": line_payloads
     });
-    let request_id = format!("ros-qbo-journal-retry-{id}");
+    let request_id = format!("ros-qbo-journal-{id}");
     let url = format!(
         "{}/v3/company/{}/journalentry?minorversion={}&requestid={}",
         qbo_base_url(integ.use_sandbox),

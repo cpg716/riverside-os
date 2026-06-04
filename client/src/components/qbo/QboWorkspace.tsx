@@ -155,7 +155,7 @@ function getResolvableMappingKeys(message: string): { key: string; label: string
       } else if (key === "tax") {
         results.push({ key, label: "Sales Tax Payable", type: "granular", source_type: "tax", source_id: "SALES_TAX" });
       } else if (["COGS_FREIGHT", "INV_RECEIVING_CLEARING", "INV_ASSET", "COGS_DEFAULT", "INV_SHRINKAGE", "INV_RTV_CLEARING", "EXP_SHIPPING", "EXP_MERCHANT_FEE", "CASH_ROUNDING", "RMS_CHARGE_FINANCING_CLEARING", "RMS_R2S_PAYMENT_CLEARING", "REFUND_LIABILITY_CLEARING", "REVENUE_SHIPPING", "REVENUE_GIFT_CARD_BREAKAGE"].includes(key)) {
-        results.push({ key, label: `${key.replace(/_/g, " ")} Fallback`, type: "ledger" });
+        results.push({ key, label: `${key.replace(/_/g, " ")} Mapping`, type: "ledger" });
       }
     }
   }
@@ -950,8 +950,9 @@ export default function QboWorkspace({
               </span>
             </p>
             <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-app-text-muted">
-              Refreshing a date rebuilds an unsent journal. Dates already approved or sent create
-              a revision for review, so history is not silently replaced.
+              Refreshing a date rebuilds an unsent journal. Dates already
+              approved, posted, or voided create a revision for review, so
+              history is not silently replaced.
             </p>
           </div>
         </div>

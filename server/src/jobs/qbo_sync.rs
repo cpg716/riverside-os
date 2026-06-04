@@ -274,6 +274,11 @@ impl QboSyncHandler {
     }
 
     pub async fn sync_outbox(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if integration_row(&self.pool).await?.is_none() {
+            tracing::debug!("QBO outbox sync skipped: no active QBO integration");
+            return Ok(());
+        }
+
         let mut tx = self.pool.begin().await?;
         let row: Option<(sqlx::types::Uuid, sqlx::types::Uuid, serde_json::Value, i32)> =
             sqlx::query_as(
@@ -368,7 +373,6 @@ impl QboSyncHandler {
         transaction_id: sqlx::types::Uuid,
         payload: &serde_json::Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::logic::qbo_journal::qbo_map_with_misc_fallback;
         use rust_decimal::Decimal;
 
         let display_id = payload
@@ -456,33 +460,23 @@ impl QboSyncHandler {
                 };
 
                 let (rev_id, rev_name) = if line_type == "alteration_service" {
-                    qbo_map_with_misc_fallback(
+                    require_qbo_mapping(
                         &self.pool,
                         "custom_revenue",
                         "alteration_service",
                         Some("REVENUE_ALTERATIONS"),
+                        "alteration revenue",
                     )
                     .await?
-                    .unwrap_or_else(|| {
-                        (
-                            "REVENUE_ALTERATIONS".to_string(),
-                            "Alteration Revenue".to_string(),
-                        )
-                    })
                 } else {
-                    qbo_map_with_misc_fallback(
+                    require_qbo_mapping(
                         &self.pool,
                         "category_revenue",
                         &cat_label,
                         Some("REVENUE_DEFAULT"),
+                        "merchandise revenue",
                     )
                     .await?
-                    .unwrap_or_else(|| {
-                        (
-                            "REVENUE_DEFAULT".to_string(),
-                            "Merchandise Revenue".to_string(),
-                        )
-                    })
                 };
 
                 let memo = format!("ROS Line Rev - {} x {}", quantity, display_id);
@@ -519,9 +513,7 @@ impl QboSyncHandler {
         total_tax = total_tax.round_dp(2);
         if !total_tax.is_zero() {
             let (tax_id, tax_name) =
-                qbo_map_with_misc_fallback(&self.pool, "tax", "SALES_TAX", None)
-                    .await?
-                    .unwrap_or_else(|| ("SALES_TAX".to_string(), "Sales Tax Payable".to_string()));
+                require_qbo_mapping(&self.pool, "tax", "SALES_TAX", None, "sales tax").await?;
             let memo = format!("ROS Sales Tax - {}", display_id);
             lines.push(json!({
                 "Description": memo,
@@ -537,19 +529,14 @@ impl QboSyncHandler {
         if let Some(ship_amt) = shipping_amount {
             let ship_amt = ship_amt.round_dp(2);
             if !ship_amt.is_zero() {
-                let (ship_id, ship_name) = qbo_map_with_misc_fallback(
+                let (ship_id, ship_name) = require_qbo_mapping(
                     &self.pool,
                     "income_shipping",
                     "default",
                     Some("REVENUE_SHIPPING"),
+                    "shipping revenue",
                 )
-                .await?
-                .unwrap_or_else(|| {
-                    (
-                        "REVENUE_SHIPPING".to_string(),
-                        "Shipping Revenue".to_string(),
-                    )
-                });
+                .await?;
                 let memo = format!("ROS Shipping Rev - {}", display_id);
                 lines.push(json!({
                     "Description": memo,
@@ -580,11 +567,7 @@ impl QboSyncHandler {
                 }
 
                 let (tend_id, tend_name) =
-                    qbo_map_with_misc_fallback(&self.pool, "tender", method, None)
-                        .await?
-                        .unwrap_or_else(|| {
-                            ("TENDER_DEFAULT".to_string(), format!("Tender - {}", method))
-                        });
+                    require_qbo_mapping(&self.pool, "tender", method, None, "tender").await?;
                 let memo = format!("ROS Payment - {} - {}", method, display_id);
                 lines.push(json!({
                     "Description": memo,
@@ -599,7 +582,7 @@ impl QboSyncHandler {
         }
 
         if !balance_due.is_zero() {
-            let (rec_id, rec_name) = match qbo_map_with_misc_fallback(
+            let (rec_id, rec_name) = match crate::logic::qbo_journal::qbo_map_with_default_mapping(
                 &self.pool,
                 "receivable",
                 "default",
@@ -608,7 +591,7 @@ impl QboSyncHandler {
             .await?
             {
                 Some(m) => m,
-                None => match qbo_map_with_misc_fallback(
+                None => match crate::logic::qbo_journal::qbo_map_with_default_mapping(
                     &self.pool,
                     "liability_deposit",
                     "default",
@@ -617,10 +600,12 @@ impl QboSyncHandler {
                 .await?
                 {
                     Some(m) => m,
-                    None => (
-                        "accounts_receivable".to_string(),
-                        "Accounts Receivable".to_string(),
-                    ),
+                    None => {
+                        return Err(
+                            "missing QBO mapping for unpaid balance; map receivable/default or liability_deposit/default before syncing"
+                                .into(),
+                        )
+                    }
                 },
             };
             let memo = format!("ROS Unpaid Balance - {}", display_id);
@@ -636,19 +621,14 @@ impl QboSyncHandler {
         }
 
         if !rounding_adjustment.is_zero() {
-            let (rnd_id, rnd_name) = qbo_map_with_misc_fallback(
+            let (rnd_id, rnd_name) = require_qbo_mapping(
                 &self.pool,
                 "cash_rounding",
                 "default",
                 Some("CASH_ROUNDING"),
+                "cash rounding",
             )
-            .await?
-            .unwrap_or_else(|| {
-                (
-                    "CASH_ROUNDING".to_string(),
-                    "Swedish Rounding Adjustments".to_string(),
-                )
-            });
+            .await?;
             let memo = format!("ROS Swedish Rounding - {}", display_id);
             let abs_rnd = rounding_adjustment.abs().round_dp(2);
             let posting_type = if rounding_adjustment > Decimal::ZERO {
@@ -742,6 +722,33 @@ fn to_amount(v: &serde_json::Value) -> Option<String> {
         return Some(format!("{:.2}", n.abs()));
     }
     None
+}
+
+async fn require_qbo_mapping(
+    pool: &PgPool,
+    source_type: &str,
+    source_id: &str,
+    default_ledger_key: Option<&str>,
+    label: &str,
+) -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(mapping) = crate::logic::qbo_journal::qbo_map_with_default_mapping(
+        pool,
+        source_type,
+        source_id,
+        default_ledger_key,
+    )
+    .await?
+    {
+        return Ok(mapping);
+    }
+
+    let default_hint = default_ledger_key
+        .map(|key| format!(" or default ledger key `{key}`"))
+        .unwrap_or_default();
+    Err(format!(
+        "missing QBO mapping for {label}; map `{source_type}` / `{source_id}`{default_hint} before syncing"
+    )
+    .into())
 }
 
 #[async_trait::async_trait]

@@ -23,7 +23,7 @@ The Counterpoint Sync and Migration Inventory Workbench have been consolidated i
 
 **Optional SQL objects:** Gift and loyalty tables (Standard: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are **NCR Counterpoint** names from product/schema docs — Riverside did not invent them. However, many v8.2 installations (including yours) use custom naming: **`SY_GFC`** (Gift Cards) and **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 
-**Migrations:** 29 (base `counterpoint_item_key` + `counterpoint_sync_runs`), 84 (heartbeat, ticket idempotency, sync requests/issues, mapping tables), 85 (provenance: `customer_created_source = 'counterpoint'`, `products.data_source`), 86 (staff sync: `counterpoint_staff_map`, `staff.data_source` / `counterpoint_user_id` / `counterpoint_sls_rep`, `customers.preferred_salesperson_id`, `orders.processed_by_staff_id`), 89 (`vendor_supplier_item` for `PO_VEND_ITEM`, idempotent `loyalty_point_ledger` index for `PS_LOY_PTS_HIST` imports), 95 (`counterpoint_staging_batch` + `store_settings.counterpoint_config` for optional **staging** ingest controlled in Back Office).
+**Migrations:** 29 (base `counterpoint_item_key` + `counterpoint_sync_runs`), 84 (heartbeat, ticket idempotency, sync requests/issues, mapping tables), 85 (provenance: `customer_created_source = 'counterpoint'`, `products.data_source`), 86 (staff sync: `counterpoint_staff_map`, `staff.data_source` / `counterpoint_user_id` / `counterpoint_sls_rep`, `customers.preferred_salesperson_id`, `transactions.processed_by_staff_id`), 89 (`vendor_supplier_item` for `PO_VEND_ITEM`, idempotent `loyalty_point_ledger` index for `PS_LOY_PTS_HIST` imports), 95 (`counterpoint_staging_batch` + `store_settings.counterpoint_config` for optional **staging** ingest controlled in Back Office).
 
 ---
 
@@ -144,7 +144,7 @@ Each data entity has a flag. Enable what you need. **Recommended enable order:**
 | `SYNC_INVENTORY=1` | Stock quantities for existing variants | Disabled | `IM_INV` |
 | `SYNC_CATALOG=1` | Products + matrix variants (creates items in ROS) | Disabled | `IM_ITEM`, `IM_INV_CELL`, `IM_PRC`, `IM_BARCOD` |
 | `SYNC_GIFT_CARDS=1` | Gift certificate current balance snapshots | Disabled | `SY_GFT_CERT` (Standard) or `SY_GFC` (Custom) |
-| `SYNC_TICKETS=1` | Historical sales tickets → orders | Disabled | `PS_TKT_HIST`, `PS_TKT_HIST_LIN`, `PS_TKT_HIST_PMT` |
+| `SYNC_TICKETS=1` | Historical sales tickets → Transaction Records | Disabled | `PS_TKT_HIST`, `PS_TKT_HIST_LIN`, `PS_TKT_HIST_PMT` |
 | `SYNC_RECEIVING_HISTORY=1` | Historical cost/receiving logs (2018+) | Disabled | `PO_RECVR_HIST` |
 | `SYNC_TICKET_PAYMENTS=1` | Historical payment method details | Disabled | `PS_TKT_HIST_PMT` |
 | `SYNC_TICKET_GIFT_REDEEM=1` | Historical gift card tender visibility only; does not mutate current card balances | Disabled | `PS_TKT_HIST_GFT` |
@@ -189,18 +189,18 @@ For production, add `START_BRIDGE.cmd` to Windows **Task Scheduler** to run on l
 
 Imported staff have **no PIN** (`pin_hash = NULL`) and cannot log in to the Back Office or POS until an admin assigns a cashier code and PIN. This is intentional — historical staff from Counterpoint are imported for **attribution and archival**, not active access.
 
-**Archiving non-current staff:** Staff with `STAT = 'I'` in Counterpoint are imported with `is_active = false`. They appear in the Staff list but cannot be assigned to registers, tasks, or schedules. Their historical sales data remains linked via `orders.processed_by_staff_id` and `order_items.salesperson_id`.
+**Archiving non-current staff:** Staff with `STAT = 'I'` in Counterpoint are imported with `is_active = false`. They appear in the Staff list but cannot be assigned to registers, tasks, or schedules. Their historical sales data remains linked via `transactions.processed_by_staff_id` and `transaction_lines.salesperson_id`.
 
 **Downstream attribution (after staff sync):**
 
 | Context | CP Field | ROS Column |
 |---------|----------|------------|
-| **Ticket headers** (`PS_TKT_HIST`) | `USR_ID` | `orders.processed_by_staff_id` — who rang up the sale |
-| **Ticket headers** (`PS_TKT_HIST`) | `SLS_REP` | `orders.primary_salesperson_id` + `order_items.salesperson_id` — commission recipient |
+| **Ticket headers** (`PS_TKT_HIST`) | `USR_ID` | `transactions.processed_by_staff_id` — who rang up the sale |
+| **Ticket headers** (`PS_TKT_HIST`) | `SLS_REP` | `transactions.primary_salesperson_id` + `transaction_lines.salesperson_id` — commission recipient |
 | **Customer profiles** (`AR_CUST`) | `SLS_REP` | `customers.preferred_salesperson_id` — home/preferred rep |
 | **Customer notes** (`AR_CUST_NOTE`) | `USR_ID` | Embedded in note body as `[CP:NOTE_ID] USR_ID` |
 
-> **Sync order matters:** Staff **must** be synced before customers and tickets. If staff are not yet in the map, `USR_ID` / `SLS_REP` references on customers and orders will be `NULL` (they can be backfilled by re-running the customer/ticket sync after staff are present).
+> **Sync order matters:** Staff **must** be synced before customers and tickets. If staff are not yet in the map, `USR_ID` / `SLS_REP` references on customers and Transaction Records will be `NULL` (they can be backfilled by re-running the customer/ticket sync after staff are present).
 
 ### 4b. Customers
 
@@ -345,25 +345,25 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 ### 4f. Ticket history (orders)
 
 **Source:** `dbo.PS_TKT_HIST` + `PS_TKT_HIST_LIN` + `PS_TKT_HIST_PMT`
-**Target:** `orders` + `order_items` + `payment_transactions` + `payment_allocations`
-**Key:** `TKT_NO` → `orders.counterpoint_ticket_ref` (unique)
+**Target:** `transactions` + `transaction_lines` + `payment_transactions` + `payment_allocations`
+**Key:** `TKT_NO` → `transactions.counterpoint_ticket_ref` (unique)
 
 | Counterpoint | ROS |
 |--------------|-----|
-| `PS_TKT_HIST.TKT_NO` | `orders.counterpoint_ticket_ref` |
-| `PS_TKT_HIST.BUS_DAT` | `orders.booked_at` |
-| `PS_TKT_HIST.TOT` | `orders.total_price` |
-| `PS_TKT_HIST_PMT.AMT` + redeeming `PS_TKT_HIST_GFT.AMT` | `orders.amount_paid` / `orders.balance_due` when present |
-| `PS_TKT_HIST.CUST_NO` | `orders.customer_id` (resolved via `customer_code`) |
-| `PS_TKT_HIST.USR_ID` | `orders.processed_by_staff_id` (resolved via `counterpoint_staff_map`) |
-| `PS_TKT_HIST.SLS_REP` | `orders.primary_salesperson_id` + `order_items.salesperson_id` (resolved via `counterpoint_staff_map`) |
-| `PS_TKT_HIST_LIN.ITEM_NO` + `LIN_SEQ_NO` | `order_items.variant_id` (with `PS_TKT_HIST_CELL` the bridge builds the same matrix `counterpoint_item_key` as `IM_INV_CELL`) |
+| `PS_TKT_HIST.TKT_NO` | `transactions.counterpoint_ticket_ref` |
+| `PS_TKT_HIST.BUS_DAT` | `transactions.booked_at` |
+| `PS_TKT_HIST.TOT` | `transactions.total_price` |
+| `PS_TKT_HIST_PMT.AMT` + redeeming `PS_TKT_HIST_GFT.AMT` | `transactions.amount_paid` / `transactions.balance_due` when present |
+| `PS_TKT_HIST.CUST_NO` | `transactions.customer_id` (resolved via `customer_code`) |
+| `PS_TKT_HIST.USR_ID` | `transactions.processed_by_staff_id` (resolved via `counterpoint_staff_map`) |
+| `PS_TKT_HIST.SLS_REP` | `transactions.primary_salesperson_id` + `transaction_lines.salesperson_id` (resolved via `counterpoint_staff_map`) |
+| `PS_TKT_HIST_LIN.ITEM_NO` + `LIN_SEQ_NO` | `transaction_lines.variant_id` (with `PS_TKT_HIST_CELL` the bridge builds the same matrix `counterpoint_item_key` as `IM_INV_CELL`) |
 | `PS_TKT_HIST_PMT.PMT_TYP` | `payment_transactions.payment_method` (via `counterpoint_payment_method_map`) |
 | `PS_TKT_HIST_GFT` | Optional `payment_transactions` (`gift_card`) tender visibility only; does not decrement `gift_cards.current_balance` |
 | `PS_LOY_PTS_HIST` | Optional historical replay only; not required for current loyalty balances |
 | `PO_VEND_ITEM` | `vendor_supplier_item` (links `vendors.vendor_code` + CP `ITEM_NO` to `product_variants` when resolvable) |
 
-**Idempotency:** If an order with the same `counterpoint_ticket_ref` already exists, the entire ticket is **skipped** (no duplicates).
+**Idempotency:** If a Transaction Record with the same `counterpoint_ticket_ref` already exists, the entire ticket is **skipped** (no duplicates).
 
 **Totals / paid semantics:** The shipped bridge still sources the gross historical ticket total from the header query (`PS_TKT_HIST.TOT` in the default v8.2 template). ROS now prefers the summed tender history from `PS_TKT_HIST_PMT` plus redeeming `PS_TKT_HIST_GFT` rows for `amount_paid` and `balance_due` whenever those rows are present. If those tender rows are absent, ROS falls back to the header `amount_paid` value from `CP_TICKETS_QUERY`.
 
@@ -371,9 +371,9 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
 **Tax limitation:** The shipped Counterpoint ticket queries do not currently source line-level or header-level tax columns, so imported historical `transaction_lines.state_tax` and `local_tax` land as `0`. Treat imported ticket history as operational/customer-service history, not as financially authoritative tax history, unless you extend the bridge with proven Counterpoint tax columns from your live schema.
 
-**Provenance:** All imported orders have `is_counterpoint_import = true`. This flag ensures:
+**Provenance:** Imported Counterpoint Transaction Records have `is_counterpoint_import = true`. This flag ensures:
 - Loyalty point accrual is **skipped** (no double-counting with Counterpoint's loyalty system)
-- The order is identifiable as historical import in reports and UI
+- The Transaction Record is identifiable as a historical import in reports and UI
 
 **Payment method mapping:** Pre-seeded in migration 84:
 
@@ -436,8 +436,8 @@ To handle mixed Counterpoint ID formats (legacy integers vs. newer `C-` prefixed
 | `IM_PRC` | Partial | `PRC_1` only; multi-tier pricing N/A in ROS |
 | `IM_BARCOD` | **Yes** | UPC → barcode/sku on variants |
 | `IM_INV` | **Yes** | `QTY_ON_HND`, `LST_COST`, `MIN_QTY` via inventory + catalog sync |
-| `PS_TKT_HIST` | **Yes** | Ticket headers → orders (incl. `USR_ID` → `processed_by_staff_id`, `SLS_REP` → `primary_salesperson_id`) |
-| `PS_TKT_HIST_LIN` | **Yes** | Line items → order_items |
+| `PS_TKT_HIST` | **Yes** | Ticket headers → Transaction Records (incl. `USR_ID` → `processed_by_staff_id`, `SLS_REP` → `primary_salesperson_id`) |
+| `PS_TKT_HIST_LIN` | **Yes** | Line items → transaction_lines |
 | `PS_TKT_HIST_CELL` | Deferred | Matrix-level line detail; line query covers ITEM_NO resolution |
 | `PS_TKT_HIST_PMT` | **Yes** | Payment tenders → payment_transactions |
 | `PS_TKT_HIST_GFT` | Deferred | Gift card usage linkage per ticket |
@@ -591,7 +591,7 @@ The server reset does not touch bridge-local cursor files. Delete or reset `.cou
 | `POST` | `/api/sync/counterpoint/inventory` | Stock quantity update |
 | `POST` | `/api/sync/counterpoint/catalog` | Product + variant upsert |
 | `POST` | `/api/sync/counterpoint/gift-cards` | Gift card + event ingest |
-| `POST` | `/api/sync/counterpoint/tickets` | Ticket history → orders |
+| `POST` | `/api/sync/counterpoint/tickets` | Ticket history → Transaction Records |
 | `POST` | `/api/sync/counterpoint/vendor-items` | `PO_VEND_ITEM` → `vendor_supplier_item` |
 | `POST` | `/api/sync/counterpoint/loyalty-hist` | `PS_LOY_PTS_HIST` → `loyalty_point_ledger` |
 | `POST` | `/api/sync/counterpoint/ack-request` | Acknowledge a pending sync request |
@@ -619,7 +619,7 @@ Every record imported from Counterpoint carries a permanent provenance marker:
 
 These markers are never overwritten by subsequent syncs and can be used for:
 - Filtering imported vs native records in reports
-- Preventing loyalty double-counting on historical orders
+- Preventing loyalty double-counting on historical Transaction Records
 - Auditing data origin in the CRM and inventory views
 
 ---

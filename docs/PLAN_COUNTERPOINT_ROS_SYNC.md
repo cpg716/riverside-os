@@ -6,15 +6,15 @@
 
 ## Implementation checklist
 
-- [x] **schema-external-keys** — Migration **84**: `counterpoint_bridge_heartbeat`, `orders.counterpoint_ticket_ref` (unique), `orders.is_counterpoint_import`, `counterpoint_sync_request`, `counterpoint_sync_issue`, `counterpoint_category_map`, `counterpoint_payment_method_map`, `counterpoint_gift_reason_map`.
+- [x] **schema-external-keys** — Migration **84**: `counterpoint_bridge_heartbeat`, `transactions.counterpoint_ticket_ref` (unique), `transactions.is_counterpoint_import`, `counterpoint_sync_request`, `counterpoint_sync_issue`, `counterpoint_category_map`, `counterpoint_payment_method_map`, `counterpoint_gift_reason_map`.
 - [x] **ingest-catalog-upsert** — `POST /api/sync/counterpoint/catalog`: `IM_ITEM` + `IM_INV_CELL` → `products` / `product_variants` upsert (server logic + bridge entity loop).
 - [x] **ingest-gift-cards** — `POST /api/sync/counterpoint/gift-cards`: `SY_GFT_CERT` / `SY_GFT_CERT_HIST` → `gift_cards` + `gift_card_events`; `REASON_COD` mapping via `counterpoint_gift_reason_map`.
 - [ ] **ingest-loyalty-policy** — Define policy; `PTS_BAL` / `PS_LOY_PTS_HIST` vs ROS order accrual (no double-count). *(deferred — requires business decision)*
-- [x] **ingest-tickets** — `POST /api/sync/counterpoint/tickets`: `PS_TKT_HIST` / LIN / PMT → `orders` / `order_items` / `payment_transactions` / `payment_allocations`; idempotent on `counterpoint_ticket_ref`; `is_counterpoint_import = true` skips accrual.
+- [x] **ingest-tickets** — `POST /api/sync/counterpoint/tickets`: `PS_TKT_HIST` / LIN / PMT → `transactions` / `transaction_lines` / `payment_transactions` / `payment_allocations`; idempotent on `counterpoint_ticket_ref`; `is_counterpoint_import = true` skips accrual.
 - [x] **bridge-queries** — Extended `counterpoint-bridge/index.mjs` with catalog, gift-card, ticket entity loops, cursors, heartbeat, payloads; `.env.example` updated with `SYNC_CATALOG`, `SYNC_GIFT_CARDS`, `SYNC_TICKETS` flags and example SQL.
 - [x] **counterpoint-bridge-heartbeat** — Migration **84** `counterpoint_bridge_heartbeat` singleton + `POST /api/sync/counterpoint/heartbeat` (M2M token); bridge sends `idle` / `syncing`; `GET /api/settings/counterpoint-sync/status` exposes `windows_sync_state`.
 - [x] **settings-counterpoint-ui** — `CounterpointSyncSettingsPanel.tsx` in Settings → Integrations; staff-gated `GET /api/settings/counterpoint-sync/status`, `POST .../request-run`, `PATCH .../issues/:id/resolve`.
-- [x] **ingest-staff** — Migration **86**: `counterpoint_staff_map` + `staff.data_source` / `counterpoint_user_id` / `counterpoint_sls_rep` + `customers.preferred_salesperson_id` + `orders.processed_by_staff_id`. `POST /api/sync/counterpoint/staff`: `SY_USR` + `PS_SLS_REP` + `PO_BUYER` → unified `staff` table. Ticket sync sets `processed_by_staff_id` (USR_ID) and `primary_salesperson_id` + `order_items.salesperson_id` (SLS_REP). Customer sync sets `preferred_salesperson_id` (SLS_REP). Bridge syncs staff first so downstream attribution resolves.
+- [x] **ingest-staff** — Migration **86**: `counterpoint_staff_map` + `staff.data_source` / `counterpoint_user_id` / `counterpoint_sls_rep` + `customers.preferred_salesperson_id` + `transactions.processed_by_staff_id`. `POST /api/sync/counterpoint/staff`: `SY_USR` + `PS_SLS_REP` + `PO_BUYER` → unified `staff` table. Ticket sync sets `processed_by_staff_id` (USR_ID) and `primary_salesperson_id` + `transaction_lines.salesperson_id` (SLS_REP). Customer sync sets `preferred_salesperson_id` (SLS_REP). Bridge syncs staff first so downstream attribution resolves.
 
 ---
 
@@ -25,12 +25,12 @@
 
 ## Current baseline in repo
 
-**Trust the [implementation checklist](#implementation-checklist) above for what is done vs deferred.** The M2M surface is **not** a minimal stub: ticket history ingests as full **`orders`** (see **ingest-tickets**).
+**Trust the [implementation checklist](#implementation-checklist) above for what is done vs deferred.** The M2M surface is **not** a minimal stub: closed ticket history ingests as historical **Transaction Records**; only open Counterpoint docs become active fulfillment/order work.
 
 - **Bridge:** [counterpoint-bridge/index.mjs](../counterpoint-bridge/index.mjs) polls SQL Server and POSTs batches to ROS with `COUNTERPOINT_SYNC_TOKEN`.
-- **Ingest logic:** [../server/src/logic/counterpoint_sync.rs](../server/src/logic/counterpoint_sync.rs) — among other paths: **customers** (`customer_code` = `CUST_NO`), **catalog** (items + matrix cells), **gift cards**, **tickets** (headers / lines / payments → `orders` + related rows, idempotent on `counterpoint_ticket_ref`), **staff** mapping, inventory upserts, staging batch, and extended entities aligned with migrations **84–96** (vendor items, loyalty hist, open docs, etc. — pair with [`COUNTERPOINT_SYNC_GUIDE.md`](./COUNTERPOINT_SYNC_GUIDE.md)).
+- **Ingest logic:** [../server/src/logic/counterpoint_sync.rs](../server/src/logic/counterpoint_sync.rs) — among other paths: **customers** (`customer_code` = `CUST_NO`), **catalog** (items + matrix cells), **gift cards**, **tickets** (headers / lines / payments → historical Transaction Records + related rows, idempotent on `counterpoint_ticket_ref`), **staff** mapping, inventory upserts, staging batch, and extended entities aligned with migrations **84–96** (vendor items, loyalty hist, open docs, etc. — pair with [`COUNTERPOINT_SYNC_GUIDE.md`](./COUNTERPOINT_SYNC_GUIDE.md)).
 - **M2M API:** [../server/src/api/counterpoint_sync.rs](../server/src/api/counterpoint_sync.rs) — under **`POST /api/sync/counterpoint/`**: e.g. **`health`**, **`heartbeat`**, **`request/ack`**, **`request/complete`**, **`customers`**, **`inventory`**, **`category-masters`**, **`catalog`**, **`gift-cards`**, **`tickets`**, **`staff`**, **`staging`**, plus additional entity routes (store credit opening, open docs, vendors, vendor items, loyalty hist, customer notes, sales-rep stubs — see `router()` in that file). **Staff settings** live under **`/api/settings/counterpoint-sync/*`** (status, request-run, issues, staging, maps).
-- **ROS keys:** `customers.customer_code` ([../migrations/legacy_prelaunch_history/28_customer_profile_and_code.sql](../migrations/legacy_prelaunch_history/28_customer_profile_and_code.sql)); `product_variants.counterpoint_item_key` unique when set ([../migrations/legacy_prelaunch_history/29_counterpoint_sync.sql](../migrations/legacy_prelaunch_history/29_counterpoint_sync.sql)); ticket idempotency **`orders.counterpoint_ticket_ref`** (**84**); loyalty on `customers.loyalty_points` + `loyalty_point_ledger` + `order_loyalty_accrual` ([../migrations/legacy_prelaunch_history/23_gift_cards_and_loyalty.sql](../migrations/legacy_prelaunch_history/23_gift_cards_and_loyalty.sql)) — **ingest-loyalty-policy** for CP history vs ROS accrual remains an open checklist item.
+- **ROS keys:** `customers.customer_code` ([../migrations/legacy_prelaunch_history/28_customer_profile_and_code.sql](../migrations/legacy_prelaunch_history/28_customer_profile_and_code.sql)); `product_variants.counterpoint_item_key` unique when set ([../migrations/legacy_prelaunch_history/29_counterpoint_sync.sql](../migrations/legacy_prelaunch_history/29_counterpoint_sync.sql)); ticket idempotency **`transactions.counterpoint_ticket_ref`** (**84**); loyalty on `customers.loyalty_points` + `loyalty_point_ledger` + `order_loyalty_accrual` ([../migrations/legacy_prelaunch_history/23_gift_cards_and_loyalty.sql](../migrations/legacy_prelaunch_history/23_gift_cards_and_loyalty.sql)) — **ingest-loyalty-policy** for CP history vs ROS accrual remains an open checklist item.
 
 ```mermaid
 flowchart LR
@@ -92,12 +92,12 @@ flowchart LR
 
 | Counterpoint | ROS target | Notes |
 |--------------|------------|-------|
-| `PS_TKT_HIST` | `orders` | Idempotent external key (migration): e.g. `counterpoint_ticket_ref` or composite unique |
-| `PS_TKT_HIST_LIN` + `PS_TKT_HIST_CELL` | `order_items` | Resolve `variant_id` via `counterpoint_item_key` or SKU |
+| `PS_TKT_HIST` | `transactions` | Idempotent external key (migration): e.g. `counterpoint_ticket_ref` or composite unique |
+| `PS_TKT_HIST_LIN` + `PS_TKT_HIST_CELL` | `transaction_lines` | Resolve `variant_id` via `counterpoint_item_key` or SKU |
 | `PS_TKT_HIST_PMT` | `payment_transactions` + `payment_allocations` | Map `PMT_TYP` → ROS `payment_method`; idempotent per ticket |
 | `PS_TKT_HIST_GFT` | gift card events / balance | Align with `SY_GFT_CERT` |
 
-**Loyalty:** Mark imported orders non-accrual or skip `try_accrue_for_order` for them.
+**Loyalty:** Mark imported Transaction Records non-accrual or skip `try_accrue_for_order` for them.
 
 ---
 

@@ -1,6 +1,6 @@
 [package]
 name = "counterpoint-bridge-gui"
-version = "0.85.9"
+version = "0.90.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"

@@ -4,91 +4,41 @@ Target: Hybrid Tauri Host retail deployment.
 
 ### Current Deployment Status (2026-06-04)
 
-- [x] Target release version is **`v0.85.9`**.
-- [x] Current release tag exists: **`v0.85.9`** at `def01e2795dc69b4eef459bb6722372bd577f9e7`.
-- [x] Current release has Windows installer/updater assets published.
-- [x] Required artifacts exist: `latest.json`, `riverside-updater-build-manifest.json`, `Riverside.POS_0.85.9_x64_en-US.msi`, matching `.sig`, and `RiversideOS-v0.85.9-def01e2-Windows-Deployment.zip`.
-- [x] Current release has macOS ROS Dev Center DMG published: `ROS.Dev.Center_0.85.9_universal.dmg`.
-- [x] Latest Playwright E2E push on `main` passed for the final `v0.85.9` release commit (`26957186932`).
-- [x] Latest Lint Checks push on `main` passed for the final `v0.85.9` release commit (`26957186796`).
-- [x] Source hardening for standalone self-updaters, ROSIE profiles, Counterpoint Bridge GUI self-containment, customer join/split, and Orders lifecycle filters is documented in `CHANGELOG.md` and `docs/releases/v0.85.9-release-notes.md`.
-- [ ] Counterpoint Bridge GUI release assets are rebuilt and republished with `0.85.9` package metadata. Current `v0.85.9` release assets still include `counterpoint-bridge-gui_0.85.0_*` names.
-- [ ] Production station deployment log is complete for:
-  - Main Hub (Backoffice / Server PC)
-  - Register #1 Windows Tauri
-  - Register #2 iPad PWA
-  - Other Windows laptop PWA / optional Tauri clients
+- [x] Target source release version is **`v0.90.0`** across root, client, server, Tauri, standalone apps, ROS Dev Center, and Windows deployment metadata.
+- [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
+- [x] Source-side local review evidence is recorded in [`docs/reviews/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_04.md`](reviews/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_04.md).
+- [x] v0.90.0 release notes and certification evidence are recorded in [`docs/releases/v0.90.0-release-notes.md`](releases/v0.90.0-release-notes.md) and [`docs/releases/v0.90.0-certification.md`](releases/v0.90.0-certification.md).
+- [ ] GitHub release **`v0.90.0`** is published as Latest after this release commit is pushed.
+- [ ] Release workflows publish fresh v0.90.0 Windows updater, Windows deployment package, Counterpoint Bridge GUI, Server Manager, Deployment Manager, and macOS ROS Dev Center assets.
+- [x] Local Lint/Clippy/Cargo checks pass for the v0.90.0 release source tree.
+- [ ] Production station deployment log is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA / optional Tauri clients.
 
-## v0.85.9 Release Scope & Resiliency Hardening
+## v0.90.0 Release Scope & Resiliency Hardening
 
-All six go-live readiness items from the v0.85.0 audit, v0.85.5 fixes, and v0.85.9 hardening were applied to `main` and verified:
+v0.90.0 preserves the v0.85.x GO LIVE readiness baseline and adds the source-side release hardening required before publishing a fresh latest release:
 
-- [x] **Fix A — POS Session Token Expiry Pre-Check** (`client/src/components/pos/useCartCheckout.ts`) — cart checkout checks session validity before tendering to prevent late-stage server rejection.
-- [x] **Fix B — Printer Config Server-Side Persistence** (`server/src/api/settings.rs`) — stores per-lane printer overrides in database (`store_settings.pos_station_config`) and fetches dynamically.
-- [x] **Fix C — Blocked Offline Items Recovery UI** (`client/src/components/pos/Cart.tsx`) — POS cart header polls offline checkout queue and highlights blocked syncs requiring cashier attention.
-- [x] **Fix D — Receipt Print Failure Retry Queue** (`client/src/lib/printRetryQueue.ts`) — localforage queue retains failed print attempts across reloads, showing a retry/dismiss action button.
-- [x] **Fix E — Dynamic Register Lane Dropdown** (`server/src/api/settings.rs`) — generates register overlays dynamically from `max_register_lanes` fetched from Settings settings.
-- [x] **Fix F — Helcim Terminal Stream Auto-Reconnect** (`client/src/components/pos/NexoCheckoutDrawer.tsx`) — Nexo payment UI falls back to 4s polling intervals if the SSE stream drops silently.
-- [x] **Sweden-style Cash Rounding Persistence** — cash due amounts rounded dynamically to the nearest $0.05 on cash sales when the database-backed toggle is active.
-- [x] **Counterpoint Sync Empty Query Validation** — restored strict schema validation when `CP_AUTO_SCHEMA=0` is set to ensure manual configuration errors are caught immediately.
-- [x] **Standalone App Self-Updaters** — Deployment Manager, ROS Server Manager, Counterpoint Bridge GUI, and ROS Dev Center now have shared Tauri updater plumbing and manifest verification coverage.
-- [x] **Counterpoint Bridge GUI Self-Containment** — release builds package bridge resources and bundled runtime assets instead of depending on customer-machine `npm install` or system `node`.
-- [x] **ROSIE Host Profiles** — Intel i9-12900, Minisforum V3, Apple M3 Pro, Apple M3 Pro CPU-parity, and portable CPU profiles are documented and wired for predictable local LLM startup behavior.
-- [x] **Customer Join/Split Workflow** — joined accounts preserve per-person communications/profile views; split accounts preserve independent post-split behavior with clear history guidance.
-- [x] **Orders Lifecycle Management** — Orders page now supports lifecycle, closed, and cancelled filtering; received items needing staff ready-check are counted and surfaced before Ready for Pickup notifications.
+- [x] **QBO Explicit Mapping Enforcement** — journal staging and workspace UI no longer route missing mappings through generic fallback accounts.
+- [x] **QBO Inventory Adjustment Key Alignment** — the mapping key is now `REVENUE_INVENTORY_ADJUSTMENT`, keeping inventory adjustment exports explicit and mappable.
+- [x] **Pre-Go-Live Local Review Fixes** — locally verifiable QBO, Counterpoint, backup/restore, Helcim, Podium, Shippo, and release/update code paths were reviewed and targeted issues were fixed where possible.
+- [x] **Helcim Test Isolation** — unit tests serialize credential-environment mutation so local and CI cargo runs do not fail nondeterministically.
+- [x] **Shippo Health Test Coverage** — disabled, missing-token, and healthy credential states are covered without requiring live label purchases.
+- [x] **Help and Manual Refresh** — active Help Center source manuals and release docs are updated to v0.90.0 current-release guidance.
 
-Verification run on 2026-06-04: `git diff --check`, `./scripts/validate_migration_layout.sh`, `node --check scripts/check-version-parity.mjs`, `node --check scripts/bump-version.mjs`, `npm run check:version`, `npm run lint`, `cd client && npm run typecheck`, `cd server && cargo fmt -- --check`, and `npm run check:server` all passed.
+## v0.90.0 Release Readiness Gates
 
-## v0.85.9 Release Readiness Blockers
-
-- [x] `v0.85.9` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
-- [x] `v0.85.9` Windows updater manifest source SHA matches the release tag: `def01e2795dc69b4eef459bb6722372bd577f9e7`.
-- [x] `v0.85.9` Windows deployment package exists: `RiversideOS-v0.85.9-def01e2-Windows-Deployment.zip`.
-- [x] `v0.85.9` macOS ROS Dev Center DMG exists: `ROS.Dev.Center_0.85.9_universal.dmg`.
-- [ ] Counterpoint Bridge GUI installer assets are rebuilt after the source metadata correction from `0.85.0` to `0.85.9`.
+- [ ] `v0.90.0` GitHub release exists and is marked Latest.
+- [ ] `v0.90.0` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
+- [ ] `v0.90.0` Windows deployment package exists: `RiversideOS-v0.90.0-*-Windows-Deployment.zip`.
+- [ ] `v0.90.0` standalone app assets exist for Deployment Manager, Server Manager, Counterpoint Bridge GUI, and ROS Dev Center where applicable.
 - [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
-- [x] GitHub checks have rerun and passed on the final release commit.
+- [ ] Real external credential workflows have been tested where required for go-live: QBO sandbox/production, Helcim, Podium, Shippo, and Counterpoint SQL.
 
 ## Code Gate
 
-- [x] v0.85.9 automated certification evidence is recorded in [`docs/releases/v0.85.9-certification.md`](releases/v0.85.9-certification.md).
-- [x] v0.85.9 local validation passed on 2026-06-04: `git diff --check`, migration layout, version parity, client lint/typecheck, Rust fmt check, and server compile.
-- [x] No unresolved AI-actionable code-level P0/P1 findings remain in `docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md`; human/environment verification gates below remain required.
-- [x] `cargo fmt --manifest-path server/Cargo.toml --check` — passed locally for v0.4.0 readiness on 2026-05-01.
-- [x] `cargo clippy --manifest-path server/Cargo.toml -- -D warnings` — passed locally for v0.4.0 readiness on 2026-05-01 after the Meilisearch helper refactor.
-- [x] `cargo check --manifest-path server/Cargo.toml` — passed locally for v0.4.0 readiness on 2026-05-01.
-- [x] `cargo fmt --check --manifest-path server/Cargo.toml` — passed locally on 2026-04-25.
-- [x] `npm run check:version` — passed locally on 2026-05-17; `Riverside version parity OK: 0.60.0`.
-- [x] `git diff --check` — passed locally on 2026-05-17.
-- [x] `cargo fmt --manifest-path server/Cargo.toml` — passed locally on 2026-05-17.
-- [x] `npm run check:server` — passed locally on 2026-05-17.
-- [x] `npm --prefix client run lint` — passed locally on 2026-05-17.
-- [x] `npm --prefix client run typecheck` — passed locally on 2026-05-17.
-- [x] `npm --prefix client run build` — passed locally on 2026-05-17.
-- [x] `npm run test:e2e:release` — passed locally on 2026-05-17; suite reported 337 passed, 12 skipped, 0 failed.
-- [x] Help/ROSIE drift verification — `scripts/verify-ai-knowledge-drift.sh` passed locally on 2026-05-17.
-- [x] Help manifest refresh — `npm run generate:help:refresh -- --skip-screenshots` passed locally on 2026-05-17.
-- [x] Skipped-lane certification: `E2E_API_BASE=http://127.0.0.1:43300 E2E_DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os_e2e DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os_e2e RIVERSIDE_DB_NAME=riverside_os_e2e E2E_RUN_VISUAL=1 npm --prefix client run test:e2e -- e2e/backoffice-signin.spec.ts e2e/high-risk-regressions.spec.ts e2e/intelligence-and-finance.spec.ts e2e/payments-operations-contract.spec.ts e2e/payments-operations-ui.spec.ts e2e/podium-settings.spec.ts e2e/register-close-reconciliation.spec.ts e2e/staff-tasks.spec.ts e2e/visual-baselines.spec.ts --workers=1` — passed locally on 2026-05-14; suite reported 31 passed, 0 skipped, 0 failed.
-- [x] Non-admin/RBAC skip cleanup: `npm --prefix client run test:e2e -- e2e/api-gates.spec.ts e2e/high-risk-regressions.spec.ts e2e/phase2-finance-and-help-lifecycle.spec.ts e2e/rms-permissions.spec.ts --workers=1` reported 33 passed, 0 skipped on 2026-04-25.
-- [x] `npm run test:e2e:high-risk` — passed locally on 2026-04-25; suite reported 4 passed, 2 built-in skips.
-- [x] `npm run test:e2e:phase2` — passed locally on 2026-04-25; suite reported 3 passed, 2 built-in skips.
-- [x] `npm run test:e2e:tender` — passed locally on 2026-04-25; suite reported 11 passed.
-- [x] Checkout tender financial contract: `client/e2e/checkout-tender-financial-contract.spec.ts` covers missing check number rejection, split allocation across current sale + existing transaction balance, and historical cash rounding QBO impact. Current POS operation keeps cash rounding off.
-- [x] Formerly quarantined POS UI specs run locally without `ROS_QUARANTINE_UNSTABLE_POS_E2E`; targeted subset reported 6 passed on 2026-04-25.
-- [x] QBO hardening unit slice: `cargo test --manifest-path server/Cargo.toml qbo::tests:: --lib` reported 6 passed on 2026-04-25.
-- [x] Backup path safety unit slice: `cargo test --manifest-path server/Cargo.toml backups::tests:: --lib` reported 2 passed on 2026-04-25.
-- [x] Tax audit contract: `npm --prefix client run test:e2e -- e2e/tax-audit-contract.spec.ts --workers=1` passed locally on 2026-04-25.
-- [x] Commission audit contract: `npm --prefix client run test:e2e -- e2e/commission-audit-contract.spec.ts --workers=1` passed locally on 2026-04-25.
-- [x] QBO audit contract: `npm --prefix client run test:e2e -- e2e/qbo-audit-contract.spec.ts --workers=1` passed locally on 2026-04-25 and covers store-local business-date cutoff near midnight UTC.
-- [x] Inventory audit contract: `npm --prefix client run test:e2e -- e2e/inventory-audit-contract.spec.ts --workers=1` passed locally on 2026-04-25.
-- [x] Register audit contract: `npm --prefix client run test:e2e -- e2e/register-audit-contract.spec.ts --workers=1` passed locally on 2026-04-25 and covers parked-sale purge/audit rows during Z-close.
-- [x] Offline recovery contract: `npm --prefix client run test:e2e -- e2e/offline-recovery-contract.spec.ts --workers=1` passed locally on 2026-04-25 and covers 4xx queue retention plus register close blocking with pending/blocked queue rows.
-- [x] Combined #2-#4 audit contracts: `npm --prefix client run test:e2e -- e2e/offline-recovery-contract.spec.ts e2e/qbo-audit-contract.spec.ts e2e/register-audit-contract.spec.ts --workers=1` reported 6 passed on 2026-04-25.
-- [x] Restore preflight unit slice: `cargo test --manifest-path server/Cargo.toml api::settings::tests:: --lib` reported 4 passed on 2026-04-25.
+- [x] v0.90.0 source validation list is defined in [`docs/releases/v0.90.0-certification.md`](releases/v0.90.0-certification.md).
+- [x] v0.90.0 local validation commands pass before tagging: `git diff --check`, help manifest generation, version parity, client lint/typecheck, Rust fmt, cargo check, cargo clippy, standalone Tauri cargo checks, and targeted release-critical Rust tests.
+- [ ] Latest GitHub Actions checks pass on the final v0.90.0 release commit.
 - [ ] `scripts/production_audit_probes.sql` runs read-only against the release database and all P0/P1 probes are explained or zero-row.
-  - Local dev evidence captured at `docs/reviews/evidence/production_audit_probes_local_2026-04-25.txt`.
-  - Local probe result: money allocation, checkout idempotency, tax exemption, commission timing, QBO, parked-sale close, and backup probes returned zero rows.
-  - Local probe blocker: negative available stock returned 51 physical inventory rows after excluding explicit POS service/meta SKUs. RC/production inventory must be reconciled to zero unexplained rows, or ownership/accounting must explicitly sign a written waiver before go-live.
 
 ## In-App Update System (v0.80.9+)
 

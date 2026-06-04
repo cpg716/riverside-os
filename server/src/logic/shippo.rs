@@ -1163,7 +1163,7 @@ pub async fn health_check(http: &reqwest::Client) -> ShippoHealth {
         }
     };
     let status = res.status();
-    if status.as_u16() == 200 || status.as_u16() == 401 {
+    if shippo_health_status_is_reachable(status) {
         ShippoHealth {
             configured: true,
             reachable: true,
@@ -1177,5 +1177,56 @@ pub async fn health_check(http: &reqwest::Client) -> ShippoHealth {
             latency_ms: start.elapsed().as_millis() as u64,
             message: format!("Shippo returned HTTP {}", status),
         }
+    }
+}
+
+fn shippo_health_status_is_reachable(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 200 | 401)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn shippo_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    #[tokio::test]
+    async fn health_check_returns_not_configured_when_token_missing() {
+        let _guard = shippo_env_lock();
+        let previous_token = std::env::var("SHIPPO_API_TOKEN").ok();
+        std::env::remove_var("SHIPPO_API_TOKEN");
+
+        let health = health_check(&reqwest::Client::new()).await;
+
+        assert!(!health.configured);
+        assert!(!health.reachable);
+        assert_eq!(health.latency_ms, 0);
+        assert!(
+            health.message.contains("not configured"),
+            "unexpected message: {}",
+            health.message
+        );
+
+        if let Some(value) = previous_token {
+            std::env::set_var("SHIPPO_API_TOKEN", value);
+        }
+    }
+
+    #[test]
+    fn health_status_reachability_is_limited_to_success_or_auth_boundary() {
+        assert!(shippo_health_status_is_reachable(reqwest::StatusCode::OK));
+        assert!(shippo_health_status_is_reachable(
+            reqwest::StatusCode::UNAUTHORIZED
+        ));
+        assert!(!shippo_health_status_is_reachable(
+            reqwest::StatusCode::FORBIDDEN
+        ));
+        assert!(!shippo_health_status_is_reachable(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        ));
     }
 }

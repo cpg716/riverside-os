@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.90.0] - 2026-06-04
+
+### Added
+- **v0.90.0 Release Documentation Set**: Added current release notes and certification evidence for the v0.90.0 publication, replacing stale v0.85.9 current-release guidance in active deployment docs.
+- **Pre-Go-Live Local Review Evidence**: Documented the source-side pre-go-live review results for QBO, Counterpoint sync, backups/restore, Helcim, Podium, Shippo, and release/update code paths that can be validated locally.
+- **Shippo Health Coverage**: Added local Shippo health-check test coverage so disabled, missing-token, and healthy credential states are verified without requiring live shipping labels.
+
+### Fixed
+- **QBO Mapping Fallback Removal**: Removed fallback account mapping behavior from QBO journal staging and workspace copy. Exportable financial activity must now have explicit Chart of Accounts mappings instead of silently routing through a generic fallback.
+- **QBO Inventory Adjustment Mapping**: Renamed the legacy inventory adjustment revenue mapping key to `REVENUE_INVENTORY_ADJUSTMENT` so the mapping matrix remains explicit, mappable, and auditable.
+- **Helcim Health Test Isolation**: Serialized Helcim environment mutation in unit tests to prevent nondeterministic credential-state failures during parallel cargo test execution.
+
+### Changed
+- **Release Metadata Bump**: Updated root, client, server, Tauri, standalone app, ROS Dev Center, and Windows deployment package metadata to v0.90.0.
+- **Help/Manual Refresh**: Refreshed active manuals and help-manifest sources so in-app Help Center content reflects the current release guidance and avoids stale v0.85.9 "current release" directions.
+- **Deployment Guidance Truthfulness**: Updated active deployment status docs to distinguish source readiness, GitHub release publication, release workflow assets, and physical Windows/hardware go-live gates.
+
 ## [0.85.9] - 2026-06-04
 
 ### Added
