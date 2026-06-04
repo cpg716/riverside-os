@@ -6,6 +6,15 @@ Riverside OS is a production retail POS/ERM platform for formalwear and wedding 
 
 ---
 
+## GitHub CLI & Git Auth Rules
+
+- **DO NOT** use `git push` or `git credentials` commands with hardcoded or placeholder tokens.
+- **ALWAYS** use the GitHub CLI (`gh`) for remote repository interactions, releasing, or issue/PR management.
+- **CRITICAL**: The agent container environment automatically injects a dummy/stale `GITHUB_TOKEN` and `GH_TOKEN` environment variable. To prevent authentication/401 errors and delegate authentication to the host user's setup, **ALWAYS** prefix GitHub CLI commands with `env -u GITHUB_TOKEN -u GH_TOKEN`.
+  - *Example*: `env -u GITHUB_TOKEN -u GH_TOKEN gh release create ...`
+
+---
+
 ## Codex Efficiency Mode
 
 Default mode is IMPLEMENT unless the user explicitly asks for AUDIT.
