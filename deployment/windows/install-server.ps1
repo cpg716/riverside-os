@@ -1030,6 +1030,10 @@ if (Test-PlaceholderSecret $config.server.database.appPassword) {
     # Test current configured password.
     # -w (--no-password) prevents psql from ever opening an interactive prompt;
     # if the password is wrong it exits non-zero immediately.
+    # We temporarily switch $ErrorActionPreference to SilentlyContinue to prevent native stderr output from triggering crashes.
+    $oldEAP = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+
     $env:PGPASSWORD = $currentPwd
     $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -w -c "SELECT 1;" -t 2>&1
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
@@ -1062,6 +1066,8 @@ if (Test-PlaceholderSecret $config.server.database.appPassword) {
         }
       }
     }
+
+    $ErrorActionPreference = $oldEAP
 
     # If not authenticated, fail gracefully with config file reference
     if (-not $authenticated) {

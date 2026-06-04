@@ -108,16 +108,22 @@ $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
   if ($matches) { $matches[0].FullName } else { "psql.exe" }
 }
 
+$oldEAP = $ErrorActionPreference
+$ErrorActionPreference = "SilentlyContinue"
+
 $resetSql = "ALTER USER ""$dbUser"" WITH PASSWORD '$NewPassword';"
 $env:PGPASSWORD = ""
 $output = & $psqlPath -U $dbUser -h 127.0.0.1 -p 5432 -d postgres -w -c $resetSql -t 2>&1
 if ($LASTEXITCODE -ne 0) {
   # Try without specifying host just in case
   $output = & $psqlPath -U $dbUser -d postgres -w -c $resetSql -t 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    $errorMsg = $output | Out-String
-    throw "Failed to reset PostgreSQL password: $errorMsg"
-  }
+}
+
+$ErrorActionPreference = $oldEAP
+
+if ($LASTEXITCODE -ne 0) {
+  $errorMsg = $output | Out-String
+  throw "Failed to reset PostgreSQL password: $errorMsg"
 }
 
 # 6. Restore pg_hba.conf
@@ -132,9 +138,12 @@ Start-Sleep -Seconds 3
 
 # 8. Verify Credentials - attempt non-interactive psql connection
 Write-Host "Verifying credentials with non-interactive psql connection..."
+$oldEAP = $ErrorActionPreference
+$ErrorActionPreference = "SilentlyContinue"
 $env:PGPASSWORD = $NewPassword
 $verifyOutput = & $psqlPath -U $dbUser -h 127.0.0.1 -p 5432 -d postgres -w -c "SELECT 1;" -t 2>&1
 $env:PGPASSWORD = $null
+$ErrorActionPreference = $oldEAP
 if ($LASTEXITCODE -ne 0) {
   $errorMsg = $verifyOutput | Out-String
   throw "Credential verification failed after password reset: $errorMsg"

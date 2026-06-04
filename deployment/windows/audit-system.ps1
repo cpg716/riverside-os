@@ -101,8 +101,12 @@ if (-not $success) {
             $env:PGPASSWORD = $config.server.database.adminPassword
         }
         
+        $oldEAP = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+
         $queryResult = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d $dbName -w -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" -t 2>&1
         if ($LASTEXITCODE -ne 0) {
+            $ErrorActionPreference = $oldEAP
             Write-Host "[FAIL] Could not query database. Password may be incorrect, or database '$dbName' does not exist." -ForegroundColor Red
             Write-Host "       Error: $queryResult" -ForegroundColor Red
         } else {
@@ -111,6 +115,7 @@ if (-not $success) {
             
             # Check Migrations Count
             $migrationResult = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d $dbName -w -c "SELECT COUNT(*) FROM ros_schema_migrations;" -t 2>&1
+            $ErrorActionPreference = $oldEAP
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "[OK] Applied migrations count: $($migrationResult.Trim())" -ForegroundColor Green
             } else {

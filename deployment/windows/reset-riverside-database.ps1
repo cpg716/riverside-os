@@ -136,6 +136,9 @@ try {
         if ($matches) { $matches[0].FullName } else { "psql.exe" }
       }
 
+      $oldEAP = $ErrorActionPreference
+      $ErrorActionPreference = "SilentlyContinue"
+
       $env:PGPASSWORD = ""
       $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -w -c "SELECT 1;" -t 2>&1
       $env:PGPASSWORD = $null
@@ -157,6 +160,7 @@ try {
           }
         }
       }
+      $ErrorActionPreference = $oldEAP
     }
   }
 
