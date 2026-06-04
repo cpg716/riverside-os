@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Database,
+  Download,
   FolderOpen,
   HardDrive,
   Play,
@@ -102,6 +103,26 @@ type Action = {
   description: string;
   tone?: 'primary' | 'danger' | 'neutral';
   icon: typeof Play;
+};
+
+type UpdateCheckResult = {
+  enabled: boolean;
+  available: boolean;
+  version: string | null;
+  date: string | null;
+  notes: string | null;
+  message: string | null;
+  current_build: string | null;
+  available_build: string | null;
+};
+
+type InstallUpdateResult = {
+  enabled: boolean;
+  installed: boolean;
+  version: string | null;
+  message: string | null;
+  current_build: string | null;
+  installed_build: string | null;
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -236,6 +257,8 @@ export default function App() {
   const [runningAction, setRunningAction] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogMessage[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [selfUpdateCheck, setSelfUpdateCheck] = useState<UpdateCheckResult | null>(null);
+  const [selfUpdateBusy, setSelfUpdateBusy] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
@@ -279,6 +302,49 @@ export default function App() {
     },
     [refresh, runningAction],
   );
+
+  const checkSelfUpdate = useCallback(async () => {
+    if (selfUpdateBusy) return;
+    setSelfUpdateBusy(true);
+    try {
+      const result = await invoke<UpdateCheckResult>('check_app_update');
+      setSelfUpdateCheck(result);
+      setLogs((current) => [
+        ...current,
+        {
+          level: result.available ? 'success' : result.enabled ? 'info' : 'error',
+          text: result.available
+            ? `Server Manager update available: ${result.version}${result.available_build ? ` (${result.available_build})` : ''}`
+            : result.message ?? 'No Server Manager update available.',
+        },
+      ]);
+    } catch (error) {
+      setLogs((current) => [...current, { level: 'error', text: `Server Manager update check failed: ${String(error)}` }]);
+    } finally {
+      setSelfUpdateBusy(false);
+    }
+  }, [selfUpdateBusy]);
+
+  const installSelfUpdate = useCallback(async () => {
+    if (selfUpdateBusy) return;
+    setSelfUpdateBusy(true);
+    try {
+      const result = await invoke<InstallUpdateResult>('install_app_update');
+      setLogs((current) => [
+        ...current,
+        {
+          level: result.installed ? 'success' : result.enabled ? 'info' : 'error',
+          text: result.installed
+            ? result.message ?? `Server Manager updated to ${result.version}.`
+            : result.message ?? 'No Server Manager update available.',
+        },
+      ]);
+    } catch (error) {
+      setLogs((current) => [...current, { level: 'error', text: `Server Manager install failed: ${String(error)}` }]);
+    } finally {
+      setSelfUpdateBusy(false);
+    }
+  }, [selfUpdateBusy]);
 
   const overall = useMemo(() => {
     if (!snapshot) return { label: 'Checking', tone: 'warn' };
@@ -390,6 +456,35 @@ export default function App() {
 
               <Panel title="Repairs & Updates">
                 <ActionGrid actions={REPAIR_ACTIONS} runningAction={runningAction} onRun={runAction} />
+              </Panel>
+
+              <Panel title="Server Manager App Update">
+                <div className="action-grid">
+                  <button
+                    className="action-button primary"
+                    type="button"
+                    onClick={() => void checkSelfUpdate()}
+                    disabled={selfUpdateBusy || Boolean(runningAction)}
+                  >
+                    {selfUpdateBusy ? <RefreshCw size={18} className="spin" /> : <Download size={18} />}
+                    <span>Check App</span>
+                    <small>
+                      {selfUpdateCheck?.available
+                        ? `Ready: ${selfUpdateCheck.version}${selfUpdateCheck.available_build ? ` (${selfUpdateCheck.available_build})` : ''}`
+                        : selfUpdateCheck?.message ?? 'Check the signed Server Manager channel.'}
+                    </small>
+                  </button>
+                  <button
+                    className="action-button neutral"
+                    type="button"
+                    onClick={() => void installSelfUpdate()}
+                    disabled={selfUpdateBusy || Boolean(runningAction)}
+                  >
+                    {selfUpdateBusy ? <RefreshCw size={18} className="spin" /> : <Download size={18} />}
+                    <span>Install App</span>
+                    <small>Updates this console only; server, ROSIE, and database repairs stay separate.</small>
+                  </button>
+                </div>
               </Panel>
 
               <Panel title="Optimization & Cleanup">

@@ -169,7 +169,7 @@ if (Test-Path $llamaSourceExe) {
     Copy-Item -Destination $llamaBinDest -Force
   Write-Host "Packaged rosie/bin/llama-server.exe for Server PC ROSIE host"
 } else {
-  Write-Warning "client/src-tauri/binaries/llama-server-x86_64-pc-windows-msvc.exe not found; package ROSIE host runtime before building the deployment zip."
+  Write-Warning "client/src-tauri/binaries/llama-server-x86_64-pc-windows-msvc.exe not found; Install-RosieAiStack.ps1 will download the pinned llama.cpp runtime during online install."
 }
 
 Copy-Item "$PSScriptRoot\start-riverside-llama.ps1" $packageRoot -Force

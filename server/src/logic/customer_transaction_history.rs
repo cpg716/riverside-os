@@ -122,6 +122,11 @@ pub async fn query_customer_transaction_history(
             )
               AND o.booked_at >= crp.linked_at
               AND (crp.unlinked_at IS NULL OR o.booked_at <= crp.unlinked_at)
+              AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = "#,
+    );
+    qb.push_bind(customer_id);
+    qb.push(
+        r#")
         )) "#,
     );
     match q.record_scope {

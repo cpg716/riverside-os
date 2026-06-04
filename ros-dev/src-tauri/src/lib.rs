@@ -8,6 +8,8 @@ use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::Semaphore;
 
+mod app_updates;
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DiscoveredServer {
     pub url: String,
@@ -261,7 +263,10 @@ async fn check_tailscale_status() -> TailscaleStatus {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            app_updates::check_app_update,
+            app_updates::install_app_update,
             save_secure_pin,
             get_secure_pin,
             delete_secure_pin,

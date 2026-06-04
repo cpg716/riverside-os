@@ -249,6 +249,49 @@ When a Register or Back Office station connects to the server, `BackofficeSignIn
 
 When the daily update check detects a newer release on GitHub, it broadcasts an `update_available` notification to all staff with the `settings.admin` permission. The notification includes the new version number and the current store-hours status, and deep-links to **Settings → Updates**.
 
+### Release Asset Proof
+
+Every production release workflow must prove the updater channel after uploading release assets. The workflow runs:
+
+```bash
+npm run check:updater-release -- --repo cpg716/riverside-os --tag v0.85.9 --platform windows-x86_64 --manifest latest.json
+```
+
+For the full Windows deployment release, the same verifier checks all signed manifests:
+
+- `latest.json` — Riverside POS desktop updater.
+- `latest-deployment-manager.json` — Deployment Manager self-updater.
+- `latest-server-manager.json` — ROS Server Manager self-updater.
+- `latest-countersync-bridge-gui.json` — Counterpoint Bridge GUI self-updater.
+
+The verifier fails the release if any manifest is missing `+build` metadata, missing `build_sha`, missing a signature, points at a missing artifact, or lacks the matching `.sig` file. This is the release proof for **signed artifacts** and **same-version rebuild detection**.
+
+### Manual Recovery Path
+
+If an in-app update fails or a station cannot launch after an update, use this sequence. Do not skip directly to database reset unless ownership explicitly approves data loss.
+
+1. **Main Hub first:** On the Main Hub, open the Deployment Manager as Administrator and run **Audit**.
+2. **Repair server path:** If the API is down, use ROS Server Manager or Deployment Manager to restart/repair the `"Riverside OS Server"` scheduled task, then confirm `GET /api/health` returns 200.
+3. **Repair release files:** If the server binary, web bundle, migrations, or ROSIE assets are missing, rerun the latest deployment package Main Hub install/update path.
+4. **Repair migrations only:** If the app opens but reports missing tables/columns, run **Apply Migrations** from the same release package.
+5. **Repair ROSIE only:** If AI/help features fail but the POS/server are healthy, run **Install/Repair ROSIE AI Stack** from the deployment tools.
+6. **Repair workstation only:** On Register or Back Office PCs, run **Repair Workstation Settings** first. If the app binary is damaged, run the Standalone App installer for that station role.
+7. **Recheck version gate:** Relaunch Riverside and confirm the station no longer shows **Update Required**.
+8. **Escalate to restore only:** Use backup restore only when the database itself is corrupted or a migration/data issue cannot be repaired. Restore must be blocked while registers are open.
+
+### Pre-Go-Live Update Rehearsal
+
+Before go-live, run one complete update rehearsal on real hardware:
+
+1. Install the previous signed release on the Main Hub, one Windows Register, one Back Office workstation, and one PWA/iPad station.
+2. Publish or select a newer signed release.
+3. On the Main Hub, run **Settings → Updates → Main Hub update** and verify server restart, migrations, ROSIE files, `/api/health`, and app relaunch.
+4. On Windows Register and Back Office stations, verify the version gate blocks sign-in until the station updates.
+5. Install the station update through the in-app updater and confirm the app relaunches into the correct station role.
+6. On PWA/iPad, hard reload and confirm the version gate clears.
+7. Run one POS smoke sale/refund-safe workflow, one help/ROSIE request, and one Counterpoint Sync health check after the update.
+8. Record release tag, build SHA, machines tested, time started/finished, and any recovery actions used.
+
 ### API Endpoint
 
 `GET /api/ops/update-check` (requires authenticated staff session) returns:

@@ -64,6 +64,9 @@ interface TransactionRow {
   is_rush?: boolean;
   need_by_date?: string | null;
   order_kind: string;
+  is_counterpoint_import?: boolean;
+  counterpoint_doc_ref?: string | null;
+  counterpoint_ticket_ref?: string | null;
   counterpoint_customer_code?: string | null;
 }
 
@@ -94,6 +97,7 @@ type WorkspaceOrderDetail = Omit<TransactionDrawerDetail, "items"> & {
 
 interface TransactionPipelineStats {
   needs_action: number;
+  ready_check_needed?: number;
   ready_for_pickup: number;
   overdue: number;
   wedding_orders: number;
@@ -181,6 +185,19 @@ function formatLifecycleStatusLabel(status: string | null | undefined) {
     default:
       return raw.replace(/_/g, " ");
   }
+}
+
+function isCounterpointOpenDoc(row: Pick<TransactionRow, "is_counterpoint_import" | "counterpoint_doc_ref">) {
+  return Boolean(row.is_counterpoint_import && row.counterpoint_doc_ref);
+}
+
+function counterpointImportLabel(
+  row: Pick<TransactionRow, "is_counterpoint_import" | "counterpoint_doc_ref" | "counterpoint_ticket_ref">,
+) {
+  if (!row.is_counterpoint_import) return null;
+  if (isCounterpointOpenDoc(row)) return "CP Open Doc";
+  if (row.counterpoint_ticket_ref) return "CP History";
+  return "CP Sync";
 }
 
 function stripLeadingQuantity(name: string) {
@@ -284,6 +301,40 @@ function dateFilterLabel(datePreset: string, dateFrom: string, dateTo: string) {
     return "Custom date range";
   }
   return "All dates";
+}
+
+function lifecycleFilterLabel(value: string) {
+  switch (value) {
+    case "ntbo":
+      return "NTBO";
+    case "needs_measurements":
+      return "Needs measurements";
+    case "ordered":
+      return "Ordered";
+    case "received":
+      return "Received";
+    case "ready_check_needed":
+      return "Needs ready check";
+    case "ready_for_pickup":
+      return "Ready for pickup";
+    case "picked_up":
+      return "Picked up";
+    default:
+      return "All lifecycle";
+  }
+}
+
+function viewPresetLabel(value: OrderViewPreset) {
+  switch (value) {
+    case "open":
+      return "Open orders";
+    case "closed":
+      return "Closed orders";
+    case "cancelled":
+      return "Cancelled orders";
+    default:
+      return "All Transaction Records";
+  }
 }
 
 function openBespokeOrdersPrint(opts: {
@@ -424,8 +475,7 @@ function openBespokeOrdersPrint(opts: {
   setTimeout(() => w.print(), 500);
 }
 
-type Section = "open" | "all";
-type OrderViewPreset = "open" | "all";
+type OrderViewPreset = "open" | "all" | "closed" | "cancelled";
 type FulfillmentKind =
   | "takeaway"
   | "shipment"
@@ -482,6 +532,55 @@ function formatOrderStatusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
+function orderLifecycleToneClass(tone: "success" | "warning" | "danger" | "info" | "neutral") {
+  switch (tone) {
+    case "success":
+      return "border-app-success/20 bg-app-success/10 text-app-success";
+    case "warning":
+      return "border-app-warning/30 bg-app-warning/10 text-app-warning";
+    case "danger":
+      return "border-app-danger/30 bg-app-danger/10 text-app-danger";
+    case "info":
+      return "border-app-info/20 bg-app-info/10 text-app-info";
+    default:
+      return "border-app-border bg-app-surface-2 text-app-text-muted";
+  }
+}
+
+function deriveOrderLifecycleBadge(row: TransactionRow, hydratedSummaries: Record<string, OrderLineSummary>) {
+  if (row.status === "cancelled") {
+    return { label: "Cancelled", tone: "danger" as const };
+  }
+
+  const labels = asPrintItems(row, hydratedSummaries).map((item) =>
+    formatLifecycleStatusLabel(item.status).toLowerCase(),
+  );
+
+  if (labels.some((label) => label === "ready for pickup")) {
+    return { label: "Ready for Pickup", tone: "success" as const };
+  }
+  if (labels.some((label) => label === "received")) {
+    return { label: "Needs Ready Check", tone: "warning" as const };
+  }
+  if (labels.some((label) => label.includes("alterations"))) {
+    return { label: "Alterations", tone: "warning" as const };
+  }
+  if (labels.some((label) => label === "ordered")) {
+    return { label: "Ordered", tone: "info" as const };
+  }
+  if (labels.some((label) => label === "ntbo" || label === "needs measurements")) {
+    return { label: "Needs Action", tone: "warning" as const };
+  }
+  if (labels.length > 0 && labels.every((label) => label === "picked up")) {
+    return { label: "Picked Up", tone: "success" as const };
+  }
+  if (row.status === "fulfilled") {
+    return { label: "Closed", tone: "success" as const };
+  }
+
+  return { label: formatOrderStatusLabel(row.status), tone: row.status === "open" ? "info" as const : "neutral" as const };
+}
+
 function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }: {
   row: TransactionRow;
   isSelected: boolean;
@@ -493,6 +592,8 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
   const visibleItemCount = lifecycleItems.length || orderItemsCount(row, hydratedSummaries);
   const contactLines = customerContactLines(row);
   const priorityLabels = orderPriorityLabels(row);
+  const lifecycleBadge = deriveOrderLifecycleBadge(row, hydratedSummaries);
+  const cpLabel = counterpointImportLabel(row);
   return (
     <tr
       onClick={onClick}
@@ -529,9 +630,9 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
                   <p className="text-[9px] font-bold uppercase tracking-widest italic text-app-text-muted">
                     {orderKindLabel(row.order_kind)}
                   </p>
-                  {row.counterpoint_customer_code && (
+                  {cpLabel && (
                     <span className="rounded-md border border-app-success/20 bg-app-success/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-success">
-                      CP Open Doc
+                      {cpLabel}
                     </span>
                   )}
                   {row.party_name && <p className="text-[9px] font-bold uppercase tracking-tighter italic text-app-danger">{row.party_name}</p>}
@@ -583,14 +684,15 @@ function OrderTableRow({ row, isSelected, onClick, actions, hydratedSummaries }:
           </p>
         </td>
         <td className="px-4 py-4 align-top">
-           <span className={cn(
-             "px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border",
-             row.counterpoint_customer_code
-               ? "border-app-info/20 bg-app-info/10 text-app-info"
-               : "border-app-success/20 bg-app-success/10 text-app-success"
-           )}>
-             {formatOrderStatusLabel(row.status)}
-           </span>
+          <span className={cn(
+            "px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border",
+            orderLifecycleToneClass(lifecycleBadge.tone)
+          )}>
+            {lifecycleBadge.label}
+          </span>
+          <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-app-text-muted">
+            {formatOrderStatusLabel(row.status)}
+          </p>
         </td>
         <td className="px-4 py-4 align-top">
           <p className="text-[11px] font-black text-app-text">{money(row.total_price)}</p>
@@ -633,6 +735,8 @@ function OrderMobileCard({
   const visibleItemCount = lifecycleItems.length || orderItemsCount(row, hydratedSummaries);
   const contactLines = customerContactLines(row);
   const priorityLabels = orderPriorityLabels(row);
+  const lifecycleBadge = deriveOrderLifecycleBadge(row, hydratedSummaries);
+  const cpLabel = counterpointImportLabel(row);
   return (
     <article
       className={cn(
@@ -651,12 +755,10 @@ function OrderMobileCard({
           <span
             className={cn(
               "shrink-0 rounded-lg border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest",
-              row.counterpoint_customer_code
-                ? "border-app-info/20 bg-app-info/10 text-app-info"
-                : "border-app-success/20 bg-app-success/10 text-app-success",
+              orderLifecycleToneClass(lifecycleBadge.tone),
             )}
           >
-            {formatOrderStatusLabel(row.status)}
+            {lifecycleBadge.label}
           </span>
         </div>
 
@@ -711,6 +813,11 @@ function OrderMobileCard({
               <WEDDINGS_ICON size={12} />
               {row.party_name}
             </p>
+          ) : null}
+          {cpLabel ? (
+            <span className="mt-2 inline-flex rounded-md border border-app-success/20 bg-app-success/10 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-app-success">
+              {cpLabel}
+            </span>
           ) : null}
         </div>
 
@@ -833,6 +940,7 @@ export default function OrdersWorkspace({
   const [kindFilter, setKindFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [salespersonFilter, setSalespersonFilter] = useState("all");
+  const [lifecycleFilter, setLifecycleFilter] = useState("all");
   const [datePreset, setDatePreset] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -840,7 +948,6 @@ export default function OrdersWorkspace({
     defaultViewPreset,
   );
   const [hydratedOrderLines, setHydratedOrderLines] = useState<Record<string, OrderLineSummary>>({});
-  const section: Section = viewPreset === "all" ? "all" : "open";
 
   useEffect(() => {
     setViewPreset(defaultViewPreset);
@@ -853,7 +960,17 @@ export default function OrdersWorkspace({
 
   useEffect(() => {
     setPage(0);
-  }, [debouncedSearch, kindFilter, paymentFilter, salespersonFilter, datePreset, dateFrom, dateTo, section]);
+  }, [
+    debouncedSearch,
+    kindFilter,
+    paymentFilter,
+    salespersonFilter,
+    lifecycleFilter,
+    datePreset,
+    dateFrom,
+    dateTo,
+    viewPreset,
+  ]);
 
   const loadPipelineStats = useCallback(async () => {
     try {
@@ -874,11 +991,12 @@ export default function OrdersWorkspace({
     const params = new URLSearchParams();
     params.set("limit", String(limit));
     params.set("offset", String(page * limit));
-    params.set("status_scope", section === "open" ? "open" : "closed");
+    params.set("status_scope", viewPreset);
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (kindFilter !== "all") params.set("kind_filter", kindFilter);
     if (paymentFilter !== "all") params.set("payment_filter", paymentFilter);
     if (salespersonFilter !== "all") params.set("salesperson_filter", salespersonFilter);
+    if (lifecycleFilter !== "all") params.set("lifecycle_filter", lifecycleFilter);
     if (dateFrom) params.set("date_from", new Date(dateFrom).toISOString());
     if (dateTo) {
       const inclusiveDateTo = new Date(dateTo);
@@ -901,7 +1019,19 @@ export default function OrdersWorkspace({
     } finally {
       setTransactionsLoading(false);
     }
-  }, [baseUrl, backofficeHeaders, page, debouncedSearch, kindFilter, paymentFilter, salespersonFilter, dateFrom, dateTo, section]);
+  }, [
+    baseUrl,
+    backofficeHeaders,
+    page,
+    debouncedSearch,
+    kindFilter,
+    paymentFilter,
+    salespersonFilter,
+    lifecycleFilter,
+    dateFrom,
+    dateTo,
+    viewPreset,
+  ]);
 
   const loadDetail = useCallback(async (id: string) => {
     const requestSeq = detailRequestSeqRef.current + 1;
@@ -1400,7 +1530,18 @@ export default function OrdersWorkspace({
 
   const orderFollowUpMetrics = [
     { label: "Needs action", value: pipelineStats?.needs_action ?? 0, icon: Activity },
-    { label: "Ready pickup", value: pipelineStats?.ready_for_pickup ?? 0, icon: CheckCircle2 },
+    {
+      label: "Needs ready check",
+      value: pipelineStats?.ready_check_needed ?? 0,
+      icon: CheckCircle2,
+      lifecycle: "ready_check_needed",
+    },
+    {
+      label: "Ready pickup",
+      value: pipelineStats?.ready_for_pickup ?? 0,
+      icon: CheckCircle2,
+      lifecycle: "ready_for_pickup",
+    },
     { label: "Overdue follow-up", value: pipelineStats?.overdue ?? 0, icon: AlertTriangle },
   ];
 
@@ -1417,10 +1558,11 @@ export default function OrdersWorkspace({
     }
     const title = viewPreset === "open" ? "Open Orders List" : "Transaction Records List";
     const filters = [
-      `View: ${viewPreset === "open" ? "Open orders" : "Transaction records"}`,
+      `View: ${viewPresetLabel(viewPreset)}`,
       `Date: ${dateFilterLabel(datePreset, dateFrom, dateTo)}`,
       `Type: ${kindFilter === "all" ? "All" : orderKindLabel(kindFilter)}`,
       `Payment: ${paymentFilter === "all" ? "All" : paymentFilter}`,
+      `Lifecycle: ${lifecycleFilterLabel(lifecycleFilter)}`,
       `Staff: ${salespersonFilter === "all" ? "All" : salespersonFilter}`,
       search.trim() ? `Search: ${search.trim()}` : null,
     ].filter(Boolean);
@@ -1438,6 +1580,7 @@ export default function OrdersWorkspace({
     hasUnresolvedOrderItems,
     hydratedOrderLines,
     kindFilter,
+    lifecycleFilter,
     paymentFilter,
     salespersonFilter,
     search,
@@ -1549,11 +1692,11 @@ export default function OrdersWorkspace({
                 {totalCount} {viewPreset === "open" ? "orders" : "Transaction Records"} found
               </span>
             </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {orderFollowUpMetrics.map((metric) => {
                 const Icon = metric.icon;
-                return (
-                <div key={metric.label} className="ui-metric-cell px-3 py-3">
+                const active = metric.lifecycle && lifecycleFilter === metric.lifecycle;
+                const content = (
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
@@ -1565,8 +1708,30 @@ export default function OrdersWorkspace({
                     </div>
                     <Icon size={18} className="text-app-text-muted opacity-50" />
                   </div>
-                </div>
-              );
+                );
+                if (metric.lifecycle) {
+                  return (
+                    <button
+                      key={metric.label}
+                      type="button"
+                      onClick={() => {
+                        setViewPreset("open");
+                        setLifecycleFilter(metric.lifecycle);
+                      }}
+                      className={cn(
+                        "ui-metric-cell px-3 py-3 text-left transition-all hover:border-app-accent/30 hover:bg-app-surface-2",
+                        active && "border-app-accent/30 bg-app-accent/8",
+                      )}
+                    >
+                      {content}
+                    </button>
+                  );
+                }
+                return (
+                  <div key={metric.label} className="ui-metric-cell px-3 py-3">
+                    {content}
+                  </div>
+                );
               })}
             </div>
           </div>
@@ -1589,7 +1754,9 @@ export default function OrdersWorkspace({
                 {(
                   [
                     { id: "open", label: "Open Orders" },
-                    { id: "all", label: "Transaction Records" },
+                    { id: "all", label: "All Records" },
+                    { id: "closed", label: "Closed" },
+                    { id: "cancelled", label: "Cancelled" },
                   ] satisfies Array<{ id: OrderViewPreset; label: string }>
                 ).map((preset) => {
                   const active = viewPreset === preset.id;
@@ -1630,6 +1797,7 @@ export default function OrdersWorkspace({
                     setKindFilter("all");
                     setPaymentFilter("all");
                     setSalespersonFilter("all");
+                    setLifecycleFilter("all");
                     setDatePreset("all");
                     setDateFrom("");
                     setDateTo("");
@@ -1643,77 +1811,91 @@ export default function OrdersWorkspace({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-3 px-4 py-4 lg:px-5">
-                <select
-                  value={kindFilter}
-                  onChange={(e) => setKindFilter(e.target.value)}
-                  className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
-                >
-                  <option value="all">Type: All</option>
-                  <option value="special_order">Special</option>
-                  <option value="wedding_order">Wedding</option>
-                  <option value="custom">Custom</option>
-                </select>
-                <select
-                  value={paymentFilter}
-                  onChange={(e) => setPaymentFilter(e.target.value)}
-                  className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
-                >
-                  <option value="all">Payment: All</option>
-                  <option value="paid">Paid</option>
-                  <option value="partial">Partial</option>
-                  <option value="unpaid">Unpaid</option>
-                </select>
-                <select
-                  value={salespersonFilter}
-                  onChange={(e) => setSalespersonFilter(e.target.value)}
-                  className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
-                >
-                  <option value="all">Staff: All</option>
-                  {salespersonOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                </select>
-                <select
-                  value={datePreset}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setDatePreset(val);
-                    if (val === "today") {
-                      const d = new Date().toISOString().split("T")[0];
-                      setDateFrom(d);
-                      setDateTo(d);
-                    } else if (val === "30d") {
-                      const d = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
-                      setDateFrom(d);
-                      setDateTo(new Date().toISOString().split("T")[0]);
-                    } else if (val === "all") {
-                      setDateFrom("");
-                      setDateTo("");
-                    }
-                  }}
-                  className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
-                >
-                  <option value="all">Date: Always</option>
-                  <option value="today">Today</option>
-                  <option value="30d">30 Days</option>
-                  <option value="custom">Custom</option>
-                </select>
-                {datePreset === "custom" ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="date"
-                      value={dateFrom}
-                      onChange={(event) => setDateFrom(event.target.value)}
-                      className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
-                      aria-label="Orders date from"
-                    />
-                    <input
-                      type="date"
-                      value={dateTo}
-                      onChange={(event) => setDateTo(event.target.value)}
-                      className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
-                      aria-label="Orders date to"
-                    />
-                  </div>
-                ) : null}
+              <select
+                value={kindFilter}
+                onChange={(e) => setKindFilter(e.target.value)}
+                className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+              >
+                <option value="all">Type: All</option>
+                <option value="special_order">Special</option>
+                <option value="wedding_order">Wedding</option>
+                <option value="custom">Custom</option>
+              </select>
+              <select
+                value={paymentFilter}
+                onChange={(e) => setPaymentFilter(e.target.value)}
+                className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+              >
+                <option value="all">Payment: All</option>
+                <option value="paid">Paid</option>
+                <option value="partial">Partial</option>
+                <option value="unpaid">Unpaid</option>
+              </select>
+              <select
+                value={salespersonFilter}
+                onChange={(e) => setSalespersonFilter(e.target.value)}
+                className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+              >
+                <option value="all">Staff: All</option>
+                {salespersonOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+              <select
+                value={lifecycleFilter}
+                onChange={(e) => setLifecycleFilter(e.target.value)}
+                className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+              >
+                <option value="all">Lifecycle: All</option>
+                <option value="ready_check_needed">Needs Ready Check</option>
+                <option value="ready_for_pickup">Ready for Pickup</option>
+                <option value="received">Received</option>
+                <option value="ordered">Ordered</option>
+                <option value="ntbo">NTBO</option>
+                <option value="needs_measurements">Needs Measurements</option>
+                <option value="picked_up">Picked Up</option>
+              </select>
+              <select
+                value={datePreset}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDatePreset(val);
+                  if (val === "today") {
+                    const d = new Date().toISOString().split("T")[0];
+                    setDateFrom(d);
+                    setDateTo(d);
+                  } else if (val === "30d") {
+                    const d = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+                    setDateFrom(d);
+                    setDateTo(new Date().toISOString().split("T")[0]);
+                  } else if (val === "all") {
+                    setDateFrom("");
+                    setDateTo("");
+                  }
+                }}
+                className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+              >
+                <option value="all">Date: Always</option>
+                <option value="today">Today</option>
+                <option value="30d">30 Days</option>
+                <option value="custom">Custom</option>
+              </select>
+              {datePreset === "custom" ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(event) => setDateFrom(event.target.value)}
+                    className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+                    aria-label="Orders date from"
+                  />
+                  <input
+                    type="date"
+                    value={dateTo}
+                    onChange={(event) => setDateTo(event.target.value)}
+                    className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+                    aria-label="Orders date to"
+                  />
+                </div>
+              ) : null}
             </div>
 
             <div className="grid gap-3 p-3 xl:hidden">
@@ -1855,10 +2037,11 @@ export default function OrdersWorkspace({
         audit={audit}
         loading={detailLoading}
         errorMessage={detailError}
-        onLifecycleChanged={async () => {
-          if (selectedId) await loadDetail(selectedId);
-          await loadTransactions();
-        }}
+	        onLifecycleChanged={async () => {
+	          if (selectedId) await loadDetail(selectedId);
+	          await loadTransactions();
+	          await loadPipelineStats();
+	        }}
         orderActions={{
           onOpenInRegister: openInRegisterAndClose,
           onAttachToWedding: () => setAttachWeddingModalOpen(true),

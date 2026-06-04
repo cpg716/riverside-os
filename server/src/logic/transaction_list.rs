@@ -32,10 +32,11 @@ pub struct FulfillmentItem {
 
 #[derive(Debug, Serialize)]
 pub struct TransactionPipelineStats {
-    pub needs_action: i64,     // open/pending_measurement
-    pub ready_for_pickup: i64, // has items marked Arrived (inventory) but not fulfilled
-    pub overdue: i64,          // 30+ days old and unfulfilled
-    pub wedding_orders: i64,   // active wedding-linked orders
+    pub needs_action: i64,       // open/pending_measurement
+    pub ready_check_needed: i64, // received items awaiting staff ready-for-pickup check
+    pub ready_for_pickup: i64,   // has items marked Arrived (inventory) but not fulfilled
+    pub overdue: i64,            // 30+ days old and unfulfilled
+    pub wedding_orders: i64,     // active wedding-linked orders
 }
 
 #[derive(Debug, Deserialize, Serialize, FromRow)]
@@ -70,6 +71,9 @@ pub struct TransactionListRow {
     pub has_custom: bool,
     pub is_fulfillment_order: bool,
     pub status: DbOrderStatus,
+    pub is_counterpoint_import: bool,
+    pub counterpoint_doc_ref: Option<String>,
+    pub counterpoint_ticket_ref: Option<String>,
     pub counterpoint_customer_code: Option<String>,
     pub total_count: i64,
 }
@@ -92,6 +96,10 @@ pub struct TransactionListQuery {
     pub payment_filter: Option<String>,
     #[serde(default)]
     pub kind_filter: Option<String>,
+    #[serde(default)]
+    pub salesperson_filter: Option<String>,
+    #[serde(default)]
+    pub lifecycle_filter: Option<String>,
     #[serde(default)]
     pub status_scope: Option<String>,
     #[serde(default)]
@@ -132,6 +140,9 @@ pub struct TransactionListResponse {
     pub has_layaway: bool,
     pub has_custom: bool,
     pub is_fulfillment_order: bool,
+    pub is_counterpoint_import: bool,
+    pub counterpoint_doc_ref: Option<String>,
+    pub counterpoint_ticket_ref: Option<String>,
     pub counterpoint_customer_code: Option<String>,
 }
 
@@ -154,6 +165,18 @@ fn kind_filter_having_clause(kind_filter: &str) -> Option<&'static str> {
         ),
         "wedding_order" => Some(" HAVING o.wedding_member_id IS NOT NULL "),
         "layaway" => Some(" HAVING BOOL_OR(oi.fulfillment::text = 'layaway') = true "),
+        _ => None,
+    }
+}
+
+fn lifecycle_filter_status(lifecycle_filter: &str) -> Option<&'static str> {
+    match lifecycle_filter {
+        "ntbo" => Some("ntbo"),
+        "needs_measurements" => Some("needs_measurements"),
+        "ordered" => Some("ordered"),
+        "received" | "ready_check_needed" => Some("received"),
+        "ready_for_pickup" => Some("ready_for_pickup"),
+        "picked_up" => Some("picked_up"),
         _ => None,
     }
 }
@@ -186,6 +209,11 @@ pub async fn query_paged_transactions(
     let search_trim = q.search.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let status_scope = q.status_scope.as_deref().map(str::trim);
     let kind_filter = q.kind_filter.as_deref().map(str::trim);
+    let lifecycle_filter = q
+        .lifecycle_filter
+        .as_deref()
+        .map(str::trim)
+        .and_then(lifecycle_filter_status);
     let is_layaway_filter = kind_filter == Some("layaway");
     let is_order_kind_filter = matches!(
         kind_filter,
@@ -203,7 +231,8 @@ pub async fn query_paged_transactions(
 
     let meili_transaction_ids: Option<Vec<Uuid>> = if let Some(st) = search_trim {
         if let Some(c) = meilisearch {
-            let open_only = !q.show_closed;
+            let open_only =
+                matches!(status_scope, Some("open")) || (status_scope.is_none() && !q.show_closed);
             match crate::logic::meilisearch_search::order_search_ids(c, st, open_only).await {
                 Ok(ids) if !ids.is_empty() => Some(ids),
                 Ok(_) => None,
@@ -247,12 +276,19 @@ pub async fn query_paged_transactions(
             o.wedding_member_id,
             wm.wedding_party_id,
             o.status,
+            COALESCE(o.is_counterpoint_import, false) AS is_counterpoint_import,
+            NULLIF(TRIM(o.counterpoint_doc_ref), '') AS counterpoint_doc_ref,
+            NULLIF(TRIM(o.counterpoint_ticket_ref), '') AS counterpoint_ticket_ref,
             {SQL_PARTY_TRACKING_LABEL_WP} AS party_name,
             wp.event_date AS wedding_event_date,
             op.full_name AS operator_name,
             COALESCE(BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')), false) AS is_fulfillment_order,
             ps.full_name AS primary_salesperson_name,
-            NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code,
+            CASE
+                WHEN COALESCE(o.is_counterpoint_import, false)
+                THEN NULLIF(TRIM(c.customer_code), '')
+                ELSE NULL
+            END AS counterpoint_customer_code,
             COUNT(oi.id) FILTER (WHERE {list_line_filter})::bigint AS item_count,
             NULLIF(
                 string_agg(
@@ -359,12 +395,14 @@ pub async fn query_paged_transactions(
         && q.date_from.is_none()
         && q.date_to.is_none()
         && q.payment_filter.is_none()
+        && q.salesperson_filter.is_none()
+        && q.lifecycle_filter.is_none()
     {
         qb.push(" AND c.id IS NOT NULL "); // Only show orders with customers (not walk-ins)
     }
 
     let open_orders_predicate =
-        "(o.counterpoint_doc_ref IS NOT NULL OR EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order') AND tl.is_fulfilled = false))";
+        "((COALESCE(o.is_counterpoint_import, false) AND o.counterpoint_doc_ref IS NOT NULL) OR EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order') AND tl.is_fulfilled = false))";
     let open_work_predicate = if is_layaway_filter {
         "EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text = 'layaway' AND tl.is_fulfilled = false)"
     } else {
@@ -372,17 +410,21 @@ pub async fn query_paged_transactions(
     };
     match status_scope {
         Some("open") => {
-            qb.push(" AND ");
+            qb.push(" AND o.status <> 'cancelled' AND ");
             qb.push(open_work_predicate);
             qb.push(" ");
         }
         Some("closed") => {
-            qb.push(" AND NOT ");
+            qb.push(" AND o.status <> 'cancelled' AND NOT ");
             qb.push(open_work_predicate);
             qb.push(" ");
         }
+        Some("cancelled") => {
+            qb.push(" AND o.status = 'cancelled' ");
+        }
+        Some("all") => {}
         _ if !q.show_closed => {
-            qb.push(" AND ");
+            qb.push(" AND o.status <> 'cancelled' AND ");
             qb.push(open_work_predicate);
             qb.push(" ");
         }
@@ -455,6 +497,30 @@ pub async fn query_paged_transactions(
         } else if pf == "partial" {
             qb.push(" AND o.amount_paid > 0 AND o.balance_due > 0 ");
         }
+    }
+
+    if let Some(sf) = q
+        .salesperson_filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        qb.push(" AND ps.full_name = ");
+        qb.push_bind(sf);
+        qb.push(" ");
+    }
+
+    if let Some(lf) = lifecycle_filter {
+        qb.push(
+            " AND EXISTS (
+                SELECT 1
+                FROM transaction_lines tl_lifecycle
+                WHERE tl_lifecycle.transaction_id = o.id
+                  AND tl_lifecycle.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                  AND tl_lifecycle.order_lifecycle_status = ",
+        );
+        qb.push_bind(lf);
+        qb.push("::order_item_lifecycle_status) ");
     }
 
     qb.push(" GROUP BY o.id, c.id, c.customer_code, c.phone, c.email, wm.wedding_party_id, wp.party_name, wp.groom_name, wp.event_date, op.full_name, ps.full_name, o.status ");
@@ -535,6 +601,9 @@ pub async fn query_paged_transactions(
                 has_layaway: r.has_layaway,
                 has_custom: r.has_custom,
                 is_fulfillment_order: r.is_fulfillment_order,
+                is_counterpoint_import: r.is_counterpoint_import,
+                counterpoint_doc_ref: r.counterpoint_doc_ref,
+                counterpoint_ticket_ref: r.counterpoint_ticket_ref,
                 counterpoint_customer_code: r.counterpoint_customer_code,
             }
         })
@@ -545,7 +614,7 @@ pub async fn query_paged_transactions(
 
 #[cfg(test)]
 mod tests {
-    use super::{kind_filter_having_clause, order_kind_from_flags};
+    use super::{kind_filter_having_clause, lifecycle_filter_status, order_kind_from_flags};
     use uuid::Uuid;
 
     #[test]
@@ -585,6 +654,19 @@ mod tests {
             kind_filter_having_clause("wedding_order").expect("wedding clause should exist");
         assert!(clause.contains("o.wedding_member_id IS NOT NULL"));
     }
+
+    #[test]
+    fn lifecycle_ready_check_filter_maps_to_received_status() {
+        assert_eq!(
+            lifecycle_filter_status("ready_check_needed"),
+            Some("received")
+        );
+        assert_eq!(
+            lifecycle_filter_status("ready_for_pickup"),
+            Some("ready_for_pickup")
+        );
+        assert_eq!(lifecycle_filter_status("not_real"), None);
+    }
 }
 
 pub async fn query_pipeline_stats(
@@ -598,8 +680,9 @@ pub async fn query_pipeline_stats(
                 FROM transactions o
                 LEFT JOIN customers c ON c.id = o.customer_id
                 WHERE c.id IS NOT NULL
+                  AND o.status <> 'cancelled'
                   AND (
-                    o.counterpoint_doc_ref IS NOT NULL
+                    (COALESCE(o.is_counterpoint_import, false) AND o.counterpoint_doc_ref IS NOT NULL)
                     OR EXISTS (
                         SELECT 1
                         FROM transaction_lines tl
@@ -617,6 +700,24 @@ pub async fn query_pipeline_stats(
                     )
                   )
             ) AS needs_action,
+            (
+                SELECT COUNT(DISTINCT tl.transaction_id)::bigint
+                FROM transaction_lines tl
+                INNER JOIN transactions t ON t.id = tl.transaction_id
+                WHERE t.status <> 'cancelled'
+                  AND tl.is_fulfilled = false
+                  AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                  AND tl.order_lifecycle_status = 'received'
+            ) AS ready_check_needed,
+            (
+                SELECT COUNT(DISTINCT tl.transaction_id)::bigint
+                FROM transaction_lines tl
+                INNER JOIN transactions t ON t.id = tl.transaction_id
+                WHERE t.status <> 'cancelled'
+                  AND tl.is_fulfilled = false
+                  AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                  AND tl.order_lifecycle_status = 'ready_for_pickup'
+            ) AS ready_for_pickup,
             COUNT(*) FILTER (
                 WHERE status = 'open'
                   AND created_at < NOW() - INTERVAL '30 days'
@@ -636,26 +737,10 @@ pub async fn query_pipeline_stats(
 
     use sqlx::Row;
 
-    // We'll estimate "ready_for_pickup" as status=ready
-    let ready_row = sqlx::query(
-        r#"
-        SELECT COUNT(*)::bigint AS ready_count
-        FROM fulfillment_orders
-        WHERE status = 'ready'
-          AND EXISTS (
-              SELECT 1
-              FROM transaction_lines tl
-              WHERE tl.fulfillment_order_id = fulfillment_orders.id
-                AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
-          )
-        "#,
-    )
-    .fetch_one(pool)
-    .await?;
-
     Ok(TransactionPipelineStats {
         needs_action: row.get::<Option<i64>, _>("needs_action").unwrap_or(0),
-        ready_for_pickup: ready_row.get::<Option<i64>, _>("ready_count").unwrap_or(0),
+        ready_check_needed: row.get::<Option<i64>, _>("ready_check_needed").unwrap_or(0),
+        ready_for_pickup: row.get::<Option<i64>, _>("ready_for_pickup").unwrap_or(0),
         overdue: row.get::<Option<i64>, _>("overdue").unwrap_or(0),
         wedding_orders: row.get::<Option<i64>, _>("wedding_orders").unwrap_or(0),
     })

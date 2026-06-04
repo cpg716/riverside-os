@@ -658,23 +658,59 @@ function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
   throw "Riverside OS Server did not pass the API check at $BaseUrl/api/staff/list-for-pos."
 }
 
+function Resolve-LlamaPerfProfile([string]$Requested) {
+  $profile = "$Requested".Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($profile) -or $profile -eq "auto") {
+    $cpuName = ""
+    try {
+      $cpuName = "$((Get-CimInstance Win32_Processor | Select-Object -First 1).Name)"
+    } catch {
+      $cpuName = ""
+    }
+    if ($cpuName -match "8840U") { return "minisforum-v3" }
+    if ($cpuName -match "12900") { return "intel-i9-12900" }
+    return "portable-cpu"
+  }
+  if ($profile -in @("intel-i9-12900", "i9-12900", "12900")) { return "intel-i9-12900" }
+  if ($profile -in @("minisforum-v3", "amd-8840u", "ryzen-8840u")) { return "minisforum-v3" }
+  if ($profile -in @("apple-m3-pro", "m3-pro")) { return "apple-m3-pro" }
+  if ($profile -in @("apple-m3-pro-cpu", "m3-pro-cpu")) { return "apple-m3-pro-cpu" }
+  if ($profile -in @("portable-cpu", "cpu-portable")) { return "portable-cpu" }
+  return "portable-cpu"
+}
+
+function Resolve-LlamaPerfArgs([string]$Requested) {
+  $profile = Resolve-LlamaPerfProfile $Requested
+  switch ($profile) {
+    "intel-i9-12900" { return "--reasoning off --threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
+    "minisforum-v3" { return "--reasoning off --threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
+    "apple-m3-pro" { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 99 --flash-attn on --mmap" }
+    "apple-m3-pro-cpu" { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
+    default { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
+  }
+}
+
 function Ensure-RiversideLlamaHost(
   [string]$PackageRoot,
   [string]$InstallRoot,
   [string]$ModelPath,
   [string]$LlamaHost,
-  [int]$LlamaPort
+  [int]$LlamaPort,
+  [string]$LlamaPerfProfile = "auto"
 ) {
   $llamaSrc = Join-Path $PackageRoot "rosie\bin\llama-server.exe"
-  if (-not (Test-Path $llamaSrc)) {
-    Write-Warning ("ROSIE: llama-server.exe was not found in this deployment package ($llamaSrc). " +
-      "ROSIE chat will stay unavailable until llama-server is running on http://${LlamaHost}:${LlamaPort}/. " +
-      "Run Install-RosieAiStack.ps1 after copying a full deployment package, or start the Riverside desktop app on this PC (it can launch the sidecar).")
-    return
-  }
+  $llamaDir = Join-Path $InstallRoot "rosie\bin"
+  $llamaExe = Join-Path $llamaDir "llama-server.exe"
 
   if ([string]::IsNullOrWhiteSpace($ModelPath) -or -not (Test-Path $ModelPath)) {
     Write-Warning "ROSIE: LLM model is missing at '$ModelPath'. Skipping Riverside OS LLM Host scheduled task."
+    return
+  }
+
+  if ((-not (Test-Path $llamaSrc)) -and (-not (Test-Path $llamaExe))) {
+    Write-Warning ("ROSIE: llama-server.exe was not found in the deployment package or installed ROSIE bin directory. " +
+      "ROSIE chat will stay unavailable until llama-server is running on http://${LlamaHost}:${LlamaPort}/. " +
+      "Run Install-RosieAiStack.ps1 again after network connectivity is restored.")
     return
   }
 
@@ -685,12 +721,14 @@ function Ensure-RiversideLlamaHost(
   }
   Start-Sleep -Seconds 2
 
-  $llamaDir = Join-Path $InstallRoot "rosie\bin"
   New-Item -ItemType Directory -Force -Path $llamaDir | Out-Null
-  Copy-Item "$PackageRoot\rosie\bin\*" $llamaDir -Force
-
-  $llamaExe = Join-Path $llamaDir "llama-server.exe"
-  $argument = "-m `"$ModelPath`" --host $LlamaHost --port $LlamaPort --reasoning off"
+  if (Test-Path $llamaSrc) {
+    Copy-Item "$PackageRoot\rosie\bin\*" $llamaDir -Force
+  }
+  $llamaPerfArgs = Resolve-LlamaPerfArgs $LlamaPerfProfile
+  $resolvedLlamaPerfProfile = Resolve-LlamaPerfProfile $LlamaPerfProfile
+  Write-Host "ROSIE: Applying llama.cpp performance profile '$resolvedLlamaPerfProfile'."
+  $argument = "-m `"$ModelPath`" --host $LlamaHost --port $LlamaPort $llamaPerfArgs"
 
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
   $action = New-ScheduledTaskAction -Execute $llamaExe -Argument $argument -WorkingDirectory $llamaDir
@@ -724,6 +762,10 @@ function Escape-SqlLiteral([string]$Value) {
 
 function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieModelPath) {
   $server = $Config.server
+  $configuredLlamaProfile = ""
+  if ($server.environment) {
+    $configuredLlamaProfile = "$($server.environment.RIVERSIDE_LLAMA_PERF_PROFILE)".Trim()
+  }
   $environmentMode = if ([bool]$server.strictProduction) { "production" } else { "development" }
   $httpBind = $server.httpBind
   if ([string]::IsNullOrWhiteSpace($httpBind)) { $httpBind = "0.0.0.0:3000" }
@@ -752,6 +794,10 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieMode
     $lines += "RIVERSIDE_LLAMA_MODEL_PATH=$RosieModelPath"
     $lines += "RIVERSIDE_LLAMA_PORT=8080"
     $lines += "RIVERSIDE_LLAMA_HOST=127.0.0.1"
+    $lines += "RIVERSIDE_LLAMA_EXTRA_ARGS=--reasoning off"
+    if (-not $configuredLlamaProfile) {
+      $lines += "RIVERSIDE_LLAMA_PERF_PROFILE=auto"
+    }
   }
 
   if ($server.environment) {
@@ -1306,13 +1352,16 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Pr
 
 $llamaHost = "127.0.0.1"
 $llamaPort = 8080
+$llamaPerfProfile = "auto"
 if ($server.environment) {
   $envHost = "$($server.environment.RIVERSIDE_LLAMA_HOST)".Trim()
   $envPort = "$($server.environment.RIVERSIDE_LLAMA_PORT)".Trim()
+  $envPerfProfile = "$($server.environment.RIVERSIDE_LLAMA_PERF_PROFILE)".Trim()
   if ($envHost) { $llamaHost = $envHost }
   if ($envPort -and ($envPort -match '^\d+$')) { $llamaPort = [int]$envPort }
+  if ($envPerfProfile) { $llamaPerfProfile = $envPerfProfile }
 }
-Ensure-RiversideLlamaHost $ScriptRoot $installRoot $rosieModelPath $llamaHost $llamaPort
+Ensure-RiversideLlamaHost $ScriptRoot $installRoot $rosieModelPath $llamaHost $llamaPort $llamaPerfProfile
 
 if (-not $NoStart) {
   Start-ScheduledTask -TaskName $taskName

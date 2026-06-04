@@ -1290,13 +1290,14 @@ dependencies = [
 
 [[package]]
 name = "counterpoint-bridge-gui"
-version = "0.1.0"
+version = "0.85.9"
 dependencies = [
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "tauri-plugin-updater",
 ]
 
 [[package]]
@@ -6022,6 +6023,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-log",
+ "tauri-plugin-updater",
  "tokio",
 ]
 
@@ -6148,6 +6150,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-shell",
+ "tauri-plugin-updater",
  "tokio",
 ]
 

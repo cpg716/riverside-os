@@ -34,4 +34,4 @@ if ($got -ne $Pin.sha256) {
     Remove-Item -Force $Dest
     exit 1
 }
-Write-Host "OK - matches MODEL_PIN.json. Start llama-server with -m `"$Dest`""
+Write-Host "OK - matches MODEL_PIN.json. Start llama-server with -m `"$Dest`" --threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock"

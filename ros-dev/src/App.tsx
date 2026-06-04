@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Loader2, LogIn, Plus, Trash2, Radio, Wifi, WifiOff } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { Download, Loader2, LogIn, Plus, RefreshCw, Trash2, Radio, Wifi, WifiOff } from "lucide-react";
 import {
   getProfiles,
   getActiveProfileId,
@@ -15,6 +16,95 @@ import {
   initializeProfiles,
 } from "./lib/api";
 import DevOpsDashboard from "./components/DevOpsDashboard";
+
+interface UpdateCheckResult {
+  enabled: boolean;
+  available: boolean;
+  version: string | null;
+  date: string | null;
+  notes: string | null;
+  message: string | null;
+  current_build: string | null;
+  available_build: string | null;
+}
+
+interface InstallUpdateResult {
+  enabled: boolean;
+  installed: boolean;
+  version: string | null;
+  message: string | null;
+  current_build: string | null;
+  installed_build: string | null;
+}
+
+function SelfUpdatePanel({ compact = false }: { compact?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("Signed ROS Dev Center updater channel.");
+
+  const checkUpdate = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await invoke<UpdateCheckResult>("check_app_update");
+      setMessage(
+        result.available
+          ? `Ready: ${result.version}${result.available_build ? ` (${result.available_build})` : ""}`
+          : result.message ?? "No ROS Dev Center update available.",
+      );
+    } catch (error) {
+      setMessage(`Update check failed: ${String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const installUpdate = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await invoke<InstallUpdateResult>("install_app_update");
+      setMessage(
+        result.installed
+          ? result.message ?? `ROS Dev Center updated to ${result.version}.`
+          : result.message ?? "No ROS Dev Center update available.",
+      );
+    } catch (error) {
+      setMessage(`Install failed: ${String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={compact ? "rounded-xl border border-app-border/60 bg-app-surface/95 p-3 shadow-xl" : "mb-4 rounded-lg border border-app-border/60 bg-app-bg p-4"}>
+      <div className="mb-2 flex items-center gap-2">
+        {busy ? <RefreshCw className="h-4 w-4 animate-spin text-app-accent" /> : <Download className="h-4 w-4 text-app-accent" />}
+        <span className="text-xs font-black uppercase tracking-wider text-app-text">App Update</span>
+      </div>
+      <p className="mb-3 text-[11px] leading-relaxed text-app-text-muted">
+        {message}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => void checkUpdate()}
+          disabled={busy}
+          className="ui-btn ui-btn-ghost ui-btn-sm justify-center disabled:opacity-50"
+        >
+          Check
+        </button>
+        <button
+          type="button"
+          onClick={() => void installUpdate()}
+          disabled={busy}
+          className="ui-btn ui-btn-primary ui-btn-sm justify-center disabled:opacity-50"
+        >
+          Install
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [profiles, setProfiles] = useState<ServerProfile[]>(getProfiles());
@@ -104,6 +194,8 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             {tsStatus.tailnet && <span className="text-app-text-muted">· {tsStatus.tailnet}</span>}
           </div>
         )}
+
+        <SelfUpdatePanel />
 
         {/* Auto-Discovery */}
         <div className="mb-4">
@@ -355,5 +447,12 @@ export default function App() {
     return <LoginScreen onLogin={() => setLoggedIn(true)} />;
   }
 
-  return <DevOpsDashboard />;
+  return (
+    <>
+      <div className="fixed bottom-4 right-4 z-50 w-72 max-w-[calc(100vw-2rem)]">
+        <SelfUpdatePanel compact />
+      </div>
+      <DevOpsDashboard />
+    </>
+  );
 }

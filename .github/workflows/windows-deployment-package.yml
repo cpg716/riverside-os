@@ -20,7 +20,11 @@ permissions:
   contents: write
 
 env:
+  RIVERSIDE_BUILD_SHA: ${{ github.sha }}
   RIVERSIDE_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+  RIVERSIDE_DEPLOYMENT_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest-deployment-manager.json
+  RIVERSIDE_SERVER_MANAGER_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest-server-manager.json
+  RIVERSIDE_COUNTERSYNC_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest-countersync-bridge-gui.json
   RIVERSIDE_UPDATER_PUBLIC_KEY: ${{ vars.RIVERSIDE_UPDATER_PUBLIC_KEY }}
   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -200,13 +204,16 @@ jobs:
           }
           $pkg = Get-Content "package.json" | ConvertFrom-Json
           $version = $pkg.version
+          $gitShort = $env:GITHUB_SHA.Substring(0, 8)
+          $updaterVersion = "$version+$gitShort"
           $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           $artifactName = [System.IO.Path]::GetFileName($artifactPath)
           $releaseAssetName = $artifactName -replace ' ', '.'
+          $releaseSignatureName = "$releaseAssetName.sig"
           $signature = (Get-Content $sig.FullName -Raw).Trim()
           $notes = if ([string]::IsNullOrWhiteSpace($env:RELEASE_NOTES)) { "Riverside POS update" } else { $env:RELEASE_NOTES }
           $manifest = @{
-            version = $version
+            version = $updaterVersion
             notes = $notes
             pub_date = $pubDate
             build_sha = $env:GITHUB_SHA
@@ -219,8 +226,17 @@ jobs:
           } | ConvertTo-Json -Depth 6
           New-Item -ItemType Directory -Force -Path updater-dist | Out-Null
           Copy-Item -Path $artifactPath -Destination "updater-dist/$releaseAssetName" -Force
-          Copy-Item -Path $sig.FullName -Destination "updater-dist/$($sig.Name)" -Force
+          Copy-Item -Path $sig.FullName -Destination "updater-dist/$releaseSignatureName" -Force
           Set-Content -Path "updater-dist/latest.json" -Value $manifest -NoNewline
+          @{
+            version = $version
+            updaterVersion = $updaterVersion
+            sourceGitSha = $env:GITHUB_SHA
+            sourceGitShort = $gitShort
+            asset = $releaseAssetName
+            signatureAsset = $releaseSignatureName
+            builtAt = $pubDate
+          } | ConvertTo-Json -Depth 4 | Set-Content -Path "updater-dist/riverside-updater-build-manifest.json" -NoNewline
 
       - uses: actions/upload-artifact@v4
         with:
@@ -346,12 +362,49 @@ jobs:
         shell: pwsh
         run: |
           cd deployment/manager-app
-          npx tauri build
+          if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_DEPLOYMENT_UPDATER_ENDPOINT)) {
+            throw "RIVERSIDE_DEPLOYMENT_UPDATER_ENDPOINT is required"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_UPDATER_PUBLIC_KEY)) {
+            throw "RIVERSIDE_UPDATER_PUBLIC_KEY is required"
+          }
+          $updaterConfig = @{
+            bundle = @{
+              createUpdaterArtifacts = $true
+            }
+            plugins = @{
+              updater = @{
+                active = $true
+                endpoints = @($env:RIVERSIDE_DEPLOYMENT_UPDATER_ENDPOINT)
+                pubkey = $env:RIVERSIDE_UPDATER_PUBLIC_KEY
+                windows = @{
+                  installMode = "passive"
+                }
+              }
+            }
+          } | ConvertTo-Json -Depth 8
+          Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value $updaterConfig -NoNewline
+          npx tauri build --config src-tauri/tauri.updater.conf.json
+          cd ../..
+          ./scripts/prepare-tauri-updater-dist.ps1 `
+            -PackageJsonPath ".\deployment\manager-app\package.json" `
+            -TargetRoot ".\target" `
+            -OutputDir ".\deployment\manager-app\updater-dist" `
+            -ManifestName "latest-deployment-manager.json" `
+            -BuildManifestName "riverside-deployment-manager-updater-build-manifest.json" `
+            -BaseUrl $env:RIVERSIDE_UPDATER_BASE_URL `
+            -Notes "Riverside Deployment Manager update" `
+            -PlatformKey "windows-x86_64"
 
       - uses: actions/upload-artifact@v4
         with:
           name: deployment-manager-binary
           path: target/release/riverside-deployment-manager.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deployment-manager-updater-dist
+          path: deployment/manager-app/updater-dist/
 
   build-server-manager:
     needs: validate-scripts
@@ -433,7 +486,29 @@ jobs:
         shell: pwsh
         run: |
           cd deployment/server-manager-app
-          npx tauri build
+          if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_SERVER_MANAGER_UPDATER_ENDPOINT)) {
+            throw "RIVERSIDE_SERVER_MANAGER_UPDATER_ENDPOINT is required"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_UPDATER_PUBLIC_KEY)) {
+            throw "RIVERSIDE_UPDATER_PUBLIC_KEY is required"
+          }
+          $updaterConfig = @{
+            bundle = @{
+              createUpdaterArtifacts = $true
+            }
+            plugins = @{
+              updater = @{
+                active = $true
+                endpoints = @($env:RIVERSIDE_SERVER_MANAGER_UPDATER_ENDPOINT)
+                pubkey = $env:RIVERSIDE_UPDATER_PUBLIC_KEY
+                windows = @{
+                  installMode = "passive"
+                }
+              }
+            }
+          } | ConvertTo-Json -Depth 8
+          Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value $updaterConfig -NoNewline
+          npx tauri build --config src-tauri/tauri.updater.conf.json
           $src = "src-tauri\target\release\ros-server-manager.exe"
           $dst = "..\..\target\release\ros-server-manager.exe"
           if (Test-Path $src) {
@@ -442,11 +517,26 @@ jobs:
           } else {
             throw "ros-server-manager.exe not found at $src"
           }
+          cd ../..
+          ./scripts/prepare-tauri-updater-dist.ps1 `
+            -PackageJsonPath ".\deployment\server-manager-app\package.json" `
+            -TargetRoot ".\deployment\server-manager-app\src-tauri\target" `
+            -OutputDir ".\deployment\server-manager-app\updater-dist" `
+            -ManifestName "latest-server-manager.json" `
+            -BuildManifestName "ros-server-manager-updater-build-manifest.json" `
+            -BaseUrl $env:RIVERSIDE_UPDATER_BASE_URL `
+            -Notes "ROS Server Manager update" `
+            -PlatformKey "windows-x86_64"
 
       - uses: actions/upload-artifact@v4
         with:
           name: server-manager-binary
           path: target/release/ros-server-manager.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-manager-updater-dist
+          path: deployment/server-manager-app/updater-dist/
 
   build-counterpoint-bridge-gui:
     needs: validate-scripts
@@ -481,6 +571,21 @@ jobs:
         if: steps.cache-bridge-gui-node-modules.outputs.cache-hit != 'true'
         working-directory: deployment/counterpoint-bridge-gui
         run: npm ci
+
+      - name: Prepare self-contained Counterpoint bridge runtime
+        shell: pwsh
+        run: |
+          npm ci --omit=dev --prefix counterpoint-bridge
+          $runtimeDir = "deployment/counterpoint-bridge-gui/src-tauri/bridge-runtime"
+          New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
+          $nodePath = (Get-Command node).Source
+          Copy-Item -Path $nodePath -Destination (Join-Path $runtimeDir "node.exe") -Force
+          if (-not (Test-Path "counterpoint-bridge/node_modules/mssql")) {
+            throw "Counterpoint bridge production dependencies were not installed."
+          }
+          if (-not (Test-Path (Join-Path $runtimeDir "node.exe"))) {
+            throw "Bundled Node runtime was not prepared."
+          }
 
       - name: Cache WiX Toolset
         id: cache-wix
@@ -528,12 +633,65 @@ jobs:
         shell: pwsh
         run: |
           cd deployment/counterpoint-bridge-gui
-          npx tauri build
+          if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_COUNTERSYNC_UPDATER_ENDPOINT)) {
+            throw "RIVERSIDE_COUNTERSYNC_UPDATER_ENDPOINT is required"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_UPDATER_PUBLIC_KEY)) {
+            throw "RIVERSIDE_UPDATER_PUBLIC_KEY is required"
+          }
+          $updaterConfig = @{
+            bundle = @{
+              createUpdaterArtifacts = $true
+              resources = @(
+                "../../../counterpoint-bridge/index.mjs",
+                "../../../counterpoint-bridge/package.json",
+                "../../../counterpoint-bridge/package-lock.json",
+                "../../../counterpoint-bridge/.env.example",
+                "../../../counterpoint-bridge/env.example",
+                "../../../counterpoint-bridge/dashboard.html",
+                "../../../counterpoint-bridge/README.md",
+                "../../../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt",
+                "../../../counterpoint-bridge/SCHEMA_PROBE_ALIGNMENT.txt",
+                "../../../counterpoint-bridge/DISCOVER_SCHEMA.cmd",
+                "../../../counterpoint-bridge/ssms-find-your-tables.sql",
+                "../../../counterpoint-bridge/ssms-list-bridge-tables.sql",
+                "../../../counterpoint-bridge/node_modules",
+                "bridge-runtime/node.exe"
+              )
+            }
+            plugins = @{
+              updater = @{
+                active = $true
+                endpoints = @($env:RIVERSIDE_COUNTERSYNC_UPDATER_ENDPOINT)
+                pubkey = $env:RIVERSIDE_UPDATER_PUBLIC_KEY
+                windows = @{
+                  installMode = "passive"
+                }
+              }
+            }
+          } | ConvertTo-Json -Depth 8
+          Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value $updaterConfig -NoNewline
+          npx tauri build --config src-tauri/tauri.updater.conf.json
+          cd ../..
+          ./scripts/prepare-tauri-updater-dist.ps1 `
+            -PackageJsonPath ".\deployment\counterpoint-bridge-gui\package.json" `
+            -TargetRoot ".\target" `
+            -OutputDir ".\deployment\counterpoint-bridge-gui\updater-dist" `
+            -ManifestName "latest-countersync-bridge-gui.json" `
+            -BuildManifestName "counterpoint-bridge-gui-updater-build-manifest.json" `
+            -BaseUrl $env:RIVERSIDE_UPDATER_BASE_URL `
+            -Notes "Counterpoint Sync Bridge GUI update" `
+            -PlatformKey "windows-x86_64"
 
       - uses: actions/upload-artifact@v4
         with:
           name: counterpoint-bridge-gui-bundle
           path: target/release/bundle/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: counterpoint-bridge-gui-updater-dist
+          path: deployment/counterpoint-bridge-gui/updater-dist/
 
   assemble-package:
     needs: [build-register-updater, build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui]
@@ -588,6 +746,13 @@ jobs:
         with:
           name: counterpoint-bridge-gui-bundle
           path: target/release/bundle
+
+      - name: Download standalone updater dists
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-updater-dist"
+          path: standalone-updater-dist
+          merge-multiple: true
 
       - name: Ensure CRLF in deployment scripts
         shell: pwsh
@@ -668,7 +833,25 @@ jobs:
               throw "Failed to upload updater assets to release $tag"
             }
           }
+          if (Test-Path "standalone-updater-dist") {
+            gh release upload $tag standalone-updater-dist/* --clobber
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to upload standalone updater assets to release $tag"
+            }
+          }
           $bridgeGuiFiles = Get-ChildItem -Path "target/release/bundle" -Include "*.msi","*.exe" -Recurse -ErrorAction SilentlyContinue
           if ($bridgeGuiFiles) {
             gh release upload $tag $bridgeGuiFiles.FullName --clobber
           }
+          node scripts/verify-updater-release-assets.mjs `
+            --repo $env:GITHUB_REPOSITORY `
+            --tag $tag `
+            --platform windows-x86_64 `
+            --manifest latest.json `
+            --manifest latest-deployment-manager.json `
+            --manifest latest-server-manager.json `
+            --manifest latest-countersync-bridge-gui.json `
+            --build-manifest riverside-updater-build-manifest.json `
+            --build-manifest riverside-deployment-manager-updater-build-manifest.json `
+            --build-manifest ros-server-manager-updater-build-manifest.json `
+            --build-manifest counterpoint-bridge-gui-updater-build-manifest.json

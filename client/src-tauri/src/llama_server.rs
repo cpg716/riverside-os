@@ -12,9 +12,110 @@ use tauri_plugin_shell::ShellExt;
 /// Holds the running sidecar child so we can [`tauri_plugin_shell::process::CommandChild::kill`] on stop.
 pub struct LlamaSidecarState(pub Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
 
+const INTEL_I9_12900_ARGS: &[&str] = &[
+    "--threads",
+    "8",
+    "--threads-batch",
+    "8",
+    "--cpu-mask",
+    "0xFFFF",
+    "--cpu-mask-batch",
+    "0xFFFF",
+    "--cpu-strict",
+    "1",
+    "--cpu-strict-batch",
+    "1",
+    "--gpu-layers",
+    "0",
+    "--device",
+    "none",
+    "--flash-attn",
+    "on",
+    "--mmap",
+    "--mlock",
+];
+
+const MINISFORUM_V3_ARGS: &[&str] = INTEL_I9_12900_ARGS;
+
+const APPLE_M3_PRO_ARGS: &[&str] = &[
+    "--threads",
+    "6",
+    "--threads-batch",
+    "6",
+    "--gpu-layers",
+    "99",
+    "--flash-attn",
+    "on",
+    "--mmap",
+];
+
+const APPLE_M3_PRO_CPU_ARGS: &[&str] = &[
+    "--threads",
+    "6",
+    "--threads-batch",
+    "6",
+    "--gpu-layers",
+    "0",
+    "--device",
+    "none",
+    "--flash-attn",
+    "on",
+    "--mmap",
+];
+
+const PORTABLE_CPU_ARGS: &[&str] = &[
+    "--threads",
+    "6",
+    "--threads-batch",
+    "6",
+    "--gpu-layers",
+    "0",
+    "--device",
+    "none",
+    "--flash-attn",
+    "on",
+    "--mmap",
+];
+
 impl Default for LlamaSidecarState {
     fn default() -> Self {
         Self(Mutex::new(None))
+    }
+}
+
+fn default_llama_perf_profile() -> String {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        "apple-m3-pro".to_string()
+    } else {
+        "intel-i9-12900".to_string()
+    }
+}
+
+fn llama_perf_profile() -> String {
+    let requested = std::env::var("RIVERSIDE_LLAMA_PERF_PROFILE")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(default_llama_perf_profile);
+
+    match requested.as_str() {
+        "auto" => default_llama_perf_profile(),
+        "intel-i9-12900" | "i9-12900" | "12900" => "intel-i9-12900".to_string(),
+        "minisforum-v3" | "amd-8840u" | "ryzen-8840u" => "minisforum-v3".to_string(),
+        "apple-m3-pro" | "m3-pro" => "apple-m3-pro".to_string(),
+        "apple-m3-pro-cpu" | "m3-pro-cpu" => "apple-m3-pro-cpu".to_string(),
+        "portable-cpu" | "cpu-portable" => "portable-cpu".to_string(),
+        _ => "portable-cpu".to_string(),
+    }
+}
+
+fn llama_profile_args(profile: &str) -> &'static [&'static str] {
+    match profile {
+        "intel-i9-12900" => INTEL_I9_12900_ARGS,
+        "minisforum-v3" => MINISFORUM_V3_ARGS,
+        "apple-m3-pro" => APPLE_M3_PRO_ARGS,
+        "apple-m3-pro-cpu" => APPLE_M3_PRO_CPU_ARGS,
+        _ => PORTABLE_CPU_ARGS,
     }
 }
 
@@ -140,6 +241,8 @@ pub async fn rosie_llama_start(
             cmd = cmd.args(parsed);
         }
     }
+    let perf_profile = llama_perf_profile();
+    cmd = cmd.args(llama_profile_args(&perf_profile));
 
     let (rx, child) = cmd
         .spawn()
@@ -149,7 +252,7 @@ pub async fn rosie_llama_start(
     *guard = Some(child);
 
     Ok(format!(
-        "llama-server started at http://{host}:{port}/ (set RIVERSIDE_LLAMA_* to change)"
+        "llama-server started at http://{host}:{port}/ with profile {perf_profile} (set RIVERSIDE_LLAMA_* to change)"
     ))
 }
 

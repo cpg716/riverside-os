@@ -7,6 +7,8 @@ export interface UpdateCheckResult {
   date: string | null;
   notes: string | null;
   message: string | null;
+  current_build: string | null;
+  available_build: string | null;
 }
 
 export interface InstallUpdateResult {
@@ -14,6 +16,8 @@ export interface InstallUpdateResult {
   installed: boolean;
   version: string | null;
   message: string | null;
+  current_build: string | null;
+  installed_build: string | null;
 }
 
 export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
@@ -25,6 +29,8 @@ export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
       date: null,
       notes: null,
       message: "Updater is available only in the desktop app.",
+      current_build: null,
+      available_build: null,
     };
   }
 
@@ -38,6 +44,8 @@ export async function installAppUpdate(): Promise<InstallUpdateResult> {
       installed: false,
       version: null,
       message: "Updater is available only in the desktop app.",
+      current_build: null,
+      installed_build: null,
     };
   }
 
@@ -49,6 +57,14 @@ export interface ServerLocalStatus {
   install_root: string;
   config_exists: boolean;
   server_binary_exists: boolean;
+}
+
+export interface RiversideStationConfig {
+  releaseVersion?: string;
+  register?: {
+    apiBase?: string;
+    stationLabel?: string;
+  };
 }
 
 function isLocalhost(url: string): boolean {
@@ -95,6 +111,11 @@ export async function checkServerLocalStatus(): Promise<ServerLocalStatus> {
   }
 
   return status;
+}
+
+export async function loadLocalStationConfig(): Promise<RiversideStationConfig | null> {
+  if (!isTauri()) return null;
+  return invoke<RiversideStationConfig | null>("load_station_config");
 }
 
 export async function downloadAndRunServerInstaller(version: string): Promise<string> {

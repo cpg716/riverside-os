@@ -1,6 +1,6 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.85.0 is the current release — the GO LIVE readiness release. It includes six critical POS Register hardening fixes (A–F): session token pre-check, server-side printer config persistence, offline queue recovery UI, receipt print failure retry queue, dynamic register lanes, and Helcim terminal auto-reconnect fallback. Builds on the v0.80.x deployment baseline with Daily Financial Reports, QBO Journal Lifecycle management, Constant Contact integration, and production hardening.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.85.9 is the current release — the GO LIVE readiness release. It includes six critical POS Register hardening fixes (A–F): session token pre-check, server-side printer config persistence, offline queue recovery UI, receipt print failure retry queue, dynamic register lanes, and Helcim terminal auto-reconnect fallback. Builds on the v0.80.x deployment baseline with Daily Financial Reports, QBO Journal Lifecycle management, Constant Contact integration, and production hardening.
 
 Current Version: **v0.85.9** (See [CHANGELOG.md](CHANGELOG.md))
 
@@ -91,6 +91,9 @@ Riverside OS v0.80.0+ includes enterprise-grade production hardening features:
 - **Secure Headers**: Automatic security header injection
 
 **📖 Production Documentation**:
+- [v0.85.9 Release Notes](docs/releases/v0.85.9-release-notes.md) - Current go-live hardening scope, validation, and remaining gates
+- [v0.85.9 Certification Evidence](docs/releases/v0.85.9-certification.md) - Release artifact, CI, and local validation evidence
+- [Go/No-Go Checklist](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md) - Final production deployment checklist
 - [Production Hardening Guide](docs/PRODUCTION_HARDENING_GUIDE.md) - Complete production setup
 - [Redis Integration Guide](docs/REDIS_INTEGRATION_GUIDE.md) - Caching and distributed locking
 - [Job Queue Guide](docs/JOB_QUEUE_GUIDE.md) - Background job processing

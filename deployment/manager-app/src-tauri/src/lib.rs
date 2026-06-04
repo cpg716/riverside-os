@@ -5,6 +5,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
+mod app_updates;
+
 #[derive(Serialize, Deserialize, Clone)]
 struct LogMessage {
     level: String,
@@ -501,7 +503,10 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            app_updates::check_app_update,
+            app_updates::install_app_update,
             get_deployment_paths,
             read_deployment_config,
             write_deployment_config,

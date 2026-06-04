@@ -30,6 +30,7 @@ jobs:
       run:
         working-directory: client
     env:
+      RIVERSIDE_BUILD_SHA: ${{ github.sha }}
       RIVERSIDE_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
       RIVERSIDE_UPDATER_PUBLIC_KEY: ${{ vars.RIVERSIDE_UPDATER_PUBLIC_KEY }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -187,14 +188,16 @@ jobs:
             throw "release_tag must include the leading v, for example v0.50-GOLD"
           }
           $gitShort = $env:GITHUB_SHA.Substring(0, 8)
+          $updaterVersion = "$version+$gitShort"
           $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           $artifactName = [System.IO.Path]::GetFileName($artifactPath)
           $releaseAssetName = $artifactName -replace ' ', '.'
+          $releaseSignatureName = "$releaseAssetName.sig"
           $signature = (Get-Content $sig.FullName -Raw).Trim()
           $notes = if ([string]::IsNullOrWhiteSpace($env:RELEASE_NOTES)) { "Riverside POS update" } else { $env:RELEASE_NOTES }
 
           $manifest = @{
-            version = $version
+            version = $updaterVersion
             notes = $notes
             pub_date = $pubDate
             build_sha = $env:GITHUB_SHA
@@ -208,13 +211,15 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path updater-dist | Out-Null
           Copy-Item -Path $artifactPath -Destination "updater-dist/$releaseAssetName" -Force
-          Copy-Item -Path $sig.FullName -Destination "updater-dist/$($sig.Name)" -Force
+          Copy-Item -Path $sig.FullName -Destination "updater-dist/$releaseSignatureName" -Force
           Set-Content -Path "updater-dist/latest.json" -Value $manifest -NoNewline
           @{
             version = $version
+            updaterVersion = $updaterVersion
             sourceGitSha = $env:GITHUB_SHA
             sourceGitShort = $gitShort
             asset = $releaseAssetName
+            signatureAsset = $releaseSignatureName
             builtAt = $pubDate
           } | ConvertTo-Json -Depth 4 | Set-Content -Path "updater-dist/riverside-updater-build-manifest.json" -NoNewline
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
@@ -245,3 +250,9 @@ jobs:
             }
           }
           gh release upload $env:TAG updater-dist/* --clobber
+          node ..\scripts\verify-updater-release-assets.mjs `
+            --repo $env:GITHUB_REPOSITORY `
+            --tag $env:TAG `
+            --platform windows-x86_64 `
+            --manifest latest.json `
+            --build-manifest riverside-updater-build-manifest.json

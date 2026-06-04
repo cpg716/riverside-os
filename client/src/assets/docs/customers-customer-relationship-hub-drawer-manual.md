@@ -46,6 +46,12 @@ Each sub-section distinguishes:
 
 This applies to Transaction Records, fulfillment-order work, alterations, loyalty activity, messages, measurements, and timeline.
 
+## Linked profiles
+
+When two profiles are linked, use **Person view** to switch between each person. Profile details, measurements, Podium SMS, mailbox email, and contact preferences stay tied to the selected person. Transaction Records, purchase history, and loyalty are shared while the profiles remain linked.
+
+When linked profiles are split, the parent profile retains joined purchase history. The separated profile keeps its own contact details, measurements, messages, and a timeline note that points staff to the parent profile for pre-split purchase history.
+
 ## Working with degraded sections
 
 If one section is degraded, use the sections that are still loaded. Do not assume there are no orders, messages, measurements, or loyalty events when the section says it could not load.

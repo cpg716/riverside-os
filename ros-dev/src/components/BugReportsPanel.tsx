@@ -206,7 +206,7 @@ export default function BugReportsPanel() {
       setDetail(d);
       setDraftNotes(d.resolver_notes ?? "");
       setDraftUrl(d.external_url ?? "");
-    } catch (e) {
+    } catch {
       showToast("Could not load bug report details", "error");
     }
   }, [showToast]);
@@ -246,7 +246,7 @@ export default function BugReportsPanel() {
       }
       showToast(`Error marked ${next}`);
       void loadErrorEvents();
-    } catch (e) {
+    } catch {
       showToast("Error updating status", "error");
     }
   };
@@ -262,7 +262,7 @@ export default function BugReportsPanel() {
       setEventDetail((current) => (current?.id === id ? null : current));
       showToast("Error event deleted");
       void loadErrorEvents();
-    } catch (e) {
+    } catch {
       showToast("Error deleting", "error");
     }
   };

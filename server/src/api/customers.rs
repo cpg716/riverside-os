@@ -5559,6 +5559,7 @@ async fn build_customer_timeline(
                 )
                   AND o.booked_at >= crp.linked_at
                   AND (crp.unlinked_at IS NULL OR o.booked_at <= crp.unlinked_at)
+                  AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
             )
         )
         GROUP BY o.id, o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.booked_at
@@ -5585,6 +5586,7 @@ async fn build_customer_timeline(
                )
                  AND p.created_at >= crp.linked_at
                  AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
+                 AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
            )
         ORDER BY created_at DESC
         LIMIT 28
@@ -5619,6 +5621,7 @@ async fn build_customer_timeline(
                       )
                         AND l.created_at >= crp.linked_at
                         AND (crp.unlinked_at IS NULL OR l.created_at <= crp.unlinked_at)
+                        AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
                   )
               )
               AND (l.wedding_member_id IS NULL OR l.wedding_member_id = wm.id)
@@ -5647,6 +5650,7 @@ async fn build_customer_timeline(
                )
                  AND n.created_at >= crp.linked_at
                  AND (crp.unlinked_at IS NULL OR n.created_at <= crp.unlinked_at)
+                 AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
            )
         ORDER BY created_at DESC
         LIMIT 30
@@ -5671,6 +5675,7 @@ async fn build_customer_timeline(
                )
                  AND m.created_at >= crp.linked_at
                  AND (crp.unlinked_at IS NULL OR m.created_at <= crp.unlinked_at)
+                 AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
            )
         ORDER BY created_at DESC
         LIMIT 18
@@ -5701,6 +5706,7 @@ async fn build_customer_timeline(
                )
                  AND wa.starts_at >= crp.linked_at
                  AND (crp.unlinked_at IS NULL OR wa.starts_at <= crp.unlinked_at)
+                 AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
            )
         ORDER BY wa.starts_at DESC
         LIMIT 20
@@ -5732,6 +5738,7 @@ async fn build_customer_timeline(
                )
                  AND e.at >= crp.linked_at
                  AND (crp.unlinked_at IS NULL OR e.at <= crp.unlinked_at)
+                 AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
            )
         ORDER BY e.at DESC
         LIMIT 35
@@ -5779,6 +5786,7 @@ async fn build_customer_timeline(
                 )
                   AND v.created_at >= crp.linked_at
                   AND (crp.unlinked_at IS NULL OR v.created_at <= crp.unlinked_at)
+                  AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
             )
         )
         ORDER BY v.created_at DESC

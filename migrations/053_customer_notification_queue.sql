@@ -40,10 +40,12 @@ CREATE TABLE IF NOT EXISTS customer_notification_queue (
 );
 
 -- Indexes for efficient queries
-CREATE INDEX idx_notification_queue_status ON customer_notification_queue(status);
-CREATE INDEX idx_notification_queue_scheduled_for ON customer_notification_queue(scheduled_for) WHERE status = 'scheduled';
-CREATE INDEX idx_notification_queue_customer ON customer_notification_queue(customer_id);
-CREATE INDEX idx_notification_queue_entity ON customer_notification_queue(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_status ON customer_notification_queue(status);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_scheduled_for ON customer_notification_queue(scheduled_for) WHERE status = 'scheduled';
+CREATE INDEX IF NOT EXISTS idx_notification_queue_customer ON customer_notification_queue(customer_id);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_entity ON customer_notification_queue(entity_type, entity_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_queue_entity_kind_status_unique
+    ON customer_notification_queue(entity_type, entity_id, kind, status);
 
 -- Update timestamp trigger
 CREATE OR REPLACE FUNCTION update_notification_queue_updated_at()
@@ -53,6 +55,8 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_notification_queue_updated_at ON customer_notification_queue;
 
 CREATE TRIGGER trigger_update_notification_queue_updated_at
     BEFORE UPDATE ON customer_notification_queue

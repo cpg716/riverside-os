@@ -19,6 +19,40 @@ LLAMA_PORT="${RIVERSIDE_LLAMA_PORT:-8080}"
 LLAMA_URL="http://${LLAMA_HOST}:${LLAMA_PORT}"
 LLAMA_MODEL_PATH="${RIVERSIDE_LLAMA_MODEL_PATH:-$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf}"
 LLAMA_EXTRA_ARGS="${RIVERSIDE_LLAMA_EXTRA_ARGS:-}"
+DEFAULT_LLAMA_PERF_PROFILE="intel-i9-12900"
+if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+  DEFAULT_LLAMA_PERF_PROFILE="apple-m3-pro"
+fi
+LLAMA_PERF_PROFILE="${RIVERSIDE_LLAMA_PERF_PROFILE:-$DEFAULT_LLAMA_PERF_PROFILE}"
+if [[ "$LLAMA_PERF_PROFILE" == "auto" ]]; then
+  LLAMA_PERF_PROFILE="$DEFAULT_LLAMA_PERF_PROFILE"
+fi
+case "$LLAMA_PERF_PROFILE" in
+  intel-i9-12900|i9-12900|12900)
+    LLAMA_PERF_PROFILE="intel-i9-12900"
+    LLAMA_ENFORCED_ARGS=(--threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock)
+    ;;
+  minisforum-v3|amd-8840u|ryzen-8840u)
+    LLAMA_PERF_PROFILE="minisforum-v3"
+    LLAMA_ENFORCED_ARGS=(--threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock)
+    ;;
+  apple-m3-pro|m3-pro)
+    LLAMA_PERF_PROFILE="apple-m3-pro"
+    LLAMA_ENFORCED_ARGS=(--threads 6 --threads-batch 6 --gpu-layers 99 --flash-attn on --mmap)
+    ;;
+  apple-m3-pro-cpu|m3-pro-cpu)
+    LLAMA_PERF_PROFILE="apple-m3-pro-cpu"
+    LLAMA_ENFORCED_ARGS=(--threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap)
+    ;;
+  portable-cpu|cpu-portable)
+    LLAMA_PERF_PROFILE="portable-cpu"
+    LLAMA_ENFORCED_ARGS=(--threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap)
+    ;;
+  *)
+    echo "Unknown RIVERSIDE_LLAMA_PERF_PROFILE=${LLAMA_PERF_PROFILE}" >&2
+    exit 1
+    ;;
+esac
 
 ROSIE_SPEECH_PYTHON="${RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH:-$HOME/.local/share/uv/tools/sherpa-onnx/bin/python}"
 SENSEVOICE_MODEL_DIR="${RIVERSIDE_SENSEVOICE_MODEL_DIR:-$HOME/Library/Application Support/riverside-os/rosie/stt/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17}"
@@ -79,19 +113,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Starting local Gemma Host runtime..."
+echo "Starting local Gemma Host runtime (${LLAMA_PERF_PROFILE})..."
 LLAMA_CMD=(
   "$LLAMA_BIN"
   -m "$LLAMA_MODEL_PATH"
   --host "$LLAMA_HOST"
   --port "$LLAMA_PORT"
-  -ngl 99
 )
 if [[ -n "$LLAMA_EXTRA_ARGS" ]]; then
   # shellcheck disable=SC2206
   EXTRA_ARGS=( $LLAMA_EXTRA_ARGS )
   LLAMA_CMD+=("${EXTRA_ARGS[@]}")
 fi
+LLAMA_CMD+=("${LLAMA_ENFORCED_ARGS[@]}")
 "${LLAMA_CMD[@]}" >"$TMP_DIR/llama.stdout.log" 2>"$TMP_DIR/llama.stderr.log" &
 LLAMA_PID="$!"
 

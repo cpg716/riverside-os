@@ -19,10 +19,10 @@ Since v0.7.3, the bridge uses a high-concurrency parallel engine:
 | `ROS_BASE_URL` | Riverside API, e.g. `http://10.64.70.154:3000` |
 | `COUNTERPOINT_SYNC_TOKEN` | Must match `COUNTERPOINT_SYNC_TOKEN` on the ROS server |
 | `RUN_ONCE` | `1` = one full pass through all enabled entities for that launch, then stop. Use this for validation and final cutover runs. `0` = repeat every `POLL_INTERVAL_MS` + heartbeat and should usually be avoided for migration work. |
-| `SYNC_*` | `1` / `0` per entity (staff, vendors, customers, notes, catalog, inventory, gift cards, tickets) |
+| `SYNC_*` | `1` / `0` per entity (staff, vendors, customers, notes, catalog, inventory, gift cards, tickets, open docs, receiving history) |
 | `CP_*_QUERY` | SQL text; only change if your Counterpoint columns/tables differ |
 
-Run order is **fixed in code** each pass: **staff → (optional sales-rep stubs when `CP_SALES_REPS_QUERY` is empty) → vendors → customers → (optional store credit) → notes → catalog → inventory → vendor_items → gift_cards → tickets → (optional open docs) → loyalty**. Startup **fails** on bad flag combos unless **`SYNC_RELAXED_DEPENDENCIES=1`** (expert incremental refresh only).
+Run order is **fixed in code** each pass: **staff → (optional sales-rep stubs when `CP_SALES_REPS_QUERY` is empty) → vendors → customers → (optional store credit) → notes → catalog → inventory → vendor_items → gift_cards → tickets → (optional open docs) → receiving history**. Current loyalty balances are imported through customers as `pts_bal`; loyalty history stays disabled for go-live. Startup **fails** on bad flag combos unless **`SYNC_RELAXED_DEPENDENCIES=1`** (expert incremental refresh only).
 
 ## One-time migration posture
 
@@ -61,6 +61,10 @@ npm start
 The **Bridge Command Center** UI is available at `http://localhost:3002` during development. ROS reads the same local status feed for migration preflight and post-import proof.
 
 ## Windows folder (operators)
+
+Preferred go-live path: use the **Counterpoint Bridge GUI** installer from `deployment/counterpoint-bridge-gui/`. Packaged GUI releases include the bridge script, production dependencies, and a Node runtime, so operators do not need to install Node.js or run `npm install`.
+
+Manual zip fallback:
 
 1. From repo root: `./scripts/package-counterpoint-bridge.sh` → **`counterpoint-bridge-for-windows.zip`** (no `node_modules` inside; includes **`env.example`** as a Windows-friendly duplicate of **`.env.example`** plus **`PACKAGE_README.txt`**).
 2. Unzip on the Counterpoint PC, install [Node.js LTS](https://nodejs.org/), double-click **`START_BRIDGE.cmd`**.

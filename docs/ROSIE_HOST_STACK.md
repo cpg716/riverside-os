@@ -34,7 +34,7 @@ All runtime components are pre-compiled native binaries invoked directly by the 
 |---|---|---|
 | **STT** | `sherpa-onnx-offline.exe` | `Install-RosieAiStack.ps1` downloads sherpa-onnx v1.13.2 from GitHub Releases |
 | **TTS** | `sherpa-onnx-offline-tts.exe` | Same sherpa-onnx release package |
-| **LLM** | `llama-server.exe` | Bundled in deployment package or provided manually |
+| **LLM** | `llama-server.exe` | Bundled in deployment package or downloaded by `Install-RosieAiStack.ps1` from llama.cpp releases |
 
 **Binary path on Windows:** `C:\RiversideOS\rosie\bin\`
 
@@ -48,8 +48,9 @@ All runtime components are pre-compiled native binaries invoked directly by the 
 
 **Acquisition behaviour:** Binaries and models are **never committed to git**. The deployment ZIP may optionally pre-bundle them for air-gapped installs. If absent, `Install-RosieAiStack.ps1` downloads them automatically on first run. A failed Gemma GGUF download is a warning (not fatal) — STT/TTS remain functional.
 
-**Version pins** (update the `$SHERPA_VERSION` block at the top of `Install-RosieAiStack.ps1`):
+**Version pins** (update the version pin block at the top of `Install-RosieAiStack.ps1`):
 - sherpa-onnx: **v1.13.2** (Windows x64)
+- llama.cpp Host runtime: **b9512** (`llama-b9512-bin-win-cpu-x64.zip`, SHA256-pinned)
 - STT model: `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`
 - TTS model: `kokoro-multi-lang-v1_0`
 - LLM: `bartowski/google_gemma-4-E4B-it-Q4_K_M.gguf` (SHA256-pinned)
@@ -144,7 +145,16 @@ ROSIE token telemetry tracks AI token usage for cost analysis when evaluating lo
 ### Insight summaries
 - Shared ROSIE insight summaries use the OpenAI-compatible `llama-server` endpoint configured by `RIVERSIDE_LLAMA_UPSTREAM`.
 - Gemma 4 E4B can spend the response budget in `reasoning_content` and return empty `message.content`; ROSIE insight summaries require usable `message.content`, and the UI shows a visible unavailable note when the summary cannot be produced.
-- Start the local Gemma Host for insight work with reasoning disabled:
+- Start the local Gemma Host for insight work with reasoning disabled. ROS launchers enforce the selected CPU/GPU performance profile separately.
+
+| `RIVERSIDE_LLAMA_PERF_PROFILE` | Intended host | Enforced llama.cpp launch posture |
+|---|---|---|
+| `auto` | Installer default | Windows auto-detects i9-12900 vs Ryzen 8840U; Apple Silicon defaults to `apple-m3-pro`; unknown hosts use `portable-cpu`. |
+| `intel-i9-12900` | Main Hub i9-12900 | `--threads 8`, `--threads-batch 8`, strict `0xFFFF` P-core logical mask, `--gpu-layers 0`, `--device none`, `--flash-attn on`, `--mmap`, `--mlock`. |
+| `minisforum-v3` | Minisforum V3 / Ryzen 7 8840U / 32GB | `--threads 8`, `--threads-batch 8`, strict `0xFFFF` CPU mask, `--gpu-layers 0`, `--device none`, `--flash-attn on`, `--mmap`, `--mlock`. |
+| `apple-m3-pro` | MacBook Pro M3 Pro / 18GB | `--threads 6`, `--threads-batch 6`, `--gpu-layers 99` for Metal-capable test speed, `--flash-attn on`, `--mmap`. |
+| `apple-m3-pro-cpu` | MacBook Pro M3 Pro CPU-parity testing | `--threads 6`, `--threads-batch 6`, `--gpu-layers 0`, `--device none`, `--flash-attn on`, `--mmap`. |
+| `portable-cpu` | Unknown laptops/test hosts | Conservative CPU-only profile: 6 threads, GPU offload disabled, Flash Attention and mmap enabled. |
 
 ```bash
 RIVERSIDE_LLAMA_EXTRA_ARGS="--reasoning off" npm run dev:server

@@ -25,6 +25,13 @@ concurrency:
 jobs:
   build-macos:
     runs-on: macos-latest
+    env:
+      RIVERSIDE_BUILD_SHA: ${{ github.sha }}
+      RIVERSIDE_ROS_DEV_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest-ros-dev-center-macos.json
+      RIVERSIDE_UPDATER_PUBLIC_KEY: ${{ vars.RIVERSIDE_UPDATER_PUBLIC_KEY }}
+      RIVERSIDE_UPDATER_BASE_URL: https://github.com/${{ github.repository }}/releases/latest/download
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
 
@@ -62,9 +69,33 @@ jobs:
 
       - name: Build ROS Dev Center (macOS universal)
         working-directory: ros-dev
-        run: npm run tauri build -- --target universal-apple-darwin
+        shell: bash
         env:
           CI: true
+        run: |
+          if [ -z "${RIVERSIDE_ROS_DEV_UPDATER_ENDPOINT}" ]; then
+            echo "RIVERSIDE_ROS_DEV_UPDATER_ENDPOINT is required" >&2
+            exit 1
+          fi
+          if [ -z "${RIVERSIDE_UPDATER_PUBLIC_KEY}" ]; then
+            echo "RIVERSIDE_UPDATER_PUBLIC_KEY is required" >&2
+            exit 1
+          fi
+          cat > src-tauri/tauri.updater.conf.json <<EOF
+          {
+            "bundle": {
+              "createUpdaterArtifacts": true
+            },
+            "plugins": {
+              "updater": {
+                "active": true,
+                "endpoints": ["${RIVERSIDE_ROS_DEV_UPDATER_ENDPOINT}"],
+                "pubkey": "${RIVERSIDE_UPDATER_PUBLIC_KEY}"
+              }
+            }
+          }
+          EOF
+          npm run tauri build -- --target universal-apple-darwin --config src-tauri/tauri.updater.conf.json
 
       - name: Prepare release metadata
         id: meta
@@ -87,6 +118,14 @@ jobs:
         run: |
           tag="${{ steps.meta.outputs.tag }}"
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "$tag" --notes "${{ steps.meta.outputs.notes }}"
+          pwsh ./scripts/prepare-tauri-updater-dist.ps1 \
+            -PackageJsonPath "./ros-dev/package.json" \
+            -TargetRoot "./target/universal-apple-darwin" \
+            -OutputDir "./ros-dev/updater-dist" \
+            -ManifestName "latest-ros-dev-center-macos.json" \
+            -BuildManifestName "ros-dev-center-updater-build-manifest.json" \
+            -BaseUrl "$RIVERSIDE_UPDATER_BASE_URL" \
+            -Notes "ROS Dev Center macOS update"
           dmg=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg 2>/dev/null | head -1)
           app=$(ls target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz 2>/dev/null | head -1)
           if [ -n "$dmg" ]; then
@@ -97,3 +136,9 @@ jobs:
             echo "Uploading App: $app"
             gh release upload "$tag" "$app" --clobber
           fi
+          gh release upload "$tag" ros-dev/updater-dist/* --clobber
+          node scripts/verify-updater-release-assets.mjs \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$tag" \
+            --manifest latest-ros-dev-center-macos.json \
+            --build-manifest ros-dev-center-updater-build-manifest.json

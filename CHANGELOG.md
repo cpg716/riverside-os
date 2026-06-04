@@ -9,13 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **ROSIE AI Stack Automatic Updates**: Hardened the ROSIE AI installer script (`Install-RosieAiStack.ps1`) to track current component versions using version-specific state marker files (`sherpa_version.txt`, `stt_version.txt`, `tts_version.txt`). Component upgrades are automatically triggered and downloaded when script version pins or model repositories are updated.
+- **Standalone App Self-Updaters**: Added shared Tauri updater plumbing for standalone support tools, including Deployment Manager, ROS Server Manager, Counterpoint Bridge GUI, and ROS Dev Center, with release manifest verification for same-version rebuild detection.
+- **Orders Lifecycle Workbench Filters**: Added explicit Orders views for Open Orders, All Records, Closed, and Cancelled plus lifecycle filtering for NTBO, Ordered, Received, Needs Ready Check, Ready for Pickup, and Picked Up.
+- **Ready-for-Pickup Staff Queue**: Added a dedicated Orders metric for received items that still need staff ready-check review before customer pickup notifications and release.
 
 ### Fixed
 - **Windows Deployment Connection Probes**: Wrapped native database connection query tests with temporary `$ErrorActionPreference = "SilentlyContinue"` blocks in `install-server.ps1`, `reset-riverside-database.ps1`, `reset-postgres-password.ps1`, and `audit-system.ps1` to prevent terminating `NativeCommandError` exceptions when connection checks fail.
+- **Counterpoint Bridge GUI Self-Containment**: Release builds now run from packaged bridge resources and a bundled Node runtime instead of invoking `npm install` or relying on system `node` at customer install time.
+- **Counterpoint Historical Provenance in Orders**: New ROS-origin orders no longer display `CP Open Doc`/Counterpoint historical badges unless the transaction is marked as a Counterpoint import and has Counterpoint document or ticket references.
+- **Customer Join/Split Data Separation**: Joined customer accounts now preserve per-person profile views for communications and CRM data, while split accounts keep post-split independence and parent-history guidance for pre-split purchases.
 
 ### Changed
 - **Maintenance & Repair Layout Redesign**: Redesigned the vertically scrolling sidebar list in the Deployment Manager GUI to feature a horizontal sub-tab category menu (`Status & Control`, `Updates & Setup`, `Database Admin`, `Utility Scripts`, `Danger Zone`) and an expanded full-width log output console at the bottom with a larger adjustable height view.
 - **Main Hub Nomenclature Alignment**: Updated and aligned user-facing labels, logs, descriptions, and action triggers from "Server PC" to **"Main Hub"** for architectural nomenclature consistency.
+- **Role-Aware In-App Updates**: Update Manager copy and flow now distinguishes Main Hub, Register, and Back Office expectations, including Main Hub server/ROSIE responsibilities and workstation version gates.
+- **ROSIE Local LLM Profiles**: Local llama.cpp startup now supports explicit host profiles for Intel i9-12900, Minisforum V3, Apple M3 Pro, Apple M3 Pro CPU-parity, and portable CPU hosts. The Intel i9-12900 profile pins compute and batch threads to 8, disables GPU offload, enables mmap/mlock where supported, and applies P-core affinity on Windows.
+- **Release Asset Verification**: Release packaging now verifies updater manifests, build metadata, signatures, build SHA values, and referenced artifacts for POS and standalone app updater channels.
 
 ## [0.85.5] - 2026-06-03
 

@@ -4,13 +4,15 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=../migrations");
+    println!("cargo:rerun-if-env-changed=RIVERSIDE_BUILD_SHA");
     println!("cargo:rerun-if-env-changed=GITHUB_SHA");
 
     // Inject git SHA so update_check.rs can detect same-version rebuilds.
-    // CI sets GITHUB_SHA; local builds fall back to `git rev-parse HEAD`; then "dev".
-    let sha = std::env::var("GITHUB_SHA")
+    // CI sets RIVERSIDE_BUILD_SHA/GITHUB_SHA; local builds fall back to `git rev-parse HEAD`; then "dev".
+    let sha = std::env::var("RIVERSIDE_BUILD_SHA")
         .ok()
         .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("GITHUB_SHA").ok().filter(|s| !s.is_empty()))
         .or_else(|| {
             Command::new("git")
                 .args(["rev-parse", "HEAD"])

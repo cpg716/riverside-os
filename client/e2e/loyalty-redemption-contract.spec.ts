@@ -455,17 +455,17 @@ test.describe("Loyalty redemption contract", () => {
     const partnerAfterUnlink = await fetchCustomerTimeline(request, partner.customer.id);
     expect(primaryAfterUnlink.some((event) =>
       event.kind === "note" &&
-      event.summary.includes("Unlinked profile from") &&
+      event.summary.includes("Split linked profile from") &&
       event.summary.includes(partner.customer.customer_code),
     )).toBe(true);
     expect(partnerAfterUnlink.some((event) =>
       event.kind === "note" &&
-      event.summary.includes("Unlinked profile from") &&
+      event.summary.includes("Split from") &&
       event.summary.includes(primary.customer.customer_code),
     )).toBe(true);
   });
 
-  test("unlinked profiles keep only transactions from the linked period shared", async ({
+  test("split profiles keep joined-period history only on the parent", async ({
     request,
   }) => {
     const primary = await seedRmsFixture(request, "single_valid", "History Period Primary");
@@ -480,16 +480,30 @@ test.describe("Loyalty redemption contract", () => {
       request,
       primary.customer.id,
     );
+    const partnerHistory = await fetchCustomerTransactionHistory(
+      request,
+      partner.customer.id,
+    );
     const primaryIds = primaryHistory.map((row) => row.transaction_id);
+    const partnerIds = partnerHistory.map((row) => row.transaction_id);
     expect(primaryIds).toContain(duringLinkedSale.transaction_id);
     expect(primaryIds).not.toContain(afterUnlinkSale.transaction_id);
+    expect(partnerIds).not.toContain(duringLinkedSale.transaction_id);
+    expect(partnerIds).toContain(afterUnlinkSale.transaction_id);
 
     const primaryTimeline = await fetchCustomerTimeline(request, primary.customer.id);
+    const partnerTimeline = await fetchCustomerTimeline(request, partner.customer.id);
     expect(primaryTimeline.some((event) =>
       event.summary.includes(duringLinkedSale.transaction_display_id),
     )).toBe(true);
     expect(primaryTimeline.some((event) =>
       event.summary.includes(afterUnlinkSale.transaction_display_id),
     )).toBe(false);
+    expect(partnerTimeline.some((event) =>
+      event.summary.includes(duringLinkedSale.transaction_display_id),
+    )).toBe(false);
+    expect(partnerTimeline.some((event) =>
+      event.summary.includes("View pre-split purchase history"),
+    )).toBe(true);
   });
 });

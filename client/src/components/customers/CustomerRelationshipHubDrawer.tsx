@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { useToast } from "../ui/ToastProviderLogic";
+import ConfirmationModal from "../ui/ConfirmationModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
@@ -682,6 +683,7 @@ export function CustomerRelationshipHubDrawer({
   const [smsReplyBusy, setSmsReplyBusy] = useState(false);
   const appliedInitialHubTab = useRef<string | null>(null);
   const [coupleLinkingBusy, setCoupleLinkingBusy] = useState(false);
+  const [unlinkConfirmOpen, setUnlinkConfirmOpen] = useState(false);
   /** When true, shows the couple partner selection popover/modal. */
   const [showCouplePicker, setShowCouplePicker] = useState(false);
   const [showCreatePartner, setShowCreatePartner] = useState(false);
@@ -1833,12 +1835,6 @@ export function CustomerRelationshipHubDrawer({
 
   const unlinkCouple = async () => {
     if (!hasPermission("customers.couple_manage")) return;
-    if (
-      !confirm(
-        "Unlink these accounts? Sales history will remain with the primary account.",
-      )
-    )
-      return;
     setCoupleLinkingBusy(true);
     try {
       const res = await fetch(
@@ -1854,6 +1850,7 @@ export function CustomerRelationshipHubDrawer({
         return;
       }
       toast("Accounts unlinked", "success");
+      setUnlinkConfirmOpen(false);
       await loadHub();
     } catch {
       toast("Error unlinking accounts", "error");
@@ -2049,12 +2046,34 @@ export function CustomerRelationshipHubDrawer({
     ? `${hub.partner.first_name} ${hub.partner.last_name}`.trim() ||
       hub.partner.customer_code
     : "";
+  const currentProfileName = hub
+    ? `${hub.first_name} ${hub.last_name}`.trim() || hub.customer_code
+    : "";
   const currentProfileRole =
     hub && hub.couple_id
       ? hub.id === hub.couple_primary_id
         ? "Parent profile"
         : "Linked profile"
       : null;
+  const switchLinkedProfile = () => {
+    if (!hub?.partner) return;
+    const p = hub.partner;
+    const mockPartner: Customer = {
+      id: p.id,
+      first_name: p.first_name,
+      last_name: p.last_name,
+      email: p.email,
+      phone: p.phone,
+      customer_code: p.customer_code,
+      couple_id: p.couple_id,
+      wedding_active: false,
+    };
+    if (onSwitchCustomer) {
+      onSwitchCustomer(mockPartner);
+    } else {
+      toast("Open this linked profile from the Customers list.", "info");
+    }
+  };
 
   if (!open) return null;
 
@@ -3058,72 +3077,56 @@ export function CustomerRelationshipHubDrawer({
                         coupleLinkingBusy ||
                         !hasPermission("customers.couple_manage")
                       }
-                      onClick={unlinkCouple}
+                      onClick={() => setUnlinkConfirmOpen(true)}
                       className="text-[10px] font-bold text-app-error hover:underline disabled:opacity-50"
                     >
                       Unlink accounts
                     </button>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 flex items-center justify-center rounded-full bg-app-accent/20 text-app-accent font-black">
-                      <Heart size={20} fill="currentColor" />
-                    </div>
-                    <div className="min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!hub.partner) return;
-                          const p = hub.partner!;
-                          const mockPartner: Customer = {
-                            id: p.id,
-                            first_name: p.first_name,
-                            last_name: p.last_name,
-                            email: p.email,
-                            phone: p.phone,
-                            customer_code: p.customer_code,
-                            couple_id: p.couple_id,
-                            wedding_active: false,
-                          };
-                          if (onSwitchCustomer) {
-                            onSwitchCustomer(mockPartner);
-                          } else {
-                            toast(
-                              "Open this linked profile from the Customers list.",
-                              "info",
-                            );
-                          }
-                        }}
-                        className="font-bold text-app-text hover:underline text-left block"
-                      >
-                        Open {linkedPartnerName}
-                      </button>
-                      <p className="text-xs text-app-text-muted">
-                        {currentProfileRole}. Parent profile keeps loyalty
-                        points and store credit.
-                      </p>
-                      {hub.partner?.customer_code ? (
-                        <p className="mt-1 font-mono text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          Linked with {hub.partner.customer_code}
-                        </p>
-                      ) : null}
-                    </div>
-                    {currentProfileRole ? (
-                      <div className="ml-auto flex flex-col items-end gap-1">
-                        <span className="px-2 py-0.5 rounded-full bg-app-surface-active text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          {currentProfileRole}
-                        </span>
-                        <div className="group relative">
-                          <span className="cursor-help underline decoration-dotted text-app-text-muted text-[10px]">
-                            What is this?
-                          </span>
-                          <div className="absolute right-0 bottom-full mb-2 w-48 scale-0 group-hover:scale-100 origin-bottom-right transition-transform bg-app-surface border border-app-border p-3 text-xs text-app-text shadow-xl rounded-xl z-50">
-                            The parent profile keeps loyalty points and store
-                            credit. Linked profiles remain openable from either
-                            side.
-                          </div>
-                        </div>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-app-accent/20 font-black text-app-accent">
+                        <Heart size={20} fill="currentColor" />
                       </div>
-                    ) : null}
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-app-text">
+                          {currentProfileName} + {linkedPartnerName}
+                        </p>
+                        <p className="text-xs text-app-text-muted">
+                          {currentProfileRole}. History and loyalty are shared while linked;
+                          profile, measurements, SMS, and email stay person-specific.
+                        </p>
+                        {hub.partner?.customer_code ? (
+                          <p className="mt-1 font-mono text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            Linked with {hub.partner.customer_code}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="lg:ml-auto lg:min-w-[18rem]">
+                      <div className="mb-1 text-[9px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                        Person view
+                      </div>
+                      <div className="grid grid-cols-2 rounded-2xl border border-app-border bg-app-surface p-1">
+                        <button
+                          type="button"
+                          aria-pressed="true"
+                          className="rounded-xl bg-app-accent px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white"
+                        >
+                          {currentProfileName}
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={linkedPartnerName ? `Open ${linkedPartnerName}` : "Open linked profile"}
+                          aria-pressed="false"
+                          onClick={switchLinkedProfile}
+                          disabled={!hub.partner}
+                          className="rounded-xl px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface-2 hover:text-app-text disabled:opacity-50"
+                        >
+                          {linkedPartnerName || "Linked profile"}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </section>
               ) : (
@@ -3304,7 +3307,8 @@ export function CustomerRelationshipHubDrawer({
                       Communication timeline
                     </h3>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      Podium SMS, mailbox email, receipt follow-up, and review invite activity.
+                      Podium SMS, mailbox email, receipt follow-up, and review
+                      invite activity for {currentProfileName}.
                     </p>
                   </div>
                   <button
@@ -3319,7 +3323,7 @@ export function CustomerRelationshipHubDrawer({
                   <p className="text-xs text-app-text-muted">Loading communication history...</p>
                 ) : communicationTimeline.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-app-border bg-app-surface-2/50 px-4 py-5 text-center text-xs font-semibold text-app-text-muted">
-                    No communication activity has been recorded for this customer yet.
+                    No communication activity has been recorded for {currentProfileName} yet.
                   </p>
                 ) : (
                   <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
@@ -3361,7 +3365,7 @@ export function CustomerRelationshipHubDrawer({
                       Customer messages
                     </h3>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      SMS, automated notices, and email history for this customer.
+                      SMS, automated notices, and email history for {currentProfileName}.
                     </p>
                   </div>
                   <button
@@ -4466,6 +4470,19 @@ export function CustomerRelationshipHubDrawer({
           )}
         </div>
       )}
+      <ConfirmationModal
+        isOpen={unlinkConfirmOpen}
+        onClose={() => {
+          if (coupleLinkingBusy) return;
+          setUnlinkConfirmOpen(false);
+        }}
+        onConfirm={() => void unlinkCouple()}
+        title="Split linked profiles"
+        message={`Split ${currentProfileName} and ${linkedPartnerName || "the linked profile"} into independent customer accounts. The parent profile retains joined purchase history and loyalty. The separated profile keeps its own contact, measurements, messages, and a timeline note pointing staff to the parent profile for pre-split history.`}
+        confirmLabel="Split profiles"
+        variant="danger"
+        loading={coupleLinkingBusy}
+      />
       <TransactionDetailDrawer
         orderId={selectedTransactionId}
         isOpen={selectedTransactionId !== null}

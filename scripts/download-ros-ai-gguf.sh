@@ -62,4 +62,4 @@ if [[ "$GOT" != "$EXPECT_SHA" ]]; then
 fi
 
 echo "OK — $DEST matches MODEL_PIN.json"
-echo "Start llama-server with:  -m \"$DEST\""
+echo "Start llama-server with: -m \"$DEST\" --threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock"

@@ -1,7 +1,22 @@
-# Tauri + React + Typescript
+# Riverside Countersync Bridge GUI
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Tauri desktop control panel for the Counterpoint SQL → Riverside OS migration bridge.
 
-## Recommended IDE Setup
+## Runtime behavior
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- The packaged bridge files are copied into the app data directory on first launch.
+- Packaged Windows releases include a Node runtime and production bridge dependencies, so operators do not need to install Node.js or run `npm install`.
+- The operator `.env` file and cursor state live in that writable app data bridge folder.
+- App updates refresh bundled bridge files when packaged files or dependency manifests change, while preserving `.env`.
+- Development builds may still use the system `node`/`npm` fallback when bundled runtime resources are not present.
+- The GUI does not auto-start the bridge until SQL connection, Main Hub URL, and sync token are configured.
+
+## Operator flow
+
+1. Open the GUI on the Counterpoint host or a machine with SQL Server access.
+2. Enter the Counterpoint SQL connection string, Riverside OS Main Hub URL, and `COUNTERPOINT_SYNC_TOKEN`.
+3. Save configuration.
+4. Start with Dry Run enabled and review the Process Console.
+5. Open Riverside OS Sync Workflow from the sidebar and verify landing checks before final cutover.
+
+Loyalty is snapshot-only for go-live: current balances come through the customer import as `pts_bal`; ROS manages points after cutover.

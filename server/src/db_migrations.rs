@@ -68,21 +68,7 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
 
         let mut tx = pool.begin().await?;
 
-        // Split multi-statement SQL and execute each individually.
-        // PostgreSQL rejects multiple commands in a single prepared statement,
-        // so we split on semicolons and execute each non-empty, non-comment chunk.
-        // This is Send-safe (unlike sqlx::raw_sql()) and works across tokio::spawn.
-        let statements: Vec<&str> = clean_sql
-            .split(';')
-            .map(|s| s.trim())
-            .filter(|s| {
-                !s.is_empty()
-                    && s.lines().any(|line| {
-                        let t = line.trim();
-                        !t.is_empty() && !t.starts_with("--")
-                    })
-            })
-            .collect();
+        let statements = split_postgres_statements(&clean_sql);
 
         for stmt in &statements {
             if let Err(e) = sqlx::query(stmt).execute(&mut *tx).await {
@@ -120,4 +106,191 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
 
     tracing::info!("Unified Engine: All migrations checked and verified.");
     Ok(())
+}
+
+fn split_postgres_statements(sql: &str) -> Vec<&str> {
+    #[derive(Debug)]
+    enum State {
+        Normal,
+        SingleQuote,
+        DoubleQuote,
+        LineComment,
+        BlockComment(usize),
+        DollarQuote(String),
+    }
+
+    fn dollar_quote_delimiter_at(sql: &str, index: usize) -> Option<String> {
+        let rest = sql.get(index..)?;
+        if !rest.starts_with('$') {
+            return None;
+        }
+
+        let closing = rest.get(1..)?.find('$')? + 1;
+        let tag = rest.get(1..closing)?;
+        if tag
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        {
+            Some(rest.get(..=closing)?.to_string())
+        } else {
+            None
+        }
+    }
+
+    fn has_executable_sql(statement: &str) -> bool {
+        statement.lines().any(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && !trimmed.starts_with("--") && !trimmed.starts_with("/*")
+        })
+    }
+
+    let mut statements = Vec::new();
+    let mut statement_start = 0;
+    let mut index = 0;
+    let mut state = State::Normal;
+
+    while index < sql.len() {
+        let current = &sql[index..];
+        let ch = current
+            .chars()
+            .next()
+            .expect("index is always on a valid char boundary");
+
+        match &mut state {
+            State::Normal => {
+                if current.starts_with("--") {
+                    state = State::LineComment;
+                    index += 2;
+                    continue;
+                }
+                if current.starts_with("/*") {
+                    state = State::BlockComment(1);
+                    index += 2;
+                    continue;
+                }
+                if ch == '\'' {
+                    state = State::SingleQuote;
+                    index += ch.len_utf8();
+                    continue;
+                }
+                if ch == '"' {
+                    state = State::DoubleQuote;
+                    index += ch.len_utf8();
+                    continue;
+                }
+                if ch == '$' {
+                    if let Some(delimiter) = dollar_quote_delimiter_at(sql, index) {
+                        index += delimiter.len();
+                        state = State::DollarQuote(delimiter);
+                        continue;
+                    }
+                }
+                if ch == ';' {
+                    let statement = sql[statement_start..index].trim();
+                    if has_executable_sql(statement) {
+                        statements.push(statement);
+                    }
+                    statement_start = index + ch.len_utf8();
+                }
+            }
+            State::SingleQuote => {
+                if ch == '\'' {
+                    if current.get(1..).is_some_and(|rest| rest.starts_with('\'')) {
+                        index += 2;
+                        continue;
+                    }
+                    state = State::Normal;
+                }
+            }
+            State::DoubleQuote => {
+                if ch == '"' {
+                    if current.get(1..).is_some_and(|rest| rest.starts_with('"')) {
+                        index += 2;
+                        continue;
+                    }
+                    state = State::Normal;
+                }
+            }
+            State::LineComment => {
+                if ch == '\n' {
+                    state = State::Normal;
+                }
+            }
+            State::BlockComment(depth) => {
+                if current.starts_with("/*") {
+                    *depth += 1;
+                    index += 2;
+                    continue;
+                }
+                if current.starts_with("*/") {
+                    *depth -= 1;
+                    index += 2;
+                    if *depth == 0 {
+                        state = State::Normal;
+                    }
+                    continue;
+                }
+            }
+            State::DollarQuote(delimiter) => {
+                if current.starts_with(delimiter.as_str()) {
+                    index += delimiter.len();
+                    state = State::Normal;
+                    continue;
+                }
+            }
+        }
+
+        index += ch.len_utf8();
+    }
+
+    let statement = sql[statement_start..].trim();
+    if has_executable_sql(statement) {
+        statements.push(statement);
+    }
+
+    statements
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_postgres_statements;
+
+    #[test]
+    fn split_postgres_statements_preserves_plpgsql_body() {
+        let sql = r#"
+            CREATE OR REPLACE FUNCTION update_timestamp()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                NEW.updated_at = NOW();
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql;
+
+            CREATE TABLE IF NOT EXISTS after_function (id uuid);
+        "#;
+
+        let statements = split_postgres_statements(sql);
+
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("NEW.updated_at = NOW();"));
+        assert!(statements[0].contains("$$ LANGUAGE plpgsql"));
+        assert!(statements[1].contains("CREATE TABLE IF NOT EXISTS after_function"));
+    }
+
+    #[test]
+    fn split_postgres_statements_ignores_semicolons_in_literals_and_comments() {
+        let sql = r#"
+            -- comment with ; semicolon
+            CREATE TABLE "semi;table" (note text DEFAULT 'value;still literal');
+            /* block ; comment */
+            SELECT $tag$body;still body$tag$;
+        "#;
+
+        let statements = split_postgres_statements(sql);
+
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("\"semi;table\""));
+        assert!(statements[0].contains("'value;still literal'"));
+        assert!(statements[1].contains("$tag$body;still body$tag$"));
+    }
 }

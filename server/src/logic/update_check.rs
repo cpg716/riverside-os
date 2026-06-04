@@ -85,10 +85,30 @@ fn strip_v(s: &str) -> &str {
     s.strip_prefix('v').unwrap_or(s)
 }
 
+fn version_core(s: &str) -> String {
+    strip_v(s)
+        .split('+')
+        .next()
+        .unwrap_or(strip_v(s))
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::version_core;
+
+    #[test]
+    fn version_core_strips_tag_prefix_and_build_metadata() {
+        assert_eq!(version_core("v0.85.9+abcdef12"), "0.85.9");
+        assert_eq!(version_core("0.85.9+abcdef12"), "0.85.9");
+        assert_eq!(version_core("0.85.9"), "0.85.9");
+    }
+}
+
 /// Fetch the published `latest.json` updater manifest and compare both the
 /// semver version AND the build SHA to the running server.
 ///
-/// `update_available` is true when the version is strictly newer.
+/// `update_available` is true when the release version changes.
 /// `rebuild_available` is true when the version matches but the build SHA differs
 /// (i.e. the same release tag was re-published with a new build).
 pub async fn check_for_update(client: &reqwest::Client) -> Result<UpdateCheckResult, String> {
@@ -112,11 +132,11 @@ pub async fn check_for_update(client: &reqwest::Client) -> Result<UpdateCheckRes
         .await
         .map_err(|e| format!("Failed to parse latest.json: {e}"))?;
 
-    let latest_ver = strip_v(&manifest.version).to_string();
-    let current_ver = strip_v(&current).to_string();
+    let latest_ver = version_core(&manifest.version);
+    let current_ver = version_core(&current);
 
-    let version_newer = latest_ver != current_ver;
-    let rebuild_available = !version_newer
+    let version_changed = latest_ver != current_ver;
+    let rebuild_available = !version_changed
         && manifest
             .build_sha
             .as_deref()
@@ -128,7 +148,7 @@ pub async fn check_for_update(client: &reqwest::Client) -> Result<UpdateCheckRes
             })
             .unwrap_or(false);
 
-    let update_available = version_newer || rebuild_available;
+    let update_available = version_changed || rebuild_available;
 
     let (safe_window, safe_window_hint) = is_safe_update_window();
 

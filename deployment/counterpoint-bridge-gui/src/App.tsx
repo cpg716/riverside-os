@@ -19,6 +19,12 @@ import {
 const BRIDGE_API = "http://localhost:3002";
 const ROS_BASE_URL = "http://localhost:3000";
 
+interface BridgeSettings {
+  sql_conn: string;
+  ros_url: string;
+  sync_token: string;
+}
+
 interface EntityStat {
   lastSync: string | null;
   durationMs: number;
@@ -39,6 +45,26 @@ interface BridgeState {
   runOnce: boolean;
 }
 
+interface UpdateCheckResult {
+  enabled: boolean;
+  available: boolean;
+  version: string | null;
+  date: string | null;
+  notes: string | null;
+  message: string | null;
+  current_build: string | null;
+  available_build: string | null;
+}
+
+interface InstallUpdateResult {
+  enabled: boolean;
+  installed: boolean;
+  version: string | null;
+  message: string | null;
+  current_build: string | null;
+  installed_build: string | null;
+}
+
 const ENTITIES = [
   { key: "staff", label: "Staff", icon: "👤" },
   { key: "sales_rep_stubs", label: "Sales Reps", icon: "🏷️" },
@@ -53,7 +79,6 @@ const ENTITIES = [
   { key: "gift_cards", label: "Gift Cards", icon: "🎁" },
   { key: "tickets", label: "Orders/Tickets", icon: "🧾" },
   { key: "open_docs", label: "Open Documents", icon: "📄" },
-  { key: "loyalty_hist", label: "Loyalty History", icon: "⭐" },
   { key: "receiving_history", label: "Receiving", icon: "📥" },
 ];
 
@@ -74,6 +99,8 @@ function App() {
   const [testingQuery, setTestingQuery] = useState(false);
 
   const [rustLogs, setRustLogs] = useState<string[]>([]);
+  const [selfUpdateCheck, setSelfUpdateCheck] = useState<UpdateCheckResult | null>(null);
+  const [selfUpdateBusy, setSelfUpdateBusy] = useState(false);
 
   // Settings fields
   const [sqlConn, setSqlConn] = useState("");
@@ -82,19 +109,42 @@ function App() {
 
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
-  const loadEnvSettings = async () => {
+  const hasRequiredBridgeSettings = useCallback((settings: BridgeSettings) => {
+    const token = settings.sync_token.trim();
+    return (
+      settings.sql_conn.trim().length > 0 &&
+      settings.ros_url.trim().length > 0 &&
+      token.length > 0 &&
+      token !== "change-me-long-random"
+    );
+  }, []);
+
+  const normalizedRosUrl = useMemo(() => {
+    const value = rosUrl.trim() || ROS_BASE_URL;
+    return value.replace(/\/+$/, "");
+  }, [rosUrl]);
+
+  const loadEnvSettings = useCallback(async (): Promise<BridgeSettings | null> => {
     try {
-      const data = await invoke<{ sql_conn: string; ros_url: string; sync_token: string }>("load_settings");
+      const data = await invoke<BridgeSettings>("load_settings");
       setSqlConn(data.sql_conn);
       setRosUrl(data.ros_url);
       setSyncToken(data.sync_token);
+      return data;
     } catch (e: any) {
       console.error("Failed to load settings:", e);
+      setStatusMessage(`Failed to load bridge settings: ${e}`);
+      return null;
     }
-  };
+  }, []);
 
   const handleSaveSettings = async () => {
     try {
+      const nextSettings = { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken };
+      if (!hasRequiredBridgeSettings(nextSettings)) {
+        setStatusMessage("Enter SQL connection, Main Hub URL, and real sync token before starting the bridge.");
+        return;
+      }
       setStatusMessage("Saving configuration to .env...");
       const result = await invoke<string>("save_settings", {
         sqlConn,
@@ -103,7 +153,7 @@ function App() {
       });
       setStatusMessage(result);
       // Restart the bridge to pick up new config
-      await handleStartBridge();
+      await handleStartBridge(dryRun, nextSettings);
     } catch (e: any) {
       setStatusMessage(`Failed to save settings: ${e}`);
     }
@@ -111,12 +161,21 @@ function App() {
 
   // Start the background Node bridge on mount
   useEffect(() => {
-    loadEnvSettings();
-    handleStartBridge();
+    let mounted = true;
+    void (async () => {
+      const settings = await loadEnvSettings();
+      if (!mounted) return;
+      if (settings && hasRequiredBridgeSettings(settings)) {
+        await handleStartBridge(dryRun, settings);
+      } else {
+        setStatusMessage("Bridge configuration is incomplete. Enter the SQL connection, Main Hub URL, and sync token, then Save Configuration.");
+      }
+    })();
     return () => {
+      mounted = false;
       handleStopBridge();
     };
-  }, []);
+  }, [hasRequiredBridgeSettings, loadEnvSettings]);
 
   // Poll local bridge server status and Tauri process state (optimized with longer interval)
   useEffect(() => {
@@ -186,8 +245,14 @@ function App() {
     }
   }, [bridgeState?.logs, rustLogs]);
 
-  const handleStartBridge = async (isDry = dryRun) => {
+  const handleStartBridge = async (isDry = dryRun, settingsOverride?: BridgeSettings) => {
     try {
+      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken };
+      if (!hasRequiredBridgeSettings(nextSettings)) {
+        setActiveTab("settings");
+        setStatusMessage("Enter SQL connection, Main Hub URL, and real sync token before starting the bridge.");
+        return;
+      }
       setStatusMessage("Starting background sync engine...");
       const result = await invoke<string>("start_bridge", { dryRun: isDry });
       setIsProcessRunning(true);
@@ -207,6 +272,41 @@ function App() {
       setStatusMessage(result);
     } catch (err: any) {
       setStatusMessage(`Error: ${err}`);
+    }
+  };
+
+  const handleCheckAppUpdate = async () => {
+    if (selfUpdateBusy) return;
+    setSelfUpdateBusy(true);
+    try {
+      const result = await invoke<UpdateCheckResult>("check_app_update");
+      setSelfUpdateCheck(result);
+      setStatusMessage(
+        result.available
+          ? `Bridge GUI update available: ${result.version}${result.available_build ? ` (${result.available_build})` : ""}`
+          : result.message ?? "No Bridge GUI update available.",
+      );
+    } catch (e: any) {
+      setStatusMessage(`Bridge GUI update check failed: ${e}`);
+    } finally {
+      setSelfUpdateBusy(false);
+    }
+  };
+
+  const handleInstallAppUpdate = async () => {
+    if (selfUpdateBusy) return;
+    setSelfUpdateBusy(true);
+    try {
+      const result = await invoke<InstallUpdateResult>("install_app_update");
+      setStatusMessage(
+        result.installed
+          ? result.message ?? `Bridge GUI updated to ${result.version}.`
+          : result.message ?? "No Bridge GUI update available.",
+      );
+    } catch (e: any) {
+      setStatusMessage(`Bridge GUI install failed: ${e}`);
+    } finally {
+      setSelfUpdateBusy(false);
     }
   };
 
@@ -426,7 +526,7 @@ function App() {
 
           <div className="mt-auto flex flex-col gap-3">
             <button
-              onClick={() => window.open(`${ROS_BASE_URL}/settings/integrations/counterpoint-sync`, '_blank')}
+              onClick={() => window.open(`${normalizedRosUrl}/settings/integrations/counterpoint-sync`, '_blank')}
               className="flex items-center justify-center gap-2 px-4 py-3 bg-linear-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-xs font-bold uppercase rounded-xl transition-all shadow-lg shadow-orange-500/20"
             >
               <ArrowUpRight className="w-4 h-4" />
@@ -436,6 +536,34 @@ function App() {
               <div className="font-semibold text-gray-400 mb-1">Local Bridge API</div>
               <div>Listening on:</div>
               <div className="font-mono text-[#f97316] mt-0.5">{BRIDGE_API}</div>
+              <div className="font-semibold text-gray-400 mt-3 mb-1">Main Hub Workflow</div>
+              <div className="font-mono text-[#f97316] mt-0.5 break-all">{normalizedRosUrl}</div>
+            </div>
+            <div className="p-4 rounded-xl bg-[#161922] border border-white/5 text-[10px] text-gray-500">
+              <div className="font-semibold text-gray-400 mb-1">Bridge GUI Update</div>
+              <div>
+                {selfUpdateCheck?.available
+                  ? `Ready: ${selfUpdateCheck.version}${selfUpdateCheck.available_build ? ` (${selfUpdateCheck.available_build})` : ""}`
+                  : selfUpdateCheck?.message ?? "Signed GUI updater channel."}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleCheckAppUpdate()}
+                  disabled={selfUpdateBusy}
+                  className="rounded-lg border border-white/10 px-2 py-2 font-bold text-gray-300 hover:border-orange-500/50 hover:text-white disabled:opacity-50"
+                >
+                  Check
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleInstallAppUpdate()}
+                  disabled={selfUpdateBusy}
+                  className="rounded-lg bg-orange-600 px-2 py-2 font-bold text-white hover:bg-orange-500 disabled:opacity-50"
+                >
+                  {selfUpdateBusy ? "Working" : "Install"}
+                </button>
+              </div>
             </div>
           </div>
         </aside>

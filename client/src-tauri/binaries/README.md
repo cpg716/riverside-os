@@ -46,7 +46,8 @@ The desktop shell treats that sidecar as the local-first direct runtime path.
 | `RIVERSIDE_LLAMA_MODEL_PATH` | Gemma path above | Approved primary GGUF for the Host LLM runtime. |
 | `RIVERSIDE_LLAMA_HOST` | `127.0.0.1` | Loopback HTTP bind for the OpenAI-compatible runtime. |
 | `RIVERSIDE_LLAMA_PORT` | `8080` | Loopback port for the local Host runtime. |
-| `RIVERSIDE_LLAMA_EXTRA_ARGS` | `--reasoning off` when unset | Optional extra `llama-server` arguments for Host tuning. |
+| `RIVERSIDE_LLAMA_PERF_PROFILE` | `auto` | llama.cpp launch profile: `intel-i9-12900`, `minisforum-v3`, `apple-m3-pro`, `apple-m3-pro-cpu`, or `portable-cpu`. |
+| `RIVERSIDE_LLAMA_EXTRA_ARGS` | `--reasoning off` when unset | Optional non-performance llama-server args. ROS launchers append the selected performance profile after this value. |
 | `RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH` | `~/.local/share/uv/tools/sherpa-onnx/bin/python` | Python runtime used by the SenseVoice and Kokoro helper scripts. |
 | `RIVERSIDE_SENSEVOICE_MODEL_DIR` | SenseVoice path above | Approved primary STT model directory. |
 | `RIVERSIDE_KOKORO_MODEL_DIR` | Kokoro path above | Approved primary TTS model directory. |

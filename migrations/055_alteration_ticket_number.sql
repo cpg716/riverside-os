@@ -3,10 +3,10 @@
 
 -- Add ticket_number column
 ALTER TABLE public.alteration_orders
-ADD COLUMN ticket_number TEXT;
+ADD COLUMN IF NOT EXISTS ticket_number TEXT;
 
 -- Add index for efficient ticket number lookups
-CREATE INDEX idx_alteration_orders_ticket_number
+CREATE INDEX IF NOT EXISTS idx_alteration_orders_ticket_number
 ON public.alteration_orders(ticket_number)
 WHERE ticket_number IS NOT NULL;
 

@@ -1454,6 +1454,8 @@ async fn universal_search(
                 date_to: None,
                 payment_filter: None,
                 kind_filter: None,
+                salesperson_filter: None,
+                lifecycle_filter: None,
                 status_scope: None,
                 limit: Some(limit as i64),
                 offset: Some(0),

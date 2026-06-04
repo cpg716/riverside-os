@@ -2,10 +2,10 @@
 -- This allows alterations to signal to the order system when they are ready for pickup
 
 ALTER TABLE public.transaction_lines
-ADD COLUMN alteration_ready boolean DEFAULT false;
+ADD COLUMN IF NOT EXISTS alteration_ready boolean DEFAULT false;
 
 -- Add index for efficient queries
-CREATE INDEX idx_transaction_lines_alteration_ready
+CREATE INDEX IF NOT EXISTS idx_transaction_lines_alteration_ready
 ON public.transaction_lines(alteration_ready)
 WHERE alteration_ready = true;
 

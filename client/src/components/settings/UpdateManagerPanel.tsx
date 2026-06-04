@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { getBaseUrl } from "../../lib/apiConfig";
 import {
   checkForAppUpdate,
@@ -19,6 +20,8 @@ import {
   checkServerLocalStatus,
   downloadAndRunServerInstaller,
   type ServerLocalStatus,
+  loadLocalStationConfig,
+  type RiversideStationConfig,
 } from "../../lib/appUpdater";
 import { useToast } from "../ui/ToastProviderLogic";
 
@@ -106,6 +109,7 @@ async function readPwaStatus(): Promise<PwaUpdateStatus> {
 
 export default function UpdateManagerPanel() {
   const baseUrl = getBaseUrl();
+  const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
   const [tauriShellVersion, setTauriShellVersion] = useState<string | null>(null);
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null);
@@ -120,16 +124,22 @@ export default function UpdateManagerPanel() {
   const [serverUpdateCheckBusy, setServerUpdateCheckBusy] = useState(false);
   const [updateStep, setUpdateStep] = useState<UpdateStep>("idle");
   const [updateLog, setUpdateLog] = useState<string[]>([]);
+  const [stationConfig, setStationConfig] = useState<RiversideStationConfig | null>(null);
+
+  const releaseVersionForTag = (version: string) => version.split("+", 1)[0];
 
   const fetchServerUpdateCheck = useCallback(async () => {
     setServerUpdateCheckBusy(true);
     try {
-      const res = await fetch(`${baseUrl}/api/ops/update-check`, { cache: "no-store" });
+      const res = await fetch(`${baseUrl}/api/ops/update-check`, {
+        cache: "no-store",
+        headers: backofficeHeaders() as Record<string, string>,
+      });
       if (res.ok) setServerUpdateCheck(await res.json() as ServerUpdateCheck);
     } catch { /* silent */ } finally {
       setServerUpdateCheckBusy(false);
     }
-  }, [baseUrl]);
+  }, [backofficeHeaders, baseUrl]);
 
   useEffect(() => {
     void (async () => {
@@ -160,11 +170,20 @@ export default function UpdateManagerPanel() {
         setServerLocalStatus(null);
       }
     })();
+    void (async () => {
+      try {
+        setStationConfig(await loadLocalStationConfig());
+      } catch {
+        setStationConfig(null);
+      }
+    })();
     void fetchServerUpdateCheck();
   }, [baseUrl, fetchServerUpdateCheck]);
 
   const handleRunServerInstaller = async () => {
-    const targetVersion = serverUpdateCheck?.latest_version || updateCheck?.version || CLIENT_SEMVER;
+    const targetVersion = releaseVersionForTag(
+      serverUpdateCheck?.latest_version || updateCheck?.version || CLIENT_SEMVER,
+    );
     setServerUpdateBusy(true);
     setUpdateStep("downloading");
     setUpdateLog([`Starting update to v${targetVersion}...`]);
@@ -194,6 +213,39 @@ export default function UpdateManagerPanel() {
           : "Web browser",
     [tauriShellVersion],
   );
+  const stationLabel = stationConfig?.register?.stationLabel?.trim() ?? "";
+  const updateRole = useMemo(() => {
+    if (serverLocalStatus?.is_local) {
+      return {
+        title: "Main Hub",
+        badge: "MAIN HUB UPDATE PATH",
+        detail:
+          "This PC owns the Riverside API, PostgreSQL migrations, served app files, ROSIE runtime assets, and local desktop app update sequence.",
+      };
+    }
+    if (/back\\s*office|backoffice/i.test(stationLabel)) {
+      return {
+        title: "Back Office PC",
+        badge: "BACK OFFICE PC",
+        detail:
+          "This station updates only its desktop shell and app files. Main Hub server, migrations, and ROSIE updates must run on the Main Hub first.",
+      };
+    }
+    if (/register/i.test(stationLabel)) {
+      return {
+        title: stationLabel,
+        badge: "REGISTER PC",
+        detail:
+          "This station updates only the register desktop shell and app files. Main Hub server, migrations, and ROSIE updates must run on the Main Hub first.",
+      };
+    }
+    return {
+      title: tauriShellVersion != null ? "Workstation PC" : surfaceLabel,
+      badge: "WORKSTATION UPDATE PATH",
+      detail:
+        "This station updates only local app files. Main Hub server, migrations, and ROSIE updates must run on the Main Hub first.",
+    };
+  }, [serverLocalStatus?.is_local, stationLabel, surfaceLabel, tauriShellVersion]);
   const desktopVersionMismatch =
     tauriShellVersion != null && tauriShellVersion !== CLIENT_SEMVER;
   const serverVersionMismatch =
@@ -206,6 +258,8 @@ export default function UpdateManagerPanel() {
   const serverNeedsUpdateFirst =
     !serverLocalStatus?.is_local &&         // not the Main Hub
     serverUpdateCheck?.update_available === true; // server is behind latest
+  const mainHubFullUpdateRequired =
+    serverLocalStatus?.is_local && serverUpdateCheck?.update_available === true;
   const releaseDiagnostic = [
     `app files ${CLIENT_SEMVER}`,
     tauriShellVersion != null ? `Windows app ${tauriShellVersion}` : null,
@@ -254,6 +308,10 @@ export default function UpdateManagerPanel() {
   };
 
   const handleInstallUpdate = async () => {
+    if (mainHubFullUpdateRequired) {
+      toast("Use the Main Hub update path below so server, migrations, ROSIE, and app files update together.", "error");
+      return;
+    }
     if (serverNeedsUpdateFirst) {
       toast("Update the Main Hub server first before updating this station.", "error");
       return;
@@ -329,14 +387,28 @@ export default function UpdateManagerPanel() {
           <Monitor className="mt-0.5 h-5 w-5 shrink-0 text-app-accent" aria-hidden />
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-              This station
+              This station: {updateRole.title}
             </h3>
+            <div className="mt-3 rounded-xl border border-app-accent/30 bg-app-accent/10 px-4 py-3">
+              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
+                {updateRole.badge}
+              </div>
+              <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text">
+                {updateRole.detail}
+              </p>
+            </div>
             <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-3">
                 <dt className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
-                  Station type
+                  Runtime
                 </dt>
                 <dd className="mt-1 font-mono text-app-text">{surfaceLabel}</dd>
+              </div>
+              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-3">
+                <dt className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
+                  Station label
+                </dt>
+                <dd className="mt-1 font-mono text-app-text">{stationLabel || "Not installed"}</dd>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-3">
                 <dt className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
@@ -350,7 +422,10 @@ export default function UpdateManagerPanel() {
                 <dt className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
                   Build
                 </dt>
-                <dd className="mt-1 font-mono text-app-text">{GIT_SHORT}</dd>
+                <dd className="mt-1 font-mono text-app-text">
+                  {GIT_SHORT}
+                  {updateCheck?.available_build ? ` → ${updateCheck.available_build}` : ""}
+                </dd>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-3">
                 <dt className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
@@ -385,11 +460,20 @@ export default function UpdateManagerPanel() {
               </h3>
               <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
                 {serverLocalStatus?.is_local
-                  ? "Updates this Windows station. (Note: Running the server update below automatically updates the app on this PC)."
+                  ? "Checks this Main Hub desktop shell only. If a Main Hub update is available, use the Main Hub update below so the server, migrations, ROSIE, and app files stay in lockstep."
                   : "Updates this Windows station to the current Riverside release."}
               </p>
             </div>
           </div>
+          {mainHubFullUpdateRequired && (
+            <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-900">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                This is the Main Hub. Use the Main Hub update card so app files, server binaries,
+                database migrations, ROSIE runtime assets, and update metadata move together.
+              </span>
+            </div>
+          )}
           {serverNeedsUpdateFirst && (
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-900">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -410,7 +494,7 @@ export default function UpdateManagerPanel() {
             </button>
             <button
               type="button"
-              disabled={desktopBusy || serverNeedsUpdateFirst}
+              disabled={desktopBusy || serverNeedsUpdateFirst || mainHubFullUpdateRequired}
               onClick={() => void handleInstallUpdate()}
               className="ui-btn-secondary h-11 px-4 text-xs font-black disabled:opacity-50"
             >
@@ -422,8 +506,10 @@ export default function UpdateManagerPanel() {
               ? "This station is not running the Windows desktop app."
               : serverNeedsUpdateFirst
                 ? "Waiting for Main Hub to update first."
+                : mainHubFullUpdateRequired
+                  ? "Use Main Hub update below for this release."
                 : updateCheck?.available
-                  ? `Update ${updateCheck.version ?? ""} is ready to install.`
+                  ? `Update ${updateCheck.version ?? ""}${updateCheck.available_build ? ` (${updateCheck.available_build})` : ""} is ready to install.`
                   : updateCheck?.message ?? "No update check has run yet."}
           </p>
         </section>
@@ -474,11 +560,11 @@ export default function UpdateManagerPanel() {
               <Server className="mt-0.5 h-5 w-5 shrink-0 text-app-accent" aria-hidden />
               <div>
                 <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                  Server update
+                  Main Hub update
                 </h3>
                 <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
                   {serverLocalStatus?.is_local
-                    ? "This is the Main Hub. Updates run directly on this PC and atomically update both the server and desktop app."
+                    ? "This is the Main Hub. Runs the full release update: server/API, client app files, database migrations, ROSIE runtime assets, and the local desktop app."
                     : "Go to the Main Hub (server PC) to run server updates."}
                 </p>
               </div>
@@ -546,7 +632,7 @@ export default function UpdateManagerPanel() {
                   {([
                     ["downloading", "Downloading deployment package"],
                     ["extracting", "Extracting package"],
-                    ["running_installer", "Installing, restarting server & verifying"],
+                    ["running_installer", "Installing Main Hub: server, app files, migrations, ROSIE"],
                     ["done", "Server ready — relaunch Riverside on all stations"],
                   ] as [UpdateStep, string][]).map(([s, label]) => {
                     const steps: UpdateStep[] = ["downloading", "extracting", "running_installer", "done"];
@@ -610,7 +696,7 @@ export default function UpdateManagerPanel() {
                 {[
                   "On the Main Hub, open Settings → Updates.",
                   "Confirm the update window (before 10 AM or after 6 PM).",
-                  "Click \"Update Server & Client App\" — it downloads, installs, and migrates automatically.",
+                  "Click \"Update Server & Client App\" — it updates server/API, app files, migrations, and ROSIE assets.",
                   "Relaunch Riverside on all stations when prompted.",
                 ].map((step, i) => (
                   <li key={i} className="flex gap-2">

@@ -20,6 +20,26 @@ interface PgStatus {
   table_count?: string;
 }
 
+interface UpdateCheckResult {
+  enabled: boolean;
+  available: boolean;
+  version: string | null;
+  date: string | null;
+  notes: string | null;
+  message: string | null;
+  current_build: string | null;
+  available_build: string | null;
+}
+
+interface InstallUpdateResult {
+  enabled: boolean;
+  installed: boolean;
+  version: string | null;
+  message: string | null;
+  current_build: string | null;
+  installed_build: string | null;
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'wizard' | 'maintenance'>('maintenance');
   const [maintenanceTab, setMaintenanceTab] = useState<'status' | 'updates' | 'database' | 'utilities' | 'danger'>('status');
@@ -42,6 +62,8 @@ export default function App() {
   // PostgreSQL status
   const [pgStatus, setPgStatus] = useState<PgStatus | null>(null);
   const [pgLoading, setPgLoading] = useState(false);
+  const [selfUpdateCheck, setSelfUpdateCheck] = useState<UpdateCheckResult | null>(null);
+  const [selfUpdateBusy, setSelfUpdateBusy] = useState(false);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -205,6 +227,49 @@ export default function App() {
     } finally {
       setIsExecuting(false);
       unlisten();
+    }
+  };
+
+  const checkDeploymentManagerUpdate = async () => {
+    if (selfUpdateBusy) return;
+    setSelfUpdateBusy(true);
+    try {
+      const result = await invoke<UpdateCheckResult>('check_app_update');
+      setSelfUpdateCheck(result);
+      setLogs(prev => [
+        ...prev,
+        {
+          level: result.available ? 'success' : result.enabled ? 'info' : 'error',
+          text: result.available
+            ? `Deployment Manager update available: ${result.version}${result.available_build ? ` (${result.available_build})` : ''}`
+            : result.message ?? 'No Deployment Manager update available.',
+        },
+      ]);
+    } catch (e) {
+      setLogs(prev => [...prev, { level: 'error', text: `Deployment Manager update check failed: ${e}` }]);
+    } finally {
+      setSelfUpdateBusy(false);
+    }
+  };
+
+  const installDeploymentManagerUpdate = async () => {
+    if (selfUpdateBusy) return;
+    setSelfUpdateBusy(true);
+    try {
+      const result = await invoke<InstallUpdateResult>('install_app_update');
+      setLogs(prev => [
+        ...prev,
+        {
+          level: result.installed ? 'success' : result.enabled ? 'info' : 'error',
+          text: result.installed
+            ? result.message ?? `Deployment Manager updated to ${result.version}.`
+            : result.message ?? 'No Deployment Manager update available.',
+        },
+      ]);
+    } catch (e) {
+      setLogs(prev => [...prev, { level: 'error', text: `Deployment Manager install failed: ${e}` }]);
+    } finally {
+      setSelfUpdateBusy(false);
     }
   };
 
@@ -638,7 +703,7 @@ export default function App() {
                   <Download className="w-5 h-5 text-brand-600" /> Updates & Setup
                 </h3>
                 <p className="text-xs text-zinc-500 mb-6">Install or update the software components running on this workstation.</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                   <button
                     onClick={() => executeServerUpdate()}
                     disabled={isExecuting}
@@ -689,6 +754,44 @@ export default function App() {
                       <p className="text-xs text-zinc-500 mt-1">Reapply network configuration files without reinstalling code.</p>
                     </div>
                   </button>
+
+                  <div className="text-left p-5 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all flex flex-col justify-between min-h-40">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="p-2 rounded-lg bg-zinc-100 text-zinc-700">
+                          <Download className="w-5 h-5" />
+                        </span>
+                        <RefreshCw className={`w-4 h-4 text-zinc-400 ${selfUpdateBusy ? 'animate-spin' : ''}`} />
+                      </div>
+                      <h4 className="font-bold text-sm text-zinc-900">Update Deployment App</h4>
+                      <p className="text-xs text-zinc-500 mt-1">
+                        Updates this Windows Deployment Manager only. Main Hub, ROSIE, server, and workstation scripts remain separate actions.
+                      </p>
+                    </div>
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => checkDeploymentManagerUpdate()}
+                        disabled={selfUpdateBusy || isExecuting}
+                        className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-xs font-bold text-zinc-700 hover:border-brand-500 hover:text-brand-700 disabled:opacity-50"
+                      >
+                        Check
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => installDeploymentManagerUpdate()}
+                        disabled={selfUpdateBusy || isExecuting}
+                        className="flex-1 rounded-lg bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-700 disabled:opacity-50"
+                      >
+                        Install
+                      </button>
+                    </div>
+                    <p className="mt-3 text-[11px] text-zinc-500">
+                      {selfUpdateCheck?.available
+                        ? `Ready: ${selfUpdateCheck.version}${selfUpdateCheck.available_build ? ` (${selfUpdateCheck.available_build})` : ''}`
+                        : selfUpdateCheck?.message ?? 'Uses its own signed updater channel.'}
+                    </p>
+                  </div>
                 </div>
               </div>
             )}

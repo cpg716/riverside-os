@@ -79,7 +79,7 @@ $extraArgs = Resolve-SmokeEnv "RIVERSIDE_LLAMA_EXTRA_ARGS" "--reasoning off"
 $modelPath = Resolve-SmokeEnv "RIVERSIDE_LLAMA_MODEL_PATH" (Join-Path ([IO.Path]::GetTempPath()) "missing-rosie-model.gguf")
 
 if ($extraArgs -notmatch '(^|\s)--reasoning\s+off(\s|$)') {
-  throw "RIVERSIDE_LLAMA_EXTRA_ARGS must include '--reasoning off' for ROSIE insight runtime smoke"
+  throw "RIVERSIDE_LLAMA_EXTRA_ARGS must include '--reasoning off' for ROSIE insight runtime smoke; performance profile flags are enforced by the launchers"
 }
 
 if (-not (Test-Path $modelPath -PathType Leaf)) {

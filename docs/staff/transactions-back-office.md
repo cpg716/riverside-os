@@ -2,7 +2,7 @@
 
 **Audience:** Sales support, managers.
 
-**Where in ROS:** Back Office → **Orders**. Views: **Open Orders**, **Transaction Records**.
+**Where in ROS:** Back Office → **Orders**. Views: **Open Orders**, **All Records**, **Closed**, **Cancelled**.
 
 **Related permissions:** **orders.view** for tab. **orders.refund_process**, **orders.cancel**, **orders.modify**, **orders.void_sale** for destructive paths.
 
@@ -29,7 +29,7 @@
 ## Open Orders
 
 1. **Orders** → **Open Orders**.
-2. Sort or filter by **date**, **customer**, **status** if available.
+2. Sort or filter by **date**, **customer**, **view**, **payment**, **staff**, or **lifecycle**.
 3. Review the **Order Items / Lifecycle** column. Each ordered item appears on its own line with its current status: **NTBO**, **Ordered**, **Received**, **Ready for Pickup**, or **Picked Up**.
 4. Click record → verify **lines**, **balance due**, **customer** attachment.
 5. Use **Print** to produce the filtered Open Orders list. The printout is customer-first and item-focused: customer name and number, phone/email when available, transaction number, one ordered item per line with lifecycle status, salesperson, cashier, total, deposits, and balance.
@@ -37,13 +37,19 @@
 7. **Pickup** / **fulfill**: complete **line checkoffs** if prompted (prevents partial mistakes).
 8. **Attach Wedding**: Link a standalone fulfillment record to a **Wedding Party** member when it belongs with a wedding group.
 
+### Ready for Pickup checks
+
+- Use the **Needs ready check** metric or the **Lifecycle: Needs Ready Check** filter to find orders where receiving is complete but staff still need to review the garment.
+- **Received** does not mean customer-ready. Open the Transaction Record, use **Mark Ready**, and confirm the received/prep/customer checklist.
+- Marking an item **Ready for Pickup** queues the normal customer SMS/email notification workflow and staff notification. Do not manually text the customer outside the queue unless a manager directs it.
+
 ### Item lifecycle terms
 
 | Status | Meaning |
 |--------|---------|
 | **NTBO** | Needs to be ordered. The item is sold but not yet attached to vendor ordering. |
 | **Ordered** | Vendor ordering or PO work is committed. |
-| **Received** | The item has been received through the receiving workflow. |
+| **Received** | The item has been received through the receiving workflow and still needs staff ready-check review. |
 | **Ready for Pickup** | The item is ready for customer pickup or final release. |
 | **Picked Up** | The item was fulfilled through the pickup path. |
 

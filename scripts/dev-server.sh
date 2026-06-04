@@ -93,6 +93,7 @@ load_env_default "RIVERSIDE_LLAMA_MODEL_PATH"
 load_env_default "RIVERSIDE_LLAMA_HOST"
 load_env_default "RIVERSIDE_LLAMA_PORT"
 load_env_default "RIVERSIDE_LLAMA_EXTRA_ARGS"
+load_env_default "RIVERSIDE_LLAMA_PERF_PROFILE"
 
 LLAMA_BIN="${RIVERSIDE_LLAMA_BIN:-$DEFAULT_LLAMA_BIN}"
 LLAMA_HOST="${RIVERSIDE_LLAMA_HOST:-127.0.0.1}"
@@ -100,6 +101,43 @@ LLAMA_PORT="${RIVERSIDE_LLAMA_PORT:-8080}"
 LOCAL_LLAMA_URL="http://${LLAMA_HOST}:${LLAMA_PORT}"
 LLAMA_MODEL_PATH="${RIVERSIDE_LLAMA_MODEL_PATH:-$DEFAULT_LLAMA_MODEL_PATH}"
 LLAMA_EXTRA_ARGS="${RIVERSIDE_LLAMA_EXTRA_ARGS:---reasoning off}"
+DEFAULT_LLAMA_PERF_PROFILE="intel-i9-12900"
+if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+  DEFAULT_LLAMA_PERF_PROFILE="apple-m3-pro"
+fi
+LLAMA_PERF_PROFILE="${RIVERSIDE_LLAMA_PERF_PROFILE:-$DEFAULT_LLAMA_PERF_PROFILE}"
+if [[ "$LLAMA_PERF_PROFILE" == "auto" ]]; then
+  LLAMA_PERF_PROFILE="$DEFAULT_LLAMA_PERF_PROFILE"
+fi
+case "$LLAMA_PERF_PROFILE" in
+  intel-i9-12900|i9-12900|12900)
+    LLAMA_PERF_PROFILE="intel-i9-12900"
+    LLAMA_ENFORCED_ARGS=(--threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock)
+    ;;
+  minisforum-v3|amd-8840u|ryzen-8840u)
+    LLAMA_PERF_PROFILE="minisforum-v3"
+    LLAMA_ENFORCED_ARGS=(--threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock)
+    ;;
+  apple-m3-pro|m3-pro)
+    LLAMA_PERF_PROFILE="apple-m3-pro"
+    LLAMA_ENFORCED_ARGS=(--threads 6 --threads-batch 6 --gpu-layers 99 --flash-attn on --mmap)
+    ;;
+  apple-m3-pro-cpu|m3-pro-cpu)
+    LLAMA_PERF_PROFILE="apple-m3-pro-cpu"
+    LLAMA_ENFORCED_ARGS=(--threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap)
+    ;;
+  portable-cpu|cpu-portable)
+    LLAMA_PERF_PROFILE="portable-cpu"
+    LLAMA_ENFORCED_ARGS=(--threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap)
+    ;;
+  *)
+    echo "[rosie] unknown RIVERSIDE_LLAMA_PERF_PROFILE=${LLAMA_PERF_PROFILE}" >&2
+    exit 1
+    ;;
+esac
+if [[ ! "${LLAMA_ENFORCED_ARGS[*]:-}" ]]; then
+  LLAMA_ENFORCED_ARGS=(--threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock)
+fi
 ROSIE_AUTOSTART="${RIVERSIDE_DEV_AUTOSTART_ROSIE_HOST:-1}"
 
 cleanup() {
@@ -129,7 +167,7 @@ if ! is_falsey "$ROSIE_AUTOSTART"; then
     elif [[ ! -f "$LLAMA_MODEL_PATH" ]]; then
       echo "[rosie] local ROSIE Host runtime not started: missing Gemma model at ${LLAMA_MODEL_PATH}" >&2
     else
-      echo "[rosie] starting local Gemma Host runtime at ${LOCAL_LLAMA_URL}"
+      echo "[rosie] starting local Gemma Host runtime at ${LOCAL_LLAMA_URL} (${LLAMA_PERF_PROFILE})"
       LLAMA_CMD=(
         "$LLAMA_BIN"
         -m "$LLAMA_MODEL_PATH"
@@ -141,6 +179,7 @@ if ! is_falsey "$ROSIE_AUTOSTART"; then
         EXTRA_ARGS=( $LLAMA_EXTRA_ARGS )
         LLAMA_CMD+=("${EXTRA_ARGS[@]}")
       fi
+      LLAMA_CMD+=("${LLAMA_ENFORCED_ARGS[@]}")
       "${LLAMA_CMD[@]}" &
       ROSIE_LLAMA_PID="$!"
       if wait_for_rosie_health "$LOCAL_LLAMA_URL"; then

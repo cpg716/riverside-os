@@ -2,10 +2,14 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_updater::{RemoteRelease, Updater, UpdaterExt};
 
-const UPDATER_ENDPOINT: Option<&str> = option_env!("RIVERSIDE_UPDATER_ENDPOINT");
 const UPDATER_PUBLIC_KEY: Option<&str> = option_env!("RIVERSIDE_UPDATER_PUBLIC_KEY");
+const APP_UPDATER_ENDPOINT: Option<&str> = option_env!("RIVERSIDE_SERVER_MANAGER_UPDATER_ENDPOINT");
+const APP_UPDATER_PUBLIC_KEY: Option<&str> =
+    option_env!("RIVERSIDE_SERVER_MANAGER_UPDATER_PUBLIC_KEY");
 const BUILD_SHA: Option<&str> = option_env!("RIVERSIDE_BUILD_SHA");
 const GITHUB_SHA: Option<&str> = option_env!("GITHUB_SHA");
+const APP_ENDPOINT_ENV: &str = "RIVERSIDE_SERVER_MANAGER_UPDATER_ENDPOINT";
+const APP_PUBLIC_KEY_ENV: &str = "RIVERSIDE_SERVER_MANAGER_UPDATER_PUBLIC_KEY";
 
 #[derive(Debug, Serialize)]
 pub struct UpdateCheckResult {
@@ -29,19 +33,26 @@ pub struct InstallUpdateResult {
     pub installed_build: Option<String>,
 }
 
-fn configured_value(value: Option<&str>) -> Option<String> {
-    value
+fn configured_value(app_value: Option<&str>, common_value: Option<&str>) -> Option<String> {
+    app_value
+        .or(common_value)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
 }
 
 fn updater_config() -> Result<(String, String), String> {
-    let endpoint = configured_value(UPDATER_ENDPOINT).ok_or_else(|| {
-        "Updater is not configured (missing RIVERSIDE_UPDATER_ENDPOINT at build time)".to_string()
-    })?;
-    let pubkey = configured_value(UPDATER_PUBLIC_KEY).ok_or_else(|| {
-        "Updater is not configured (missing RIVERSIDE_UPDATER_PUBLIC_KEY at build time)".to_string()
+    let endpoint = APP_UPDATER_ENDPOINT
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            format!("Updater is not configured (missing {APP_ENDPOINT_ENV} at build time)")
+        })?;
+    let pubkey = configured_value(APP_UPDATER_PUBLIC_KEY, UPDATER_PUBLIC_KEY).ok_or_else(|| {
+        format!(
+            "Updater is not configured (missing {APP_PUBLIC_KEY_ENV} or RIVERSIDE_UPDATER_PUBLIC_KEY at build time)"
+        )
     })?;
     Ok((endpoint, pubkey))
 }

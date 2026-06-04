@@ -5,6 +5,25 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{Manager, State};
 
+mod app_updates;
+
+const BRIDGE_RESOURCE_FILES: &[&str] = &[
+    "index.mjs",
+    "package.json",
+    "package-lock.json",
+    ".env.example",
+    "env.example",
+    "dashboard.html",
+    "README.md",
+    "INSTALL_ON_COUNTERPOINT_SERVER.txt",
+    "SCHEMA_PROBE_ALIGNMENT.txt",
+    "DISCOVER_SCHEMA.cmd",
+    "ssms-find-your-tables.sql",
+    "ssms-list-bridge-tables.sql",
+];
+
+const BRIDGE_RESOURCE_DIRS: &[&str] = &["node_modules"];
+
 struct BridgeProcessState {
     child: Mutex<Option<Child>>,
     logs: Arc<Mutex<Vec<String>>>,
@@ -23,46 +42,228 @@ fn strip_quotes(s: &str) -> String {
     val
 }
 
-fn find_bridge_directory(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
-    // 1. Check Tauri resource directory (for production installations)
+fn package_version(dir: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(dir.join("package.json")).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    json.get("version")?.as_str().map(str::to_string)
+}
+
+fn bundled_bridge_directory(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
     if let Ok(res_dir) = app_handle.path().resource_dir() {
-        if res_dir.join("index.mjs").exists() {
-            return Some(res_dir);
-        }
-        let nested = res_dir.join("_up_/_up_/_up_/counterpoint-bridge");
-        if nested.join("index.mjs").exists() {
-            return Some(nested);
+        let candidates = [
+            res_dir.join("counterpoint-bridge"),
+            res_dir.join("_up_/_up_/_up_/counterpoint-bridge"),
+            res_dir,
+        ];
+
+        for candidate in candidates {
+            if candidate.join("index.mjs").exists() {
+                return Some(candidate);
+            }
         }
     }
 
-    // 2. Check next to current running executable
+    None
+}
+
+fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(target).map_err(|e| e.to_string())?;
+
+    for entry in std::fs::read_dir(source).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+        let file_type = entry.file_type().map_err(|e| e.to_string())?;
+
+        if file_type.is_dir() {
+            copy_dir_recursive(&source_path, &target_path)?;
+        } else if file_type.is_file() {
+            if let Some(parent) = target_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            std::fs::copy(&source_path, &target_path).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
+fn copy_bridge_resources(source: &Path, target: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(target).map_err(|e| e.to_string())?;
+
+    for file in BRIDGE_RESOURCE_FILES {
+        let source_path = source.join(file);
+        if !source_path.exists() {
+            continue;
+        }
+
+        let target_path = target.join(file);
+        if let Some(parent) = target_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::copy(&source_path, &target_path).map_err(|e| e.to_string())?;
+    }
+
+    for dir in BRIDGE_RESOURCE_DIRS {
+        let source_path = source.join(dir);
+        if !source_path.exists() {
+            continue;
+        }
+
+        copy_dir_recursive(&source_path, &target.join(dir))?;
+    }
+
+    Ok(())
+}
+
+fn file_contents_differ(source: &Path, target: &Path) -> bool {
+    if !target.exists() {
+        return true;
+    }
+
+    match (std::fs::read(source), std::fs::read(target)) {
+        (Ok(source_bytes), Ok(target_bytes)) => source_bytes != target_bytes,
+        _ => true,
+    }
+}
+
+fn ensure_packaged_bridge_directory(
+    app_handle: &tauri::AppHandle,
+) -> Result<Option<PathBuf>, String> {
+    let Some(source_dir) = bundled_bridge_directory(app_handle) else {
+        return Ok(None);
+    };
+
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let target_dir = app_data_dir.join("counterpoint-bridge");
+    let source_version = package_version(&source_dir);
+    let target_version = package_version(&target_dir);
+    let version_changed = source_version.is_some() && source_version != target_version;
+    let stale_files = BRIDGE_RESOURCE_FILES.iter().any(|file| {
+        let source_path = source_dir.join(file);
+        source_path.exists() && file_contents_differ(&source_path, &target_dir.join(file))
+    });
+    let missing_dirs = BRIDGE_RESOURCE_DIRS
+        .iter()
+        .any(|dir| source_dir.join(dir).exists() && !target_dir.join(dir).exists());
+    let dependency_manifest_changed = ["package.json", "package-lock.json"].iter().any(|file| {
+        let source_path = source_dir.join(file);
+        source_path.exists() && file_contents_differ(&source_path, &target_dir.join(file))
+    });
+
+    if !target_dir.join("index.mjs").exists() || version_changed || stale_files || missing_dirs {
+        if version_changed || dependency_manifest_changed {
+            for dir in BRIDGE_RESOURCE_DIRS {
+                let target_path = target_dir.join(dir);
+                if target_path.exists() {
+                    std::fs::remove_dir_all(target_path).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        copy_bridge_resources(&source_dir, &target_dir)?;
+    }
+
+    Ok(Some(target_dir))
+}
+
+fn bundled_node_executable(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
+    let exe_name = if cfg!(target_os = "windows") {
+        "node.exe"
+    } else {
+        "node"
+    };
+    let res_dir = app_handle.path().resource_dir().ok()?;
+    let candidates = [
+        res_dir.join("bridge-runtime").join(exe_name),
+        res_dir
+            .join("src-tauri")
+            .join("bridge-runtime")
+            .join(exe_name),
+        res_dir
+            .join("_up_/_up_/_up_/deployment/counterpoint-bridge-gui/src-tauri/bridge-runtime")
+            .join(exe_name),
+    ];
+
+    candidates.into_iter().find(|candidate| candidate.is_file())
+}
+
+fn node_command(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(path) = bundled_node_executable(app_handle) {
+        return Ok(path);
+    }
+
+    if cfg!(debug_assertions) {
+        return Ok(PathBuf::from("node"));
+    }
+
+    Err(
+        "Packaged Node runtime is missing. Reinstall or update Riverside Countersync Bridge GUI."
+            .to_string(),
+    )
+}
+
+fn install_dev_dependencies(bridge_dir: &Path) -> Result<(), String> {
+    let mut install_cmd = if cfg!(target_os = "windows") {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", "npm install"]);
+        cmd
+    } else {
+        let mut cmd = Command::new("npm");
+        cmd.arg("install");
+        cmd
+    };
+
+    install_cmd.current_dir(bridge_dir);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        install_cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    match install_cmd.output() {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => Err(format!(
+            "Failed to install dependencies: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )),
+        Err(e) => Err(format!("Could not run 'npm install': {e}")),
+    }
+}
+
+fn find_bridge_directory(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(dir) = ensure_packaged_bridge_directory(app_handle)? {
+        return Ok(dir);
+    }
+
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let path = exe_dir.join("counterpoint-bridge");
             if path.join("index.mjs").exists() {
-                return Some(path);
+                return Ok(path);
             }
-            // Check parent directory
             let parent_path = exe_dir.join("../counterpoint-bridge");
             if parent_path.join("index.mjs").exists() {
-                return Some(parent_path);
+                return Ok(parent_path);
             }
-            // Check double parent (common inside target/debug)
             let grandparent_path = exe_dir.join("../../counterpoint-bridge");
             if grandparent_path.join("index.mjs").exists() {
-                return Some(grandparent_path);
+                return Ok(grandparent_path);
             }
         }
     }
 
-    // 3. Check development workspace path relative to Cargo manifest
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let dev_path = Path::new(manifest_dir).join("../../../counterpoint-bridge");
     if dev_path.join("index.mjs").exists() {
-        return Some(dev_path);
+        return Ok(dev_path);
     }
 
-    None
+    Err("Could not locate counterpoint-bridge directory.".into())
 }
 
 #[tauri::command]
@@ -88,58 +289,29 @@ fn start_bridge(
         ));
     }
 
-    let bridge_dir = match find_bridge_directory(&app) {
-        Some(dir) => dir,
-        None => return Err("Could not locate counterpoint-bridge directory.".into()),
-    };
+    let bridge_dir = find_bridge_directory(&app)?;
 
-    // Auto-run npm install if node_modules does not exist
     let node_modules_dir = bridge_dir.join("node_modules");
     if !node_modules_dir.exists() {
-        {
-            let mut logs = state.logs.lock().unwrap();
-            logs.push("[SYSTEM] node_modules folder not found. Installing node dependencies in the background...".into());
-        }
-
-        let mut install_cmd = if cfg!(target_os = "windows") {
-            let mut cmd = Command::new("cmd");
-            cmd.args(&["/C", "npm install"]);
-            cmd
+        if cfg!(debug_assertions) {
+            {
+                let mut logs = state.logs.lock().unwrap();
+                logs.push(
+                    "[SYSTEM] Development bridge dependencies missing. Running npm install..."
+                        .into(),
+                );
+            }
+            install_dev_dependencies(&bridge_dir)?;
         } else {
-            let mut cmd = Command::new("npm");
-            cmd.arg("install");
-            cmd
-        };
-
-        install_cmd.current_dir(&bridge_dir);
-
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            install_cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-
-        match install_cmd.output() {
-            Ok(output) => {
-                let mut logs = state.logs.lock().unwrap();
-                if output.status.success() {
-                    logs.push("[SYSTEM] Dependencies installed successfully.".into());
-                } else {
-                    let err_msg = String::from_utf8_lossy(&output.stderr);
-                    logs.push(format!("[SYSTEM ERROR] 'npm install' failed: {}", err_msg));
-                    return Err(format!("Failed to install dependencies: {}", err_msg));
-                }
-            }
-            Err(e) => {
-                let mut logs = state.logs.lock().unwrap();
-                logs.push(format!("[SYSTEM ERROR] Failed to run 'npm install'. Please ensure Node.js is installed. Error: {}", e));
-                return Err(format!("Could not run 'npm install': {}", e));
-            }
+            let message = "Packaged bridge dependencies are missing. Reinstall or update Riverside Countersync Bridge GUI.".to_string();
+            let mut logs = state.logs.lock().unwrap();
+            logs.push(format!("[SYSTEM ERROR] {message}"));
+            return Err(message);
         }
     }
 
-    let mut cmd = Command::new("node");
+    let node_path = node_command(&app)?;
+    let mut cmd = Command::new(&node_path);
     cmd.arg("index.mjs");
     if dry_run {
         cmd.arg("--dry-run");
@@ -190,7 +362,10 @@ fn start_bridge(
             });
 
             *child_guard = Some(child);
-            Ok(format!("Started Bridge in {:?}", bridge_dir))
+            Ok(format!(
+                "Started Bridge in {:?} with Node runtime {:?}",
+                bridge_dir, node_path
+            ))
         }
         Err(e) => {
             let mut logs = state.logs.lock().unwrap();
@@ -229,10 +404,7 @@ struct BridgeSettings {
 
 #[tauri::command]
 fn load_settings(app: tauri::AppHandle) -> Result<BridgeSettings, String> {
-    let bridge_dir = match find_bridge_directory(&app) {
-        Some(dir) => dir,
-        None => return Err("Could not locate counterpoint-bridge directory.".into()),
-    };
+    let bridge_dir = find_bridge_directory(&app)?;
 
     let env_path = bridge_dir.join(".env");
     if !env_path.exists() {
@@ -279,10 +451,7 @@ fn save_settings(
     ros_url: String,
     sync_token: String,
 ) -> Result<String, String> {
-    let bridge_dir = match find_bridge_directory(&app) {
-        Some(dir) => dir,
-        None => return Err("Could not locate counterpoint-bridge directory.".into()),
-    };
+    let bridge_dir = find_bridge_directory(&app)?;
 
     let env_path = bridge_dir.join(".env");
     let mut content = if env_path.exists() {
@@ -335,10 +504,7 @@ fn save_settings(
 
 #[tauri::command]
 fn get_bridge_directory(app: tauri::AppHandle) -> Result<String, String> {
-    match find_bridge_directory(&app) {
-        Some(dir) => Ok(dir.to_string_lossy().to_string()),
-        None => Err("Not found".into()),
-    }
+    find_bridge_directory(&app).map(|dir| dir.to_string_lossy().to_string())
 }
 
 #[derive(serde::Serialize)]
@@ -388,11 +554,14 @@ fn clear_process_logs(state: State<'_, BridgeProcessState>) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(BridgeProcessState {
             child: Mutex::new(None),
             logs: Arc::new(Mutex::new(Vec::new())),
         })
         .invoke_handler(tauri::generate_handler![
+            app_updates::check_app_update,
+            app_updates::install_app_update,
             start_bridge,
             stop_bridge,
             get_bridge_directory,

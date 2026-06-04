@@ -25,6 +25,38 @@ function Read-ServerEnvValue([string]$EnvPath, [string]$Key) {
   return ""
 }
 
+function Resolve-LlamaPerfProfile([string]$Requested) {
+  $profile = "$Requested".Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($profile) -or $profile -eq "auto") {
+    $cpuName = ""
+    try {
+      $cpuName = "$((Get-CimInstance Win32_Processor | Select-Object -First 1).Name)"
+    } catch {
+      $cpuName = ""
+    }
+    if ($cpuName -match "8840U") { return "minisforum-v3" }
+    if ($cpuName -match "12900") { return "intel-i9-12900" }
+    return "portable-cpu"
+  }
+  if ($profile -in @("intel-i9-12900", "i9-12900", "12900")) { return "intel-i9-12900" }
+  if ($profile -in @("minisforum-v3", "amd-8840u", "ryzen-8840u")) { return "minisforum-v3" }
+  if ($profile -in @("apple-m3-pro", "m3-pro")) { return "apple-m3-pro" }
+  if ($profile -in @("apple-m3-pro-cpu", "m3-pro-cpu")) { return "apple-m3-pro-cpu" }
+  if ($profile -in @("portable-cpu", "cpu-portable")) { return "portable-cpu" }
+  return "portable-cpu"
+}
+
+function Resolve-LlamaPerfArgs([string]$Requested) {
+  $profile = Resolve-LlamaPerfProfile $Requested
+  switch ($profile) {
+    "intel-i9-12900" { return "--reasoning off --threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
+    "minisforum-v3" { return "--reasoning off --threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
+    "apple-m3-pro" { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 99 --flash-attn on --mmap" }
+    "apple-m3-pro-cpu" { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
+    default { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
+  }
+}
+
 if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
   $configPath = Join-Path $ScriptRoot "riverside-deployment.config.json"
   if (Test-Path $configPath) {
@@ -38,6 +70,7 @@ $envPath = Join-Path $InstallRoot "server\.env"
 $modelPath = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_MODEL_PATH"
 $hostName = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_HOST"
 $port = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_PORT"
+$llamaPerfProfile = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_PERF_PROFILE"
 if ([string]::IsNullOrWhiteSpace($hostName)) { $hostName = "127.0.0.1" }
 if ([string]::IsNullOrWhiteSpace($port)) { $port = "8080" }
 
@@ -53,7 +86,7 @@ if (-not (Test-Path $llamaExe)) {
 }
 
 if (-not (Test-Path $llamaExe)) {
-  throw "llama-server.exe was not found under $InstallRoot\rosie\bin. Re-run install-server.ps1 from a full v0.70.1+ deployment package."
+  throw "llama-server.exe was not found under $InstallRoot\rosie\bin. Re-run Install-RosieAiStack.ps1 or install-server.ps1 after network connectivity is restored."
 }
 
 if ([string]::IsNullOrWhiteSpace($modelPath) -or -not (Test-Path $modelPath)) {
@@ -61,7 +94,10 @@ if ([string]::IsNullOrWhiteSpace($modelPath) -or -not (Test-Path $modelPath)) {
 }
 
 $taskName = "Riverside OS LLM Host"
-$argument = "-m `"$modelPath`" --host $hostName --port $port --reasoning off"
+$llamaPerfArgs = Resolve-LlamaPerfArgs $llamaPerfProfile
+$resolvedLlamaPerfProfile = Resolve-LlamaPerfProfile $llamaPerfProfile
+Write-Host "Applying llama.cpp performance profile '$resolvedLlamaPerfProfile'."
+$argument = "-m `"$modelPath`" --host $hostName --port $port $llamaPerfArgs"
 $llamaDir = Split-Path -Parent $llamaExe
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue

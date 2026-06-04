@@ -5,14 +5,14 @@ Target: Hybrid Tauri Host retail deployment.
 ### Current Deployment Status (2026-06-04)
 
 - [x] Target release version is **`v0.85.9`**.
-- [ ] Current release tag exists: **`v0.85.9`**.
-- [ ] Current release has Windows installer/updater assets published.
-- [ ] Required action: tag/publish `v0.85.9`, then run the Windows updater release workflow and Windows deployment package workflow before installing Windows stations.
-- [ ] Required artifacts: `latest.json`, `riverside-updater-build-manifest.json`, Windows MSI, matching `.sig`, and `RiversideOS-v0.85.9-Windows-Deployment.zip`.
-- [ ] Current release has macOS ROS Dev Center DMG published.
-- [ ] Required artifact: `ROS-Dev-Center_0.85.9_universal.dmg`.
-- [ ] Latest Playwright E2E push on `main` passed for the final `v0.85.9` release commit.
-- [ ] Latest Lint Checks push on `main` passed for the final `v0.85.9` release commit.
+- [x] Current release tag exists: **`v0.85.9`** at `def01e2795dc69b4eef459bb6722372bd577f9e7`.
+- [x] Current release has Windows installer/updater assets published.
+- [x] Required artifacts exist: `latest.json`, `riverside-updater-build-manifest.json`, `Riverside.POS_0.85.9_x64_en-US.msi`, matching `.sig`, and `RiversideOS-v0.85.9-def01e2-Windows-Deployment.zip`.
+- [x] Current release has macOS ROS Dev Center DMG published: `ROS.Dev.Center_0.85.9_universal.dmg`.
+- [x] Latest Playwright E2E push on `main` passed for the final `v0.85.9` release commit (`26957186932`).
+- [x] Latest Lint Checks push on `main` passed for the final `v0.85.9` release commit (`26957186796`).
+- [x] Source hardening for standalone self-updaters, ROSIE profiles, Counterpoint Bridge GUI self-containment, customer join/split, and Orders lifecycle filters is documented in `CHANGELOG.md` and `docs/releases/v0.85.9-release-notes.md`.
+- [ ] Counterpoint Bridge GUI release assets are rebuilt and republished with `0.85.9` package metadata. Current `v0.85.9` release assets still include `counterpoint-bridge-gui_0.85.0_*` names.
 - [ ] Production station deployment log is complete for:
   - Main Hub (Backoffice / Server PC)
   - Register #1 Windows Tauri
@@ -31,20 +31,28 @@ All six go-live readiness items from the v0.85.0 audit, v0.85.5 fixes, and v0.85
 - [x] **Fix F — Helcim Terminal Stream Auto-Reconnect** (`client/src/components/pos/NexoCheckoutDrawer.tsx`) — Nexo payment UI falls back to 4s polling intervals if the SSE stream drops silently.
 - [x] **Sweden-style Cash Rounding Persistence** — cash due amounts rounded dynamically to the nearest $0.05 on cash sales when the database-backed toggle is active.
 - [x] **Counterpoint Sync Empty Query Validation** — restored strict schema validation when `CP_AUTO_SCHEMA=0` is set to ensure manual configuration errors are caught immediately.
+- [x] **Standalone App Self-Updaters** — Deployment Manager, ROS Server Manager, Counterpoint Bridge GUI, and ROS Dev Center now have shared Tauri updater plumbing and manifest verification coverage.
+- [x] **Counterpoint Bridge GUI Self-Containment** — release builds package bridge resources and bundled runtime assets instead of depending on customer-machine `npm install` or system `node`.
+- [x] **ROSIE Host Profiles** — Intel i9-12900, Minisforum V3, Apple M3 Pro, Apple M3 Pro CPU-parity, and portable CPU profiles are documented and wired for predictable local LLM startup behavior.
+- [x] **Customer Join/Split Workflow** — joined accounts preserve per-person communications/profile views; split accounts preserve independent post-split behavior with clear history guidance.
+- [x] **Orders Lifecycle Management** — Orders page now supports lifecycle, closed, and cancelled filtering; received items needing staff ready-check are counted and surfaced before Ready for Pickup notifications.
 
-Verification run on 2026-06-03: `cargo check`, `npm run lint`, `tsc --noEmit`, `validate_migration_layout.sh`, and `validate_schema_contract.sh` all passed.
+Verification run on 2026-06-04: `git diff --check`, `./scripts/validate_migration_layout.sh`, `node --check scripts/check-version-parity.mjs`, `node --check scripts/bump-version.mjs`, `npm run check:version`, `npm run lint`, `cd client && npm run typecheck`, `cd server && cargo fmt -- --check`, and `npm run check:server` all passed.
 
 ## v0.85.9 Release Readiness Blockers
 
-- [ ] `v0.85.9` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
-- [ ] `v0.85.9` Windows deployment package exists and its manifest source SHA matches the release tag.
-- [ ] `v0.85.9` macOS ROS Dev Center DMG exists.
+- [x] `v0.85.9` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
+- [x] `v0.85.9` Windows updater manifest source SHA matches the release tag: `def01e2795dc69b4eef459bb6722372bd577f9e7`.
+- [x] `v0.85.9` Windows deployment package exists: `RiversideOS-v0.85.9-def01e2-Windows-Deployment.zip`.
+- [x] `v0.85.9` macOS ROS Dev Center DMG exists: `ROS.Dev.Center_0.85.9_universal.dmg`.
+- [ ] Counterpoint Bridge GUI installer assets are rebuilt after the source metadata correction from `0.85.0` to `0.85.9`.
 - [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
-- [ ] GitHub checks have rerun and passed on the final release commit.
+- [x] GitHub checks have rerun and passed on the final release commit.
 
 ## Code Gate
 
-- [ ] v0.85.9 automated certification evidence is recorded in [`docs/releases/v0.85.9-certification.md`](releases/v0.85.9-certification.md).
+- [x] v0.85.9 automated certification evidence is recorded in [`docs/releases/v0.85.9-certification.md`](releases/v0.85.9-certification.md).
+- [x] v0.85.9 local validation passed on 2026-06-04: `git diff --check`, migration layout, version parity, client lint/typecheck, Rust fmt check, and server compile.
 - [x] No unresolved AI-actionable code-level P0/P1 findings remain in `docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md`; human/environment verification gates below remain required.
 - [x] `cargo fmt --manifest-path server/Cargo.toml --check` — passed locally for v0.4.0 readiness on 2026-05-01.
 - [x] `cargo clippy --manifest-path server/Cargo.toml -- -D warnings` — passed locally for v0.4.0 readiness on 2026-05-01 after the Meilisearch helper refactor.
@@ -84,6 +92,9 @@ Verification run on 2026-06-03: `cargo check`, `npm run lint`, `tsc --noEmit`, `
 
 ## In-App Update System (v0.80.9+)
 
+- [x] Release workflows run `scripts/verify-updater-release-assets.mjs` after uploading updater assets for POS, Deployment Manager, Server Manager, Counterpoint Bridge GUI, and ROS Dev Center.
+- [x] Updater release proof checks require `+build` metadata, `build_sha`, non-empty signatures, referenced release artifacts, and matching `.sig` assets.
+- [x] Manual update recovery path is documented in `docs/DEPLOYMENT_MANAGER.md`.
 - [ ] Daily update check background worker is running (verify via `GET /api/ops/update-check` returning valid JSON after server start).
 - [ ] `update_available` notification is delivered to at least one `settings.admin` staff member when a newer GitHub release exists.
 - [ ] **Settings → Updates → Server update** on the Main Hub shows the correct current and latest version.
@@ -94,6 +105,7 @@ Verification run on 2026-06-03: `cargo check`, `npm run lint`, `tsc --noEmit`, `
 - [ ] Windows Tauri satellite: **"Update to vX.X.X"** button installs the signed MSI via the Tauri updater and relaunches correctly.
 - [ ] PWA satellite: hard reload serves updated web files after Main Hub update; version gate clears.
 - [ ] Staff cannot sign in on any station until client version matches server version.
+- [ ] Physical update rehearsal is complete on Main Hub, Windows Register, Back Office workstation, and PWA/iPad station using the documented pre-go-live rehearsal.
 
 ## Hybrid Host Gate
 

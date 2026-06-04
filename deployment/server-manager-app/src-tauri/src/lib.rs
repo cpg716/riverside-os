@@ -5,6 +5,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
+mod app_updates;
+
 #[derive(Serialize, Deserialize, Clone)]
 struct LogMessage {
     level: String,
@@ -114,7 +116,10 @@ async fn run_powershell_capture(script: &str) -> Result<String, String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("PowerShell exited with {}: {}", output.status, stderr));
+        return Err(format!(
+            "PowerShell exited with {}: {}",
+            output.status, stderr
+        ));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -483,7 +488,10 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            app_updates::check_app_update,
+            app_updates::install_app_update,
             get_manager_paths,
             get_server_snapshot,
             run_server_action,

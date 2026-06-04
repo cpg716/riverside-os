@@ -11,6 +11,7 @@
 //! To avoid destructive transaction reparenting, linked profiles use combined views for purchase history.
 //! Loyalty points and store credit move to the primary profile when the link is created.
 
+use chrono::Utc;
 use rust_decimal::Decimal;
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use thiserror::Error;
@@ -266,6 +267,20 @@ pub async fn unlink_couple(pool: &PgPool, customer_id: Uuid) -> Result<(), Coupl
         .await?;
 
         let member_ids: Vec<Uuid> = members.iter().map(|member| member.id).collect();
+        let active_relationship: Option<(Uuid, Uuid)> = sqlx::query_as(
+            r#"
+            SELECT parent_customer_id, child_customer_id
+            FROM customer_relationship_periods
+            WHERE unlinked_at IS NULL
+              AND parent_customer_id = ANY($1)
+              AND child_customer_id = ANY($1)
+            ORDER BY linked_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(&member_ids)
+        .fetch_optional(&mut *tx)
+        .await?;
 
         sqlx::query(
             "UPDATE customers SET couple_id = NULL, couple_primary_id = NULL, couple_linked_at = NULL WHERE couple_id = $1"
@@ -287,19 +302,53 @@ pub async fn unlink_couple(pool: &PgPool, customer_id: Uuid) -> Result<(), Coupl
         .execute(&mut *tx)
         .await?;
 
+        let split_date = Utc::now().date_naive();
         for member in &members {
-            let other_labels: Vec<String> = members
-                .iter()
-                .filter(|other| other.id != member.id)
-                .map(CoupleCustomerSnapshot::label)
-                .collect();
-            if !other_labels.is_empty() {
-                insert_couple_timeline_note(
-                    &mut tx,
-                    member.id,
-                    format!("Unlinked profile from {}", other_labels.join(", ")),
-                )
-                .await?;
+            if let Some((parent_id, child_id)) = active_relationship {
+                let parent = members.iter().find(|candidate| candidate.id == parent_id);
+                let child = members.iter().find(|candidate| candidate.id == child_id);
+                if member.id == parent_id {
+                    if let Some(child) = child {
+                        insert_couple_timeline_note(
+                            &mut tx,
+                            member.id,
+                            format!(
+                                "Split linked profile from {} on {split_date}. Parent profile retains joined purchase history before this split.",
+                                child.label()
+                            ),
+                        )
+                        .await?;
+                    }
+                } else if member.id == child_id {
+                    if let Some(parent) = parent {
+                        insert_couple_timeline_note(
+                            &mut tx,
+                            member.id,
+                            format!(
+                                "Split from {} on {split_date}. View pre-split purchase history on that parent profile.",
+                                parent.label()
+                            ),
+                        )
+                        .await?;
+                    }
+                }
+            } else {
+                let other_labels: Vec<String> = members
+                    .iter()
+                    .filter(|other| other.id != member.id)
+                    .map(CoupleCustomerSnapshot::label)
+                    .collect();
+                if !other_labels.is_empty() {
+                    insert_couple_timeline_note(
+                        &mut tx,
+                        member.id,
+                        format!(
+                            "Split profile from {} on {split_date}",
+                            other_labels.join(", ")
+                        ),
+                    )
+                    .await?;
+                }
             }
         }
     }

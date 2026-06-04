@@ -157,7 +157,7 @@ const ENTITY_DEPENDENCIES = {
 
 // --- Local Bridge Control Server ---
 const BRIDGE_CONTROL_PORT = Number.parseInt(process.env.BRIDGE_CONTROL_PORT ?? "3002", 10);
-const BRIDGE_CONTROL_HOST = (process.env.BRIDGE_CONTROL_HOST ?? "0.0.0.0").trim() || "0.0.0.0";
+const BRIDGE_CONTROL_HOST = (process.env.BRIDGE_CONTROL_HOST ?? "127.0.0.1").trim() || "127.0.0.1";
 
 function bridgeControlUrls() {
     const urls = [
@@ -200,6 +200,9 @@ const startLocalServer = () => {
                 }
                 const request = ACTIVE_POOL.request();
                 let testSql = sqlText.trim();
+                if (!/^(SELECT|WITH)\b/i.test(testSql) || /;\s*\S/.test(testSql)) {
+                    throw new Error("SQL Query Tester only allows a single read-only SELECT/WITH statement.");
+                }
                 if (/^\s*SELECT\b/i.test(testSql) && !/^\s*SELECT\s+TOP\b/i.test(testSql)) {
                     testSql = testSql.replace(/^\s*SELECT\b/i, "SELECT TOP 10");
                 }
@@ -1163,7 +1166,7 @@ async function rebuildEffectiveSql(pool) {
 
 function logCanonicalSyncOrder() {
   console.info(
-    "[sync-order] Enforced pass order: staff → sales_rep_stubs (opt) → vendors → customers → store_credit_opening (opt) → customer_notes (opt) → category_masters (opt, before catalog) → catalog → inventory → vendor_items (opt) → gift_cards (opt) → tickets/opt → open_docs (opt) → loyalty_hist (opt) → receiving_history (opt) → ticket_notes (opt).",
+    "[sync-order] Enforced pass order: staff → sales_rep_stubs (opt) → vendors → customers (includes current loyalty balance snapshot) → store_credit_opening (opt) → customer_notes (opt) → category_masters (opt, before catalog) → catalog → inventory → vendor_items (opt) → gift_cards (opt) → tickets/opt → open_docs (opt) → receiving_history (opt) → ticket_notes (opt).",
   );
 }
 
@@ -4210,18 +4213,8 @@ async function runDiscover(pool) {
     note("No SY_GFC — keep SYNC_GIFT_CARDS=0.");
   }
 
-  const hasLoyPs = pickTableEntry(entries, "PS_LOY_PTS_HIST");
-  const hasLoyAr =
-    pickTableEntry(entries, "AR_LOY_PT_ADJ_TRX") || pickTableEntry(entries, "AR_LOY_PT_ADJ_HIST");
-  const loyTemplateOk = !!hasLoyPs;
-  dline("Loyalty history (PS_LOY_PTS_HIST template)", loyTemplateOk);
-  if (hasLoyAr && !hasLoyPs) {
-    note("This DB uses AR_LOY_PT_ADJ_* — bridge default targets PS_LOY_PTS_HIST; keep SYNC_LOYALTY_HIST=0 unless CP_LOYALTY_HIST_QUERY is rewritten.");
-  } else if (loyTemplateOk) {
-    note("Set SYNC_LOYALTY_HIST=1 in .env to import.");
-  } else {
-    note("No PS_LOY_PTS_HIST — keep SYNC_LOYALTY_HIST=0.");
-  }
+  dline("Loyalty balance snapshot (AR_CUST pts_bal)", true);
+  note("Keep SYNC_LOYALTY_HIST=0 for cutover. Import current balances through CP_CUSTOMERS_QUERY as pts_bal.");
 
   if (ticketCellOk) {
     dline("Ticket matrix cells (PS_TKT_HIST_*CELL)", true);

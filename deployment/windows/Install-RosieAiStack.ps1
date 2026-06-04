@@ -88,6 +88,13 @@ $SHERPA_VERSION   = "1.13.2"
 $SHERPA_ARCH      = "win-x64"  # win-x64 | win-x86 | win-arm64
 $SHERPA_TAR_URL   = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$SHERPA_VERSION/sherpa-onnx-v$SHERPA_VERSION-$SHERPA_ARCH.tar.bz2"
 
+# llama.cpp CPU runtime for the Host LLM. This is used when the
+# deployment package does not already include rosie\bin\llama-server.exe.
+$LLAMA_VERSION    = "b9512"
+$LLAMA_ZIP_NAME   = "llama-$LLAMA_VERSION-bin-win-cpu-x64.zip"
+$LLAMA_ZIP_URL    = "https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_VERSION/$LLAMA_ZIP_NAME"
+$LLAMA_ZIP_SHA256 = "78dde1e8805713d0a726e9603a2bb0a6c26aad77b4e667108233890652e41019"
+
 # SenseVoice Small (int8) - STT primary
 $STT_MODEL_DIR    = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
 $STT_HF_REPO      = "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
@@ -172,6 +179,7 @@ New-Item -ItemType Directory -Force -Path $binDestDir | Out-Null
 $requiredBinaries = @("sherpa-onnx-offline.exe", "sherpa-onnx-offline-tts.exe")
 $bundledLlama    = Join-Path $pkgBinDir "llama-server.exe"
 $destLlama       = Join-Path $binDestDir "llama-server.exe"
+$llamaVersionFile = Join-Path $rosieRoot "llama_version.txt"
 
 # Stop any running ROSIE / llama-server processes BEFORE copying binaries.
 # Without this, Windows will refuse to overwrite DLLs that are held open
@@ -204,6 +212,51 @@ if (Test-Path $pkgBinDir) {
   Write-Host "      Copying bundled binaries from package..."
   Copy-Item (Join-Path $pkgBinDir "*") $binDestDir -Force -Recurse -ErrorAction SilentlyContinue
 }
+
+$installedLlamaVersion = if (Test-Path $llamaVersionFile) { Get-Content $llamaVersionFile -Raw } else { "" }
+$installedLlamaVersion = $installedLlamaVersion.Trim()
+if ((Test-Path $destLlama) -and ($installedLlamaVersion -ne $LLAMA_VERSION) -and (-not (Test-Path $bundledLlama))) {
+  Write-Host "      llama.cpp version mismatch (installed: '$installedLlamaVersion', script: '$LLAMA_VERSION'). Updating Host LLM runtime..."
+  Remove-Item $destLlama -Force -ErrorAction SilentlyContinue
+}
+
+if (-not (Test-Path $destLlama)) {
+  Write-Host "      llama-server.exe not bundled. Downloading llama.cpp $LLAMA_VERSION CPU runtime..."
+  $llamaZipPath = Join-Path $env:TEMP $LLAMA_ZIP_NAME
+  $llamaExtractDir = Join-Path $env:TEMP "llama-cpp-extract-$LLAMA_VERSION"
+
+  Invoke-Download $LLAMA_ZIP_URL $llamaZipPath $LLAMA_ZIP_NAME
+  $llamaHash = (Get-FileHash -Algorithm SHA256 -Path $llamaZipPath).Hash.ToLowerInvariant()
+  if ($llamaHash -ne $LLAMA_ZIP_SHA256.ToLowerInvariant()) {
+    Remove-Item $llamaZipPath -Force -ErrorAction SilentlyContinue
+    throw "llama.cpp ZIP SHA256 mismatch. Expected $LLAMA_ZIP_SHA256, got $llamaHash."
+  }
+
+  if (Test-Path $llamaExtractDir) { Remove-Item $llamaExtractDir -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $llamaExtractDir | Out-Null
+  Expand-Archive -Path $llamaZipPath -DestinationPath $llamaExtractDir -Force
+
+  $extractedLlama = Get-ChildItem $llamaExtractDir -Recurse -Filter "llama-server.exe" | Select-Object -First 1
+  if (-not $extractedLlama) {
+    throw "llama.cpp archive did not contain llama-server.exe."
+  }
+  Copy-Item $extractedLlama.FullName $destLlama -Force
+  Write-Host "      Extracted: llama-server.exe"
+
+  $llamaRuntimeDir = $extractedLlama.DirectoryName
+  Get-ChildItem $llamaRuntimeDir -Filter "*.dll" | ForEach-Object {
+    Copy-Item $_.FullName (Join-Path $binDestDir $_.Name) -Force
+  }
+
+  Remove-Item $llamaZipPath -Force -ErrorAction SilentlyContinue
+  Remove-Item $llamaExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+if (-not (Test-Path $destLlama)) {
+  throw "Required ROSIE binary 'llama-server.exe' could not be obtained at: $destLlama"
+}
+$LLAMA_VERSION | Out-File -FilePath $llamaVersionFile -Encoding utf8
+Write-Host "      OK: llama-server.exe"
 
 # Check which sherpa-onnx binaries still need to be downloaded
 $missingSherpa = $requiredBinaries | Where-Object { -not (Test-Path (Join-Path $binDestDir $_)) }
