@@ -12,8 +12,11 @@ param(
 $ErrorActionPreference = "Stop"
 $script:lastNativeCommandOutput = ""
 
-# Enable TLS 1.2 and TLS 1.3 for secure downloads
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+# Enable TLS 1.2 and TLS 1.3 for secure downloads (safely fallback if TLS 1.3 enum is missing)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 12288
+} catch {}
 
 $ScriptRoot = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {

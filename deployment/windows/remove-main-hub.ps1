@@ -111,7 +111,7 @@ if (-not $KeepDatabase) {
     $pgPath = $psql.Source
     try {
       $env:PGPASSWORD = if ($cfg -and $cfg.server -and $cfg.server.database -and $cfg.server.database.adminPassword) { $cfg.server.database.adminPassword } else { "postgres" }
-      & $pgPath -U postgres -c "DROP DATABASE IF EXISTS riverside_os;" 2>&1 | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
+      & $pgPath -U postgres -w -c "DROP DATABASE IF EXISTS riverside_os;" 2>&1 | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
       Write-Host "  Database dropped." -ForegroundColor Green
     } catch {
       Write-Warning "Could not drop database: $($_.Exception.Message)"

@@ -26,8 +26,11 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-# Enable TLS 1.2 and TLS 1.3 for secure downloads from GitHub/HuggingFace
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+# Enable TLS 1.2 and TLS 1.3 for secure downloads from GitHub/HuggingFace (safely fallback if TLS 1.3 enum is missing)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 12288
+} catch {}
 
 $ScriptRoot = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
@@ -111,21 +114,29 @@ $TTS_ESPEAK_FILES = @(
 # ---- Helper: download with optional HF auth and automatic retry ----
 function Invoke-Download([string]$Url, [string]$OutFile, [string]$Label, [int]$MaxRetries = 3) {
   Write-Host "      Downloading $Label..."
-  $headers = @{}
-  $effectiveToken = if ($HfToken) { $HfToken } elseif ($env:HF_TOKEN) { $env:HF_TOKEN } else { "" }
-  if ($effectiveToken -and $Url -like "*huggingface.co*") {
-    $headers["Authorization"] = "Bearer $effectiveToken"
-  }
   $attempt = 0
   $lastErr = $null
   while ($attempt -lt $MaxRetries) {
     $attempt++
+    $webClient = $null
     try {
       if (Test-Path $OutFile) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
-      Invoke-WebRequest -Uri $Url -OutFile $OutFile -Headers $headers -UseBasicParsing
+      
+      # Use .NET WebClient for streaming download directly to disk (prevents memory bloat and IE dialog blocks)
+      $webClient = New-Object System.Net.WebClient
+      $effectiveToken = if ($HfToken) { $HfToken } elseif ($env:HF_TOKEN) { $env:HF_TOKEN } else { "" }
+      if ($effectiveToken -and $Url -like "*huggingface.co*") {
+        $webClient.Headers.Add("Authorization", "Bearer $effectiveToken")
+      }
+      # Add User-Agent to satisfy GitHub and HuggingFace CDN request rules
+      $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+      
+      $webClient.DownloadFile($Url, $OutFile)
+      $webClient.Dispose()
       return  # success
     } catch {
-      $lastErr = $_.Exception.Message
+      if ($null -ne $webClient) { $webClient.Dispose() }
+      $lastErr = $_.ToString()
       Write-Warning "      Download attempt $attempt/$MaxRetries failed: $lastErr"
       if ($attempt -lt $MaxRetries) {
         $sleepSec = [math]::Pow(2, $attempt)  # 2s, 4s

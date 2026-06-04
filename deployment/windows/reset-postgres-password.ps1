@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [string]$ConfigPath = "",
   [string]$NewPassword = ""
@@ -110,10 +110,10 @@ $psqlPath = if ($psqlCmd) { $psqlCmd.Source } else {
 
 $resetSql = "ALTER USER ""$dbUser"" WITH PASSWORD '$NewPassword';"
 $env:PGPASSWORD = ""
-$output = & $psqlPath -U $dbUser -h 127.0.0.1 -p 5432 -d postgres -c $resetSql -t 2>&1
+$output = & $psqlPath -U $dbUser -h 127.0.0.1 -p 5432 -d postgres -w -c $resetSql -t 2>&1
 if ($LASTEXITCODE -ne 0) {
   # Try without specifying host just in case
-  $output = & $psqlPath -U $dbUser -d postgres -c $resetSql -t 2>&1
+  $output = & $psqlPath -U $dbUser -d postgres -w -c $resetSql -t 2>&1
   if ($LASTEXITCODE -ne 0) {
     $errorMsg = $output | Out-String
     throw "Failed to reset PostgreSQL password: $errorMsg"
@@ -133,7 +133,7 @@ Start-Sleep -Seconds 3
 # 8. Verify Credentials - attempt non-interactive psql connection
 Write-Host "Verifying credentials with non-interactive psql connection..."
 $env:PGPASSWORD = $NewPassword
-$verifyOutput = & $psqlPath -U $dbUser -h 127.0.0.1 -p 5432 -d postgres -c "SELECT 1;" -t 2>&1
+$verifyOutput = & $psqlPath -U $dbUser -h 127.0.0.1 -p 5432 -d postgres -w -c "SELECT 1;" -t 2>&1
 $env:PGPASSWORD = $null
 if ($LASTEXITCODE -ne 0) {
   $errorMsg = $verifyOutput | Out-String

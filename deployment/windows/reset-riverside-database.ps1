@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
   [string]$ConfigPath = "",
   [switch]$StartFresh
@@ -61,7 +61,7 @@ function Invoke-Psql($PsqlPath, $DatabaseUrl, $Sql) {
   try {
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText($temp.FullName, $Sql, $utf8NoBom)
-    $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-f", $temp.FullName)
+    $exitCode = Invoke-NativeCommand $PsqlPath @($DatabaseUrl, "-v", "ON_ERROR_STOP=1", "-w", "-f", $temp.FullName)
     if ($exitCode -ne 0) {
       throw "psql failed with exit code $exitCode. $script:lastNativeCommandOutput"
     }
@@ -137,7 +137,7 @@ try {
       }
 
       $env:PGPASSWORD = ""
-      $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
+      $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -w -c "SELECT 1;" -t 2>&1
       $env:PGPASSWORD = $null
 
       if ($LASTEXITCODE -eq 0) {
@@ -147,7 +147,7 @@ try {
       } else {
         foreach ($pwd in @("postgres", "admin", "password")) {
           $env:PGPASSWORD = $pwd
-          $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -c "SELECT 1;" -t 2>&1
+          $testQuery = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d postgres -w -c "SELECT 1;" -t 2>&1
           $env:PGPASSWORD = $null
           if ($LASTEXITCODE -eq 0) {
             $config.server.database.adminPassword = $pwd
