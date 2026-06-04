@@ -12,6 +12,9 @@ param(
 $ErrorActionPreference = "Stop"
 $script:lastNativeCommandOutput = ""
 
+# Enable TLS 1.2 and TLS 1.3 for secure downloads
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+
 $ScriptRoot = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($ScriptRoot)) {
   $ScriptRoot = if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
@@ -790,7 +793,7 @@ function Install-RosieStack($PackageRoot) {
     # Call the installer script, passing the target install root and -SkipEnvPatch
     & $installerPath -ServerInstallRoot $installRoot -SkipEnvPatch
   } catch {
-    Write-Warning "ROSIE: Install-RosieAiStack.ps1 execution failed: $($_.Exception.Message)"
+    Write-Warning "ROSIE: Install-RosieAiStack.ps1 execution failed: $_"
     return $null
   }
 

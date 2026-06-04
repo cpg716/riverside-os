@@ -31,7 +31,7 @@ function Escape-SqlLiteral([string]$Value) {
 }
 
 function Invoke-PsqlText([string]$PsqlPath, [string]$DatabaseUrl, [string]$Sql) {
-  $output = & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -tAc $Sql
+  $output = & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -tAc -w $Sql
   if ($LASTEXITCODE -ne 0) {
     throw "psql failed with exit code $LASTEXITCODE."
   }
@@ -39,14 +39,14 @@ function Invoke-PsqlText([string]$PsqlPath, [string]$DatabaseUrl, [string]$Sql) 
 }
 
 function Invoke-PsqlFile([string]$PsqlPath, [string]$DatabaseUrl, [string]$FilePath) {
-  & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -1 -f $FilePath
+  & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -1 -w -f $FilePath
   if ($LASTEXITCODE -ne 0) {
     throw "Migration failed: $(Split-Path -Leaf $FilePath). psql exited with code $LASTEXITCODE."
   }
 }
 
 function Invoke-PsqlCommand([string]$PsqlPath, [string]$DatabaseUrl, [string]$Sql) {
-  & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -c $Sql | Out-Host
+  & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -w -c $Sql | Out-Host
   if ($LASTEXITCODE -ne 0) {
     throw "psql failed with exit code $LASTEXITCODE."
   }

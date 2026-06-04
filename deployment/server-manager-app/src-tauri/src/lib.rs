@@ -303,7 +303,7 @@ $password = if ($db -and $null -ne $db.adminPassword) { "$($db.adminPassword)" }
 $psql = if ($db -and $db.psqlPath -and (Test-Path "$($db.psqlPath)")) { "$($db.psqlPath)" } else { (Get-Command psql.exe -ErrorAction Stop).Source }
 $env:PGPASSWORD = $password
 Write-Host "Running VACUUM ANALYZE on $database..."
-& $psql -h $hostName -p $port -U $user -d $database -c 'VACUUM (ANALYZE);'
+& $psql -h $hostName -p $port -U $user -d $database -w -c 'VACUUM (ANALYZE);'
 Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
 Write-Host 'Database optimization complete.'
 "#;
@@ -425,15 +425,15 @@ $dbPassword = if ($db -and $null -ne $db.adminPassword) { "$($db.adminPassword)"
 $pg = @{ service_name = if ($pgSvc) { $pgSvc.Name } else { '' }; service_status = if ($pgSvc) { "$($pgSvc.Status)" } else { 'missing' }; psql_found = [bool]($psqlPath -and (Test-Path $psqlPath)); connectable = $false; db_exists = $false; db_size = ''; table_count = ''; migration_count = '' }
 if ($pg.psql_found) {
   $env:PGPASSWORD = $dbPassword
-  $connect = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d postgres -tAc 'SELECT 1;' 2>&1
+  $connect = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d postgres -w -tAc 'SELECT 1;' 2>&1
   $pg.connectable = ($LASTEXITCODE -eq 0 -and (($connect -join '').Trim() -eq '1'))
   if ($pg.connectable) {
-    $exists = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$dbName';" 2>&1
+    $exists = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d postgres -w -tAc "SELECT 1 FROM pg_database WHERE datname = '$dbName';" 2>&1
     $pg.db_exists = (($exists -join '').Trim() -eq '1')
     if ($pg.db_exists) {
-      $pg.db_size = ((& $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -tAc 'SELECT pg_size_pretty(pg_database_size(current_database()));' 2>&1) -join '').Trim()
-      $pg.table_count = ((& $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>&1) -join '').Trim()
-      $pg.migration_count = ((& $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -tAc "SELECT count(*) FROM _sqlx_migrations;" 2>&1) -join '').Trim()
+      $pg.db_size = ((& $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -w -tAc 'SELECT pg_size_pretty(pg_database_size(current_database()));' 2>&1) -join '').Trim()
+      $pg.table_count = ((& $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -w -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>&1) -join '').Trim()
+      $pg.migration_count = ((& $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -w -tAc "SELECT count(*) FROM _sqlx_migrations;" 2>&1) -join '').Trim()
     }
   }
   Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue

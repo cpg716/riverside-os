@@ -429,16 +429,16 @@ $out['psql_found'] = [bool]($psqlPath -and (Test-Path $psqlPath))
 # 3. Connectivity + version
 if ($out['psql_found']) {{
     $env:PGPASSWORD = '{password}'
-    $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-tAc' 'SELECT version();' 2>&1
+    $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-w' '-tAc' 'SELECT version();' 2>&1
     if ($LASTEXITCODE -ne 0) {{
         # Try empty/trust
         $env:PGPASSWORD = ''
-        $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-tAc' 'SELECT version();' 2>&1
+        $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-w' '-tAc' 'SELECT version();' 2>&1
         if ($LASTEXITCODE -ne 0) {{
             # Try common passwords
             foreach ($pwd in @('postgres', 'admin', 'password')) {{
                 $env:PGPASSWORD = $pwd
-                $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-tAc' 'SELECT version();' 2>&1
+                $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-w' '-tAc' 'SELECT version();' 2>&1
                 if ($LASTEXITCODE -eq 0) {{ break }}
             }}
         }}
@@ -447,17 +447,17 @@ if ($out['psql_found']) {{
         $out.connectable = $true
         $out.version = ($verResult -join '').Trim()
     }}
-
+ 
     # 4. DB existence + size
     if ($out.connectable) {{
-        $existsResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-tAc' "SELECT 1 FROM pg_database WHERE datname = '{db_name}';" 2>&1
+        $existsResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-w' '-tAc' "SELECT 1 FROM pg_database WHERE datname = '{db_name}';" 2>&1
         $out.db_exists = (($existsResult -join '').Trim() -eq '1')
         if ($out.db_exists) {{
-            $sizeResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-tAc' "SELECT pg_size_pretty(pg_database_size(current_database()));" 2>&1
+            $sizeResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-w' '-tAc' "SELECT pg_size_pretty(pg_database_size(current_database()));" 2>&1
             if ($LASTEXITCODE -eq 0) {{ $out.db_size = ($sizeResult -join '').Trim() }}
-            $migResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-tAc' "SELECT count(*) FROM _sqlx_migrations;" 2>&1
+            $migResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-w' '-tAc' "SELECT count(*) FROM _sqlx_migrations;" 2>&1
             if ($LASTEXITCODE -eq 0) {{ $out['migration_count'] = ($migResult -join '').Trim() }}
-            $tableResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-tAc' "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>&1
+            $tableResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-w' '-tAc' "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>&1
             if ($LASTEXITCODE -eq 0) {{ $out['table_count'] = ($tableResult -join '').Trim() }}
         }}
     }}

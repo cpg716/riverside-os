@@ -101,7 +101,7 @@ if (-not $success) {
             $env:PGPASSWORD = $config.server.database.adminPassword
         }
         
-        $queryResult = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d $dbName -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" -t 2>&1
+        $queryResult = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d $dbName -w -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" -t 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[FAIL] Could not query database. Password may be incorrect, or database '$dbName' does not exist." -ForegroundColor Red
             Write-Host "       Error: $queryResult" -ForegroundColor Red
@@ -110,7 +110,7 @@ if (-not $success) {
             Write-Host "[OK] Connected to database '$dbName'. Found $tableCount tables." -ForegroundColor Green
             
             # Check Migrations Count
-            $migrationResult = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d $dbName -c "SELECT COUNT(*) FROM ros_schema_migrations;" -t 2>&1
+            $migrationResult = & $psqlPath -U $dbUser -h $dbHost -p $dbPort -d $dbName -w -c "SELECT COUNT(*) FROM ros_schema_migrations;" -t 2>&1
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "[OK] Applied migrations count: $($migrationResult.Trim())" -ForegroundColor Green
             } else {
