@@ -161,9 +161,9 @@ export default function App() {
   // install-server.ps1 → repair-bootstrap-admin.ps1 → install-register.ps1
   const executeServerUpdate = async () => {
     if (isExecuting) return;
-    if (!requireElevation('Update This Server PC')) return;
+    if (!requireElevation('Update Main Hub')) return;
     setIsExecuting(true);
-    setLogs([{ level: 'info', text: 'Updating Backoffice / Server PC...' }]);
+    setLogs([{ level: 'info', text: 'Updating Main Hub (Server)...' }]);
 
     const unlisten = await listen<LogMessage>('deployment-log', (event) => {
       setLogs(prev => [...prev, event.payload]);
@@ -322,7 +322,7 @@ export default function App() {
                     <h3 className="font-semibold text-lg flex items-center gap-2">
                       <Server className="w-5 h-5" /> Main Hub (Backoffice / Server)
                     </h3>
-                    <p className="text-zinc-500 text-sm mt-1">The ONE server PC per store. Installs PostgreSQL, API server, ROSIE AI, and the Backoffice desktop app.</p>
+                    <p className="text-zinc-500 text-sm mt-1">The ONE Main Hub server per store. Installs PostgreSQL, API server, ROSIE AI, and the Backoffice desktop app.</p>
                   </button>
                   <button
                     onClick={() => setRole('standalone-backoffice')}
@@ -651,7 +651,7 @@ export default function App() {
                         </span>
                         <Play className="w-4 h-4 text-brand-500 opacity-60 group-hover:opacity-100" />
                       </div>
-                      <h4 className="font-bold text-sm text-zinc-900">Update This Server PC</h4>
+                      <h4 className="font-bold text-sm text-zinc-900">Update Main Hub</h4>
                       <p className="text-xs text-zinc-500 mt-1">Deploy latest backend server, API, client files, and migrations.</p>
                     </div>
                   </button>

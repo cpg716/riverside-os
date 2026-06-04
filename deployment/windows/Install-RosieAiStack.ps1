@@ -186,6 +186,19 @@ Start-Sleep -Seconds 1
 }
 Start-Sleep -Seconds 2
 
+# Check if sherpa version matches
+$versionFile = Join-Path $rosieRoot "sherpa_version.txt"
+$installedVersion = if (Test-Path $versionFile) { Get-Content $versionFile -Raw } else { "" }
+$installedVersion = $installedVersion.Trim()
+
+if ($installedVersion -ne $SHERPA_VERSION) {
+  Write-Host "      Sherpa version mismatch (installed: '$installedVersion', script: '$SHERPA_VERSION'). Forcing clean bin update..."
+  $requiredBinaries | ForEach-Object {
+    $p = Join-Path $binDestDir $_
+    if (Test-Path $p) { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+  }
+}
+
 # Copy any binaries that ARE in the package
 if (Test-Path $pkgBinDir) {
   Write-Host "      Copying bundled binaries from package..."
@@ -245,6 +258,9 @@ foreach ($bin in $requiredBinaries) {
   Write-Host "      OK: $bin"
 }
 
+# Write version file to prevent re-downloads/forcibly track the installed version
+$SHERPA_VERSION | Out-File -FilePath $versionFile -Encoding utf8
+
 # ============================================================
 # STEP 2 - STT Models (SenseVoice Small)
 # ============================================================
@@ -253,6 +269,15 @@ New-Item -ItemType Directory -Force -Path $sttDir | Out-Null
 
 $sttModelDir = Join-Path $sttDir $STT_MODEL_DIR
 $pkgSttDir   = Join-Path $pkgRosieDir "stt"
+
+$sttVersionFile = Join-Path $rosieRoot "stt_version.txt"
+$installedStt = if (Test-Path $sttVersionFile) { Get-Content $sttVersionFile -Raw } else { "" }
+$installedStt = $installedStt.Trim()
+
+if ($installedStt -ne $STT_HF_REPO) {
+  Write-Host "      STT model mismatch (installed: '$installedStt', script: '$STT_HF_REPO'). Forcing clean update..."
+  if (Test-Path $sttModelDir) { Remove-Item $sttModelDir -Recurse -Force -ErrorAction SilentlyContinue }
+}
 
 # Copy from package if present
 if (Test-Path $pkgSttDir) {
@@ -271,6 +296,7 @@ if ($sttOk) {
   Write-Warning "      Some STT model files could not be downloaded. ROSIE voice input will be unavailable."
 } else {
   Write-Host "      STT models ready at: $sttModelDir"
+  $STT_HF_REPO | Out-File -FilePath $sttVersionFile -Encoding utf8
 }
 
 # ============================================================
@@ -281,6 +307,15 @@ New-Item -ItemType Directory -Force -Path $ttsDir | Out-Null
 
 $ttsModelDir = Join-Path $ttsDir $TTS_MODEL_DIR
 $pkgTtsDir   = Join-Path $pkgRosieDir "tts"
+
+$ttsVersionFile = Join-Path $rosieRoot "tts_version.txt"
+$installedTts = if (Test-Path $ttsVersionFile) { Get-Content $ttsVersionFile -Raw } else { "" }
+$installedTts = $installedTts.Trim()
+
+if ($installedTts -ne $TTS_HF_REPO) {
+  Write-Host "      TTS model mismatch (installed: '$installedTts', script: '$TTS_HF_REPO'). Forcing clean update..."
+  if (Test-Path $ttsModelDir) { Remove-Item $ttsModelDir -Recurse -Force -ErrorAction SilentlyContinue }
+}
 
 # Copy from package if present
 if (Test-Path $pkgTtsDir) {
@@ -303,6 +338,7 @@ if ($ttsOk) {
   Write-Warning "      Some TTS model files could not be downloaded. ROSIE voice output will be unavailable."
 } else {
   Write-Host "      TTS models ready at: $ttsModelDir"
+  $TTS_HF_REPO | Out-File -FilePath $ttsVersionFile -Encoding utf8
 }
 
 # ============================================================
