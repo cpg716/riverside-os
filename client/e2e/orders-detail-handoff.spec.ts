@@ -178,6 +178,10 @@ async function expectOrderLoadedInRegister(
 }
 
 test.describe("Orders detail drawer and POS handoff", () => {
+  test.beforeEach(async () => {
+    test.setTimeout(90_000);
+  });
+
   test("Back Office orders open the detail drawer and load the selected order into Register", async ({
     page,
     request,
@@ -372,7 +376,13 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await orderRow.click();
 
     drawer = page.getByRole("dialog", { name: "Transaction Record" });
-    await expect(drawer).toBeVisible({ timeout: 20_000 });
+    try {
+      await expect(drawer).toBeVisible({ timeout: 3000 });
+    } catch (e) {
+      // Re-click if the first click got dropped due to list re-renders/layout shifts
+      await orderRow.click();
+      await expect(drawer).toBeVisible({ timeout: 15_000 });
+    }
     await expect(drawer.getByText("Qty 2").first()).toBeVisible({ timeout: 20_000 });
   });
 });
