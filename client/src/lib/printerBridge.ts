@@ -29,25 +29,48 @@ export type HardwarePrinterTarget =
 const printerModeKey = (type: PrintDocType) => `ros.hardware.printer.${type}.mode`;
 const printerSystemNameKey = (type: PrintDocType) =>
   `ros.hardware.printer.${type}.systemName`;
+const printerPortKey = (type: PrintDocType) => `ros.hardware.printer.${type}.port`;
+
+function readPrinterPort(type: PrintDocType, fallback = 9100) {
+  const stored = window.localStorage.getItem(printerPortKey(type));
+  const parsed = Number.parseInt(stored || String(fallback), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function normalizeNetworkTarget(
+  target: Extract<HardwarePrinterTarget, { mode: "network" }>,
+): Extract<HardwarePrinterTarget, { mode: "network" }> {
+  const ip = target.ip.trim();
+  if (!ip) {
+    throw new Error("Printer address is not configured for this station.");
+  }
+  if (!Number.isFinite(target.port) || target.port <= 0 || target.port > 65535) {
+    throw new Error("Printer port is invalid for this station.");
+  }
+  return { ...target, ip };
+}
 
 /** Resolves the local station's configured address for a specific document type. */
 export function resolvePrinterAddress(type: PrintDocType): HardwareAddress {
   if (type === "receipt") {
     return {
       ip: window.localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1",
-      port: parseInt(window.localStorage.getItem("ros.hardware.printer.receipt.port") || "9100", 10)
+      port: readPrinterPort("receipt"),
     };
   }
   if (type === "tag") {
     return {
       ip: window.localStorage.getItem("ros.hardware.printer.tag.ip") || "127.0.0.1",
-      port: 9100 // Tag printers usually use standard ZPL port
+      port: readPrinterPort("tag"),
     };
   }
   // Default to report / system
   return {
     ip: window.localStorage.getItem("ros.hardware.printer.report.ip") || "",
-    port: 9100
+    port: readPrinterPort("report"),
   };
 }
 
@@ -129,6 +152,7 @@ export async function printZplReceipt(
       payloadB64: asciiToBase64(payload),
     });
   }
+  const networkTarget = normalizeNetworkTarget(target);
 
   if (!isTauri()) {
     const baseUrl = getBaseUrl();
@@ -138,7 +162,7 @@ export async function printZplReceipt(
         "Content-Type": "application/json",
         ...sessionPollAuthHeaders(),
       },
-      body: JSON.stringify({ ip: target.ip, port: target.port, payload }),
+      body: JSON.stringify({ ip: networkTarget.ip, port: networkTarget.port, payload }),
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -148,7 +172,11 @@ export async function printZplReceipt(
   }
 
   try {
-    await invoke("print_zpl_receipt", { ip: target.ip, port: target.port, payload });
+    await invoke("print_zpl_receipt", {
+      ip: networkTarget.ip,
+      port: networkTarget.port,
+      payload,
+    });
   } catch (err) {
     console.error("Hardware Bridge Error: ZPL Print Failed:", err);
     throw new Error(String(err), { cause: err });
@@ -173,6 +201,7 @@ export async function printRawEscPosBase64(
     });
     return;
   }
+  const networkTarget = normalizeNetworkTarget(target);
 
   if (!isTauri()) {
     const baseUrl = getBaseUrl();
@@ -183,8 +212,8 @@ export async function printRawEscPosBase64(
         ...sessionPollAuthHeaders(),
       },
       body: JSON.stringify({
-        ip: target.ip,
-        port: target.port,
+        ip: networkTarget.ip,
+        port: networkTarget.port,
         payload: payloadB64,
         format: "raw_escpos_base64",
       }),
@@ -198,8 +227,8 @@ export async function printRawEscPosBase64(
 
   try {
     await invoke("print_escpos_binary_b64", {
-      ip: target.ip,
-      port: target.port,
+      ip: networkTarget.ip,
+      port: networkTarget.port,
       payloadB64: payloadB64,
     });
   } catch (err) {
@@ -226,6 +255,7 @@ export async function printEscPosReceipt(
       payloadB64: asciiToBase64(`${init}${payload}\n\n\n\n${cut}`),
     });
   }
+  const networkTarget = normalizeNetworkTarget(target);
 
   if (!isTauri()) {
     const baseUrl = getBaseUrl();
@@ -235,7 +265,7 @@ export async function printEscPosReceipt(
         "Content-Type": "application/json",
         ...sessionPollAuthHeaders(),
       },
-      body: JSON.stringify({ ip: target.ip, port: target.port, payload }),
+      body: JSON.stringify({ ip: networkTarget.ip, port: networkTarget.port, payload }),
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -245,7 +275,11 @@ export async function printEscPosReceipt(
   }
 
   try {
-    await invoke("print_escpos_receipt", { ip: target.ip, port: target.port, payload });
+    await invoke("print_escpos_receipt", {
+      ip: networkTarget.ip,
+      port: networkTarget.port,
+      payload,
+    });
   } catch (err) {
     console.error("Hardware Bridge Error: ESC/POS Print Failed:", err);
     throw new Error(String(err), { cause: err });
@@ -271,14 +305,7 @@ export async function checkReceiptPrinterConnection(
     }
   }
 
-  const ip = target.ip.trim();
-  const port = target.port;
-  if (!ip) {
-    throw new Error("Printer address is not configured for this station.");
-  }
-  if (!Number.isFinite(port) || port <= 0) {
-    throw new Error("Printer port is invalid for this station.");
-  }
+  const networkTarget = normalizeNetworkTarget(target);
   if (!isTauri()) {
     const baseUrl = getBaseUrl();
     const res = await fetch(`${baseUrl}/api/hardware/check-printer`, {
@@ -287,7 +314,7 @@ export async function checkReceiptPrinterConnection(
         "Content-Type": "application/json",
         ...sessionPollAuthHeaders(),
       },
-      body: JSON.stringify({ ip, port }),
+      body: JSON.stringify({ ip: networkTarget.ip, port: networkTarget.port }),
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -296,7 +323,10 @@ export async function checkReceiptPrinterConnection(
     return;
   }
   try {
-    await invoke("check_printer_connection", { ip, port });
+    await invoke("check_printer_connection", {
+      ip: networkTarget.ip,
+      port: networkTarget.port,
+    });
   } catch (err) {
     console.error("Hardware Bridge Error: printer readiness check failed:", err);
     throw new Error(String(err), { cause: err });

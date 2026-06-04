@@ -20,8 +20,8 @@ Riverside OS tracks three distinct printer stations per workstation. Each docume
 | Station Type | Modes | Storage Keys | Description |
 |--------------|-------|--------------|-------------|
 | **Receipt Station** | Installed Windows printer or ESC/POS TCP | `ros.hardware.printer.receipt.mode`, `.systemName`, `.ip`, `.port` | Primary Epson customer thermal printer. Handles sales records, gift receipts, and the attached Register #1 cash drawer. |
-| **Tag Station** | Installed Windows printer or ZPL TCP | `ros.hardware.printer.tag.mode`, `.systemName`, `.ip` | Zebra clothing tag printer on the workstation or network. Handles SKU/inventory tags. |
-| **Reporting Station** | Installed Windows printer or network target | `ros.hardware.printer.report.mode`, `.systemName`, `.ip` | Full-page document printer. Handles audit logs, shift summaries, and manifest reports. |
+| **Tag Station** | Installed Windows printer or ZPL TCP | `ros.hardware.printer.tag.mode`, `.systemName`, `.ip`, `.port` | Zebra clothing tag printer on the workstation or network. Handles SKU/inventory tags. |
+| **Reporting Station** | Installed Windows printer or network target | `ros.hardware.printer.report.mode`, `.systemName`, `.ip`, `.port` | Full-page document printer. Handles audit logs, shift summaries, and manifest reports. |
 
 ---
 
@@ -51,6 +51,8 @@ The production receipt path is **Standard Epson**: ROS generates a merged Receip
 
 **Recommended setup:** use **Network address** for the Register #1 Epson receipt printer and cash drawer when the printer has a stable IP. It is the cleanest path for ESC/POS receipt commands and drawer kick. Use **Installed printer on this PC** for USB printers, Windows-driver-managed label/report printers, or as a fallback when raw network printing is not available.
 
+Browser/PWA network printing is allowlisted by the saved station configuration. `/api/hardware/print` only dispatches to receipt, tag, or report network targets that appear in `pos_station_config.printer_config`. A valid POS register session can sync printer settings for its own active register lane; Back Office admins can still manage any lane.
+
 The previous HTML receipt designer is no longer exposed in the active Settings UI. Receipt view, email, and text delivery use the standard receipt renderer when no legacy saved HTML template exists.
 
 ### Item Tags
@@ -62,7 +64,7 @@ If direct dispatch is not available, ROS opens the retail tag preview so staff c
 The `printerBridge.ts` module includes an intelligent dispatcher that resolves the correct station based on document metadata:
 
 ```typescript
-await autoRoutePrint("receipt", escposBase64, "raw_escpos_base64");
+await printRawEscPosBase64(escposBase64);
 await autoRoutePrint("tag", zplPayload, "zpl");
 ```
 
@@ -85,7 +87,8 @@ When setting up a new lane:
 3. Open **Printers & Scanners** and choose the printer setup mode for receipt, tag, and report stations.
 4. For installed printers, choose the printer from the local Windows printer list.
 5. For network printers, enter the printer address and port.
-6. Run **Check connection** for the receipt printer from the desktop app, or confirm the saved target from browser/POS mode.
-7. In POS Register Hardware, run **Print test** for the Epson receipt station and use **Open drawer** with an Access PIN and reason to verify the audited drawer path.
-8. Print a sample inventory tag and confirm it routes directly to the Zebra 2844 tag station, with browser preview used only as fallback.
-9. In the POS, verify that **Auto-Print** toggles are set according to staff preference.
+6. Save or sync the lane printer settings so browser/PWA print dispatch is allowlisted.
+7. Run **Check connection** for the receipt printer from the desktop app, or confirm the saved target from browser/POS mode.
+8. In POS Register Hardware, run **Print test** for the Epson receipt station and use **Open drawer** with an Access PIN and reason to verify the audited drawer path.
+9. Print a sample inventory tag and confirm it routes directly to the Zebra 2844 tag station, with browser preview used only as fallback.
+10. In the POS, verify that **Auto-Print** toggles are set according to staff preference.

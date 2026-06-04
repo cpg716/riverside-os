@@ -25,6 +25,7 @@ use thiserror::Error;
 use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
 use crate::auth::pins::log_staff_access;
+use crate::auth::pos_session;
 use crate::logic::email::{self, StoreEmailConfig};
 use crate::logic::nuorder::{NuorderClient, NuorderCredentials};
 use crate::logic::nuorder_sync;
@@ -97,6 +98,47 @@ async fn require_settings_admin(
         .await
         .map(|_| ())
         .map_err(map_set_perm)
+}
+
+async fn require_printer_config_writer(
+    state: &AppState,
+    headers: &HeaderMap,
+    register_lane: i16,
+) -> Result<(), SettingsError> {
+    if let Some((session_id, token)) = pos_session::pos_session_headers(headers) {
+        match pos_session::verify_pos_session_token(&state.db, session_id, &token).await {
+            Ok(true) => {
+                let active_lane: Option<i16> = sqlx::query_scalar(
+                    "SELECT register_lane FROM register_sessions WHERE id = $1 AND is_open = TRUE",
+                )
+                .bind(session_id)
+                .fetch_optional(&state.db)
+                .await?;
+
+                if active_lane == Some(register_lane) {
+                    return Ok(());
+                }
+
+                return Err(SettingsError::Forbidden(
+                    "register printer config can only be synced for the active register lane"
+                        .to_string(),
+                ));
+            }
+            Ok(false) => {
+                return Err(SettingsError::Unauthorized(
+                    "invalid or expired register session token".to_string(),
+                ));
+            }
+            Err(error) => {
+                tracing::error!(%error, "printer config POS session verification failed");
+                return Err(SettingsError::InvalidPayload(
+                    "session verification failed".to_string(),
+                ));
+            }
+        }
+    }
+
+    require_settings_admin(state, headers).await
 }
 
 impl IntoResponse for SettingsError {
@@ -2760,7 +2802,7 @@ async fn patch_printer_config(
     Path(register_lane): Path<i16>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, SettingsError> {
-    require_settings_admin(&state, &headers).await?;
+    require_printer_config_writer(&state, &headers, register_lane).await?;
     let raw: serde_json::Value =
         sqlx::query_scalar("SELECT pos_station_config FROM store_settings WHERE id = 1")
             .fetch_one(&state.db)

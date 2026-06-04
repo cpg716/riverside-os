@@ -25,6 +25,7 @@ import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2 } from "../../lib/money";
 import { enqueueFailedPrint } from "../../lib/printRetryQueue";
+import { writeAndPrintDocumentWindow } from "../../lib/browserPrint";
 import type { OrderPaymentCartLine } from "./types";
 
 export interface ReceiptSummaryModalProps {
@@ -788,17 +789,7 @@ export default function ReceiptSummaryModal({
         throw new Error("Popup blocked — allow popups to print the report copy.");
       }
       w.opener = null;
-      w.document.open();
-      w.document.write(content);
-      w.document.close();
-      w.focus();
-      requestAnimationFrame(() => {
-        try {
-          w.print();
-        } catch {
-          /* Browser print errors are surfaced by the browser UI. */
-        }
-      });
+      writeAndPrintDocumentWindow(w, content);
       toast("Receipt opened for the reports printer.", "success");
     } catch (e) {
       console.error("Receipt print view failed", e);

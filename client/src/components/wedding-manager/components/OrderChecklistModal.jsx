@@ -2,6 +2,7 @@ import React, { useRef, useMemo } from 'react';
 import Icon from './Icon';
 import { formatDate } from '../lib/utils';
 import { parseJSON } from '../lib/dataUtils';
+import { writeAndPrintDocumentWindow } from '../../../lib/browserPrint';
 
 const OrderChecklistModal = ({ isOpen, onClose, party }) => {
     const printRef = useRef();
@@ -24,7 +25,8 @@ const OrderChecklistModal = ({ isOpen, onClose, party }) => {
         const printContent = printRef.current.innerHTML;
 
         const win = window.open('', '_blank');
-        win.document.write(`
+        if (!win) return;
+        writeAndPrintDocumentWindow(win, `
             <html>
                 <head>
                     <title>Order Checklist - ${party.name}</title>
@@ -60,18 +62,9 @@ const OrderChecklistModal = ({ isOpen, onClose, party }) => {
                     <div class="print-container">
                         ${printContent}
                     </div>
-                    <script>
-                        window.onload = function() { 
-                            setTimeout(() => {
-                                window.print(); 
-                                window.close(); 
-                            }, 500);
-                        }
-                    </script>
                 </body>
             </html>
         `);
-        win.document.close();
     };
 
     return (

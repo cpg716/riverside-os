@@ -1,6 +1,7 @@
 import React from 'react';
 import { formatDate } from '../lib/utils';
 import Icon from './Icon';
+import { printExistingWindow } from '../../../lib/browserPrint';
 
 const PrintPartyView = ({ party, onCancel }) => {
     // Calculate stats
@@ -205,7 +206,7 @@ const PrintPartyView = ({ party, onCancel }) => {
                         <span className="text-xs text-app-text-muted hidden sm:inline">
                             Landscape Mode Recommended • {s.label} (Score: {score.toFixed(1)})
                         </span>
-                        <button type="button" onClick={() => window.print()} className="flex items-center gap-2 bg-navy-900 text-white px-4 py-2 rounded font-bold hover:bg-navy-800 transition-colors shadow-md text-sm">
+                        <button type="button" onClick={() => printExistingWindow(window)} className="flex items-center gap-2 bg-navy-900 text-white px-4 py-2 rounded font-bold hover:bg-navy-800 transition-colors shadow-md text-sm">
                             <Icon name="Printer" size={16} /> Print Now
                         </button>
                     </div>

@@ -4,6 +4,7 @@ import { formatDate } from '../lib/utils';
 import { api } from '../lib/api';
 import { parseJSON } from '../lib/dataUtils';
 import { useModal } from '../hooks/useModal';
+import { printExistingWindow } from '../../../lib/browserPrint';
 
 const OrderDashboard = ({ onBack }) => {
     const { showConfirm, showAlert, selectSalesperson } = useModal();
@@ -258,7 +259,7 @@ const OrderDashboard = ({ onBack }) => {
 
                 <div className="flex items-center gap-3">
                     <button type="button"
-                        onClick={() => window.print()}
+                        onClick={() => printExistingWindow(window)}
                         className="h-14 px-8 bg-navy-900 text-white rounded-2xl font-black flex items-center gap-3 hover:bg-black shadow-xl shadow-navy-900/20 active:scale-95 transition-all text-sm uppercase tracking-widest"
                     >
                         <Icon name="Printer" size={20} /> Generate List

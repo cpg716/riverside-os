@@ -3,6 +3,7 @@ import Icon from './Icon';
 import { api, socket } from '../lib/api';
 import AppointmentModal from './AppointmentModal';
 import { formatDate } from '../lib/utils';
+import { printExistingWindow } from '../../../lib/browserPrint';
 
 import { useModal } from '../hooks/useModal';
 
@@ -215,7 +216,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
 
                 <div className="flex gap-2">
                     <button type="button"
-                        onClick={() => window.print()}
+                        onClick={() => printExistingWindow(window)}
                         className="flex items-center gap-1 px-3 py-2 bg-app-surface border border-app-border text-app-text font-bold rounded hover:bg-app-surface-2 text-sm"
                     >
                         <Icon name="Printer" size={16} /> Print

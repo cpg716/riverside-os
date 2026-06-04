@@ -51,6 +51,7 @@ const PRINTERS: PrinterConfig[] = [
     label: "Clothing Tag Station",
     helper: "Zebra 2844 on the host PC for ZPL clothing tags",
     ipStorageKey: "ros.hardware.printer.tag.ip",
+    portStorageKey: "ros.hardware.printer.tag.port",
     modeStorageKey: "ros.hardware.printer.tag.mode",
     systemStorageKey: "ros.hardware.printer.tag.systemName",
     defaultIp: "127.0.0.1",
@@ -61,6 +62,7 @@ const PRINTERS: PrinterConfig[] = [
     label: "Reports Printer",
     helper: "Full-page reports and audit paperwork",
     ipStorageKey: "ros.hardware.printer.report.ip",
+    portStorageKey: "ros.hardware.printer.report.port",
     modeStorageKey: "ros.hardware.printer.report.mode",
     systemStorageKey: "ros.hardware.printer.report.systemName",
     defaultIp: "",
@@ -293,8 +295,8 @@ export default function PrintersAndScannersPanel({
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         {PRINTERS.map((printer) => {
           const portKey = printer.portStorageKey ?? `${printer.ipStorageKey}.port`;
-          const showPort = printer.key === "receipt";
           const targetMode = values[printer.modeStorageKey] === "system" ? "system" : "network";
+          const showPort = targetMode === "network";
           return (
             <div key={printer.key} className="ui-card flex flex-col gap-5 p-6">
               <div className="flex items-start justify-between gap-3">

@@ -20,6 +20,7 @@ import {
   X
 } from "lucide-react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
+import { writeAndPrintDocumentWindow } from "../../lib/browserPrint";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   type LoyaltyEligibleCustomer,
@@ -102,7 +103,7 @@ function printMailingLabels(customers: (LoyaltyEligibleCustomer | RewardFulfillm
         </div>`;
     })
     .join("");
-  w.document.write(`<!DOCTYPE html><html><head><title>Mailing Labels</title>
+  writeAndPrintDocumentWindow(w, `<!DOCTYPE html><html><head><title>Mailing Labels</title>
   <style>
     @page { size: letter; margin: 0.5in 0.1875in; }
     body { font-family: Arial, sans-serif; margin: 0; color: #111; }
@@ -111,8 +112,7 @@ function printMailingLabels(customers: (LoyaltyEligibleCustomer | RewardFulfillm
     .name { font-weight: 700; margin: 0 0 0.04in; }
     p { margin: 0; }
     @media screen { body { padding: 12px; background: #f4f4f5; } .sheet { background: white; width: 8.125in; min-height: 10in; padding: 0.5in 0.1875in; box-shadow: 0 8px 30px rgba(15,23,42,.18); } .label { outline: 1px dashed #ddd; } }
-  </style></head><body><div class="sheet">${labels}</div><script>window.onload=function(){window.print();}</script></body></html>`);
-  w.document.close();
+  </style></head><body><div class="sheet">${labels}</div></body></html>`);
 }
 
 interface LoyaltyLetterCard {
@@ -205,7 +205,7 @@ function printLoyaltyLetter(
     )
     .replace(/\{\{cards_table\}\}/g, renderCardsTable(cards));
 
-  w.document.write(`<!DOCTYPE html><html><head><title>Loyalty Reward Letter</title>
+  writeAndPrintDocumentWindow(w, `<!DOCTYPE html><html><head><title>Loyalty Reward Letter</title>
   <style>
     body { font-family: 'Times New Roman', serif; margin: 0; padding: 1in; line-height: 1.6; color: #333; }
     .letter-contents { max-width: 6.5in; margin: 0 auto; white-space: pre-wrap; font-size: 14pt; }
@@ -217,8 +217,7 @@ function printLoyaltyLetter(
     <div class="header"><h1>Riverside</h1></div>
     <div class="letter-contents">${content}</div>
     <div class="footer">Riverside OS Loyalty Fulfillment System</div>
-    <script>window.onload=function(){window.print();}</script></body></html>`);
-  w.document.close();
+    </body></html>`);
 }
 
 function SettingsPanel({ 

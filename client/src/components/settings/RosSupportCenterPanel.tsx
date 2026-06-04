@@ -126,6 +126,12 @@ type NotificationHealth = {
     unread_count: number;
     oldest_created_at: string;
   }>;
+  fatigue_warnings: Array<{
+    key: string;
+    severity: "critical" | "warning" | string;
+    title: string;
+    detail: string;
+  }>;
 };
 
 type SupportFeedKey =
@@ -773,6 +779,27 @@ export default function RosSupportCenterPanel({
                   <DegradedNotice>
                     Notification health could not refresh. Staff alerts remain usable.
                   </DegradedNotice>
+                </div>
+              )}
+              {(notificationHealth?.fatigue_warnings ?? []).length > 0 && (
+                <div className="mb-4 grid gap-2">
+                  {notificationHealth?.fatigue_warnings.map((warning) => (
+                    <div
+                      key={warning.key}
+                      className={`rounded-xl border px-4 py-3 ${
+                        warning.severity === "critical"
+                          ? "border-app-danger/35 bg-app-danger/10"
+                          : "border-app-warning/35 bg-app-warning/10"
+                      }`}
+                    >
+                      <p className="text-xs font-black uppercase tracking-widest text-app-text">
+                        {warning.title}
+                      </p>
+                      <p className="mt-1 text-xs text-app-text-muted">
+                        {warning.detail}
+                      </p>
+                    </div>
+                  ))}
                 </div>
               )}
 

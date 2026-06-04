@@ -26,6 +26,10 @@ pub struct ListQuery {
     pub include_archived: bool,
     pub mode: Option<String>,
     pub kinds: Option<String>,
+    pub search: Option<String>,
+    pub severity: Option<String>,
+    pub category: Option<String>,
+    pub source: Option<String>,
     #[serde(default = "default_limit")]
     pub limit: i64,
 }
@@ -70,6 +74,10 @@ async fn list_notifications(
         staff.id,
         list_mode_from_query(&q),
         q.kinds.as_deref(),
+        q.search.as_deref(),
+        q.severity.as_deref(),
+        q.category.as_deref(),
+        q.source.as_deref(),
         q.limit,
     )
     .await

@@ -259,6 +259,98 @@ pub fn notification_preference_category(
     }
 }
 
+fn deep_link_string_field<'a>(deep_link: &'a Value, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .filter_map(|key| deep_link.get(key).and_then(Value::as_str))
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+}
+
+fn is_actionable_notification_deep_link(deep_link: &Value) -> bool {
+    let Some(link_type) = deep_link
+        .get("type")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+
+    match link_type {
+        "none" | "notification_bundle" => false,
+        "order" => deep_link_string_field(deep_link, &["order_id", "transaction_id"]).is_some(),
+        "wedding_party" => deep_link_string_field(deep_link, &["party_id"]).is_some(),
+        "alteration" => deep_link_string_field(deep_link, &["alteration_id"]).is_some(),
+        "purchase_order" => deep_link_string_field(deep_link, &["po_id"]).is_some(),
+        "qbo_staging" => deep_link_string_field(deep_link, &["sync_log_id"]).is_some(),
+        "staff_tasks" => deep_link_string_field(deep_link, &["instance_id"]).is_some(),
+        "orders" | "settings" | "inventory" | "dashboard" | "register" | "home" | "customers"
+        | "appointments" | "qbo" | "payments" | "staff" | "gift-cards" | "weddings" | "loyalty"
+        | "reports" => true,
+        _ => false,
+    }
+}
+
+fn notification_category_filter_key(kind: &str, deep_link: &Value) -> &'static str {
+    notification_preference_category(kind, deep_link)
+        .map(NotificationPreferenceCategory::as_key)
+        .unwrap_or("mandatory")
+}
+
+fn notification_severity_filter_key(kind: &str, deep_link: &Value) -> &'static str {
+    let semantic_kind = semantic_notification_kind(kind, deep_link);
+
+    match semantic_kind {
+        "admin_broadcast" => "announcement",
+        "after_hours_access_digest"
+        | "backup_admin_cloud_failed"
+        | "backup_admin_local_failed"
+        | "backup_admin_past_due"
+        | "counterpoint_alerts"
+        | "integration_health_failed"
+        | "nuorder_sync_failed"
+        | "ops_alert"
+        | "pin_failure_digest"
+        | "qbo_sync_failed"
+        | "register_cash_discrepancy"
+        | "staff_bug_report" => "system",
+        "negative_available_stock"
+        | "order_due_stale"
+        | "pickup_stale"
+        | "po_direct_invoice_overdue"
+        | "po_overdue_receive"
+        | "po_partial_receive_stale" => "urgent",
+        "alteration_due"
+        | "appointment_soon"
+        | "gift_card_direct_pos_load"
+        | "morning_alteration_due"
+        | "morning_po_expected"
+        | "morning_refund_queue"
+        | "morning_wedding_today"
+        | "order_fully_fulfilled"
+        | "po_draft_stale"
+        | "po_received_unlabeled"
+        | "po_submitted_no_expected_date"
+        | "rms_r2s_charge"
+        | "special_order_ready_to_stage"
+        | "task_due_soon"
+        | "wedding_soon" => "action",
+        "catalog_import_rows_skipped"
+        | "customer_merge_completed"
+        | "gift_card_expiring_soon"
+        | "messaging_unread_nudge"
+        | "morning_low_stock"
+        | "nuorder_sync_success"
+        | "podium_email_bundle"
+        | "podium_email_inbound"
+        | "podium_sms_bundle"
+        | "podium_sms_inbound"
+        | "review_invite_sent" => "info",
+        _ if is_actionable_notification_deep_link(deep_link) => "action",
+        _ => "info",
+    }
+}
+
 pub fn is_shared_read_eligible(kind: &str, deep_link: &Value) -> bool {
     let semantic_kind = semantic_notification_kind(kind, deep_link);
     matches!(
@@ -369,6 +461,14 @@ pub struct NotificationBroadcastSummary {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct NotificationFatigueWarning {
+    pub key: String,
+    pub severity: String,
+    pub title: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct NotificationHealthResponse {
     pub summary: NotificationHealthSummary,
     pub generator_runs: Vec<NotificationGeneratorHealthRow>,
@@ -376,6 +476,7 @@ pub struct NotificationHealthResponse {
     pub stale_unread_by_kind: Vec<NotificationStaleUnreadMetric>,
     pub delivery_suppression_7d: Vec<NotificationSuppressionMetric>,
     pub broadcast_summary: NotificationBroadcastSummary,
+    pub fatigue_warnings: Vec<NotificationFatigueWarning>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -742,6 +843,20 @@ fn dedupe_sorted(mut ids: Vec<Uuid>) -> Vec<Uuid> {
     ids
 }
 
+fn normalize_notification_list_filter(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .chars()
+                .take(64)
+                .collect::<String>()
+                .to_ascii_lowercase()
+        })
+        .filter(|value| value != "all")
+}
+
 /// Admin + staff tied to an order (same rules as notification generators).
 pub async fn staff_ids_for_order_scoped(
     pool: &PgPool,
@@ -851,6 +966,10 @@ pub async fn list_inbox_for_staff(
     staff_id: Uuid,
     mode: NotificationListMode,
     kinds: Option<&str>,
+    search: Option<&str>,
+    severity: Option<&str>,
+    category: Option<&str>,
+    source: Option<&str>,
     limit: i64,
 ) -> Result<Vec<NotificationListItem>, sqlx::Error> {
     let limit = limit.clamp(1, 200);
@@ -862,6 +981,19 @@ pub async fn list_inbox_for_staff(
                 .collect::<Vec<_>>()
         })
         .filter(|v| !v.is_empty());
+    let search_filter = search
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(160).collect::<String>());
+    let severity_filter = normalize_notification_list_filter(severity);
+    let category_filter = normalize_notification_list_filter(category);
+    let source_filter = normalize_notification_list_filter(source);
+    let query_limit =
+        if severity_filter.is_some() || category_filter.is_some() || source_filter.is_some() {
+            200
+        } else {
+            limit
+        };
 
     type InboxListSqlRow = (
         Uuid,
@@ -900,15 +1032,34 @@ pub async fn list_inbox_for_staff(
                 OR ($2::text = 'inbox' AND sn.archived_at IS NULL AND sn.completed_at IS NULL)
                 OR ($2::text = 'history' AND (sn.archived_at IS NOT NULL OR sn.completed_at IS NOT NULL))
               )
-              AND an.kind = ANY($3)
+              AND (
+                an.kind = ANY($3)
+                OR an.deep_link->>'bundle_kind' = ANY($3)
+              )
+              AND (
+                $4::text IS NULL
+                OR to_tsvector(
+                    'simple',
+                    COALESCE(an.title, '') || ' ' ||
+                    COALESCE(an.body, '') || ' ' ||
+                    COALESCE(an.kind, '') || ' ' ||
+                    COALESCE(an.source, '')
+                  ) @@ websearch_to_tsquery('simple', $4)
+                OR jsonb_path_exists(
+                  an.deep_link,
+                  '$.** ? (@ == $needle)',
+                  jsonb_build_object('needle', to_jsonb($4::text))
+                )
+              )
             ORDER BY an.created_at DESC
-            LIMIT $4
+            LIMIT $5
             "#,
         )
         .bind(staff_id)
         .bind(list_mode_sql(mode))
         .bind(ks)
-        .bind(limit)
+        .bind(search_filter.as_deref())
+        .bind(query_limit)
         .fetch_all(pool)
         .await?
     } else {
@@ -935,18 +1086,34 @@ pub async fn list_inbox_for_staff(
                 OR ($2::text = 'inbox' AND sn.archived_at IS NULL AND sn.completed_at IS NULL)
                 OR ($2::text = 'history' AND (sn.archived_at IS NOT NULL OR sn.completed_at IS NOT NULL))
               )
+              AND (
+                $3::text IS NULL
+                OR to_tsvector(
+                    'simple',
+                    COALESCE(an.title, '') || ' ' ||
+                    COALESCE(an.body, '') || ' ' ||
+                    COALESCE(an.kind, '') || ' ' ||
+                    COALESCE(an.source, '')
+                  ) @@ websearch_to_tsquery('simple', $3)
+                OR jsonb_path_exists(
+                  an.deep_link,
+                  '$.** ? (@ == $needle)',
+                  jsonb_build_object('needle', to_jsonb($3::text))
+                )
+              )
             ORDER BY an.created_at DESC
-            LIMIT $3
+            LIMIT $4
             "#,
         )
         .bind(staff_id)
         .bind(list_mode_sql(mode))
-        .bind(limit)
+        .bind(search_filter.as_deref())
+        .bind(query_limit)
         .fetch_all(pool)
         .await?
     };
 
-    Ok(rows
+    let mut items: Vec<NotificationListItem> = rows
         .into_iter()
         .map(
             |(
@@ -975,7 +1142,25 @@ pub async fn list_inbox_for_staff(
                 archived_at,
             },
         )
-        .collect())
+        .collect();
+
+    if severity_filter.is_some() || category_filter.is_some() || source_filter.is_some() {
+        items.retain(|item| {
+            let severity_matches = severity_filter.as_ref().map_or(true, |value| {
+                notification_severity_filter_key(&item.kind, &item.deep_link) == value
+            });
+            let category_matches = category_filter.as_ref().map_or(true, |value| {
+                notification_category_filter_key(&item.kind, &item.deep_link) == value
+            });
+            let source_matches = source_filter
+                .as_ref()
+                .map_or(true, |value| item.source.trim().eq_ignore_ascii_case(value));
+            severity_matches && category_matches && source_matches
+        });
+        items.truncate(limit as usize);
+    }
+
+    Ok(items)
 }
 
 fn list_mode_sql(mode: NotificationListMode) -> &'static str {
@@ -1131,8 +1316,9 @@ pub async fn notification_health(pool: &PgPool) -> Result<NotificationHealthResp
     )
     .collect();
 
-    let volume_by_kind_7d = sqlx::query_as::<_, (String, String, i64, i64)>(
-        r#"
+    let volume_by_kind_7d: Vec<NotificationKindMetric> =
+        sqlx::query_as::<_, (String, String, i64, i64)>(
+            r#"
         SELECT
             COALESCE(NULLIF(an.deep_link->>'bundle_kind', ''), an.kind) AS semantic_kind,
             an.kind,
@@ -1149,22 +1335,23 @@ pub async fn notification_health(pool: &PgPool) -> Result<NotificationHealthResp
         ORDER BY recipient_count DESC, canonical_count DESC, semantic_kind ASC
         LIMIT 12
         "#,
-    )
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(
-        |(semantic_kind, kind, canonical_count, recipient_count)| NotificationKindMetric {
-            semantic_kind,
-            kind,
-            canonical_count,
-            recipient_count,
-        },
-    )
-    .collect();
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(
+            |(semantic_kind, kind, canonical_count, recipient_count)| NotificationKindMetric {
+                semantic_kind,
+                kind,
+                canonical_count,
+                recipient_count,
+            },
+        )
+        .collect();
 
-    let stale_unread_by_kind = sqlx::query_as::<_, (String, i64, DateTime<Utc>)>(
-        r#"
+    let stale_unread_by_kind: Vec<NotificationStaleUnreadMetric> =
+        sqlx::query_as::<_, (String, i64, DateTime<Utc>)>(
+            r#"
         SELECT
             COALESCE(NULLIF(an.deep_link->>'bundle_kind', ''), an.kind) AS semantic_kind,
             COUNT(*)::bigint AS unread_count,
@@ -1178,18 +1365,18 @@ pub async fn notification_health(pool: &PgPool) -> Result<NotificationHealthResp
         ORDER BY unread_count DESC, oldest_created_at ASC
         LIMIT 12
         "#,
-    )
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(
-        |(semantic_kind, unread_count, oldest_created_at)| NotificationStaleUnreadMetric {
-            semantic_kind,
-            unread_count,
-            oldest_created_at,
-        },
-    )
-    .collect();
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(
+            |(semantic_kind, unread_count, oldest_created_at)| NotificationStaleUnreadMetric {
+                semantic_kind,
+                unread_count,
+                oldest_created_at,
+            },
+        )
+        .collect();
 
     let delivery_suppression_7d = sqlx::query_as::<_, (String, String, Option<String>, i64)>(
         r#"
@@ -1233,18 +1420,125 @@ pub async fn notification_health(pool: &PgPool) -> Result<NotificationHealthResp
     .fetch_one(pool)
     .await?;
 
+    let broadcast_summary = NotificationBroadcastSummary {
+        broadcast_count_7d,
+        recipient_rows_7d: recipient_rows_7d.unwrap_or(0),
+        latest_broadcast_at,
+    };
+    let fatigue_warnings = build_notification_fatigue_warnings(
+        &summary,
+        &volume_by_kind_7d,
+        &stale_unread_by_kind,
+        &broadcast_summary,
+    );
+
     Ok(NotificationHealthResponse {
         summary,
         generator_runs,
         volume_by_kind_7d,
         stale_unread_by_kind,
         delivery_suppression_7d,
-        broadcast_summary: NotificationBroadcastSummary {
-            broadcast_count_7d,
-            recipient_rows_7d: recipient_rows_7d.unwrap_or(0),
-            latest_broadcast_at,
-        },
+        broadcast_summary,
+        fatigue_warnings,
     })
+}
+
+fn build_notification_fatigue_warnings(
+    summary: &NotificationHealthSummary,
+    volume_by_kind_7d: &[NotificationKindMetric],
+    stale_unread_by_kind: &[NotificationStaleUnreadMetric],
+    broadcast_summary: &NotificationBroadcastSummary,
+) -> Vec<NotificationFatigueWarning> {
+    let mut warnings = Vec::new();
+
+    if summary.stale_unread_rows >= 25 {
+        warnings.push(NotificationFatigueWarning {
+            key: "stale_unread".to_string(),
+            severity: if summary.stale_unread_rows >= 75 {
+                "critical".to_string()
+            } else {
+                "warning".to_string()
+            },
+            title: "Stale unread notifications are building up".to_string(),
+            detail: format!(
+                "{} unread staff notification rows are older than 24 hours.",
+                summary.stale_unread_rows
+            ),
+        });
+    }
+
+    if summary.staff_rows_24h >= 200 {
+        warnings.push(NotificationFatigueWarning {
+            key: "daily_recipient_volume".to_string(),
+            severity: if summary.staff_rows_24h >= 500 {
+                "critical".to_string()
+            } else {
+                "warning".to_string()
+            },
+            title: "High notification volume in the last 24 hours".to_string(),
+            detail: format!(
+                "{} staff notification rows were generated in the last 24 hours.",
+                summary.staff_rows_24h
+            ),
+        });
+    }
+
+    if broadcast_summary.broadcast_count_7d >= 10 || broadcast_summary.recipient_rows_7d >= 100 {
+        warnings.push(NotificationFatigueWarning {
+            key: "broadcast_volume".to_string(),
+            severity: if broadcast_summary.broadcast_count_7d >= 20
+                || broadcast_summary.recipient_rows_7d >= 250
+            {
+                "critical".to_string()
+            } else {
+                "warning".to_string()
+            },
+            title: "Team announcement volume may cause fatigue".to_string(),
+            detail: format!(
+                "{} broadcasts produced {} recipient rows in the last 7 days.",
+                broadcast_summary.broadcast_count_7d, broadcast_summary.recipient_rows_7d
+            ),
+        });
+    }
+
+    if let Some(row) = volume_by_kind_7d
+        .iter()
+        .find(|row| row.recipient_count >= 150)
+    {
+        warnings.push(NotificationFatigueWarning {
+            key: format!("kind_volume:{}", row.semantic_kind),
+            severity: if row.recipient_count >= 300 {
+                "critical".to_string()
+            } else {
+                "warning".to_string()
+            },
+            title: "One notification type is dominating the inbox".to_string(),
+            detail: format!(
+                "{} generated {} recipient rows in the last 7 days.",
+                row.semantic_kind, row.recipient_count
+            ),
+        });
+    }
+
+    if let Some(row) = stale_unread_by_kind.first() {
+        if row.unread_count >= 15 {
+            warnings.push(NotificationFatigueWarning {
+                key: format!("stale_kind:{}", row.semantic_kind),
+                severity: if row.unread_count >= 50 {
+                    "critical".to_string()
+                } else {
+                    "warning".to_string()
+                },
+                title: "A notification type is being ignored".to_string(),
+                detail: format!(
+                    "{} has {} stale unread rows.",
+                    row.semantic_kind, row.unread_count
+                ),
+            });
+        }
+    }
+
+    warnings
 }
 
 async fn log_action(
@@ -1930,16 +2224,21 @@ pub async fn broadcast_system_alert(pool: &PgPool, message: &str) -> Result<(), 
         return Ok(());
     }
 
+    let dedupe = system_alert_dedupe_key(message);
+
     // Create the notification
     let notification_id = insert_app_notification_deduped(
         pool,
-        "system_alert",
+        "ops_alert",
         "System Alert",
         message,
-        json!({"route": "/settings"}),
+        json!({
+            "type": "settings",
+            "section": "ros-operations-center"
+        }),
         "system",
         json!({"roles": ["admin"]}),
-        Some(&format!("system_alert_{}", chrono::Utc::now().timestamp())),
+        Some(&dedupe),
     )
     .await?;
 
@@ -1956,12 +2255,48 @@ pub async fn broadcast_system_alert(pool: &PgPool, message: &str) -> Result<(), 
     Ok(())
 }
 
+fn system_alert_dedupe_key(message: &str) -> String {
+    let bucket_15m = Utc::now().timestamp() / 900;
+    format!(
+        "ops_alert:{bucket_15m}:{}",
+        system_alert_dedupe_fragment(message)
+    )
+}
+
+fn system_alert_dedupe_fragment(message: &str) -> String {
+    let mut out = String::with_capacity(96);
+    let mut last_sep = true;
+    for ch in message.chars() {
+        if out.len() >= 96 {
+            break;
+        }
+        if ch.is_ascii_digit() {
+            out.push('#');
+            last_sep = false;
+        } else if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_sep = false;
+        } else if !last_sep {
+            out.push('-');
+            last_sep = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    if out.is_empty() {
+        "alert".to_string()
+    } else {
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         is_shared_read_eligible, notification_delivery_policy, notification_preference_category,
-        reviewed_notification_preference_handling_for_semantic_kind, NotificationDeliveryPolicy,
-        NotificationPreferenceCategory, NotificationPreferenceHandling,
+        reviewed_notification_preference_handling_for_semantic_kind, system_alert_dedupe_fragment,
+        NotificationDeliveryPolicy, NotificationPreferenceCategory, NotificationPreferenceHandling,
         StaffNotificationPreferences, KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS,
     };
     use serde_json::json;
@@ -2092,5 +2427,13 @@ mod tests {
                 "notification kind `{kind}` is emitted but has no explicit taxonomy review",
             );
         }
+    }
+
+    #[test]
+    fn system_alert_dedupe_fragment_groups_noisy_values() {
+        assert_eq!(
+            system_alert_dedupe_fragment("Database pool utilization at 84% (21 active / 24 max)",),
+            system_alert_dedupe_fragment("Database pool utilization at 92% (22 active / 24 max)",),
+        );
     }
 }

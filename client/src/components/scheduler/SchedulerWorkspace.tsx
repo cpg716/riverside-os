@@ -8,6 +8,7 @@ import { formatPhone } from '../../lib/utils.ts';
 import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
 import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { printExistingWindow } from '../../lib/browserPrint';
 
 const baseUrl = getBaseUrl();
 
@@ -479,21 +480,16 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
       const frameWindow = frame.contentWindow;
       if (!frameWindow) {
         cleanup();
-        window.print();
         return;
       }
 
-      frameWindow.focus();
       const handleAfterPrint = () => {
         cleanup();
         frameWindow.removeEventListener("afterprint", handleAfterPrint);
       };
 
       frameWindow.addEventListener("afterprint", handleAfterPrint);
-      setTimeout(() => {
-        frameWindow.print();
-      }, 0);
-      setTimeout(cleanup, 1500);
+      printExistingWindow(frameWindow);
     };
 
     document.body.appendChild(frame);

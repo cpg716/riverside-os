@@ -29,6 +29,7 @@ import {
 import { slugifyHeading } from "../../lib/help/helpSlug";
 import { resolveHelpImageSrc } from "../../lib/help/helpImages";
 import { stripYamlFrontMatter } from "../../lib/help/helpFrontMatter";
+import { writeAndPrintDocumentWindow } from "../../lib/browserPrint";
 import {
   askRosieGroundedHelpStream,
   getRosieVoiceCapabilities,
@@ -716,7 +717,7 @@ export default function HelpCenterDrawer({
     if (!printWindow) return;
 
     const contentHtml = activeManualContentRef.current.innerHTML;
-    printWindow.document.write(`<!doctype html>
+    writeAndPrintDocumentWindow(printWindow, `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -799,9 +800,6 @@ export default function HelpCenterDrawer({
   </main>
 </body>
 </html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    window.setTimeout(() => printWindow.print(), 100);
   }, [activeManual, activeTitle, displayMarkdown]);
 
   useEffect(() => {

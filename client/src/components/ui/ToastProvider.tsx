@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useRef, type ReactNode } from "react";
 import { CheckCircle2, AlertTriangle, Info, X } from "lucide-react";
 import { ToastContext, type Toast, type ToastType } from "./ToastProviderLogic";
 import { getBaseUrl } from "../../lib/apiConfig";
@@ -10,6 +10,9 @@ import {
 
 const baseUrl = getBaseUrl();
 const recentErrorEventKeys = new Map<string, number>();
+const TOAST_DEDUPE_WINDOW_MS = 5_000;
+const TOAST_DISMISS_MS = 4_000;
+const MAX_VISIBLE_TOASTS = 5;
 
 function recordErrorToastEvent(message: string) {
   const trimmed = redactDiagnosticText(message).trim();
@@ -62,23 +65,76 @@ function recordErrorToastEvent(message: string) {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const recentToastRef = useRef(
+    new Map<string, { id: string; count: number; lastSeen: number }>(),
+  );
+  const dismissTimersRef = useRef(new Map<string, number>());
 
   const removeToast = useCallback((id: string) => {
+    const timer = dismissTimersRef.current.get(id);
+    if (timer) window.clearTimeout(timer);
+    dismissTimersRef.current.delete(id);
+    for (const [key, value] of recentToastRef.current.entries()) {
+      if (value.id === id) {
+        recentToastRef.current.delete(key);
+      }
+    }
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const scheduleDismiss = useCallback((id: string) => {
+    const existing = dismissTimersRef.current.get(id);
+    if (existing) window.clearTimeout(existing);
+    const timer = window.setTimeout(() => {
+      removeToast(id);
+    }, TOAST_DISMISS_MS);
+    dismissTimersRef.current.set(id, timer);
+  }, [removeToast]);
+
   const toast = useCallback((message: string, type: ToastType = "info") => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
-    if (type === "error") {
-      recordErrorToastEvent(message);
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    const key = `${type}:${redactDiagnosticText(trimmed).toLowerCase().slice(0, 240)}`;
+    const now = Date.now();
+    const existing = recentToastRef.current.get(key);
+    if (existing && now - existing.lastSeen < TOAST_DEDUPE_WINDOW_MS) {
+      existing.count += 1;
+      existing.lastSeen = now;
+      setToasts((prev) =>
+        prev.map((t) =>
+          t.id === existing.id ? { ...t, count: existing.count } : t,
+        ),
+      );
+      scheduleDismiss(existing.id);
+      if (type === "error") {
+        recordErrorToastEvent(trimmed);
+      }
+      return;
     }
 
-    // Auto-dismiss after 4 seconds
-    setTimeout(() => {
-      removeToast(id);
-    }, 4000);
-  }, [removeToast]);
+    const id = Math.random().toString(36).substring(2, 9);
+    recentToastRef.current.set(key, { id, count: 1, lastSeen: now });
+    setToasts((prev) => {
+      const next = [...prev, { id, message: trimmed, type }];
+      const overflow = next.slice(0, Math.max(0, next.length - MAX_VISIBLE_TOASTS));
+      for (const oldToast of overflow) {
+        const timer = dismissTimersRef.current.get(oldToast.id);
+        if (timer) window.clearTimeout(timer);
+        dismissTimersRef.current.delete(oldToast.id);
+        for (const [recentKey, value] of recentToastRef.current.entries()) {
+          if (value.id === oldToast.id) {
+            recentToastRef.current.delete(recentKey);
+          }
+        }
+      }
+      return next.slice(-MAX_VISIBLE_TOASTS);
+    });
+    if (type === "error") {
+      recordErrorToastEvent(trimmed);
+    }
+
+    scheduleDismiss(id);
+  }, [scheduleDismiss]);
 
   return (
     <ToastContext.Provider value={{ toast, removeToast }}>
@@ -93,7 +149,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             {t.type === "error" && <AlertTriangle className="h-5 w-5 shrink-0 text-app-danger" />}
             {t.type === "info" && <Info className="h-5 w-5 shrink-0 text-app-accent" />}
             
-            <p className="flex-1 text-sm font-medium text-app-text">{t.message}</p>
+            <p className="flex-1 text-sm font-medium text-app-text">
+              {t.message}
+              {t.count && t.count > 1 ? (
+                <span className="ml-2 rounded-full border border-app-border bg-app-surface-2 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  ×{t.count}
+                </span>
+              ) : null}
+            </p>
             
             <button
               type="button"

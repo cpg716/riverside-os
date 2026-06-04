@@ -14,7 +14,8 @@ import {
   Inbox,
   Send,
   Bell,
-  CheckCircle2
+  CheckCircle2,
+  Search,
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -290,6 +291,12 @@ export default function NotificationCenterDrawer({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [inboxViewFilter, setInboxViewFilter] = useState<"all" | "action">("all");
+  const [searchDraft, setSearchDraft] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [sourceDraft, setSourceDraft] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
   const [broadcastTitle, setBroadcastTitle] = useState("");
   const [broadcastBody, setBroadcastBody] = useState("");
   const [audienceMode, setAudienceMode] = useState<
@@ -315,9 +322,14 @@ export default function NotificationCenterDrawer({
     loadInFlightRef.current = true;
     if (!silent) setLoading(true);
     try {
-      const q =
-        tab === "history" ? "?mode=history&limit=120" : "?limit=120";
-      const res = await fetch(`${baseUrl}/api/notifications${q}`, {
+      const params = new URLSearchParams();
+      params.set("limit", "120");
+      if (tab === "history") params.set("mode", "history");
+      if (searchQuery.trim()) params.set("search", searchQuery.trim());
+      if (severityFilter !== "all") params.set("severity", severityFilter);
+      if (categoryFilter !== "all") params.set("category", categoryFilter);
+      if (sourceFilter.trim()) params.set("source", sourceFilter.trim());
+      const res = await fetch(`${baseUrl}/api/notifications?${params.toString()}`, {
         headers: apiAuth(),
       });
       if (!res.ok) throw new Error("load");
@@ -337,7 +349,7 @@ export default function NotificationCenterDrawer({
         if (!silent) setLoading(false);
       }
     }
-  }, [apiAuth, tab, toast]);
+  }, [apiAuth, categoryFilter, searchQuery, severityFilter, sourceFilter, tab, toast]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -365,6 +377,10 @@ export default function NotificationCenterDrawer({
   useEffect(() => {
     if (!isOpen) setExpandedSnId(null);
   }, [isOpen]);
+
+  useEffect(() => {
+    setExpandedSnId(null);
+  }, [categoryFilter, searchQuery, severityFilter, sourceFilter, tab]);
 
   const markRead = async (id: string) => {
     try {
@@ -665,16 +681,117 @@ export default function NotificationCenterDrawer({
           })}
         </div>
 
-        {tab === "inbox" && rows.length > 0 ? (
+        {tab !== "broadcast" ? (
           <div className="grid shrink-0 gap-3 border-b border-app-border bg-app-surface-2 px-6 py-3">
-            <div className="min-w-0">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                Quick cleanup
-              </p>
-              <p className="text-[11px] text-app-text-muted">
-                {cleanupHint}
-              </p>
-            </div>
+            <form
+              className="grid gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setSearchQuery(searchDraft.trim());
+                setSourceFilter(sourceDraft.trim());
+              }}
+            >
+              <label className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                Search alerts and history
+              </label>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+                <div className="relative min-w-0">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted" />
+                  <input
+                    value={searchDraft}
+                    onChange={(event) => setSearchDraft(event.target.value)}
+                    className="ui-input w-full pl-9 text-sm"
+                    placeholder="Search title, body, kind, source, or linked record..."
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-app-accent transition-colors hover:border-app-accent/40 hover:bg-app-accent/5"
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    !searchDraft &&
+                    !searchQuery &&
+                    severityFilter === "all" &&
+                    categoryFilter === "all" &&
+                    !sourceDraft &&
+                    !sourceFilter
+                  }
+                  onClick={() => {
+                    setSearchDraft("");
+                    setSearchQuery("");
+                    setSeverityFilter("all");
+                    setCategoryFilter("all");
+                    setSourceDraft("");
+                    setSourceFilter("");
+                  }}
+                  className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted transition-colors hover:border-app-border-hover hover:bg-app-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Clear
+                </button>
+              </div>
+              {searchQuery ? (
+                <p className="text-[10px] font-bold text-app-text-muted">
+                  Showing matches for “{searchQuery}”.
+                </p>
+              ) : null}
+              <div className="grid gap-2 md:grid-cols-3">
+                <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">
+                  Severity
+                  <select
+                    value={severityFilter}
+                    onChange={(event) => setSeverityFilter(event.target.value)}
+                    className="ui-input text-xs"
+                  >
+                    <option value="all">All severities</option>
+                    <option value="system">System alerts</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="action">Action needed</option>
+                    <option value="announcement">Announcements</option>
+                    <option value="info">Heads up</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">
+                  Category
+                  <select
+                    value={categoryFilter}
+                    onChange={(event) => setCategoryFilter(event.target.value)}
+                    className="ui-input text-xs"
+                  >
+                    <option value="all">All categories</option>
+                    <option value="orders">Orders</option>
+                    <option value="tasks">Tasks</option>
+                    <option value="weddings_appointments">Weddings/Appointments</option>
+                    <option value="inventory_purchasing">Inventory/Purchasing</option>
+                    <option value="customers_loyalty">Customers/Loyalty</option>
+                    <option value="announcements">Announcements</option>
+                    <option value="mandatory">Mandatory/System</option>
+                  </select>
+                </label>
+                <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">
+                  Source
+                  <input
+                    value={sourceDraft}
+                    onChange={(event) => setSourceDraft(event.target.value)}
+                    className="ui-input text-xs"
+                    placeholder="Exact source, e.g. qbo"
+                  />
+                </label>
+              </div>
+            </form>
+            {tab === "inbox" && rows.length > 0 ? (
+              <>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                    Quick cleanup
+                  </p>
+                  <p className="text-[11px] text-app-text-muted">
+                    {cleanupHint}
+                  </p>
+                </div>
             <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="flex rounded-lg border border-app-border bg-app-surface p-0.5">
                 <button
@@ -721,6 +838,8 @@ export default function NotificationCenterDrawer({
                   : `Dismiss reviewed${inboxReadIds.length > 0 ? ` (${inboxReadIds.length})` : ""}`}
               </button>
             </div>
+              </>
+            ) : null}
           </div>
         ) : null}
 
@@ -884,6 +1003,16 @@ export default function NotificationCenterDrawer({
                   Settings → ROS Dev Center so this drawer stays focused on staff
                   alerts and announcements.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onNavigate({ type: "settings", section: "ros-operations-center" });
+                    onClose();
+                  }}
+                  className="mt-3 rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-colors hover:border-app-accent/40 hover:bg-app-accent/5"
+                >
+                  Open notification health
+                </button>
               </div>
             </div>
         ) : (
@@ -913,6 +1042,8 @@ export default function NotificationCenterDrawer({
                   <p className="text-sm font-bold text-app-text">
                     {loadError
                       ? "Notifications could not refresh."
+                      : searchQuery
+                      ? "No matching alerts found."
                       : inboxViewFilter === "action" && tab === "inbox"
                       ? "No action-required alerts."
                       : tab === "history"
@@ -922,6 +1053,8 @@ export default function NotificationCenterDrawer({
                   <p className="text-[10px] font-black uppercase tracking-widest opacity-50">
                     {loadError
                       ? "Retry before treating this view as clear"
+                      : searchQuery
+                      ? "Try a different customer, kind, source, or record term"
                       : inboxViewFilter === "action" && tab === "inbox"
                       ? "Switch to All to see informational alerts"
                       : tab === "history"
