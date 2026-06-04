@@ -1,6 +1,6 @@
 [package]
 name = "riverside-server"
-version = "0.85.5"
+version = "0.85.9"
 edition = "2021"
 
 [lib]

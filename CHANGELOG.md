@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.9] - 2026-06-04
+
+### Added
+- **ROSIE AI Stack Automatic Updates**: Hardened the ROSIE AI installer script (`Install-RosieAiStack.ps1`) to track current component versions using version-specific state marker files (`sherpa_version.txt`, `stt_version.txt`, `tts_version.txt`). Component upgrades are automatically triggered and downloaded when script version pins or model repositories are updated.
+
+### Fixed
+- **Windows Deployment Connection Probes**: Wrapped native database connection query tests with temporary `$ErrorActionPreference = "SilentlyContinue"` blocks in `install-server.ps1`, `reset-riverside-database.ps1`, `reset-postgres-password.ps1`, and `audit-system.ps1` to prevent terminating `NativeCommandError` exceptions when connection checks fail.
+
+### Changed
+- **Maintenance & Repair Layout Redesign**: Redesigned the vertically scrolling sidebar list in the Deployment Manager GUI to feature a horizontal sub-tab category menu (`Status & Control`, `Updates & Setup`, `Database Admin`, `Utility Scripts`, `Danger Zone`) and an expanded full-width log output console at the bottom with a larger adjustable height view.
+- **Main Hub Nomenclature Alignment**: Updated and aligned user-facing labels, logs, descriptions, and action triggers from "Server PC" to **"Main Hub"** for architectural nomenclature consistency.
+
 ## [0.85.5] - 2026-06-03
 
 ### Added

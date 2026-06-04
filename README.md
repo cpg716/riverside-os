@@ -2,7 +2,7 @@
 
 **Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.85.0 is the current release — the GO LIVE readiness release. It includes six critical POS Register hardening fixes (A–F): session token pre-check, server-side printer config persistence, offline queue recovery UI, receipt print failure retry queue, dynamic register lanes, and Helcim terminal auto-reconnect fallback. Builds on the v0.80.x deployment baseline with Daily Financial Reports, QBO Journal Lifecycle management, Constant Contact integration, and production hardening.
 
-Current Version: **v0.85.5** (See [CHANGELOG.md](CHANGELOG.md))
+Current Version: **v0.85.9** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Stack
 

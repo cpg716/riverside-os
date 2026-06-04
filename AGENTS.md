@@ -97,6 +97,13 @@ The main shell component is a critical part of the application that manages UI s
 
 Help maintain, debug, and extend Riverside OS safely inside the existing architecture.
 
+### v0.85.9 — Deployment Hardening & Maintenance UI Upgrades
+
+- **Windows Deployment Hardening**: Added `$ErrorActionPreference = "SilentlyContinue"` wrapping around connection testing blocks in `install-server.ps1` and database administration scripts to prevent terminating `NativeCommandError` exceptions when connection checks fail.
+- **ROSIE AI Installer Automatic Updates**: Hardened `Install-RosieAiStack.ps1` to track pinned versions via text files (`sherpa_version.txt`, `stt_version.txt`, `tts_version.txt`). Component upgrades are automatically triggered and downloaded when script version pins are updated.
+- **Maintenance & Repair Layout Redesign**: Re-arranged long scrolling sidebar menu in the Deployment Manager GUI to use a horizontal category tabbed layout and a full-width output console at the bottom with a larger adjustable height view.
+- **Main Hub Terminology Alignment**: Aligned application buttons, logs, and onboarding details from "Server PC" to **"Main Hub"** for nomenclature consistency.
+
 ### v0.85.5 — Bridge GUI Optimization & Deployment Hardening
 
 - **Counterpoint Bridge GUI Optimization**: Performance improvements (reduced polling, React rendering optimizations, memoized state) and unified navigation link to `/settings/integrations/counterpoint-sync`.
