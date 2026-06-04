@@ -103,6 +103,8 @@ pub struct TransactionListQuery {
     #[serde(default)]
     pub status_scope: Option<String>,
     #[serde(default)]
+    pub record_scope: Option<String>,
+    #[serde(default)]
     pub limit: Option<i64>,
     #[serde(default)]
     pub offset: Option<i64>,
@@ -208,6 +210,7 @@ pub async fn query_paged_transactions(
 ) -> Result<PagedTransactionsResponse, sqlx::Error> {
     let search_trim = q.search.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let status_scope = q.status_scope.as_deref().map(str::trim);
+    let order_record_scope = matches!(q.record_scope.as_deref().map(str::trim), Some("orders"));
     let kind_filter = q.kind_filter.as_deref().map(str::trim);
     let lifecycle_filter = q
         .lifecycle_filter
@@ -223,7 +226,7 @@ pub async fn query_paged_transactions(
         matches!(status_scope, Some("open")) || (status_scope.is_none() && !q.show_closed);
     let list_line_filter = if is_layaway_filter {
         "oi.fulfillment::text = 'layaway'"
-    } else if default_order_scope || is_order_kind_filter {
+    } else if order_record_scope || default_order_scope || is_order_kind_filter {
         "oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')"
     } else {
         "oi.id IS NOT NULL"
@@ -529,8 +532,8 @@ pub async fn query_paged_transactions(
         if let Some(clause) = kind_filter_having_clause(kf) {
             qb.push(clause);
         }
-    } else if default_order_scope {
-        qb.push(" HAVING (o.wedding_member_id IS NOT NULL OR BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')) = true) ");
+    } else if order_record_scope || default_order_scope {
+        qb.push(" HAVING (o.counterpoint_doc_ref IS NOT NULL OR o.wedding_member_id IS NOT NULL OR BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')) = true) ");
     }
 
     qb.push(" ORDER BY o.booked_at DESC ");

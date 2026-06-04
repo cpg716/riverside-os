@@ -203,6 +203,7 @@ interface TransactionDetailDrawerProps {
   orderId: string | null;
   isOpen: boolean;
   onClose: () => void;
+  recordContext?: "transaction" | "order";
   onOpenCustomerHub?: (customerId: string) => void;
   onOpenTransactionInBackoffice?: (orderId: string) => void;
   detail?: TransactionDrawerDetail | null;
@@ -890,6 +891,7 @@ export default function TransactionDetailDrawer({
   orderId,
   isOpen,
   onClose,
+  recordContext = "transaction",
   onOpenCustomerHub,
   onOpenTransactionInBackoffice,
   detail: controlledDetail,
@@ -958,6 +960,8 @@ export default function TransactionDetailDrawer({
   const errorMessage = usesControlledData
     ? controlledErrorMessage ?? null
     : internalErrorMessage;
+  const recordTitle = recordContext === "order" ? "Order Detail" : "Transaction Record";
+  const recordLoadLabel = recordContext === "order" ? "order detail" : "transaction record";
   const drawerRoot = typeof document !== "undefined" ? document.getElementById("drawer-root") : null;
 
   const load = useCallback(async () => {
@@ -973,7 +977,7 @@ export default function TransactionDetailDrawer({
       if (!detailRes.ok) {
         setInternalDetail(null);
         setInternalAudit([]);
-        setInternalErrorMessage("We couldn't load this transaction record right now.");
+        setInternalErrorMessage(`We couldn't load this ${recordLoadLabel} right now.`);
         return;
       }
 
@@ -987,11 +991,11 @@ export default function TransactionDetailDrawer({
     } catch {
       setInternalDetail(null);
       setInternalAudit([]);
-      setInternalErrorMessage("We couldn't load this transaction record right now.");
+      setInternalErrorMessage(`We couldn't load this ${recordLoadLabel} right now.`);
     } finally {
       setInternalLoading(false);
     }
-  }, [orderId, auth, usesControlledData]);
+  }, [orderId, auth, recordLoadLabel, usesControlledData]);
 
   useEffect(() => {
     if (isOpen && orderId) {
@@ -1198,7 +1202,7 @@ export default function TransactionDetailDrawer({
         },
         body: JSON.stringify({
           delivered_item_ids: deliveredItemIds,
-          actor: "Transaction Record",
+          actor: recordTitle,
           override_readiness: pickupOverride,
           override_reason: pickupOverride ? reason : undefined,
           register_session_id: detail.register_session_id ?? undefined,
@@ -1235,6 +1239,7 @@ export default function TransactionDetailDrawer({
     pickupOverrideReason,
     pickupReleaseLines.open,
     pickupTargetLineIds,
+    recordTitle,
     summary,
     toast,
     usesControlledData,
@@ -1432,7 +1437,7 @@ export default function TransactionDetailDrawer({
       <DetailDrawer
         isOpen={isOpen}
         onClose={onClose}
-        title="Transaction Record"
+        title={recordTitle}
         subtitle={subtitle}
         panelMaxClassName="max-w-3xl"
         actions={mapOrderActionButtons(detail, orderActions)}

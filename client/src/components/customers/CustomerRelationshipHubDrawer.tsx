@@ -4487,6 +4487,7 @@ export function CustomerRelationshipHubDrawer({
         orderId={selectedTransactionId}
         isOpen={selectedTransactionId !== null}
         onClose={() => setSelectedTransactionId(null)}
+        recordContext={tab === "orders" ? "order" : "transaction"}
         onOpenTransactionInBackoffice={backofficeOrderOpener}
       />
     </DetailDrawer>

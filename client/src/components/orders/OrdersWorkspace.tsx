@@ -160,7 +160,7 @@ function orderItemLines(
   if (hydrated?.error) return ["Could not load order items"];
   const summary = row.order_items_summary?.trim();
   if (summary) return summary.split(/\n|,\s+(?=\d+(?:\.\d+)?x\s)/i).map((line) => line.trim()).filter(Boolean);
-  return row.item_count > 0 ? ["Loading order items..."] : ["No open order items on this Transaction Record"];
+  return row.item_count > 0 ? ["Loading order items..."] : ["No order items on this record"];
 }
 
 function formatLifecycleStatusLabel(status: string | null | undefined) {
@@ -333,7 +333,7 @@ function viewPresetLabel(value: OrderViewPreset) {
     case "cancelled":
       return "Cancelled orders";
     default:
-      return "All Transaction Records";
+      return "All orders";
   }
 }
 
@@ -398,7 +398,7 @@ function openBespokeOrdersPrint(opts: {
           </div>
 
           <div class="items-title">Items Ordered</div>
-          <div class="items-list">${itemRows || `<div class="item-row muted">No open order items on this Transaction Record</div>`}</div>
+          <div class="items-list">${itemRows || `<div class="item-row muted">No order items on this record</div>`}</div>
 
           <div class="order-footer">
             <div class="staff-line">
@@ -992,6 +992,7 @@ export default function OrdersWorkspace({
     params.set("limit", String(limit));
     params.set("offset", String(page * limit));
     params.set("status_scope", viewPreset);
+    params.set("record_scope", "orders");
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (kindFilter !== "all") params.set("kind_filter", kindFilter);
     if (paymentFilter !== "all") params.set("payment_filter", paymentFilter);
@@ -1015,7 +1016,7 @@ export default function OrdersWorkspace({
       setTransactionRows(Array.isArray(data.items) ? data.items : []);
       setTotalCount(typeof data.total_count === "number" ? data.total_count : 0);
     } catch {
-      setTransactionsLoadError("Transaction records could not load right now. Try again in a moment.");
+      setTransactionsLoadError("Orders could not load right now. Try again in a moment.");
     } finally {
       setTransactionsLoading(false);
     }
@@ -1052,7 +1053,7 @@ export default function OrdersWorkspace({
         if (detailRequestSeqRef.current !== requestSeq) return;
         setDetail(null);
         setAudit([]);
-        setDetailError("We couldn't load this transaction record right now.");
+        setDetailError("We couldn't load this order detail right now.");
         return;
       }
 
@@ -1093,7 +1094,7 @@ export default function OrdersWorkspace({
       if (detailRequestSeqRef.current !== requestSeq) return;
       setDetail(null);
       setAudit([]);
-      setDetailError("We couldn't load this transaction record right now.");
+      setDetailError("We couldn't load this order detail right now.");
     } finally {
       if (detailRequestSeqRef.current === requestSeq) {
         setDetailLoading(false);
@@ -1491,7 +1492,7 @@ export default function OrdersWorkspace({
 
   const orderStatCards = [
     {
-      label: viewPreset === "open" ? "Visible Orders" : "Transaction Records",
+      label: viewPreset === "open" ? "Visible Orders" : "Order Records",
       value: orderIntegritySummary.visibleOrders,
       icon: ORDERS_ICON,
       tint: "ui-tint-info",
@@ -1556,7 +1557,7 @@ export default function OrdersWorkspace({
       toast("Order item names are still loading. Try Print again once the list finishes.", "info");
       return;
     }
-    const title = viewPreset === "open" ? "Open Orders List" : "Transaction Records List";
+    const title = viewPreset === "open" ? "Open Orders List" : "Orders List";
     const filters = [
       `View: ${viewPresetLabel(viewPreset)}`,
       `Date: ${dateFilterLabel(datePreset, dateFrom, dateTo)}`,
@@ -1603,7 +1604,7 @@ export default function OrdersWorkspace({
         <div className={wrapperClass}>
           <Clock size={iconSize} className="mx-auto mb-3 opacity-50" />
           <p className="text-sm font-black uppercase tracking-widest italic">
-            Loading transaction records
+            Loading orders
           </p>
         </div>
       );
@@ -1685,11 +1686,11 @@ export default function OrdersWorkspace({
                   Fulfillment Follow-Up
                 </p>
                 <p className="mt-1 text-sm font-semibold text-app-text">
-                  Orders are unfulfilled Special, Custom, and Wedding work. Transaction Records hold the complete sale, including takeaways, gift cards, alterations, payments, and refunds.
+                  Orders are Special, Custom, and Wedding fulfillment work. The parent Transaction Record holds the sale, payments, refunds, receipts, and non-order items.
                 </p>
               </div>
               <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {totalCount} {viewPreset === "open" ? "orders" : "Transaction Records"} found
+                {totalCount} orders found
               </span>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -1745,7 +1746,7 @@ export default function OrdersWorkspace({
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by customer, phone, Transaction Record #, or fulfillment order #..."
+                  placeholder="Search by customer, phone, order item, Transaction Record #, or fulfillment order #..."
                   className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
                 />
               </div>
@@ -1754,7 +1755,7 @@ export default function OrdersWorkspace({
                 {(
                   [
                     { id: "open", label: "Open Orders" },
-                    { id: "all", label: "All Records" },
+                    { id: "all", label: "All Orders" },
                     { id: "closed", label: "Closed" },
                     { id: "cancelled", label: "Cancelled" },
                   ] satisfies Array<{ id: OrderViewPreset; label: string }>
@@ -1783,7 +1784,7 @@ export default function OrdersWorkspace({
                   onClick={printOrdersList}
                   disabled={transactionRows.length === 0 || transactionsLoading || hasUnresolvedOrderItems}
                   className="flex items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface hover:text-app-text disabled:cursor-not-allowed disabled:opacity-50"
-                  title={hasUnresolvedOrderItems ? "Order item names are still loading" : viewPreset === "open" ? "Print current orders list" : "Print current Transaction Records list"}
+                  title={hasUnresolvedOrderItems ? "Order item names are still loading" : "Print current orders list"}
                 >
                   <Printer size={16} />
                   {hasUnresolvedOrderItems ? "Loading Items" : "Print"}
@@ -2033,6 +2034,7 @@ export default function OrdersWorkspace({
         orderId={selectedId}
         isOpen={selectedId !== null}
         onClose={() => setSelectedId(null)}
+        recordContext="order"
         detail={detail}
         audit={audit}
         loading={detailLoading}

@@ -1457,6 +1457,7 @@ async fn universal_search(
                 salesperson_filter: None,
                 lifecycle_filter: None,
                 status_scope: None,
+                record_scope: None,
                 limit: Some(limit as i64),
                 offset: Some(0),
             },
