@@ -2,26 +2,26 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-### Current Deployment Status (2026-06-03)
+### Current Deployment Status (2026-06-04)
 
-- [x] Target release version is **`v0.85.5`**.
-- [ ] Current release tag exists: **`v0.85.5`**.
+- [x] Target release version is **`v0.85.9`**.
+- [ ] Current release tag exists: **`v0.85.9`**.
 - [ ] Current release has Windows installer/updater assets published.
-- [ ] Required action: tag/publish `v0.85.5`, then run the Windows updater release workflow and Windows deployment package workflow before installing Windows stations.
-- [ ] Required artifacts: `latest.json`, `riverside-updater-build-manifest.json`, Windows MSI, matching `.sig`, and `RiversideOS-v0.85.5-Windows-Deployment.zip`.
+- [ ] Required action: tag/publish `v0.85.9`, then run the Windows updater release workflow and Windows deployment package workflow before installing Windows stations.
+- [ ] Required artifacts: `latest.json`, `riverside-updater-build-manifest.json`, Windows MSI, matching `.sig`, and `RiversideOS-v0.85.9-Windows-Deployment.zip`.
 - [ ] Current release has macOS ROS Dev Center DMG published.
-- [ ] Required artifact: `ROS-Dev-Center_0.85.5_universal.dmg`.
-- [ ] Latest Playwright E2E push on `main` passed for the final `v0.85.5` release commit.
-- [ ] Latest Lint Checks push on `main` passed for the final `v0.85.5` release commit.
+- [ ] Required artifact: `ROS-Dev-Center_0.85.9_universal.dmg`.
+- [ ] Latest Playwright E2E push on `main` passed for the final `v0.85.9` release commit.
+- [ ] Latest Lint Checks push on `main` passed for the final `v0.85.9` release commit.
 - [ ] Production station deployment log is complete for:
   - Main Hub (Backoffice / Server PC)
   - Register #1 Windows Tauri
   - Register #2 iPad PWA
   - Other Windows laptop PWA / optional Tauri clients
 
-## v0.85.5 Release Scope & Resiliency Hardening
+## v0.85.9 Release Scope & Resiliency Hardening
 
-All six go-live readiness items from the v0.85.0 audit and v0.85.5 fixes were applied to `main` and verified:
+All six go-live readiness items from the v0.85.0 audit, v0.85.5 fixes, and v0.85.9 hardening were applied to `main` and verified:
 
 - [x] **Fix A — POS Session Token Expiry Pre-Check** (`client/src/components/pos/useCartCheckout.ts`) — cart checkout checks session validity before tendering to prevent late-stage server rejection.
 - [x] **Fix B — Printer Config Server-Side Persistence** (`server/src/api/settings.rs`) — stores per-lane printer overrides in database (`store_settings.pos_station_config`) and fetches dynamically.
@@ -34,17 +34,17 @@ All six go-live readiness items from the v0.85.0 audit and v0.85.5 fixes were ap
 
 Verification run on 2026-06-03: `cargo check`, `npm run lint`, `tsc --noEmit`, `validate_migration_layout.sh`, and `validate_schema_contract.sh` all passed.
 
-## v0.85.5 Release Readiness Blockers
+## v0.85.9 Release Readiness Blockers
 
-- [ ] `v0.85.5` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
-- [ ] `v0.85.5` Windows deployment package exists and its manifest source SHA matches the release tag.
-- [ ] `v0.85.5` macOS ROS Dev Center DMG exists.
+- [ ] `v0.85.9` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
+- [ ] `v0.85.9` Windows deployment package exists and its manifest source SHA matches the release tag.
+- [ ] `v0.85.9` macOS ROS Dev Center DMG exists.
 - [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
 - [ ] GitHub checks have rerun and passed on the final release commit.
 
 ## Code Gate
 
-- [ ] v0.85.5 automated certification evidence is recorded in [`docs/releases/v0.85.5-certification.md`](releases/v0.85.5-certification.md).
+- [ ] v0.85.9 automated certification evidence is recorded in [`docs/releases/v0.85.9-certification.md`](releases/v0.85.9-certification.md).
 - [x] No unresolved AI-actionable code-level P0/P1 findings remain in `docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md`; human/environment verification gates below remain required.
 - [x] `cargo fmt --manifest-path server/Cargo.toml --check` — passed locally for v0.4.0 readiness on 2026-05-01.
 - [x] `cargo clippy --manifest-path server/Cargo.toml -- -D warnings` — passed locally for v0.4.0 readiness on 2026-05-01 after the Meilisearch helper refactor.

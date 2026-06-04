@@ -62,19 +62,19 @@ flowchart TB
 | **Other Windows PCs / laptops** | **PWA or optional Tauri** | Use a browser-installed PWA for Back Office/POS where hardware printing is not required; use Tauri where native printer/scanner reliability is required. |
 | **Off-site phones / laptops** | **PWA over Tailscale** | Use **Tailscale** (or equivalent private mesh) and **HTTPS** when the device is not on the same local network as the host. Do not expose plain HTTP to the public internet for staff apps ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)). |
 
-### 2.1 Current deployment status snapshot (2026-05-22)
+### 2.1 Current deployment status snapshot (2026-06-04)
 
 This is the current repo/deployment status to verify before a live install:
 
 | Item | Current status | Deployment impact |
 |------|----------------|-------------------|
-| Target release version | **`v0.85.5`** | Root, client/PWA bundle, server, and Tauri metadata must all match. Run `npm run check:version` before publishing artifacts. |
-| Latest published GitHub release | **`v0.85.5`** | Use the release workflow output for the current release; do not mix installer assets from older releases. |
+| Target release version | **`v0.85.9`** | Root, client/PWA bundle, server, and Tauri metadata must all match. Run `npm run check:version` before publishing artifacts. |
+| Latest published GitHub release | **`v0.85.9`** | Use the release workflow output for the current release; do not mix installer assets from older releases. |
 | Windows installer/updater assets | **Required for the same Riverside release** | The release must contain `latest.json`, one current Windows MSI, and the matching `.sig`; old Riverside MSI/signature assets must be removed before upload. |
-| Windows deployment package | **Published as GitHub release asset** | `RiversideOS-v0.85.5-Windows-Deployment.zip` includes server, client bundle, register installer, Deployment Manager, migrations, seeds, and PowerShell scripts. |
+| Windows deployment package | **Published as GitHub release asset** | `RiversideOS-v0.85.9-Windows-Deployment.zip` includes server, client bundle, register installer, Deployment Manager, migrations, seeds, and PowerShell scripts. |
 | macOS ROS Dev Center | **Published as GitHub release asset** | Universal Apple Silicon / Intel DMG for macOS-based DevOps companion access. |
-| Latest Playwright E2E on `main` | Must pass on the final `v0.85.5` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
-| Latest Lint Checks on `main` | Must pass on the final `v0.85.5` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
+| Latest Playwright E2E on `main` | Must pass on the final `v0.85.9` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
+| Latest Lint Checks on `main` | Must pass on the final `v0.85.9` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
 | Local go-live checklist | Human/hardware/accounting gates still open | Retail deployment remains **pilot/validation**, not unattended go-live. |
 
 Before installing the two Windows PCs and PWA devices for production use, publish one complete Riverside release and record its release/run URL in the deployment log. The Windows app, server API, and PWA/web app files must all report the same Riverside version.

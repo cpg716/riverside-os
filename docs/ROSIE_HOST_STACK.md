@@ -24,7 +24,7 @@ If runtime code, env notes, or workstation setup drift from this file, this file
 - Voice does not create a second assistant path.
 - Tool execution, RBAC, and ROSIE governance remain server-validated.
 
-### Zero-Python Binary Deployment Model (v0.85.5+)
+### Zero-Python Binary Deployment Model (v0.85.9+)
 
 ROSIE is a **Zero-Python** stack. No Python interpreter, `pip`, `venv`, or `uv` is required on any workstation or server.
 
