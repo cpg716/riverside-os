@@ -97,115 +97,99 @@ The main shell component is a critical part of the application that manages UI s
 
 Help maintain, debug, and extend Riverside OS safely inside the existing architecture.
 
-### v0.3.4 Staff Scheduling & Event Invariants
+### v0.85.5 — Bridge GUI Optimization & Deployment Hardening
 
-RiversideOS v0.3.4 introduces a refined scheduling model focused on privacy, multi-staff events, and operational clarity.
+- **Counterpoint Bridge GUI Optimization**: Performance improvements (reduced polling, React rendering optimizations, memoized state) and unified navigation link to `/settings/integrations/counterpoint-sync`.
+- **Receipt Centering**: Added Centered ESC/POS receipt alignment configurations (`spacing: false` and `margin: "full"` receiptline formatting).
+- **PostgreSQL Password Prompts Elimination**: Strict requirement to pass `-w` (no-password) flag to all psql commands in installation and recovery scripts to prevent interactive console prompts.
+- **ROSIE Process Lock Avoidance**: Kill all `llama-server` and `sherpa-onnx` processes and stop LLM scheduled tasks before overwriting binaries during upgrades.
 
-- **Strict "Published Only" Visibility**: 
-  - Staff View, Staff Profiles, and the live Appointments Scheduler **MUST ONLY** consume **Published** weekly schedules. 
-  - Drafts and the Master Template are planning tools only and MUST NOT be visible in public-facing roster views.
-- **Unified Badge System (H/E/M)**: 
-  - All store activities MUST be categorized using the `kind` field:
-    - **H (Red)**: Holiday / Store Closed.
-    - **E (Green)**: Store Event / Training.
-    - **M (Amber)**: Meeting.
-  - These badges MUST be visually reflected in the individual shift boxes of all attendees.
-- **Professional Print Invariants**:
-  - **Numerical Dates**: Header labels MUST include day-of-month (e.g., "Mon 27").
-  - **Large Bold Rendering**: Holidays and Events MUST use a 16px bold font in the header row.
-  - **Flexible Labeling**: The printout MUST respect custom shift labels (e.g., "VAC", "REQ OFF") for non-working days.
-- **Highlighter Authority**: 
-  - Solid Yellow (`#fff176`) is the authoritative color for the manual highlighter tool, used to emphasize specific shifts for printing.
+### v0.85.0 — POS Register GO LIVE Readiness
 
-### v0.70.2 Production Hardening & Enterprise Features
+- **Fix A — POS Session Token Expiry Pre-Check**: Probes `GET /api/sessions/current` before tendering to alert cashiers if a register session has expired or closed elsewhere.
+- **Fix B — Printer Config Server-Side Persistence**: Lane-specific printer configurations are saved in `store_settings.pos_station_config` and synchronized during register activation.
+- **Fix C — Blocked Offline Items Recovery UI**: The register polls the local offline queue and displays amber/red badge notifications if items need manual recovery.
+- **Fix D — Receipt Print Failure Retry Queue**: Capture failed receipt print jobs in a local queue (`printRetryQueue.ts`) with a UI retry/dismissal modal interface.
+- **Fix E — Dynamic Register Lane Dropdown**: Fetch register lane limits dynamically from `/api/settings/pos-station-config/public` rather than hardcoding options.
+- **Fix F — Helcim Terminal Stream Auto-Reconnect**: Implemented a 4-second fallback polling cycle alongside the SSE stream to prevent stuck payment checkouts.
+- **ROSIE Token Telemetry**: Non-blocking recording of input/output token usage saved via `record_token_telemetry` and displayed on settings dashboards.
+- **Order Pickup Availability & Received Status Guards**: Enforces checks for `stock_on_hand >= quantity` and `received_at IS NOT NULL` before allowing pickups. Bypassable only via Manager PIN and a 12+ character justification override.
 
-RiversideOS v0.70.2 introduces comprehensive production hardening features for enterprise-grade scalability, reliability, and observability.
+### v0.80.9 — Daily Financial Report & QBO Journal Lifecycle
 
-- **Health Check Endpoints**: `/api/health`, `/api/ready`, `/api/live` for orchestration and monitoring systems. Health checks validate database connectivity, background workers, and system dependencies with appropriate HTTP status codes.
-- **Connection Pool Monitoring**: Automatic monitoring of PostgreSQL connection pool utilization with alerts when usage exceeds 80%. Monitors active, idle, and total connections with real-time alerting to admin staff.
-- **WAL Archiving**: Point-in-time recovery capability with automated WAL archiving, monitoring, and failure alerting. Includes health status tracking and automatic cleanup of old archive files.
-- **System Alert Broadcasting**: Critical system events (connection pool exhaustion, WAL failures, etc.) are automatically broadcast to all admin staff via the notification system using `settings.admin` permission targeting.
-- **Global Rate Limiting**: IP-based and user-based rate limiting to prevent API abuse and DoS attacks. Configurable limits with sliding window enforcement and automatic cleanup of expired entries.
-- **Redis Cluster Integration**: Distributed caching and locking with graceful fallback when Redis unavailable. Includes connection pooling, retry logic, and distributed lock implementation using Lua scripts.
-- **Background Job Queue**: Resilient async processing system with Redis backend, supporting retries, dead letter queues, and multiple job types (email, reports, sync, maintenance, notifications, analytics).
-- **Comprehensive Metrics System**: Business KPIs (revenue, customers, inventory, financial) and technical metrics (system resources, database performance, API metrics) with multiple export formats (Prometheus, JSON, InfluxDB, Graphite).
+- **Daily Financial Report System**: Generates and emails daily summary report (net sales, margins, QBO sync, inventory stats) after Z-close. Previewable via iframe archive.
+- **QBO Staging Lifecycle Actions**: Added support to Revert to Pending, Retry Failed, and Void Synced entries directly from the staging workspace.
+- **COGS Freight Ledger**: Staged daily QBO journals support separating freight costs into `COGS_FREIGHT` accounts.
 
-**Production Documentation**: All production features are documented in:
-- `docs/PRODUCTION_HARDENING_GUIDE.md` - Complete production setup and configuration
-- `docs/REDIS_INTEGRATION_GUIDE.md` - Redis caching and distributed locking
-- `docs/JOB_QUEUE_GUIDE.md` - Background job processing and worker configuration
-- `docs/METRICS_SYSTEM_GUIDE.md` - Business and technical KPI collection
-- `docs/DEPLOYMENT_GUIDE.md` - Production deployment procedures
+### v0.80.8 — Constant Contact Sync & Idle Timeout Security
 
-### v0.60.2 Deployment Manager & Diagnostics
+- **Constant Contact Integration**: Synchronize opted-in customers to marketing list campaigns and capture campaigns webhook events (delivery, clicks, unsubscribes).
+- **POS Register Idle Timeout**: Enforce automatic lock/PIN screen redirect after 10 minutes of cashier inactivity.
+- **POS Shell Strict Containment**: Ending a register session strictly remains inside the POS PIN overlay interface; returning to the Back Office requires explicit authorization.
 
-RiversideOS v0.60.2 introduces the Tauri-based Deployment Manager GUI and automated system audits to replace fragmented installation scripts.
+### v0.80.7 — Transactional Outbox & Offline Stock Fallbacks
 
-- **Tauri-Based GUI Interface**: All workstation installs, updates, and maintenance use `RiversideOS-Deployment-Manager.exe` (run elevated via `Start-RiversideDeployment.cmd`).
-- **System Pre-Flight Audit**: The "Audit" dashboard action runs `audit-system.ps1` to perform deep system health checks (admin rights, PostgreSQL connectivity, schema/migration status, server task running state, API ping `/api/version`, machine environment variables, and print routing).
-- **Zero-Config Credentials**: Deployment scripts auto-resolve PostgreSQL trust authentication or common defaults, auto-generate JWT and app secrets on the fly, and persist them to `riverside-deployment.config.json`.
-- **Start Fresh (Factory Reset)**: The "Start Fresh" maintenance action triggers `reset-riverside-database.ps1` with `-StartFresh`, executing database drop/recreate, migration apply, and core seeding silently in a single click (suppressing interactive WinForms MessageBox prompts).
-- **CI/CD Compilation Caching**: Uses a unified Cargo workspace layout with `swatinem/rust-cache` to cache Rust dependencies across all workspace packages (`server`, `client/src-tauri`, and `deployment/manager-app/src-tauri`) in a single shared target directory, drastically reducing CI/CD compilation and caching overhead.
+- **Transactional Outbox for QBO**: Queues transactions in `qbo_sync_outbox` to prevent live checkout failures due to external QBO API downtime.
+- **Offline Stock Fallbacks**: Allow offline checkouts to fall back to negative stock, logging warnings to `negative_stock_alerts` for admin notification.
 
-### v0.60.0 ROSIE Local AI Copilot, Universal Search & Backdating
+### v0.80.6 — In-App Updater & Help Fallback Authentication
 
-RiversideOS v0.60.0 introduces the ROSIE Local AI Copilot stack, integrated aggregate search endpoints, and official backdating of POS transactions.
+- **In-App Updater**: Tauri desktop updater processes downloads, extracts installer packages, and runs updates elevated via scheduled tasks or UAC prompt wrappers.
+- **Help Authentication Fallback**: Help manual indexes support falling back to POS session credentials if backoffice headers are missing.
 
-- **ROSIE Local Copilot Stack**: Powered by a local **Gemma** LLM model running on the shop Server PC (`docs/ROS_GEMMA_WORKER.md`) and served via background AI routes (`docs/ROSIE_HOST_STACK.md`). Operates under the strict guidelines of the **ROSIE Operating Contract** (`docs/ROSIE_OPERATING_CONTRACT.md`), mandating no raw SQL, no RBAC bypass, server-side parameter validation, and user confirmations for data modifications.
-- **Aggregated Help Indexing**: Automatically builds staff help manuals index by reading `docs/staff/CORPUS.manifest.json` configured using the `RIVERSIDE_REPO_ROOT` environment variable. Trigger reindexing with `POST /api/ai/admin/reindex-docs`.
-- **Universal Search Aggregator**: Exposes `/api/search/aggregate` to query Customers CRM, catalog inventory, alterations, active weddings, and help articles in a single aggregated backend call, replacing client-side multi-threaded search calls.
-- **Register Transaction Backdating**: POS terminal checkouts support explicit transaction date overrides (`booked_at`). Backdating properly adjusts payment allocations, commission calculations, revenue recognition, and downstream QBO accounting entries.
+### v0.80.5 — Dedicated Payment Button & Production Caching
 
-### v0.80.9 Daily Financial Report & QBO Journal Lifecycle
+- **Dedicated Cart Payment Button**: Instantly adds RMS Charge Payment lines via the register toolbar.
+- **Production Hardening Suite**:
+  - Technical and resource Prometheus metric exports.
+  - Redis cache locking and session storage with graceful fallback layers.
+  - Multi-threaded Background Job Queue (`server/src/jobs/`).
+  - Automated PostgreSQL WAL archiving checks.
 
-RiversideOS v0.80.9 introduces automated daily financial reporting and completes the QBO staging lifecycle.
+### v0.70.2 — Production Hardening & Enterprise Features
 
-- **Daily Financial Report System**: After register Z-close, the system generates, stores, and emails a comprehensive business-day financial summary. Covers net sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, freight, category margins with COGS/margin %, and QBO journal sync status.
-  - **Settings**: `Settings → Daily Financial Report` — enable/disable, recipient emails, subject template, auto-send toggle, QBO and inventory toggles.
-  - **Auto-Send**: Fires after Z-close in the same background task as EOD snapshot and QBO journal staging.
-  - **Test Send**: Sends the most recent report with `[TEST]` prefix; supports email override.
-  - **Report Archive**: All reports stored in `daily_financial_reports` with full payload + rendered HTML, viewable in Settings via iframe preview modal.
-  - **API**: `/api/daily-reports/` — config, generate, send, test-send, history, detail, resend. All gated by `settings.admin`.
-  - **Migration**: `052_daily_financial_reports.sql`.
-- **QBO Staging Lifecycle Actions**: Revert to Pending, Retry Failed, Void Synced Entry — full lifecycle management for previously staged/synced journal entries.
-- **Inbound Freight in QBO Journal**: `COGS_FREIGHT` ledger key for receiving freight costs, posted as a separate debit line in the daily journal distinct from merchandise COGS.
+- **Connection Pool Monitoring**: Real-time alerts when connection pool utilization exceeds 80%.
+- **Global Rate Limiting**: IP-based and user-based request rate limit middleware.
 
-**Documentation**: `docs/DAILY_FINANCIAL_REPORT.md` for full configuration, API reference, and email template details.
+### v0.70.1 — Tag Print Date & Rosie Model Pinned Paths
 
-### v0.85.0 POS Register GO LIVE Readiness
+- **Zebra Tag Print Date**: Automatically append current date to Zebra ZPL and HTML receipt tags.
+- **ROSIE Model pin**: Upgraded local LLM to Gemma 4 E4B (5.4GB model).
 
-RiversideOS v0.85.0 is the GO LIVE readiness release. It is the result of a systematic end-to-end review of the POS Register (cart, checkout, payments, printing, sessions, offline), Back Office, Settings & Integrations, and Performance. Six critical fixes (A–F) were identified and implemented to harden the register for daily production use.
+### v0.70.0 — AI Copilot, Universal Search & Backdating
 
-- **Fix A — POS Session Token Expiry Pre-Check**: `useCartCheckout` probes `GET /api/sessions/current` before tendering. Cashiers get immediate feedback if the session expired or was closed from another terminal, preventing late-stage server rejections after payment splits have been entered.
-- **Fix B — Printer Config Server-Side Persistence**: Per-lane printer settings (receipt, tag, report printers, cash drawer toggle) are now stored in `store_settings.pos_station_config`. New endpoints: `GET|PATCH /api/settings/printer-config/{register_lane}`. The Register Overlay hydrates these settings on lane change and syncs them on successful open, eliminating the local-only configuration drift across terminals.
-- **Fix C — Blocked Offline Items Recovery UI**: The POS cart header polls the offline checkout queue every 10s. An amber "syncing" badge shows queued items; a red "need recovery" badge appears when blocked items require manual attention. Cashiers can no longer miss stalled offline sales.
-- **Fix D — Receipt Print Failure Retry Queue**: Failed receipt prints are captured in a new `localforage` retry queue (`printRetryQueue.ts`). A "X print retry" danger button appears in the POS header; clicking opens a modal to retry individual print jobs or dismiss them. The queue persists across page reloads.
-- **Fix E — Dynamic Register Lane Dropdown**: The Register Overlay dropdown is no longer hardcoded to 4 lanes. It fetches `max_register_lanes` from `/api/settings/pos-station-config/public` and generates options dynamically. Migration `058_pos_station_config.sql` adds the JSONB column.
-- **Fix F — Helcim Terminal Stream Auto-Reconnect**: `NexoCheckoutDrawer` runs a 4-second fallback polling interval alongside the SSE stream. If the SSE connection drops silently, polling continues refreshing the terminal attempt status until completion or cancellation, preventing stuck terminal payments.
+- **ROSIE AI Local Stack**: Powered by a local Gemma LLM worker serving local AI routes.
+- **Universal Search Aggregator**: Unified endpoint `/api/search/aggregate` for customer CRM, catalog, alterations, weddings, and help documents.
+- **Transaction Backdating**: POS terminal checkouts support explicit booking date overrides (`booked_at`).
 
-**Migration**: `058_pos_station_config.sql` — adds `pos_station_config JSONB` to `store_settings`.
+### v0.60.2 — Deployment Manager GUI
 
-### v0.3.5 Cash Rounding & CoreCredit Financing
+- **Tauri GUI Install App**: Replaced legacy PowerShell installer setups with a modern React + Tauri deployment wizard UI dashboard.
 
-RiversideOS v0.3.5 introduces cash rounding logic and consumer line-of-credit (CoreCard/CoreCredit) integrations.
+### v0.3.5 — Cash Rounding & CoreCredit Financing
 
-- **Cash Rounding**: Cash transactions at POS checkout dynamically apply Sweden-style cash rounding (to nearest $0.05 or custom denominator) calculated to prevent sub-penny differences.
-- **CoreCard / CoreCredit**: Integrated store credit card and financing lines for checkout payment allocations. CoreCard validation setups must follow the checklist in `docs/CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md` for sandbox and live deployments.
+- **Cash Rounding**: Sweden-style nearest $0.05 rounding calculated separately as a payment ledger offset (`cash_rounding_offset`) to preserve base product/tax totals.
+- **CoreCredit financing**: Integrated store credit financing payment lines.
 
-### v0.3.0 Operational Perfection
+### v0.3.4 — Staff Scheduling & Event Invariants
 
-RiversideOS v0.3.0 is a refinement release focused on operator clarity, trust, and efficiency rather than new modules.
+- **Strict "Published Only" Visibility**: Roster and appointment calendars consume published weekly schedules only.
+- **Unified Event Badges (H/E/M)**: Shift cards must visualize Holiday (H - Red), Store Event (E - Green), or Meeting (M - Amber).
+- **Professional Print Invariants**: Landscape calendar layouts utilize 16px bold header events, numerical dates (e.g. "Mon 27"), and custom shift labels ("VAC", "REQ OFF").
 
-- Prefer visibility over hidden state.
-- Prefer guided workflows over memory-based workflows.
-- Prefer human-readable labels, timelines, and rule explanations over internal jargon.
-- Prefer lightweight operational summaries and data-quality signals over dense reporting or speculative scoring.
-- When in doubt, preserve existing server truth and improve the operator-facing surface around it rather than introducing new backend behavior.
+### v0.3.3 — Standardized Stacking Tiers & Portaling Mandate
 
-Priorities, in order:
+- **Overlay Portaling**: Portals all Modals, Drawers, and Wizards to `#drawer-root` inside the SPA document body.
+- **Stacking Tiers (Z-Index)**: Standardized stacking levels: `z-100` (Drawers), `z-200` (Modals/Wizards), `z-300` (Toasts).
 
-1. Preserve financial correctness
-2. Preserve auditability
+### v0.3.2 — Return & Exchange Policy & RBAC Profile Sync
+
+- **Return Window**: 60-day return limit. Older transactions require Manager PIN approval.
+- **RBAC Auto-Sync**: Changing staff profiles automatically aligns roles, permissions, and discount caps.
+
+### v0.3.0 — Operational Perfection
+
+- **Visibility & Guidance**: Prioritize clear, interactive user workflows over implicit assumptions or memory-based procedures. Always preserve financial correctness and auditability.
 3. Maintain WowDash design system (glassmorphism, Inter typography)
 4. Preserve existing project patterns
 5. Ship focused, production-safe changes
@@ -937,17 +921,14 @@ E2E_BASE_URL="http://localhost:5173" npm run test:e2e:update-snapshots
 - Local dev uses Docker Compose `db`
 - `DATABASE_URL` should use `localhost:5433`, not `5432`
 - The migration ledger is `public.ros_schema_migrations` (includes `file_sha256` checksums)
-- Active migrations are `001` through `037` (check `migrations/` for the actual latest)
+- Active migrations are `001` through `061` (check `migrations/` for the actual latest)
 - Legacy pre-launch migrations live under `migrations/legacy_prelaunch_history/`
 - Seed data lives in `scripts/seeds/` and must stay out of active migrations
 - Runtime startup validates schema only; do not add hidden DDL or compat patches
 - Use the scripts in `scripts/` rather than inventing ad hoc migration workflows
-
-## Migration numbering safety
-
 - **Never edit an already-applied migration file** — the SHA-256 checksum system will flag it as drift
 - Never rename or renumber existing migrations
-- Always create a new append-only migration for post-launch schema changes (e.g. `038_...`)
+- Always create a new append-only migration for post-launch schema changes (e.g. `062_...`)
 - Use `IF NOT EXISTS` / `IF EXISTS` guards in new migrations for safe idempotency
 - Preserve migration order across branches
 - Verify migration sequence before making changes
