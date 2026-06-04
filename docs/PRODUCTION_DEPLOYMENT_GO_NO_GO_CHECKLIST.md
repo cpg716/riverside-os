@@ -8,8 +8,8 @@ Target: Hybrid Tauri Host retail deployment.
 - [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
 - [x] Source-side local review evidence is recorded in [`docs/reviews/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_04.md`](reviews/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_04.md).
 - [x] v0.90.0 release notes and certification evidence are recorded in [`docs/releases/v0.90.0-release-notes.md`](releases/v0.90.0-release-notes.md) and [`docs/releases/v0.90.0-certification.md`](releases/v0.90.0-certification.md).
-- [ ] GitHub release **`v0.90.0`** is published as Latest after this release commit is pushed.
-- [ ] Release workflows publish fresh v0.90.0 Windows updater, Windows deployment package, Counterpoint Bridge GUI, Server Manager, Deployment Manager, and macOS ROS Dev Center assets.
+- [x] GitHub release **`v0.90.0`** is published as Latest.
+- [x] Release workflows published fresh v0.90.0 Windows updater, Windows deployment package, Counterpoint Bridge GUI, Server Manager, Deployment Manager, and macOS ROS Dev Center assets.
 - [x] Local Lint/Clippy/Cargo checks pass for the v0.90.0 release source tree.
 - [ ] Production station deployment log is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA / optional Tauri clients.
 
@@ -26,10 +26,10 @@ v0.90.0 preserves the v0.85.x GO LIVE readiness baseline and adds the source-sid
 
 ## v0.90.0 Release Readiness Gates
 
-- [ ] `v0.90.0` GitHub release exists and is marked Latest.
-- [ ] `v0.90.0` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
-- [ ] `v0.90.0` Windows deployment package exists: `RiversideOS-v0.90.0-*-Windows-Deployment.zip`.
-- [ ] `v0.90.0` standalone app assets exist for Deployment Manager, Server Manager, Counterpoint Bridge GUI, and ROS Dev Center where applicable.
+- [x] `v0.90.0` GitHub release exists and is marked Latest.
+- [x] `v0.90.0` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
+- [x] `v0.90.0` Windows deployment package exists: `RiversideOS-v0.90.0-1e630a1-Windows-Deployment.zip`.
+- [x] `v0.90.0` standalone app assets exist for Deployment Manager, Server Manager, Counterpoint Bridge GUI, and ROS Dev Center where applicable.
 - [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
 - [ ] Real external credential workflows have been tested where required for go-live: QBO sandbox/production, Helcim, Podium, Shippo, and Counterpoint SQL.
 
@@ -37,7 +37,7 @@ v0.90.0 preserves the v0.85.x GO LIVE readiness baseline and adds the source-sid
 
 - [x] v0.90.0 source validation list is defined in [`docs/releases/v0.90.0-certification.md`](releases/v0.90.0-certification.md).
 - [x] v0.90.0 local validation commands pass before tagging: `git diff --check`, help manifest generation, version parity, client lint/typecheck, Rust fmt, cargo check, cargo clippy, standalone Tauri cargo checks, and targeted release-critical Rust tests.
-- [ ] Latest GitHub Actions checks pass on the final v0.90.0 release commit.
+- [ ] Latest GitHub Actions checks pass on the final v0.90.0 follow-up commit; original release commit Lint passed, original Playwright failed on stale Orders E2E assertions now fixed locally.
 - [ ] `scripts/production_audit_probes.sql` runs read-only against the release database and all P0/P1 probes are explained or zero-row.
 
 ## In-App Update System (v0.80.9+)

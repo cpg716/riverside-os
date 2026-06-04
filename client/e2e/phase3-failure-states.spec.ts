@@ -72,7 +72,7 @@ test.describe("Phase 3 failure-state coverage", () => {
     });
     await expect(
       page
-        .getByText("Transaction records could not load right now. Try again in a moment.")
+        .getByText("Orders could not load right now. Try again in a moment.")
         .filter({ visible: true }),
     ).toBeVisible();
     await expect(page.getByText("No matching records found")).toHaveCount(0);
