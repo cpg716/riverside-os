@@ -250,6 +250,8 @@ function formatStatusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
 
+type BadgeTone = "success" | "info" | "warning" | "neutral" | "rose";
+
 function describeLifecycle(detail: TransactionDrawerDetail) {
   const paidCents = parseMoneyToCents(detail.amount_paid);
   const dueCents = parseMoneyToCents(detail.balance_due);
@@ -310,6 +312,9 @@ function describeOrderRules(detail: TransactionDrawerDetail): string[] {
         : "A paid balance does not automatically mean the item is ready until receiving and pickup work are complete.",
     );
   }
+  lines.push(
+    "Received is not customer-ready. Staff must run Mark Ready + Notify before pickup release so SMS/email and pickup notifications are queued.",
+  );
 
   return lines;
 }
@@ -347,6 +352,190 @@ function lifecycleStatusLabel(value?: string | null, alterationStatus?: string |
     default:
       return null;
   }
+}
+
+const ORDER_LIFECYCLE_STEPS = [
+  { key: "needs_measurements", label: "Needs Details" },
+  { key: "ntbo", label: "NTBO" },
+  { key: "ordered", label: "Ordered" },
+  { key: "received", label: "Received" },
+  { key: "ready_for_pickup", label: "Ready Pickup" },
+  { key: "picked_up", label: "Picked Up" },
+] as const;
+
+type LifecycleStepKey = (typeof ORDER_LIFECYCLE_STEPS)[number]["key"];
+
+function isLifecycleStepKey(value: string | null | undefined): value is LifecycleStepKey {
+  return ORDER_LIFECYCLE_STEPS.some((step) => step.key === value);
+}
+
+function lifecycleStatusTone(
+  value?: string | null,
+  alterationStatus?: string | null,
+  isFulfilled = false,
+): BadgeTone {
+  if (isFulfilled || value === "picked_up" || value === "ready_for_pickup") {
+    return "success";
+  }
+  if (
+    value === "received" &&
+    (alterationStatus === "intake" ||
+      alterationStatus === "in_work" ||
+      alterationStatus === "verify_completed")
+  ) {
+    return "warning";
+  }
+  if (value === "received" || value === "ordered") {
+    return "info";
+  }
+  return "warning";
+}
+
+function orderLifecycleCounts(detail: TransactionDrawerDetail) {
+  const counts = ORDER_LIFECYCLE_STEPS.reduce(
+    (acc, step) => ({ ...acc, [step.key]: 0 }),
+    {} as Record<LifecycleStepKey, number>,
+  );
+
+  detail.items
+    .filter((item) => !item.is_internal && item.fulfillment !== "takeaway")
+    .forEach((item) => {
+      const stepKey = item.is_fulfilled ? "picked_up" : item.order_lifecycle_status;
+      if (isLifecycleStepKey(stepKey)) {
+        counts[stepKey] += 1;
+      }
+    });
+
+  return {
+    ...counts,
+    needsReadyCheck: detail.items.filter(
+      (item) =>
+        !item.is_internal &&
+        !item.is_fulfilled &&
+        item.order_lifecycle_status === "received",
+    ).length,
+    readyNow: detail.items.filter(
+      (item) =>
+        !item.is_internal &&
+        !item.is_fulfilled &&
+        item.order_lifecycle_status === "ready_for_pickup",
+    ).length,
+  };
+}
+
+function lineNextAction(item: TransactionDrawerItem, detail: TransactionDrawerDetail): string {
+  if (item.is_fulfilled || item.order_lifecycle_status === "picked_up") {
+    return detail.fulfillment_method === "ship"
+      ? "Completed for shipping."
+      : "Pickup is complete.";
+  }
+  if (item.fulfillment === "takeaway") {
+    return "Takeaway line; no order lifecycle work required.";
+  }
+  if (item.order_lifecycle_status === "needs_measurements") {
+    return "Collect measurements/details before ordering.";
+  }
+  if (item.order_lifecycle_status === "ntbo") {
+    return "Create or attach the vendor order.";
+  }
+  if (item.order_lifecycle_status === "ordered") {
+    return "Waiting for receiving before customer-ready work.";
+  }
+  if (item.order_lifecycle_status === "received") {
+    if (
+      item.alteration_status === "intake" ||
+      item.alteration_status === "in_work" ||
+      item.alteration_status === "verify_completed"
+    ) {
+      return "Complete alteration work, then run Mark Ready + Notify.";
+    }
+    return "Run Mark Ready + Notify to queue pickup SMS/email.";
+  }
+  if (item.order_lifecycle_status === "ready_for_pickup") {
+    return parseMoneyToCents(detail.balance_due) > 0
+      ? "Ready, but balance must clear before release."
+      : "Ready for customer pickup release.";
+  }
+  return "Review lifecycle step before release.";
+}
+
+function lineNotificationState(item: TransactionDrawerItem): string {
+  if (item.is_fulfilled || item.order_lifecycle_status === "picked_up") {
+    return "Completed.";
+  }
+  if (item.order_lifecycle_status === "ready_for_pickup") {
+    return "Ready notice has been queued by the workflow.";
+  }
+  if (item.order_lifecycle_status === "received") {
+    return "Not queued until staff runs Mark Ready + Notify.";
+  }
+  return "No pickup notice until item is received and marked ready.";
+}
+
+function deriveLifecycleOverview(
+  detail: TransactionDrawerDetail,
+  summary: ReturnType<typeof fulfillmentSummary>,
+  counts: ReturnType<typeof orderLifecycleCounts>,
+): {
+  label: string;
+  tone: BadgeTone;
+  activeStep: LifecycleStepKey;
+  nextAction: string;
+} {
+  if (detail.status === "cancelled") {
+    return {
+      label: "Cancelled",
+      tone: "rose",
+      activeStep: "needs_measurements",
+      nextAction: "No pickup work should continue on a cancelled transaction.",
+    };
+  }
+  if (summary.pending === 0 || detail.status === "fulfilled") {
+    return {
+      label: "Closed / Picked Up",
+      tone: "success",
+      activeStep: "picked_up",
+      nextAction: "No open customer-visible order work remains.",
+    };
+  }
+  if (counts.readyNow > 0) {
+    return {
+      label: "Ready for Pickup",
+      tone: "success",
+      activeStep: "ready_for_pickup",
+      nextAction: "Release only after balance and readiness checks pass.",
+    };
+  }
+  if (counts.needsReadyCheck > 0) {
+    return {
+      label: "Needs Ready Check",
+      tone: "warning",
+      activeStep: "received",
+      nextAction: "Staff must run Mark Ready + Notify for received items.",
+    };
+  }
+  if (counts.ordered > 0) {
+    return {
+      label: "Ordered",
+      tone: "info",
+      activeStep: "ordered",
+      nextAction: "Receive vendor goods before pickup-ready work starts.",
+    };
+  }
+  if (counts.ntbo > 0) {
+    return {
+      label: "NTBO / Ready to Order",
+      tone: "warning",
+      activeStep: "ntbo",
+      nextAction: "Create or attach the vendor order before receiving.",
+    };
+  }
+  return {
+    label: "Needs Details",
+    tone: "warning",
+    activeStep: "needs_measurements",
+    nextAction: "Finish details before ordering or promising pickup.",
+  };
 }
 
 function fulfillmentSummary(detail: TransactionDrawerDetail) {
@@ -600,7 +789,7 @@ function buildReadinessCheck(
   };
 }
 
-function badgeClassName(kind: "success" | "info" | "warning" | "neutral" | "rose") {
+function badgeClassName(kind: BadgeTone) {
   switch (kind) {
     case "success":
       return "border-app-success/20 bg-app-success/10 text-app-success";
@@ -817,6 +1006,17 @@ export default function TransactionDetailDrawer({
   }, [isOpen, orderId, load, usesControlledData]);
 
   const summary = useMemo(() => (detail ? fulfillmentSummary(detail) : null), [detail]);
+  const lifecycleCounts = useMemo(
+    () => (detail ? orderLifecycleCounts(detail) : null),
+    [detail],
+  );
+  const lifecycleOverview = useMemo(
+    () =>
+      detail && summary && lifecycleCounts
+        ? deriveLifecycleOverview(detail, summary, lifecycleCounts)
+        : null,
+    [detail, lifecycleCounts, summary],
+  );
   const shippingLines = useMemo(() => addressLines(detail?.ship_to), [detail?.ship_to]);
   const mode = useMemo(() => (detail ? modeSummary(detail) : null), [detail]);
   const readiness = useMemo(
@@ -1205,10 +1405,10 @@ export default function TransactionDetailDrawer({
     </div>
   ) : null;
 
-	  const handleAddBySku = useCallback(async () => {
-	    if (!orderActions?.addBySku) return;
-	    await orderActions.addBySku();
-	  }, [orderActions]);
+    const handleAddBySku = useCallback(async () => {
+      if (!orderActions?.addBySku) return;
+      await orderActions.addBySku();
+    }, [orderActions]);
 
   const pickupBalanceDueCents = detail ? parseMoneyToCents(detail.balance_due) : 0;
   const pickupModalOpenLines = pickupTargetLineIds
@@ -1302,6 +1502,84 @@ export default function TransactionDetailDrawer({
           </div>
         ) : (
           <div className="space-y-5">
+            {lifecycleOverview && lifecycleCounts ? (
+              <section className="ui-panel ui-tint-info p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <ORDERS_ICON size={16} className="text-app-text-muted" />
+                      <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
+                        Order Lifecycle
+                      </h3>
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-app-text">
+                      {lifecycleOverview.nextAction}
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${badgeClassName(
+                      lifecycleOverview.tone,
+                    )}`}
+                  >
+                    {lifecycleOverview.label}
+                  </span>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                  {ORDER_LIFECYCLE_STEPS.map((step) => {
+                    const isActive = step.key === lifecycleOverview.activeStep;
+                    const count = lifecycleCounts[step.key];
+                    return (
+                      <div
+                        key={step.key}
+                        className={`rounded-xl border p-3 ${
+                          isActive
+                            ? "border-app-accent/30 bg-app-accent/10"
+                            : count > 0
+                              ? "border-app-info/20 bg-app-info/5"
+                              : "border-app-border/60 bg-app-surface/70"
+                        }`}
+                      >
+                        <p
+                          className={`text-[10px] font-black uppercase tracking-widest ${
+                            isActive ? "text-app-accent" : "text-app-text-muted"
+                          }`}
+                        >
+                          {step.label}
+                        </p>
+                        <p className="mt-2 text-lg font-black text-app-text">{count}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl border border-app-border/60 bg-app-surface p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Needs Ready Check
+                    </p>
+                    <p className="mt-1 text-lg font-black text-app-warning">
+                      {lifecycleCounts.needsReadyCheck}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-app-border/60 bg-app-surface p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Ready Pickup
+                    </p>
+                    <p className="mt-1 text-lg font-black text-app-success">
+                      {lifecycleCounts.readyNow}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-app-border/60 bg-app-surface p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Release Rule
+                    </p>
+                    <p className="mt-1 text-[12px] font-semibold text-app-text">
+                      Received still requires Mark Ready + Notify.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
             <section className="grid gap-4 lg:grid-cols-2">
               <div className="ui-panel ui-tint-info p-4">
                 <div className="flex items-center gap-2">
@@ -1384,10 +1662,10 @@ export default function TransactionDetailDrawer({
                   </span>
                   <span
                     className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-                      readiness?.readinessTone ?? "neutral",
+                      lifecycleOverview?.tone ?? readiness?.readinessTone ?? "neutral",
                     )}`}
                   >
-                    {readiness?.readinessLabel ?? "Open"}
+                    {lifecycleOverview?.label ?? readiness?.readinessLabel ?? "Open"}
                   </span>
                   <span
                     className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
@@ -1432,7 +1710,7 @@ export default function TransactionDetailDrawer({
                   </div>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Ready Now
+                      Ready Pickup
                     </p>
                     <p className="mt-1 text-sm font-black text-app-success">
                       {summary?.readyPending ?? 0}
@@ -1440,7 +1718,7 @@ export default function TransactionDetailDrawer({
                   </div>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Blocked
+                      Not Ready
                     </p>
                     <p className="mt-1 text-sm font-black text-app-warning">
                       {summary?.blockedPending ?? 0}
@@ -1473,10 +1751,10 @@ export default function TransactionDetailDrawer({
                 </div>
                 <div className="ui-panel ui-tint-info mt-3 p-3">
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Mode Cue
+                    Next Staff Action
                   </p>
                   <p className="mt-2 text-[12px] font-semibold text-app-text">
-                    {mode?.modeDetail}
+                    {lifecycleOverview?.nextAction ?? mode?.modeDetail}
                   </p>
                 </div>
                 <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface p-3">
@@ -1796,17 +2074,17 @@ export default function TransactionDetailDrawer({
                 detail.status !== "cancelled" &&
                 orderActions.setSku &&
                 orderActions.addBySku ? (
-	                  <div className="flex min-w-[280px] items-center gap-2">
-	                    <VariantSearchInput
-	                      className="h-9 min-w-[220px] rounded-lg border border-app-border bg-app-surface px-3 text-[11px] font-semibold outline-none"
-	                      placeholder="Search item or SKU..."
-	                      onSelect={(variant) => {
-	                        orderActions.setSku?.(variant.sku);
-	                        void orderActions.addBySku?.(variant.sku);
-	                      }}
-	                    />
-	                    <button
-	                      type="button"
+                    <div className="flex min-w-[280px] items-center gap-2">
+                      <VariantSearchInput
+                        className="h-9 min-w-[220px] rounded-lg border border-app-border bg-app-surface px-3 text-[11px] font-semibold outline-none"
+                        placeholder="Search item or SKU..."
+                        onSelect={(variant) => {
+                          orderActions.setSku?.(variant.sku);
+                          void orderActions.addBySku?.(variant.sku);
+                        }}
+                      />
+                      <button
+                        type="button"
                       onClick={() => {
                         void handleAddBySku();
                       }}
@@ -1821,18 +2099,18 @@ export default function TransactionDetailDrawer({
                 {[
                   {
                     key: "open",
-                    title: "Still Open",
+                    title: "Open Lifecycle Work",
                     description:
                       detail.fulfillment_method === "ship"
                         ? "These lines still need shipping work."
-                        : "These lines still need pickup-ready work.",
+                        : "These lines must move through lifecycle steps before pickup release.",
                     items: detail.items.filter(
                       (item) => !item.is_internal && !item.is_fulfilled,
                     ),
                   },
                   {
                     key: "fulfilled",
-                    title: "Already Fulfilled",
+                    title: "Closed Lifecycle Lines",
                     description:
                       detail.fulfillment_method === "ship"
                         ? "These lines are already completed for shipping."
@@ -1863,18 +2141,35 @@ export default function TransactionDetailDrawer({
                         </span>
                       </div>
                       {group.items.map((item) => {
-                    const itemId = item.order_item_id ?? item.transaction_line_id;
-                    const returnedQty = item.quantity_returned ?? 0;
-                    const lifecycleLabel = lifecycleStatusLabel(item.order_lifecycle_status, item.alteration_status);
-                    return (
-                      <div
-                        key={itemId ?? `${item.sku}-${item.product_name}`}
-                        className={`rounded-xl border p-4 ${
-                          item.is_fulfilled
-                            ? "border-emerald-500/15 bg-emerald-500/5"
-                            : "border-app-border bg-app-surface"
-                        }`}
-                      >
+                        const itemId = item.order_item_id ?? item.transaction_line_id;
+                        const returnedQty = item.quantity_returned ?? 0;
+                        const lifecycleLabel = lifecycleStatusLabel(
+                          item.order_lifecycle_status,
+                          item.alteration_status,
+                        );
+                        const lifecycleTone = lifecycleStatusTone(
+                          item.order_lifecycle_status,
+                          item.alteration_status,
+                          item.is_fulfilled,
+                        );
+                        const nextAction = lineNextAction(item, detail);
+                        const notificationState = lineNotificationState(item);
+                        const canMarkReady = Boolean(
+                          item.order_lifecycle_status === "received" &&
+                            item.transaction_line_id &&
+                            !item.is_fulfilled,
+                        );
+                        const isReadyForPickup =
+                          item.order_lifecycle_status === "ready_for_pickup";
+                        return (
+                          <div
+                            key={itemId ?? `${item.sku}-${item.product_name}`}
+                            className={`rounded-xl border p-4 ${
+                              item.is_fulfilled
+                                ? "border-emerald-500/15 bg-emerald-500/5"
+                                : "border-app-border bg-app-surface"
+                            }`}
+                          >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
@@ -1902,12 +2197,7 @@ export default function TransactionDetailDrawer({
                               {lifecycleLabel && item.fulfillment !== "takeaway" ? (
                                 <span
                                   className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-                                    item.order_lifecycle_status === "picked_up" ||
-                                      item.order_lifecycle_status === "ready_for_pickup"
-                                      ? "success"
-                                      : item.order_lifecycle_status === "received"
-                                        ? (item.alteration_status === "intake" || item.alteration_status === "in_work" || item.alteration_status === "verify_completed" ? "warning" : "info")
-                                        : "warning",
+                                    lifecycleTone,
                                   )}`}
                                 >
                                   {lifecycleLabel}
@@ -1926,31 +2216,59 @@ export default function TransactionDetailDrawer({
                               <span>Unit {fmtMoney(item.unit_price)}</span>
                               {returnedQty > 0 ? <span>Returned {returnedQty}</span> : null}
                             </div>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {item.order_lifecycle_status === "received" &&
-                            item.transaction_line_id &&
-                            !item.is_fulfilled ? (
-                              <button
-                                type="button"
-                                onClick={() => openReadyModal(item)}
-                                className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-success transition-colors hover:bg-app-success/10"
-                              >
-                                Mark Ready
-                              </button>
-                            ) : null}
-                            {detail.fulfillment_method !== "ship" &&
-                            item.transaction_line_id &&
-                            !item.is_internal &&
-                            !item.is_fulfilled ? (
-                              <button
-                                type="button"
-                                onClick={() => openPickupReleaseModal(item)}
-                                className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-success transition-colors hover:bg-app-success/10"
-                              >
-                                Pick Up
-                              </button>
-                            ) : null}
+                            <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-3">
+                              <div className="rounded-lg border border-app-border/60 bg-app-surface-2/70 p-2">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                  Lifecycle
+                                </p>
+                                <p className="mt-1 font-black text-app-text">
+                                  {lifecycleLabel ?? "No lifecycle step"}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border border-app-border/60 bg-app-surface-2/70 p-2">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                  Next Action
+                                </p>
+                                <p className="mt-1 font-semibold text-app-text">
+                                  {nextAction}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border border-app-border/60 bg-app-surface-2/70 p-2">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                  Ready Notice
+                                </p>
+                                <p className="mt-1 font-semibold text-app-text">
+                                  {notificationState}
+                                </p>
+                              </div>
+                            </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {canMarkReady ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openReadyModal(item)}
+                                  className="rounded-lg border border-emerald-500/20 bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-sm transition-colors hover:bg-emerald-700"
+                                >
+                                  Mark Ready + Notify
+                                </button>
+                              ) : null}
+                              {detail.fulfillment_method !== "ship" &&
+                              item.transaction_line_id &&
+                              !item.is_internal &&
+                              !item.is_fulfilled ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openPickupReleaseModal(item)}
+                                  className={`rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                    isReadyForPickup
+                                      ? "text-app-success hover:bg-app-success/10"
+                                      : "text-app-warning hover:bg-app-warning/10"
+                                  }`}
+                                >
+                                  {isReadyForPickup ? "Pick Up" : "Release Check"}
+                                </button>
+                              ) : null}
                             {orderActions?.canModify &&
                              detail.status !== "cancelled" &&
                              !item.is_fulfilled &&

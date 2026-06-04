@@ -1,7 +1,7 @@
 //! Global rate limiting middleware for API abuse prevention
 
 use axum::{
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
@@ -131,7 +131,20 @@ fn extract_client_ip(request: &Request) -> String {
         }
     }
 
-    // Fall back to remote address
+    if let Some(real_ip) = request.headers().get("x-real-ip") {
+        if let Ok(real_ip_str) = real_ip.to_str() {
+            let ip = real_ip_str.trim();
+            if !ip.is_empty() {
+                return ip.to_string();
+            }
+        }
+    }
+
+    if let Some(connect_info) = request.extensions().get::<ConnectInfo<SocketAddr>>() {
+        return connect_info.0.ip().to_string();
+    }
+
+    // Fall back to direct remote address for tests or non-Axum callers.
     request
         .extensions()
         .get::<SocketAddr>()
