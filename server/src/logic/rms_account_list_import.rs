@@ -490,6 +490,7 @@ pub async fn import_account_list_xlsx(
         insert_account_snapshot(&mut tx, batch.id, account).await?;
         inserted_snapshot_count += 1;
     }
+    match_account_snapshots_by_unique_phone(&mut tx, batch.id).await?;
 
     tx.commit()
         .await
@@ -566,6 +567,44 @@ pub async fn latest_account_list_import(
         matched_count,
         unmatched_count,
     })
+}
+
+async fn match_account_snapshots_by_unique_phone(
+    tx: &mut Transaction<'_, Postgres>,
+    batch_id: Uuid,
+) -> Result<(), AccountListPreviewError> {
+    sqlx::query(
+        r#"
+        WITH customer_phone AS (
+            SELECT
+                id,
+                NULLIF(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), '') AS phone_digits
+            FROM customers
+        ),
+        unique_phone AS (
+            SELECT phone_digits, MIN(id) AS customer_id
+            FROM customer_phone
+            WHERE phone_digits IS NOT NULL
+            GROUP BY phone_digits
+            HAVING COUNT(*) = 1
+        )
+        UPDATE rms_account_list_snapshots s
+        SET
+            matched_customer_id = u.customer_id,
+            match_status = 'matched',
+            match_confidence = 0.95,
+            match_method = 'phone'
+        FROM unique_phone u
+        WHERE s.batch_id = $1
+          AND s.normalized_phone = u.phone_digits
+          AND s.matched_customer_id IS NULL
+        "#,
+    )
+    .bind(batch_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| AccountListPreviewError::Workbook(error.to_string()))?;
+    Ok(())
 }
 
 async fn insert_import_batch(

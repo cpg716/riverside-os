@@ -34,7 +34,7 @@ export const BatchCommandBar: React.FC<BatchCommandBarProps> = ({
   if (selectedCount === 0) return null;
 
   return (
-    <div className="fixed bottom-8 left-1/2 z-50 -translate-x-1/2 animate-in fade-in slide-in-from-bottom-4 duration-300">
+    <div className="fixed bottom-8 left-1/2 z-[120] -translate-x-1/2 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="flex items-center gap-4 rounded-full border border-app-accent/30 bg-app-surface/80 p-2 shadow-[0_20px_50px_-12px_rgba(217,70,239,0.3)] backdrop-blur-xl ring-1 ring-white/20">
         {/* Selection Chip */}
         <div className="flex items-center gap-2 rounded-full bg-app-accent px-4 py-2 text-white shadow-lg">
@@ -71,10 +71,10 @@ export const BatchCommandBar: React.FC<BatchCommandBarProps> = ({
           <button
             onClick={onBatchStock}
             className="flex h-10 items-center justify-center gap-2 rounded-full px-4 text-app-text-muted hover:bg-app-accent-2/10 hover:text-app-accent-2 transition-all duration-200"
-            title="Adjust Stock Qty"
+            title="Apply count correction to selected SKUs"
           >
             <Package size={16} />
-            <span className="text-[10px] font-black uppercase tracking-widest">Stock</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">Count Fix</span>
           </button>
 
           <button
@@ -91,10 +91,10 @@ export const BatchCommandBar: React.FC<BatchCommandBarProps> = ({
           <button
             onClick={() => onBatchTrackLow(true)}
             className="flex h-10 items-center justify-center gap-2 rounded-full px-4 text-app-text-muted hover:bg-app-warning/10 hover:text-app-warning transition-all duration-200"
-            title="Toggle Low Stock Alerts"
+            title="Turn on low-stock alerts for selected SKUs"
           >
             <Zap size={16} />
-            <span className="text-[10px] font-black uppercase tracking-widest">Tracking</span>
+            <span className="text-[10px] font-black uppercase tracking-widest">Low Stock</span>
           </button>
 
           <button

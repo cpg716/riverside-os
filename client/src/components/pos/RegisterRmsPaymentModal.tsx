@@ -5,6 +5,9 @@ import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
+import { getBaseUrl } from "../../lib/apiConfig";
+import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import type { WeddingMembership } from "./customerProfileTypes";
 
@@ -15,6 +18,9 @@ interface RmsChargeAccountChoice {
   masked_account: string;
   status: string;
   is_primary: boolean;
+  available_credit?: string | null;
+  current_balance?: string | null;
+  source?: string | null;
 }
 
 interface RmsChargeAccountSummary {
@@ -23,6 +29,17 @@ interface RmsChargeAccountSummary {
   available_credit?: string | null;
   current_balance?: string | null;
   source: string;
+}
+
+interface RmsChargeResolveResponse {
+  resolution_status: "selected" | "multiple" | "blocked";
+  selected_account?: RmsChargeAccountChoice | null;
+  choices: RmsChargeAccountChoice[];
+  blocking_error?: {
+    code: string;
+    message: string;
+  } | null;
+  summary?: RmsChargeAccountSummary | null;
 }
 
 interface Props {
@@ -45,6 +62,8 @@ export default function RegisterRmsPaymentModal({
   onOpenWeddingParty,
 }: Props) {
   const { toast } = useToast();
+  const baseUrl = getBaseUrl();
+  const { backofficeHeaders } = useBackofficeAuth();
   useShellBackdropLayer(open);
   const [amountBuffer, setAmountBuffer] = useState("");
   const [busy, setBusy] = useState(false);
@@ -70,13 +89,12 @@ export default function RegisterRmsPaymentModal({
   }, []);
 
   const loadSummary = useCallback(async (selectedAcc: RmsChargeAccountChoice) => {
-    // Manual local summary only
     setSummary({
       masked_account: selectedAcc.masked_account,
-      account_status: "active",
-      available_credit: "—",
-      current_balance: "—",
-      source: "manual",
+      account_status: selectedAcc.status,
+      available_credit: selectedAcc.available_credit ?? null,
+      current_balance: selectedAcc.current_balance ?? null,
+      source: selectedAcc.source ?? "manual",
     });
   }, []);
 
@@ -89,25 +107,38 @@ export default function RegisterRmsPaymentModal({
     setLookupError(null);
     setBlockingError(null);
 
-    // Auto-resolve to customer code or phone
-    const code = selectedCustomer.customer_code || selectedCustomer.phone || "MANUAL";
-    const mockChoice: RmsChargeAccountChoice = {
-      link_id: "manual",
-      masked_account: code,
-      status: "active",
-      is_primary: true,
-    };
-    setChoices([mockChoice]);
-    setAccount(mockChoice);
-    setSummary({
-      masked_account: code,
-      account_status: "active",
-      available_credit: "—",
-      current_balance: "—",
-      source: "manual",
-    });
-    setLookupLoading(false);
-  }, [selectedCustomer, clearSummary]);
+    try {
+      const params = new URLSearchParams({ customer_id: selectedCustomer.id });
+      const res = await fetch(`${baseUrl}/api/pos/rms-charge/resolve-account?${params.toString()}`, {
+        headers: mergedPosStaffHeaders(backofficeHeaders),
+      });
+      const data = (await res.json().catch(() => ({}))) as RmsChargeResolveResponse & {
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? "Could not check RMS Charge account.");
+      }
+      setChoices(data.choices ?? []);
+      if (data.resolution_status === "blocked") {
+        setBlockingError(data.blocking_error?.message ?? "RMS Charge is unavailable for this customer.");
+        return;
+      }
+      if (data.resolution_status === "selected" && data.selected_account) {
+        setAccount(data.selected_account);
+        setSummary(data.summary ?? {
+          masked_account: data.selected_account.masked_account,
+          account_status: data.selected_account.status,
+          available_credit: data.selected_account.available_credit ?? null,
+          current_balance: data.selected_account.current_balance ?? null,
+          source: data.selected_account.source ?? "manual",
+        });
+      }
+    } catch (error) {
+      setLookupError(error instanceof Error ? error.message : "Could not check RMS Charge account.");
+    } finally {
+      setLookupLoading(false);
+    }
+  }, [backofficeHeaders, baseUrl, selectedCustomer, clearSummary]);
 
   useEffect(() => {
     if (!open) return;

@@ -33,7 +33,7 @@ pub struct MorningCompassBundle {
     pub needs_order: Vec<CompassActionRow>,
     pub overdue_pickups: Vec<CompassActionRow>,
     pub rush_orders: Vec<RushOrderActionRow>,
-    /// Salesperson / sales_support roster members scheduled to work **today** (store-local date); uses `staff_effective_working_day`. Empty if schema not migrated or on error.
+    /// Schedule-eligible operational roster members scheduled to work **today** (store-local date); uses `staff_effective_working_day`. Empty if schema not migrated or on error.
     #[serde(default)]
     pub today_floor_staff: Vec<staff_schedule::FloorStaffTodayRow>,
 }

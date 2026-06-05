@@ -1059,7 +1059,7 @@ pub async fn open_instances_due_between(
           AND ti.due_date >= $1
           AND ti.due_date <= $2
           AND (
-            s.role NOT IN ('salesperson', 'sales_support')
+            s.role NOT IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
             OR staff_effective_working_day(ti.assignee_staff_id, ti.due_date)
           )
         "#,

@@ -7,7 +7,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
-import { AlertTriangle, Clock, FileText, Truck, Sparkles, Plus, Printer, Mail } from "lucide-react";
+import { AlertTriangle, Clock, FileText, Truck, Plus, Printer, Mail } from "lucide-react";
 
 interface PurchaseOrder {
   id: string;
@@ -128,10 +128,14 @@ export default function PurchaseOrderPanel({
   initialPoId,
   onInitialPoConsumed,
   mode = "order",
+  onOpenOrderStock,
+  onOpenReceiving,
 }: {
   initialPoId?: string | null;
   onInitialPoConsumed?: () => void;
   mode?: PurchaseOrderPanelMode;
+  onOpenOrderStock?: () => void;
+  onOpenReceiving?: () => void;
 }) {
   const { toast } = useToast();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
@@ -573,23 +577,86 @@ export default function PurchaseOrderPanel({
             <option key={v.id} value={v.id}>{v.name}</option>
           ))}
         </select>
-        <button
-          type="button"
-          disabled={!vendorId}
-          onClick={createDraft}
-          className="flex items-center gap-2 h-10 px-5 rounded-xl bg-app-accent text-xs font-bold text-white shadow-md shadow-app-accent/20 hover:brightness-110 active:scale-95 disabled:opacity-30 transition-all"
-        >
-          <Plus size={14} /> New PO
-        </button>
-        <button
-          type="button"
-          disabled={!vendorId}
-          onClick={() => void createDirectInvoice()}
-          className="flex items-center gap-2 h-10 px-5 rounded-xl border border-app-border bg-app-surface-2 text-xs font-bold text-app-text hover:border-app-accent hover:text-app-accent disabled:opacity-30 transition-all active:scale-95"
-        >
-          <Sparkles size={14} /> Direct Invoice
-        </button>
+        {isReceiveMode ? (
+          <>
+            <button
+              type="button"
+              disabled={!vendorId}
+              onClick={() => void createDirectInvoice()}
+              className="flex h-10 items-center gap-2 rounded-xl bg-app-accent px-5 text-xs font-bold text-white shadow-md shadow-app-accent/20 transition-all hover:brightness-110 active:scale-95 disabled:opacity-30"
+            >
+              <FileText size={14} /> Direct Invoice
+            </button>
+            {onOpenOrderStock && (
+              <button
+                type="button"
+                onClick={onOpenOrderStock}
+                className="flex h-10 items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-5 text-xs font-bold text-app-text transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
+              >
+                <Plus size={14} /> Build Standard PO
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled={!vendorId}
+              onClick={createDraft}
+              className="flex h-10 items-center gap-2 rounded-xl bg-app-accent px-5 text-xs font-bold text-white shadow-md shadow-app-accent/20 transition-all hover:brightness-110 active:scale-95 disabled:opacity-30"
+            >
+              <Plus size={14} /> New PO
+            </button>
+            {onOpenReceiving && (
+              <button
+                type="button"
+                onClick={onOpenReceiving}
+                className="flex h-10 items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-5 text-xs font-bold text-app-text transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
+              >
+                <Truck size={14} /> Receive Stock
+              </button>
+            )}
+          </>
+        )}
       </div>
+
+      {isReceiveMode && (
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+              1 · Pick document
+            </p>
+            <p className="mt-2 text-sm font-bold text-app-text">
+              Use a submitted PO, partially received PO, or direct invoice.
+            </p>
+            <p className="mt-1 text-[11px] font-semibold leading-relaxed text-app-text-muted">
+              Draft standard POs must be sent from Order Stock before receiving.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+              2 · Stage counts
+            </p>
+            <p className="mt-2 text-sm font-bold text-app-text">
+              Scan or enter quantities, invoice number, and freight.
+            </p>
+            <p className="mt-1 text-[11px] font-semibold leading-relaxed text-app-text-muted">
+              Staging does not change live stock until Post Receipt.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-amber-300/50 bg-amber-50 p-4 shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
+              AI import prep
+            </p>
+            <p className="mt-2 text-sm font-bold text-amber-950">
+              Vendor-paperwork AI will create reviewed drafts only.
+            </p>
+            <p className="mt-1 text-[11px] font-semibold leading-relaxed text-amber-800">
+              Today, use Direct Invoice for received paperwork without a PO.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── NTBO Queue (order mode only, collapsible) ── */}
       {!isReceiveMode && ntboItems.length > 0 && (

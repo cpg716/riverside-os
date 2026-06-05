@@ -452,8 +452,12 @@ where
     .bind(program_code)
     .bind(program_label)
     .bind(masked_account)
-    .bind(None::<Option<String>>)
-    .bind(None::<Option<String>>)
+    .bind(clean_text(
+        metadata_json.get("linked_corecredit_customer_id"),
+    ))
+    .bind(clean_text(
+        metadata_json.get("linked_corecredit_account_id"),
+    ))
     .bind(resolution_status)
     .bind(metadata_json.clone())
     .bind(clean_text(metadata_json.get("external_transaction_id")))

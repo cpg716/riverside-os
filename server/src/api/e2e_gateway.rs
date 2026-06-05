@@ -35,6 +35,10 @@ pub struct E2EWorkflowResponse {
     pub success: bool,
     pub screenshots: Vec<String>,
     pub output: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manual_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub markdown: Option<String>,
     pub error: Option<String>,
     pub dry_run: bool,
 }
@@ -107,6 +111,8 @@ async fn execute_e2e_workflow(
             success: true,
             screenshots: vec![],
             output: format!("Dry run: would execute workflow '{}'", workflow_name),
+            manual_path: None,
+            markdown: None,
             error: None,
             dry_run: true,
         });
@@ -153,6 +159,14 @@ async fn execute_e2e_workflow(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
+        manual_path: result
+            .get("manual_path")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        markdown: result
+            .get("markdown")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         error: result
             .get("error")
             .and_then(|v| v.as_str())
@@ -215,19 +229,17 @@ pub async fn rosie_e2e_generate_manual(
                 .into_response()
         })?;
 
+    let fallback_manual_path = workflow_response
+        .output
+        .lines()
+        .find(|line| line.starts_with("manual_path:"))
+        .map(|line| line.trim_start_matches("manual_path:").trim().to_string());
+
     let response = E2EManualGenerationResponse {
         success: workflow_response.success,
-        manual_path: workflow_response
-            .output
-            .lines()
-            .find(|line| line.starts_with("manual_path:"))
-            .map(|line| line.trim_start_matches("manual_path:").trim().to_string()),
+        manual_path: workflow_response.manual_path.or(fallback_manual_path),
         screenshots: workflow_response.screenshots,
-        markdown: if workflow_response.success {
-            Some(workflow_response.output)
-        } else {
-            None
-        },
+        markdown: workflow_response.markdown,
         error: workflow_response.error,
         dry_run: workflow_response.dry_run,
     };

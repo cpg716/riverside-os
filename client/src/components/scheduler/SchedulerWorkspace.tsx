@@ -72,6 +72,11 @@ const isAppointmentInSlot = (appt: Appointment, dateStr: string, time: string) =
   appointmentLocalDateKey(appt.datetime) === dateStr &&
   appointmentLocalTimeKey(appt.datetime) === time;
 
+const CLOSED_APPOINTMENT_STATUSES = new Set(["attended", "missed", "cancelled", "canceled"]);
+
+const isOpenAppointment = (appt: Appointment) =>
+  !CLOSED_APPOINTMENT_STATUSES.has(String(appt.status || "").trim().toLowerCase());
+
 const normalizeAppointmentRow = (row: Record<string, unknown>): Appointment => ({
   id: String(row.id ?? ""),
   datetime: String(row.datetime ?? row.starts_at ?? ""),
@@ -328,7 +333,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
       const dateStr = localDateKey(selectedDate);
       const dayRows: PrintableRow[] = [];
       timeSlots.forEach((time) => {
-        const slotAppts = appointments.filter((a) => isAppointmentInSlot(a, dateStr, time));
+        const slotAppts = appointments.filter((a) => isAppointmentInSlot(a, dateStr, time) && isOpenAppointment(a));
         if (slotAppts.length === 0) {
           dayRows.push({
             key: `${selectedDate.toISOString()}:${time}`,
@@ -365,7 +370,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
       });
       const dateStr = localDateKey(date);
       timeSlots.forEach((time) => {
-        const slotAppts = appointments.filter((a) => isAppointmentInSlot(a, dateStr, time));
+        const slotAppts = appointments.filter((a) => isAppointmentInSlot(a, dateStr, time) && isOpenAppointment(a));
         if (slotAppts.length === 0) {
           weekRows.push({
             key: `${dateStr}:${time}:empty`,
@@ -668,7 +673,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             <div className={`grid ${isCompactLayout ? "grid-cols-[72px_1fr]" : "grid-cols-[100px_1fr]"} divide-y divide-app-border/40`}>
               {timeSlots.map(time => {
                 const dateStr = localDateKey(selectedDate);
-                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time));
+                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time) && isOpenAppointment(a));
                 const hour = parseInt(time.split(':')[0]);
                 const displayTime = `${hour > 12 ? hour - 12 : hour}:${time.split(':')[1]} ${hour >= 12 ? 'PM' : 'AM'}`;
 
@@ -733,7 +738,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                             </div>
                             {weekDates.map(date => {
                                 const dateStr = localDateKey(date);
-                                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time));
+                                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time) && isOpenAppointment(a));
                                 const isToday = date.toDateString() === new Date().toDateString();
 
                                 return (

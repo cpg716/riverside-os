@@ -108,12 +108,13 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 
 ### POS client (payment collection)
 
-- **`client/src/components/pos/NexoCheckoutDrawer.tsx`** — one financing button: **RMS Charge**. After selection, POS requires an active customer, calls **`POST /api/pos/rms-charge/resolve-account`**, displays masked account choices/summary, loads **`GET /api/pos/rms-charge/programs`**, and persists selected program/account metadata in checkout state.
+- **`client/src/components/pos/NexoCheckoutDrawer.tsx`** — one financing button: **RMS Charge**. After selection, POS requires an active customer, calls **`GET /api/pos/rms-charge/resolve-account`**, displays masked account choices/summary, loads **`GET /api/pos/rms-charge/programs`**, and persists selected program/account metadata in checkout state.
 - **`client/src/components/pos/Cart.tsx`** — includes a dedicated **Payment** button in the register toolbar to quickly load the RMS Charge Payment line; product search keyword **`PAYMENT`** (case-insensitive) also injects the seeded line via **`GET /api/pos/rms-payment-line-meta`**; **Price** numpad sets amount (**`price_override_reason`**: **`rms_charge_payment`**); **no tax** on the line.
 - Customer-facing receipts for this transaction shape suppress the internal **RMS CHARGE PAYMENT** merchandise line and print the payment summary / totals only.
 - **`client/src/components/pos/NexoCheckoutDrawer.tsx`** — prop **`rmsPaymentCollectionMode`**: only **Cash** and **Check** tender tabs; **`check`** uses payment method **`check`** (map in QBO **Settings → QBO Bridge → Mappings** matrix). Deposit / split-deposit controls are suppressed where inappropriate for RMS payment collection.
-- Phase 2 makes both RMS financed purchases and RMS payment collections live CoreCard host posts. Register success is blocked until the required host post succeeds.
-- Payment collection now resolves the linked account in the drawer before cash/check tenders are added, so host payment posting remains customer/account-driven rather than name-driven.
+- POS resolves accounts from **`customer_corecredit_accounts`** first, then the latest imported **`rms_account_list_snapshots`** when the snapshot is uniquely matched to the customer. Weekly account-list import performs unique normalized-phone matching; ambiguous phones remain unmatched for manual review.
+- Current POS completion records the selected account/program/reference and creates R2S follow-up. Live RMS/CoreCard host posting is not the POS success gate unless a future provider implementation explicitly enables it.
+- Payment collection resolves the linked or imported account in the drawer before cash/check tenders are added, so payment follow-up remains customer/account-driven rather than name-driven.
 
 ### Customers (Back Office) — RMS charge
 

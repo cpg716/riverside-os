@@ -7,8 +7,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -16,7 +18,7 @@ use crate::api::AppState;
 use crate::auth::permissions::{
     effective_permissions_for_staff, staff_has_permission, CUSTOMERS_RMS_CHARGE_MANAGE_LINKS,
     CUSTOMERS_RMS_CHARGE_REVERSE, ORDERS_REFUND_PROCESS, POS_RMS_CHARGE_HISTORY_BASIC,
-    POS_RMS_CHARGE_LOOKUP, POS_RMS_CHARGE_USE,
+    POS_RMS_CHARGE_LOOKUP, POS_RMS_CHARGE_PAYMENT_COLLECT, POS_RMS_CHARGE_USE,
 };
 use crate::logic::pos_rms_charge;
 use crate::logic::shippo::{self, ShippoError};
@@ -42,6 +44,61 @@ struct RmsMutationResult {
     posting_status: String,
     host_reference: Option<String>,
     metadata: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RmsChargeAccountChoice {
+    link_id: String,
+    masked_account: String,
+    status: String,
+    is_primary: bool,
+    program_group: Option<String>,
+    available_credit: Option<String>,
+    current_balance: Option<String>,
+    source: String,
+    linked_corecredit_customer_id: Option<String>,
+    linked_corecredit_account_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RmsChargeBlockingError {
+    code: String,
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RmsChargeAccountSummary {
+    masked_account: String,
+    account_status: String,
+    available_credit: Option<String>,
+    current_balance: Option<String>,
+    resolution_status: String,
+    source: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RmsChargeResolveResponse {
+    resolution_status: String,
+    selected_account: Option<RmsChargeAccountChoice>,
+    choices: Vec<RmsChargeAccountChoice>,
+    blocking_error: Option<RmsChargeBlockingError>,
+    summary: Option<RmsChargeAccountSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct RmsChargeProgramOption {
+    program_code: String,
+    program_label: String,
+    eligible: bool,
+    disclosure: Option<String>,
+    source: String,
+    warning_code: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RmsChargeProgramsResponse {
+    programs: Vec<RmsChargeProgramOption>,
+    summary: RmsChargeAccountSummary,
 }
 
 impl IntoResponse for PosMetaError {
@@ -177,6 +234,266 @@ async fn require_staff_rms_sensitive_permission(
     }
 }
 
+fn mask_account_identifier(value: &str) -> String {
+    let trimmed = value.trim();
+    let last4: String = trimmed
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    if last4.is_empty() {
+        "Linked account".to_string()
+    } else {
+        format!("••••{last4}")
+    }
+}
+
+fn decimal_snapshot(value: Option<Decimal>) -> Option<String> {
+    value.map(|amount| format!("{amount:.2}"))
+}
+
+fn snapshot_status(open_to_buy: Option<Decimal>, past_due: Option<Decimal>) -> String {
+    if past_due.unwrap_or(Decimal::ZERO) > Decimal::ZERO {
+        "past_due".to_string()
+    } else if open_to_buy.unwrap_or(Decimal::ZERO) <= Decimal::ZERO {
+        "no_open_to_buy".to_string()
+    } else {
+        "active".to_string()
+    }
+}
+
+fn account_summary(
+    account: &RmsChargeAccountChoice,
+    resolution_status: &str,
+) -> RmsChargeAccountSummary {
+    RmsChargeAccountSummary {
+        masked_account: account.masked_account.clone(),
+        account_status: account.status.clone(),
+        available_credit: account.available_credit.clone(),
+        current_balance: account.current_balance.clone(),
+        resolution_status: resolution_status.to_string(),
+        source: account.source.clone(),
+    }
+}
+
+async fn load_rms_account_choices(
+    pool: &PgPool,
+    customer_id: Uuid,
+) -> Result<Vec<RmsChargeAccountChoice>, sqlx::Error> {
+    let linked_rows: Vec<(
+        String,
+        String,
+        String,
+        bool,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
+        r#"
+        SELECT
+            corecredit_customer_id,
+            corecredit_account_id,
+            status,
+            is_primary,
+            program_group,
+            available_credit_snapshot,
+            current_balance_snapshot
+        FROM customer_corecredit_accounts
+        WHERE customer_id = $1
+          AND lower(status) NOT IN ('closed', 'inactive')
+        ORDER BY is_primary DESC, updated_at DESC
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut choices: Vec<RmsChargeAccountChoice> = linked_rows
+        .into_iter()
+        .map(
+            |(
+                corecredit_customer_id,
+                corecredit_account_id,
+                status,
+                is_primary,
+                program_group,
+                available_credit,
+                current_balance,
+            )| RmsChargeAccountChoice {
+                link_id: corecredit_account_id.clone(),
+                masked_account: mask_account_identifier(&corecredit_account_id),
+                status,
+                is_primary,
+                program_group,
+                available_credit,
+                current_balance,
+                source: "linked_account".to_string(),
+                linked_corecredit_customer_id: Some(corecredit_customer_id),
+                linked_corecredit_account_id: Some(corecredit_account_id),
+            },
+        )
+        .collect();
+
+    let snapshot_rows: Vec<(
+        String,
+        Option<String>,
+        Option<Decimal>,
+        Option<Decimal>,
+        Option<Decimal>,
+        Option<String>,
+    )> = sqlx::query_as(
+        r#"
+        WITH latest_batch AS (
+            SELECT id
+            FROM rms_account_list_import_batches
+            WHERE status = 'imported'
+            ORDER BY uploaded_at DESC, created_at DESC
+            LIMIT 1
+        ),
+        target_customer AS (
+            SELECT NULLIF(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), '') AS phone_digits
+            FROM customers
+            WHERE id = $1
+        ),
+        unique_customer_phone AS (
+            SELECT phone_digits
+            FROM (
+                SELECT NULLIF(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), '') AS phone_digits
+                FROM customers
+            ) normalized
+            WHERE phone_digits IS NOT NULL
+            GROUP BY phone_digits
+            HAVING COUNT(*) = 1
+        )
+        SELECT
+            s.account_number,
+            s.account_year,
+            s.open_to_buy,
+            s.balance,
+            s.past_due,
+            s.match_method
+        FROM rms_account_list_snapshots s
+        JOIN latest_batch b ON b.id = s.batch_id
+        LEFT JOIN target_customer c ON TRUE
+        WHERE s.matched_customer_id = $1
+           OR (
+                s.matched_customer_id IS NULL
+                AND s.normalized_phone IS NOT NULL
+                AND s.normalized_phone = c.phone_digits
+                AND EXISTS (
+                    SELECT 1
+                    FROM unique_customer_phone u
+                    WHERE u.phone_digits = c.phone_digits
+                )
+           )
+        ORDER BY
+            CASE WHEN s.matched_customer_id = $1 THEN 0 ELSE 1 END,
+            s.balance DESC NULLS LAST,
+            s.account_number ASC
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
+
+    for (account_number, account_year, open_to_buy, balance, past_due, _match_method) in
+        snapshot_rows
+    {
+        if choices
+            .iter()
+            .any(|choice| choice.link_id == account_number)
+        {
+            continue;
+        }
+        choices.push(RmsChargeAccountChoice {
+            link_id: account_number.clone(),
+            masked_account: mask_account_identifier(&account_number),
+            status: snapshot_status(open_to_buy, past_due),
+            is_primary: choices.is_empty(),
+            program_group: account_year,
+            available_credit: decimal_snapshot(open_to_buy),
+            current_balance: decimal_snapshot(balance),
+            source: "account_list_import".to_string(),
+            linked_corecredit_customer_id: None,
+            linked_corecredit_account_id: Some(account_number),
+        });
+    }
+
+    Ok(choices)
+}
+
+fn rms_programs_for_account(account: &RmsChargeAccountChoice) -> Vec<RmsChargeProgramOption> {
+    let status = account.status.to_ascii_lowercase();
+    let active = status == "active" || status == "past_due";
+    let has_open_to_buy = account
+        .available_credit
+        .as_deref()
+        .and_then(|value| value.parse::<Decimal>().ok())
+        .map(|value| value > Decimal::ZERO)
+        .unwrap_or(true);
+    let eligible = active && has_open_to_buy;
+    let warning_code = if !active {
+        Some("account_restricted".to_string())
+    } else if !has_open_to_buy {
+        Some("no_open_to_buy".to_string())
+    } else {
+        None
+    };
+    let disclosure = if eligible {
+        Some("Confirm the program and enter the R2S/manual approval reference before completing checkout.".to_string())
+    } else {
+        Some("This account is not eligible for new RMS Charge purchases. Payment collection may still be allowed.".to_string())
+    };
+    let source = account.source.clone();
+    let group = account
+        .program_group
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let include_standard = group.is_empty() || group == "rms" || group.contains("standard");
+    let include_rms90 = group.is_empty() || group == "rms" || group.contains("90");
+    let mut programs = Vec::new();
+    if include_standard {
+        programs.push(RmsChargeProgramOption {
+            program_code: "standard".to_string(),
+            program_label: "Standard RMS".to_string(),
+            eligible,
+            disclosure: disclosure.clone(),
+            source: source.clone(),
+            warning_code: warning_code.clone(),
+        });
+    }
+    if include_rms90 {
+        programs.push(RmsChargeProgramOption {
+            program_code: "rms90".to_string(),
+            program_label: "RMS 90".to_string(),
+            eligible,
+            disclosure,
+            source,
+            warning_code,
+        });
+    }
+    if programs.is_empty() {
+        programs.push(RmsChargeProgramOption {
+            program_code: "standard".to_string(),
+            program_label: "Standard RMS".to_string(),
+            eligible,
+            disclosure: Some(
+                "Program group was missing or unknown; confirm in R2S before completing checkout."
+                    .to_string(),
+            ),
+            source: account.source.clone(),
+            warning_code: Some("program_group_unknown".to_string()),
+        });
+    }
+    programs
+}
+
 #[derive(Debug, Deserialize)]
 pub struct PosShippingRatesBody {
     pub to_address: shippo::ShippingAddressInput,
@@ -247,6 +564,18 @@ struct ReverseRmsChargeBody {
     reason: Option<String>,
     #[serde(default)]
     amount: Option<rust_decimal::Decimal>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RmsCustomerQuery {
+    customer_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+struct RmsProgramsQuery {
+    customer_id: Uuid,
+    #[serde(default)]
+    account_id: Option<String>,
 }
 
 async fn rms_payment_line_meta(
@@ -323,6 +652,103 @@ async fn gift_card_load_line_meta(
             name,
         }
     })))
+}
+
+async fn resolve_rms_charge_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<RmsCustomerQuery>,
+) -> Result<Json<RmsChargeResolveResponse>, PosMetaError> {
+    require_pos_rms_permission(
+        &state,
+        &headers,
+        &[
+            POS_RMS_CHARGE_USE,
+            POS_RMS_CHARGE_LOOKUP,
+            POS_RMS_CHARGE_PAYMENT_COLLECT,
+        ],
+    )
+    .await?;
+
+    let choices = load_rms_account_choices(&state.db, q.customer_id).await?;
+    if choices.is_empty() {
+        return Ok(Json(RmsChargeResolveResponse {
+            resolution_status: "blocked".to_string(),
+            selected_account: None,
+            choices,
+            blocking_error: Some(RmsChargeBlockingError {
+                code: "account_not_found".to_string(),
+                message: "No RMS Charge account is linked or matched from the latest account-list import for this customer.".to_string(),
+            }),
+            summary: None,
+        }));
+    }
+
+    if choices.len() == 1 {
+        let account = choices[0].clone();
+        return Ok(Json(RmsChargeResolveResponse {
+            resolution_status: "selected".to_string(),
+            selected_account: Some(account.clone()),
+            choices,
+            blocking_error: None,
+            summary: Some(account_summary(&account, "selected")),
+        }));
+    }
+
+    Ok(Json(RmsChargeResolveResponse {
+        resolution_status: "multiple".to_string(),
+        selected_account: None,
+        choices,
+        blocking_error: None,
+        summary: None,
+    }))
+}
+
+async fn rms_charge_programs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<RmsProgramsQuery>,
+) -> Result<Json<RmsChargeProgramsResponse>, PosMetaError> {
+    require_pos_rms_permission(
+        &state,
+        &headers,
+        &[
+            POS_RMS_CHARGE_USE,
+            POS_RMS_CHARGE_LOOKUP,
+            POS_RMS_CHARGE_PAYMENT_COLLECT,
+        ],
+    )
+    .await?;
+
+    let choices = load_rms_account_choices(&state.db, q.customer_id).await?;
+    let account = if let Some(account_id) = q
+        .account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        choices
+            .iter()
+            .find(|choice| choice.link_id == account_id)
+            .cloned()
+            .ok_or_else(|| {
+                PosMetaError::BadRequest(
+                    "RMS Charge account was not found for this customer.".to_string(),
+                )
+            })?
+    } else if choices.len() == 1 {
+        choices[0].clone()
+    } else {
+        return Err(PosMetaError::BadRequest(
+            "account_id is required when the customer has multiple RMS Charge accounts."
+                .to_string(),
+        ));
+    };
+
+    Ok(Json(RmsChargeProgramsResponse {
+        programs: rms_programs_for_account(&account),
+        summary: account_summary(&account, "selected"),
+    }))
 }
 
 async fn reverse_rms_record_manual(
@@ -519,6 +945,11 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/rms-payment-line-meta", get(rms_payment_line_meta))
         .route("/gift-card-load-line-meta", get(gift_card_load_line_meta))
+        .route(
+            "/rms-charge/resolve-account",
+            get(resolve_rms_charge_account),
+        )
+        .route("/rms-charge/programs", get(rms_charge_programs))
         .route(
             "/rms-charge/reverse-purchase",
             post(reverse_rms_charge_purchase),

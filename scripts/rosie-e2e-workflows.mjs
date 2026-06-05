@@ -118,11 +118,14 @@ async function executeWorkflow(workflowName, params) {
     }
 
     // If action is generate_manual, produce markdown
+    let manualPath = null;
+    let markdown = null;
     if (params.action === 'generate_manual') {
-      const manualId = params.manual_id || 'generated-manual';
-      const markdown = generateManualMarkdown(workflow, screenshots);
-      output.push('manual_path: ' + path.join(__dirname, '..', 'client', 'src', 'assets', 'docs', `${manualId}.md`));
-      output.push(markdown);
+      const manualId = normalizeManualId(params.manual_id || 'generated');
+      markdown = generateManualMarkdown(manualId, workflow, screenshots);
+      manualPath = path.join(__dirname, '..', 'client', 'src', 'assets', 'docs', `${manualId}-manual.md`);
+      output.push(`manual_path: ${manualPath}`);
+      output.push('Generated draft manual markdown for Help Center review.');
     }
 
     // If action is test_bug, check for errors
@@ -145,6 +148,8 @@ async function executeWorkflow(workflowName, params) {
       success: true,
       screenshots,
       output: output.join('\n'),
+      manual_path: manualPath,
+      markdown,
       error: null,
     };
 
@@ -160,8 +165,27 @@ async function executeWorkflow(workflowName, params) {
   }
 }
 
-function generateManualMarkdown(workflow, screenshots) {
+function normalizeManualId(value) {
+  const normalized = String(value || 'generated')
+    .trim()
+    .toLowerCase()
+    .replace(/\.md$/i, '')
+    .replace(/-manual$/i, '')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return /^[a-z]/.test(normalized) ? normalized : `manual-${normalized || 'generated'}`;
+}
+
+function generateManualMarkdown(manualId, workflow, screenshots) {
   const lines = [
+    '---',
+    `id: ${manualId}`,
+    `title: "${workflow.name}"`,
+    `summary: "${workflow.description}"`,
+    'tags: rosie, e2e, workflow',
+    'status: draft',
+    '---',
+    '',
     `# ${workflow.name}`,
     '',
     workflow.description,

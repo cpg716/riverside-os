@@ -1,4 +1,4 @@
-//! Weekly availability and day-level exceptions for salesperson / sales_support.
+//! Weekly availability and day-level exceptions for schedule-eligible operational staff.
 //! `staff_effective_working_day` in PostgreSQL is the source of truth; Rust calls it via `is_working_day`.
 
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
@@ -33,7 +33,7 @@ pub struct EligibleStaffRow {
     pub role: crate::models::DbStaffRole,
 }
 
-/// Floor staff (salesperson / sales_support) working on a given **store-local** date — e.g. morning dashboard.
+/// Operational staff working on a given **store-local** date — e.g. morning dashboard.
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct FloorStaffTodayRow {
     pub id: Uuid,
@@ -43,7 +43,7 @@ pub struct FloorStaffTodayRow {
     pub shift_label: Option<String>,
 }
 
-/// Active salesperson / sales_support who are scheduled to work on the store’s local **today**.
+/// Active operational staff who are scheduled to work on the store’s local **today**.
 pub async fn list_working_floor_staff_for_local_today(
     pool: &PgPool,
 ) -> Result<Vec<FloorStaffTodayRow>, sqlx::Error> {
@@ -119,7 +119,7 @@ pub async fn appointment_local_date(
     Ok(starts_at.with_timezone(&tz).date_naive())
 }
 
-/// Match active salesperson / sales_support by trimmed case-insensitive full name.
+/// Match active schedule-eligible staff by trimmed case-insensitive full name.
 pub async fn resolve_floor_staff_id_by_name(
     pool: &PgPool,
     name: &str,
@@ -144,7 +144,7 @@ pub async fn resolve_floor_staff_id_by_name(
     Ok(id)
 }
 
-/// When the name does not match roster floor staff, booking is allowed (legacy free-text).
+/// When the name does not match roster schedule-eligible staff, booking is allowed (legacy free-text).
 pub async fn ensure_salesperson_booking_allowed(
     pool: &PgPool,
     salesperson: Option<&str>,
@@ -507,7 +507,7 @@ pub async fn put_weekly_availability_in_tx(
         ));
     }
 
-    // Assert floor staff
+    // Assert schedule-eligible operational staff.
     let role_ok: bool = sqlx::query_scalar(
         r#"
         SELECT EXISTS(
@@ -608,7 +608,7 @@ async fn assert_floor_staff(pool: &PgPool, staff_id: Uuid) -> Result<(), StaffSc
     .await?;
     if !role_ok {
         return Err(StaffScheduleError::BadRequest(
-            "schedule applies only to active salesperson or sales support staff".into(),
+            "schedule applies only to active operational staff".into(),
         ));
     }
     Ok(())

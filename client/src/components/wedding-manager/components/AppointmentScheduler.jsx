@@ -30,6 +30,11 @@ const isAppointmentInSlot = (appt, dateStr, time) =>
     appointmentLocalDateKey(appt.datetime) === dateStr &&
     appointmentLocalTimeKey(appt.datetime) === time;
 
+const CLOSED_APPOINTMENT_STATUSES = new Set(['attended', 'missed', 'cancelled', 'canceled']);
+
+const isOpenAppointment = (appt) =>
+    !CLOSED_APPOINTMENT_STATUSES.has(String(appt?.status || '').trim().toLowerCase());
+
 const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave }) => {
     const { showAlert, showConfirm, selectSalesperson } = useModal();
     const [appointments, setAppointments] = useState([]);
@@ -163,7 +168,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
         const dateStr = localDateKey(selectedDate);
 
         return appointments
-            .filter(a => appointmentLocalDateKey(a.datetime) === dateStr && a.status !== 'Attended' && a.status !== 'Missed')
+            .filter(a => appointmentLocalDateKey(a.datetime) === dateStr && isOpenAppointment(a))
             .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
     }, [appointments, selectedDate]);
 
@@ -243,7 +248,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                         <div className="grid grid-cols-[80px_1fr] divide-y divide-app-border/80">
                             {timeSlots.map(time => {
                                 const dateStr = localDateKey(selectedDate);
-                                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time) && a.status !== 'Attended' && a.status !== 'Missed');
+                                const slotAppts = appointments.filter(a => isAppointmentInSlot(a, dateStr, time) && isOpenAppointment(a));
 
                                 return (
                                     <div key={time} className="contents group">
@@ -326,6 +331,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                                 }}
                                             >
                                                 {appointments.filter(a =>
+                                                    isOpenAppointment(a) &&
                                                     appointmentLocalDateKey(a.datetime) === dateStr &&
                                                     appointmentLocalTimeKey(a.datetime).startsWith(time.slice(0, 2))
                                                 )

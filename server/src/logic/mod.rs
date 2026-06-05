@@ -59,6 +59,7 @@ pub mod pos_rms_charge;
 pub mod pricing;
 pub mod pricing_limits;
 pub mod procurement;
+pub mod procurement_imports;
 pub mod product_catalog_analysis;
 pub mod qbo_journal;
 pub mod receipt_escpos;

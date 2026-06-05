@@ -87,6 +87,8 @@ interface HelcimAttempt {
 }
 
 function rmsSourceLabel(source?: string | null) {
+  if (source === "linked_account") return "Linked RMS account";
+  if (source === "account_list_import") return "Imported RMS account list";
   if (source === "unavailable") return "Unavailable";
   return "Manual RMS Charge";
 }
@@ -213,6 +215,11 @@ interface RmsChargeAccountChoice {
   status: string;
   is_primary: boolean;
   program_group?: string | null;
+  available_credit?: string | null;
+  current_balance?: string | null;
+  source?: string | null;
+  linked_corecredit_customer_id?: string | null;
+  linked_corecredit_account_id?: string | null;
 }
 
 interface RmsChargeResolveResponse {
@@ -223,6 +230,7 @@ interface RmsChargeResolveResponse {
     code: string;
     message: string;
   } | null;
+  summary?: RmsChargeAccountSummary | null;
 }
 
 interface RmsChargeProgramOption {
@@ -255,6 +263,11 @@ interface RmsChargeAccountSummary {
     masked_account?: string | null;
     order_short_ref?: string | null;
   }>;
+}
+
+interface RmsChargeProgramsResponse {
+  programs: RmsChargeProgramOption[];
+  summary: RmsChargeAccountSummary;
 }
 
 const TAB_META: Record<
@@ -771,24 +784,51 @@ export default function NexoCheckoutDrawer({
 
   const loadRmsProgramsAndSummary = useCallback(async (account: RmsChargeAccountChoice) => {
     if (!customerId) return;
-    const mockProgram: RmsChargeProgramOption = {
-      program_code: "manual",
-      program_label: "Manual Charge",
-      eligible: true,
-      source: "manual",
+    const params = new URLSearchParams({
+      customer_id: customerId,
+      account_id: account.link_id,
+    });
+    const res = await fetch(`${baseUrl}/api/pos/rms-charge/programs?${params.toString()}`, {
+      headers: mergedPosStaffHeaders(backofficeHeaders),
+    });
+    const data = (await res.json().catch(() => ({}))) as Partial<RmsChargeProgramsResponse> & {
+      error?: string;
     };
-    const mockSummary: RmsChargeAccountSummary = {
+    if (!res.ok) {
+      throw new Error(data.error ?? "Could not load RMS Charge programs.");
+    }
+    const programs = Array.isArray(data.programs) ? data.programs : [];
+    const eligiblePrograms = programs.filter((program) => program.eligible);
+    setRmsPrograms(programs);
+    setRmsSummary(data.summary ?? {
       masked_account: account.masked_account,
-      account_status: "active",
-      available_credit: "—",
-      current_balance: "—",
-      source: "manual",
-    };
-    setRmsPrograms([mockProgram]);
-    setRmsSummary(mockSummary);
-    setRmsSelectedProgramCode("manual");
-    setRmsProgramPickerOpen(false);
-  }, [customerId]);
+      account_status: account.status,
+      available_credit: account.available_credit ?? null,
+      current_balance: account.current_balance ?? null,
+      resolution_status: "selected",
+      source: account.source ?? "manual",
+    });
+    setRmsSelectedProgramCode(eligiblePrograms.length === 1 ? eligiblePrograms[0].program_code : null);
+    setRmsProgramPickerOpen(!rmsPaymentCollectionMode && eligiblePrograms.length > 1);
+  }, [backofficeHeaders, baseUrl, customerId, rmsPaymentCollectionMode]);
+
+  const selectRmsAccount = useCallback(async (account: RmsChargeAccountChoice) => {
+    setRmsSelectedAccount(account);
+    setRmsResolve((current) => current ? {
+      ...current,
+      resolution_status: "selected",
+      selected_account: account,
+      summary: {
+        masked_account: account.masked_account,
+        account_status: account.status,
+        available_credit: account.available_credit ?? null,
+        current_balance: account.current_balance ?? null,
+        resolution_status: "selected",
+        source: account.source ?? "manual",
+      },
+    } : current);
+    await loadRmsProgramsAndSummary(account);
+  }, [loadRmsProgramsAndSummary]);
 
   const resolveRmsAccount = useCallback(async () => {
     if (!customerId) {
@@ -809,21 +849,27 @@ export default function NexoCheckoutDrawer({
 
     setRmsLoading(true);
     try {
-      const code = customerCode || "MANUAL";
-      const mockChoice: RmsChargeAccountChoice = {
-        link_id: "manual",
-        masked_account: code,
-        status: "active",
-        is_primary: true,
+      const params = new URLSearchParams({ customer_id: customerId });
+      const res = await fetch(`${baseUrl}/api/pos/rms-charge/resolve-account?${params.toString()}`, {
+        headers: mergedPosStaffHeaders(backofficeHeaders),
+      });
+      const resolved = (await res.json().catch(() => ({}))) as RmsChargeResolveResponse & {
+        error?: string;
       };
-      const resolved: RmsChargeResolveResponse = {
-        resolution_status: "selected",
-        selected_account: mockChoice,
-        choices: [mockChoice],
-      };
+      if (!res.ok) {
+        throw new Error(resolved.error ?? "Could not check RMS Charge.");
+      }
       setRmsResolve(resolved);
-      setRmsSelectedAccount(mockChoice);
-      await loadRmsProgramsAndSummary(mockChoice);
+      setRmsSummary(resolved.summary ?? null);
+      if (resolved.resolution_status === "selected" && resolved.selected_account) {
+        setRmsSelectedAccount(resolved.selected_account);
+        await loadRmsProgramsAndSummary(resolved.selected_account);
+      } else {
+        setRmsSelectedAccount(null);
+        setRmsPrograms([]);
+        setRmsSelectedProgramCode(null);
+        setRmsProgramPickerOpen(false);
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Could not check RMS Charge";
@@ -844,7 +890,7 @@ export default function NexoCheckoutDrawer({
     } finally {
       setRmsLoading(false);
     }
-  }, [customerId, customerCode, loadRmsProgramsAndSummary, toast]);
+  }, [backofficeHeaders, baseUrl, customerId, loadRmsProgramsAndSummary, toast]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1541,6 +1587,27 @@ export default function NexoCheckoutDrawer({
             ? {
                 cash_tendered_cents: absKey,
                 change_due_cents: cashChangeDueCents,
+                ...(rmsPaymentCollectionMode
+                  ? {
+                      rms_charge_collection: true,
+                      tender_family: "rms_charge",
+                      masked_account: rmsSelectedAccount?.masked_account ?? undefined,
+                      source_mode: rmsSelectedAccount?.source ?? "manual",
+                      rms_charge_source: rmsSelectedAccount?.source ?? "manual",
+                      linked_corecredit_customer_id:
+                        rmsSelectedAccount?.linked_corecredit_customer_id ?? undefined,
+                      linked_corecredit_account_id:
+                        rmsSelectedAccount?.linked_corecredit_account_id ??
+                        rmsSelectedAccount?.link_id ??
+                        undefined,
+                      reference_number: rmsReferenceNumber.trim() || undefined,
+                      host_reference: rmsReferenceNumber.trim() || undefined,
+                      resolution_status:
+                        rmsSummary?.resolution_status ??
+                        rmsResolve?.resolution_status ??
+                        "selected",
+                    }
+                  : {}),
               }
             : tab === "check"
             ? {
@@ -1550,8 +1617,10 @@ export default function NexoCheckoutDrawer({
                       rms_charge_collection: true,
                       tender_family: "rms_charge",
                       masked_account: rmsSelectedAccount?.masked_account ?? undefined,
-                      source_mode: "manual",
-                      rms_charge_source: "manual",
+                      source_mode: rmsSelectedAccount?.source ?? "manual",
+                      rms_charge_source: rmsSelectedAccount?.source ?? "manual",
+                      linked_corecredit_customer_id: rmsSelectedAccount?.linked_corecredit_customer_id ?? undefined,
+                      linked_corecredit_account_id: rmsSelectedAccount?.linked_corecredit_account_id ?? rmsSelectedAccount?.link_id ?? undefined,
                       reference_number: rmsReferenceNumber.trim() || undefined,
                       host_reference: rmsReferenceNumber.trim() || undefined,
                       resolution_status:
@@ -1568,8 +1637,10 @@ export default function NexoCheckoutDrawer({
                   program_label:
                     rmsPrograms.find((program) => program.program_code === rmsSelectedProgramCode)?.program_label ?? undefined,
                   masked_account: rmsSelectedAccount?.masked_account ?? undefined,
-                  source_mode: "manual",
-                  rms_charge_source: "manual",
+                  source_mode: rmsSelectedAccount?.source ?? "manual",
+                  rms_charge_source: rmsSelectedAccount?.source ?? "manual",
+                  linked_corecredit_customer_id: rmsSelectedAccount?.linked_corecredit_customer_id ?? undefined,
+                  linked_corecredit_account_id: rmsSelectedAccount?.linked_corecredit_account_id ?? rmsSelectedAccount?.link_id ?? undefined,
                   reference_number: rmsReferenceNumber.trim() || undefined,
                   host_reference: rmsReferenceNumber.trim() || undefined,
                   resolution_status:
@@ -1585,8 +1656,10 @@ export default function NexoCheckoutDrawer({
                     rms_charge_collection: true,
                     tender_family: "rms_charge",
                     masked_account: rmsSelectedAccount?.masked_account ?? undefined,
-                    source_mode: "manual",
-                    rms_charge_source: "manual",
+                    source_mode: rmsSelectedAccount?.source ?? "manual",
+                    rms_charge_source: rmsSelectedAccount?.source ?? "manual",
+                    linked_corecredit_customer_id: rmsSelectedAccount?.linked_corecredit_customer_id ?? undefined,
+                    linked_corecredit_account_id: rmsSelectedAccount?.linked_corecredit_account_id ?? rmsSelectedAccount?.link_id ?? undefined,
                     reference_number: rmsReferenceNumber.trim() || undefined,
                     host_reference: rmsReferenceNumber.trim() || undefined,
                     resolution_status:
@@ -2438,7 +2511,7 @@ export default function NexoCheckoutDrawer({
                             RMS Charge
                           </p>
                           <p className="mt-1 text-[11px] font-semibold leading-snug text-app-text-muted">
-                            Manual RMS Charge only. Confirm the account/program in the current RMS workflow, enter the reference, then report to R2S.
+                            Confirm the linked/imported account and financing program, enter the R2S reference, then report to R2S.
                           </p>
                         </div>
                         {!customerId ? (
@@ -2464,7 +2537,7 @@ export default function NexoCheckoutDrawer({
                                   key={choice.link_id}
                                   type="button"
                                   data-testid="pos-rms-account-choice"
-                                  onClick={() => void resolveRmsAccount()}
+                                  onClick={() => void selectRmsAccount(choice)}
                                   className="flex items-center justify-between rounded-xl border border-app-border bg-app-bg px-4 py-3 text-left transition-colors hover:border-app-accent"
                                 >
                                   <div className="flex flex-col">
@@ -2590,7 +2663,7 @@ export default function NexoCheckoutDrawer({
                             RMS Charge Payment
                           </p>
                           <p className="mt-2 text-[11px] font-medium leading-relaxed text-app-text-muted">
-                            Manual RMS Charge payment collection. Record cash or check here, then handle the current RMS/R2S follow-up outside Riverside.
+                            Record a cash or check payment against the linked/imported RMS account, then complete the R2S follow-up task.
                           </p>
                         </div>
                         {!customerId ? (
@@ -2616,7 +2689,7 @@ export default function NexoCheckoutDrawer({
                                   key={choice.link_id}
                                   type="button"
                                   data-testid="pos-rms-account-choice"
-                                  onClick={() => void resolveRmsAccount()}
+                                  onClick={() => void selectRmsAccount(choice)}
                                   className="flex items-center justify-between rounded-xl border border-app-border bg-app-bg px-4 py-3 text-left transition-colors hover:border-app-accent"
                                 >
                                   <div className="flex flex-col">

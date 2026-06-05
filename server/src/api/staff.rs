@@ -763,9 +763,9 @@ async fn list_for_pos(
         WHERE is_active = TRUE
         ORDER BY
             CASE
-                WHEN role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+                WHEN role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
                      AND staff_effective_working_day(id, $1) THEN 0
-                WHEN role IN ('salesperson', 'sales_support', 'staff_support', 'alterations') THEN 1
+                WHEN role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations') THEN 1
                 ELSE 2
             END,
             full_name ASC

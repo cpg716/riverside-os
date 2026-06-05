@@ -1,4 +1,4 @@
-//! Staff weekly schedule + day exceptions (salesperson / sales_support).
+//! Staff weekly schedule + day exceptions for schedule-eligible operational staff.
 
 use axum::{
     extract::{Path, Query, State},

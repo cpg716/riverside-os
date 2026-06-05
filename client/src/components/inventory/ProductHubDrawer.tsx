@@ -225,6 +225,22 @@ function compactValue(value?: string | null) {
   return trimmed ? trimmed : "—";
 }
 
+function friendlyCleanupNote(note: string) {
+  return note
+    .replace(
+      "Counterpoint/ROS identity remains authoritative.",
+      "ROS item identity remains authoritative.",
+    )
+    .replace(
+      "Lightspeed values are normalization reference only.",
+      "Reference values are for cleanup review only.",
+    )
+    .replace(
+      "No active Lightspeed normalization reference batch is loaded.",
+      "No active external catalog reference batch is loaded.",
+    );
+}
+
 function formatOptionMap(value: Record<string, unknown>) {
   const entries = Object.entries(value)
     .map(([key, raw]) => `${key}: ${String(raw ?? "—")}`)
@@ -958,12 +974,12 @@ export default function ProductHubDrawer({
         onClose={onClose}
         title={title}
         subtitle={subtitle}
-        panelMaxClassName="max-w-3xl"
+        panelMaxClassName="max-w-5xl"
         titleClassName="!normal-case !tracking-tight"
         actions={
           <div className="flex flex-wrap gap-2">
-            {tabBtn("general", "General")}
-            {tabBtn("variations", "Variations")}
+            {tabBtn("general", "Item Setup")}
+            {tabBtn("variations", "SKUs & Stock")}
             {tabBtn("history", "History")}
           </div>
         }
@@ -976,6 +992,32 @@ export default function ProductHubDrawer({
           <>
           {tab === "general" && (
             <div className="space-y-5">
+              <section className="ui-panel ui-tint-neutral p-5">
+                <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                  Product Hub guide
+                </h3>
+                <div className="mt-3 grid gap-3 text-sm md:grid-cols-3">
+                  <div className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+                    <p className="font-black text-app-text">Item Setup</p>
+                    <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
+                      Product family, vendor, category, tax, employee pricing, and cleanup review.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+                    <p className="font-black text-app-text">SKUs & Stock</p>
+                    <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
+                      SKU prices, web status, tags, low-stock alerts, count corrections, damage, and vendor returns.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-amber-300/50 bg-amber-50 p-4">
+                    <p className="font-black text-amber-950">Receiving rule</p>
+                    <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-800">
+                      Vendor shipments belong in Receive Stock. Product Hub count fixes are for small corrections only.
+                    </p>
+                  </div>
+                </div>
+              </section>
+
               <section className="rounded-2xl border border-app-border bg-app-surface p-5">
                 <h3 className="mb-4 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
                   Item Identity
@@ -1127,7 +1169,7 @@ export default function ProductHubDrawer({
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-app-text-muted">Catalog handle</dt>
+                    <dt className="text-app-text-muted">External catalog handle</dt>
                     <dd className="font-mono text-app-text">
                       {hub.product.nuorder_product_id ?? "—"}
                     </dd>
@@ -1162,10 +1204,10 @@ export default function ProductHubDrawer({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                      Lightspeed cleanup reference
+                      Catalog cleanup review
                     </h3>
                     <p className="mt-1 text-xs text-app-text-muted">
-                      Review-only comparison using Counterpoint aliases and the active Lightspeed reference batch.
+                      Review-only comparison against the active external catalog reference. Suggestions never change SKU, price, cost, stock, tax, or accounting fields automatically.
                     </p>
                   </div>
                   <button
@@ -1214,7 +1256,7 @@ export default function ProductHubDrawer({
 
                 {!normalizationReview?.reference_available ? (
                   <p className="mt-4 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-sm font-semibold text-app-text">
-                    No active Lightspeed reference batch is loaded.
+                    No active external catalog reference batch is loaded.
                   </p>
                 ) : normalizationExamples.length === 0 ? (
                   <p className="mt-4 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-sm font-semibold text-app-text">
@@ -1238,7 +1280,7 @@ export default function ProductHubDrawer({
                         <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
                           <div>
                             <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                              ROS canonical
+                              Current ROS values
                             </p>
                             <p className="mt-1 font-semibold text-app-text">
                               {compactValue(comparison.ros_product_name)}
@@ -1253,7 +1295,7 @@ export default function ProductHubDrawer({
                           </div>
                           <div>
                             <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                              Lightspeed reference
+                              Reference values
                             </p>
                             <p className="mt-1 font-semibold text-app-text">
                               {compactValue(comparison.lightspeed_product_name)}
@@ -1346,7 +1388,7 @@ export default function ProductHubDrawer({
                       key={note}
                       className="rounded-full border border-app-border bg-app-surface-2 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted"
                     >
-                      {note}
+                      {friendlyCleanupNote(note)}
                     </span>
                   ))}
                 </div>
@@ -1355,10 +1397,10 @@ export default function ProductHubDrawer({
               <section className="rounded-2xl border border-app-border bg-app-surface p-5">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                    Stock Status
+                    Inventory snapshot
                   </h3>
                   <span className="rounded-full border border-app-accent/35 bg-app-accent/10 px-4 py-2 text-sm font-black uppercase italic tracking-tight text-app-accent shadow-app-accent/30">
-                    In stock: {totalStock} units
+                    On hand: {totalStock} units
                   </span>
                 </div>
                 <div className="space-y-3">
@@ -1497,7 +1539,7 @@ export default function ProductHubDrawer({
                         <p className="mt-2 text-sm text-app-text-muted">Loading recent activity…</p>
                       ) : inventoryEvents.length === 0 ? (
                         <p className="mt-2 text-sm text-app-text-muted">
-                          No inventory movements recorded for this template yet.
+                          No inventory movements recorded for this item yet.
                         </p>
                       ) : (
                         <ul className="mt-2 space-y-2">
@@ -1692,10 +1734,10 @@ export default function ProductHubDrawer({
                     />
                     <div>
                       <p className="text-sm font-bold text-app-text">
-                        Track low stock (template)
+                        Track low stock for this item
                       </p>
                       <p className="mt-1 text-xs text-app-text-muted">
-                        When enabled, individual SKUs can still opt in on the Variations tab. Morning admin
+                        When enabled, individual SKUs can opt in on the SKUs & Stock tab. Morning admin
                         alerts only include variants where both this box and the SKU box are on, and
                         available quantity is at or below reorder point.
                       </p>
@@ -1852,7 +1894,7 @@ export default function ProductHubDrawer({
                           {hub.product.brand ?? "No brand label"}
                         </p>
                         <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                          Vendor code: {hub.product.nuorder_product_id ?? "not set"}
+                          External catalog handle: {hub.product.nuorder_product_id ?? "not set"}
                         </p>
                       </div>
 
@@ -1914,7 +1956,7 @@ export default function ProductHubDrawer({
               {hub.po_summary.recent_lines.length > 0 ? (
                 <section className="rounded-2xl border border-app-border bg-app-surface p-5">
                   <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                    Recent PO lines for this template
+                    Recent purchase order lines
                   </h3>
                   <ul className="space-y-2 text-sm">
                     {hub.po_summary.recent_lines.map((line) => (

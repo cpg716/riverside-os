@@ -26,7 +26,6 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
   onUpdateWeb,
   onShowMaintenance,
 }) => {
-  const [isHovered, setIsHovered] = useState(false);
   const [stockDraft, setStockDraft] = useState("");
   const [priceDraft, setPriceDraft] = useState("");
   const [editingPrice, setEditingPrice] = useState(false);
@@ -69,8 +68,6 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
           ? "ring-2 ring-app-danger ring-offset-2 ring-offset-app-bg"
           : ""
       }`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
     >
       {/* Price Section */}
       <div className="flex items-center justify-between">
@@ -142,14 +139,12 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
       </span>
 
       {/* Progressive Disclosure: Actions & Inputs */}
-      <div
-        className={`mt-1 flex flex-col gap-2 overflow-hidden transition-all duration-300 ${isHovered || isUpdating ? "max-h-32 opacity-100" : "max-h-0 opacity-0"}`}
-      >
+      <div className="mt-2 flex flex-col gap-2">
         <div className="relative">
           <input
             type="text"
             inputMode="numeric"
-            placeholder="+/- qty"
+            placeholder="Count correction +/-"
             value={stockDraft}
             onChange={(e) => setStockDraft(e.target.value)}
             onKeyDown={handleStockSubmit}
@@ -187,7 +182,7 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
               className="h-3 w-3 rounded border-app-border"
             />
             <span className="text-[9px] font-bold uppercase text-app-text-muted">
-              Track
+              Low stock
             </span>
           </label>
           <label className="flex cursor-pointer items-center gap-1.5">

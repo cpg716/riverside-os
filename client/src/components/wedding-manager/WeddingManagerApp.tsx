@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import PrintPage from './pages/PrintPage';
 // @ts-expect-error - legacy JS/JSX context
 import { ModalProvider } from './context/ModalContext';
+import WeddingManagerAuthBridge from './WeddingManagerAuthBridge';
 import './index.css';
 
 type WeddingManagerAppProps = {
@@ -25,6 +26,7 @@ const WeddingManagerApp = ({
   if (printId) {
     return (
       <ModalProvider rosActorName={rosActorName}>
+        <WeddingManagerAuthBridge />
         <div className="wedding-manager-root">
           <PrintPage partyId={printId} />
         </div>
@@ -34,6 +36,7 @@ const WeddingManagerApp = ({
 
   return (
     <ModalProvider rosActorName={rosActorName}>
+      <WeddingManagerAuthBridge />
       <div className="wedding-manager-root min-h-full w-full pb-[env(safe-area-inset-bottom)] font-sans text-app-text">
         <Dashboard
           initialPartyId={initialPartyId}

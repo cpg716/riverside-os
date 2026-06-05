@@ -484,7 +484,7 @@ export default function StaffSchedulePanel() {
                 Loading weekly schedule…
               </div>
             ) : weeklyViewRows.length === 0 ? (
-              <p className="text-sm text-app-text-muted">No active floor staff found for weekly schedule.</p>
+              <p className="text-sm text-app-text-muted">No schedule-eligible staff found for weekly schedule.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full table-fixed text-left text-sm">
@@ -842,7 +842,7 @@ export default function StaffSchedulePanel() {
                       checked={absAction === "unassign"}
                       onChange={() => setAbsAction("unassign")}
                     />
-                    Unassign salesperson (needs reassignment in scheduler)
+                    Unassign staff member (needs reassignment in scheduler)
                   </label>
                   <label className="flex items-center gap-2">
                     <input

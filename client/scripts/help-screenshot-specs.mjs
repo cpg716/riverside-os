@@ -122,10 +122,16 @@ export const HELP_SCREENSHOT_SPECS = [
     output: "client/src/assets/images/help/scheduler-workspace/main.png",
   },
   {
-    id: "weddings-action-board",
+    id: "operations-operational-home",
     kind: "workspace-tab",
-    tab: "weddings",
-    subSection: "action-board",
+    tab: "home",
     output: "client/src/assets/images/help/operations-operational-home/main.png",
+  },
+  {
+    id: "staff-schedule-panel",
+    kind: "workspace-tab",
+    tab: "staff",
+    subSection: "schedule",
+    output: "client/src/assets/images/help/staff-schedule-panel/main.png",
   },
 ];

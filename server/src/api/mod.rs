@@ -35,6 +35,7 @@ pub mod payments;
 pub mod physical_inventory;
 pub mod pos;
 pub mod pos_parked_sales;
+pub mod procurement_imports;
 pub mod products;
 pub mod public_api;
 pub mod purchase_orders;
@@ -218,6 +219,7 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
         .nest("/api/transactions", transactions::router())
         .nest("/api/categories", categories::router())
         .nest("/api/products", products::router())
+        .nest("/api/procurement/imports", procurement_imports::router())
         .nest("/api/discount-events", discount_events::router())
         .nest("/api/purchase-orders", purchase_orders::router())
         .nest("/api/qbo", qbo::router())

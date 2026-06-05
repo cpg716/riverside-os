@@ -7,6 +7,7 @@ import ProductMasterForm from "./ProductMasterForm";
 import PurchaseOrderPanel from "./PurchaseOrderPanel";
 import UniversalImporter from "./UniversalImporter";
 import VendorHub from "./VendorHub";
+import ProcurementImportWorkspace from "../procurement/ProcurementImportWorkspace";
 import PhysicalInventoryWorkspace from "./PhysicalInventoryWorkspace";
 import DiscountEventsPanel from "./DiscountEventsPanel";
 import { MaintenanceLedgerPanel } from "./MaintenanceLedgerPanel";
@@ -26,6 +27,7 @@ type InventorySection =
   | "hub"
   | "list"
   | "purchase_orders"
+  | "po_invoice_import"
   | "receiving"
   | "vendors"
   | "add"
@@ -66,6 +68,11 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string; 
     title: "Receive Stock",
     subtitle: "Post received items from submitted purchase orders or direct vendor invoices.",
     toolLabel: "Receive Stock",
+  },
+  po_invoice_import: {
+    title: "Import PO / Invoice",
+    subtitle: "Use ROSIE plus deterministic parsers to turn vendor paperwork into PO or direct invoice drafts.",
+    toolLabel: "Import PO / Invoice",
   },
   vendors: {
     title: "Add/Edit Catalog",
@@ -148,9 +155,9 @@ const INVENTORY_JOBS: InventoryJob[] = [
   },
   {
     label: "Receive Stock",
-    description: "Post arrived vendor paperwork into live inventory.",
+    description: "Import vendor paperwork, review drafts, and post received stock.",
     primarySection: "receiving",
-    sections: ["receiving"],
+    sections: ["po_invoice_import", "receiving"],
   },
   {
     label: "Correct Stock",
@@ -228,6 +235,7 @@ export default function InventoryWorkspace({
       "hub",
       "list",
       "purchase_orders",
+      "po_invoice_import",
       "receiving",
       "vendors",
       "add",
@@ -386,6 +394,7 @@ export default function InventoryWorkspace({
               <PurchaseOrderPanel
                 initialPoId={procurementDeepLinkPoId ?? null}
                 onInitialPoConsumed={onProcurementDeepLinkConsumed}
+                onOpenReceiving={() => setSection("receiving")}
               />
             </div>
           )}
@@ -424,7 +433,13 @@ export default function InventoryWorkspace({
                 initialPoId={procurementDeepLinkPoId ?? null}
                 onInitialPoConsumed={onProcurementDeepLinkConsumed}
                 mode="receive"
+                onOpenOrderStock={() => setSection("purchase_orders")}
               />
+            </div>
+          )}
+          {!isPosSurface && section === "po_invoice_import" && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <ProcurementImportWorkspace onOpenReceiving={() => setSection("receiving")} />
             </div>
           )}
           
@@ -433,7 +448,7 @@ export default function InventoryWorkspace({
              {!isPosSurface && section === "add" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><ProductMasterForm /></div>}
              {!isPosSurface && section === "categories" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><CategoryManager /></div>}
              {!isPosSurface && section === "discount_events" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><DiscountEventsPanel /></div>}
-             {!isPosSurface && section === "import" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><UniversalImporter /></div>}
+             {!isPosSurface && section === "import" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><UniversalImporter onOpenReceiving={() => setSection("receiving")} onOpenPoInvoiceImport={() => setSection("po_invoice_import")} /></div>}
              {!isPosSurface && section === "physical" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><PhysicalInventoryWorkspace /></div>}
              {!isPosSurface && section === "damaged" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><MaintenanceLedgerPanel type="damaged" /></div>}
              {!isPosSurface && section === "rtv" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><MaintenanceLedgerPanel type="return_to_vendor" /></div>}

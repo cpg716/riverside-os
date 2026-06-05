@@ -96,6 +96,7 @@ The checked-in capture script currently refreshes these shipped Help assets:
 - `client/src/assets/images/help/alterations-workspace/main.png`
 - `client/src/assets/images/help/scheduler-workspace/main.png`
 - `client/src/assets/images/help/operations-operational-home/main.png`
+- `client/src/assets/images/help/staff-schedule-panel/main.png`
 
 More flows can be added safely by extending
 `client/scripts/help-screenshot-specs.mjs`.

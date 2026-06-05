@@ -6,7 +6,9 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   ShieldCheck,
+  Sparkles,
   Table,
+  Truck,
   Loader2,
 } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
@@ -115,7 +117,13 @@ function importChangeSummary(summary: ImportSummaryResponse): string {
   ].join(" · ");
 }
 
-export default function UniversalImporter() {
+export default function UniversalImporter({
+  onOpenReceiving,
+  onOpenPoInvoiceImport,
+}: {
+  onOpenReceiving?: () => void;
+  onOpenPoInvoiceImport?: () => void;
+}) {
   const baseUrl = getBaseUrl();
   const { backofficeHeaders } = useBackofficeAuth();
   const [step, setStep] = useState<Step>("mode");
@@ -226,7 +234,7 @@ export default function UniversalImporter() {
         <h2 className="text-3xl font-black tracking-tight text-app-text">Catalog CSV Mapper</h2>
       </div>
       {step === "mode" && (
-        <div className="grid gap-8 md:grid-cols-2">
+        <div className="grid gap-8 md:grid-cols-3">
           <button
             type="button"
             onClick={() => {
@@ -268,6 +276,34 @@ export default function UniversalImporter() {
             </div>
             <div className="absolute -bottom-12 -right-12 h-48 w-48 rounded-full bg-app-text/5 blur-3xl transition-all group-hover:bg-app-text/10" />
           </div>
+
+          <button
+            type="button"
+            onClick={onOpenPoInvoiceImport ?? onOpenReceiving}
+            className="group relative overflow-hidden rounded-[3rem] border border-amber-300/50 bg-amber-50/80 p-12 text-left shadow-2xl backdrop-blur-md transition-all hover:border-amber-400 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={!onOpenPoInvoiceImport && !onOpenReceiving}
+          >
+            <div className="relative z-10">
+              <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-[24px] bg-amber-100 text-amber-700 shadow-inner transition-all group-hover:scale-110 group-hover:bg-amber-500 group-hover:text-white group-hover:shadow-lg group-hover:shadow-amber-500/20">
+                <Sparkles size={32} />
+              </div>
+              <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tighter text-amber-950">
+                Import PO / Invoice
+              </h3>
+              <p className="text-sm leading-relaxed text-amber-900/80">
+                Upload PDF, Word, Excel, CSV, JSON, TXT, JPG, or PNG vendor paperwork. ROSIE and deterministic parsing create reviewed PO or direct invoice drafts only.
+              </p>
+              <div className="mt-6 rounded-2xl border border-amber-500/30 bg-white/70 p-5">
+                <p className="text-[11px] font-bold text-amber-800">
+                  This is separate from catalog CSV import. It never posts stock; Receiving remains the final inventory authority.
+                </p>
+              </div>
+              <div className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-amber-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-md shadow-amber-600/20">
+                <Truck size={14} /> Open Import PO / Invoice
+              </div>
+            </div>
+            <div className="absolute -bottom-12 -right-12 h-48 w-48 rounded-full bg-amber-500/10 blur-3xl transition-all group-hover:bg-amber-500/20" />
+          </button>
         </div>
       )}
 

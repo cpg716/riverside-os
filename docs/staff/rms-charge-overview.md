@@ -6,13 +6,15 @@
 
 ## What RMS Charge is
 
-RMS Charge is Riverside's manual-first financing workflow. Staff use it to record RMS Charge sales, RMS Charge payments, accounts, programs, reference numbers, and follow-up reporting to R2S.
+RMS Charge is Riverside's linked-account financing workflow with required R2S follow-up. Staff use it to record RMS Charge sales, RMS Charge payments, accounts, programs, reference numbers, and follow-up reporting to R2S.
 
 In day-to-day use, Riverside staff see one financing tender:
 
 - `RMS Charge`
 
 Program selection happens **after** the tender is chosen. That means staff do not choose separate buttons for `RMS` versus `RMS 90`.
+
+POS account lookup uses linked RMS/CoreCredit accounts first, then the latest imported RMS Account List when the imported account is uniquely matched to the Riverside customer. It does not rely on name-only matching.
 
 ## Two kinds of RMS activity
 
@@ -43,9 +45,9 @@ Use `Reference Number` for the R2S approval, authorization, merchant, or support
 
 Permission required to mark reported: `rms_charge.report_to_r2s` or RMS Charge reporting access.
 
-## Manual RMS readiness
+## RMS readiness
 
-The current pilot workflow is manual RMS Charge. A record is ready for daily review when the account, program, amount, reference number, and `Report to R2S` status are clear. The Payments workspace is Helcim-focused and should not be used as proof of RMS Charge status.
+A record is ready for daily review when the account, program, amount, reference number, and `Report to R2S` status are clear. The Payments workspace is Helcim-focused and should not be used as proof of RMS Charge status.
 
 ## What you can do in the RMS Charge workspace
 
@@ -94,6 +96,7 @@ Use `RMS Charge` when the issue is specifically about financing accounts, R2S re
 
 - Always use the active Riverside customer as the source of truth.
 - Do not rely on name-only matching.
+- If POS cannot find the RMS account, import the latest RMS Account List or link the account from the customer RMS Charge workspace before tendering.
 - Report every POS-created RMS Charge Sale and RMS Charge Payment to R2S by the next day.
 - Mark the RMS Charge record `Reported` after the R2S follow-up is complete.
 - Do not treat `Reported` as automatic live posting, bank reconciliation, or QBO posting.

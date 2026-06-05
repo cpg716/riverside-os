@@ -99,6 +99,10 @@ List data comes from **`GET /api/inventory/control-board`** (same handler as **`
 
 **Inventory → Import** is now a **catalog-only** CSV mapper. It updates product identity, variant structure, categories, vendors, price, and cost through **`POST /api/products/import`** but does **not** mutate live **`stock_on_hand`**. For pre-launch inventory quantities, use **Counterpoint sync** as the authoritative path; after launch, stock changes must come from **Receiving**, **Physical Inventory**, or other operational inventory flows. Product creation and PO workflows now also expect clean vendor linkage, unique vendor codes, and non-negative catalog pricing before downstream receiving begins. Mapping keys, body-size limits, and **`vendors.vendor_code`** behavior are documented in **`docs/CATALOG_IMPORT.md`**.
 
+## Import PO / Invoice
+
+**Inventory → Receive Stock → Import PO / Invoice** is the AI-assisted vendor paperwork workflow. It accepts **PDF, JPG/JPEG, PNG, Word, Excel, CSV, TXT, and JSON** documents, stores the original file, computes a SHA-256 hash, runs deterministic parsers where useful, and sends the original file plus any extracted text/table context to the local ROSIE procurement sidecar when enabled. Staff must review matches before conversion. Conversion creates a **standard PO draft** or **direct invoice draft** only; it does **not** receive/post stock. See **`docs/PROCUREMENT_IMPORTS.md`**.
+
 ## Manual catalog creation
 
 Manually created Riverside OS items use the **`ROS-XXXXXX`** SKU family. Counterpoint-synced/imported items keep their imported SKU family, including **`B-XXXXXX`**, so staff can distinguish older imported inventory from products created directly in ROS.

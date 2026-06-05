@@ -33,9 +33,11 @@ To edit an existing item, always start in **Find Item**. Search for the SKU or s
 1. Go to **Inventory** → **Find Item**.
 2. Search by **SKU**, **style name**, or **vendor** per header fields.
 3. Use **Load more** for large catalogs — the server returns pages, not the whole world at once.
-4. Click a row or **hub** icon to open **Product hub** (general, matrix, history tabs).
+4. Click a row or **hub** icon to open **Product Hub**.
+5. Use **Item Setup** for product family details, vendor, category, tax, employee pricing, and cleanup review.
+6. Use **SKUs & Stock** for SKU-level price, web status, tags, low-stock alerts, small count corrections, damage, and vendor returns.
 
-**Common pitfall:** Editing **on-hand** without understanding **reserved** stock for special orders — when unsure, read [INVENTORY_GUIDE.md](../../INVENTORY_GUIDE.md) or ask a lead.
+**Common pitfall:** Do not use Product Hub count corrections for vendor shipments. Vendor shipments belong in **Receive Stock** so PO, receiving, reserved stock, and financial staging stay connected.
 
 ## Add/Edit Catalog
 
@@ -119,8 +121,11 @@ When "Publish to Web" is enabled, the catalog wizard inserts a dedicated **Web L
 6. PO lines require a valid SKU, quantity above zero, and non-negative unit cost.
 7. If a SKU is already linked to a different **primary vendor**, ROS blocks adding it to the wrong vendor’s PO.
 8. PO worksheets feature tighter grid spacing and hover-reveal action buttons (Mark Sent, Receive, Delete) for cleaner visual management.
+9. The **Receive Stock** shortcut in Order Stock moves you to the receiving job without mixing direct invoices into the PO-building screen.
 
 Use **Order Stock** when you are planning or building a vendor order before merchandise arrives. Direct invoices are for merchandise that arrived without a pre-built order, so start them from **Receive Stock** when the paperwork is in hand.
+
+Use **Import PO / Invoice** when the vendor sends paperwork before or with the shipment and you want ROSIE to read it before you build the draft. The importer creates reviewed PO/direct invoice drafts only; it does not submit a PO and it does not post stock.
 
 ## Receive Stock
 
@@ -129,6 +134,9 @@ Use **Receive Stock** when merchandise is already here and you have vendor paper
 If a physical inventory session is open or in review, receiving is paused. Sales may continue during the count, but ROS will not post received stock until the count is published or canceled.
 
 1. **Receive Stock** → choose a submitted **PO** that is ready to receive, or create a **Direct Invoice** if the shipment arrived without a pre-built PO.
+   - **Direct Invoice** is the primary action for paperwork that arrived with merchandise but no pre-built PO.
+   - **Build Standard PO** sends you back to Order Stock when the shipment has not arrived yet or the vendor order still needs to be created/sent.
+   - **Import PO / Invoice** lets you upload PDF, Word, Excel, CSV, JSON, TXT, JPG, or PNG vendor paperwork. ROSIE reads the file, deterministic parsers pre-read structured data where useful, and staff reviews line matches before creating a draft.
 2. The receiving screen shows a **3-step workflow indicator** in the header bar:
    - **Step 1 | Check paperwork** — confirm you have the right vendor invoice or PO.
    - **Step 2 | Count & invoice** — scan or enter quantities; fill in the invoice number and freight amount.
@@ -143,6 +151,8 @@ If a physical inventory session is open or in review, receiving is paused. Sales
 6. Watch for messages about **reserved** stock for open special orders after posting.
 
 **Direct invoices** and submitted **standard POs** share the same final posting path. Once a receipt is finalized, ROS locks the document and blocks duplicate posting for that receipt ID to preserve database and ledger integrity.
+
+AI-assisted paperwork import follows this same rule: extracted lines can only create a reviewed draft PO or draft direct invoice. Live stock changes only after staff review and **Post Receipt**.
 
 **At the register**, staff browse the catalog and tap **Add to sale** from **POS → Inventory** (same data family as the control board) — [pos-inventory.md](pos-inventory.md).
 
@@ -163,7 +173,7 @@ The **Damage/Loss History** and **Vendor Return History** sections under **Corre
 
 ## Product Hub variation modes
 
-Open **Product Hub** from **Find Item**. The **Variations** tab supports three views:
+Open **Product Hub** from **Find Item**. The **SKUs & Stock** tab supports three views:
 
 - **Cards:** default, touch-friendly inventory cards for daily SKU work.
 - **Matrix:** compact axis grid when a style has true size/color/fit structure.
@@ -205,4 +215,4 @@ All views should represent the same filtered SKUs. Used Counterpoint SKUs and ne
 - [../SEARCH_AND_PAGINATION.md](../SEARCH_AND_PAGINATION.md)
 - [../PLAN_NOTIFICATION_CENTER.md](../PLAN_NOTIFICATION_CENTER.md)
 
-**Last reviewed:** 2026-05-21
+**Last reviewed:** 2026-06-04

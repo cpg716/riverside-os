@@ -483,7 +483,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
             </p>
             {productTrackLowStock && (
               <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 text-[8px] font-black uppercase tracking-widest border border-amber-500/20">
-                Auto-Tracking
+                Low-stock alerts
               </span>
             )}
           </div>
@@ -506,9 +506,14 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase leading-tight tracking-[0.1em] text-app-text-muted transition-colors hover:bg-app-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Printer size={14} />
-            <span>Bulk Labels</span>
+            <span>Print Tags</span>
           </button>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-850">
+        Use SKU actions here for prices, tags, web status, small count corrections, damage, and vendor returns.
+        Receive vendor shipments in <span className="font-black">Receive Stock</span>, not as count corrections.
       </div>
 
       {/* Main View Area */}
@@ -793,8 +798,8 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
       {batchStockOpen && (
         <ConfirmationModal
           isOpen={batchStockOpen}
-          title="Batch stock adjustment"
-          message={`Enter a signed integer (for example: +5 or -2) to apply to all selected variants.\nCurrent value: ${batchStockInput || "(empty)"}`}
+          title="Batch count correction"
+          message={`Enter a signed integer (for example: +5 or -2) to apply to all selected SKUs.\nUse this for count corrections only. Vendor shipments belong in Receive Stock.\nCurrent value: ${batchStockInput || "(empty)"}`}
           confirmLabel={batchStockSubmitting ? "Applying..." : "Apply"}
           onConfirm={async () => {
             const delta = parseInt(batchStockInput, 10);
@@ -805,7 +810,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
             setBatchStockSubmitting(true);
             try {
               toast(
-                `Applying stock delta ${delta} to ${selectedIds.size} variants...`,
+                `Applying count correction ${delta} to ${selectedIds.size} SKUs...`,
                 "info",
               );
               await Promise.all(
@@ -813,7 +818,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                   patchVariant(id, { quantity_delta: delta }),
                 ),
               );
-              toast("Batch stock adjustment complete", "success");
+              toast("Batch count correction complete", "success");
               setSelectedIds(new Set());
               setBatchStockOpen(false);
               setBatchStockInput("");

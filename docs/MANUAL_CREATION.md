@@ -199,6 +199,16 @@ The Playwright capture runner is:
 
 More detail: `docs/HELP_CENTER_AUTOMATION.md`
 
+## ROSIE E2E draft manuals
+
+ROSIE’s guarded E2E manual endpoint uses `scripts/rosie-e2e-workflows.mjs` through `POST /api/help/rosie/v1/e2e/manual/generate`. It returns:
+
+- `manual_path` under `client/src/assets/docs/<id>-manual.md`
+- draft markdown with Help front matter (`status: draft`)
+- screenshot paths under `client/src/assets/images/help/...`
+
+Treat this output as a maintainer draft. Review the markdown, save it to the returned `*-manual.md` path only when it is accurate, promote `status: approved` only after staff-facing review, then run `npm run generate:help`.
+
 ---
 
 ## Updating **existing** Help sections

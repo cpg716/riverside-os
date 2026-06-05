@@ -2,7 +2,7 @@
 
 **Audience:** Wedding managers and consultants.
 
-**Where in ROS:** Back Office → **Weddings**. Subsections: **Action Board**, **Parties**, **Calendar**, **Readiness**.
+**Where in ROS:** Back Office → **Weddings**. Subsections: **Action Board**, **Parties**, **Calendar**, **Readiness**, and **Cutover Review**.
 
 **Related permissions:** **weddings.view** to read wedding data; **weddings.mutate** to create/update/delete parties, members, appointments; **wedding_manager.open** to open the full Wedding Manager shell/tab from navigation.
 
@@ -69,7 +69,7 @@ If a customer has a Counterpoint Transaction Record or fulfillment line that sho
 
 ### Mid-season Counterpoint cutover
 
-If ROS starts while weddings are already in progress, managers should use the planned **Cutover Review** workflow before trusting party readiness.
+If ROS starts while weddings are already in progress, managers should use **Cutover Review** before trusting party readiness.
 
 Plain rule: **do not retype money into Wedding Manager.** Counterpoint-synced Transaction Records carry the paid amount, balance, and line items. Staff only confirm which party/member owns each imported sale or fulfillment line and where each item currently stands.
 
@@ -142,4 +142,4 @@ The detailed Register behavior is documented in [../POS_WEDDING_REGISTER_WORKFLO
 - [appointments.md](appointments.md)
 - [../WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md)
 
-**Last reviewed:** 2026-05-14
+**Last reviewed:** 2026-06-04

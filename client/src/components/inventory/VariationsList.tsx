@@ -109,13 +109,13 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
             </span>
           </div>
 
-          <div className="flex items-center gap-1 rounded-xl bg-app-surface-2/80 p-1 opacity-0 group-hover:opacity-100 transition-all duration-300">
+          <div className="flex items-center gap-1 rounded-xl bg-app-surface-2/80 p-1 transition-all duration-300">
             <button
               onClick={() =>
                 void rowProps.onUpdateVariant(v.id, { quantity_delta: 1 })
               }
               className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-emerald-500/10 hover:text-emerald-500 text-app-text-muted"
-              title="Add 1 Unit"
+              title="Count correction: add 1 unit"
             >
               <ChevronUp size={16} strokeWidth={3} />
             </button>
@@ -124,7 +124,7 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
                 void rowProps.onUpdateVariant(v.id, { quantity_delta: -1 })
               }
               className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-500 text-app-text-muted"
-              title="Subtract 1 Unit"
+              title="Count correction: subtract 1 unit"
             >
               <ChevronDown size={16} strokeWidth={3} />
             </button>
@@ -174,7 +174,7 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
         </button>
       </div>
 
-      <div className="flex w-40 shrink-0 justify-end gap-1.5 pr-1 opacity-0 transition-all duration-300 group-hover:opacity-100">
+      <div className="flex w-40 shrink-0 justify-end gap-1.5 pr-1 transition-all duration-300">
         <button
           onClick={() => rowProps.onShowMaintenance(v.id, v.sku, "damaged")}
           className="group/btn inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl border border-red-500/10 bg-red-500/5 px-2.5 py-2 text-[10px] font-black uppercase leading-tight tracking-[0.08em] text-red-600 shadow-sm transition-all hover:bg-red-500 hover:text-white"

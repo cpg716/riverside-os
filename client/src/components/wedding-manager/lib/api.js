@@ -306,14 +306,14 @@ export const api = {
       (a, b) => a.localeCompare(b),
     );
   },
-  /** Role `salesperson` only — appointment staff dropdowns */
+  /** Active appointment staff dropdown choices, aligned with ROS scheduler rules. */
   getSalespeopleForAppointments: async () => {
     const json = await wmJson("GET", `${API_URL}/staff/list-for-pos`);
     const rows = Array.isArray(json) ? json : [];
     return [
       ...new Set(
         rows
-          .filter((r) => r.role === "salesperson")
+          .filter((r) => r.role === "salesperson" || r.role === "sales_support")
           .map((r) => String(r.full_name || "").trim())
           .filter(Boolean),
       ),
