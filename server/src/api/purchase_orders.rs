@@ -1419,7 +1419,7 @@ async fn list_receiving_history(
             re.invoice_number,
             re.freight_total,
             re.received_at,
-            s.display_name AS received_by_name,
+            s.full_name AS received_by_name,
             COALESCE(SUM(it.quantity_delta), 0)::bigint AS total_units_received,
             COALESCE(SUM(it.unit_cost * it.quantity_delta), 0)::numeric(14,2) AS total_line_cost
         FROM receiving_events re
@@ -1430,7 +1430,7 @@ async fn list_receiving_history(
             ON it.reference_table = 'receiving_events'
            AND it.reference_id = re.id
         WHERE re.purchase_order_id = $1
-        GROUP BY re.id, po.po_number, v.name, s.display_name
+        GROUP BY re.id, po.po_number, v.name, s.full_name
         ORDER BY re.received_at DESC
         "#,
     )
@@ -1497,7 +1497,7 @@ async fn get_receiving_event_detail(
             re.invoice_number,
             re.freight_total,
             re.received_at,
-            s.display_name AS received_by_name
+            s.full_name AS received_by_name
         FROM receiving_events re
         INNER JOIN purchase_orders po ON po.id = re.purchase_order_id
         INNER JOIN vendors v ON v.id = po.vendor_id
