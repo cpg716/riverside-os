@@ -225,7 +225,9 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(printBtn).toBeVisible({ timeout: 10_000 });
     await expect(printBtn.locator("..").getByRole("button", { name: /^mark sent$/i })).toHaveCount(0);
 
-    const openReceivingButton = page.getByRole("button", { name: /^receive stock$/i });
+    const openReceivingButton = page.getByRole("button", {
+      name: `Receive stock for ${directInvoice.po_number}`,
+    });
     await expect(openReceivingButton).toBeVisible({ timeout: 10_000 });
     await expect(openReceivingButton).toBeEnabled();
     await openReceivingButton.click();

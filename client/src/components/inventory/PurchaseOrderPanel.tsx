@@ -902,6 +902,7 @@ export default function PurchaseOrderPanel({
               {canOpenReceiving && (
                 <button
                   type="button"
+                  aria-label={`Receive stock for ${selected.po_number}`}
                   onClick={() => setReceivingPoId(selectedPo)}
                   className="h-9 rounded-lg bg-emerald-600 px-4 text-[10px] font-bold text-white shadow-sm hover:brightness-110 transition-all"
                 >
