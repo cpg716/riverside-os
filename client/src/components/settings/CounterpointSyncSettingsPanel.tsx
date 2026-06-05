@@ -20,6 +20,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 
 /* ── Types & Interfaces ── */
 
@@ -80,6 +81,12 @@ interface StagingBatchRow {
   recovered_by_staff_id: string | null;
   recovered_by_staff_name: string | null;
   recovery_reason: string | null;
+}
+
+interface BridgeLiveStatus {
+  lastRun?: string | null;
+  lastRunDurationMs?: number | null;
+  entityStats?: Record<string, { error?: string | null; recordCount?: number | null }>;
 }
 
 interface CategoryMapRow {
@@ -358,6 +365,95 @@ function fmtNum(n: number | null | undefined): string {
   return n.toLocaleString();
 }
 
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "Not reported";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not reported";
+  return date.toLocaleString();
+}
+
+function formatEntityLabel(entity: string): string {
+  return entity.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function stagingBatchAgeMinutes(batch: StagingBatchRow): number | null {
+  if (!batch.apply_started_at) return null;
+  const started = new Date(batch.apply_started_at).getTime();
+  if (Number.isNaN(started)) return null;
+  return Math.max(0, Math.floor((Date.now() - started) / 60_000));
+}
+
+function isStaleApplyingBatch(batch: StagingBatchRow): boolean {
+  const ageMinutes = stagingBatchAgeMinutes(batch);
+  return batch.status === "applying" && ageMinutes != null && ageMinutes >= 15;
+}
+
+function stagingStaffLabel(name: string | null, id: string | null): string {
+  return name?.trim() || id?.trim() || "Unknown staff";
+}
+
+function stagingStatusLabel(batch: StagingBatchRow): string {
+  if (batch.recovered_at) return "Recovered stale apply";
+  if (isStaleApplyingBatch(batch)) return "Stale applying";
+  if (batch.status === "pending") return "Pending review";
+  if (batch.status === "applying") return "Applying";
+  if (batch.status === "applied") return "Applied";
+  if (batch.status === "failed") return "Failed";
+  if (batch.status === "discarded") return "Discarded";
+  return formatEntityLabel(batch.status);
+}
+
+function stagingStatusTone(batch: StagingBatchRow): string {
+  if (batch.recovered_at) return "bg-amber-500/15 text-amber-700 dark:text-amber-200";
+  if (isStaleApplyingBatch(batch) || batch.status === "failed") return "bg-red-500/10 text-red-600";
+  if (batch.status === "pending" || batch.status === "applying") return "bg-amber-500/15 text-amber-700 dark:text-amber-200";
+  if (batch.status === "applied") return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200";
+  return "bg-app-surface-2 text-app-text-muted";
+}
+
+function stagingLiveWriteSummary(batch: StagingBatchRow): string {
+  if (batch.applied_at) return `Applied ${fmtNum(batch.row_count)} ${formatEntityLabel(batch.entity).toLowerCase()} row(s) to live ROS.`;
+  if (batch.recovered_at) return "Recovered stale apply; payload was not replayed.";
+  if (batch.apply_started_at) return "Apply is active; wait before taking recovery action unless the claim becomes stale.";
+  if (batch.status === "pending") return "No live write has happened yet.";
+  if (batch.status === "failed") return batch.apply_error ?? "Apply failed before completion.";
+  return "No live write result recorded.";
+}
+
+function stagingReplaySummary(batch: StagingBatchRow): string {
+  if (batch.replay_count > 0) return `Replay suppressed x${fmtNum(batch.replay_count)}.`;
+  return "No duplicate bridge payload replay recorded.";
+}
+
+function stagingRecoveryGuidance(batch: StagingBatchRow): string {
+  if (isStaleApplyingBatch(batch)) return "Only stale recovery is available for this batch.";
+  if (batch.status === "applying") return "Apply is active; wait before taking recovery action.";
+  if (batch.recovered_at) return "Recovered stale apply is now failed for support review.";
+  return "Recovery is only available for stale applying claims.";
+}
+
+function stagingNextAction(batch: StagingBatchRow): { label: string; tone: string; body: string } {
+  if (isStaleApplyingBatch(batch)) {
+    return {
+      label: "Recovery review",
+      tone: "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-100",
+      body: "Mark the stale apply failed only after support confirms the bridge will not finish this claim.",
+    };
+  }
+  if (batch.status === "pending") {
+    return {
+      label: "Apply or discard",
+      tone: "border-app-border bg-app-bg/60 text-app-text-muted",
+      body: "Review the payload, then apply it to live ROS or discard and rerun the bridge sync.",
+    };
+  }
+  return {
+    label: "Review only",
+    tone: "border-app-border bg-app-bg/60 text-app-text-muted",
+    body: "No write action is currently recommended from this status.",
+  };
+}
+
 // function fmtMoney(value: string | number | null | undefined): string {
 //   if (value == null) return "—";
 //   const n = typeof value === "number" ? value : Number(value);
@@ -416,6 +512,15 @@ export default function CounterpointSyncSettingsPanel() {
   const [stagingToggleBusy, setStagingToggleBusy] = useState(false);
   const [confirmApply, setConfirmApply] = useState<number | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState<number | null>(null);
+  const [confirmRecoverStale, setConfirmRecoverStale] = useState<number | null>(null);
+  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
+  const [selectedPayload, setSelectedPayload] = useState<unknown>(null);
+  const [workspaceView, setWorkspaceView] = useState<"pipeline" | "inbound" | "details">(() => {
+    if (typeof window === "undefined") return "pipeline";
+    return window.localStorage.getItem("counterpoint.statusSection") === "details"
+      ? "details"
+      : "pipeline";
+  });
 
   // Connection settings
   const [runRequestBusy, setRunRequestBusy] = useState(false);
@@ -423,6 +528,9 @@ export default function CounterpointSyncSettingsPanel() {
     if (typeof window === "undefined") return "";
     return window.localStorage.getItem(BRIDGE_CONTROL_URL_STORAGE_KEY) ?? "";
   });
+  const [bridgeLive, setBridgeLive] = useState<BridgeLiveStatus | null>(null);
+  const [bridgeControlsReachable, setBridgeControlsReachable] = useState<boolean | null>(null);
+  const [bridgeControlLoading, setBridgeControlLoading] = useState(false);
 
   // Workbench state (for catalog cleanup steps)
   const [workbenchState, setWorkbenchState] = useState<WorkbenchState | null>(null);
@@ -506,6 +614,39 @@ export default function CounterpointSyncSettingsPanel() {
       setBatches([]);
     }
   }, [baseUrl, headers, hasPermission]);
+
+  const fetchSelectedBatchPayload = useCallback(async (id: number) => {
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${id}/payload`,
+        { headers: headers() },
+      );
+      if (res.ok) {
+        setSelectedPayload(await res.json());
+        return;
+      }
+    } catch { /* silent */ }
+    setSelectedPayload(null);
+  }, [baseUrl, headers]);
+
+  const fetchBridgeControlStatus = useCallback(async () => {
+    const configured = bridgeControlUrlDraft.trim() || "http://127.0.0.1:3002";
+    setBridgeControlLoading(true);
+    try {
+      const url = configured.endsWith("/api/status")
+        ? configured
+        : `${configured.replace(/\/$/, "")}/api/status`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("bridge status unavailable");
+      setBridgeLive((await res.json()) as BridgeLiveStatus);
+      setBridgeControlsReachable(true);
+    } catch {
+      setBridgeLive(null);
+      setBridgeControlsReachable(false);
+    } finally {
+      setBridgeControlLoading(false);
+    }
+  }, [bridgeControlUrlDraft]);
 
   const fetchWorkbenchState = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
@@ -706,6 +847,18 @@ export default function CounterpointSyncSettingsPanel() {
     void fetchAllData();
   }, [fetchAllData]);
 
+  useEffect(() => {
+    void fetchBridgeControlStatus();
+  }, [fetchBridgeControlStatus]);
+
+  useEffect(() => {
+    if (selectedBatchId == null) {
+      setSelectedPayload(null);
+      return;
+    }
+    void fetchSelectedBatchPayload(selectedBatchId);
+  }, [fetchSelectedBatchPayload, selectedBatchId]);
+
   /* ── Event Handlers ── */
 
   const triggerBridgeSync = useCallback(async (entity?: string) => {
@@ -826,6 +979,32 @@ export default function CounterpointSyncSettingsPanel() {
       }
     } catch {
       toast("Could not discard batch", "error");
+    }
+  };
+
+  const recoverStaleBatch = async (id: number) => {
+    setApplyBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${id}/recover-stale`,
+        {
+          method: "POST",
+          headers: headers(),
+        },
+      );
+      if (res.ok) {
+        toast("Stale apply marked failed. Payload was not replayed.", "success");
+        setConfirmRecoverStale(null);
+        await fetchBatches();
+        await fetchStatus();
+        return;
+      }
+      const j = await res.json().catch(() => ({}));
+      toast(j.error ?? "Could not recover stale apply", "error");
+    } catch {
+      toast("Could not recover stale apply", "error");
+    } finally {
+      setApplyBusy(false);
     }
   };
 
@@ -1247,6 +1426,75 @@ export default function CounterpointSyncSettingsPanel() {
   const stagingOn = status?.counterpoint_staging_enabled === true;
   const serverBridgeActive = status?.windows_sync_state === "online" || status?.windows_sync_state === "syncing";
   const serverBridgeSyncing = status?.windows_sync_state === "syncing";
+  const pendingN = batches.filter((b) => b.status === "pending").length;
+  const applyingN = batches.filter((b) => b.status === "applying").length;
+  const visiblePendingN = Math.max(pendingN, status?.staging_pending_count ?? 0);
+  const visibleApplyingN = Math.max(applyingN, status?.staging_applying_count ?? 0);
+  const staleApplyingN = batches.filter(isStaleApplyingBatch).length;
+  const failedBatchN = batches.filter((b) => b.status === "failed").length;
+  const replaySuppressionN = batches.reduce((sum, batch) => sum + Math.max(0, batch.replay_count), 0);
+  const recoveredBatchN = batches.filter((b) => b.recovered_at).length;
+  const unresolvedIssueCount = status?.recent_issues.filter((issue) => !issue.resolved).length ?? 0;
+  const directBridgeErrorCount = Object.values(bridgeLive?.entityStats ?? {}).filter((entry) => entry.error).length;
+  const normalizedProofKeys = new Set(
+    landingVerification?.snapshot_reconciliation.flatMap((row) => [
+      row.key.toLowerCase(),
+      row.label.toLowerCase().replace(/\s+/g, "_"),
+    ]) ?? [],
+  );
+  const entitiesMissingRosProof =
+    status?.entity_runs.filter((run) => {
+      const entity = run.entity.toLowerCase();
+      return !Array.from(normalizedProofKeys).some((key) => key.includes(entity) || entity.includes(key));
+    }).length ?? 0;
+  const lowerRosCountRows =
+    landingVerification?.snapshot_reconciliation.filter((row) => (row.count_difference ?? 0) < 0).length ?? 0;
+  const signoffBlockers = [
+    visiblePendingN > 0 ? `${fmtNum(visiblePendingN)} staging batch(es) are pending review.` : null,
+    unresolvedIssueCount > 0 ? `${fmtNum(unresolvedIssueCount)} unresolved sync issue(s) remain.` : null,
+    entitiesMissingRosProof > 0
+      ? `${fmtNum(entitiesMissingRosProof)} entity row(s) have bridge-reported counts without ROS landed proof.`
+      : null,
+    directBridgeErrorCount > 0
+      ? "At least one bridge entity still shows an error in the latest visible run."
+      : null,
+  ].filter((line): line is string => Boolean(line));
+  const supportDiagnosticsSeverity =
+    signoffBlockers.length > 0 || staleApplyingN > 0 || failedBatchN > 0 ? "Review" : "Clear";
+  const supportDiagnosticsTone =
+    supportDiagnosticsSeverity === "Review"
+      ? "bg-red-500/10 text-red-600"
+      : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200";
+  const selectedBatch =
+    selectedBatchId == null ? null : (batches.find((batch) => batch.id === selectedBatchId) ?? null);
+  const counterpointInsightFacts = {
+    title: "Counterpoint Sign-off Explanation",
+    bullets: [
+      ...signoffBlockers.map((label, index) => ({
+        id: `counterpoint-blocker-${index}`,
+        label,
+        severity: "warning",
+      })),
+      {
+        id: "counterpoint-queue",
+        label: `${fmtNum(visiblePendingN)} pending, ${fmtNum(visibleApplyingN)} applying, ${fmtNum(staleApplyingN)} stale applying, ${fmtNum(recoveredBatchN)} recovered.`,
+        severity: visiblePendingN > 0 || visibleApplyingN > 0 ? "warning" : "success",
+      },
+      {
+        id: "counterpoint-replay",
+        label: `${fmtNum(replaySuppressionN)} replay suppression(s) recorded in the loaded queue.`,
+        severity: replaySuppressionN > 0 ? "info" : "success",
+      },
+      {
+        id: "counterpoint-proof",
+        label: `${fmtNum(lowerRosCountRows)} reconciliation row(s) show ROS count lower than bridge count.`,
+        severity: lowerRosCountRows > 0 ? "warning" : "success",
+      },
+    ],
+    disclaimers: [
+      "Optional explanation of displayed checks only. Do not approve sign-off, reconcile, or declare cutover safe.",
+    ],
+  };
 
   // Filter staging batches for step rendering
   const customerBatches = useMemo(() => batches.filter((b) => b.entity === "customers"), [batches]);
@@ -1288,10 +1536,385 @@ export default function CounterpointSyncSettingsPanel() {
     return Math.round((completed / 8) * 100);
   }, [status, step2Approved, customerBatches, ticketBatches, giftBatches, openDocBatches, loyaltyBatches, landingVerification]);
 
+  const bridgeReachabilityPanel = (
+    <div className="ui-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Bridge control reachability
+          </p>
+          <p className="mt-1 text-sm font-bold text-app-text">
+            {bridgeControlsReachable
+              ? "Direct controls reachable"
+              : "Bridge controls are not reachable on this workstation"}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-app-text-muted">
+            Server: {(status?.windows_sync_state ?? "unknown").toUpperCase()}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void fetchBridgeControlStatus()}
+          disabled={bridgeControlLoading}
+          className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${bridgeControlLoading ? "animate-spin" : ""}`} />
+          Reconnect to bridge
+        </button>
+      </div>
+      {!bridgeControlsReachable ? (
+        <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs font-semibold text-amber-800 dark:text-amber-100">
+          Bridge controls are not reachable on this workstation. ROS server heartbeat is tracked separately so staff do not confuse direct controls with sign-off readiness.
+        </p>
+      ) : null}
+    </div>
+  );
+
+  const inboundQueuePanel = (
+    <section className="ui-card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Staging diagnostics
+          </h4>
+          <p className="mt-1 text-xs text-app-text-muted">
+            Review replay-safe batches, stale apply claims, and manual recovery before writing Counterpoint data to live ROS tables.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void fetchBatches()}
+          className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Reload
+        </button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs xl:grid-cols-6">
+        {[
+          { label: "Replay suppressions", value: fmtNum(replaySuppressionN) },
+          { label: "Failed batches", value: fmtNum(failedBatchN) },
+          { label: "Stale applying", value: fmtNum(staleApplyingN) },
+          { label: "Recovered stale", value: fmtNum(recoveredBatchN) },
+          { label: "Pending", value: fmtNum(visiblePendingN) },
+          { label: "Applying", value: fmtNum(visibleApplyingN) },
+        ].map((item) => (
+          <div key={item.label} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{item.label}</p>
+            <p className="mt-1 font-bold tabular-nums text-app-text">{item.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="overflow-hidden rounded-xl border border-app-border">
+          <div className="flex items-center justify-between border-b border-app-border bg-app-bg/40 px-3 py-2">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Batches
+            </span>
+          </div>
+          <div className="max-h-[480px] overflow-auto">
+            <table className="w-full min-w-[640px] text-left text-xs">
+              <thead className="sticky top-0 bg-app-surface-2">
+                <tr className="border-b border-app-border text-[10px] font-black uppercase text-app-text-muted">
+                  <th className="px-2 py-2">ID</th>
+                  <th className="px-2 py-2">Entity</th>
+                  <th className="px-2 py-2">Rows</th>
+                  <th className="px-2 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-app-border">
+                {batches.map((batch) => (
+                  <tr
+                    key={batch.id}
+                    className={`cursor-pointer hover:bg-app-surface/30 ${
+                      selectedBatchId === batch.id ? "bg-orange-500/10" : ""
+                    }`}
+                    onClick={() => setSelectedBatchId(batch.id)}
+                  >
+                    <td className="px-2 py-2 font-mono">{batch.id}</td>
+                    <td className="px-2 py-2 font-bold">{formatEntityLabel(batch.entity)}</td>
+                    <td className="px-2 py-2 tabular-nums">{fmtNum(batch.row_count)}</td>
+                    <td className="px-2 py-2">
+                      <span className={`ui-pill text-[10px] ${stagingStatusTone(batch)}`}>
+                        {stagingStatusLabel(batch)}
+                      </span>
+                      {batch.replay_count > 0 ? (
+                        <p className="mt-1 text-[10px] text-app-text-muted">
+                          Replay suppressed x{fmtNum(batch.replay_count)}
+                        </p>
+                      ) : null}
+                      {batch.recovered_by_staff_name || batch.recovered_by_staff_id ? (
+                        <p className="mt-1 text-[10px] text-app-text-muted">
+                          Recovered by {stagingStaffLabel(batch.recovered_by_staff_name, batch.recovered_by_staff_id)}
+                        </p>
+                      ) : null}
+                      {batch.recovery_reason ? (
+                        <p className="mt-1 text-[10px] text-app-text-muted">
+                          Recovery note: {batch.recovery_reason}
+                        </p>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {batches.length === 0 ? (
+              <div className="m-3 rounded-lg border border-app-border bg-app-bg/60 p-4 text-xs text-app-text-muted">
+                <p className="font-bold text-app-text">No staged batches need action.</p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-app-border p-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Payload & actions
+          </p>
+          {selectedBatch == null ? (
+            <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 p-4 text-xs text-app-text-muted">
+              <p className="font-bold text-app-text">Select a staged batch to review.</p>
+              <p className="mt-1">The action panel shows safe next steps, replay status, and recovery guidance.</p>
+            </div>
+          ) : (
+            <div className="mt-3 space-y-3 text-xs">
+              <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                <span className={`ui-pill text-[10px] ${stagingStatusTone(selectedBatch)}`}>
+                  {stagingStatusLabel(selectedBatch)}
+                </span>
+                {isStaleApplyingBatch(selectedBatch) ? (
+                  <p className="mt-2 font-semibold text-amber-800 dark:text-amber-100">
+                    Safe recovery is available because the apply claim is stale. It marks the batch failed only; it does not replay or reset the payload.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className={`rounded-lg border p-3 ${stagingNextAction(selectedBatch).tone}`}>
+                <p className="text-[10px] font-black uppercase tracking-widest">
+                  Next safe action: {stagingNextAction(selectedBatch).label}
+                </p>
+                <p className="mt-1">{stagingNextAction(selectedBatch).body}</p>
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-2">
+                <div className="rounded-lg border border-app-border bg-app-bg/50 p-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Apply claimed</p>
+                  <p className="mt-1 text-app-text-muted">
+                    {selectedBatch.apply_started_at
+                      ? `${formatDate(selectedBatch.apply_started_at)} by ${stagingStaffLabel(selectedBatch.apply_claimed_by_staff_name, selectedBatch.apply_claimed_by_staff_id)}`
+                      : "Not claimed"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-app-border bg-app-bg/50 p-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Live write result</p>
+                  <p className="mt-1 text-app-text-muted">{stagingLiveWriteSummary(selectedBatch)}</p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-app-border bg-app-bg/50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Operational decision guide
+                </p>
+                <div className="mt-2 grid gap-2 md:grid-cols-3">
+                  {[
+                    { label: "What changed", value: stagingLiveWriteSummary(selectedBatch) },
+                    { label: "Replay visibility", value: stagingReplaySummary(selectedBatch) },
+                    { label: "Recovery guidance", value: stagingRecoveryGuidance(selectedBatch) },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{item.label}</p>
+                      <p className="mt-1 text-app-text-muted">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-app-border bg-app-bg/50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Payload fingerprint:
+                </p>
+                <p className="mt-1 break-all font-mono text-[10px] text-app-text-muted">
+                  {selectedBatch.payload_fingerprint ?? "Not recorded"}
+                </p>
+              </div>
+
+              <pre className="max-h-44 overflow-auto rounded-lg border border-app-border bg-app-bg/70 p-3 text-[10px] text-app-text-muted">
+                {selectedPayload != null ? JSON.stringify(selectedPayload, null, 2) : "Payload loading or unavailable."}
+              </pre>
+
+              <button
+                type="button"
+                onClick={() => setConfirmRecoverStale(selectedBatch.id)}
+                disabled={!isStaleApplyingBatch(selectedBatch) || applyBusy}
+                className="ui-btn-secondary w-full px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-600 disabled:opacity-50"
+              >
+                Mark stale apply failed
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+
+  const supportDiagnosticsPanel = (
+    <section className="ui-card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Support diagnostics center
+          </h4>
+          <p className="mt-1 text-xs text-app-text-muted">
+            Single-screen support handoff for deployment health, recovery posture, replay visibility, and sign-off blockers.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`ui-pill text-[10px] ${supportDiagnosticsTone}`}>{supportDiagnosticsSeverity}</span>
+          <button
+            type="button"
+            onClick={() => {
+              const report = [
+                "Counterpoint Support Diagnostics",
+                `Generated: ${new Date().toLocaleString()}`,
+                `Bridge: ${bridgeControlsReachable ? "direct controls reachable" : "not reachable"}`,
+                `Server state: ${status?.windows_sync_state ?? "unknown"}`,
+                `Queue: ${fmtNum(visiblePendingN)} pending, ${fmtNum(visibleApplyingN)} applying, ${fmtNum(staleApplyingN)} stale applying`,
+                ...signoffBlockers,
+              ].join("\n");
+              void navigator.clipboard?.writeText(report).then(
+                () => toast("Counterpoint support diagnostics copied.", "success"),
+                () => toast("Could not copy diagnostics from this browser.", "error"),
+              );
+            }}
+            className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+          >
+            Copy support report
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Deployment visibility</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {[
+              { label: "Bridge reachability", value: bridgeControlsReachable ? "Direct controls reachable" : "Not reachable" },
+              { label: "Bridge host", value: status?.bridge_hostname ?? "Not reported" },
+              { label: "Landing mode", value: stagingOn ? "Staging queue" : "Direct import" },
+              { label: "Last bridge activity", value: formatDate(status?.last_seen_at ?? bridgeLive?.lastRun) },
+            ].map((row) => (
+              <div key={row.label} className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{row.label}</p>
+                <p className="mt-1 font-bold text-app-text">{row.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Recovery and replay posture</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {[
+              { label: "Queue posture", value: staleApplyingN > 0 ? "Stale apply review" : visiblePendingN > 0 ? "Pending apply" : "Queue clear" },
+              { label: "Replay posture", value: replaySuppressionN > 0 ? "Replay suppressions recorded" : "No duplicate replay" },
+              { label: "Recovery posture", value: recoveredBatchN > 0 ? "Recovered stale claims" : "No stale recovery recorded" },
+              { label: "Open issues", value: unresolvedIssueCount > 0 ? "Support review needed" : "No open sync issues" },
+            ].map((row) => (
+              <div key={row.label} className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{row.label}</p>
+                <p className="mt-1 font-bold text-app-text">{row.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-app-border bg-app-bg/60 p-3">
+        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          Counterpoint Support Diagnostics
+        </p>
+        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+          {signoffBlockers.length > 0 ? (
+            <>
+              <p className="font-bold text-red-600">Sign-off blockers present</p>
+              {signoffBlockers.map((blocker) => (
+                <p key={blocker} className="font-semibold text-app-text-muted">{blocker}</p>
+              ))}
+            </>
+          ) : (
+            <p className="font-bold text-emerald-600">No automatic blockers detected</p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-app-border bg-app-bg/60 p-3">
+        <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          Post-import verification
+        </h4>
+        <p className="mt-1 text-xs text-app-text-muted">
+          Counts below are deterministic proof from ROS tables and bridge-reported import facts.
+        </p>
+        <h4 className="mt-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          Sign-off reconciliation
+        </h4>
+        <div className="mt-3 overflow-auto">
+          <table className="w-full min-w-[760px] text-left text-xs">
+            <thead>
+              <tr className="border-b border-app-border text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                <th className="px-2 py-2">Entity</th>
+                <th className="px-2 py-2">Bridge rows sent</th>
+                <th className="px-2 py-2">ROS rows landed</th>
+                <th className="px-2 py-2">Missing ROS landed proof</th>
+                <th className="px-2 py-2">Match</th>
+                <th className="px-2 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-app-border">
+              {(landingVerification?.snapshot_reconciliation ?? []).map((row) => (
+                <tr key={row.key}>
+                  <td className="px-2 py-2 font-bold">{row.label}</td>
+                  <td className="px-2 py-2 tabular-nums">{fmtNum(row.source_count)}</td>
+                  <td className="px-2 py-2 tabular-nums">{fmtNum(row.landed_count)}</td>
+                  <td className="px-2 py-2">{row.source_count == null ? "Yes" : "No"}</td>
+                  <td className="px-2 py-2">{row.passed ? "Yes" : "No"}</td>
+                  <td className="px-2 py-2">
+                    {(row.count_difference ?? 0) < 0 ? "Lower" : row.source_count == null ? "Bridge-only" : row.status}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1">Counts match</span>
+          <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1">ROS count lower</span>
+          <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1">Bridge only</span>
+        </div>
+        <div className="mt-3 rounded-lg border border-app-border bg-app-surface-2/40 p-3 text-xs text-app-text-muted">
+          <p className="font-black uppercase tracking-widest text-app-text">Limits and caveats</p>
+          <p className="mt-1">
+            Imported Counterpoint ticket and open-doc rows preserve gross historical totals; imported line tax is non-authoritative and should not be treated as tax filing proof.
+          </p>
+        </div>
+        <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          Optional explanation of displayed checks only
+        </p>
+        <RosieInsightSummary
+          surface="counterpoint_status"
+          title="Counterpoint Sign-off"
+          mode="explain"
+          getHeaders={() => backofficeHeaders() as Record<string, string>}
+          facts={counterpointInsightFacts}
+        />
+      </div>
+    </section>
+  );
+
   if (!hasPermission("settings.admin")) return null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="counterpoint-settings-panel">
       {/* ── Title Banner ── */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-app-border pb-4">
         <div>
@@ -1303,7 +1926,39 @@ export default function CounterpointSyncSettingsPanel() {
             Work is safely isolated in the Staging Area. You only write data to live ROS databases when you click Apply in each step.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setWorkspaceView("pipeline")}
+            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
+              workspaceView === "pipeline" ? "ring-2 ring-app-accent/30" : ""
+            }`}
+          >
+            Guided Pipeline
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceView("inbound")}
+            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
+              workspaceView === "inbound" ? "ring-2 ring-app-accent/30" : ""
+            }`}
+          >
+            Inbound queue
+            {visiblePendingN > 0 ? (
+              <span className="rounded-full bg-amber-500/20 px-1.5 py-0 text-[10px] text-amber-800 dark:text-amber-100">
+                {visiblePendingN}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceView("details")}
+            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
+              workspaceView === "details" ? "ring-2 ring-app-accent/30" : ""
+            }`}
+          >
+            Support diagnostics
+          </button>
           <button
             type="button"
             onClick={() => void fetchAllData()}
@@ -1323,6 +1978,8 @@ export default function CounterpointSyncSettingsPanel() {
           </button>
         </div>
       </div>
+
+      {bridgeReachabilityPanel}
 
       {/* ── Progress Indicators ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1380,6 +2037,9 @@ export default function CounterpointSyncSettingsPanel() {
           </button>
         </div>
       </div>
+
+      {workspaceView === "inbound" ? inboundQueuePanel : null}
+      {workspaceView === "details" ? supportDiagnosticsPanel : null}
 
       {/* ── Main Stepper Rail ── */}
       <div className="flex flex-wrap gap-2 border-b border-app-border pb-4">
@@ -2722,6 +3382,17 @@ export default function CounterpointSyncSettingsPanel() {
         message="This closes and removes the staging records without importing them. You will need to rerun a sync from Step 1 if you want to restore it."
         confirmLabel="Discard Batch"
         variant="danger"
+      />
+
+      <ConfirmationModal
+        isOpen={confirmRecoverStale != null}
+        onClose={() => setConfirmRecoverStale(null)}
+        onConfirm={() => confirmRecoverStale != null && void recoverStaleBatch(confirmRecoverStale)}
+        title="Mark stale apply failed?"
+        message="This marks the stale apply claim as failed for support review. It does not replay the payload, does not reset the batch, and does not write new live data."
+        confirmLabel="Mark failed"
+        variant="danger"
+        loading={applyBusy}
       />
 
       <ConfirmationModal

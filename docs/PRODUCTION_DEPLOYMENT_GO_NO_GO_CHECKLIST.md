@@ -2,15 +2,16 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-### Current Deployment Status (2026-06-04)
+### Current Deployment Status (2026-06-05)
 
 - [x] Target source release version is **`v0.90.0`** across root, client, server, Tauri, standalone apps, ROS Dev Center, and Windows deployment metadata.
 - [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
-- [x] Source-side local review evidence is recorded in [`docs/reviews/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_04.md`](reviews/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_04.md).
+- [x] Source-side local review evidence is recorded in [`docs/reviews/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md`](reviews/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md).
 - [x] v0.90.0 release notes and certification evidence are recorded in [`docs/releases/v0.90.0-release-notes.md`](releases/v0.90.0-release-notes.md) and [`docs/releases/v0.90.0-certification.md`](releases/v0.90.0-certification.md).
 - [x] GitHub release **`v0.90.0`** is published as Latest.
 - [x] Release workflows published fresh v0.90.0 Windows updater, Windows deployment package, Counterpoint Bridge GUI, Server Manager, Deployment Manager, and macOS ROS Dev Center assets.
 - [x] Local Lint/Clippy/Cargo checks pass for the v0.90.0 release source tree.
+- [x] Financial, register, Counterpoint, Help/ROSIE, backup/restore, and reporting launch-critical local suites passed on 2026-06-05.
 - [ ] Production station deployment log is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA / optional Tauri clients.
 
 ## v0.90.0 Release Scope & Resiliency Hardening
@@ -102,9 +103,9 @@ v0.90.0 preserves the v0.85.x GO LIVE readiness baseline and adds the source-sid
 - [ ] Manual backup lands in the configured `RIVERSIDE_BACKUP_DIR`.
 - [ ] Cloud sync succeeds when enabled.
 - [x] Local restore drill succeeds into a non-production database.
-  - Evidence: `docs/reviews/evidence/restore_drill_local_2026-04-25.txt`.
-  - Source backup: `server/backups/backup_20260425_020000.dump`.
-  - Target database: `riverside_restore_drill_20260425`.
+  - Evidence: `docs/reviews/evidence/restore_drill_local_2026-06-05.txt`.
+  - Source database: `riverside_os_e2e`.
+  - Target database: `riverside_restore_drill_20260605_115624`.
 - [x] Restored database boots API.
   - Evidence: temporary API on `127.0.0.1:43310` returned `GET /api/staff/list-for-pos` JSON array length 61.
   - Client/hardware restore rehearsal on the Hybrid Tauri host remains required before go-live.

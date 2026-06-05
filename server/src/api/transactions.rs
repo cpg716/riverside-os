@@ -2643,9 +2643,36 @@ async fn post_transaction_void(
         .await
         .map_err(TransactionError::Database)?;
 
-    let refundable_amount = Decimal::ZERO;
-    let refund_queue_id: Option<Uuid> = None;
-    let reversal_status = "no_refund_due";
+    let open_refund_queue: Option<RefundQueueRow> = sqlx::query_as(
+	        r#"
+	        SELECT id, transaction_id, customer_id, amount_due, amount_refunded, is_open, reason, created_at
+	        FROM transaction_refund_queue
+	        WHERE transaction_id = $1 AND is_open = TRUE
+	        ORDER BY created_at DESC
+	        LIMIT 1
+	        FOR UPDATE
+	        "#,
+	    )
+	    .bind(transaction_id)
+	    .fetch_optional(&mut *tx)
+	    .await?;
+    let refund_queue_id = open_refund_queue.as_ref().map(|queue| queue.id);
+    let refundable_amount = open_refund_queue
+        .as_ref()
+        .map(|queue| {
+            let remaining = queue.amount_due - queue.amount_refunded;
+            if remaining > Decimal::ZERO {
+                remaining
+            } else {
+                Decimal::ZERO
+            }
+        })
+        .unwrap_or(Decimal::ZERO);
+    let reversal_status = if refundable_amount > Decimal::ZERO {
+        "pending_refund"
+    } else {
+        "no_refund_due"
+    };
 
     let void_record_id: Uuid = sqlx::query_scalar(
         r#"
@@ -2803,8 +2830,8 @@ async fn process_refund(
     };
     let (current_paid, current_balance_due): (Decimal, Decimal) = sqlx::query_as(
         r#"
-        SELECT
-            COALESCE(amount_paid, 0)::numeric(14,2),
+	        SELECT
+	            COALESCE(amount_paid, 0)::numeric(14,2),
             COALESCE(balance_due, 0)::numeric(14,2)
         FROM transactions
         WHERE id = $1
@@ -2814,36 +2841,67 @@ async fn process_refund(
     .bind(transaction_id)
     .fetch_one(&mut *tx)
     .await?;
-    let refundable_credit = if current_balance_due < Decimal::ZERO {
-        -current_balance_due
+    let void_original_paid: Option<Decimal> = sqlx::query_scalar(
+        r#"
+	        SELECT original_amount_paid::numeric(14,2)
+	        FROM transaction_void_records
+	        WHERE transaction_id = $1
+	        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let queue_remaining = if refund.amount_due > refund.amount_refunded {
+        refund.amount_due - refund.amount_refunded
     } else {
         Decimal::ZERO
     };
-    let remaining = if refundable_credit < current_paid {
-        refundable_credit
-    } else {
-        current_paid
-    };
-    let corrected_amount_due = refund.amount_refunded + remaining;
-    if corrected_amount_due != refund.amount_due {
-        sqlx::query(
-            r#"
-            UPDATE transaction_refund_queue
-            SET amount_due = $1
-            WHERE id = $2
-            "#,
-        )
-        .bind(corrected_amount_due)
-        .bind(refund.id)
-        .execute(&mut *tx)
-        .await?;
-    }
+    let (remaining, corrected_amount_due, paid_capacity) =
+        if let Some(original_paid) = void_original_paid {
+            let paid_remaining = if original_paid > refund.amount_refunded {
+                original_paid - refund.amount_refunded
+            } else {
+                Decimal::ZERO
+            };
+            let remaining = if queue_remaining < paid_remaining {
+                queue_remaining
+            } else {
+                paid_remaining
+            };
+            (remaining, refund.amount_due, original_paid)
+        } else {
+            let refundable_credit = if current_balance_due < Decimal::ZERO {
+                -current_balance_due
+            } else {
+                Decimal::ZERO
+            };
+            let remaining = if refundable_credit < current_paid {
+                refundable_credit
+            } else {
+                current_paid
+            };
+            let corrected_amount_due = refund.amount_refunded + remaining;
+            if corrected_amount_due != refund.amount_due {
+                sqlx::query(
+                    r#"
+	                    UPDATE transaction_refund_queue
+	                    SET amount_due = $1
+	                    WHERE id = $2
+	                    "#,
+                )
+                .bind(corrected_amount_due)
+                .bind(refund.id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            (remaining, corrected_amount_due, current_paid)
+        };
     if exact_refund_amount > remaining {
         return Err(TransactionError::InvalidPayload(format!(
             "refund exceeds refundable paid credit of ${remaining}"
         )));
     }
-    if exact_refund_amount > current_paid {
+    if exact_refund_amount > paid_capacity {
         return Err(TransactionError::InvalidPayload(
             "refund amount exceeds total amount paid on this order".to_string(),
         ));
@@ -3101,18 +3159,19 @@ async fn process_refund(
 
                 // Update the transaction amount paid.
                 sqlx::query(
-                    r#"
-                    UPDATE transactions
-                    SET amount_paid = amount_paid - $1,
-                        rounding_adjustment = COALESCE(rounding_adjustment, 0) + $2
-                    WHERE id = $3
-                    "#,
-                )
-                .bind(cash_tender_amount)
-                .bind(cash_rounding_adjustment)
-                .bind(transaction_id)
-                .execute(&mut *tx)
-                .await?;
+	                    r#"
+	                    UPDATE transactions
+	                    SET amount_paid = CASE WHEN $4 THEN amount_paid ELSE amount_paid - $1 END,
+	                        rounding_adjustment = CASE WHEN $4 THEN rounding_adjustment ELSE COALESCE(rounding_adjustment, 0) + $2 END
+	                    WHERE id = $3
+	                    "#,
+	                )
+	                .bind(cash_tender_amount)
+	                .bind(cash_rounding_adjustment)
+	                .bind(transaction_id)
+	                .bind(void_original_paid.is_some())
+	                .execute(&mut *tx)
+	                .await?;
 
                 // If fully refunded, close the queue.
                 if (refund.amount_refunded + exact_refund_amount) >= corrected_amount_due {
@@ -3459,18 +3518,19 @@ async fn process_refund(
     .await?;
 
     sqlx::query(
-        r#"
-        UPDATE transactions
-        SET amount_paid = amount_paid - $1,
-            rounding_adjustment = COALESCE(rounding_adjustment, 0) + $2
-        WHERE id = $3
-        "#,
-    )
-    .bind(cash_tender_amount)
-    .bind(cash_rounding_adjustment)
-    .bind(transaction_id)
-    .execute(&mut *tx)
-    .await?;
+	        r#"
+	        UPDATE transactions
+	        SET amount_paid = CASE WHEN $4 THEN amount_paid ELSE amount_paid - $1 END,
+	            rounding_adjustment = CASE WHEN $4 THEN rounding_adjustment ELSE COALESCE(rounding_adjustment, 0) + $2 END
+	        WHERE id = $3
+	        "#,
+	    )
+	    .bind(cash_tender_amount)
+	    .bind(cash_rounding_adjustment)
+	    .bind(transaction_id)
+	    .bind(void_original_paid.is_some())
+	    .execute(&mut *tx)
+	    .await?;
 
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await

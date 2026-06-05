@@ -5180,8 +5180,9 @@ async fn load_helcim_batch_rows(
         .map(parse_batch_identifier)
         .or_else(|| query.batch_id.as_deref().map(parse_batch_identifier))
         .unwrap_or((None, None));
+    let search = clean_filter(query.search.as_deref()).map(|value| format!("%{value}%"));
     let rows = sqlx::query(
-        r#"
+	        r#"
         SELECT
             batch.id,
             batch.provider_batch_id,
@@ -5216,19 +5217,21 @@ async fn load_helcim_batch_rows(
         WHERE batch.provider = 'helcim'
           AND ($1::uuid IS NULL OR batch.id = $1)
           AND ($2::text IS NULL OR batch.provider_batch_id = $2)
-          AND ($3::text IS NULL OR batch.status = $3)
-          AND ($4::date IS NULL OR (COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AT TIME ZONE 'America/New_York')::date >= $4)
-          AND ($5::date IS NULL OR (COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AT TIME ZONE 'America/New_York')::date <= $5)
-        ORDER BY COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) DESC
-        LIMIT $6
-        "#,
-    )
-    .bind(batch_uuid)
-    .bind(provider_batch_id.as_deref())
-    .bind(clean_filter(query.status.as_deref()))
-    .bind(query.date_from)
-    .bind(query.date_to)
-    .bind(clamp_limit(query.limit, 100, 500))
+	          AND ($3::text IS NULL OR batch.status = $3)
+	          AND ($4::date IS NULL OR (COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AT TIME ZONE 'America/New_York')::date >= $4)
+	          AND ($5::date IS NULL OR (COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) AT TIME ZONE 'America/New_York')::date <= $5)
+	          AND ($6::text IS NULL OR batch.id::text ILIKE $6 OR batch.provider_batch_id ILIKE $6 OR batch.raw_payload::text ILIKE $6)
+	        ORDER BY COALESCE(batch.expected_deposit_at, batch.settled_at, batch.closed_at, batch.last_synced_at) DESC
+	        LIMIT $7
+	        "#,
+	    )
+	    .bind(batch_uuid)
+	    .bind(provider_batch_id.as_deref())
+	    .bind(clean_filter(query.status.as_deref()))
+	    .bind(query.date_from)
+	    .bind(query.date_to)
+	    .bind(search.as_deref())
+	    .bind(clamp_limit(query.limit, 100, 500))
     .fetch_all(&state.db)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?

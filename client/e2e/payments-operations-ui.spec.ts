@@ -18,10 +18,14 @@ function requireOrSkip(condition: boolean, message: string): void {
 }
 
 function databaseUrl(): string {
+  const dbName =
+    process.env.RIVERSIDE_DB_NAME?.trim() ||
+    process.env.E2E_DB_NAME?.trim() ||
+    "riverside_os_e2e";
   return (
     process.env.E2E_DATABASE_URL?.trim() ||
     process.env.DATABASE_URL?.trim() ||
-    `postgres://postgres:postgres@127.0.0.1:5432/${process.env.RIVERSIDE_DB_NAME?.trim() || "riverside_os"}`
+    `postgres://postgres:password@127.0.0.1:5433/${dbName}`
   );
 }
 

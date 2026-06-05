@@ -662,10 +662,10 @@ export default function RosieSettingsPanel() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Intelligence Pack
+                Governed Intelligence Pack
               </h3>
               <p className="mt-1 text-xs text-app-text-muted">
-                Approved knowledge sources for ROSIE
+                Approved knowledge sources and governance rules for ROSIE
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">

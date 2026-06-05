@@ -1,0 +1,10 @@
+Riverside OS local restore drill evidence
+Date: 2026-06-05
+Source database: riverside_os_e2e
+Target database: riverside_restore_drill_20260605_115624
+Backup method: docker exec riverside-os-db pg_dump -U postgres -d riverside_os_e2e -F c
+Restore method: docker exec riverside-os-db pg_restore -U postgres -d riverside_restore_drill_20260605_115624 --no-owner --no-privileges
+Source counts: products=1396, variants=1394, transactions=2223, customers=1385
+Restored counts: products=1396, variants=1394, transactions=2223, customers=1385
+Result: PASS - restored database matched source table counts for products, variants, transactions, and customers.
+Temporary database riverside_restore_drill_20260605_115624 was dropped after the drill.

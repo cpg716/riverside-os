@@ -292,7 +292,10 @@ export default function RegisterGiftCardLoadModal({
                     key={k}
                     type="button"
                     disabled={busy}
-                    onClick={() => appendAmountKey(k)}
+                    onClick={() => {
+                      lastFocusedRef.current = "amount";
+                      appendAmountKey(k);
+                    }}
                     className="flex h-12 items-center justify-center rounded-xl border border-app-border/60 bg-app-surface-2 text-lg font-black text-app-text transition-colors hover:bg-app-surface sm:h-[3.25rem] sm:text-xl"
                   >
                     {k === "del" ? "DEL" : k}
