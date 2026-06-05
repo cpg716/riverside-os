@@ -78,14 +78,12 @@ fn spawn_meilisearch_wedding_party(state: &AppState, party_id: Uuid) {
 }
 
 fn spawn_meilisearch_appointment_upsert(state: &AppState, appt_id: Uuid) {
-    let state = state.clone();
+    let Some(client) = state.meilisearch.clone() else {
+        return;
+    };
+    let pool = state.db.clone();
     crate::logic::meilisearch_sync::spawn_meili(async move {
-        if let Some(client) = crate::logic::meilisearch_client::meilisearch_from_env() {
-            crate::logic::meilisearch_sync::upsert_appointment_document(
-                &client, &state.db, appt_id,
-            )
-            .await;
-        }
+        crate::logic::meilisearch_sync::upsert_appointment_document(&client, &pool, appt_id).await;
     });
 }
 

@@ -32,6 +32,7 @@ import {
   reportSearchScore,
   reportVisible,
   type ReportCategory,
+  type ReportChartConfig,
   type ReportDef,
   type ReportUrlContext,
 } from "../../lib/reportsCatalog";
@@ -175,7 +176,107 @@ function rowsFromUnknown(data: unknown): Record<string, unknown>[] {
   if (Array.isArray(data)) return data as Record<string, unknown>[];
   const o = data as Record<string, unknown>;
   if (Array.isArray(o.rows)) return o.rows as Record<string, unknown>[];
+  if (Array.isArray(o.transactions)) return o.transactions as Record<string, unknown>[];
   return [];
+}
+
+function numberFromUnknown(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatChartMetric(value: number, format: ReportChartConfig["valueFormat"]): string {
+  if (format === "money") {
+    return value.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  }
+  if (format === "points") {
+    return `${value.toLocaleString()} pts`;
+  }
+  return value.toLocaleString();
+}
+
+function ReportMiniChart({
+  config,
+  rows,
+}: {
+  config: ReportChartConfig;
+  rows: Record<string, unknown>[];
+}) {
+  const data = rows
+    .map((row) => ({
+      label: formatCellValue(row[config.labelKey], config.labelKey) || "Unspecified",
+      value: numberFromUnknown(row[config.valueKey]),
+      secondaryValue: config.secondaryValueKey
+        ? numberFromUnknown(row[config.secondaryValueKey])
+        : null,
+    }))
+    .filter(
+      (item): item is { label: string; value: number; secondaryValue: number | null } =>
+        item.value !== null,
+    )
+    .slice(0, config.limit ?? 8);
+
+  if (data.length === 0) return null;
+
+  const max = Math.max(
+    1,
+    ...data.flatMap((item) => [
+      Math.abs(item.value),
+      item.secondaryValue === null ? 0 : Math.abs(item.secondaryValue),
+    ]),
+  );
+
+  return (
+    <section className="rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="text-xs font-black uppercase tracking-[0.2em] text-app-text">
+          {config.title}
+        </h3>
+        <span className="text-[11px] font-bold text-app-text-muted">Top {data.length}</span>
+      </div>
+      <div className="space-y-3">
+        {data.map((item, index) => {
+          const width = `${Math.max(4, (Math.abs(item.value) / max) * 100)}%`;
+          const secondaryWidth =
+            item.secondaryValue === null
+              ? null
+              : `${Math.max(4, (Math.abs(item.secondaryValue) / max) * 100)}%`;
+          return (
+            <div key={`${item.label}-${index}`} className="space-y-1">
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <span className="min-w-0 truncate font-bold text-app-text-muted">
+                  {item.label}
+                </span>
+                <span className="shrink-0 font-black text-app-text">
+                  {formatChartMetric(item.value, config.valueFormat)}
+                </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-app-surface-2">
+                <div
+                  className={`h-full rounded-full ${
+                    item.value < 0 ? "bg-app-danger/70" : "bg-app-accent/75"
+                  }`}
+                  style={{ width }}
+                />
+              </div>
+              {secondaryWidth ? (
+                <div className="h-1 overflow-hidden rounded-full bg-app-surface-2/70">
+                  <div
+                    className="h-full rounded-full bg-app-warning/75"
+                    style={{ width: secondaryWidth }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function keysFromRows(rows: Record<string, unknown>[]): string[] {
@@ -209,8 +310,11 @@ const FIELD_LABELS: Record<string, string> = {
   from: "From",
   from_local: "From",
   gross: "Gross",
+  gross_amount: "Gross Amount",
   gross_margin: "Gross Margin",
   gross_sales: "Gross Sales",
+  label_cost: "Label Cost",
+  label_count: "Labels",
   last_transaction_at: "Last Transaction",
   item_name: "Item",
   is_historical: "Historical Window",
@@ -221,7 +325,9 @@ const FIELD_LABELS: Record<string, string> = {
   merchant_fees_total: "Merchant Fees",
   missing_measurements_count: "Missing Measurements",
   net: "Net",
+  net_amount: "Net Amount",
   net_sales: "Net Sales",
+  net_velocity: "Net Points",
   new_wedding_parties_count: "New Wedding Parties",
   no_show_count: "No-Shows",
   open_balance: "Open Balance",
@@ -229,14 +335,17 @@ const FIELD_LABELS: Record<string, string> = {
   order_count: "Transactions",
   order_short_ref: "Transaction #",
   owner_area: "Owner Area",
+  payment_count: "Payments",
   payment_method: "Payment Method",
   payment_provider: "Processor",
+  provider_status: "Provider Status",
   pending_alteration_count: "Pending Alterations",
   pending_pickup_count: "Pending Pickups",
   payments_total: "Payments",
   points_burned: "Points Used",
   points_earned: "Points Earned",
   product_name: "Product",
+  quoted_amount: "Quoted Amount",
   quantity: "Quantity",
   reason: "Reason",
   record_kind: "Record Type",
@@ -261,6 +370,9 @@ const FIELD_LABELS: Record<string, string> = {
   staff_name: "Staff",
   scheduled_staff_count: "Scheduled Staff",
   shipment_or_pickup_risk_count: "Shipment/Pickup Risk",
+  shipment_count: "Shipments",
+  shipping_charged: "Shipping Charged",
+  shipping_margin: "Shipping Margin",
   stale_rms_charge_count: "Stale RMS Charges",
   tax_collected: "Tax Collected",
   taxable_sales: "Taxable Sales",
@@ -1101,6 +1213,23 @@ export default function ReportsWorkspace({
                     </div>
                   ) : null}
                 </div>
+              ) : null}
+
+              {tableRows.length > 0 ? (
+                selectedAvailable.chartConfigs?.length ? (
+                  <div
+                    data-testid="reports-detail-charts"
+                    className="grid gap-3 lg:grid-cols-2"
+                  >
+                    {selectedAvailable.chartConfigs.map((config) => (
+                      <ReportMiniChart
+                        key={`${selectedAvailable.id}-${config.title}`}
+                        config={config}
+                        rows={tableRows}
+                      />
+                    ))}
+                  </div>
+                ) : null
               ) : null}
 
               {tableRows.length > 0 ? (

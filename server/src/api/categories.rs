@@ -316,16 +316,12 @@ fn normalize_axis_key(s: Option<&str>) -> Option<String> {
 }
 
 fn spawn_meilisearch_category_upsert(state: &AppState, category_id: Uuid) {
-    let state = state.clone();
+    let Some(client) = state.meilisearch.clone() else {
+        return;
+    };
+    let pool = state.db.clone();
     crate::logic::meilisearch_sync::spawn_meili(async move {
-        if let Some(client) = crate::logic::meilisearch_client::meilisearch_from_env() {
-            crate::logic::meilisearch_sync::upsert_category_document(
-                &client,
-                &state.db,
-                category_id,
-            )
-            .await;
-        }
+        crate::logic::meilisearch_sync::upsert_category_document(&client, &pool, category_id).await;
     });
 }
 

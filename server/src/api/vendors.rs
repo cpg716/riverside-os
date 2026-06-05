@@ -200,12 +200,12 @@ async fn list_vendors(
 }
 
 fn spawn_meilisearch_vendor_upsert(state: &AppState, vendor_id: Uuid) {
-    let state = state.clone();
+    let Some(client) = state.meilisearch.clone() else {
+        return;
+    };
+    let pool = state.db.clone();
     crate::logic::meilisearch_sync::spawn_meili(async move {
-        if let Some(client) = crate::logic::meilisearch_client::meilisearch_from_env() {
-            crate::logic::meilisearch_sync::upsert_vendor_document(&client, &state.db, vendor_id)
-                .await;
-        }
+        crate::logic::meilisearch_sync::upsert_vendor_document(&client, &pool, vendor_id).await;
     });
 }
 

@@ -120,11 +120,12 @@ async fn resolve_task_actor_staff_id(
 }
 
 fn spawn_meilisearch_task_upsert(state: &AppState, task_id: Uuid) {
-    let state = state.clone();
+    let Some(client) = state.meilisearch.clone() else {
+        return;
+    };
+    let pool = state.db.clone();
     crate::logic::meilisearch_sync::spawn_meili(async move {
-        if let Some(client) = crate::logic::meilisearch_client::meilisearch_from_env() {
-            crate::logic::meilisearch_sync::upsert_task_document(&client, &state.db, task_id).await;
-        }
+        crate::logic::meilisearch_sync::upsert_task_document(&client, &pool, task_id).await;
     });
 }
 

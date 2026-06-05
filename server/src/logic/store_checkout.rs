@@ -156,14 +156,6 @@ pub struct PaymentStartResponse {
     pub message: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct HelcimPayInitializeResponse {
-    #[serde(rename = "checkoutToken")]
-    checkout_token: String,
-    #[serde(rename = "secretToken")]
-    secret_token: String,
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct PaymentConfirmResponse {
     pub checkout_session_id: Uuid,
@@ -650,41 +642,24 @@ pub async fn create_payment(
     }
 
     let config = helcim::HelcimConfig::from_env();
-    let token = config.api_token().ok_or_else(|| {
-        StoreCheckoutError::Provider("Helcim API token is not configured.".to_string())
-    })?;
-    let url = format!("{}/helcim-pay/initialize", config.api_base_url());
-    let response = state
-        .http_client
-        .post(&url)
-        .header(reqwest::header::ACCEPT, "application/json")
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .header("api-token", token)
-        .json(&json!({
-            "paymentType": "purchase",
-            "amount": decimal_str(row.total_usd),
-            "currency": "USD",
-            "paymentMethod": "cc",
-            "confirmationScreen": false,
-            "displayContactFields": 1,
-        }))
-        .send()
-        .await
-        .map_err(|err| StoreCheckoutError::Provider(err.to_string()))?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let message = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "HelcimPay.js initialization failed".to_string());
-        return Err(StoreCheckoutError::Provider(format!(
-            "HelcimPay.js returned HTTP {status}: {message}"
-        )));
-    }
-    let init = response
-        .json::<HelcimPayInitializeResponse>()
-        .await
-        .map_err(|err| StoreCheckoutError::Provider(err.to_string()))?;
+    let init = helcim::initialize_helcim_pay(
+        &state.http_client,
+        &config,
+        helcim::HelcimPayInitializeRequest {
+            payment_type: "purchase".to_string(),
+            amount: decimal_str(row.total_usd),
+            currency: "USD".to_string(),
+            payment_method: "cc".to_string(),
+            customer_code: None,
+            invoice_number: None,
+            hide_existing_payment_details: None,
+            set_as_default_payment_method: None,
+            confirmation_screen: false,
+            display_contact_fields: Some(1),
+        },
+    )
+    .await
+    .map_err(StoreCheckoutError::Provider)?;
     let amount_cents = money_to_cents(row.total_usd)?;
     sqlx::query(
         r#"

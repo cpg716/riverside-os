@@ -90,6 +90,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | `margin_pivot` | `GET /api/insights/margin-pivot` | **Admin role** only |
 | `best_sellers` | `GET /api/insights/best-sellers` | **`insights.view`** |
 | `dead_stock` | `GET /api/insights/dead-stock` | **`insights.view`** |
+| `negative_stock` | `GET /api/insights/negative-stock` | **`insights.view`** |
 | `wedding_health` | `GET /api/insights/wedding-health` | **`insights.view`** |
 | `commission_ledger` | `GET /api/insights/commission-ledger` | **`insights.view`** (read snapshot; finalize elsewhere) |
 | `nys_tax_audit` | `GET /api/insights/nys-tax-audit` | **`insights.view`** |
@@ -101,11 +102,15 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | `register_override_mix` | `GET /api/insights/register-override-mix` | **`insights.view`** |
 | `register_day_activity` | `GET /api/insights/register-day-activity` | **`register.reports`** (store-wide) |
 | `wedding_saved_views` | `GET /api/insights/wedding-saved-views` (plus **`POST`** create / **`DELETE …/{id}`** in UI) | **`insights.view`** |
+| `payment_exception_review` | `GET /api/insights/payment-exception-review` | **`insights.view`** |
 | `appointments_no_show` | `GET /api/insights/appointments-no-show` | **`insights.view`** |
 | `wedding_event_readiness` | `GET /api/insights/wedding-event-readiness` | **`insights.view`** |
 | `staff_schedule_coverage_sales` | `GET /api/insights/staff-schedule-coverage-sales` | **`insights.view`** |
 | `customer_follow_up` | `GET /api/insights/customer-follow-up` | **`insights.view`** |
+| `customer_value_frequency` | `GET /api/insights/customer-value-frequency` | **`insights.view`** |
 | `exception_risk` | `GET /api/insights/exception-risk` | **`insights.view`** |
+| `loyalty_velocity` | `GET /api/insights/loyalty-velocity` | **`insights.view`** |
+| `shipping_fulfillment_status` | `GET /api/insights/shipping-fulfillment-status` | **`insights.view`** |
 
 ### `/api/help/*` (Help Center — procedures, not sales pivots)
 
@@ -145,17 +150,21 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | DELETE | `/api/insights/wedding-saved-views/{id}` | **`insights.view`** — delete saved view. |
 | GET | `/api/insights/best-sellers` | **`insights.view`**. Query: **`from`**, **`to`**, **`basis`** (booked vs fulfilled — same as sales pivot), **`limit`** (default 100, max 500). Response: **`rows`** with **`variant_id`**, **`units_sold`**, **`net_sales`** (pre-tax line revenue `unit_price * quantity`), **`avg_unit_price`**, etc. |
 | GET | `/api/insights/dead-stock` | **`insights.view`**. Same date/`basis` params + **`limit`**; optional **`max_units_sold`** (default **0** — on-hand SKUs with at most that many units sold in the window). Response: **`rows`** with on-hand, reserved, **`units_sold_in_period`**, **`retail_value_on_hand`** (list at variant retail). |
-| GET | `/api/insights/loyalty-velocity` | **`insights.view`**. Loyalty point movement and velocity summary for rewards/marketing analysis. Existing Metabase views cover loyalty snapshots and point ledger; add a Reports tile only if the store wants this as a curated card. |
+| GET | `/api/insights/negative-stock` | **`insights.view`**. Curated Reports tile for products with negative stock, vendor/category context, available stock, estimated value exposure, last sold, and last received timestamps. |
+| GET | `/api/insights/loyalty-velocity` | **`insights.view`**. Curated Reports tile for daily loyalty point movement: earned, used, and net velocity. Metabase can slice the same area through **`reporting.loyalty_daily_velocity`**. |
 | GET | `/api/insights/merchant-activity` | **`insights.view`**. Merchant/payment activity by business date, including gross volume, fees, refunds, and net amount where available. Align Metabase dashboards with **`reporting.payment_ledger`** and **`reporting.merchant_reconciliation`**. |
+| GET | `/api/insights/payment-exception-review` | **`insights.view`**. Curated Reports tile for declined, failed, voided, cancelled, or error-status payments grouped by business date, method, provider, and provider status. Backed by readable **`reporting.payment_ledger`**. |
 | GET | `/api/insights/appointments-no-show` | **`insights.view`**. Curated Reports tile for appointment count, completed appointments, cancellations/no-shows, appointment type, assigned salesperson, and wedding-linked vs walk-in context. |
 | GET | `/api/insights/wedding-event-readiness` | **`insights.view`**. Curated Reports tile for upcoming weddings grouped by event date with measurement, balance, fulfillment, alteration, shipment, and pickup-risk signals. |
 | GET | `/api/insights/staff-schedule-coverage-sales` | **`insights.view`**. Curated Reports tile comparing staffing coverage by day against sales volume, appointments, pickups, and register activity. |
 | GET | `/api/insights/customer-follow-up` | **`insights.view`**. Curated Reports tile for customers needing follow-up: balances, pending pickups, recent quotes/orders, wedding dates, stale RMS charges, or missing recent contact. |
+| GET | `/api/insights/customer-value-frequency` | **`insights.view`**. Curated Reports tile for top customers by sales value, visit count, paid amount, balance due, first purchase, recent purchase, and sale channel. Backed by readable **`reporting.transactions_core`**. |
 | GET | `/api/insights/exception-risk` | **`insights.view`**. Curated Reports tile for operational exceptions: negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open register sessions, and unclosed tasks. |
+| GET | `/api/insights/shipping-fulfillment-status` | **`insights.view`**. Curated Reports tile for shipments by date/source/status, labels purchased, quote totals, label cost, shipping charged, and shipping margin. Backed by readable **`reporting.shipments_active`**. |
 
-**Audit gaps — Reports vs Metabase access:** The five operational Reports endpoints above (`appointments-no-show`, `wedding-event-readiness`, `staff-schedule-coverage-sales`, `customer-follow-up`, `exception-risk`) are **API-backed now** for Back Office → Reports and NL allowlisting. They should not be promised as fully sliceable Metabase datasets until equivalent **`reporting.*`** views are added and modeled. Recommended future view names: **`reporting.appointments_no_show`**, **`reporting.wedding_event_readiness`**, **`reporting.staff_schedule_coverage_vs_sales`**, **`reporting.customer_follow_up`**, and **`reporting.exception_risk`**. **`register-day-activity`** is also API-shaped JSON; create a tabular **`reporting.register_day_activity`** view before building broad Metabase dashboards from it.
+**Audit gaps — Reports vs Metabase access:** The operational Reports endpoints above (`appointments-no-show`, `wedding-event-readiness`, `staff-schedule-coverage-sales`, `customer-follow-up`, `exception-risk`) are **API-backed now** for Back Office → Reports and NL allowlisting. They should not be promised as fully sliceable Metabase datasets until equivalent **`reporting.*`** views are added and modeled. Recommended future view names: **`reporting.appointments_no_show`**, **`reporting.wedding_event_readiness`**, **`reporting.staff_schedule_coverage_vs_sales`**, **`reporting.customer_follow_up`**, and **`reporting.exception_risk`**. **`register-day-activity`** is also API-shaped JSON; create a tabular **`reporting.register_day_activity`** view before building broad Metabase dashboards from it. The new **payment exception**, **customer value**, **loyalty**, and **shipping** tiles already read from staff-readable reporting views where practical.
 
-**Existing Insights API not surfaced as Reports tiles:** **`loyalty-velocity`** is the main read-only candidate for a future curated Reports tile. **`commission-lines`** and **`commission-trace/{line_id}`** intentionally belong under **Staff → Commissions** drilldown. **`metabase-launch`**, **`commission-adjustments`**, and saved-view create/delete routes are shell or write actions, not passive reports.
+**Existing Insights API not surfaced as Reports tiles:** **`commission-lines`** and **`commission-trace/{line_id}`** intentionally belong under **Staff → Commissions** drilldown. **`metabase-launch`**, **`commission-adjustments`**, and saved-view create/delete routes are shell or write actions, not passive reports.
 
 ### `/api/transactions/*`
 

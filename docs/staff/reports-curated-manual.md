@@ -36,6 +36,7 @@ Use **Insights** (Metabase) when you need to **explore**, save ad-hoc questions,
    - **Completed (recognition)** — when qualifying fulfillment events happened (pickup / ship per your store rules). Same ideas as Metabase reporting; see **[REPORTING_BOOKED_AND_RECOGNITION.md](../REPORTING_BOOKED_AND_RECOGNITION.md)** if you need detail.
 7. For **Sales Breakdown** and **Margin & Cost Breakdown** (Admin only), use **Group by** to change the breakdown (brand, category, salesperson, customer, or day).
 8. Use **Refresh** if you change filters. Use **CSV** (when shown) to download the current table.
+9. Many reports now include compact **chart cards** above the table so you can see top values, trends, and exception counts before reading row detail.
 
 ## Search labels on report cards
 
@@ -67,6 +68,7 @@ Tiles **only appear** if you have **every** required permission for that tile (a
 | **Margin & Cost Breakdown** | Gross margin and cost-loaded metrics (sensitive) | **insights.view** + **Admin** role |
 | **Best Sellers** | Top products by units in range | **insights.view** |
 | **Slow Stock** | On-hand products with little or no sales in range | **insights.view** |
+| **Negative Stock Watchlist** | Products below zero with available-stock and value exposure charts | **insights.view** |
 | **Wedding Pipeline** | Upcoming events, members without orders, balances | **insights.view** |
 | **Commission Snapshot** | Read-only commission snapshot for a date window (not finalize) | **insights.view** |
 | **New York Tax Audit** | Clothing / footwear vs standard taxable buckets | **insights.view** |
@@ -78,11 +80,15 @@ Tiles **only appear** if you have **every** required permission for that tile (a
 | **Register Day Summary** | Store-wide register day summary | **register.reports** |
 | **Saved Wedding Report Views** | Your saved filter bundles | **insights.view** |
 | **Card Processing Summary** | Daily card volume, fees, and net settlement values | **insights.view** |
+| **Payment Exception Review** | Failed, declined, voided, cancelled, or error-status payment activity by date, method, provider, and status | **insights.view** |
 | **Appointments & No-Show Report** | Appointment count, completed visits, cancellations/no-shows, type, salesperson, and wedding-linked vs walk-in | **insights.view** |
 | **Wedding Event Readiness Report** | Upcoming weddings with missing measurements, unpaid balances, unfulfilled items, pending alterations, and pickup/shipment risk | **insights.view** |
 | **Staff Schedule Coverage vs Sales Report** | Staffing coverage by day compared with sales volume, appointments, pickups, and register activity | **insights.view** |
 | **Customer Follow-Up Report** | Customers with balances, pending pickups, recent transactions, upcoming wedding dates, stale RMS charges, or contact gaps | **insights.view** |
+| **Customer Value & Visit Frequency** | Top customers by sales value, visits, paid amount, balance due, first purchase, and recent purchase | **insights.view** |
 | **Exception & Risk Report** | Negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open register sessions, and unclosed tasks | **insights.view** |
+| **Loyalty Points Velocity** | Daily points earned, used, and net point movement | **insights.view** |
+| **Shipping Fulfillment Status** | Shipments by source/status with labels, quote totals, label cost, and shipping margin | **insights.view** |
 
 Exact titles in the app may vary slightly as the catalog is updated; trust the **card description** on screen.
 
@@ -97,7 +103,7 @@ Exact titles in the app may vary slightly as the catalog is updated; trust the *
 | Search returns nothing | Try a task word like **pickup**, **balance**, **tax**, or **slow stock** | Manager if the report should exist |
 | Empty or truncated table | Widen dates; **Basis** may exclude rows you expect | Manager / **[REPORTING_BOOKED_AND_RECOGNITION.md](../REPORTING_BOOKED_AND_RECOGNITION.md)** |
 | Error after open | Note the message; retry **Refresh** | IT if it persists |
-| Need a chart or custom cut | Use **Open Insights (Metabase)** | Metabase training |
+| Need a custom cut beyond the built-in charts | Use **Open Insights (Metabase)** | Metabase training |
 
 ---
 
@@ -117,4 +123,4 @@ Exact titles in the app may vary slightly as the catalog is updated; trust the *
 - **[../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** — RMS charge vs payment
 - **[pos-reports.md](pos-reports.md)** — POS **Reports** rail
 
-**Last reviewed:** 2026-05-01
+**Last reviewed:** 2026-06-04

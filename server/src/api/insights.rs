@@ -3025,6 +3025,167 @@ async fn purchase_receiving_reorder_health_report(
     Ok(Json(rows))
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct ShippingFulfillmentStatusReportRow {
+    pub report_date: NaiveDate,
+    pub source: String,
+    pub status: String,
+    pub shipment_count: i64,
+    pub label_count: i64,
+    pub quoted_amount: Decimal,
+    pub shipping_charged: Decimal,
+    pub label_cost: Decimal,
+    pub shipping_margin: Decimal,
+}
+
+async fn shipping_fulfillment_status_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<ShippingFulfillmentStatusReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, ShippingFulfillmentStatusReportRow>(
+        r#"
+        SELECT
+            (created_at AT TIME ZONE reporting.effective_store_timezone())::date AS report_date,
+            COALESCE(NULLIF(source, ''), 'unknown') AS source,
+            COALESCE(NULLIF(status, ''), 'unknown') AS status,
+            COUNT(*)::bigint AS shipment_count,
+            COUNT(*) FILTER (
+                WHERE tracking_number IS NOT NULL OR label_cost_usd IS NOT NULL
+            )::bigint AS label_count,
+            COALESCE(ROUND(SUM(quoted_amount_usd), 2), 0)::numeric(14,2) AS quoted_amount,
+            COALESCE(ROUND(SUM(shipping_charged_usd), 2), 0)::numeric(14,2) AS shipping_charged,
+            COALESCE(ROUND(SUM(label_cost_usd), 2), 0)::numeric(14,2) AS label_cost,
+            COALESCE(
+                ROUND(SUM(COALESCE(shipping_charged_usd, 0) - COALESCE(label_cost_usd, 0)), 2),
+                0
+            )::numeric(14,2) AS shipping_margin
+        FROM reporting.shipments_active
+        WHERE created_at >= $1 AND created_at < $2
+        GROUP BY report_date, source, status
+        ORDER BY report_date DESC, shipment_count DESC, source ASC, status ASC
+        LIMIT 500
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct PaymentExceptionReviewReportRow {
+    pub business_date: NaiveDate,
+    pub category: String,
+    pub payment_method: String,
+    pub payment_provider: String,
+    pub status: String,
+    pub provider_status: String,
+    pub payment_count: i64,
+    pub gross_amount: Decimal,
+    pub merchant_fee: Decimal,
+    pub net_amount: Decimal,
+    pub linked_transaction_count: i64,
+}
+
+async fn payment_exception_review_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<PaymentExceptionReviewReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, PaymentExceptionReviewReportRow>(
+        r#"
+        SELECT
+            business_date,
+            COALESCE(NULLIF(category, ''), 'unknown') AS category,
+            COALESCE(NULLIF(payment_method, ''), 'unknown') AS payment_method,
+            COALESCE(NULLIF(payment_provider, ''), 'manual') AS payment_provider,
+            COALESCE(NULLIF(status, ''), 'unknown') AS status,
+            COALESCE(NULLIF(provider_status, ''), 'not provided') AS provider_status,
+            COUNT(*)::bigint AS payment_count,
+            COALESCE(ROUND(SUM(gross_amount), 2), 0)::numeric(14,2) AS gross_amount,
+            COALESCE(ROUND(SUM(merchant_fee), 2), 0)::numeric(14,2) AS merchant_fee,
+            COALESCE(ROUND(SUM(net_amount), 2), 0)::numeric(14,2) AS net_amount,
+            COALESCE(SUM(linked_transaction_count), 0)::bigint AS linked_transaction_count
+        FROM reporting.payment_ledger
+        WHERE created_at >= $1 AND created_at < $2
+          AND (
+            LOWER(COALESCE(status, '')) NOT IN ('success', 'succeeded', 'approved', 'captured', 'posted', 'settled')
+            OR LOWER(COALESCE(provider_status, '')) IN ('failed', 'declined', 'voided', 'cancelled', 'canceled', 'error')
+          )
+        GROUP BY business_date, category, payment_method, payment_provider, status, provider_status
+        ORDER BY business_date DESC, gross_amount DESC, payment_count DESC
+        LIMIT 500
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct CustomerValueFrequencyReportRow {
+    pub customer_code: Option<String>,
+    pub customer_display_name: String,
+    pub customer_phone: Option<String>,
+    pub customer_email: Option<String>,
+    pub transaction_count: i64,
+    pub gross_sales: Decimal,
+    pub amount_paid: Decimal,
+    pub balance_due: Decimal,
+    pub first_purchase_at: Option<DateTime<Utc>>,
+    pub last_purchase_at: Option<DateTime<Utc>>,
+    pub sale_channel: String,
+}
+
+async fn customer_value_frequency_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<CustomerValueFrequencyReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, CustomerValueFrequencyReportRow>(
+        r#"
+        SELECT
+            customer_code,
+            COALESCE(
+                NULLIF(TRIM(customer_display_name), ''),
+                NULLIF(TRIM(customer_company_name), ''),
+                customer_code,
+                'Walk-in / Unknown'
+            ) AS customer_display_name,
+            customer_phone,
+            customer_email,
+            COUNT(*)::bigint AS transaction_count,
+            COALESCE(ROUND(SUM(total_price), 2), 0)::numeric(14,2) AS gross_sales,
+            COALESCE(ROUND(SUM(amount_paid), 2), 0)::numeric(14,2) AS amount_paid,
+            COALESCE(ROUND(SUM(balance_due), 2), 0)::numeric(14,2) AS balance_due,
+            MIN(booked_at) AS first_purchase_at,
+            MAX(booked_at) AS last_purchase_at,
+            COALESCE(MAX(NULLIF(sale_channel, '')), 'store') AS sale_channel
+        FROM reporting.transactions_core
+        WHERE booked_at >= $1 AND booked_at < $2
+          AND status <> 'cancelled'
+        GROUP BY customer_id, customer_code, customer_display_name, customer_company_name, customer_phone, customer_email
+        ORDER BY gross_sales DESC, transaction_count DESC, last_purchase_at DESC
+        LIMIT 500
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct WeddingSavedViewCreateBody {
     pub name: String,
@@ -3695,6 +3856,18 @@ pub fn router() -> Router<AppState> {
         .route(
             "/purchase-receiving-reorder-health",
             get(purchase_receiving_reorder_health_report),
+        )
+        .route(
+            "/shipping-fulfillment-status",
+            get(shipping_fulfillment_status_report),
+        )
+        .route(
+            "/payment-exception-review",
+            get(payment_exception_review_report),
+        )
+        .route(
+            "/customer-value-frequency",
+            get(customer_value_frequency_report),
         )
         .route("/best-sellers", get(best_sellers))
         .route("/dead-stock", get(dead_stock))

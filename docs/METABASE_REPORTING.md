@@ -52,6 +52,9 @@ Before building broad Metabase dashboards for these topics, add and model readab
 Existing API surfaces that already align with Metabase reporting views:
 
 - **Merchant activity:** use **`GET /api/insights/merchant-activity`** for the curated Reports tile; use **`reporting.payment_ledger`** and **`reporting.merchant_reconciliation`** for Metabase.
+- **Payment exception review:** use **`GET /api/insights/payment-exception-review`** for the curated Reports tile; use **`reporting.payment_ledger`** for Metabase payment exception dashboards.
+- **Shipping fulfillment status:** use **`GET /api/insights/shipping-fulfillment-status`** for the curated Reports tile; use **`reporting.shipments_active`** for Metabase shipment dashboards.
+- **Customer value and visit frequency:** use **`GET /api/insights/customer-value-frequency`** for the curated Reports tile; use **`reporting.transactions_core`** for Metabase customer value dashboards.
 - **Loyalty velocity:** use **`GET /api/insights/loyalty-velocity`** for API/NL routing; use **`reporting.loyalty_customer_snapshot`**, **`reporting.loyalty_point_ledger`**, and **`reporting.loyalty_daily_velocity`** where available for Metabase.
 - **Sales, margin, best sellers, dead stock:** use Reports for governed operational answers; use **`reporting.transactions_core`** / **`reporting.order_lines`** for Metabase dashboards, with admin collection controls for margin/cost.
 

@@ -57,6 +57,7 @@ export type AvailableReportDef = ReportBaseDef & {
   usesBasis: boolean;
   /** Sales / margin pivot only */
   supportsGroupBy?: boolean;
+  chartConfigs?: ReportChartConfig[];
   /** Build path + query (leading `/api/...`) */
   buildPath: (ctx: ReportUrlContext) => string;
 };
@@ -73,6 +74,17 @@ export type ReportUrlContext = {
   toYmd: string;
   basis: string;
   groupBy: string;
+};
+
+export type ReportChartValueFormat = "money" | "number" | "points";
+
+export type ReportChartConfig = {
+  title: string;
+  labelKey: string;
+  valueKey: string;
+  secondaryValueKey?: string;
+  valueFormat?: ReportChartValueFormat;
+  limit?: number;
 };
 
 const enc = (s: string) => encodeURIComponent(s);
@@ -235,6 +247,22 @@ export const REPORTS_CATALOG: ReportDef[] = [
     responseKind: "rows",
     usesGlobalDateRange: true,
     usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Daily sales total",
+        labelKey: "business_date",
+        valueKey: "day_sales_total",
+        valueFormat: "money",
+        limit: 10,
+      },
+      {
+        title: "Hourly sales",
+        labelKey: "hour_label",
+        valueKey: "sales_total",
+        valueFormat: "money",
+        limit: 12,
+      },
+    ],
     buildPath: ({ fromYmd, toYmd }) =>
       `/api/insights/sales-by-day?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
@@ -288,8 +316,51 @@ export const REPORTS_CATALOG: ReportDef[] = [
     responseKind: "dead_stock",
     usesGlobalDateRange: true,
     usesBasis: true,
+    chartConfigs: [
+      {
+        title: "Slow stock value",
+        labelKey: "sku",
+        valueKey: "extended_value",
+        valueFormat: "money",
+        limit: 10,
+      },
+    ],
     buildPath: ({ fromYmd, toYmd, basis }) =>
       `/api/insights/dead-stock?basis=${enc(basis)}&from=${enc(fromYmd)}&to=${enc(toYmd)}&max_units_sold=0&limit=100`,
+  },
+  {
+    id: "negative_stock",
+    title: "Negative Stock Watchlist",
+    description:
+      "Products with negative on-hand or available stock, estimated value exposure, vendor, category, and last movement dates.",
+    category: "Inventory",
+    aliases: ["negative inventory", "below zero stock", "stock exceptions"],
+    keywords: ["negative stock", "inventory", "stockout", "available stock", "vendor", "correction", "risk"],
+    questions: ["Which items are below zero?", "What inventory needs correction?", "Which negative stock has value exposure?"],
+    audience: "Manager",
+    sensitivity: "Manager",
+    adminOnly: false,
+    permissionsAll: ["insights.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: false,
+    usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Most negative available stock",
+        labelKey: "sku",
+        valueKey: "available_stock",
+        valueFormat: "number",
+        limit: 10,
+      },
+      {
+        title: "Estimated value exposure",
+        labelKey: "sku",
+        valueKey: "extended_value",
+        valueFormat: "money",
+        limit: 10,
+      },
+    ],
+    buildPath: () => `/api/insights/negative-stock`,
   },
   {
     id: "wedding_health",
@@ -490,8 +561,59 @@ export const REPORTS_CATALOG: ReportDef[] = [
     responseKind: "rows",
     usesGlobalDateRange: true,
     usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Daily card volume",
+        labelKey: "occurred_at",
+        valueKey: "amount",
+        valueFormat: "money",
+        limit: 10,
+      },
+      {
+        title: "Processing fees",
+        labelKey: "occurred_at",
+        valueKey: "merchant_fee",
+        valueFormat: "money",
+        limit: 10,
+      },
+    ],
     buildPath: ({ fromYmd, toYmd }) =>
       `/api/insights/merchant-activity?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
+  },
+  {
+    id: "payment_exception_review",
+    title: "Payment Exception Review",
+    description:
+      "Declined, failed, voided, cancelled, or error-status tender activity grouped by date, method, provider, and status.",
+    category: "Finance",
+    aliases: ["failed payments", "declined payments", "payment risk", "tender exceptions"],
+    keywords: ["payment", "failed", "declined", "voided", "cancelled", "provider status", "helcim", "risk"],
+    questions: ["Which payments failed?", "What tender exceptions need review?", "Did any card provider errors happen?"],
+    audience: "Manager",
+    sensitivity: "Manager",
+    adminOnly: false,
+    permissionsAll: ["insights.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: true,
+    usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Exception dollars by status",
+        labelKey: "status",
+        valueKey: "gross_amount",
+        valueFormat: "money",
+        limit: 8,
+      },
+      {
+        title: "Exception count",
+        labelKey: "provider_status",
+        valueKey: "payment_count",
+        valueFormat: "number",
+        limit: 8,
+      },
+    ],
+    buildPath: ({ fromYmd, toYmd }) =>
+      `/api/insights/payment-exception-review?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
   {
     id: "appointments_no_show",
@@ -566,6 +688,41 @@ export const REPORTS_CATALOG: ReportDef[] = [
       `/api/insights/customer-follow-up?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
   {
+    id: "customer_value_frequency",
+    title: "Customer Value & Visit Frequency",
+    description:
+      "Top customers by sales value, visit count, paid amount, balance due, first purchase, and most recent purchase.",
+    category: "Customers",
+    aliases: ["top customers", "customer lifetime value", "repeat customers", "best customers"],
+    keywords: ["customer", "value", "frequency", "top customers", "repeat", "sales", "balance", "visit"],
+    questions: ["Who are our highest-value customers?", "Which customers visit most often?", "Who bought recently with a balance?"],
+    audience: "Manager",
+    sensitivity: "Manager",
+    adminOnly: false,
+    permissionsAll: ["insights.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: true,
+    usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Top customer sales",
+        labelKey: "customer_display_name",
+        valueKey: "gross_sales",
+        valueFormat: "money",
+        limit: 10,
+      },
+      {
+        title: "Visit frequency",
+        labelKey: "customer_display_name",
+        valueKey: "transaction_count",
+        valueFormat: "number",
+        limit: 10,
+      },
+    ],
+    buildPath: ({ fromYmd, toYmd }) =>
+      `/api/insights/customer-value-frequency?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
+  },
+  {
     id: "exception_risk",
     title: "Exception & Risk Report",
     description:
@@ -599,6 +756,16 @@ export const REPORTS_CATALOG: ReportDef[] = [
     responseKind: "rows",
     usesGlobalDateRange: true,
     usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Daily sales pace",
+        labelKey: "report_date",
+        valueKey: "gross_sales",
+        secondaryValueKey: "prior_week_gross_sales",
+        valueFormat: "money",
+        limit: 14,
+      },
+    ],
     buildPath: ({ fromYmd, toYmd }) =>
       `/api/insights/sales-trend-pace?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
@@ -618,8 +785,46 @@ export const REPORTS_CATALOG: ReportDef[] = [
     responseKind: "rows",
     usesGlobalDateRange: true,
     usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Daily gift card liability",
+        labelKey: "activity_date",
+        valueKey: "net_liability_change",
+        valueFormat: "money",
+        limit: 14,
+      },
+    ],
     buildPath: ({ fromYmd, toYmd }) =>
       `/api/insights/gift-card-liability-activity?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
+  },
+  {
+    id: "loyalty_velocity",
+    title: "Loyalty Points Velocity",
+    description:
+      "Daily loyalty points earned, burned, and net movement so managers can see program activity and liability direction.",
+    category: "Customers",
+    aliases: ["loyalty velocity", "points earned", "points burned", "loyalty movement"],
+    keywords: ["loyalty", "points", "earned", "redeemed", "burned", "velocity", "customer rewards"],
+    questions: ["How many loyalty points were earned?", "Are customers redeeming points?", "What is loyalty point velocity?"],
+    audience: "Manager",
+    sensitivity: "Staff-safe",
+    adminOnly: false,
+    permissionsAll: ["insights.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: true,
+    usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Net points movement",
+        labelKey: "event_date",
+        valueKey: "net_velocity",
+        secondaryValueKey: "points_burned",
+        valueFormat: "points",
+        limit: 14,
+      },
+    ],
+    buildPath: ({ fromYmd, toYmd }) =>
+      `/api/insights/loyalty-velocity?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
   {
     id: "layaway_aging_deposit_risk",
@@ -675,8 +880,61 @@ export const REPORTS_CATALOG: ReportDef[] = [
     responseKind: "rows",
     usesGlobalDateRange: true,
     usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Online sales",
+        labelKey: "report_date",
+        valueKey: "online_sales",
+        valueFormat: "money",
+        limit: 14,
+      },
+      {
+        title: "Orders vs carts",
+        labelKey: "report_date",
+        valueKey: "online_transaction_count",
+        secondaryValueKey: "cart_count",
+        valueFormat: "number",
+        limit: 14,
+      },
+    ],
     buildPath: ({ fromYmd, toYmd }) =>
       `/api/insights/online-store-conversion-fulfillment?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
+  },
+  {
+    id: "shipping_fulfillment_status",
+    title: "Shipping Fulfillment Status",
+    description:
+      "Shipments by date, source, status, labels purchased, quoted amount, shipping charged, label cost, and margin.",
+    category: "Operations",
+    aliases: ["shippo report", "shipping status", "shipment cost", "labels"],
+    keywords: ["shipping", "shippo", "label", "carrier", "fulfillment", "status", "margin", "shipment"],
+    questions: ["Which shipments need attention?", "How many labels were purchased?", "What shipping margin did we collect?"],
+    audience: "Manager",
+    sensitivity: "Manager",
+    adminOnly: false,
+    permissionsAll: ["insights.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: true,
+    usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Shipment counts",
+        labelKey: "status",
+        valueKey: "shipment_count",
+        secondaryValueKey: "label_count",
+        valueFormat: "number",
+        limit: 10,
+      },
+      {
+        title: "Shipping margin",
+        labelKey: "report_date",
+        valueKey: "shipping_margin",
+        valueFormat: "money",
+        limit: 14,
+      },
+    ],
+    buildPath: ({ fromYmd, toYmd }) =>
+      `/api/insights/shipping-fulfillment-status?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
   {
     id: "purchase_receiving_reorder_health",

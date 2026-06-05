@@ -53,6 +53,13 @@ pub struct HelcimTerminalRefundRequest {
     pub original_transaction_id: i64,
 }
 
+#[derive(Debug)]
+pub struct HelcimTerminalRequestError {
+    pub status: Option<reqwest::StatusCode>,
+    pub message: String,
+    pub raw_text: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct HelcimCardData {
     #[serde(rename = "cardToken")]
@@ -1187,7 +1194,7 @@ pub fn build_terminal_refund_request_payload(
     }
 }
 
-pub fn terminal_purchase_request_body(request: &HelcimPurchaseRequest) -> Result<String, String> {
+fn terminal_purchase_request_body(request: &HelcimPurchaseRequest) -> Result<String, String> {
     let currency = serde_json::to_string(&request.currency).map_err(|e| e.to_string())?;
     Ok(format!(
         r#"{{"currency":{currency},"transactionAmount":{}}}"#,
@@ -1227,6 +1234,99 @@ pub async fn process_card_reverse(
     idempotency_key: &str,
 ) -> Result<HelcimCardTransaction, String> {
     send_payment_request(http, config, "payment/reverse", &request, idempotency_key).await
+}
+
+pub async fn start_terminal_purchase(
+    http: &reqwest::Client,
+    config: &HelcimConfig,
+    device_code: &str,
+    request: HelcimPurchaseRequest,
+    idempotency_key: &str,
+) -> Result<HelcimAcceptedPurchaseResponse, HelcimTerminalRequestError> {
+    let token = config
+        .api_token()
+        .ok_or_else(|| HelcimTerminalRequestError {
+            status: None,
+            message: "Helcim API token is not saved in Backoffice Settings.".to_string(),
+            raw_text: None,
+        })?;
+    let url = format!(
+        "{}/devices/{device_code}/payment/purchase",
+        config.api_base_url()
+    );
+    let body =
+        terminal_purchase_request_body(&request).map_err(|message| HelcimTerminalRequestError {
+            status: None,
+            message,
+            raw_text: None,
+        })?;
+
+    let mut last_error = String::new();
+    for attempt in 0..=HELCIM_MAX_RETRIES {
+        if attempt > 0 {
+            tokio::time::sleep(helcim_retry_delay(attempt - 1)).await;
+            tracing::info!(attempt, "Retrying Helcim terminal purchase");
+        }
+        let response = match http
+            .post(&url)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header("api-token", token)
+            .header("idempotency-key", idempotency_key)
+            .body(body.clone())
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                let message = if error.is_timeout() || error.is_connect() {
+                    format!("Helcim terminal purchase network error: {error}")
+                } else {
+                    format!("Helcim terminal purchase failed: {error}")
+                };
+                if error.is_timeout() || error.is_connect() {
+                    last_error = message;
+                    continue;
+                }
+                return Err(HelcimTerminalRequestError {
+                    status: None,
+                    message,
+                    raw_text: None,
+                });
+            }
+        };
+
+        let status = response.status();
+        if status != reqwest::StatusCode::ACCEPTED {
+            let raw_text = response.text().await.unwrap_or_default();
+            if is_retryable_helcim_error(status, Some(&raw_text)) && attempt < HELCIM_MAX_RETRIES {
+                last_error =
+                    response_error_message_sync("Helcim terminal purchase", status, &raw_text);
+                continue;
+            }
+            return Err(HelcimTerminalRequestError {
+                status: Some(status),
+                message: response_error_message_sync("Helcim terminal purchase", status, &raw_text),
+                raw_text: Some(raw_text),
+            });
+        }
+
+        return Ok(response
+            .json::<HelcimAcceptedPurchaseResponse>()
+            .await
+            .unwrap_or(HelcimAcceptedPurchaseResponse {
+                status: Some("accepted".to_string()),
+                payment_id: None,
+                transaction_id: None,
+                audit_reference: None,
+            }));
+    }
+
+    Err(HelcimTerminalRequestError {
+        status: None,
+        message: format!("Helcim terminal purchase failed after retries: {last_error}"),
+        raw_text: None,
+    })
 }
 
 pub async fn start_terminal_refund(

@@ -39,6 +39,7 @@ Effective rule: for each **`ReportDef`**, **`reportVisible`** requires **`adminO
 | `margin_pivot` | **Margin & Cost Breakdown** | **insights.view** | **Yes** (role **admin**) | Available |
 | `best_sellers` | **Best Sellers** | **insights.view** | No | Available |
 | `dead_stock` | **Slow Stock** | **insights.view** | No | Available |
+| `negative_stock` | **Negative Stock Watchlist** | **insights.view** | No | Available |
 | `wedding_health` | **Wedding Pipeline** | **insights.view** | No | Available |
 | `commission_ledger` | **Commission Snapshot** | **insights.view** | No | Available |
 | `nys_tax_audit` | **New York Tax Audit** | **insights.view** | No | Available |
@@ -50,11 +51,15 @@ Effective rule: for each **`ReportDef`**, **`reportVisible`** requires **`adminO
 | `register_day_activity` | **Register Day Summary** | **register.reports** | No | Available |
 | `wedding_saved_views` | **Saved Wedding Report Views** | **insights.view** | No | Available |
 | `merchant_activity` | **Card Processing Summary** | **insights.view** | No | Available |
+| `payment_exception_review` | **Payment Exception Review** | **insights.view** | No | Available |
 | `appointments_no_show` | **Appointments & No-Show Report** | **insights.view** | No | Available |
 | `wedding_event_readiness` | **Wedding Event Readiness Report** | **insights.view** | No | Available |
 | `staff_schedule_coverage_sales` | **Staff Schedule Coverage vs Sales Report** | **insights.view** | No | Available |
 | `customer_follow_up` | **Customer Follow-Up Report** | **insights.view** | No | Available |
+| `customer_value_frequency` | **Customer Value & Visit Frequency** | **insights.view** | No | Available |
 | `exception_risk` | **Exception & Risk Report** | **insights.view** | No | Available |
+| `loyalty_velocity` | **Loyalty Points Velocity** | **insights.view** | No | Available |
+| `shipping_fulfillment_status` | **Shipping Fulfillment Status** | **insights.view** | No | Available |
 
 Server routes must enforce the **same** rules as today (margin pivot **Admin** on the API, not only UI). NL or AI tooling must treat **margin** as restricted; see **`docs/AI_REPORTING_DATA_CATALOG.md`**.
 
@@ -87,7 +92,7 @@ Many tiles pass **`basis`** (`booked` vs `completed` / recognition). Store polic
 
 ## New endpoint coverage
 
-The five operational reports added after the original v1 catalog are backed by real read-only endpoints:
+The operational reports added after the original v1 catalog are backed by real read-only endpoints:
 
 | Route | Report |
 |-------|--------|
@@ -96,8 +101,13 @@ The five operational reports added after the original v1 catalog are backed by r
 | `GET /api/insights/staff-schedule-coverage-sales` | **Staff Schedule Coverage vs Sales Report** |
 | `GET /api/insights/customer-follow-up` | **Customer Follow-Up Report** |
 | `GET /api/insights/exception-risk` | **Exception & Risk Report** |
+| `GET /api/insights/negative-stock` | **Negative Stock Watchlist** |
+| `GET /api/insights/payment-exception-review` | **Payment Exception Review** |
+| `GET /api/insights/customer-value-frequency` | **Customer Value & Visit Frequency** |
+| `GET /api/insights/loyalty-velocity` | **Loyalty Points Velocity** |
+| `GET /api/insights/shipping-fulfillment-status` | **Shipping Fulfillment Status** |
 
-All five require **insights.view** and accept the standard curated Reports date window when the tile shows From / To.
+All listed routes require **insights.view** and accept the standard curated Reports date window when the tile shows From / To.
 
 ---
 
@@ -129,4 +139,4 @@ All five require **insights.view** and accept the standard curated Reports date 
 - **`client/src/components/reports/ReportsWorkspace.tsx`**
 - **`docs/E2E_REGRESSION_MATRIX.md`**
 
-**Last reviewed:** 2026-05-01
+**Last reviewed:** 2026-06-04

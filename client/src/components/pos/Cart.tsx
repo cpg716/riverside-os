@@ -3185,13 +3185,6 @@ export default function Cart({
         current={posShipping}
         onApply={(next) => {
           setPosShipping(next);
-          if (next && lines.some(l => l.fulfillment === "takeaway")) {
-            setLines(prev => prev.map(l => ({
-              ...l,
-              fulfillment: l.fulfillment === "takeaway" ? (isCustomOrderSku(l.sku) || l.custom_item_type ? "custom" as const : "special_order" as const) : l.fulfillment
-            })));
-            toast("Switched takeaway items to Special Order for shipping.", "info");
-          }
         }}
       />
 

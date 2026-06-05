@@ -94,6 +94,13 @@ function cashChangeDueCents(applied: AppliedPaymentLine[]): number {
   }, 0);
 }
 
+function hasProviderBackedPayment(applied: AppliedPaymentLine[]): boolean {
+  return applied.some((payment) => {
+    const provider = payment.metadata?.payment_provider;
+    return typeof provider === "string" && provider.trim().length > 0;
+  });
+}
+
 export function useCartCheckout({
   sessionId,
   baseUrl,
@@ -182,6 +189,7 @@ export function useCartCheckout({
       const tenderPaidCents = applied.reduce((s, p) => s + p.amountCents, 0);
       const ledgerCents = Math.max(0, ledgerSignals.appliedDepositAmountCents);
       const maxPaidAgainstSaleCents = checkoutTotals.collectTotalCents + (ledgerSignals.roundingAdjustmentCents ?? 0);
+      const providerBackedPayment = hasProviderBackedPayment(applied);
 
       const isZeroBalancePickup =
         !!pickupTransactionId &&
@@ -197,9 +205,9 @@ export function useCartCheckout({
           return null;
         }
 
-        const deliveredItemIds = checkoutLines
-          .filter((l) => l.transaction_line_id)
-          .map((l) => l.transaction_line_id as string);
+        const deliveredItemIds = checkoutLines.flatMap((line) =>
+          line.transaction_line_id ? [line.transaction_line_id] : [],
+        );
 
         const pickupRes = await fetch(`${baseUrl}/api/transactions/${pickupTransactionId}/pickup`, {
           method: "POST",
@@ -372,8 +380,8 @@ export function useCartCheckout({
           options?.need_by_date ??
           (checkoutLines.find((l) => l.need_by_date)?.need_by_date || null),
         fulfillment_mode:
-          options?.fulfillment_mode ?? (posShipping ? "ship" : "pickup"),
-        ship_to: options?.ship_to ?? (posShipping?.to_address || null),
+          posShipping ? "ship" : (options?.fulfillment_mode ?? "pickup"),
+        ship_to: posShipping?.to_address ?? options?.ship_to ?? null,
         actor_name: op.fullName.trim() || cashierName?.trim() || null,
         payment_splits,
         is_tax_exempt: ledgerSignals.isTaxExempt,
@@ -450,6 +458,11 @@ export function useCartCheckout({
       };
 
       if (!navigator.onLine) {
+        if (providerBackedPayment) {
+          toast("Card provider payments cannot be queued offline. Keep the checkout open and reconnect before recording the sale.", "error");
+          setCheckoutBusy(false);
+          return null;
+        }
         await enqueueCheckout(payload, apiAuth());
         toast("Sale queued offline.", "info");
         if (execution?.clearAfterCheckout !== false) {
@@ -481,6 +494,9 @@ export function useCartCheckout({
       if (!res.ok) {
         // 5xx after retry => emergency offline fallback so the register never bricks
         if (res.status >= 500) {
+          if (providerBackedPayment) {
+            throw new Error("Server could not confirm the card-provider checkout. Keep this payment open and retry Record Sale; do not run the card again.");
+          }
           await enqueueCheckout(payload, apiAuth());
           toast("Server error — sale saved for sync. Print receipt for customer.", "error");
           if (execution?.clearAfterCheckout !== false) {
@@ -503,8 +519,7 @@ export function useCartCheckout({
       }
 
       const data = await res.json() as { transaction_id: string; warnings?: string[] };
-      setLastCashChangeDueCents(cashChangeDueCents(applied));
-      setLastTransactionId(data.transaction_id);
+      let receiptTransactionId = data.transaction_id;
       if (execution?.showSuccessToast !== false) {
         toast("Checkout complete", "success");
       }
@@ -513,35 +528,28 @@ export function useCartCheckout({
           toast(w, "info");
         }
       }
-      if (execution?.clearAfterCheckout !== false) {
-        clearCart();
-        setCheckoutClientId(newCheckoutClientId());
-      }
-      if (execution?.emitSaleCompleted !== false) {
-        onSaleCompleted?.();
-      }
-
       // Call pickup API after successful checkout when in pickup mode
       if (pickupTransactionId) {
-        const deliveredItemIds = checkoutLines
-          .filter((l) => l.transaction_line_id)
-          .map((l) => l.transaction_line_id);
+        const deliveredItemIds = checkoutLines.flatMap((line) =>
+          line.transaction_line_id ? [line.transaction_line_id] : [],
+        );
         try {
           const pickupRes = await fetch(`${baseUrl}/api/transactions/${pickupTransactionId}/pickup`, {
             method: "POST",
             headers: { ...apiAuth(), "Content-Type": "application/json" },
             body: JSON.stringify({
               delivered_item_ids: deliveredItemIds,
-              actor: "Register Pickup Flow",
+              actor: op.fullName.trim() || cashierName?.trim() || "Register Pickup Flow",
               override_readiness: options?.overrideReadiness ?? false,
               override_reason: options?.overrideReadiness
                 ? (options?.overrideReason ?? "Register pickup override: manager approved release for unready items.")
                 : undefined,
+              register_session_id: sessionId,
             }),
           });
           if (pickupRes.ok) {
             toast("Pickup completed successfully.", "success");
-            setLastTransactionId(pickupTransactionId);
+            receiptTransactionId = pickupTransactionId;
           } else {
             const body = await pickupRes.json().catch(() => ({})) as { error?: string };
             toast(body.error ?? "Pickup could not be completed after checkout.", "error");
@@ -551,6 +559,15 @@ export function useCartCheckout({
         }
       }
 
+      setLastCashChangeDueCents(cashChangeDueCents(applied));
+      setLastTransactionId(receiptTransactionId);
+      if (execution?.clearAfterCheckout !== false) {
+        clearCart();
+        setCheckoutClientId(newCheckoutClientId());
+      }
+      if (execution?.emitSaleCompleted !== false) {
+        onSaleCompleted?.();
+      }
       return data.transaction_id;
     } catch (e) {
       playPosScanError();

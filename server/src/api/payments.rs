@@ -6744,33 +6744,41 @@ async fn start_helcim_purchase(
             .map(Json);
     }
 
-    let token = config.api_token().ok_or_else(|| {
-        PaymentError::InvalidPayload("Helcim is selected but not configured.".to_string())
-    })?;
     let request_payload =
         helcim::build_purchase_request_payload(payload.amount_cents, currency.clone());
-    let request_body = helcim::terminal_purchase_request_body(&request_payload)
-        .map_err(PaymentError::InvalidPayload)?;
-    let url = format!(
-        "{}/devices/{}/payment/purchase",
-        config.api_base_url(),
-        terminal_id
-    );
-    let response_result = state
-        .http_client
-        .post(&url)
-        .header(reqwest::header::ACCEPT, "application/json")
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .header("api-token", token)
-        .header("idempotency-key", &idempotency_key)
-        .body(request_body)
-        .send()
-        .await;
-    let response = match response_result {
-        Ok(response) => response,
-        Err(e) => {
-            let message = e.to_string();
-            let persisted_message = persisted_provider_error(&message);
+    let accepted = match helcim::start_terminal_purchase(
+        &state.http_client,
+        &config,
+        &terminal_id,
+        request_payload,
+        &idempotency_key,
+    )
+    .await
+    {
+        Ok(accepted) => accepted,
+        Err(error) => {
+            if let Some(status) = error.status {
+                let raw_text = error.raw_text.unwrap_or(error.message);
+                let is_html = raw_text.trim().starts_with("<!DOCTYPE html>")
+                    || raw_text.trim().starts_with("<html");
+                let persisted_message = persisted_provider_error(&raw_text);
+                sqlx::query(
+                    r#"
+                    UPDATE payment_provider_attempts
+                    SET status = 'failed', error_code = $2, error_message = $3, completed_at = now()
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(attempt_id)
+                .bind(status.as_u16().to_string())
+                .bind(persisted_message)
+                .execute(&state.db)
+                .await
+                .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+                return Err(helcim_terminal_purchase_error(status, &raw_text, is_html));
+            }
+
+            let persisted_message = persisted_provider_error(&error.message);
             sqlx::query(
                 r#"
                 UPDATE payment_provider_attempts
@@ -6783,44 +6791,9 @@ async fn start_helcim_purchase(
             .execute(&state.db)
             .await
             .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
-            return Err(PaymentError::ProviderError(message));
+            return Err(PaymentError::ProviderError(error.message));
         }
     };
-
-    if response.status() != reqwest::StatusCode::ACCEPTED {
-        let status = response.status();
-        let raw_text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Helcim purchase request failed".to_string());
-        let is_html =
-            raw_text.trim().starts_with("<!DOCTYPE html>") || raw_text.trim().starts_with("<html");
-        let persisted_message = persisted_provider_error(&raw_text);
-        sqlx::query(
-            r#"
-            UPDATE payment_provider_attempts
-            SET status = 'failed', error_code = $2, error_message = $3, completed_at = now()
-            WHERE id = $1
-            "#,
-        )
-        .bind(attempt_id)
-        .bind(status.as_u16().to_string())
-        .bind(persisted_message)
-        .execute(&state.db)
-        .await
-        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
-        return Err(helcim_terminal_purchase_error(status, &raw_text, is_html));
-    }
-
-    let accepted = response
-        .json::<helcim::HelcimAcceptedPurchaseResponse>()
-        .await
-        .unwrap_or(helcim::HelcimAcceptedPurchaseResponse {
-            status: Some("accepted".to_string()),
-            payment_id: None,
-            transaction_id: None,
-            audit_reference: None,
-        });
     let pending = helcim::normalize_accepted_purchase(
         terminal_id.clone(),
         payload.amount_cents,
