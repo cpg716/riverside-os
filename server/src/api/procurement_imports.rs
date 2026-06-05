@@ -13,8 +13,8 @@ use crate::api::AppState;
 use crate::auth::permissions::{PROCUREMENT_MUTATE, PROCUREMENT_VIEW};
 use crate::logic::procurement_imports::{
     cancel_import, convert_import, extract_document, get_import_detail, learn_vendor_profile,
-    list_imports, match_document, patch_document, patch_line, upload_document,
-    ConvertProcurementImportRequest, PatchProcurementImportDocumentRequest,
+    list_imports, match_document, patch_document, patch_line, procurement_rosie_sidecar_status,
+    upload_document, ConvertProcurementImportRequest, PatchProcurementImportDocumentRequest,
     PatchProcurementImportLineRequest, ProcurementImportDetail, ProcurementImportDocumentSummary,
     ProcurementImportError, ProcurementImportListQuery, UploadDocumentInput,
 };
@@ -96,6 +96,7 @@ async fn require_procurement_staff(
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_handler))
+        .route("/ai-status", get(ai_status_handler))
         .route("/upload", post(upload_handler))
         .route(
             "/{document_id}",
@@ -107,6 +108,17 @@ pub fn router() -> Router<AppState> {
         .route("/{document_id}/learn", post(learn_handler))
         .route("/{document_id}/cancel", post(cancel_handler))
         .route("/{document_id}/lines/{line_id}", patch(patch_line_handler))
+}
+
+async fn ai_status_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<
+    Json<crate::logic::procurement_imports::ProcurementRosieSidecarStatus>,
+    ProcurementImportApiError,
+> {
+    require_procurement_staff(&state, &headers, PROCUREMENT_VIEW).await?;
+    Ok(Json(procurement_rosie_sidecar_status()))
 }
 
 async fn list_handler(

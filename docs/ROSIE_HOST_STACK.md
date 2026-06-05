@@ -46,7 +46,12 @@ All runtime components are pre-compiled native binaries invoked directly by the 
 | Kokoro TTS model | `C:\RiversideOS\rosie\tts\kokoro-multi-lang-v1_0\` |
 | Gemma GGUF | `C:\RiversideOS\rosie\models\gemma-4-e4b\google_gemma-4-E4B-it-Q4_K_M.gguf` |
 
-**Acquisition behaviour:** Binaries and models are **never committed to git**. The deployment ZIP may optionally pre-bundle them for air-gapped installs. If absent, `Install-RosieAiStack.ps1` downloads them automatically on first run. A failed Gemma GGUF download is a warning (not fatal) — STT/TTS remain functional.
+**Acquisition behaviour:** Binaries and models are **never committed to git**. The deployment ZIP may optionally pre-bundle them for air-gapped installs. If absent, `Install-RosieAiStack.ps1` downloads them automatically on first run. A failed Gemma GGUF download is a warning (not fatal) — STT/TTS may remain functional, but the stack is not marked fully ready until LLM, STT, TTS, and binaries all verify.
+
+**Readiness files:**
+- `C:\RiversideOS\rosie\rosie_status.json` is the component-level readiness manifest and records LLM/STT/TTS/binary status.
+- `C:\RiversideOS\rosie\rosie_ready` is written only when the full ROSIE stack is usable.
+- Deployment and audit tools must treat a missing `rosie_ready` with a present status manifest as partial setup, not as a successful full install.
 
 **Version pins** (update the version pin block at the top of `Install-RosieAiStack.ps1`):
 - sherpa-onnx: **v1.13.2** (Windows x64)
@@ -119,7 +124,7 @@ ROSIE token telemetry tracks AI token usage for cost analysis when evaluating lo
 
 ### 3. TTS
 - Engine: Kokoro-82M via Sherpa-ONNX
-- Runtime expectation: local Host playback after ROSIE text is rendered
+- Runtime expectation: local Host synthesis with direct process arguments, then workstation/browser playback through `/api/help/rosie/v1/voice/synthesize`
 - Expected assets:
   - `model.onnx`
   - `voices.bin`

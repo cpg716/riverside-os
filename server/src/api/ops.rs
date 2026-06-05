@@ -24,6 +24,7 @@ use crate::api::AppState;
 use crate::auth::permissions::{OPS_DEV_CENTER_ACTIONS, OPS_DEV_CENTER_VIEW};
 use crate::logic::bug_reports;
 use crate::logic::ops_dev_center::{self, GuardedActionResult, StationHeartbeatIn};
+use crate::logic::rosie_provider_selection::{select_llm_provider, QueryType, RosieProviderConfig};
 use crate::logic::update_check;
 use crate::middleware;
 
@@ -72,6 +73,19 @@ fn json_payload_len(value: &Value) -> usize {
     serde_json::to_vec(value)
         .map(|b| b.len())
         .unwrap_or(usize::MAX)
+}
+
+fn rosie_provider_label_from_completion(body: &Value) -> &'static str {
+    let model = body
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if model.contains("gemini") {
+        "gemini"
+    } else {
+        "local"
+    }
 }
 
 async fn require_view(
@@ -873,23 +887,6 @@ async fn post_diagnostics_analyze(
 ) -> Result<Json<Value>, Response> {
     let _ = require_view(&state, &headers).await?;
 
-    let upstream = std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
-        .ok()
-        .map(|v| v.trim().trim_end_matches('/').to_string())
-        .filter(|v| !v.is_empty());
-
-    let upstream = match upstream {
-        Some(u) => u,
-        None => {
-            return Ok(Json(json!({
-                "error": "RIVERSIDE_LLAMA_UPSTREAM not configured. ROSIE AI analysis unavailable.",
-                "rosie_available": false
-            })));
-        }
-    };
-
-    let upstream_url = format!("{upstream}/v1/chat/completions");
-
     let llm_payload = json!({
         "model": "local",
         "messages": [
@@ -900,39 +897,34 @@ async fn post_diagnostics_analyze(
         "max_tokens": 2048
     });
 
-    let resp = state
-        .http_client
-        .post(&upstream_url)
-        .json(&llm_payload)
-        .send()
+    let provider =
+        match select_llm_provider(&RosieProviderConfig::default(), QueryType::Analysis).await {
+            Ok(provider) => provider,
+            Err(error) => {
+                return Ok(Json(json!({
+                    "error": format!("ROSIE provider unavailable: {error}"),
+                    "rosie_available": false
+                })));
+            }
+        };
+
+    let data = provider
+        .chat_completion_payload(llm_payload)
         .await
         .map_err(|e| {
-            tracing::error!(error = %e, %upstream_url, "rosie diagnostics analyze failed");
+            tracing::error!(error = %e, "rosie diagnostics analyze failed");
             (
                 StatusCode::BAD_GATEWAY,
-                Json(json!({"error": format!("ROSIE upstream failed: {e}")})),
+                Json(json!({"error": format!("ROSIE provider failed: {e}")})),
             )
                 .into_response()
         })?;
 
-    let status = resp.status();
-    let data: Value = resp.json().await.map_err(|e| {
-        (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({"error": format!("ROSIE response parse failed: {e}")})),
-        )
-            .into_response()
-    })?;
-
-    crate::logic::rosie_intelligence::record_telemetry_from_value(state.db.clone(), "local", &data);
-
-    if !status.is_success() {
-        return Ok(Json(json!({
-            "error": format!("ROSIE upstream error {status}"),
-            "upstream_response": data,
-            "rosie_available": true
-        })));
-    }
+    crate::logic::rosie_intelligence::record_telemetry_from_value(
+        state.db.clone(),
+        rosie_provider_label_from_completion(&data),
+        &data,
+    );
 
     // Extract the message content from the completion
     let content = data

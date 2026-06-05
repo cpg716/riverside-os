@@ -33,6 +33,7 @@ use crate::logic::help_manual_policy::{
 };
 use crate::logic::meilisearch_search::{help_search_hits, HelpSearchHit};
 use crate::logic::rosie_intelligence::{self, RosieIntelligencePack};
+use crate::logic::rosie_provider_selection::{select_llm_provider, QueryType, RosieProviderConfig};
 use crate::logic::rosie_speech;
 use crate::middleware;
 use crate::models::DbStaffRole;
@@ -80,6 +81,16 @@ async fn send_rosie_upstream_chat_request(
     Err(last_error.expect("rosie upstream retries should capture a terminal error"))
 }
 
+async fn send_rosie_provider_chat_request(
+    query_type: QueryType,
+    body: &Value,
+) -> Result<Value, String> {
+    let provider = select_llm_provider(&RosieProviderConfig::default(), query_type).await?;
+    provider
+        .chat_completion_payload(rosie_disable_model_reasoning(body))
+        .await
+}
+
 fn rosie_disable_model_reasoning(body: &Value) -> Value {
     let mut payload = body.clone();
     let Some(object) = payload.as_object_mut() else {
@@ -97,6 +108,19 @@ fn rosie_disable_model_reasoning(body: &Value) -> Value {
     }
 
     payload
+}
+
+fn rosie_provider_label_from_completion(body: &Value) -> &'static str {
+    let model = body
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if model.contains("gemini") {
+        "gemini"
+    } else {
+        "local"
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1676,6 +1700,84 @@ fn workflow_playbooks(question: &str) -> Vec<Value> {
         }));
     }
 
+    if lower.contains("alteration")
+        || lower.contains("alterations")
+        || lower.contains("tailor")
+        || lower.contains("pickup fit")
+    {
+        playbooks.push(serde_json::json!({
+            "id": "alteration_triage",
+            "title": "Alteration intake and follow-up triage",
+            "voice_prompt": "ROSIE, help me triage this alteration.",
+            "steps": [
+                "Start from the customer, garment, due date, and promised pickup date before discussing work.",
+                "Confirm whether the item is a new alteration, rework, wedding-party fitting, or pickup concern.",
+                "Use the Alterations UI for measurements, pins, notes, assignments, and status changes.",
+                "Read back due dates, staff assignment, and customer communication before saving."
+            ],
+            "do_not": [
+                "Do not let ROSIE change measurements, charges, or pickup status without staff confirmation.",
+                "Do not promise a date until scheduler capacity and existing alteration work are checked."
+            ],
+            "actions": [
+                { "id": "open_alterations", "label": "Open Alterations", "target": "alterations:workspace" },
+                { "id": "capture_alteration_details", "label": "Capture Details", "target": "voice:alteration-details" }
+            ]
+        }));
+    }
+
+    if lower.contains("staff schedule")
+        || lower.contains("coverage")
+        || lower.contains("shift")
+        || lower.contains("capacity")
+    {
+        playbooks.push(serde_json::json!({
+            "id": "staff_schedule_capacity",
+            "title": "Staff schedule and capacity review",
+            "voice_prompt": "ROSIE, help review staff coverage.",
+            "steps": [
+                "Check published schedule coverage before using draft or requested shifts.",
+                "Compare appointments, alteration due work, events, and register coverage for the same day.",
+                "Flag capacity risks as review items instead of changing schedules automatically.",
+                "Use the normal staff scheduling workflow for final publish or correction."
+            ],
+            "do_not": [
+                "Do not treat draft schedules as live coverage.",
+                "Do not reassign appointments or tasks without staff confirmation."
+            ],
+            "actions": [
+                { "id": "open_staff_schedule", "label": "Open Staff Schedule", "target": "staff:schedule" },
+                { "id": "review_capacity", "label": "Review Capacity", "target": "voice:capacity-review" }
+            ]
+        }));
+    }
+
+    if lower.contains("task")
+        || lower.contains("to do")
+        || lower.contains("todo")
+        || lower.contains("follow up")
+    {
+        playbooks.push(serde_json::json!({
+            "id": "task_priority_triage",
+            "title": "Task priority triage",
+            "voice_prompt": "ROSIE, help prioritize tasks.",
+            "steps": [
+                "Separate customer-impacting work from internal cleanup before prioritizing.",
+                "Check due date, linked customer, linked order, appointment, alteration, and assigned staff.",
+                "Escalate blocked work with a clear reason instead of creating duplicate reminders.",
+                "Use the task drawer for final assignment, due date, and completion state."
+            ],
+            "do_not": [
+                "Do not duplicate tasks that already exist for the same customer or order.",
+                "Do not mark work complete from ROSIE guidance alone."
+            ],
+            "actions": [
+                { "id": "open_tasks", "label": "Open Tasks", "target": "tasks:workspace" },
+                { "id": "review_blocked_tasks", "label": "Review Blocked", "target": "voice:task-blockers" }
+            ]
+        }));
+    }
+
     playbooks
 }
 
@@ -2149,6 +2251,30 @@ async fn rosie_chat_completions(
     Json(body): Json<Value>,
 ) -> Result<Response, Response> {
     let _viewer = resolve_help_viewer(&state, &headers).await?;
+    let stream_requested = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+
+    if !stream_requested {
+        let payload = send_rosie_provider_chat_request(QueryType::Conversation, &body)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "rosie provider request failed");
+                (
+                    axum::http::StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({
+                        "error": "ROSIE provider request failed",
+                    })),
+                )
+                    .into_response()
+            })?;
+
+        crate::logic::rosie_intelligence::record_telemetry_from_value(
+            state.db.clone(),
+            rosie_provider_label_from_completion(&payload),
+            &payload,
+        );
+
+        return Ok(Json(payload).into_response());
+    }
 
     let upstream = std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
         .ok()
@@ -2189,34 +2315,13 @@ async fn rosie_chat_completions(
         })?;
 
     let status = response.status();
-    if body.get("stream").and_then(Value::as_bool).unwrap_or(false) {
-        let stream = response.bytes_stream();
-        return Ok((
-            status,
-            [(CONTENT_TYPE, "text/event-stream; charset=utf-8")],
-            Body::from_stream(stream),
-        )
-            .into_response());
-    }
-
-    let payload = response.json::<Value>().await.map_err(|e| {
-        tracing::error!(error = %e, %upstream_url, "rosie upstream response parse failed");
-        (
-            axum::http::StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({
-                "error": "ROSIE upstream returned an invalid response",
-            })),
-        )
-            .into_response()
-    })?;
-
-    crate::logic::rosie_intelligence::record_telemetry_from_value(
-        state.db.clone(),
-        "local",
-        &payload,
-    );
-
-    Ok((status, Json(payload)).into_response())
+    let stream = response.bytes_stream();
+    Ok((
+        status,
+        [(CONTENT_TYPE, "text/event-stream; charset=utf-8")],
+        Body::from_stream(stream),
+    )
+        .into_response())
 }
 
 async fn post_rosie_insight_summary(
@@ -2233,50 +2338,18 @@ async fn post_rosie_insight_summary(
             .into_response());
     }
 
-    let upstream = match std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
-        .ok()
-        .map(|v| v.trim().trim_end_matches('/').to_string())
-        .filter(|v| !v.is_empty())
-    {
-        Some(upstream) => upstream,
-        None => return Ok(Json(rosie_insight_summary::unavailable_response())),
-    };
-    let upstream_url = format!("{upstream}/v1/chat/completions");
-    let upstream_client = match build_rosie_upstream_client() {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::warn!(%error, %upstream_url, "rosie insight upstream client init failed");
-            return Ok(Json(rosie_insight_summary::unavailable_response()));
-        }
-    };
     let payload = rosie_insight_summary::build_completion_payload(&body);
-    let response =
-        match send_rosie_upstream_chat_request(&upstream_client, &upstream_url, &payload).await {
-            Ok(response) => response,
-            Err(error) => {
-                tracing::warn!(%error, %upstream_url, "rosie insight upstream request failed");
-                return Ok(Json(rosie_insight_summary::unavailable_response()));
-            }
-        };
-    if !response.status().is_success() {
-        tracing::warn!(
-            status = %response.status(),
-            %upstream_url,
-            "rosie insight upstream returned non-success"
-        );
-        return Ok(Json(rosie_insight_summary::unavailable_response()));
-    }
-    let completion = match response.json::<Value>().await {
-        Ok(payload) => payload,
+    let completion = match send_rosie_provider_chat_request(QueryType::Analysis, &payload).await {
+        Ok(completion) => completion,
         Err(error) => {
-            tracing::warn!(%error, %upstream_url, "rosie insight upstream response parse failed");
+            tracing::warn!(%error, "rosie insight provider request failed");
             return Ok(Json(rosie_insight_summary::unavailable_response()));
         }
     };
 
     crate::logic::rosie_intelligence::record_telemetry_from_value(
         state.db.clone(),
-        "local",
+        rosie_provider_label_from_completion(&completion),
         &completion,
     );
 
@@ -2300,51 +2373,18 @@ async fn post_rosie_search_intent(
             .into_response());
     }
 
-    let upstream = match std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
-        .ok()
-        .map(|v| v.trim().trim_end_matches('/').to_string())
-        .filter(|v| !v.is_empty())
-    {
-        Some(upstream) => upstream,
-        None => return Ok(Json(rosie_search_intent::unavailable_response())),
-    };
-    let upstream_url = format!("{upstream}/v1/chat/completions");
-    let upstream_client = match build_rosie_upstream_client() {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::warn!(%error, %upstream_url, "rosie search intent upstream client init failed");
-            return Ok(Json(rosie_search_intent::unavailable_response()));
-        }
-    };
     let payload = rosie_search_intent::build_completion_payload(&body);
-    let response = match send_rosie_upstream_chat_request(&upstream_client, &upstream_url, &payload)
-        .await
-    {
-        Ok(response) => response,
+    let completion = match send_rosie_provider_chat_request(QueryType::Help, &payload).await {
+        Ok(completion) => completion,
         Err(error) => {
-            tracing::warn!(%error, %upstream_url, "rosie search intent upstream request failed");
-            return Ok(Json(rosie_search_intent::unavailable_response()));
-        }
-    };
-    if !response.status().is_success() {
-        tracing::warn!(
-            status = %response.status(),
-            %upstream_url,
-            "rosie search intent upstream returned non-success"
-        );
-        return Ok(Json(rosie_search_intent::unavailable_response()));
-    }
-    let completion = match response.json::<Value>().await {
-        Ok(payload) => payload,
-        Err(error) => {
-            tracing::warn!(%error, %upstream_url, "rosie search intent upstream response parse failed");
+            tracing::warn!(%error, "rosie search intent provider request failed");
             return Ok(Json(rosie_search_intent::unavailable_response()));
         }
     };
 
     crate::logic::rosie_intelligence::record_telemetry_from_value(
         state.db.clone(),
-        "local",
+        rosie_provider_label_from_completion(&completion),
         &completion,
     );
 

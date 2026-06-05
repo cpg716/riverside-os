@@ -344,8 +344,9 @@ foreach ($file in $STT_FILES) {
   Get-HfFile $STT_HF_REPO $file $sttModelDir
 }
 
-$sttOk = $STT_FILES | ForEach-Object { Test-Path (Join-Path $sttModelDir $_) } | Where-Object { -not $_ }
-if ($sttOk) {
+$sttMissing = @($STT_FILES | Where-Object { -not (Test-Path (Join-Path $sttModelDir $_)) })
+$sttReady = $sttMissing.Count -eq 0
+if (-not $sttReady) {
   Write-Warning "      Some STT model files could not be downloaded. ROSIE voice input will be unavailable."
 } else {
   Write-Host "      STT models ready at: $sttModelDir"
@@ -386,8 +387,10 @@ foreach ($file in $TTS_ESPEAK_FILES) {
   Get-HfFile $TTS_HF_REPO $file $ttsModelDir
 }
 
-$ttsOk = $TTS_FILES | ForEach-Object { Test-Path (Join-Path $ttsModelDir $_) } | Where-Object { -not $_ }
-if ($ttsOk) {
+$ttsRequiredFiles = @($TTS_FILES + $TTS_ESPEAK_FILES)
+$ttsMissing = @($ttsRequiredFiles | Where-Object { -not (Test-Path (Join-Path $ttsModelDir $_)) })
+$ttsReady = $ttsMissing.Count -eq 0
+if (-not $ttsReady) {
   Write-Warning "      Some TTS model files could not be downloaded. ROSIE voice output will be unavailable."
 } else {
   Write-Host "      TTS models ready at: $ttsModelDir"
@@ -448,10 +451,55 @@ if ($needsDownload) {
   }
 }
 
-# Write ready flag file (written even if Gemma download failed - binaries are present)
+# Write component status and only mark the stack ready when every runtime component is usable.
+$llmReady = Test-Path $modelDest
+$binaryMissing = @(@("llama-server.exe", "sherpa-onnx-offline.exe", "sherpa-onnx-offline-tts.exe") | Where-Object {
+  -not (Test-Path (Join-Path $binDestDir $_))
+})
+$binariesReady = $binaryMissing.Count -eq 0
+$stackReady = $binariesReady -and $sttReady -and $ttsReady -and $llmReady
+$statusPath = Join-Path $rosieRoot "rosie_status.json"
+$status = [pscustomobject]@{
+  ready = $stackReady
+  generated_at = (Get-Date).ToString("o")
+  components = [pscustomobject]@{
+    binaries = [pscustomobject]@{
+      ready = $binariesReady
+      missing = $binaryMissing
+      llama_version = $LLAMA_VERSION
+      sherpa_version = $SHERPA_VERSION
+    }
+    llm = [pscustomobject]@{
+      ready = $llmReady
+      model_path = $modelDest
+      model_filename = $pin.filename
+      sha256 = $pin.sha256
+    }
+    stt = [pscustomobject]@{
+      ready = $sttReady
+      model_dir = $sttModelDir
+      missing = $sttMissing
+      source = $STT_HF_REPO
+    }
+    tts = [pscustomobject]@{
+      ready = $ttsReady
+      model_dir = $ttsModelDir
+      missing = $ttsMissing
+      source = $TTS_HF_REPO
+    }
+  }
+}
+$status | ConvertTo-Json -Depth 6 | Out-File -FilePath $statusPath -Encoding utf8
+Write-Host "      Wrote ROSIE component status: $statusPath"
+
 $readyFlag = Join-Path $rosieRoot "rosie_ready"
-"READY" | Out-File -FilePath $readyFlag -Encoding utf8
-Write-Host "      Created ready flag file: $readyFlag"
+if ($stackReady) {
+  "READY" | Out-File -FilePath $readyFlag -Encoding utf8
+  Write-Host "      Created ready flag file: $readyFlag"
+} else {
+  if (Test-Path $readyFlag) { Remove-Item $readyFlag -Force -ErrorAction SilentlyContinue }
+  Write-Warning "      ROSIE stack is not fully ready. See $statusPath for component details."
+}
 
 # ============================================================
 # STEP 5 - Patch server .env

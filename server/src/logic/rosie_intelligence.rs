@@ -48,7 +48,7 @@ pub fn record_token_telemetry(
             VALUES ($1, $2, $3, $4)
         "#;
 
-        if let Err(e) = sqlx::query(query)
+        if let Err(error) = sqlx::query(query)
             .bind(&model_name)
             .bind(&provider)
             .bind(input_tokens)
@@ -56,7 +56,7 @@ pub fn record_token_telemetry(
             .execute(&pool)
             .await
         {
-            eprintln!("Failed to record ROSIE token telemetry: {}", e);
+            tracing::warn!(%error, "failed to record ROSIE token telemetry");
         }
     });
 }

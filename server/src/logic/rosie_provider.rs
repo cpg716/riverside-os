@@ -10,6 +10,8 @@ use crate::logic::rosie_gemini::GeminiClient;
 /// LLM provider trait
 #[async_trait]
 pub trait RosieLLMProvider: Send + Sync {
+    async fn chat_completion_payload(&self, payload: Value) -> Result<Value, String>;
+
     async fn chat_completion(&self, messages: Vec<Value>) -> Result<Value, String>;
 }
 
@@ -42,7 +44,7 @@ impl LocalGemmaProvider {
             .expect("Failed to create Gemma HTTP client");
 
         Self {
-            upstream_url,
+            upstream_url: upstream_url.trim_end_matches('/').to_string(),
             client,
         }
     }
@@ -56,19 +58,13 @@ impl LocalGemmaProvider {
 
 #[async_trait]
 impl RosieLLMProvider for LocalGemmaProvider {
-    async fn chat_completion(&self, messages: Vec<Value>) -> Result<Value, String> {
+    async fn chat_completion_payload(&self, payload: Value) -> Result<Value, String> {
         let url = format!("{}/v1/chat/completions", self.upstream_url);
-
-        let body = json!({
-            "model": "local",
-            "messages": messages,
-            "stream": false,
-        });
 
         let response = self
             .client
             .post(&url)
-            .json(&body)
+            .json(&payload)
             .send()
             .await
             .map_err(|e| format!("Gemma API request failed: {}", e))?;
@@ -90,6 +86,15 @@ impl RosieLLMProvider for LocalGemmaProvider {
             .await
             .map_err(|e| format!("Failed to parse Gemma API response: {}", e))
     }
+
+    async fn chat_completion(&self, messages: Vec<Value>) -> Result<Value, String> {
+        self.chat_completion_payload(json!({
+            "model": "local",
+            "messages": messages,
+            "stream": false,
+        }))
+        .await
+    }
 }
 
 /// Gemini API provider
@@ -110,8 +115,17 @@ impl GeminiProvider {
 
 #[async_trait]
 impl RosieLLMProvider for GeminiProvider {
-    async fn chat_completion(&self, messages: Vec<Value>) -> Result<Value, String> {
-        // Convert OpenAI-style messages to Gemini format
+    async fn chat_completion_payload(&self, payload: Value) -> Result<Value, String> {
+        let messages = payload
+            .get("messages")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let temperature = payload
+            .get("temperature")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.2)
+            .clamp(0.0, 2.0) as f32;
         let gemini_messages: Vec<Value> = messages
             .iter()
             .map(|msg| {
@@ -127,9 +141,40 @@ impl RosieLLMProvider for GeminiProvider {
             })
             .collect();
 
-        self.client
-            .chat_completion(gemini_messages, 0.7, false)
-            .await
+        let raw = self
+            .client
+            .chat_completion(gemini_messages, temperature, false)
+            .await?;
+        let content = raw["candidates"][0]["content"]["parts"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        if content.is_empty() {
+            return Err("Gemini response did not include assistant text".to_string());
+        }
+
+        Ok(json!({
+            "model": "gemini",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": content,
+                }
+            }]
+        }))
+    }
+
+    async fn chat_completion(&self, messages: Vec<Value>) -> Result<Value, String> {
+        self.chat_completion_payload(json!({
+            "model": "gemini",
+            "messages": messages,
+            "stream": false,
+        }))
+        .await
     }
 }
 

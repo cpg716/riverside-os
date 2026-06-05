@@ -43,6 +43,17 @@ const DOCUMENT_STATUSES: &[&str] = &[
     "cancelled",
 ];
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ProcurementRosieSidecarStatus {
+    pub enabled: bool,
+    pub url: String,
+    pub model: String,
+    pub timeout_ms: u64,
+    pub deterministic_formats: Vec<&'static str>,
+    pub ai_required_formats: Vec<&'static str>,
+    pub prompt_version: &'static str,
+}
+
 const LINE_MATCH_STATUSES: &[&str] = &[
     "exact",
     "likely",
@@ -554,6 +565,23 @@ fn sidecar_enabled() -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+pub fn procurement_rosie_sidecar_status() -> ProcurementRosieSidecarStatus {
+    ProcurementRosieSidecarStatus {
+        enabled: sidecar_enabled(),
+        url: env::var("RIVERSIDE_ROSIE_PROCUREMENT_URL")
+            .unwrap_or_else(|_| DEFAULT_ROSIE_PROCUREMENT_URL.to_string()),
+        model: env::var("RIVERSIDE_ROSIE_PROCUREMENT_MODEL")
+            .unwrap_or_else(|_| DEFAULT_ROSIE_PROCUREMENT_MODEL.to_string()),
+        timeout_ms: env::var("RIVERSIDE_ROSIE_PROCUREMENT_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(20_000),
+        deterministic_formats: vec!["csv", "xlsx", "xls", "json", "txt"],
+        ai_required_formats: vec!["pdf", "png", "jpg", "jpeg", "doc", "docx"],
+        prompt_version: PROCUREMENT_PROMPT_VERSION,
+    }
 }
 
 pub fn build_procurement_extraction_prompt() -> String {

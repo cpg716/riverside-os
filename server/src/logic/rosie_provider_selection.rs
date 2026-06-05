@@ -175,18 +175,21 @@ async fn check_local_gemma_availability() -> bool {
 
     let url = format!("{}/health", upstream_url);
 
-    tokio::time::timeout(
-        Duration::from_secs(5),
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(5))
-            .build()
-            .unwrap()
-            .get(&url)
-            .send(),
-    )
-    .await
-    .map(|r| r.map(|resp| resp.status().is_success()).unwrap_or(false))
-    .unwrap_or(false)
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::warn!(%error, "ROSIE local Gemma health client init failed");
+            return false;
+        }
+    };
+
+    tokio::time::timeout(Duration::from_secs(5), client.get(&url).send())
+        .await
+        .map(|r| r.map(|resp| resp.status().is_success()).unwrap_or(false))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

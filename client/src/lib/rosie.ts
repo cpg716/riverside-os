@@ -56,21 +56,6 @@ export type RosieChatCompletionResponse = {
   usage?: Record<string, unknown>;
 };
 
-type RosieStreamDelta = {
-  choices?: Array<{
-    delta?: {
-      content?: string;
-      text?: string;
-      reasoning_content?: string;
-    };
-    text?: string;
-    message?: {
-      content?: string;
-    };
-  }>;
-  error?: string | { message?: string };
-};
-
 export type RosieHelpGroundingSource = {
   kind:
     | "manual"
@@ -1140,119 +1125,6 @@ export async function rosieChatCompletions(
   return json as RosieChatCompletionResponse;
 }
 
-async function rosieChatCompletionsStream(
-  payload: RosieChatCompletionRequest,
-  options?: {
-    headers?: Record<string, string>;
-    settings?: RosieSettings;
-    on_delta?: (delta: string) => void;
-  },
-): Promise<RosieChatCompletionResponse> {
-  const settings = normalizeRosieSettings(options?.settings ?? loadLocalRosieSettings());
-  if (!settings.enabled) {
-    throw new Error("ROSIE is disabled for this workstation.");
-  }
-
-  const response = await fetch(
-    `${getBaseUrl()}/api/help/rosie/v1/chat/completions`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(options?.headers ?? {}),
-      },
-      body: JSON.stringify({
-        ...payload,
-        stream: true,
-        reasoning: false,
-        chat_template_kwargs: {
-          ...(payload.chat_template_kwargs ?? {}),
-          enable_thinking: false,
-        },
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    const json = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(json.error ?? `ROSIE stream failed with HTTP ${response.status}`);
-  }
-  if (response.headers.get("content-type")?.includes("application/json")) {
-    return (await response.json()) as RosieChatCompletionResponse;
-  }
-  if (!response.body) {
-    throw new Error("ROSIE stream did not return a readable response body.");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let answer = "";
-
-  const handleEvent = (eventText: string) => {
-    const dataLines = eventText
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trim())
-      .filter(Boolean);
-
-    for (const dataLine of dataLines) {
-      if (dataLine === "[DONE]") continue;
-      let event: RosieStreamDelta;
-      try {
-        event = JSON.parse(dataLine) as RosieStreamDelta;
-      } catch {
-        continue;
-      }
-      if (event.error) {
-        const message =
-          typeof event.error === "string" ? event.error : event.error.message;
-        if (message) throw new Error(message);
-      }
-      for (const choice of event.choices ?? []) {
-        const delta =
-          choice.delta?.content ??
-          choice.delta?.text ??
-          choice.text ??
-          choice.message?.content ??
-          "";
-        if (!delta) continue;
-        answer += delta;
-        options?.on_delta?.(delta);
-      }
-    }
-  };
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split(/\r?\n\r?\n/);
-    buffer = events.pop() ?? "";
-    for (const eventText of events) {
-      handleEvent(eventText);
-    }
-  }
-  buffer += decoder.decode();
-  if (buffer.trim()) {
-    handleEvent(buffer);
-  }
-
-  return {
-    choices: [
-      {
-        index: 0,
-        finish_reason: "stop",
-        message: {
-          role: "assistant",
-          content: sanitizeRosieAnswerText(answer),
-        },
-      },
-    ],
-  };
-}
-
 function buildGroundedHelpSystemPrompt(
   request: RosieGroundedHelpRequest,
   context: RosieToolContextResponse,
@@ -1726,7 +1598,7 @@ export async function askRosieGroundedHelpStream(
         ? 180
         : 180;
 
-  let completion = await rosieChatCompletionsStream(
+  let completion = await rosieChatCompletions(
     {
       model: "local",
       temperature: 0.2,
@@ -1735,10 +1607,12 @@ export async function askRosieGroundedHelpStream(
     },
     {
       headers: options?.headers,
-      on_delta: options?.on_delta,
     },
   );
   let answer = extractRosieCompletionAnswer(completion);
+  if (answer) {
+    options?.on_delta?.(answer);
+  }
 
   if (!answer) {
     completion = await rosieChatCompletions(

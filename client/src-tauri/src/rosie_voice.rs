@@ -422,11 +422,13 @@ pub async fn rosie_tts_speak(
 ) -> Result<String, String> {
     let rate_multiplier = rate.unwrap_or(1.0).clamp(0.8, 1.2);
 
-    let existing_child = state
-        .0
-        .lock()
-        .map_err(|_| "ROSIE speech state lock poisoned".to_string())?
-        .take();
+    let existing_child = {
+        state
+            .0
+            .lock()
+            .map_err(|_| "ROSIE speech state lock poisoned".to_string())?
+            .take()
+    };
 
     if let Some(mut child) = existing_child {
         let _ = child.kill().await;
@@ -449,42 +451,41 @@ pub async fn rosie_tts_speak(
         .and_then(|v| v.parse::<i32>().ok())
         .unwrap_or(5);
 
-    let sid_str = sid.to_string();
-    let speed_str = rate_multiplier.to_string();
+    let output = tokio::process::Command::new(&binary)
+        .args([
+            &format!("--kokoro-model={}", model_path.to_string_lossy()),
+            &format!("--kokoro-voices={}", voices_path.to_string_lossy()),
+            &format!("--kokoro-tokens={}", tokens_path.to_string_lossy()),
+            &format!("--kokoro-data-dir={}", data_dir.to_string_lossy()),
+            &format!("--output-filename={}", temp_wav.to_string_lossy()),
+            &format!("--sid={sid}"),
+            &format!("--speed={rate_multiplier}"),
+            text.as_str(),
+        ])
+        .output()
+        .await
+        .map_err(|error| format!("failed to synthesize ROSIE speech: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let _ = tokio::fs::remove_file(&temp_wav).await;
+        return Err(format!("ROSIE Kokoro TTS failed: {}", stderr.trim()));
+    }
 
     let mut cmd = if cfg!(windows) {
-        let cmd_str = format!(
-            "\"{}\" --kokoro-model=\"{}\" --kokoro-voices=\"{}\" --kokoro-tokens=\"{}\" --kokoro-data-dir=\"{}\" --output-filename=\"{}\" --sid={} --speed={} \"{}\" && powershell -c \"(New-Object Media.SoundPlayer '{}').PlaySync()\"",
-            binary.to_string_lossy(),
-            model_path.to_string_lossy(),
-            voices_path.to_string_lossy(),
-            tokens_path.to_string_lossy(),
-            data_dir.to_string_lossy(),
-            temp_wav.to_string_lossy(),
-            sid_str,
-            speed_str,
-            text.replace('"', "\\\""),
-            temp_wav.to_string_lossy()
-        );
-        let mut c = tokio::process::Command::new("cmd.exe");
-        c.args(["/C", &cmd_str]);
+        let mut c = tokio::process::Command::new("powershell.exe");
+        c.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "$player = New-Object Media.SoundPlayer $args[0]; $player.PlaySync(); Remove-Item -LiteralPath $args[0] -ErrorAction SilentlyContinue",
+        ]);
+        c.arg(&temp_wav);
         c
     } else {
-        let cmd_str = format!(
-            "\"{}\" --kokoro-model=\"{}\" --kokoro-voices=\"{}\" --kokoro-tokens=\"{}\" --kokoro-data-dir=\"{}\" --output-filename=\"{}\" --sid={} --speed={} \"{}\" && afplay \"{}\"",
-            binary.to_string_lossy(),
-            model_path.to_string_lossy(),
-            voices_path.to_string_lossy(),
-            tokens_path.to_string_lossy(),
-            data_dir.to_string_lossy(),
-            temp_wav.to_string_lossy(),
-            sid_str,
-            speed_str,
-            text.replace('"', "\\\""),
-            temp_wav.to_string_lossy()
-        );
-        let mut c = tokio::process::Command::new("sh");
-        c.args(["-c", &cmd_str]);
+        let mut c = tokio::process::Command::new("afplay");
+        c.arg(&temp_wav);
         c
     };
 

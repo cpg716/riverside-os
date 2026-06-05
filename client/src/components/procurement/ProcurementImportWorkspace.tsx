@@ -24,6 +24,15 @@ type Category = {
   name: string;
 };
 
+type ProcurementAiStatus = {
+  enabled: boolean;
+  model: string;
+  timeout_ms: number;
+  deterministic_formats: string[];
+  ai_required_formats: string[];
+  prompt_version: string;
+};
+
 type ImportDocument = {
   id: string;
   vendor_id?: string | null;
@@ -142,6 +151,7 @@ export default function ProcurementImportWorkspace({
   const [documentKind, setDocumentKind] = useState("unknown");
   const [busy, setBusy] = useState<string | null>(null);
   const [learnVendorProfile, setLearnVendorProfile] = useState(true);
+  const [aiStatus, setAiStatus] = useState<ProcurementAiStatus | null>(null);
 
   const headers = useMemo(() => backofficeHeaders() as Record<string, string>, [backofficeHeaders]);
 
@@ -158,6 +168,12 @@ export default function ProcurementImportWorkspace({
     const res = await fetch(apiUrl(baseUrl, "/api/procurement/imports?limit=25"), { headers });
     if (!res.ok) return;
     setImports(await res.json());
+  }, [baseUrl, headers]);
+
+  const loadAiStatus = useCallback(async () => {
+    const res = await fetch(apiUrl(baseUrl, "/api/procurement/imports/ai-status"), { headers });
+    if (!res.ok) return;
+    setAiStatus(await res.json());
   }, [baseUrl, headers]);
 
   const openImport = useCallback(
@@ -177,7 +193,8 @@ export default function ProcurementImportWorkspace({
   useEffect(() => {
     void loadReferenceData();
     void loadImports();
-  }, [loadImports, loadReferenceData]);
+    void loadAiStatus();
+  }, [loadAiStatus, loadImports, loadReferenceData]);
 
   const upload = async () => {
     if (!selectedFile) {
@@ -320,6 +337,19 @@ export default function ProcurementImportWorkspace({
                 original file when enabled, while deterministic parsers pre-read structured data for
                 speed and fallback safety. No stock posts until staff finishes Receiving.
               </p>
+              {aiStatus ? (
+                <div
+                  className={`mt-3 rounded-2xl border px-4 py-3 text-xs font-bold ${
+                    aiStatus.enabled
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : "border-amber-200 bg-amber-50 text-amber-900"
+                  }`}
+                >
+                  {aiStatus.enabled
+                    ? `ROSIE procurement AI is enabled (${aiStatus.model}). PDF, image, and Word files can be analyzed by the local sidecar before staff review.`
+                    : `ROSIE procurement AI sidecar is off. CSV, Excel, JSON, and TXT still parse deterministically; PDF, image, and Word uploads will need sidecar setup before useful line extraction.`}
+                </div>
+              ) : null}
             </div>
           </div>
           {onOpenReceiving ? (

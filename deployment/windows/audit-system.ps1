@@ -136,8 +136,28 @@ if ($config -and $config.server -and $config.server.installRoot) {
 }
 $rosieRoot = Join-Path $contractInstallRoot "rosie"
 $readyFlag = Join-Path $rosieRoot "rosie_ready"
+$statusPath = Join-Path $rosieRoot "rosie_status.json"
 
-if (Test-Path $readyFlag) {
+if (Test-Path $statusPath) {
+    try {
+        $rosieStatus = Get-Content -Raw $statusPath | ConvertFrom-Json
+        if ($rosieStatus.ready -eq $true) {
+            Write-Host "[OK] ROSIE component manifest reports full stack readiness." -ForegroundColor Green
+        } else {
+            Write-Host "[FAIL] ROSIE component manifest reports partial readiness. See $statusPath." -ForegroundColor Red
+        }
+        foreach ($component in @("binaries", "llm", "stt", "tts")) {
+            $componentStatus = $rosieStatus.components.$component
+            if ($componentStatus -and $componentStatus.ready -eq $true) {
+                Write-Host "[OK] ROSIE $component ready." -ForegroundColor Green
+            } else {
+                Write-Host "[FAIL] ROSIE $component not ready." -ForegroundColor Red
+            }
+        }
+    } catch {
+        Write-Host "[FAIL] ROSIE component manifest could not be parsed at $statusPath." -ForegroundColor Red
+    }
+} elseif (Test-Path $readyFlag) {
     Write-Host "[OK] ROSIE stack ready flag file found at $readyFlag." -ForegroundColor Green
 } else {
     Write-Host "[FAIL] ROSIE stack ready flag file is missing at $readyFlag. ROSIE was not installed correctly." -ForegroundColor Red

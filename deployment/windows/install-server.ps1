@@ -846,12 +846,22 @@ function Install-RosieStack($PackageRoot) {
     return $null
   }
 
-  # Verify the rosie_ready flag in C:\RiversideOS\rosie\rosie_ready to confirm deployment success
   $rosieRoot = Join-Path $installRoot "rosie"
+  $statusPath = Join-Path $rosieRoot "rosie_status.json"
   $readyFlag = Join-Path $rosieRoot "rosie_ready"
-  if (-not (Test-Path $readyFlag)) {
-    Write-Warning "ROSIE: rosie_ready flag file was not found at $readyFlag. ROSIE installation failed or was incomplete."
-    return $null
+  if (Test-Path $statusPath) {
+    try {
+      $rosieStatus = Get-Content -Raw $statusPath | ConvertFrom-Json
+      if ($rosieStatus.ready -eq $true) {
+        Write-Host "ROSIE: Component status reports full stack readiness."
+      } else {
+        Write-Warning "ROSIE: Component status reports partial setup. LLM may still be configured if the Gemma model is present."
+      }
+    } catch {
+      Write-Warning "ROSIE: Could not parse component status at $statusPath."
+    }
+  } elseif (-not (Test-Path $readyFlag)) {
+    Write-Warning "ROSIE: No component status or ready flag was found under $rosieRoot."
   }
 
   # Resolve model destination using MODEL_PIN.json or release default
