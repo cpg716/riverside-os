@@ -219,7 +219,7 @@ When order lines are marked **Ready for Pickup** (via Order Lifecycle), customer
 
 **Key Points:**
 - Notifications are queued when items become ready, not sent immediately
-- Staff can review pending notifications in Operations → Notification Queue
+- Staff can review pending, sent, failed, and reviewed automated messages in Operations → Customer Notifications or POS → Customer Notifications
 - "Send Now" override available for urgent pickups
 - All sent messages appear in Customer Messages section and Customer History
 - Requires customer opt-in (operational SMS/email always enabled by default)

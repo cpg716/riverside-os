@@ -1,8 +1,8 @@
-# Customer Notification Queue System
+# Customer Notifications System
 
 ## Overview
 
-The Customer Notification Queue system manages automated "Ready for Pickup" SMS/email notifications for orders and alterations. Messages are queued when items become ready and sent in batches at scheduled times (9:30 AM and 3:00 PM, Monday-Saturday) or immediately via staff override.
+The Customer Notifications system tracks automated customer-facing messages. It manages queued ready-for-pickup and alteration-ready SMS/email notifications, records appointment confirmations and reminders, tracks receipt sends, and exposes delivery failures for staff review. Regular staff-written Podium texts and regular staff-written emails are not part of this center.
 
 ## Architecture
 
@@ -13,10 +13,10 @@ The Customer Notification Queue system manages automated "Ready for Pickup" SMS/
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | UUID | Primary key |
-| `entity_type` | TEXT | 'order' or 'alteration' |
-| `entity_id` | UUID | Order or alteration ID |
+| `entity_type` | TEXT | 'order', 'alteration', 'appointment', 'transaction', or 'customer' |
+| `entity_id` | UUID | Source entity ID |
 | `customer_id` | UUID | Customer to notify |
-| `kind` | TEXT | 'ready_for_pickup' |
+| `kind` | TEXT | `ready_for_pickup`, `alteration_ready`, `appointment_confirmation`, `appointment_reminder`, `receipt`, `unknown_sender_welcome`, or `review_invite` |
 | `status` | TEXT | 'pending', 'scheduled', 'sent', 'skipped', 'failed' |
 | `scheduled_for` | TIMESTAMP | When to send (for scheduled batches) |
 | `sent_at` | TIMESTAMP | When actually sent |
@@ -29,6 +29,9 @@ The Customer Notification Queue system manages automated "Ready for Pickup" SMS/
 | `created_at` | TIMESTAMP | Queue creation time |
 | `updated_at` | TIMESTAMP | Last update time |
 | `created_by_staff_id` | UUID | Staff who queued (if manual) |
+| `reviewed_at` | TIMESTAMP | Staff review/archive time |
+| `reviewed_by_staff_id` | UUID | Staff member who marked the row reviewed |
+| `review_note` | TEXT | Optional staff review note |
 
 ### Database Functions
 
@@ -41,11 +44,11 @@ The Customer Notification Queue system manages automated "Ready for Pickup" SMS/
 
 ## API Endpoints
 
-### List Pending Notifications
+### List Notifications
 ```
 GET /api/notifications/queue?status=pending&entity_type=order
 ```
-- Requires: `orders.view` permission
+- Requires: authenticated staff
 - Query params: `status` (optional), `entity_type` (optional)
 - Returns: Array of notification queue rows
 
@@ -73,6 +76,14 @@ POST /api/notifications/queue/:id/skip
 ```
 - Requires: `orders.lifecycle_manage` permission
 - Marks notification as 'skipped' (will not be sent)
+
+### Mark Reviewed
+```
+POST /api/notifications/queue/:id/review
+Body: { "note": "Phone corrected and customer called." }
+```
+- Requires: authenticated staff
+- Archives the row from the active review list
 
 ## Scheduled Job System
 
@@ -102,9 +113,20 @@ When an alteration is marked `ready`:
 
 ### Podium Integration
 - SMS sent via `podium::try_send_operational_sms()`
+- Appointment confirmation SMS sends `riverside-appointment.ics` through the Podium MMS attachment endpoint when supported.
 - Email sent via `store_email::try_send_operational_email()`
 - All sends recorded to `podium_message` table (Customer Messages section)
 - Comprehensive logging via `tracing` with target `notification_scheduler`
+
+### Appointment Lifecycle
+- Appointment confirmation sends when a linked customer appointment is created.
+- Appointment confirmation email includes `riverside-appointment.ics`.
+- Appointment confirmation SMS/MMS also attempts to attach `riverside-appointment.ics`.
+- Appointment reminder sends 24 hours before `starts_at`, checked by a once-per-minute worker.
+
+### Loyalty
+- Loyalty reward redemption does not send automated SMS/email.
+- Customer notice remains the physical loyalty letter workflow.
 
 ## Customer History
 

@@ -52,7 +52,7 @@ Use the **Scheduler** to:
 
 - **Conflicts**: Red highlights or warnings indicate a staff member or room is overbooked.
 - **Syncing**: Changes made here may sync to external calendars (Google/Outlook) if your store has enabled that integration in Settings.
-- **Customer Notifications**: Confirmation and reminder messages are sent based on the customer's communication preferences.
+- **Customer Notifications**: Confirmation and reminder messages are sent based on the customer's communication preferences. Appointment confirmations include `riverside-appointment.ics` in email and attempt to attach it to the SMS/MMS confirmation through Podium. Appointment reminders send about 24 hours before the appointment time.
 
 ## What happens next
 

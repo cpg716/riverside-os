@@ -46,6 +46,7 @@ Use this window when a customer already has open Special, Custom, or Wedding wor
 - **Copy Unfulfilled Items** starts a **new** register sale.
 - It does **not** collect payment on the original Transaction Record.
 - Use the balance and lifecycle note to confirm whether the order still needs payment, receiving follow-up, measurement follow-up, or pickup follow-up.
+- When the order has linked alterations marked **Ready**, loading the order for pickup shows those alteration pickups in the Register. Completing the order pickup also marks those ready alterations **Picked Up**.
 
 ## Order types
 
@@ -65,6 +66,12 @@ For **Custom** orders, remember:
 - actual vendor cost should be entered when the garment is received
 - the main vendor-form references can be reviewed in the order detail before you continue pickup or payment work
 - order detail may now include size anchors, sleeve or cuff measurements, and vendor order references copied from the HSM or Individualized form
+
+For **Alterations linked to an order**:
+- Mark the alteration **Ready** in the Alterations workspace after final inspection.
+- Open the customer order from the Register and choose pickup.
+- Confirm the Register shows the ready alteration pickup badge before completing pickup.
+- Alterations that are still Intake, In Work, or Verify Completed do not automatically release with the order.
 
 ## Related workflows
 

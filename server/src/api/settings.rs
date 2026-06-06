@@ -1926,7 +1926,8 @@ struct PatchPodiumSmsTemplatesBody {
     ready_for_pickup: Option<String>,
     alteration_ready: Option<String>,
     unknown_sender_welcome: Option<String>,
-    loyalty_reward_redeemed: Option<String>,
+    appointment_confirmation: Option<String>,
+    appointment_reminder: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -1979,8 +1980,11 @@ async fn patch_podium_sms_settings(
         if let Some(s) = t.unknown_sender_welcome {
             current.templates.unknown_sender_welcome = s;
         }
-        if let Some(s) = t.loyalty_reward_redeemed {
-            current.templates.loyalty_reward_redeemed = s;
+        if let Some(s) = t.appointment_confirmation {
+            current.templates.appointment_confirmation = s;
+        }
+        if let Some(s) = t.appointment_reminder {
+            current.templates.appointment_reminder = s;
         }
     }
     let updated = serde_json::to_value(&current).map_err(|e| {

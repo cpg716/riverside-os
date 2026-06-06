@@ -787,13 +787,57 @@ fn references_from_raw_headers(raw_headers: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn looks_like_delivery_failure(
+    from_email: Option<&str>,
+    subject: Option<&str>,
+    body_text: Option<&str>,
+) -> bool {
+    let haystack = format!(
+        "{}\n{}\n{}",
+        from_email.unwrap_or_default(),
+        subject.unwrap_or_default(),
+        body_text.unwrap_or_default()
+    )
+    .to_ascii_lowercase();
+    haystack.contains("mailer-daemon")
+        || haystack.contains("delivery status notification")
+        || haystack.contains("undeliverable")
+        || haystack.contains("delivery has failed")
+        || haystack.contains("message not delivered")
+        || haystack.contains("returned mail")
+        || haystack.contains("mail delivery failed")
+}
+
+fn extract_email_token(text: &str) -> Option<String> {
+    text.split(|c: char| {
+        c.is_whitespace() || matches!(c, '<' | '>' | '"' | '\'' | '(' | ')' | ',' | ';')
+    })
+    .map(|token| token.trim_matches(|c: char| matches!(c, '.' | ':' | '[' | ']')))
+    .find(|token| {
+        let at = token.find('@');
+        at.is_some() && !token.starts_with('@') && !token.ends_with('@')
+    })
+    .map(ToOwned::to_owned)
+}
+
+fn failed_recipient_from_bounce(
+    subject: Option<&str>,
+    body_text: Option<&str>,
+    body_html: Option<&str>,
+) -> Option<String> {
+    body_text
+        .and_then(extract_email_token)
+        .or_else(|| body_html.and_then(extract_email_token))
+        .or_else(|| subject.and_then(extract_email_token))
+}
+
 pub async fn try_send_operational_email(
     pool: &PgPool,
     to_email: &str,
     subject: String,
     html_body: String,
     customer_id: Option<Uuid>,
-) {
+) -> Result<Uuid, EmailError> {
     match send_email(
         pool,
         to_email,
@@ -805,14 +849,17 @@ pub async fn try_send_operational_email(
     )
     .await
     {
-        Ok(_) => {}
-        Err(error) => tracing::warn!(
-            target = "email",
-            event = "send_failed",
-            error = %error,
-            customer_id = ?customer_id,
-            "Automated email send failed"
-        ),
+        Ok(id) => Ok(id),
+        Err(error) => {
+            tracing::warn!(
+                target = "email",
+                event = "send_failed",
+                error = %error,
+                customer_id = ?customer_id,
+                "Automated email send failed"
+            );
+            Err(error)
+        }
     }
 }
 
@@ -1108,6 +1155,32 @@ async fn insert_inbound_message(
     .await?;
 
     if inserted.is_some() {
+        if looks_like_delivery_failure(
+            from_email.as_deref(),
+            subject.as_deref(),
+            body_text.as_deref(),
+        ) {
+            if let Some(failed_email) = failed_recipient_from_bounce(
+                subject.as_deref(),
+                body_text.as_deref(),
+                body_html.as_deref(),
+            ) {
+                let reason = subject
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or("Email delivery failure detected from mailbox bounce.");
+                if let Err(error) =
+                    crate::logic::customer_notifications::mark_latest_notification_failed_for_email(
+                        pool,
+                        &failed_email,
+                        reason,
+                    )
+                    .await
+                {
+                    tracing::warn!(error = %error, failed_email, "customer notification email bounce update failed");
+                }
+            }
+        }
         if let Some(customer_id) = customer_id {
             let _ = record_inbound_customer_message(
                 pool,

@@ -1530,8 +1530,21 @@ async fn register_session_history(
             rs.closing_comments,
             rs.z_report_json,
             (
-                SELECT COALESCE(SUM(o.total_price), 0)::numeric(14,2)
+                SELECT COALESCE(SUM(line_sales.sales_subtotal), 0)::numeric(14,2)
                 FROM transactions o
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(
+                        ((tl.unit_price - COALESCE(tl.discount_amount, 0))
+                        * GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)
+                    ), 0)::numeric(14,2) AS sales_subtotal
+                    FROM transaction_lines tl
+                    LEFT JOIN (
+                        SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                        FROM transaction_return_lines
+                        GROUP BY transaction_line_id
+                    ) orl ON orl.transaction_line_id = tl.id
+                    WHERE tl.transaction_id = o.id
+                ) line_sales ON TRUE
                 WHERE EXISTS (
                     SELECT 1
                     FROM payment_allocations pa
@@ -2117,14 +2130,31 @@ async fn staff_schedule_coverage_sales_report(
               AND (sws.week_start + (swd.weekday::int * INTERVAL '1 day'))::date < $2::date
             GROUP BY 1
         ),
+        transaction_sales AS (
+            SELECT
+                o.id,
+                COALESCE(SUM(
+                    ((tl.unit_price - COALESCE(tl.discount_amount, 0))
+                    * GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)
+                ), 0)::numeric(14,2) AS sales_subtotal
+            FROM transactions o
+            LEFT JOIN transaction_lines tl ON tl.transaction_id = o.id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = tl.id
+            WHERE o.booked_at >= $3 AND o.booked_at < $4
+              AND o.status::text <> 'cancelled'
+            GROUP BY o.id
+        ),
         sales AS (
             SELECT
-                booked_at::date AS report_date,
+                o.booked_at::date AS report_date,
                 COUNT(*)::bigint AS transaction_count,
-                COALESCE(SUM(total_price), 0)::numeric(14,2) AS sales_volume
-            FROM transactions
-            WHERE booked_at >= $3 AND booked_at < $4
-              AND status::text <> 'cancelled'
+                COALESCE(SUM(ts.sales_subtotal), 0)::numeric(14,2) AS sales_volume
+            FROM transactions o
+            JOIN transaction_sales ts ON ts.id = o.id
             GROUP BY 1
         ),
         appointments AS (
@@ -2495,26 +2525,46 @@ async fn sales_trend_pace_report(
         WITH days AS (
             SELECT generate_series($1::date, ($2::date - INTERVAL '1 day')::date, INTERVAL '1 day')::date AS report_date
         ),
+        line_sales AS (
+            SELECT
+                o.id,
+                COALESCE(SUM(
+                    ((tl.unit_price - COALESCE(tl.discount_amount, 0))
+                    * GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)
+                ), 0)::numeric(14,2) AS sales_subtotal
+            FROM transactions o
+            LEFT JOIN transaction_lines tl ON tl.transaction_id = o.id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = tl.id
+            WHERE o.booked_at >= ($3 - INTERVAL '7 days') AND o.booked_at < $4
+              AND o.status::text <> 'cancelled'
+            GROUP BY o.id
+        ),
         current_sales AS (
             SELECT
-                COALESCE(business_date, booked_at::date) AS report_date,
+                COALESCE(o.business_date, o.booked_at::date) AS report_date,
                 COUNT(*)::bigint AS transaction_count,
-                COALESCE(ROUND(SUM(total_price), 2), 0)::numeric(14,2) AS gross_sales,
-                COALESCE(ROUND(SUM(amount_paid), 2), 0)::numeric(14,2) AS amount_paid,
-                COALESCE(ROUND(SUM(balance_due), 2), 0)::numeric(14,2) AS balance_due
-            FROM transactions
-            WHERE booked_at >= $3 AND booked_at < $4
-              AND status::text <> 'cancelled'
+                COALESCE(ROUND(SUM(ls.sales_subtotal), 2), 0)::numeric(14,2) AS gross_sales,
+                COALESCE(ROUND(SUM(o.amount_paid), 2), 0)::numeric(14,2) AS amount_paid,
+                COALESCE(ROUND(SUM(o.balance_due), 2), 0)::numeric(14,2) AS balance_due
+            FROM transactions o
+            JOIN line_sales ls ON ls.id = o.id
+            WHERE o.booked_at >= $3 AND o.booked_at < $4
+              AND o.status::text <> 'cancelled'
             GROUP BY 1
         ),
         prior_week AS (
             SELECT
-                (COALESCE(business_date, booked_at::date) + INTERVAL '7 days')::date AS report_date,
-                COALESCE(ROUND(SUM(total_price), 2), 0)::numeric(14,2) AS prior_week_gross_sales
-            FROM transactions
-            WHERE booked_at >= ($3 - INTERVAL '7 days')
-              AND booked_at < ($4 - INTERVAL '7 days')
-              AND status::text <> 'cancelled'
+                (COALESCE(o.business_date, o.booked_at::date) + INTERVAL '7 days')::date AS report_date,
+                COALESCE(ROUND(SUM(ls.sales_subtotal), 2), 0)::numeric(14,2) AS prior_week_gross_sales
+            FROM transactions o
+            JOIN line_sales ls ON ls.id = o.id
+            WHERE o.booked_at >= ($3 - INTERVAL '7 days')
+              AND o.booked_at < ($4 - INTERVAL '7 days')
+              AND o.status::text <> 'cancelled'
             GROUP BY 1
         )
         SELECT
@@ -2916,18 +2966,35 @@ async fn online_store_conversion_fulfillment_report(
             WHERE created_at >= $3 AND created_at < $4
             GROUP BY 1
         ),
+        transaction_sales AS (
+            SELECT
+                o.id,
+                COALESCE(SUM(
+                    ((tl.unit_price - COALESCE(tl.discount_amount, 0))
+                    * GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)
+                ), 0)::numeric(14,2) AS sales_subtotal
+            FROM transactions o
+            LEFT JOIN transaction_lines tl ON tl.transaction_id = o.id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = tl.id
+            WHERE o.booked_at >= $3 AND o.booked_at < $4
+              AND o.status::text <> 'cancelled'
+              AND o.sale_channel::text = 'web'
+            GROUP BY o.id
+        ),
         online_tx AS (
             SELECT
-                COALESCE(business_date, booked_at::date) AS report_date,
+                COALESCE(t.business_date, t.booked_at::date) AS report_date,
                 COUNT(*)::bigint AS online_transaction_count,
-                COALESCE(ROUND(SUM(total_price), 2), 0)::numeric(14,2) AS online_sales,
-                COUNT(*) FILTER (WHERE fulfillment_method::text = 'pickup')::bigint AS pickup_fulfillment_count,
-                COUNT(*) FILTER (WHERE fulfillment_method::text = 'ship')::bigint AS shipping_fulfillment_count,
-                COUNT(*) FILTER (WHERE COALESCE(balance_due, 0) > 0)::bigint AS open_balance_count
-            FROM transactions
-            WHERE booked_at >= $3 AND booked_at < $4
-              AND status::text <> 'cancelled'
-              AND sale_channel::text = 'web'
+                COALESCE(ROUND(SUM(ts.sales_subtotal), 2), 0)::numeric(14,2) AS online_sales,
+                COUNT(*) FILTER (WHERE t.fulfillment_method::text = 'pickup')::bigint AS pickup_fulfillment_count,
+                COUNT(*) FILTER (WHERE t.fulfillment_method::text = 'ship')::bigint AS shipping_fulfillment_count,
+                COUNT(*) FILTER (WHERE COALESCE(t.balance_due, 0) > 0)::bigint AS open_balance_count
+            FROM transactions t
+            JOIN transaction_sales ts ON ts.id = t.id
             GROUP BY 1
         )
         SELECT
@@ -3154,27 +3221,45 @@ async fn customer_value_frequency_report(
     let (start, end) = range_bounds(&q);
     let rows = sqlx::query_as::<_, CustomerValueFrequencyReportRow>(
         r#"
+        WITH line_sales AS (
+            SELECT
+                o.id,
+                COALESCE(SUM(
+                    ((tl.unit_price - COALESCE(tl.discount_amount, 0))
+                    * GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)
+                ), 0)::numeric(14,2) AS sales_subtotal
+            FROM transactions o
+            LEFT JOIN transaction_lines tl ON tl.transaction_id = o.id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = tl.id
+            WHERE o.booked_at >= $1 AND o.booked_at < $2
+              AND o.status::text <> 'cancelled'
+            GROUP BY o.id
+        )
         SELECT
-            customer_code,
+            c.customer_code,
             COALESCE(
-                NULLIF(TRIM(customer_display_name), ''),
-                NULLIF(TRIM(customer_company_name), ''),
-                customer_code,
+                NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''),
+                NULLIF(TRIM(c.company_name), ''),
+                c.customer_code,
                 'Walk-in / Unknown'
             ) AS customer_display_name,
-            customer_phone,
-            customer_email,
+            c.phone AS customer_phone,
+            c.email AS customer_email,
             COUNT(*)::bigint AS transaction_count,
-            COALESCE(ROUND(SUM(total_price), 2), 0)::numeric(14,2) AS gross_sales,
-            COALESCE(ROUND(SUM(amount_paid), 2), 0)::numeric(14,2) AS amount_paid,
-            COALESCE(ROUND(SUM(balance_due), 2), 0)::numeric(14,2) AS balance_due,
-            MIN(booked_at) AS first_purchase_at,
-            MAX(booked_at) AS last_purchase_at,
-            COALESCE(MAX(NULLIF(sale_channel, '')), 'store') AS sale_channel
-        FROM reporting.transactions_core
-        WHERE booked_at >= $1 AND booked_at < $2
-          AND status <> 'cancelled'
-        GROUP BY customer_id, customer_code, customer_display_name, customer_company_name, customer_phone, customer_email
+            COALESCE(ROUND(SUM(ls.sales_subtotal), 2), 0)::numeric(14,2) AS gross_sales,
+            COALESCE(ROUND(SUM(o.amount_paid), 2), 0)::numeric(14,2) AS amount_paid,
+            COALESCE(ROUND(SUM(o.balance_due), 2), 0)::numeric(14,2) AS balance_due,
+            MIN(o.booked_at) AS first_purchase_at,
+            MAX(o.booked_at) AS last_purchase_at,
+            COALESCE(MAX(NULLIF(o.sale_channel::text, '')), 'store') AS sale_channel
+        FROM transactions o
+        JOIN line_sales ls ON ls.id = o.id
+        LEFT JOIN customers c ON c.id = o.customer_id
+        GROUP BY o.customer_id, c.customer_code, c.first_name, c.last_name, c.company_name, c.phone, c.email
         ORDER BY gross_sales DESC, transaction_count DESC, last_purchase_at DESC
         LIMIT 500
         "#,

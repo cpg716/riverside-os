@@ -26,6 +26,9 @@ use crate::auth::permissions::{
 };
 use crate::auth::pins::{self, log_staff_access};
 use crate::auth::pos_session;
+use crate::logic::customer_notifications::{
+    record_customer_notification, CustomerNotificationChannel, CustomerNotificationKind,
+};
 use crate::logic::email as store_email;
 use crate::logic::gift_card_ops;
 use crate::logic::helcim;
@@ -336,6 +339,8 @@ pub struct TransactionDetailResponse {
     pub customer: Option<TransactionCustomerSummary>,
     pub financial_summary: TransactionFinancialSummary,
     pub linked_alteration_summary: TransactionLinkedAlterationSummary,
+    #[serde(default)]
+    pub linked_alterations: Vec<TransactionLinkedAlteration>,
     pub items: Vec<TransactionDetailItem>,
     #[serde(default)]
     pub lifecycle_events: Vec<TransactionLineLifecycleEvent>,
@@ -399,6 +404,18 @@ pub struct TransactionLinkedAlterationSummary {
     pub overdue_count: i64,
     pub ready_count: i64,
     pub picked_up_count: i64,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct TransactionLinkedAlteration {
+    pub id: Uuid,
+    pub status: String,
+    pub item_description: Option<String>,
+    pub work_requested: String,
+    pub source_sku: Option<String>,
+    pub ticket_number: Option<String>,
+    pub source_transaction_line_id: Option<Uuid>,
+    pub picked_up_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -4329,7 +4346,23 @@ async fn post_transaction_receipt_send_email(
     };
 
     match store_email::send_email(&state.db, &addr, &subject, &html, None, None, "outbound").await {
-        Ok(_) => Ok(Json(json!({ "status": "sent" }))),
+        Ok(_) => {
+            if let Some(customer) = detail.customer.as_ref() {
+                let _ = record_customer_notification(
+                    &state.db,
+                    customer.id,
+                    "transaction",
+                    transaction_id,
+                    CustomerNotificationKind::Receipt,
+                    CustomerNotificationChannel::Email,
+                    Some(&format!("{subject}\n{html}")),
+                    None,
+                    json!({ "receipt": true, "gift": body.gift, "to_email": addr }),
+                )
+                .await;
+            }
+            Ok(Json(json!({ "status": "sent" })))
+        }
         Err(e) => Err(map_store_email_err(e)),
     }
 }
@@ -4454,6 +4487,18 @@ async fn post_transaction_receipt_send_sms(
                             "automated",
                         )
                         .await;
+                        let _ = record_customer_notification(
+                            &state.db,
+                            customer.id,
+                            "transaction",
+                            transaction_id,
+                            CustomerNotificationKind::Receipt,
+                            CustomerNotificationChannel::Sms,
+                            Some(&caption),
+                            None,
+                            json!({ "receipt": true, "gift": body.gift, "mode": "mms_attachment", "to_phone": e164 }),
+                        )
+                        .await;
                     }
                     Ok(Json(json!({ "status": "sent", "mode": "mms_attachment" })))
                 }
@@ -4490,6 +4535,18 @@ async fn post_transaction_receipt_send_sms(
                     e164.as_deref(),
                     None,
                     "automated",
+                )
+                .await;
+                let _ = record_customer_notification(
+                    &state.db,
+                    customer.id,
+                    "transaction",
+                    transaction_id,
+                    CustomerNotificationKind::Receipt,
+                    CustomerNotificationChannel::Sms,
+                    Some(&sms_body),
+                    None,
+                    json!({ "receipt": true, "gift": body.gift, "mode": "sms_text", "to_phone": e164 }),
                 )
                 .await;
             }
@@ -4896,6 +4953,36 @@ pub(crate) async fn load_transaction_detail(
     .bind(&transaction_line_ids)
     .fetch_one(pool)
     .await?;
+    let linked_alterations = sqlx::query_as::<_, TransactionLinkedAlteration>(
+        r#"
+        SELECT
+            a.id,
+            a.status::text AS status,
+            a.item_description,
+            a.work_requested,
+            a.source_sku,
+            a.ticket_number,
+            a.source_transaction_line_id,
+            a.picked_up_at
+        FROM alteration_orders a
+        WHERE a.transaction_id = $1
+           OR a.source_transaction_id = $1
+           OR a.source_transaction_line_id = ANY($2::uuid[])
+        ORDER BY
+            CASE a.status
+                WHEN 'ready'::alteration_status THEN 0
+                WHEN 'verify_completed'::alteration_status THEN 1
+                WHEN 'in_work'::alteration_status THEN 2
+                WHEN 'intake'::alteration_status THEN 3
+                ELSE 4
+            END,
+            a.created_at DESC
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(&transaction_line_ids)
+    .fetch_all(pool)
+    .await?;
 
     let receipt_cfg_raw: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT receipt_config FROM store_settings WHERE id = 1")
@@ -4959,6 +5046,7 @@ pub(crate) async fn load_transaction_detail(
             total_applied_deposit_amount: total_applied_deposit_amount.unwrap_or(Decimal::ZERO),
         },
         linked_alteration_summary,
+        linked_alterations,
         items,
         lifecycle_events,
         receipt_studio_layout_available,

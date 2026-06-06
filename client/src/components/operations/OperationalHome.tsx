@@ -39,6 +39,7 @@ import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
 import PodiumMessagingInboxSection from "../customers/PodiumMessagingInboxSection";
 import MailboxOperationsSection from "./MailboxOperationsSection";
+import NotificationQueueOperationsSection from "./NotificationQueueOperationsSection";
 import RegisterReports from "../pos/RegisterReports";
 import FulfillmentCommandCenter from "./FulfillmentCommandCenter";
 import ReviewsOperationsSection from "./ReviewsOperationsSection";
@@ -1882,6 +1883,27 @@ export default function OperationalHome({
               onOpenWeddingParty={onOpenWeddingParty}
               refreshSignal={refreshSignal}
             />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (activeSection === "notification-queue") {
+    return (
+      <div className="flex flex-1 flex-col bg-transparent">
+        <div className="flex flex-1 flex-col bg-app-surface">
+          {!permissionsLoaded ? (
+            <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Opening Customer Notifications...</div>
+          ) : !hasPermission("orders.view") ? (
+            <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
+              <ShieldCheck size={64} className="text-app-danger opacity-20" />
+              <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
+                Order access is required to review customer notifications in Back Office.
+              </p>
+            </div>
+          ) : (
+            <NotificationQueueOperationsSection />
           )}
         </div>
       </div>

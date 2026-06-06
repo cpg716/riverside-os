@@ -39,8 +39,6 @@ export function LoyaltyRedeemDialog({
   const { toast } = useToast();
   const rewardCents = parseMoneyToCents(rewardAmountRaw);
   const [cardCode, setCardCode] = useState("");
-  const [notifySms, setNotifySms] = useState(false);
-  const [notifyEmail, setNotifyEmail] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cardInputRef = useRef<HTMLInputElement>(null);
@@ -54,8 +52,6 @@ export function LoyaltyRedeemDialog({
   useEffect(() => {
     if (!isOpen || !customer) return;
     setCardCode("");
-    setNotifySms(false);
-    setNotifyEmail(false);
     setError(null);
   }, [isOpen, customer]);
 
@@ -83,8 +79,8 @@ export function LoyaltyRedeemDialog({
           customer_id: customer.id,
           apply_to_sale: centsToFixed2(0),
           remainder_card_code: cardCode.trim(),
-          notify_customer_sms: notifySms,
-          notify_customer_email: notifyEmail,
+          notify_customer_sms: false,
+          notify_customer_email: false,
           ...(registerSessionId ? { session_id: registerSessionId } : {}),
         }),
       });
@@ -215,30 +211,6 @@ export function LoyaltyRedeemDialog({
                       This creates value on a loyalty gift card. It does not discount the open sale until that gift card is redeemed in the payment drawer.
                     </p>
                   </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 rounded-[28px] bg-app-surface-2 p-5 border border-app-border/40 shadow-inner">
-              <p className="col-span-2 mb-1 px-1 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
-                Customer Notice
-              </p>
-              <label className="flex items-center gap-3 rounded-[18px] bg-app-surface px-4 py-3 border border-app-border cursor-pointer transition-all hover:border-emerald-500/40 hover:bg-emerald-500/[0.02] group shadow-sm active:scale-[0.98]">
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 rounded-lg border-app-border text-emerald-600 focus:ring-emerald-500 transition-all"
-                  checked={notifySms}
-                  onChange={(e) => setNotifySms(e.target.checked)}
-                />
-                <span className="text-[11px] font-black uppercase tracking-widest text-app-text group-hover:text-emerald-600 transition-colors">Send Text</span>
-              </label>
-              <label className="flex items-center gap-3 rounded-[18px] bg-app-surface px-4 py-3 border border-app-border cursor-pointer transition-all hover:border-sky-500/40 hover:bg-sky-500/[0.02] group shadow-sm active:scale-[0.98]">
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 rounded-lg border-app-border text-sky-600 focus:ring-sky-500 transition-all"
-                  checked={notifyEmail}
-                  onChange={(e) => setNotifyEmail(e.target.checked)}
-                />
-                <span className="text-[11px] font-black uppercase tracking-widest text-app-text group-hover:text-sky-600 transition-colors">Send Email</span>
-              </label>
             </div>
 
             {error && (

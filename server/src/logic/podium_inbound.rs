@@ -705,8 +705,34 @@ pub async fn ingest_from_webhook(
                             {
                                 tracing::error!(error = %e, customer_id = %welcome_cid, "record welcome SMS to podium_message");
                             }
+                            let _ = crate::logic::customer_notifications::record_customer_notification(
+                                &pool_c,
+                                welcome_cid,
+                                "customer",
+                                welcome_cid,
+                                crate::logic::customer_notifications::CustomerNotificationKind::UnknownSenderWelcome,
+                                crate::logic::customer_notifications::CustomerNotificationChannel::Sms,
+                                Some(tpl_t),
+                                None,
+                                serde_json::json!({ "to_phone": ph_e164 }),
+                            )
+                            .await;
                         }
-                        Err(e) => tracing::warn!(error = %e, "podium welcome sms skipped"),
+                        Err(e) => {
+                            let _ = crate::logic::customer_notifications::record_customer_notification(
+                                &pool_c,
+                                welcome_cid,
+                                "customer",
+                                welcome_cid,
+                                crate::logic::customer_notifications::CustomerNotificationKind::UnknownSenderWelcome,
+                                crate::logic::customer_notifications::CustomerNotificationChannel::Sms,
+                                Some(tpl_t),
+                                Some(&e.to_string()),
+                                serde_json::json!({ "to_phone": ph }),
+                            )
+                            .await;
+                            tracing::warn!(error = %e, "podium welcome sms skipped");
+                        }
                     }
                 }
             }

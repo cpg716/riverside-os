@@ -90,10 +90,11 @@ Editable bodies (defaults apply when a field is left empty at save time):
 
 - **Ready for pickup** — when an order is marked ready for pickup / pickup messaging runs.
 - **Alteration ready** — alteration workflow notify path.
+- **Appointment confirmation** — customer appointment creation; SMS/MMS attempts to attach `riverside-appointment.ics`.
+- **Appointment reminder** — customer appointment reminder about 24 hours before the appointment time.
 - **Unknown-sender welcome** — optional auto-reply when Riverside creates a **stub customer** from an inbound SMS (webhook path); helps collect a name.
-- **Loyalty reward redeemed** — when staff choose to notify on redeem and email/SMS flags allow.
 
-Use the tag buttons in the Settings panel to insert supported values such as `{first_name}`, `{order_ref}`, `{alteration_ref}`, `{reward_amount}`, `{points_redeemed}`, and `{new_balance}`.
+Use the tag buttons in the Settings panel to insert supported values such as `{first_name}`, `{order_ref}`, `{alteration_ref}`, `{appointment_type}`, and `{starts_at}`.
 
 **Save** the Integrations card after edits.
 
@@ -176,10 +177,12 @@ When Podium is configured and toggles are on, Riverside may send without a secon
 |---------|---------|--------|
 | Order pickup / ready messaging | SMS | Uses the pickup text template. |
 | Alteration ready | SMS | Uses the alteration text template. |
-| Appointment confirmation | Store email (IONOS) | Managed outside Podium settings through the ROS mailbox/email path. |
-| Loyalty reward redeemed | SMS | Cashier checkboxes on redeem; still require customer opt-in for automated SMS where applicable. |
+| Appointment confirmation | SMS/MMS + Store email (IONOS) | SMS/MMS uses the Podium appointment confirmation template and attempts to attach `riverside-appointment.ics`. Email also includes `riverside-appointment.ics`. |
+| Appointment reminder | SMS + Store email (IONOS) | Sends about 24 hours before the appointment time. |
 
 If something should have sent but did not, verify: **Settings credentials**, **location UID**, **SMS toggle**, **customer phone**, **SMS opt-in**, **template content**, and server logs (admins).
+
+Loyalty reward redemptions do not send automated SMS/email. Customer notice for loyalty rewards remains the physical loyalty letter workflow.
 
 ---
 

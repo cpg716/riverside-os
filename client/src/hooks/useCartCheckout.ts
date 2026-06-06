@@ -31,6 +31,7 @@ interface UseCartCheckoutProps {
   posShipping: PosShippingSelection | null;
   pendingAlterationIntakes: PendingAlterationIntake[];
   orderPaymentLines: OrderPaymentCartLine[];
+  pickupAlterationIds?: string[];
   pickupConfirmed: boolean;
   pickupTransactionId: string | null;
   saleDateTimeLocal?: string | null;
@@ -114,6 +115,7 @@ export function useCartCheckout({
   posShipping,
   pendingAlterationIntakes,
   orderPaymentLines,
+  pickupAlterationIds = [],
   pickupConfirmed,
   pickupTransactionId,
   saleDateTimeLocal,
@@ -549,6 +551,20 @@ export function useCartCheckout({
           });
           if (pickupRes.ok) {
             toast("Pickup completed successfully.", "success");
+            for (const alterationId of pickupAlterationIds) {
+              try {
+                const alterationPickupRes = await fetch(`${baseUrl}/api/alterations/${alterationId}/pickup`, {
+                  method: "POST",
+                  headers: apiAuth(),
+                });
+                if (!alterationPickupRes.ok) {
+                  const body = await alterationPickupRes.json().catch(() => ({})) as { error?: string };
+                  toast(body.error ?? "Ready alteration could not be marked picked up.", "error");
+                }
+              } catch {
+                toast("Ready alteration pickup update failed after order pickup.", "error");
+              }
+            }
             receiptTransactionId = pickupTransactionId;
           } else {
             const body = await pickupRes.json().catch(() => ({})) as { error?: string };
@@ -579,7 +595,7 @@ export function useCartCheckout({
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
     cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
-    pickupConfirmed, pickupTransactionId, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, checkoutClientId
+    pickupAlterationIds, pickupConfirmed, pickupTransactionId, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, checkoutClientId
   ]);
 
   return {

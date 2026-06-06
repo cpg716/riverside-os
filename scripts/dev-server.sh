@@ -94,6 +94,7 @@ load_env_default "RIVERSIDE_LLAMA_HOST"
 load_env_default "RIVERSIDE_LLAMA_PORT"
 load_env_default "RIVERSIDE_LLAMA_EXTRA_ARGS"
 load_env_default "RIVERSIDE_LLAMA_PERF_PROFILE"
+load_env_default "RIVERSIDE_DEV_ROSIE_HOST_LOG_LEVEL"
 
 LLAMA_BIN="${RIVERSIDE_LLAMA_BIN:-$DEFAULT_LLAMA_BIN}"
 LLAMA_HOST="${RIVERSIDE_LLAMA_HOST:-127.0.0.1}"
@@ -101,6 +102,7 @@ LLAMA_PORT="${RIVERSIDE_LLAMA_PORT:-8080}"
 LOCAL_LLAMA_URL="http://${LLAMA_HOST}:${LLAMA_PORT}"
 LLAMA_MODEL_PATH="${RIVERSIDE_LLAMA_MODEL_PATH:-$DEFAULT_LLAMA_MODEL_PATH}"
 LLAMA_EXTRA_ARGS="${RIVERSIDE_LLAMA_EXTRA_ARGS:---reasoning off}"
+ROSIE_HOST_LOG_LEVEL="${RIVERSIDE_DEV_ROSIE_HOST_LOG_LEVEL:-quiet}"
 DEFAULT_LLAMA_PERF_PROFILE="intel-i9-12900"
 if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
   DEFAULT_LLAMA_PERF_PROFILE="apple-m3-pro"
@@ -154,6 +156,27 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
+rosie_log_dir() {
+  printf '%s' "${RIVERSIDE_DEV_ROSIE_LOG_DIR:-$ROOT/.tmp/rosie}"
+}
+
+start_rosie_host() {
+  local log_dir
+  log_dir="$(rosie_log_dir)"
+  mkdir -p "$log_dir"
+  if [[ "$ROSIE_HOST_LOG_LEVEL" == "verbose" ]]; then
+    "${LLAMA_CMD[@]}" &
+  else
+    local stdout_log="$log_dir/llama-server.stdout.log"
+    local stderr_log="$log_dir/llama-server.stderr.log"
+    : >"$stdout_log"
+    : >"$stderr_log"
+    echo "[rosie] Gemma Host logs: ${stdout_log} / ${stderr_log}"
+    "${LLAMA_CMD[@]}" >"$stdout_log" 2>"$stderr_log" &
+  fi
+  ROSIE_LLAMA_PID="$!"
+}
+
 if [[ -z "${RIVERSIDE_LLAMA_UPSTREAM:-}" ]]; then
   export RIVERSIDE_LLAMA_UPSTREAM="$LOCAL_LLAMA_URL"
 fi
@@ -180,8 +203,7 @@ if ! is_falsey "$ROSIE_AUTOSTART"; then
         LLAMA_CMD+=("${EXTRA_ARGS[@]}")
       fi
       LLAMA_CMD+=("${LLAMA_ENFORCED_ARGS[@]}")
-      "${LLAMA_CMD[@]}" &
-      ROSIE_LLAMA_PID="$!"
+      start_rosie_host
       if wait_for_rosie_health "$LOCAL_LLAMA_URL"; then
         echo "[rosie] local Gemma Host runtime ready at ${LOCAL_LLAMA_URL}"
       else

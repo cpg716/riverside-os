@@ -24,6 +24,8 @@ import {
   Pencil,
   AlertTriangle,
   Printer,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
@@ -193,6 +195,16 @@ interface HandoffOrderDetail {
     customer_code?: string | null;
     company_name?: string | null;
   } | null;
+  linked_alterations?: Array<{
+    id: string;
+    status: string;
+    item_description?: string | null;
+    work_requested: string;
+    source_sku?: string | null;
+    ticket_number?: string | null;
+    source_transaction_line_id?: string | null;
+    picked_up_at?: string | null;
+  }>;
   items: Array<{
     transaction_line_id: string;
     product_id: string;
@@ -354,6 +366,7 @@ export default function Cart({
   const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
   const [pickupTransactionId, setPickupTransactionId] = useState<string | null>(null);
   const [pickupPaidAmountCents, setPickupPaidAmountCents] = useState<number>(0);
+  const [pickupReadyAlterations, setPickupReadyAlterations] = useState<NonNullable<HandoffOrderDetail["linked_alterations"]>>([]);
 
   // --- UI States (Restored to Cart.tsx) ---
   const [checkoutDrawerOpen, setCheckoutDrawerOpen] = useState(false);
@@ -451,7 +464,6 @@ export default function Cart({
   const [rmsPaymentOpen, setRmsPaymentOpen] = useState(false);
   const [parkSalePromptOpen, setParkSalePromptOpen] = useState(false);
   const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
-  const [moreSaleActionsOpen, setMoreSaleActionsOpen] = useState(false);
 
   const {
     lines,
@@ -524,6 +536,7 @@ export default function Cart({
     setManagerOverrideReason("");
     setPickupTransactionId(null);
     setPickupPaidAmountCents(0);
+    setPickupReadyAlterations([]);
   }, [clearCart, resetSaleDateTime]);
 
   const selectedCustomerId = selectedCustomer?.id ?? null;
@@ -1259,6 +1272,7 @@ export default function Cart({
     posShipping,
     pendingAlterationIntakes,
     orderPaymentLines,
+    pickupAlterationIds: pickupReadyAlterations.map((alteration) => alteration.id),
     pickupConfirmed,
     pickupTransactionId,
     saleDateTimeLocal,
@@ -1379,11 +1393,57 @@ export default function Cart({
 
 	  // pendingExchangeOriginalOrderIdRef removed
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const actionRibbonRef = useRef<HTMLDivElement | null>(null);
   const didInitialProductSearchFocusRef = useRef(false);
   const initialTransactionApplyingRef = useRef<string | null>(null);
   const initialTransactionAppliedRef = useRef<string | null>(null);
+  const [actionRibbonCanScrollLeft, setActionRibbonCanScrollLeft] = useState(false);
+  const [actionRibbonCanScrollRight, setActionRibbonCanScrollRight] = useState(false);
   const [exchangeWizardOpen, setExchangeWizardOpen] = useState(false);
   const [shippingModalOpen, setShippingModalOpen] = useState(false);
+
+  const updateActionRibbonScrollState = useCallback(() => {
+    const ribbon = actionRibbonRef.current;
+    if (!ribbon) {
+      setActionRibbonCanScrollLeft(false);
+      setActionRibbonCanScrollRight(false);
+      return;
+    }
+    const maxScrollLeft = ribbon.scrollWidth - ribbon.clientWidth;
+    setActionRibbonCanScrollLeft(ribbon.scrollLeft > 1);
+    setActionRibbonCanScrollRight(ribbon.scrollLeft < maxScrollLeft - 1);
+  }, []);
+
+  const scrollActionRibbon = useCallback((direction: "left" | "right" | "start" | "end") => {
+    const ribbon = actionRibbonRef.current;
+    if (!ribbon) return;
+    if (direction === "start" || direction === "end") {
+      ribbon.scrollTo({
+        left: direction === "start" ? 0 : ribbon.scrollWidth,
+        behavior: "smooth",
+      });
+      window.requestAnimationFrame(updateActionRibbonScrollState);
+      return;
+    }
+    ribbon.scrollBy({
+      left: direction === "left" ? -ribbon.clientWidth * 0.75 : ribbon.clientWidth * 0.75,
+      behavior: "smooth",
+    });
+    window.requestAnimationFrame(updateActionRibbonScrollState);
+  }, [updateActionRibbonScrollState]);
+
+  useEffect(() => {
+    updateActionRibbonScrollState();
+    const ribbon = actionRibbonRef.current;
+    if (!ribbon) return;
+    const handleResize = () => updateActionRibbonScrollState();
+    ribbon.addEventListener("scroll", updateActionRibbonScrollState, { passive: true });
+    window.addEventListener("resize", handleResize);
+    return () => {
+      ribbon.removeEventListener("scroll", updateActionRibbonScrollState);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [updateActionRibbonScrollState]);
 
   const handleTransactionBarcode = useCallback(async (shortId: string) => {
     try {
@@ -1707,6 +1767,7 @@ export default function Cart({
         // Pickup mode: load unfulfilled items into cart
         setPickupTransactionId(detail.transaction_id);
         setPickupPaidAmountCents(parseMoneyToCents(detail.amount_paid ?? "0"));
+        setPickupReadyAlterations((detail.linked_alterations ?? []).filter((alteration) => alteration.status === "ready"));
         setManagerOverrideApproved(false);
         setManagerOverrideReason("");
         const balanceDueCents = parseMoneyToCents(detail.balance_due ?? "0");
@@ -1780,6 +1841,7 @@ export default function Cart({
       }
 
       // Normal mode: open OrderLoadModal
+      setPickupReadyAlterations([]);
       setOrderLoadOpen(true);
       toast(
         `Opened ${detail.transaction_display_id ?? "transaction"} in Customer Orders. Add payments or edit the original order there; ROS will not start a new sale for this order.`,
@@ -2116,7 +2178,7 @@ export default function Cart({
               </div>
             )}
 
-          {(selectedCustomer || parkedRows.length > 0 || pendingAlterationIntakes.length > 0) ? (
+          {(selectedCustomer || parkedRows.length > 0 || pendingAlterationIntakes.length > 0 || pickupReadyAlterations.length > 0) ? (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-2 text-[10px] font-bold text-app-text-muted">
               <span className="inline-flex items-center gap-1 rounded-lg bg-app-surface-2 px-2 py-1 font-black uppercase tracking-widest text-app-text">
                 <UserCircle size={12} aria-hidden />
@@ -2144,6 +2206,12 @@ export default function Cart({
                 <span className="inline-flex items-center gap-1 rounded-lg border border-app-accent/20 bg-app-accent/10 px-2 py-1 font-black uppercase tracking-widest text-app-accent">
                   <Scissors size={12} aria-hidden />
                   {pendingAlterationIntakes.length} intake{pendingAlterationIntakes.length === 1 ? "" : "s"} pending checkout
+                </span>
+              ) : null}
+              {pickupReadyAlterations.length > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-app-success/25 bg-app-success/10 px-2 py-1 font-black uppercase tracking-widest text-app-success">
+                  <Scissors size={12} aria-hidden />
+                  {pickupReadyAlterations.length} alteration pickup{pickupReadyAlterations.length === 1 ? "" : "s"} included
                 </span>
               ) : null}
               {offlineQueueCount > 0 ? (
@@ -2282,24 +2350,48 @@ export default function Cart({
           </div>
 
           {/* Sale tools row */}
-          <div className="flex flex-wrap items-center gap-2 border-t border-app-border/50 pt-2">
-            <span className="mr-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-              Quick sale actions
-            </span>
-            <div className="contents">
-              <span className="sr-only">
-                Customer work
-              </span>
+          <div className="flex items-center gap-2 border-t border-app-border/50 pt-2">
+            <button
+              type="button"
+              aria-label="Scroll cart actions left"
+              onClick={() => scrollActionRibbon("left")}
+              disabled={!actionRibbonCanScrollLeft}
+              className="ui-touch-target flex h-12 w-8 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              <ChevronLeft size={18} aria-hidden />
+            </button>
+            <div
+              ref={actionRibbonRef}
+              role="toolbar"
+              aria-label="Cart actions"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  scrollActionRibbon("left");
+                } else if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  scrollActionRibbon("right");
+                } else if (event.key === "Home") {
+                  event.preventDefault();
+                  scrollActionRibbon("start");
+                } else if (event.key === "End") {
+                  event.preventDefault();
+                  scrollActionRibbon("end");
+                }
+              }}
+              className="flex min-w-0 flex-1 gap-2 overflow-x-auto rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-app-accent/60"
+            >
               <button
                 type="button"
                 onClick={() => {
                   setWeddingDrawerPreferGroupPay(false);
                   setWeddingDrawerOpen(true);
                 }}
-                className={`ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border px-2.5 transition-all active:scale-95 ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent"}`}
+                className={`ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border px-1.5 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px] ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:bg-app-surface hover:text-app-accent"}`}
               >
                 <WEDDINGS_ICON size={16} />
-                <span className="text-[10px] font-black uppercase tracking-widest">
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
                   {activeWeddingMember ? "Switch" : "Wedding"}
                 </span>
               </button>
@@ -2315,10 +2407,12 @@ export default function Cart({
                   setAlterationIntakeOpen(true);
                 }}
                 title={selectedCustomer ? "Start alteration intake" : "Select a customer to start alteration intake"}
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-accent/40 bg-app-accent/5 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white active:scale-95"
+                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-accent/60 bg-app-accent/10 px-1.5 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
               >
                 <Scissors size={16} />
-                Alteration
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                  Alteration
+                </span>
               </button>
               <button
                 type="button"
@@ -2333,40 +2427,35 @@ export default function Cart({
                   setCustomPromptOpen(true);
                 }}
                 title={selectedCustomer ? "Start a custom order" : "Select a customer to start a custom order"}
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-warning/40 bg-app-warning/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-warning transition-all hover:bg-app-warning hover:text-white active:scale-95"
+                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-warning/60 bg-app-warning/10 px-1.5 text-center text-app-warning shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-warning hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
               >
                 <Pencil size={16} />
-                Custom
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                  Custom
+                </span>
               </button>
               <button
                 type="button"
                 data-testid="pos-exchange-wizard-trigger"
                 onClick={() => setExchangeWizardOpen(true)}
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-border bg-app-surface-2 px-2.5 text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
+                title="Exchange or return"
+                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-border bg-app-surface-2 px-1.5 text-center text-app-text shadow-sm ring-1 ring-black/5 transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95 dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
               >
                 <ArrowLeftRight size={16} />
-                <span className="text-[10px] font-black uppercase tracking-widest">
-                  Exchange / Return
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                  Return
                 </span>
               </button>
-            </div>
-            <div className="contents">
-              <span className="sr-only">
-                Sale options
-              </span>
               <button
                 type="button"
-                onClick={() => {
-                  setLines(prev => prev.map(l => ({
-                    ...l,
-                    fulfillment: l.fulfillment === 'layaway' ? 'takeaway' : 'layaway'
-                  })));
-                }}
-                className={`ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border px-2.5 transition-all active:scale-95 ${lines.some(l => l.fulfillment === 'layaway') ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-warning/35 hover:bg-app-surface hover:text-app-warning"}`}
+                disabled={!selectedCustomer}
+                onClick={() => setOrderLoadOpen(true)}
+                title={selectedCustomer ? "View customer open orders" : "Select a customer to view open orders"}
+                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-info/60 bg-app-info/10 px-1.5 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
               >
-                <Clock size={16} />
-                <span className="text-[10px] font-black uppercase tracking-widest">
-                  Layaway
+                <ORDER_HISTORY_ICON size={16} className="shrink-0" aria-hidden />
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                  Orders
                 </span>
               </button>
               <button
@@ -2374,10 +2463,12 @@ export default function Cart({
                 data-testid="pos-action-gift-card"
                 onClick={() => setGiftCardLoadOpen(true)}
                 title="Enter load amount, then scan or type the card code"
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-success/35 bg-app-success/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white"
+                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-success/60 bg-app-success/10 px-1.5 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
               >
                 <GIFT_CARDS_ICON size={16} className="shrink-0" aria-hidden />
-                Gift Card
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                  Gift Card
+                </span>
               </button>
               <button
                 type="button"
@@ -2407,74 +2498,76 @@ export default function Cart({
                   setRmsPaymentOpen(true);
                 }}
                 title="Add an RMS Charge Payment to collect payment on customer account"
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-violet-500/35 bg-violet-500/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-violet-600 transition-all hover:bg-violet-600 hover:text-white"
+                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-violet-500/60 bg-violet-500/10 px-1.5 text-center text-violet-600 shadow-sm ring-1 ring-black/5 transition-all hover:bg-violet-600 hover:text-white dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
               >
                 <CreditCard size={16} className="shrink-0" aria-hidden />
-                RMS Pay
-              </button>
-              <button
-                type="button"
-                disabled={!selectedCustomer}
-                onClick={() => setOrderLoadOpen(true)}
-                title={selectedCustomer ? "View customer open orders" : "Select a customer to view open orders"}
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-info/35 bg-app-info/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-info transition-all hover:bg-app-info hover:text-white disabled:opacity-20"
-              >
-                <ORDER_HISTORY_ICON size={16} className="shrink-0" aria-hidden />
-                Orders
-              </button>
-            </div>
-            <div className="contents">
-              <span className="sr-only">
-                More sale actions
-              </span>
-              <button
-                type="button"
-                onClick={() => setMoreSaleActionsOpen((open) => !open)}
-                aria-expanded={moreSaleActionsOpen}
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-border bg-app-surface-2 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-text active:scale-95"
-              >
-                More Actions
-              </button>
-            </div>
-            {moreSaleActionsOpen ? (
-              <div className="flex basis-full flex-wrap items-center gap-2 rounded-xl border border-app-border/60 bg-app-surface/80 p-2">
-                <span className="mr-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                  Less common
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                  RMS Pay
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setOrderReviewOpen(true)}
-                  disabled={lines.length === 0}
-                  title="Set rush and pickup/order details. Use Shipping to ship this current sale."
-                  className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-success/35 bg-app-success/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-20"
-                >
-                  <Zap size={16} className="shrink-0" aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLines(prev => prev.map(l => ({
+                    ...l,
+                    fulfillment: l.fulfillment === 'layaway' ? 'takeaway' : 'layaway'
+                  })));
+                }}
+                className={`ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border px-1.5 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px] ${lines.some(l => l.fulfillment === 'layaway') ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-warning/50 hover:bg-app-surface hover:text-app-warning"}`}
+              >
+                <Clock size={16} />
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                  Layaway
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrderReviewOpen(true)}
+                disabled={lines.length === 0}
+                title="Set rush and pickup/order details. Use Shipping to ship this current sale."
+                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-success/60 bg-app-success/10 px-1.5 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+              >
+                <Zap size={16} className="shrink-0" aria-hidden />
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
                   Options
-                </button>
-                <button
-                  type="button"
-                  disabled={lines.length === 0}
-                  onClick={() => {
-                     const label = selectedCustomer ? `Sale for ${selectedCustomer.first_name} ${selectedCustomer.last_name}` : "Untitled Sale";
-                     setParkSaleDraftLabel(label);
-                     setParkSalePromptOpen(true);
-                  }}
-                  className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-accent/40 bg-app-accent/5 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-20"
-                >
-                  <Clock size={16} />
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={lines.length === 0}
+                onClick={() => {
+                   const label = selectedCustomer ? `Sale for ${selectedCustomer.first_name} ${selectedCustomer.last_name}` : "Untitled Sale";
+                   setParkSaleDraftLabel(label);
+                   setParkSalePromptOpen(true);
+                }}
+                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-accent/60 bg-app-accent/10 px-1.5 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+              >
+                <Clock size={16} />
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
                   Park Sale
-                </button>
-                <button
-                  type="button"
-                  disabled={lines.length === 0 && !selectedCustomer}
-                  onClick={() => setShowClearConfirm(true)}
-                  className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-danger/35 bg-app-danger/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-danger transition-all hover:bg-app-danger hover:text-white disabled:opacity-20"
-                >
-                  <RotateCcw size={16} />
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={lines.length === 0 && !selectedCustomer}
+                onClick={() => setShowClearConfirm(true)}
+                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-danger/60 bg-app-danger/10 px-1.5 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+              >
+                <RotateCcw size={16} />
+                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
                   Clear Sale
-                </button>
-              </div>
-            ) : null}
+                </span>
+              </button>
+            </div>
+            <button
+              type="button"
+              aria-label="Scroll cart actions right"
+              onClick={() => scrollActionRibbon("right")}
+              disabled={!actionRibbonCanScrollRight}
+              className="ui-touch-target flex h-12 w-8 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-35"
+            >
+              <ChevronRight size={18} aria-hidden />
+            </button>
           </div>
           {pendingAlterationIntakes.length > 0 ? (
             <div
@@ -2490,6 +2583,30 @@ export default function Cart({
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Next: finish checkout to create tailor queue work
                 </span>
+              </div>
+            </div>
+          ) : null}
+          {pickupReadyAlterations.length > 0 ? (
+            <div
+              data-testid="pos-pickup-ready-alterations-summary"
+              className="rounded-xl border border-app-success/25 bg-app-success/10 px-3 py-2 text-xs font-bold text-app-text"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="flex items-center gap-2">
+                  <Scissors size={14} className="text-app-success" />
+                  {pickupReadyAlterations.length} ready alteration pickup
+                  {pickupReadyAlterations.length === 1 ? "" : "s"} will be completed with this order
+                </span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Next: complete pickup
+                </span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {pickupReadyAlterations.slice(0, 3).map((alteration) => (
+                  <span key={alteration.id} className="rounded-lg bg-app-surface/80 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    {alteration.ticket_number ? `Ticket ${alteration.ticket_number}` : alteration.source_sku ?? "Alteration"} · {alteration.work_requested}
+                  </span>
+                ))}
               </div>
             </div>
           ) : null}

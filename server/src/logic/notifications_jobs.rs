@@ -1,6 +1,7 @@
 //! Scheduled notification generators + retention (archive / purge).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::api::payments;
 use crate::auth::permissions::{
@@ -9,19 +10,23 @@ use crate::auth::permissions::{
 };
 use crate::logic::backups::BackupSettings;
 use crate::logic::integration_alerts;
+use crate::logic::messaging::MessagingService;
 use crate::logic::notifications::{
     admin_staff_ids, archive_stale_staff_notifications, delete_app_notification_by_dedupe,
     emit_qbo_sync_failed, fan_out_notification_to_staff_ids, insert_app_notification_deduped,
     purge_archived_staff_notifications, staff_ids_with_permission,
     upsert_app_notification_by_dedupe,
 };
+use crate::logic::podium::PodiumTokenCache;
 use crate::logic::tasks;
+use crate::logic::wedding_api_types::AppointmentRow;
 use crate::models::DbStaffRole;
 use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Timelike, Utc};
 use chrono_tz::Tz;
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 const PAYMENTS_VIEW: &str = "payments.view";
@@ -2417,6 +2422,53 @@ async fn run_counterpoint_sync_admin_notifications(pool: &PgPool) -> Result<(), 
         .execute(pool)
         .await?;
     }
+    Ok(())
+}
+
+/// Customer appointment reminders due at the 24-hour-before mark.
+pub async fn run_customer_appointment_reminders(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query_as::<_, AppointmentRow>(
+        r#"
+        SELECT
+            id,
+            wedding_party_id,
+            wedding_member_id,
+            customer_id,
+            customer_display_name,
+            phone,
+            appointment_type,
+            starts_at,
+            notes,
+            status,
+            salesperson
+        FROM wedding_appointments wa
+        WHERE wa.customer_id IS NOT NULL
+          AND wa.starts_at > NOW()
+          AND wa.starts_at - INTERVAL '24 hours' <= NOW()
+          AND lower(trim(wa.status)) NOT IN ('cancelled', 'canceled', 'no_show')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM customer_notification_queue cnq
+              WHERE cnq.entity_type = 'appointment'
+                AND cnq.entity_id = wa.id
+                AND cnq.kind = 'appointment_reminder'
+          )
+        ORDER BY wa.starts_at ASC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for appointment in rows {
+        MessagingService::trigger_appointment_reminder(pool, http, podium_cache, &appointment)
+            .await?;
+    }
+
     Ok(())
 }
 

@@ -1253,7 +1253,18 @@ async fn admin_store_dashboard(
         r#"
         SELECT
             COALESCE((SELECT COUNT(*)::bigint FROM transactions WHERE sale_channel = 'web'), 0) AS web_transactions,
-            COALESCE((SELECT ROUND(SUM(total_price), 2) FROM transactions WHERE sale_channel = 'web'), 0)::numeric AS web_sales_usd,
+            COALESCE((
+                SELECT ROUND(SUM(line_sales.sales_subtotal), 2)
+                FROM transactions t
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(
+                        ((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2)
+                    ), 0)::numeric(14,2) AS sales_subtotal
+                    FROM transaction_lines tl
+                    WHERE tl.transaction_id = t.id
+                ) line_sales ON TRUE
+                WHERE t.sale_channel = 'web'
+            ), 0)::numeric AS web_sales_usd,
             COALESCE((SELECT COUNT(*)::bigint FROM store_checkout_session WHERE status IN ('draft', 'payment_pending')), 0) AS pending_checkouts,
             COALESCE((SELECT COUNT(*)::bigint FROM store_checkout_session WHERE status IN ('failed', 'expired', 'cancelled')), 0) AS abandoned_checkouts,
             COALESCE((SELECT COUNT(*)::bigint FROM storefront_campaign WHERE is_active = true), 0) AS active_campaigns,
@@ -1522,7 +1533,18 @@ async fn admin_store_analytics(
             COUNT(*) FILTER (WHERE status = 'cancelled')::bigint AS cancelled_sessions,
             COALESCE(ROUND(SUM(total_usd) FILTER (WHERE status = 'paid'), 2), 0)::numeric AS paid_revenue_usd,
             COALESCE((SELECT COUNT(*)::bigint FROM transactions WHERE sale_channel = 'web'), 0) AS web_transactions,
-            COALESCE((SELECT ROUND(SUM(total_price), 2)::numeric FROM transactions WHERE sale_channel = 'web'), 0)::numeric AS web_transaction_revenue_usd
+            COALESCE((
+                SELECT ROUND(SUM(line_sales.sales_subtotal), 2)::numeric
+                FROM transactions t
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(
+                        ((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2)
+                    ), 0)::numeric(14,2) AS sales_subtotal
+                    FROM transaction_lines tl
+                    WHERE tl.transaction_id = t.id
+                ) line_sales ON TRUE
+                WHERE t.sale_channel = 'web'
+            ), 0)::numeric AS web_transaction_revenue_usd
         FROM store_checkout_session
         "#,
     )

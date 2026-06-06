@@ -285,8 +285,13 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
     let lifetime_spend_usd: Decimal = if let Some(cid) = couple_id {
         sqlx::query_scalar(
             r#"
-            SELECT COALESCE(SUM(total_price), 0)::DECIMAL(14, 2)
-            FROM transactions
+            SELECT COALESCE(SUM(line_sales.sales_subtotal), 0)::DECIMAL(14, 2)
+            FROM transactions t
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2)), 0)::numeric(14,2) AS sales_subtotal
+                FROM transaction_lines tl
+                WHERE tl.transaction_id = t.id
+            ) line_sales ON TRUE
             WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
               AND status != 'cancelled'::order_status
               AND booked_at >= '2018-01-01'
@@ -298,8 +303,13 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
     } else {
         sqlx::query_scalar(
             r#"
-            SELECT COALESCE(SUM(total_price), 0)::DECIMAL(14, 2)
+            SELECT COALESCE(SUM(line_sales.sales_subtotal), 0)::DECIMAL(14, 2)
             FROM transactions t
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2)), 0)::numeric(14,2) AS sales_subtotal
+                FROM transaction_lines tl
+                WHERE tl.transaction_id = t.id
+            ) line_sales ON TRUE
             WHERE (
                 t.customer_id = $1
                 OR EXISTS (

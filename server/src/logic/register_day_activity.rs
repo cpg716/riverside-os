@@ -116,7 +116,7 @@ pub struct RegisterDaySummary {
     pub new_wedding_parties_count: i64,
     /// Sum of all `merchant_fee` in `payment_transactions` for the range/session.
     pub merchant_fees_total: String,
-    /// subtotal + tax - fees (or similar net definition).
+    /// Merchandise sales excluding tax. Taxes remain in `sales_tax_total`.
     pub net_sales: String,
     /// Total payments received in cash ($0.00 format)
     pub cash_collected: String,
@@ -279,6 +279,7 @@ async fn try_load_eod_snapshot(
             s.from_local = store_local_date;
             s.to_local = store_local_date;
             s.reporting_basis = "booked".to_string();
+            s.net_sales = s.sales_subtotal_no_tax.clone();
             Ok(Some(s))
         }
         Err(e) => {
@@ -602,6 +603,7 @@ pub async fn fetch_register_day_summary(
         transaction_id: Uuid,
         booked_at: chrono::DateTime<Utc>,
         total_price: Decimal,
+        sales_total_booked: Decimal,
         tax_total: Decimal,
         wedding_party_id: Option<Uuid>,
         party_name: Option<String>,
@@ -680,7 +682,10 @@ pub async fn fetch_register_day_summary(
                   AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
                   AND pt.status = 'success'
             ) AS amount_paid_in_window,
-            o.total_price AS sales_total_booked,
+            GREATEST(o.total_price - COALESCE(SUM(
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
+                * (oi.state_tax + oi.local_tax)
+            ), 0), 0)::numeric(14,2) AS sales_total_booked,
             (
                 SELECT STRING_AGG(DISTINCT oi2.fulfillment::text, ', ')
                 FROM transaction_lines oi2
@@ -818,9 +823,9 @@ pub async fn fetch_register_day_summary(
             ),
             transaction_id: Some(s.transaction_id),
             wedding_party_id: s.wedding_party_id,
-            amount_label: Some(format!("${}", money_label(s.total_price))),
+            amount_label: Some(format!("${}", money_label(s.sales_total_booked))),
             payment_summary: s.pay,
-            sales_total: Some(money_label(s.total_price)),
+            sales_total: Some(money_label(s.sales_total_booked)),
             tax_total: Some(money_label(s.tax_total)),
             is_takeaway: Some(s.is_takeaway),
             channel: Some(s.channel),
@@ -861,7 +866,7 @@ pub async fn fetch_register_day_summary(
         appointment_count,
         new_wedding_parties_count,
         merchant_fees_total: money_label(merchant_fees),
-        net_sales: money_label(subtotal + tax_total - merchant_fees),
+        net_sales: money_label(subtotal),
         cash_collected: money_label(cash_collected),
         deposits_collected: money_label(deposits_collected),
         activities,

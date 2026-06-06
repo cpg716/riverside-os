@@ -1,10 +1,11 @@
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::logic::customer_notifications::{
+    record_customer_notification, CustomerNotificationChannel, CustomerNotificationKind,
+};
 use crate::logic::email as store_email;
 use crate::logic::podium::{
     self, apply_template_placeholders, looks_like_email, normalize_phone_e164, PodiumTokenCache,
@@ -48,52 +49,83 @@ fn sms_opt_in_ok(row: &CustomerMessagingRow) -> bool {
     row.transactional_sms_opt_in
 }
 
-fn fmt_money_dec(d: Decimal) -> String {
-    d.to_f64()
-        .map(|f| format!("{f:.2}"))
-        .unwrap_or_else(|| d.to_string())
+fn url_encode_component(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            b' ' => out.push_str("%20"),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
-fn loyalty_redeem_breakdown_sms(apply: Decimal, remainder: Decimal) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    if apply > Decimal::ZERO {
-        parts.push(format!(
-            "${} applied to your sale today.",
-            fmt_money_dec(apply)
-        ));
-    }
-    if remainder > Decimal::ZERO {
-        parts.push(format!(
-            "${} loaded onto your gift card.",
-            fmt_money_dec(remainder)
-        ));
-    }
-    if parts.is_empty() {
-        "Your reward has been recorded.".to_string()
-    } else {
-        parts.join(" ")
-    }
+fn google_calendar_link(summary: &str, starts_at: chrono::DateTime<chrono::Utc>) -> String {
+    let ends_at = starts_at + chrono::Duration::hours(1);
+    let start = starts_at.format("%Y%m%dT%H%M%SZ").to_string();
+    let end = ends_at.format("%Y%m%dT%H%M%SZ").to_string();
+    format!(
+        "https://calendar.google.com/calendar/render?action=TEMPLATE&text={}&dates={}/{}",
+        url_encode_component(summary),
+        start,
+        end
+    )
 }
 
-fn loyalty_redeem_breakdown_html(apply: Decimal, remainder: Decimal) -> String {
-    let mut s = String::new();
-    if apply > Decimal::ZERO {
-        s.push_str(&format!(
-            "<p>We applied <b>${}</b> to your sale today.</p>",
-            fmt_money_dec(apply)
-        ));
-    }
-    if remainder > Decimal::ZERO {
-        s.push_str(&format!(
-            "<p>We loaded <b>${}</b> onto your loyalty gift card.</p>",
-            fmt_money_dec(remainder)
-        ));
-    }
-    if s.is_empty() {
-        "<p>Your reward has been recorded.</p>".to_string()
-    } else {
-        s
-    }
+fn ics_escape(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace(';', "\\;")
+        .replace(',', "\\,")
+        .replace('\n', "\\n")
+}
+
+fn appointment_ics(
+    appointment_id: Uuid,
+    summary: &str,
+    starts_at: chrono::DateTime<chrono::Utc>,
+    notes: Option<&str>,
+) -> String {
+    let ends_at = starts_at + chrono::Duration::hours(1);
+    let now = chrono::Utc::now();
+    format!(
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Riverside OS//Appointments//EN\r\nMETHOD:PUBLISH\r\nBEGIN:VEVENT\r\nUID:{}@riverside-os\r\nDTSTAMP:{}\r\nDTSTART:{}\r\nDTEND:{}\r\nSUMMARY:{}\r\nDESCRIPTION:{}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+        appointment_id,
+        now.format("%Y%m%dT%H%M%SZ"),
+        starts_at.format("%Y%m%dT%H%M%SZ"),
+        ends_at.format("%Y%m%dT%H%M%SZ"),
+        ics_escape(summary),
+        ics_escape(notes.unwrap_or("Riverside appointment"))
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn record_outcome(
+    pool: &PgPool,
+    customer_id: Uuid,
+    entity_type: &str,
+    entity_id: Uuid,
+    kind: CustomerNotificationKind,
+    channel: CustomerNotificationChannel,
+    body_preview: &str,
+    delivery_error: Option<String>,
+    metadata: serde_json::Value,
+) {
+    let _ = record_customer_notification(
+        pool,
+        customer_id,
+        entity_type,
+        entity_id,
+        kind,
+        channel,
+        Some(body_preview),
+        delivery_error.as_deref(),
+        metadata,
+    )
+    .await;
 }
 
 /// Core messaging dispatcher for automated notifications.
@@ -102,112 +134,6 @@ fn loyalty_redeem_breakdown_html(apply: Decimal, remainder: Decimal) -> String {
 pub struct MessagingService;
 
 impl MessagingService {
-    /// Staff-triggered Podium SMS/email after `POST /api/loyalty/redeem-reward` when flags are set.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn notify_loyalty_reward_redeemed(
-        pool: &PgPool,
-        http: &reqwest::Client,
-        podium_cache: &Arc<Mutex<PodiumTokenCache>>,
-        customer_id: Uuid,
-        notify_sms: bool,
-        notify_email: bool,
-        reward_amount: Decimal,
-        apply_to_sale: Decimal,
-        remainder: Decimal,
-        new_balance: i32,
-        points_redeemed: i32,
-    ) -> Result<(), sqlx::Error> {
-        if !notify_sms && !notify_email {
-            return Ok(());
-        }
-
-        let customer = load_customer_messaging_row(pool, customer_id).await?;
-        let first = customer.first_name.as_deref().unwrap_or("there");
-        let reward_s = fmt_money_dec(reward_amount);
-        let balance_s = new_balance.to_string();
-        let pts_s = points_redeemed.to_string();
-        let breakdown_sms = loyalty_redeem_breakdown_sms(apply_to_sale, remainder);
-        let breakdown_html = loyalty_redeem_breakdown_html(apply_to_sale, remainder);
-
-        let vars_common = [
-            ("first_name", first),
-            ("reward_amount", reward_s.as_str()),
-            ("new_balance", balance_s.as_str()),
-            ("points_redeemed", pts_s.as_str()),
-            ("reward_breakdown", breakdown_sms.as_str()),
-            ("reward_breakdown_html", breakdown_html.as_str()),
-        ];
-
-        let podium_cfg = podium::load_store_podium_config(pool).await.ok();
-        let sms_templates = podium_cfg
-            .as_ref()
-            .map(|c| c.templates.merged_defaults())
-            .unwrap_or_default();
-        let email_templates = podium_cfg
-            .as_ref()
-            .map(|c| c.email_templates.merged_defaults())
-            .unwrap_or_default();
-
-        if notify_sms && sms_opt_in_ok(&customer) {
-            if let Some(ref phone) = customer.phone {
-                if let Some(e164) = normalize_phone_e164(phone) {
-                    let body = apply_template_placeholders(
-                        &sms_templates.loyalty_reward_redeemed,
-                        &vars_common,
-                    );
-                    tracing::info!(
-                        target: "messaging",
-                        event = "sms_dispatch",
-                        customer_id = %customer_id,
-                        kind = "loyalty_reward_redeemed",
-                        "Loyalty redeem SMS (Podium) triggered"
-                    );
-                    podium::try_send_operational_sms(
-                        pool,
-                        http,
-                        podium_cache,
-                        &e164,
-                        body,
-                        Some(customer_id),
-                    )
-                    .await;
-                }
-            }
-        }
-
-        if notify_email && email_opt_in_ok(&customer) {
-            if let Some(ref em) = customer.email {
-                if looks_like_email(em) {
-                    let subject = apply_template_placeholders(
-                        &email_templates.loyalty_reward_redeemed_subject,
-                        &vars_common,
-                    );
-                    let html = apply_template_placeholders(
-                        &email_templates.loyalty_reward_redeemed_html,
-                        &vars_common,
-                    );
-                    tracing::info!(
-                        target: "messaging",
-                        event = "email_dispatch",
-                        customer_id = %customer_id,
-                        kind = "loyalty_reward_redeemed",
-                        "Loyalty redeem email triggered"
-                    );
-                    store_email::try_send_operational_email(
-                        pool,
-                        em,
-                        subject,
-                        html,
-                        Some(customer_id),
-                    )
-                    .await;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// New appointment with a linked `customer_id` — confirmation email when opted in.
     pub async fn trigger_appointment_confirmation(
         pool: &PgPool,
@@ -220,17 +146,11 @@ impl MessagingService {
         };
 
         let customer = load_customer_messaging_row(pool, customer_id).await?;
-        if !email_opt_in_ok(&customer) {
-            return Ok(());
-        }
-        let Some(ref em) = customer.email else {
-            return Ok(());
-        };
-        if !looks_like_email(em) {
-            return Ok(());
-        }
-
         let podium_cfg = podium::load_store_podium_config(pool).await.ok();
+        let sms_templates = podium_cfg
+            .as_ref()
+            .map(|c| c.templates.merged_defaults())
+            .unwrap_or_default();
         let email_templates = podium_cfg
             .as_ref()
             .map(|c| c.email_templates.merged_defaults())
@@ -239,6 +159,8 @@ impl MessagingService {
         let first = customer.first_name.as_deref().unwrap_or("there");
         let starts = appt.starts_at.format("%Y-%m-%d %H:%M %Z").to_string();
         let appt_type = appt.appointment_type.as_str();
+        let calendar_summary = format!("Riverside {appt_type} Appointment");
+        let calendar_url = google_calendar_link(&calendar_summary, appt.starts_at);
         let notes_block = appt
             .notes
             .as_deref()
@@ -253,21 +175,241 @@ impl MessagingService {
             ("appointment_type", appt_type),
             ("notes_block", notes_block.as_str()),
         ];
+        let mut attempted = Vec::new();
+        let mut errors: Vec<String> = Vec::new();
+
+        if sms_opt_in_ok(&customer) {
+            if let Some(ref phone) = customer.phone {
+                if let Some(e164) = normalize_phone_e164(phone) {
+                    let sms_body = apply_template_placeholders(
+                        &sms_templates.appointment_confirmation,
+                        &[
+                            ("first_name", first),
+                            ("starts_at", starts.as_str()),
+                            ("appointment_type", appt_type),
+                        ],
+                    );
+                    let sms_ics = appointment_ics(
+                        appt.id,
+                        &calendar_summary,
+                        appt.starts_at,
+                        appt.notes.as_deref(),
+                    );
+                    let sms_result = podium::send_podium_phone_message_with_attachment(
+                        pool,
+                        _http,
+                        _podium_cache,
+                        &e164,
+                        &sms_body,
+                        sms_ics.into_bytes(),
+                        "riverside-appointment.ics",
+                        "text/calendar; charset=utf-8",
+                    )
+                    .await;
+                    if sms_result.is_ok() {
+                        attempted.push("sms");
+                    }
+                    let sms_error = sms_result.err().map(|e| e.to_string());
+                    if let Some(error) = sms_error.as_ref() {
+                        errors.push(error.clone());
+                    }
+                    record_outcome(
+                        pool,
+                        customer_id,
+                        "appointment",
+                        appt.id,
+                        CustomerNotificationKind::AppointmentConfirmation,
+                        CustomerNotificationChannel::Sms,
+                        &sms_body,
+                        sms_error,
+                        serde_json::json!({ "appointment_type": appt_type, "starts_at": starts, "calendar_url": calendar_url }),
+                    )
+                    .await;
+                } else {
+                    errors.push(
+                        "SMS skipped: customer phone is not a valid mobile number.".to_string(),
+                    );
+                }
+            } else {
+                errors.push("SMS skipped: customer has no phone number.".to_string());
+            }
+        } else {
+            errors.push("SMS skipped: customer is not opted in for transactional SMS.".to_string());
+        }
+
         let subject =
             apply_template_placeholders(&email_templates.appointment_confirmation_subject, &vars);
-        let html =
+        let mut html =
             apply_template_placeholders(&email_templates.appointment_confirmation_html, &vars);
+        html.push_str(&format!(
+            "<p><a href=\"{}\">Add this appointment to your calendar</a></p>",
+            calendar_url
+        ));
 
-        tracing::info!(
-            target: "messaging",
-            event = "email_dispatch",
-            customer_id = %customer_id,
-            appointment_id = %appt.id,
-            kind = "appointment_confirmation",
-            "Appointment confirmation email triggered"
-        );
+        if email_opt_in_ok(&customer) {
+            if let Some(ref em) = customer.email {
+                if looks_like_email(em) {
+                    tracing::info!(
+                        target: "messaging",
+                        event = "email_dispatch",
+                        customer_id = %customer_id,
+                        appointment_id = %appt.id,
+                        kind = "appointment_confirmation",
+                        "Appointment confirmation email triggered"
+                    );
 
-        store_email::try_send_operational_email(pool, em, subject, html, Some(customer_id)).await;
+                    let ics = appointment_ics(
+                        appt.id,
+                        &calendar_summary,
+                        appt.starts_at,
+                        appt.notes.as_deref(),
+                    );
+                    let email_result = store_email::send_email_with_attachments(
+                        pool,
+                        em,
+                        &subject,
+                        &html,
+                        None,
+                        None,
+                        "automated",
+                        vec![store_email::EmailAttachmentPayload {
+                            filename: "riverside-appointment.ics".to_string(),
+                            content_type: "text/calendar; charset=utf-8".to_string(),
+                            bytes: ics.into_bytes(),
+                        }],
+                    )
+                    .await;
+                    if email_result.is_ok() {
+                        attempted.push("email");
+                    }
+                    let email_error = email_result.err().map(|e| e.to_string());
+                    if let Some(error) = email_error.as_ref() {
+                        errors.push(error.clone());
+                    }
+                    record_outcome(
+                        pool,
+                        customer_id,
+                        "appointment",
+                        appt.id,
+                        CustomerNotificationKind::AppointmentConfirmation,
+                        CustomerNotificationChannel::Email,
+                        &format!("{subject}\n{html}"),
+                        email_error,
+                        serde_json::json!({ "appointment_type": appt_type, "starts_at": starts, "calendar_url": calendar_url }),
+                    )
+                    .await;
+                } else {
+                    errors.push("Email skipped: customer email address is invalid.".to_string());
+                }
+            } else {
+                errors.push("Email skipped: customer has no email address.".to_string());
+            }
+        } else {
+            errors.push(
+                "Email skipped: customer is not opted in for transactional email.".to_string(),
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Sends the automated customer reminder at the 24-hour-before mark.
+    pub async fn trigger_appointment_reminder(
+        pool: &PgPool,
+        http: &reqwest::Client,
+        podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+        appt: &AppointmentRow,
+    ) -> Result<(), sqlx::Error> {
+        let Some(customer_id) = appt.customer_id else {
+            return Ok(());
+        };
+
+        let customer = load_customer_messaging_row(pool, customer_id).await?;
+        let podium_cfg = podium::load_store_podium_config(pool).await.ok();
+        let sms_templates = podium_cfg
+            .as_ref()
+            .map(|c| c.templates.merged_defaults())
+            .unwrap_or_default();
+
+        let first = customer.first_name.as_deref().unwrap_or("there");
+        let starts = appt.starts_at.format("%Y-%m-%d %H:%M %Z").to_string();
+        let appt_type = appt.appointment_type.as_str();
+
+        if sms_opt_in_ok(&customer) {
+            if let Some(ref phone) = customer.phone {
+                let sms_body = apply_template_placeholders(
+                    &sms_templates.appointment_reminder,
+                    &[
+                        ("first_name", first),
+                        ("starts_at", starts.as_str()),
+                        ("appointment_type", appt_type),
+                    ],
+                );
+                let sms_error = if let Some(e164) = normalize_phone_e164(phone) {
+                    podium::try_send_operational_sms(
+                        pool,
+                        http,
+                        podium_cache,
+                        &e164,
+                        sms_body.clone(),
+                        Some(customer_id),
+                    )
+                    .await
+                    .err()
+                    .map(|e| e.to_string())
+                } else {
+                    Some("SMS skipped: customer phone is not a valid mobile number.".to_string())
+                };
+                record_outcome(
+                    pool,
+                    customer_id,
+                    "appointment",
+                    appt.id,
+                    CustomerNotificationKind::AppointmentReminder,
+                    CustomerNotificationChannel::Sms,
+                    &sms_body,
+                    sms_error,
+                    serde_json::json!({ "appointment_type": appt_type, "starts_at": starts }),
+                )
+                .await;
+            }
+        }
+
+        if email_opt_in_ok(&customer) {
+            if let Some(ref email) = customer.email {
+                if looks_like_email(email) {
+                    let subject = format!("Reminder: Riverside {appt_type} appointment tomorrow");
+                    let html = format!(
+                        "<p>Hi {},</p><p>Reminder: your <b>{}</b> appointment is tomorrow at <b>{}</b>.</p>",
+                        html_escape_minimal(first),
+                        html_escape_minimal(appt_type),
+                        html_escape_minimal(&starts)
+                    );
+                    let email_error = store_email::try_send_operational_email(
+                        pool,
+                        email,
+                        subject.clone(),
+                        html.clone(),
+                        Some(customer_id),
+                    )
+                    .await
+                    .err()
+                    .map(|e| e.to_string());
+                    record_outcome(
+                        pool,
+                        customer_id,
+                        "appointment",
+                        appt.id,
+                        CustomerNotificationKind::AppointmentReminder,
+                        CustomerNotificationChannel::Email,
+                        &format!("{subject}\n{html}"),
+                        email_error,
+                        serde_json::json!({ "appointment_type": appt_type, "starts_at": starts }),
+                    )
+                    .await;
+                }
+            }
+        }
 
         Ok(())
     }
@@ -317,13 +459,25 @@ impl MessagingService {
                 );
 
                 if let Some(e164) = normalize_phone_e164(phone) {
-                    podium::try_send_operational_sms(
+                    let sms_result = podium::try_send_operational_sms(
                         pool,
                         http,
                         podium_cache,
                         &e164,
                         body.clone(),
                         Some(customer_id),
+                    )
+                    .await;
+                    record_outcome(
+                        pool,
+                        customer_id,
+                        "order",
+                        transaction_id,
+                        CustomerNotificationKind::ReadyForPickup,
+                        CustomerNotificationChannel::Sms,
+                        &body,
+                        sms_result.err().map(|e| e.to_string()),
+                        serde_json::json!({ "order_ref": order_ref }),
                     )
                     .await;
                 } else {
@@ -358,12 +512,24 @@ impl MessagingService {
                         kind = "ready_for_pickup",
                         "Ready for Pickup email triggered"
                     );
-                    store_email::try_send_operational_email(
+                    let email_result = store_email::try_send_operational_email(
                         pool,
                         email,
-                        subject,
-                        html,
+                        subject.clone(),
+                        html.clone(),
                         Some(customer_id),
+                    )
+                    .await;
+                    record_outcome(
+                        pool,
+                        customer_id,
+                        "order",
+                        transaction_id,
+                        CustomerNotificationKind::ReadyForPickup,
+                        CustomerNotificationChannel::Email,
+                        &format!("{subject}\n{html}"),
+                        email_result.err().map(|e| e.to_string()),
+                        serde_json::json!({ "order_ref": order_ref }),
                     )
                     .await;
                 }
@@ -418,13 +584,25 @@ impl MessagingService {
                 );
 
                 if let Some(e164) = normalize_phone_e164(phone) {
-                    podium::try_send_operational_sms(
+                    let sms_result = podium::try_send_operational_sms(
                         pool,
                         http,
                         podium_cache,
                         &e164,
-                        body,
+                        body.clone(),
                         Some(customer_id),
+                    )
+                    .await;
+                    record_outcome(
+                        pool,
+                        customer_id,
+                        "alteration",
+                        alteration_id,
+                        CustomerNotificationKind::AlterationReady,
+                        CustomerNotificationChannel::Sms,
+                        &body,
+                        sms_result.err().map(|e| e.to_string()),
+                        serde_json::json!({ "alteration_ref": short }),
                     )
                     .await;
                 } else {
@@ -459,12 +637,24 @@ impl MessagingService {
                         kind = "alteration_ready",
                         "Alteration ready email triggered"
                     );
-                    store_email::try_send_operational_email(
+                    let email_result = store_email::try_send_operational_email(
                         pool,
                         email,
-                        subject,
-                        html,
+                        subject.clone(),
+                        html.clone(),
                         Some(customer_id),
+                    )
+                    .await;
+                    record_outcome(
+                        pool,
+                        customer_id,
+                        "alteration",
+                        alteration_id,
+                        CustomerNotificationKind::AlterationReady,
+                        CustomerNotificationChannel::Email,
+                        &format!("{subject}\n{html}"),
+                        email_result.err().map(|e| e.to_string()),
+                        serde_json::json!({ "alteration_ref": short }),
                     )
                     .await;
                 }

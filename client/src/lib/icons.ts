@@ -93,6 +93,7 @@ export const APP_NAV_ICON_NAMES = {
   register: "register",
   customers: "customers",
   "rms-charge": "rmsCharge",
+  "customer-notifications": "inbox",
   "podium-inbox": "inbox",
   alterations: "alterations",
   orders: "orders",

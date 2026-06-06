@@ -2,7 +2,7 @@
 
 **Audience:** Managers and staff with access to the Operations area.
 
-**Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Timeline**, **Daily Sales**, **Pickup Queue**, **Notification Queue**, **Podium Inbox**, **Mailbox**, **Reviews**.
+**Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Timeline**, **Daily Sales**, **Pickup Queue**, **Customer Notifications**, **Podium Inbox**, **Mailbox**, **Reviews**.
 
 **Related permissions:** **weddings.view** for wedding/compass blocks, appointments, and the activity feed. **notifications.view** for bell and timeline alerts. **tasks.complete** for your task widgets, or **tasks.view_team** for team task visibility. **customers.hub_view** for Podium Inbox and Mailbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **register.session_attach** for register close status. **orders.view** for Pickup Queue and pickup timeline items. **alterations.manage** for the alterations snapshot and alteration due dates. **procurement.view** for receiving commitments. **physical_inventory.view** for count/reconcile sessions. **qbo.view** for accounting review items. Weather often needs no special permission.
 
@@ -56,16 +56,15 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 2. Requires **orders.view**. Use this to prioritize customer-ready orders, rush orders, due-soon work, and blocked follow-up.
 3. This is a triage queue for pickup/order follow-up, not the full Orders workspace. Open the row to continue fulfillment work and review the linked Transaction Record context.
 
-## Notification Queue
+## Customer Notifications
 
-1. **Operations** → **Notification Queue**.
-2. Requires **orders.view**. Use this to review and manage automated "Ready for Pickup" SMS/email notifications for orders and alterations.
-3. Notifications are queued when items are marked ready and sent in batches at 9:30 AM and 3:00 PM (Monday-Saturday).
-4. **Pending** notifications waiting for next scheduled batch. **Scheduled** notifications with specific send times. **Sent** notifications already delivered. **Failed** notifications with delivery errors.
-5. Click **Send Now** to send a notification immediately (bypasses schedule). Provide a reason for audit trail.
-6. Click **Skip** to mark a notification as skipped (will not be sent). Use when customer already notified or pickup completed.
-7. Click **Schedule Batch** to schedule all pending notifications for the next batch time.
-8. All sent messages appear in Customer Messages section and Customer History.
+1. **Operations** → **Customer Notifications**.
+2. Use this to review automated customer messages only: ready pickup, alteration ready, appointment confirmations, appointment reminders, receipts, unknown-sender welcomes, and review invites.
+3. Ready pickup and alteration rows can be pending, scheduled, sent, skipped, or failed. Appointment confirmations/reminders and receipts are recorded as sent or failed delivery records.
+4. Click **Send Now** to send a pending pickup/alteration notification immediately. Provide a reason for audit trail.
+5. Click **Skip** to mark a pending pickup/alteration notification as skipped. Use when customer already notified or pickup completed.
+6. Click **Reviewed** after staff has handled a sent/failed row. Reviewed rows are archived from the active list.
+7. Regular staff-written Podium texts and staff-written emails are not shown here; those stay in Customer Messages / Mailbox.
 
 ## Podium Inbox
 
@@ -124,4 +123,4 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 - [../STAFF_SCHEDULE_AND_CALENDAR.md](../STAFF_SCHEDULE_AND_CALENDAR.md)
 - [../WEATHER_VISUAL_CROSSING.md](../WEATHER_VISUAL_CROSSING.md)
 
-**Last reviewed:** 2026-05-28 (v0.80.9 Notification Queue added)
+**Last reviewed:** 2026-06-06 (Customer Notifications naming and POS access updated)

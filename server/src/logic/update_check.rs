@@ -93,15 +93,49 @@ fn version_core(s: &str) -> String {
         .to_string()
 }
 
+fn parse_semver_core(s: &str) -> Option<(u64, u64, u64)> {
+    let core = version_core(s);
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
+}
+
+fn latest_version_is_newer(latest: &str, current: &str) -> bool {
+    match (parse_semver_core(latest), parse_semver_core(current)) {
+        (Some(latest), Some(current)) => latest > current,
+        _ => version_core(latest) != version_core(current),
+    }
+}
+
+fn is_local_dev_sha(sha: &str) -> bool {
+    let trimmed = sha.trim();
+    trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("dev")
+        || trimmed.eq_ignore_ascii_case("unknown")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::version_core;
+    use super::{latest_version_is_newer, version_core};
 
     #[test]
     fn version_core_strips_tag_prefix_and_build_metadata() {
         assert_eq!(version_core("v0.85.9+abcdef12"), "0.85.9");
         assert_eq!(version_core("0.85.9+abcdef12"), "0.85.9");
         assert_eq!(version_core("0.85.9"), "0.85.9");
+    }
+
+    #[test]
+    fn latest_version_comparison_requires_newer_semver() {
+        assert!(latest_version_is_newer("0.90.1", "0.90.0"));
+        assert!(!latest_version_is_newer("0.90.0", "0.90.0"));
+        assert!(!latest_version_is_newer("0.89.9", "0.90.0"));
+        assert!(!latest_version_is_newer("v0.90.0+abcd", "0.90.0"));
     }
 }
 
@@ -135,8 +169,9 @@ pub async fn check_for_update(client: &reqwest::Client) -> Result<UpdateCheckRes
     let latest_ver = version_core(&manifest.version);
     let current_ver = version_core(&current);
 
-    let version_changed = latest_ver != current_ver;
+    let version_changed = latest_version_is_newer(&latest_ver, &current_ver);
     let rebuild_available = !version_changed
+        && !is_local_dev_sha(&current_sha)
         && manifest
             .build_sha
             .as_deref()
@@ -144,7 +179,7 @@ pub async fn check_for_update(client: &reqwest::Client) -> Result<UpdateCheckRes
                 // Compare full SHA or the first 8 chars against CURRENT_BUILD_SHA
                 let current_short = &current_sha[..current_sha.len().min(8)];
                 let latest_short = &sha[..sha.len().min(8)];
-                latest_short != current_short && current_sha != "dev"
+                latest_short != current_short
             })
             .unwrap_or(false);
 

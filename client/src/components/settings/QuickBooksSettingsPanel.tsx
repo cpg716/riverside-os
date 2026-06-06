@@ -57,6 +57,31 @@ interface LedgerMapping {
   qbo_account_id: string | null;
 }
 
+interface QboTokenHealth {
+  status: string;
+  has_access_token: boolean;
+  has_refresh_token: boolean;
+  expires_at: string | null;
+  minutes_remaining: number | null;
+  realm_id_set: boolean;
+}
+
+interface QboApiHealth {
+  ok?: boolean;
+  status?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
+interface QboCompanyInfo {
+  CompanyInfo?: {
+    CompanyName?: string;
+    LegalName?: string;
+    Id?: string;
+  };
+  [key: string]: unknown;
+}
+
 const baseUrl = getBaseUrl();
 
 const LEGACY_ROWS: { key: string; label: string; description: string }[] = [
@@ -168,6 +193,11 @@ export default function QuickBooksSettingsPanel({
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [granular, setGranular] = useState<GranularMapping[]>([]);
   const [ledger, setLedger] = useState<LedgerMapping[]>([]);
+  const [healthBusy, setHealthBusy] = useState(false);
+  const [tokenHealth, setTokenHealth] = useState<QboTokenHealth | null>(null);
+  const [apiHealth, setApiHealth] = useState<QboApiHealth | null>(null);
+  const [companyInfo, setCompanyInfo] = useState<QboCompanyInfo | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
 
   const loadCredentials = useCallback(async () => {
     try {
@@ -204,10 +234,53 @@ export default function QuickBooksSettingsPanel({
     if (ledgerRes.ok) setLedger((await ledgerRes.json()) as LedgerMapping[]);
   }, [backofficeHeaders]);
 
+  const loadHealth = useCallback(async () => {
+    setHealthBusy(true);
+    setHealthError(null);
+    const h = backofficeHeaders() as Record<string, string>;
+    try {
+      const [tokenRes, healthRes, companyRes] = await Promise.allSettled([
+        fetch(`${baseUrl}/api/qbo/token-health`, { headers: h }),
+        fetch(`${baseUrl}/api/qbo/health`, { headers: h }),
+        fetch(`${baseUrl}/api/qbo/company-info`, { headers: h }),
+      ]);
+
+      if (tokenRes.status === "fulfilled" && tokenRes.value.ok) {
+        setTokenHealth((await tokenRes.value.json()) as QboTokenHealth);
+      } else {
+        setTokenHealth(null);
+      }
+
+      if (healthRes.status === "fulfilled" && healthRes.value.ok) {
+        setApiHealth((await healthRes.value.json()) as QboApiHealth);
+      } else {
+        setApiHealth(null);
+      }
+
+      if (companyRes.status === "fulfilled" && companyRes.value.ok) {
+        setCompanyInfo((await companyRes.value.json()) as QboCompanyInfo);
+      } else {
+        setCompanyInfo(null);
+      }
+
+      const failures = [tokenRes, healthRes, companyRes].filter(
+        (result) => result.status === "rejected" || (result.status === "fulfilled" && !result.value.ok),
+      );
+      if (failures.length === 3) {
+        setHealthError("QBO health checks are unavailable. Confirm credentials and network access.");
+      }
+    } catch {
+      setHealthError("QBO health checks are unavailable.");
+    } finally {
+      setHealthBusy(false);
+    }
+  }, [backofficeHeaders]);
+
   useEffect(() => {
     void loadCredentials();
     void loadMappingData();
-  }, [loadCredentials, loadMappingData]);
+    void loadHealth();
+  }, [loadCredentials, loadHealth, loadMappingData]);
 
   const accountNameById = useMemo(
     () => new Map(accounts.map((a) => [a.id, a.name])),
@@ -245,6 +318,26 @@ export default function QuickBooksSettingsPanel({
       toast("Communication error with QuickBooks settings", "error");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const refreshQboToken = async () => {
+    setHealthBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/qbo/tokens/refresh`, {
+        method: "POST",
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not refresh QBO token.");
+      }
+      toast("QBO token refreshed.", "success");
+      await loadHealth();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not refresh QBO token.", "error");
+    } finally {
+      setHealthBusy(false);
     }
   };
 
@@ -379,6 +472,17 @@ export default function QuickBooksSettingsPanel({
     credentials.client_id_set &&
     credentials.has_client_secret &&
     !!credentials.realm_id;
+  const companyName =
+    companyInfo?.CompanyInfo?.CompanyName ??
+    companyInfo?.CompanyInfo?.LegalName ??
+    null;
+  const tokenStatus = tokenHealth?.status ?? "unknown";
+  const apiStatus =
+    typeof apiHealth?.status === "string"
+      ? apiHealth.status
+      : apiHealth?.ok === true
+        ? "ok"
+        : "unknown";
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -427,6 +531,94 @@ export default function QuickBooksSettingsPanel({
         ]}
         onSaved={loadCredentials}
       />
+
+      <section className="ui-card max-w-5xl space-y-4 border-app-border bg-app-surface p-5 shadow-xl">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+              QBO Health
+            </h3>
+            <p className="mt-1 max-w-2xl text-xs font-semibold leading-relaxed text-app-text-muted">
+              Verify the saved company, token freshness, and live QBO API reachability before relying on journal sync.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void loadHealth()}
+              disabled={healthBusy}
+              className="ui-btn-secondary min-h-10 gap-2 px-4 disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={healthBusy ? "animate-spin" : ""} aria-hidden />
+              Check Health
+            </button>
+            <button
+              type="button"
+              onClick={() => void refreshQboToken()}
+              disabled={healthBusy || !credentials.has_refresh_token}
+              className="ui-btn-primary min-h-10 gap-2 px-4 disabled:opacity-50"
+            >
+              <RefreshCw size={14} aria-hidden />
+              Refresh Token
+            </button>
+          </div>
+        </div>
+
+        {healthError ? (
+          <div className="rounded-xl border border-app-warning/25 bg-app-warning/10 px-3 py-2 text-xs font-bold text-app-warning">
+            {healthError}
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 text-xs md:grid-cols-4">
+          <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+            <p className="font-black uppercase tracking-widest text-app-text-muted">
+              Token
+            </p>
+            <p className={`mt-1 font-black uppercase ${tokenStatus === "valid" || tokenStatus === "refreshable" ? "text-app-success" : "text-app-warning"}`}>
+              {tokenStatus.replace(/_/g, " ")}
+            </p>
+            <p className="mt-1 text-app-text-muted">
+              {tokenHealth?.minutes_remaining != null
+                ? `${tokenHealth.minutes_remaining} min remaining`
+                : "No expiry loaded"}
+            </p>
+          </div>
+          <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+            <p className="font-black uppercase tracking-widest text-app-text-muted">
+              Company
+            </p>
+            <p className="mt-1 font-black text-app-text">
+              {companyName ?? credentials.realm_id ?? "Not verified"}
+            </p>
+            <p className="mt-1 text-app-text-muted">
+              {tokenHealth?.realm_id_set ? "Realm ID saved" : "Realm ID missing"}
+            </p>
+          </div>
+          <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+            <p className="font-black uppercase tracking-widest text-app-text-muted">
+              API Health
+            </p>
+            <p className={`mt-1 font-black uppercase ${apiStatus === "ok" || apiStatus === "healthy" ? "text-app-success" : "text-app-warning"}`}>
+              {apiStatus.replace(/_/g, " ")}
+            </p>
+            <p className="mt-1 text-app-text-muted">
+              {typeof apiHealth?.message === "string" ? apiHealth.message : "Live check endpoint"}
+            </p>
+          </div>
+          <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+            <p className="font-black uppercase tracking-widest text-app-text-muted">
+              Environment
+            </p>
+            <p className="mt-1 font-black text-app-text">
+              {credentials.use_sandbox ? "Sandbox" : "Production"}
+            </p>
+            <p className="mt-1 text-app-text-muted">
+              {connectionReady ? "Connection settings complete" : "Connection settings incomplete"}
+            </p>
+          </div>
+        </div>
+      </section>
 
       <form
         onSubmit={(e) => {

@@ -34,6 +34,52 @@ const pwaManifest = JSON.parse(
   readFileSync(path.join(__dirname, "public/manifest.json"), "utf-8"),
 ) as Record<string, unknown>;
 
+const devServiceWorkerReset = `
+self.addEventListener("install", () => {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    if (self.caches) {
+      const cacheNames = await caches.keys();
+      await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
+    }
+    await self.registration.unregister();
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    await Promise.all(windows.map((client) => client.navigate(client.url)));
+  })());
+});
+`;
+
+const devBrowserCacheReset = `
+    <script>
+      (function () {
+        var isLocalDev = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+        if (!isLocalDev || !("serviceWorker" in navigator)) return;
+        navigator.serviceWorker.getRegistrations().then(function (registrations) {
+          if (!registrations.length) return Promise.resolve(false);
+          return Promise.all(registrations.map(function (registration) {
+            return registration.unregister();
+          })).then(function () {
+            return "caches" in window
+              ? caches.keys().then(function (cacheNames) {
+                  return Promise.all(cacheNames.map(function (cacheName) {
+                    return caches.delete(cacheName);
+                  }));
+                })
+              : undefined;
+          }).then(function () {
+            return true;
+          });
+        }).then(function (cleared) {
+          if (cleared && navigator.serviceWorker.controller) {
+            window.location.reload();
+          }
+        }).catch(function () {});
+      })();
+    </script>`;
+
 // https://v2.tauri.app/start/frontend/vite/
 export default defineConfig({
   plugins: [
@@ -48,14 +94,34 @@ export default defineConfig({
     react(),
     {
       name: "ros-manifest-link-dev",
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          const requestPath = req.url?.split("?")[0];
+          if (requestPath !== "/sw.js" && requestPath !== "/registerSW.js") {
+            next();
+            return;
+          }
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+          res.end(devServiceWorkerReset);
+        });
+      },
       transformIndexHtml(html, ctx) {
-        if (ctx.server && !html.includes('rel="manifest"')) {
-          return html.replace(
+        if (!ctx.server) {
+          return html;
+        }
+        let nextHtml = html;
+        if (!nextHtml.includes('rel="manifest"')) {
+          nextHtml = nextHtml.replace(
             "<head>",
             '<head>\n    <link rel="manifest" href="/manifest.json" />',
           );
         }
-        return html;
+        if (!nextHtml.includes("serviceWorker.getRegistrations")) {
+          nextHtml = nextHtml.replace("</head>", `${devBrowserCacheReset}\n  </head>`);
+        }
+        return nextHtml;
       },
     },
     VitePWA({

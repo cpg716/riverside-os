@@ -29,7 +29,10 @@ const DEFAULT_READY_PICKUP: &str =
 const DEFAULT_ALTERATION_READY: &str =
     "Hi {first_name}, your alteration ({alteration_ref}) is ready at Riverside. See you soon.";
 const DEFAULT_UNKNOWN_SENDER_WELCOME: &str = "Thank you for contacting Riverside Men's Shop. Please reply with your first and last name and someone will be with you as soon as possible during regular business hours. Thank you.";
-const DEFAULT_LOYALTY_REDEEMED_SMS: &str = "Hi {first_name}, your ${reward_amount} Riverside loyalty reward is processed. {reward_breakdown} Your balance is now {new_balance} points. We may also mail a physical card. Thank you!";
+const DEFAULT_APPOINTMENT_CONFIRMATION_SMS: &str =
+    "Hi {first_name}, your Riverside {appointment_type} appointment is set for {starts_at}. Calendar invite attached.";
+const DEFAULT_APPOINTMENT_REMINDER_SMS: &str =
+    "Hi {first_name}, reminder: your Riverside {appointment_type} appointment is tomorrow at {starts_at}.";
 
 const DEFAULT_EMAIL_READY_SUBJECT: &str = "Your Riverside order is ready";
 const DEFAULT_EMAIL_READY_HTML: &str = "<p>Hi {first_name},</p><p>Your Riverside order <b>{order_ref}</b> is ready for pickup. See you soon.</p>";
@@ -37,8 +40,6 @@ const DEFAULT_EMAIL_ALTERATION_SUBJECT: &str = "Your alteration is ready";
 const DEFAULT_EMAIL_ALTERATION_HTML: &str = "<p>Hi {first_name},</p><p>Your alteration <b>{alteration_ref}</b> is ready at Riverside. See you soon.</p>";
 const DEFAULT_EMAIL_APPOINTMENT_SUBJECT: &str = "Appointment confirmed — Riverside";
 const DEFAULT_EMAIL_APPOINTMENT_HTML: &str = "<p>Hi {first_name},</p><p>Your <b>{appointment_type}</b> appointment is scheduled for <b>{starts_at}</b>.</p>{notes_block}";
-const DEFAULT_EMAIL_LOYALTY_REDEEMED_SUBJECT: &str = "Your Riverside loyalty reward";
-const DEFAULT_EMAIL_LOYALTY_REDEEMED_HTML: &str = "<p>Hi {first_name},</p><p>We have processed your <b>${reward_amount}</b> loyalty reward.</p>{reward_breakdown_html}<p>Your loyalty balance is now <b>{new_balance}</b> points.</p><p>We may also mail a physical gift card when applicable.</p><p>Thank you for shopping with us.</p>";
 const DEFAULT_PODIUM_API_VERSION: &str = "2021.04.01";
 const PODIUM_CREDENTIAL_KEYS: &[&str] = &[
     "client_id",
@@ -63,9 +64,10 @@ pub struct SmsTemplatesStored {
     pub alteration_ready: String,
     #[serde(default)]
     pub unknown_sender_welcome: String,
-    /// Sent only when staff opts in at loyalty reward redemption (`POST /api/loyalty/redeem-reward`).
     #[serde(default)]
-    pub loyalty_reward_redeemed: String,
+    pub appointment_confirmation: String,
+    #[serde(default)]
+    pub appointment_reminder: String,
 }
 
 impl SmsTemplatesStored {
@@ -77,9 +79,13 @@ impl SmsTemplatesStored {
                 &self.unknown_sender_welcome,
                 DEFAULT_UNKNOWN_SENDER_WELCOME,
             ),
-            loyalty_reward_redeemed: non_empty_or(
-                &self.loyalty_reward_redeemed,
-                DEFAULT_LOYALTY_REDEEMED_SMS,
+            appointment_confirmation: non_empty_or(
+                &self.appointment_confirmation,
+                DEFAULT_APPOINTMENT_CONFIRMATION_SMS,
+            ),
+            appointment_reminder: non_empty_or(
+                &self.appointment_reminder,
+                DEFAULT_APPOINTMENT_REMINDER_SMS,
             ),
         }
     }
@@ -99,11 +105,6 @@ pub struct EmailTemplatesStored {
     pub appointment_confirmation_subject: String,
     #[serde(default)]
     pub appointment_confirmation_html: String,
-    /// Sent only when staff opts in at loyalty reward redemption.
-    #[serde(default, alias = "loyalty_reward_eligible_subject")]
-    pub loyalty_reward_redeemed_subject: String,
-    #[serde(default, alias = "loyalty_reward_eligible_html")]
-    pub loyalty_reward_redeemed_html: String,
 }
 
 impl EmailTemplatesStored {
@@ -132,14 +133,6 @@ impl EmailTemplatesStored {
             appointment_confirmation_html: non_empty_or(
                 &self.appointment_confirmation_html,
                 DEFAULT_EMAIL_APPOINTMENT_HTML,
-            ),
-            loyalty_reward_redeemed_subject: non_empty_or(
-                &self.loyalty_reward_redeemed_subject,
-                DEFAULT_EMAIL_LOYALTY_REDEEMED_SUBJECT,
-            ),
-            loyalty_reward_redeemed_html: non_empty_or(
-                &self.loyalty_reward_redeemed_html,
-                DEFAULT_EMAIL_LOYALTY_REDEEMED_HTML,
             ),
         }
     }
@@ -635,7 +628,7 @@ pub async fn try_send_operational_sms(
     to_e164: &str,
     body: String,
     crm_customer_id: Option<Uuid>,
-) {
+) -> Result<(), PodiumError> {
     let creds = match PodiumEnvCredentials::load(pool).await {
         Some(c) => c,
         None => {
@@ -644,7 +637,7 @@ pub async fn try_send_operational_sms(
                 event = "podium_send_skip",
                 reason = "no_credentials"
             );
-            return;
+            return Err(PodiumError::NotConfigured);
         }
     };
 
@@ -652,7 +645,7 @@ pub async fn try_send_operational_sms(
         Ok(c) => c,
         Err(e) => {
             tracing::error!(error = %e, "podium load_store_podium_config failed");
-            return;
+            return Err(PodiumError::NotConfigured);
         }
     };
 
@@ -662,7 +655,7 @@ pub async fn try_send_operational_sms(
             event = "podium_send_skip",
             reason = "sms_send_disabled"
         );
-        return;
+        return Err(PodiumError::NotConfigured);
     }
 
     let loc = cfg.location_uid.trim();
@@ -672,7 +665,7 @@ pub async fn try_send_operational_sms(
             event = "podium_send_err",
             reason_class = "missing_location_uid"
         );
-        return;
+        return Err(PodiumError::NotConfigured);
     }
 
     let phone_digits: String = to_e164.chars().filter(|c| c.is_ascii_digit()).collect();
@@ -682,7 +675,7 @@ pub async fn try_send_operational_sms(
             event = "podium_send_err",
             reason_class = "invalid_phone"
         );
-        return;
+        return Err(PodiumError::SendHttp(400));
     }
 
     match send_v4_message(
@@ -721,6 +714,7 @@ pub async fn try_send_operational_sms(
                     tracing::error!(error = %e, customer_id = %cid, "record automated SMS to podium_message");
                 }
             }
+            Ok(())
         }
         Err(e) => {
             let reason = match &e {
@@ -733,6 +727,7 @@ pub async fn try_send_operational_sms(
                 PodiumError::Http(_) => "http",
             };
             tracing::warn!(target = "podium", event = "podium_send_err", reason_class = reason, error = %e);
+            Err(e)
         }
     }
 }
@@ -1152,14 +1147,16 @@ pub async fn send_podium_sms_message_with_sender(
     .await
 }
 
-/// SMS/MMS with image via `POST /v4/messages/attachment` (multipart). Carrier must support MMS.
-pub async fn send_podium_phone_message_with_png_attachment(
+/// SMS/MMS with a file via `POST /v4/messages/attachment` (multipart). Carrier must support MMS.
+pub async fn send_podium_phone_message_with_attachment(
     pool: &PgPool,
     http: &reqwest::Client,
     token_cache: &Arc<Mutex<PodiumTokenCache>>,
     to_phone_raw: &str,
     body: &str,
-    attachment_png: Vec<u8>,
+    attachment_bytes: Vec<u8>,
+    attachment_filename: &str,
+    attachment_content_type: &str,
 ) -> Result<(), PodiumError> {
     let creds = PodiumEnvCredentials::load(pool)
         .await
@@ -1179,7 +1176,10 @@ pub async fn send_podium_phone_message_with_png_attachment(
     if body_t.is_empty() {
         return Err(PodiumError::NotConfigured);
     }
-    if attachment_png.is_empty() {
+    if attachment_bytes.is_empty()
+        || attachment_filename.trim().is_empty()
+        || attachment_content_type.trim().is_empty()
+    {
         return Err(PodiumError::NotConfigured);
     }
     let Some(e164) = normalize_phone_e164(to_phone_raw) else {
@@ -1201,9 +1201,9 @@ pub async fn send_podium_phone_message_with_png_attachment(
     });
     let data_str = serde_json::to_string(&data).map_err(|_| PodiumError::NotConfigured)?;
 
-    let part = reqwest::multipart::Part::bytes(attachment_png)
-        .file_name("receipt.png")
-        .mime_str("image/png")
+    let part = reqwest::multipart::Part::bytes(attachment_bytes)
+        .file_name(attachment_filename.trim().to_string())
+        .mime_str(attachment_content_type.trim())
         .map_err(|_| PodiumError::NotConfigured)?;
     let form = reqwest::multipart::Form::new()
         .text("data", data_str)
@@ -1234,6 +1234,28 @@ pub async fn send_podium_phone_message_with_png_attachment(
         "Podium attachment send failed"
     );
     Err(PodiumError::SendHttp(status.as_u16()))
+}
+
+/// SMS/MMS with image via `POST /v4/messages/attachment` (multipart). Carrier must support MMS.
+pub async fn send_podium_phone_message_with_png_attachment(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    to_phone_raw: &str,
+    body: &str,
+    attachment_png: Vec<u8>,
+) -> Result<(), PodiumError> {
+    send_podium_phone_message_with_attachment(
+        pool,
+        http,
+        token_cache,
+        to_phone_raw,
+        body,
+        attachment_png,
+        "receipt.png",
+        "image/png",
+    )
+    .await
 }
 
 /// Legacy Podium email entry point. Store email now uses the ROS IONOS mailbox path.

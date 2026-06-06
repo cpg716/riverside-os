@@ -14,6 +14,7 @@ import { MaintenanceLedgerPanel } from "./MaintenanceLedgerPanel";
 import IntelligencePanel from "./IntelligencePanel";
 import DashboardStatsCard from "../ui/DashboardStatsCard";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { apiUrl } from "../../lib/apiUrl";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
@@ -29,6 +30,7 @@ type InventorySection =
   | "purchase_orders"
   | "po_invoice_import"
   | "receiving"
+  | "batch_scan"
   | "vendors"
   | "add"
   | "categories"
@@ -68,6 +70,11 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string; 
     title: "Receive Stock",
     subtitle: "Post received items from submitted purchase orders or direct vendor invoices.",
     toolLabel: "Receive Stock",
+  },
+  batch_scan: {
+    title: "Batch Scan",
+    subtitle: "Resolve a group of scanned SKUs or barcodes without changing stock.",
+    toolLabel: "Batch Scan",
   },
   po_invoice_import: {
     title: "Import PO / Invoice",
@@ -157,7 +164,7 @@ const INVENTORY_JOBS: InventoryJob[] = [
     label: "Receive Stock",
     description: "Import vendor paperwork, review drafts, and post received stock.",
     primarySection: "receiving",
-    sections: ["po_invoice_import", "receiving"],
+    sections: ["po_invoice_import", "receiving", "batch_scan"],
   },
   {
     label: "Correct Stock",
@@ -191,6 +198,161 @@ interface BoardStats {
   oos_replenishment_skus?: number;
 }
 
+interface BatchScanResult {
+  code: string;
+  status: string;
+  variant_id: string | null;
+  sku: string | null;
+  new_stock: number | null;
+}
+
+function InventoryBatchScanPanel({
+  baseUrl,
+  headers,
+  toast,
+}: {
+  baseUrl: string;
+  headers: () => Record<string, string>;
+  toast: (message: string, type?: "success" | "error" | "info") => void;
+}) {
+  const [rawCodes, setRawCodes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<BatchScanResult[]>([]);
+  const [summary, setSummary] = useState<{ processed: number; matched: number; not_found: number } | null>(null);
+
+  const parsedCodes = rawCodes
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 200);
+
+  const runBatchScan = async () => {
+    if (parsedCodes.length === 0) {
+      toast("Enter at least one SKU or barcode.", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(apiUrl(baseUrl, "/api/inventory/batch-scan"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...headers(),
+        },
+        body: JSON.stringify(parsedCodes.map((code) => ({ code, quantity: 1, source: "inventory_batch_scan" }))),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Batch scan failed.");
+      }
+      const body = (await res.json()) as {
+        processed: number;
+        matched: number;
+        not_found: number;
+        results: BatchScanResult[];
+      };
+      setSummary({
+        processed: body.processed,
+        matched: body.matched,
+        not_found: body.not_found,
+      });
+      setResults(body.results);
+      toast(`Batch scan complete: ${body.matched} matched, ${body.not_found} not found.`, "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Batch scan failed.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="space-y-5 rounded-[28px] border border-app-border bg-app-surface p-6 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+            Inventory Resolution
+          </p>
+          <h3 className="mt-1 text-xl font-black tracking-tight text-app-text">
+            Batch Scan
+          </h3>
+          <p className="mt-2 max-w-3xl text-sm font-semibold leading-relaxed text-app-text-muted">
+            Paste or scan up to 200 SKUs/barcodes, one per line. This resolves items only; stock changes still go through receiving, stock adjustment, or physical inventory.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void runBatchScan()}
+          disabled={busy}
+          className="ui-btn-primary min-h-11 gap-2 px-5 disabled:opacity-50"
+        >
+          {busy ? "Scanning..." : "Resolve Batch"}
+        </button>
+      </div>
+
+      <textarea
+        value={rawCodes}
+        onChange={(event) => setRawCodes(event.target.value)}
+        className="ui-input min-h-48 w-full resize-y font-mono text-sm"
+        placeholder={"Scan or paste one code per line:\nSKU-001\n123456789012\nVendor UPC"}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-bold text-app-text-muted">
+        <span>{parsedCodes.length} code{parsedCodes.length === 1 ? "" : "s"} ready</span>
+        <span>Limit 200 · no stock mutation</span>
+      </div>
+
+      {summary ? (
+        <div className="grid gap-3 text-xs md:grid-cols-3">
+          <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+            <p className="font-black uppercase tracking-widest text-app-text-muted">Processed</p>
+            <p className="mt-1 text-2xl font-black text-app-text">{summary.processed}</p>
+          </div>
+          <div className="rounded-xl border border-app-success/25 bg-app-success/10 p-3">
+            <p className="font-black uppercase tracking-widest text-app-success">Matched</p>
+            <p className="mt-1 text-2xl font-black text-app-success">{summary.matched}</p>
+          </div>
+          <div className="rounded-xl border border-app-warning/25 bg-app-warning/10 p-3">
+            <p className="font-black uppercase tracking-widest text-app-warning">Not Found</p>
+            <p className="mt-1 text-2xl font-black text-app-warning">{summary.not_found}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {results.length > 0 ? (
+        <div className="overflow-hidden rounded-2xl border border-app-border">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-app-surface-2 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              <tr>
+                <th className="px-4 py-2">Scanned</th>
+                <th className="px-4 py-2">Status</th>
+                <th className="px-4 py-2">Resolved SKU</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-app-border">
+              {results.map((row, index) => (
+                <tr key={`${row.code}-${index}`}>
+                  <td className="px-4 py-3 font-mono text-xs font-bold text-app-text">{row.code}</td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-widest ${
+                      row.status === "matched"
+                        ? "bg-app-success/10 text-app-success"
+                        : "bg-app-warning/10 text-app-warning"
+                    }`}>
+                      {row.status.replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs font-bold text-app-text-muted">
+                    {row.sku ?? "No match"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export default function InventoryWorkspace({
   activeSection,
   procurementDeepLinkPoId,
@@ -201,6 +363,7 @@ export default function InventoryWorkspace({
 }: InventoryWorkspaceProps) {
   const [section, setSection] = useState<InventorySection>("hub");
   const { backofficeHeaders } = useBackofficeAuth();
+  const { toast } = useToast();
   const baseUrl = getBaseUrl();
   const [globalStats, setGlobalStats] = useState<BoardStats>({
     total_asset_value: "0.00",
@@ -237,6 +400,7 @@ export default function InventoryWorkspace({
       "purchase_orders",
       "po_invoice_import",
       "receiving",
+      "batch_scan",
       "vendors",
       "add",
       "categories",
@@ -440,6 +604,15 @@ export default function InventoryWorkspace({
           {!isPosSurface && section === "po_invoice_import" && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
               <ProcurementImportWorkspace onOpenReceiving={() => setSection("receiving")} />
+            </div>
+          )}
+          {!isPosSurface && section === "batch_scan" && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <InventoryBatchScanPanel
+                baseUrl={baseUrl}
+                headers={() => mergedPosStaffHeaders(backofficeHeaders)}
+                toast={toast}
+              />
             </div>
           )}
           

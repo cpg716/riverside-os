@@ -18,7 +18,8 @@ interface PodiumSmsConfig {
     ready_for_pickup: string;
     alteration_ready: string;
     unknown_sender_welcome: string;
-    loyalty_reward_redeemed: string;
+    appointment_confirmation: string;
+    appointment_reminder: string;
   };
   widget_embed_enabled: boolean;
   widget_snippet_html: string;
@@ -46,7 +47,8 @@ const PODIUM_TEMPLATE_DEFAULTS = {
   ready_for_pickup: "Hi {first_name}, your Riverside order {order_ref} is ready for pickup. We look forward to seeing you.",
   alteration_ready: "Hi {first_name}, your alteration {alteration_ref} is ready for your final fitting or pickup.",
   unknown_sender_welcome: "Hi from Riverside! We've saved your contact info. Reply here for questions about your order.",
-  loyalty_reward_redeemed: "Hi {first_name}, you redeemed {points_redeemed} points for {reward_amount}. Your new balance is {new_balance} points.",
+  appointment_confirmation: "Hi {first_name}, your Riverside {appointment_type} appointment is set for {starts_at}. Calendar invite attached.",
+  appointment_reminder: "Hi {first_name}, reminder: your Riverside {appointment_type} appointment is tomorrow at {starts_at}.",
 };
 
 type SmsTemplateKey = keyof PodiumSmsConfig["templates"];
@@ -76,15 +78,23 @@ const PODIUM_SMS_TEMPLATE_BLOCKS: {
     ],
   },
   {
-    key: "loyalty_reward_redeemed",
-    label: "Loyalty reward",
-    description: "Sent when a customer redeems loyalty points.",
+    key: "appointment_confirmation",
+    label: "Appointment confirmation",
+    description: "Sent when a customer appointment is created.",
     tags: [
       { token: "{first_name}", label: "First name" },
-      { token: "{reward_amount}", label: "Reward amount" },
-      { token: "{points_redeemed}", label: "Points used" },
-      { token: "{new_balance}", label: "New balance" },
-      { token: "{reward_breakdown}", label: "Reward breakdown" },
+      { token: "{appointment_type}", label: "Purpose" },
+      { token: "{starts_at}", label: "Date/time" },
+    ],
+  },
+  {
+    key: "appointment_reminder",
+    label: "Appointment reminder",
+    description: "Sent 24 hours before a customer appointment.",
+    tags: [
+      { token: "{first_name}", label: "First name" },
+      { token: "{appointment_type}", label: "Purpose" },
+      { token: "{starts_at}", label: "Date/time" },
     ],
   },
   {

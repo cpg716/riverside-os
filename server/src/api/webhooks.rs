@@ -335,6 +335,22 @@ async fn post_podium_webhook(
         }
         Ok(PodiumWebhookDisposition::Accepted) => {
             tracing::info!(target = "podium_webhook", event = "delivery_accepted");
+            match crate::logic::customer_notifications::apply_podium_failure_webhook(
+                &state.db, &value,
+            )
+            .await
+            {
+                Ok(true) => tracing::info!(
+                    target = "podium_webhook",
+                    event = "customer_notification_failure_applied"
+                ),
+                Ok(false) => {}
+                Err(error) => tracing::warn!(
+                    target = "podium_webhook",
+                    event = "customer_notification_failure_apply_failed",
+                    error = %error
+                ),
+            }
             if podium_inbound_crm_ingest_enabled() {
                 let pool = state.db.clone();
                 let http = state.http_client.clone();

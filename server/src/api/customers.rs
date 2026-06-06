@@ -1010,7 +1010,11 @@ async fn load_customer_profile_row(
         LEFT JOIN LATERAL (
             SELECT
                 SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
-                SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales
+                SUM(CASE WHEN status = 'fulfilled'::order_status AND booked_at >= '2018-01-01' THEN COALESCE((
+                    SELECT SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2))
+                    FROM transaction_lines tl
+                    WHERE tl.transaction_id = transactions.id
+                ), 0) ELSE 0 END) AS lifetime_sales
             FROM transactions
             WHERE customer_id = c.id
         ) ob ON true
@@ -1092,7 +1096,11 @@ async fn load_customer_lifecycle_signals(
         FROM customers c
         LEFT JOIN LATERAL (
             SELECT
-                SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
+                SUM(CASE WHEN status = 'fulfilled'::order_status AND booked_at >= '2018-01-01' THEN COALESCE((
+                    SELECT SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2))
+                    FROM transaction_lines tl
+                    WHERE tl.transaction_id = transactions.id
+                ), 0) ELSE 0 END) AS lifetime_sales,
                 COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
                 COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
             FROM transactions
@@ -3120,7 +3128,11 @@ async fn browse_customers(
                 LEFT JOIN LATERAL (
                     SELECT
                         SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
-                        SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
+                        SUM(CASE WHEN status = 'fulfilled'::order_status AND booked_at >= '2018-01-01' THEN COALESCE((
+                            SELECT SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2))
+                            FROM transaction_lines tl
+                            WHERE tl.transaction_id = transactions.id
+                        ), 0) ELSE 0 END) AS lifetime_sales,
                         COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
                         COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
                     FROM transactions
@@ -3277,7 +3289,11 @@ async fn browse_customers(
                 LEFT JOIN LATERAL (
                     SELECT
                         SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
-                        SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
+                        SUM(CASE WHEN status = 'fulfilled'::order_status AND booked_at >= '2018-01-01' THEN COALESCE((
+                            SELECT SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2))
+                            FROM transaction_lines tl
+                            WHERE tl.transaction_id = transactions.id
+                        ), 0) ELSE 0 END) AS lifetime_sales,
                         COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
                         COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
                     FROM transactions
@@ -3601,7 +3617,11 @@ async fn browse_customers(
                 LEFT JOIN LATERAL (
                     SELECT
                         SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
-                        SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
+                        SUM(CASE WHEN status = 'fulfilled'::order_status AND booked_at >= '2018-01-01' THEN COALESCE((
+                            SELECT SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2))
+                            FROM transaction_lines tl
+                            WHERE tl.transaction_id = transactions.id
+                        ), 0) ELSE 0 END) AS lifetime_sales,
                         COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
                         COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
                     FROM transactions
@@ -5154,6 +5174,30 @@ async fn post_customer_podium_review_invite(
             "Could not send Podium review invite ({e}). Check Integration credentials."
         ))
     })?;
+
+    let _ = crate::logic::customer_notifications::record_customer_notification(
+        &state.db,
+        customer_id,
+        "customer",
+        customer_id,
+        crate::logic::customer_notifications::CustomerNotificationKind::ReviewInvite,
+        if phone_opt.is_some() && email_opt.is_some() {
+            crate::logic::customer_notifications::CustomerNotificationChannel::Both
+        } else if email_opt.is_some() {
+            crate::logic::customer_notifications::CustomerNotificationChannel::Email
+        } else {
+            crate::logic::customer_notifications::CustomerNotificationChannel::Sms
+        },
+        Some("Podium review request sent."),
+        None,
+        json!({
+            "provider_id": invite.provider_id.clone(),
+            "review_url": invite.review_url.clone(),
+            "to_phone": phone_opt,
+            "to_email": email_opt,
+        }),
+    )
+    .await;
 
     Ok(Json(json!({
         "ok": true,

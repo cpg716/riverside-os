@@ -14,6 +14,7 @@ pub mod customer_duplicate_candidates;
 pub mod customer_hub;
 pub mod customer_measurements;
 pub mod customer_merge;
+pub mod customer_notifications;
 pub mod customer_open_deposit;
 pub mod customer_transaction_history;
 pub mod customers;

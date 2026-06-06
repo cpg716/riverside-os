@@ -4,8 +4,7 @@
 //! - Monthly eligible customer list
 //! - Admin point adjustment (requires badge + PIN)
 //! - Redeem reward: deduct threshold pts and issue the reward to a loyalty gift card.
-//!   Optional Podium SMS/email
-//!   when staff requests at redemption time (`notify_customer_sms` / `notify_customer_email`).
+//!   Customer notice is handled by the existing physical loyalty letter workflow.
 
 use axum::{
     extract::{Query, State},
@@ -19,7 +18,6 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
-use std::sync::Arc;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -28,7 +26,6 @@ use crate::auth::permissions::{
     staff_has_permission, LOYALTY_ADJUST_POINTS, LOYALTY_PROGRAM_SETTINGS,
 };
 use crate::auth::pins::{self, log_staff_access};
-use crate::logic::messaging::MessagingService;
 use crate::middleware;
 
 #[derive(Debug, Error)]
@@ -655,29 +652,6 @@ async fn redeem_reward(
     }
 
     tx.commit().await?;
-
-    if body.notify_customer_sms || body.notify_customer_email {
-        let pool = state.db.clone();
-        let http = state.http_client.clone();
-        let cache = Arc::clone(&state.podium_token_cache);
-        let cid = effective_customer_id;
-        let ns = body.notify_customer_sms;
-        let ne = body.notify_customer_email;
-        let ra = reward_amount;
-        let ats = body.apply_to_sale;
-        let rem = remainder;
-        let nb = new_balance;
-        let th = points_to_deduct;
-        tokio::spawn(async move {
-            if let Err(e) = MessagingService::notify_loyalty_reward_redeemed(
-                &pool, &http, &cache, cid, ns, ne, ra, ats, rem, nb, th,
-            )
-            .await
-            {
-                tracing::error!(error = %e, customer_id = %cid, "loyalty redeem Podium notify failed");
-            }
-        });
-    }
 
     Ok(Json(RedeemRewardResponse {
         points_deducted: points_to_deduct,

@@ -18,11 +18,11 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 1. **Settings** → **QuickBooks Online** → save or update the **Client ID** and **Client Secret** in the secure credentials card.
 2. Save the **Realm ID / company ID** and sandbox setting in the same Settings panel.
-3. **QBO bridge** → **Connection**.
-4. Verify **connected** state and **company** name match expectation.
-5. Use **Company Info** to validate the live QBO connection and see the company name from Intuit.
-6. Use **Token Health** to check access/refresh token status and minutes remaining before expiry.
-7. If **token expired**, use **reconnect** / refresh flow per UI (often requires **admin** login to Intuit). The system also auto-refreshes tokens in the background when within 10 minutes of expiry.
+3. Use the **QBO Health** card in Settings to check token status, company verification, live API health, and sandbox/production mode.
+4. Click **Refresh Token** only when the card shows the token is refreshable or stale.
+5. **QBO bridge** → **Connection**.
+6. Verify **connected** state and **company** name match expectation.
+7. If **token expired**, use the Settings health card first, then reconnect per UI if refresh is not possible. The system also auto-refreshes tokens in the background when within 10 minutes of expiry.
 8. Never share **client secret** in chat. Routine QBO credential updates belong in Backoffice Settings, not environment files.
 
 ## Mappings

@@ -75,6 +75,7 @@ venv/
 .fastembed_cache/
 
 # --- Runtime artifacts / backups ---
+.tmp/
 server/backups/*.dump
 counterpoint-bridge/bridge-execution.log
 # CocoIndex Code (ccc)

@@ -556,6 +556,24 @@ async fn launch_server_inner(
         }
     });
 
+    let customer_appt_reminder_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            ticker.tick().await;
+            if let Err(e) =
+                crate::logic::notifications_jobs::run_customer_appointment_reminders(
+                    &customer_appt_reminder_state.db,
+                    &customer_appt_reminder_state.http_client,
+                    &customer_appt_reminder_state.podium_token_cache,
+                )
+                .await
+            {
+                tracing::error!(error = %e, "customer appointment reminder worker failed");
+            }
+        }
+    });
+
     let weather_state = state.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));

@@ -48,6 +48,7 @@ export default function PosSidebar({
       { id: "alterations",  label: "Alterations", icon: getAppIcon(APP_NAV_ICON_NAMES.alterations),       permission: "alterations.manage" },
       { id: "orders",       label: "Orders",      icon: getAppIcon(APP_NAV_ICON_NAMES.orders),            permission: "orders.view" },
       { id: "tasks",        label: "Tasks",       icon: getAppIcon(APP_NAV_ICON_NAMES.tasks) },
+      { id: "customer-notifications", label: "Customer Notifications", icon: getAppIcon(APP_NAV_ICON_NAMES["customer-notifications"]) },
       { id: "podium-inbox", label: "Podium Inbox", icon: getAppIcon(APP_NAV_ICON_NAMES["podium-inbox"]),  permission: "customers.hub_view" },
       { id: "rms-charge",   label: "RMS Charge",  icon: getAppIcon(APP_NAV_ICON_NAMES["rms-charge"]) },
       { id: "inventory",    label: "Inventory",   icon: getAppIcon(APP_NAV_ICON_NAMES.inventory) },

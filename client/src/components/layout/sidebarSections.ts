@@ -5,6 +5,7 @@ export type SidebarTabId =
   | "register"
   | "customers"
   | "rms-charge"
+  | "customer-notifications"
   | "podium-inbox"
   | "alterations"
   | "orders"
@@ -37,6 +38,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "timeline", label: "Timeline" },
     { id: "daily-sales", label: "Daily Sales" },
     { id: "fulfillment", label: "Pickup Queue" },
+    { id: "notification-queue", label: "Customer Notifications" },
     { id: "inbox", label: "Podium Inbox" },
     { id: "mailbox", label: "Mailbox" },
     { id: "reviews", label: "Reviews" },
@@ -51,6 +53,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "duplicate-review", label: "Duplicate Review" },
   ],
   "rms-charge": [],
+  "customer-notifications": [],
   "podium-inbox": [],
   alterations: [
     { id: "queue", label: "Queue" },
@@ -62,6 +65,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "discount_events", label: "Promotions" },
     { id: "purchase_orders", label: "Order Stock" },
     { id: "receiving", label: "Receive Stock" },
+    { id: "batch_scan", label: "Batch Scan" },
     { id: "damaged", label: "Correct Stock" },
     { id: "physical", label: "Count/Reconcile" },
   ],

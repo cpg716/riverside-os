@@ -44,7 +44,7 @@ Order or Transaction Record numbers appear only as source context when the garme
 
 **Customer Notifications:**
 - When status changes to **Ready**, customer SMS/email notification is queued for batch sending (9:30 AM or 3:00 PM, Mon-Sat)
-- Staff can review pending notifications in Operations → Notification Queue
+- Staff can review pending, sent, failed, and reviewed automated messages in Operations → Customer Notifications or POS → Customer Notifications
 - "Send Now" override available for urgent pickups
 - All sent messages appear in Customer Messages section
 - See [notification-queue.md](notification-queue.md) for details
@@ -93,4 +93,4 @@ Floor staff use **POS → Alterations** for quick status. If POS shows **differe
 - [pos-alterations.md](pos-alterations.md)
 - [notification-queue.md](notification-queue.md)
 
-**Last reviewed:** 2026-05-28 (v0.80.9 Notification Queue added)
+**Last reviewed:** 2026-06-06 (Customer Notifications naming and POS access updated)
