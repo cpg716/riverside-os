@@ -132,11 +132,11 @@ export default function GlobalTopBar({
   }, []);
 
   return (
-    <header className="sticky top-0 z-50 flex h-16 shrink-0 flex-nowrap items-center gap-2 border-b border-app-border bg-[color-mix(in_srgb,var(--app-rail)_94%,transparent)] px-3 py-0 backdrop-blur-md sm:px-4 lg:gap-4 lg:px-6">
+    <header className="sticky top-0 z-50 flex h-[72px] shrink-0 flex-nowrap items-center gap-3 border-b border-app-border bg-[color-mix(in_srgb,var(--app-rail)_94%,transparent)] px-3 py-0 backdrop-blur-md sm:px-4 lg:gap-4 lg:px-6">
       <div
         className={cn(
           "flex min-w-0 flex-none items-center gap-2 lg:h-full lg:gap-3",
-          isPosVariant ? "lg:min-w-0" : "lg:min-w-[200px]",
+          isPosVariant ? "lg:min-w-0" : "lg:min-w-[260px]",
         )}
       >
         {onToggleSidebar && (
@@ -153,7 +153,7 @@ export default function GlobalTopBar({
           </button>
         )}
         <nav
-          className="hidden min-w-0 shrink-0 items-center gap-1 text-sm font-semibold text-app-text-muted lg:flex"
+          className="hidden min-w-0 shrink-0 items-center gap-1 text-[15px] font-semibold text-app-text-muted lg:flex"
           aria-label="Breadcrumb"
         >
           {segments.map((seg, i) => (
@@ -197,6 +197,17 @@ export default function GlobalTopBar({
             <span className="whitespace-nowrap min-[480px]:hidden">Back</span>
           </button>
         ) : null}
+        {showBackofficePosShortcut ? (
+          <button
+            type="button"
+            onClick={onNavigateRegister}
+            className="inline-flex min-h-11 shrink-0 touch-manipulation items-center justify-center gap-2 rounded-2xl border border-app-border bg-app-surface-2 px-4 text-[11px] font-black uppercase tracking-widest text-app-text shadow-sm transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
+            title="Open POS register"
+          >
+            <ShoppingCart size={18} aria-hidden />
+            <span className="hidden whitespace-nowrap sm:inline">POS</span>
+          </button>
+        ) : null}
       </div>
 
       <div className="flex min-w-0 flex-1 items-center justify-start min-[720px]:justify-center">
@@ -229,18 +240,7 @@ export default function GlobalTopBar({
         </div>
 
         {/* Global Action Cluster */}
-        <div className="flex items-center gap-1 border-r border-app-border pr-2 sm:gap-1.5 sm:pr-3 md:mr-1">
-          {showBackofficePosShortcut ? (
-            <button
-              type="button"
-              onClick={onNavigateRegister}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text shadow-sm transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
-              title="Open POS register"
-            >
-              <ShoppingCart size={16} aria-hidden />
-              <span className="hidden sm:inline">POS</span>
-            </button>
-          ) : null}
+        <div className="flex items-center gap-1.5 border-r border-app-border pr-2 sm:gap-2 sm:pr-3 md:mr-1">
           {onOpenRosie ? <RosieTriggerButton onOpen={onOpenRosie} /> : null}
           {onOpenHelp ? <HelpCenterTriggerButton onOpen={onOpenHelp} /> : null}
           {onOpenBugReport ? <BugReportTriggerButton onOpen={onOpenBugReport} /> : null}
@@ -248,7 +248,7 @@ export default function GlobalTopBar({
           <button
             type="button"
             onClick={onThemeToggle}
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-app-text-muted hover:bg-app-surface-2 hover:text-app-text transition-all active:scale-95"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-2xl text-app-text-muted transition-all hover:bg-app-surface-2 hover:text-app-text active:scale-95"
             title={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
           >
             {themeMode === "light" ? <Moon size={20} /> : <Sun size={20} />}
@@ -285,7 +285,7 @@ export default function GlobalTopBar({
                type="button"
                onClick={() => setUserMenuOpen(!userMenuOpen)}
                className={cn(
-                 "flex h-10 w-10 items-center justify-center rounded-2xl border-2 overflow-hidden transition-all",
+                 "flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border-2 transition-all",
                  isRegisterOpen ? "border-emerald-500/20" : "border-app-border hover:border-app-accent/40",
                  userMenuOpen && "border-app-accent ring-4 ring-app-accent/10"
                )}
