@@ -48,6 +48,7 @@ Inspected `/api/customers` route family at the permission-helper level, known cu
 
 - Customer merge and store credit logic use service-layer transaction patterns.
 - Follow-up should verify idempotency for duplicate merge, import replay, Podium direct-sms retry, and RMS reconciliation actions.
+- Remediation added `migrations/068_transaction_lines_discount_amount.sql` so Customer Hub lifetime-sales queries no longer fail against schemas missing `transaction_lines.discount_amount`.
 
 ## Audit Trail Notes
 
@@ -57,6 +58,7 @@ Inspected `/api/customers` route family at the permission-helper level, known cu
 ## Test Coverage
 
 - Customer endpoint tests were not fully traced in this pass.
+- ROSIE Customer Hub snapshot coverage now passes in the full server suite, proving the Customer Hub read path works with current schema expectations.
 - Customer import logic has some coverage.
 - Missing: customer merge endpoint tests, store credit adjustment RBAC/audit tests, RMS Charge mutation tests, Podium send opt-in tests.
 
@@ -70,4 +72,3 @@ Inspected `/api/customers` route family at the permission-helper level, known cu
 - Add customer API RBAC tests for staff vs POS session access.
 - Add merge dry-run/apply tests covering transactions, weddings, loyalty, store credit, and communication history.
 - Add opt-in and audit tests for Podium/SMS/email sends.
-

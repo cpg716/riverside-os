@@ -10938,6 +10938,8 @@ mod tests {
 
     static SNAPSHOT_RECONCILIATION_TEST_LOCK: tokio::sync::Mutex<()> =
         tokio::sync::Mutex::const_new(());
+    static COUNTERPOINT_HEALTH_TEST_LOCK: tokio::sync::Mutex<()> =
+        tokio::sync::Mutex::const_new(());
 
     async fn connect_test_db() -> PgPool {
         let _ =
@@ -15121,9 +15123,10 @@ mod tests {
 
     #[tokio::test]
     async fn health_check_returns_not_configured_when_token_missing() {
+        let _guard = COUNTERPOINT_HEALTH_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
         let previous = std::env::var("COUNTERPOINT_SYNC_TOKEN").ok();
         std::env::remove_var("COUNTERPOINT_SYNC_TOKEN");
-        let pool = connect_test_db().await;
         let health = health_check(&pool).await;
         assert!(!health.configured);
         assert!(!health.reachable);
@@ -15136,9 +15139,10 @@ mod tests {
 
     #[tokio::test]
     async fn health_check_returns_offline_when_token_set_but_no_heartbeat() {
+        let _guard = COUNTERPOINT_HEALTH_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
         let previous = std::env::var("COUNTERPOINT_SYNC_TOKEN").ok();
         std::env::set_var("COUNTERPOINT_SYNC_TOKEN", "test-token-for-health-check");
-        let pool = connect_test_db().await;
         // Ensure no heartbeat row exists by deleting it if present
         let _ = sqlx::query("DELETE FROM counterpoint_bridge_heartbeat WHERE id = 1")
             .execute(&pool)

@@ -239,7 +239,7 @@ function rowPreviewText(r: NotificationRow, bundleCount: number | null): string 
   return body.length > 120 ? `${body.slice(0, 119)}…` : body;
 }
 
-type Tab = "inbox" | "history" | "broadcast";
+type Tab = "inbox" | "history" | "search" | "cleanup" | "broadcast";
 
 function recencySectionMeta(
   bucket: "today" | "earlier",
@@ -625,7 +625,9 @@ export default function NotificationCenterDrawer({
   };
 
   const visibleRows =
-    tab === "inbox" && inboxViewFilter === "action" ? actionNeededRows : rows;
+    (tab === "inbox" || tab === "cleanup") && inboxViewFilter === "action"
+      ? actionNeededRows
+      : rows;
 
   const groupedRows = visibleRows.reduce<
     Array<{ bucket: "today" | "earlier"; rows: NotificationRow[] }>
@@ -646,22 +648,31 @@ export default function NotificationCenterDrawer({
       onClose={onClose}
       title="Communications & Alerts"
       subtitle="Alerts, history, and announcements"
-      panelMaxClassName="max-w-lg"
+      panelMaxClassName="sm:max-w-[760px] xl:max-w-[880px]"
       noPadding
     >
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Modern Tab Matrix */}
-        <div className="flex h-12 shrink-0 items-center gap-1 border-b border-app-border bg-app-surface-2 px-6">
-          {(["inbox", "history", "broadcast"] as const).map((t) => {
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-app-border bg-app-surface-2 px-5 sm:px-8">
+          {(["inbox", "history", "search", "cleanup", "broadcast"] as const).map((t) => {
             if (t === "broadcast" && !canBroadcast) return null;
-            const Icon = t === "inbox" ? Inbox : t === "history" ? History : Send;
+            const Icon =
+              t === "inbox"
+                ? Inbox
+                : t === "history"
+                ? History
+                : t === "search"
+                ? Search
+                : t === "cleanup"
+                ? CheckCircle2
+                : Send;
             const active = tab === t;
             return (
               <button
                 key={t}
                 type="button"
                 onClick={() => setTab(t)}
-                className={`flex h-full items-center gap-2 border-b-2 px-3 transition-all ${
+                className={`flex h-full items-center gap-2 border-b-2 px-3.5 transition-all ${
                   active
                     ? "border-app-accent text-app-accent"
                     : "border-transparent text-app-text-muted hover:text-app-text"
@@ -669,10 +680,18 @@ export default function NotificationCenterDrawer({
               >
                 <Icon size={14} className={active ? "animate-in fade-in zoom-in-75 duration-300" : ""} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
-                  {t === "inbox" ? "Inbox" : t === "history" ? "Earlier" : "Announce"}
+                  {t === "inbox"
+                    ? "Inbox"
+                    : t === "history"
+                    ? "Earlier"
+                    : t === "search"
+                    ? "Search"
+                    : t === "cleanup"
+                    ? "Cleanup"
+                    : "Announce"}
                 </span>
                 {t === "inbox" && unread > 0 && (
-                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-app-accent text-[8px] font-black text-white">
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-app-accent px-1.5 text-[9px] font-black text-white shadow-sm shadow-app-accent/25">
                     {unread > 99 ? "99+" : unread}
                   </span>
                 )}
@@ -681,32 +700,39 @@ export default function NotificationCenterDrawer({
           })}
         </div>
 
-        {tab !== "broadcast" ? (
-          <div className="grid shrink-0 gap-3 border-b border-app-border bg-app-surface-2 px-6 py-3">
+        {tab === "search" ? (
+          <div className="shrink-0 border-b border-app-border bg-app-surface-2 px-4 py-4 sm:px-8">
             <form
-              className="grid gap-2"
+              className="rounded-2xl border border-app-border bg-app-surface/80 p-3 shadow-sm sm:p-4"
               onSubmit={(event) => {
                 event.preventDefault();
                 setSearchQuery(searchDraft.trim());
                 setSourceFilter(sourceDraft.trim());
               }}
             >
-              <label className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                Search alerts and history
-              </label>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <label className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                  Search alerts and history
+                </label>
+                {searchQuery ? (
+                  <p className="text-[10px] font-bold text-app-text-muted">
+                    Showing matches for “{searchQuery}”.
+                  </p>
+                ) : null}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                 <div className="relative min-w-0">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted" />
                   <input
                     value={searchDraft}
                     onChange={(event) => setSearchDraft(event.target.value)}
-                    className="ui-input w-full pl-9 text-sm"
+                    className="ui-input h-12 w-full rounded-xl pl-9 text-sm"
                     placeholder="Search title, body, kind, source, or linked record..."
                   />
                 </div>
                 <button
                   type="submit"
-                  className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-app-accent transition-colors hover:border-app-accent/40 hover:bg-app-accent/5"
+                  className="h-12 rounded-xl border border-app-border bg-app-surface px-5 text-[10px] font-black uppercase tracking-[0.14em] text-app-accent transition-colors hover:border-app-accent/40 hover:bg-app-accent/5"
                 >
                   Search
                 </button>
@@ -728,23 +754,18 @@ export default function NotificationCenterDrawer({
                     setSourceDraft("");
                     setSourceFilter("");
                   }}
-                  className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted transition-colors hover:border-app-border-hover hover:bg-app-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="h-12 rounded-xl border border-app-border bg-app-surface px-5 text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted transition-colors hover:border-app-border-hover hover:bg-app-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Clear
                 </button>
               </div>
-              {searchQuery ? (
-                <p className="text-[10px] font-bold text-app-text-muted">
-                  Showing matches for “{searchQuery}”.
-                </p>
-              ) : null}
-              <div className="grid gap-2 md:grid-cols-3">
+              <div className="mt-3 grid gap-2 md:grid-cols-[0.8fr_1fr_1.2fr]">
                 <label className="grid gap-1 text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">
                   Severity
                   <select
                     value={severityFilter}
                     onChange={(event) => setSeverityFilter(event.target.value)}
-                    className="ui-input text-xs"
+                    className="ui-input h-11 rounded-xl text-xs"
                   >
                     <option value="all">All severities</option>
                     <option value="system">System alerts</option>
@@ -759,7 +780,7 @@ export default function NotificationCenterDrawer({
                   <select
                     value={categoryFilter}
                     onChange={(event) => setCategoryFilter(event.target.value)}
-                    className="ui-input text-xs"
+                    className="ui-input h-11 rounded-xl text-xs"
                   >
                     <option value="all">All categories</option>
                     <option value="orders">Orders</option>
@@ -776,74 +797,75 @@ export default function NotificationCenterDrawer({
                   <input
                     value={sourceDraft}
                     onChange={(event) => setSourceDraft(event.target.value)}
-                    className="ui-input text-xs"
+                    className="ui-input h-11 rounded-xl text-xs"
                     placeholder="Exact source, e.g. qbo"
                   />
                 </label>
               </div>
             </form>
-            {tab === "inbox" && rows.length > 0 ? (
-              <>
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                    Quick cleanup
-                  </p>
-                  <p className="text-[11px] text-app-text-muted">
-                    {cleanupHint}
-                  </p>
+          </div>
+        ) : tab === "cleanup" && rows.length > 0 ? (
+          <div className="shrink-0 border-b border-app-border bg-app-surface-2 px-4 py-4 sm:px-8">
+            <div className="rounded-2xl border border-app-border bg-app-surface/80 p-3 shadow-sm sm:p-4">
+              <div className="mb-3 min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                  Quick cleanup
+                </p>
+                <p className="text-[11px] text-app-text-muted">
+                  {cleanupHint}
+                </p>
+              </div>
+              <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-[1.1fr_1fr_1fr]">
+                <div className="flex rounded-xl border border-app-border bg-app-surface p-1">
+                  <button
+                    type="button"
+                    onClick={() => setInboxViewFilter("all")}
+                    className={`flex-1 rounded-lg px-3 py-2 text-[9px] font-black uppercase tracking-widest ${
+                      inboxViewFilter === "all"
+                        ? "bg-app-accent text-white"
+                        : "text-app-text-muted hover:text-app-text"
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInboxViewFilter("action")}
+                    className={`flex-1 rounded-lg px-3 py-2 text-[9px] font-black uppercase tracking-widest ${
+                      inboxViewFilter === "action"
+                        ? "bg-app-accent text-white"
+                        : "text-app-text-muted hover:text-app-text"
+                    }`}
+                  >
+                    Action ({actionNeededRows.length})
+                  </button>
                 </div>
-            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3">
-              <div className="flex rounded-lg border border-app-border bg-app-surface p-0.5">
                 <button
                   type="button"
-                  onClick={() => setInboxViewFilter("all")}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-[9px] font-black uppercase tracking-widest sm:flex-none ${
-                    inboxViewFilter === "all"
-                      ? "bg-app-accent text-white"
-                      : "text-app-text-muted hover:text-app-text"
-                  }`}
+                  disabled={bulkBusy !== null || inboxUnreadIds.length === 0}
+                  onClick={() => void runBulkAction(inboxUnreadIds, "read")}
+                  className="min-h-11 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-app-accent transition-colors hover:border-app-accent/40 hover:bg-app-accent/5 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  All
+                  {bulkBusy === "read"
+                    ? "Marking..."
+                    : `Mark read${inboxUnreadIds.length > 0 ? ` (${inboxUnreadIds.length})` : ""}`}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setInboxViewFilter("action")}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-[9px] font-black uppercase tracking-widest sm:flex-none ${
-                    inboxViewFilter === "action"
-                      ? "bg-app-accent text-white"
-                      : "text-app-text-muted hover:text-app-text"
-                  }`}
+                  disabled={bulkBusy !== null || inboxReadIds.length === 0}
+                  onClick={() => void runBulkAction(inboxReadIds, "archive")}
+                  className="min-h-11 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted transition-colors hover:border-app-border-hover hover:bg-app-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Action ({actionNeededRows.length})
+                  {bulkBusy === "archive"
+                    ? "Dismissing..."
+                    : `Dismiss reviewed${inboxReadIds.length > 0 ? ` (${inboxReadIds.length})` : ""}`}
                 </button>
               </div>
-              <button
-                type="button"
-                disabled={bulkBusy !== null || inboxUnreadIds.length === 0}
-                onClick={() => void runBulkAction(inboxUnreadIds, "read")}
-                className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-app-accent transition-colors hover:border-app-accent/40 hover:bg-app-accent/5 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {bulkBusy === "read"
-                  ? "Marking..."
-                  : `Mark read${inboxUnreadIds.length > 0 ? ` (${inboxUnreadIds.length})` : ""}`}
-              </button>
-              <button
-                type="button"
-                disabled={bulkBusy !== null || inboxReadIds.length === 0}
-                onClick={() => void runBulkAction(inboxReadIds, "archive")}
-                className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted transition-colors hover:border-app-border-hover hover:bg-app-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {bulkBusy === "archive"
-                  ? "Dismissing..."
-                  : `Dismiss reviewed${inboxReadIds.length > 0 ? ` (${inboxReadIds.length})` : ""}`}
-              </button>
             </div>
-              </>
-            ) : null}
           </div>
         ) : null}
 
-        <div className="flex min-h-0 flex-1 flex-col px-6 py-5">
+        <div className="flex min-h-0 flex-1 flex-col bg-app-surface px-4 py-5 sm:px-8">
           {loadError && tab !== "broadcast" ? (
             <div className="mb-4 rounded-xl border border-app-warning/40 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -869,7 +891,7 @@ export default function NotificationCenterDrawer({
             </div>
           ) : null}
 
-          {bulkResult && tab === "inbox" ? (
+          {bulkResult && (tab === "inbox" || tab === "cleanup") ? (
             <div
               className={`mb-4 rounded-xl border px-4 py-3 text-sm text-app-text ${
                 bulkResult.kind === "error"
@@ -1044,7 +1066,7 @@ export default function NotificationCenterDrawer({
                       ? "Notifications could not refresh."
                       : searchQuery
                       ? "No matching alerts found."
-                      : inboxViewFilter === "action" && tab === "inbox"
+                      : inboxViewFilter === "action" && (tab === "inbox" || tab === "cleanup")
                       ? "No action-required alerts."
                       : tab === "history"
                       ? "No earlier activity yet."
@@ -1055,7 +1077,7 @@ export default function NotificationCenterDrawer({
                       ? "Retry before treating this view as clear"
                       : searchQuery
                       ? "Try a different customer, kind, source, or record term"
-                      : inboxViewFilter === "action" && tab === "inbox"
+                      : inboxViewFilter === "action" && (tab === "inbox" || tab === "cleanup")
                       ? "Switch to All to see informational alerts"
                       : tab === "history"
                       ? "Dismissed and completed alerts will collect here after cleanup"
@@ -1082,7 +1104,7 @@ export default function NotificationCenterDrawer({
                       </span>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {group.rows.map((r) => {
                         const bundleItems = parseNotificationBundle(r.deep_link);
                         const isBundle = bundleItems != null;
@@ -1100,7 +1122,7 @@ export default function NotificationCenterDrawer({
                         return (
                           <div
                             key={r.staff_notification_id}
-                            className={`overflow-hidden rounded-xl border transition-all duration-200 ${rowSurfaceClassName(
+                            className={`overflow-hidden rounded-2xl border shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${rowSurfaceClassName(
                               severity,
                               r.read_at,
                               expanded,
@@ -1108,8 +1130,8 @@ export default function NotificationCenterDrawer({
                           >
                             <button
                               type="button"
-                              className={`group flex w-full items-start gap-3 text-left ${
-                                olderRead ? "p-2.5" : "p-3"
+                              className={`group flex w-full items-start gap-4 text-left ${
+                                olderRead ? "p-3" : "p-4"
                               }`}
                               onClick={() => onRowActivate(r)}
                               aria-label={`${r.title} — ${
@@ -1121,15 +1143,15 @@ export default function NotificationCenterDrawer({
                               }`}
                             >
                               <div
-                                className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-all duration-300 ${severityIconClassName(
+                                className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition-all duration-300 ${severityIconClassName(
                                   severity,
                                   expanded,
                                 )} ${olderRead ? "opacity-80" : ""}`}
                               >
                                 {expanded ? (
-                                  <ChevronRight className="h-4 w-4 rotate-90" />
+                                  <ChevronRight className="h-5 w-5 rotate-90" />
                                 ) : (
-                                  <KindIcon kind={r.kind} size={16} />
+                                  <KindIcon kind={r.kind} size={18} />
                                 )}
                               </div>
                               <div className="min-w-0 flex-1">
@@ -1153,13 +1175,13 @@ export default function NotificationCenterDrawer({
                                     </span>
                                   ) : null}
                                 </div>
-                                <p className="mt-0.5 truncate text-sm font-bold leading-tight text-app-text">
+                                <p className="mt-1 truncate text-base font-black leading-tight text-app-text">
                                   {r.title}
                                 </p>
-                                <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-app-text-muted">
+                                <p className="mt-1.5 line-clamp-2 text-[12px] leading-relaxed text-app-text-muted">
                                   {preview}
                                 </p>
-                                <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px]">
+                                <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px]">
                                   <span className="font-bold text-app-text-muted/90">
                                     Opens in {destination}
                                   </span>
@@ -1195,7 +1217,7 @@ export default function NotificationCenterDrawer({
 
                             {expanded && (
                               <div className="bg-app-surface-2 px-4 pb-4">
-                                <div className="mt-1 rounded-xl border border-app-border bg-app-surface p-3 shadow-inner">
+                                <div className="mt-1 rounded-2xl border border-app-border bg-app-surface p-4 shadow-inner">
                                   {isBundle && bundleItems ? (
                                     <div className="space-y-1">
                                       <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -1276,8 +1298,8 @@ export default function NotificationCenterDrawer({
                               </div>
                             )}
 
-                            <div className={`flex items-center gap-1 border-t border-app-border/40 bg-app-surface/30 px-3 ${
-                              olderRead ? "p-1" : "p-1.5"
+                            <div className={`flex items-center gap-1 border-t border-app-border/40 bg-app-surface/40 px-4 ${
+                              olderRead ? "p-1.5" : "p-2"
                             }`}>
                               {!r.read_at && (
                                 <button

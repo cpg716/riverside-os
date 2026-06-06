@@ -541,13 +541,20 @@ mod tests {
     use sqlx::PgPool;
     use uuid::Uuid;
 
+    async fn connect_test_db() -> PgPool {
+        let _ =
+            dotenvy::from_filename(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .expect("TEST_DATABASE_URL or DATABASE_URL must be set for DB-backed tests");
+        PgPool::connect(&database_url)
+            .await
+            .expect("connect test database")
+    }
+
     #[tokio::test]
     async fn ensure_active_vendor_exists_rejects_inactive_vendor() {
-        let database_url =
-            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
-        let pool = PgPool::connect(&database_url)
-            .await
-            .expect("connect test database");
+        let pool = connect_test_db().await;
 
         let vendor_id = Uuid::new_v4();
         sqlx::query("INSERT INTO vendors (id, name, is_active) VALUES ($1, $2, false)")
@@ -566,11 +573,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_editable_po_context_rejects_non_draft_purchase_orders() {
-        let database_url =
-            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
-        let pool = PgPool::connect(&database_url)
-            .await
-            .expect("connect test database");
+        let pool = connect_test_db().await;
 
         let vendor_id = Uuid::new_v4();
         let po_id = Uuid::new_v4();
@@ -600,11 +603,7 @@ mod tests {
 
     #[tokio::test]
     async fn validate_po_line_vendor_linkage_rejects_variant_from_different_primary_vendor() {
-        let database_url =
-            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
-        let pool = PgPool::connect(&database_url)
-            .await
-            .expect("connect test database");
+        let pool = connect_test_db().await;
 
         let po_vendor_id = Uuid::new_v4();
         let product_vendor_id = Uuid::new_v4();

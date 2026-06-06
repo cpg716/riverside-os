@@ -58,10 +58,12 @@ Inspected `/api/insights`, Metabase proxy/launch references, reporting docs, fro
 
 - Reporting itself is mostly read-only, but high-sensitivity reads may need access logging.
 - Commission adjustment audit should include actor, reason, amount, affected staff/line, timestamp.
+- Remediation added `transaction_lines.discount_amount` as an idempotent migration repair because report and Customer Hub queries calculate net sales from line-level discounts.
 
 ## Test Coverage
 
 - `server/src/api/insights.rs` includes tests for selected reporting permissions and ROSIE reporting permission preservation.
+- `cargo test -p riverside-server` passes the ROSIE reporting permission and allowlist tests in the full server suite.
 - Missing: endpoint-level coverage for all report routes, margin access, commission adjustment audit, and date-basis contract.
 
 ## Risks
@@ -74,4 +76,3 @@ Inspected `/api/insights`, Metabase proxy/launch references, reporting docs, fro
 - Add contract tests for booked vs fulfilled basis on sales and tax reports.
 - Add permission tests for margin, register reports, and commission adjustment.
 - Confirm reporting views use explicit rounding/casting for money aggregates.
-

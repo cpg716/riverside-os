@@ -1,8 +1,8 @@
 # Riverside OS API Audit
 
-Status: initial high-risk audit pass, 2026-06-06.
+Status: high-risk audit plus first remediation pass, 2026-06-06.
 
-This directory documents the current Riverside OS API surface from the Rust Axum route registrations, selected handler permission gates, known frontend consumers, existing domain docs, and visible test coverage. It is an audit/documentation artifact only; no runtime behavior was changed.
+This directory documents the current Riverside OS API surface from the Rust Axum route registrations, selected handler permission gates, known frontend consumers, existing domain docs, and visible test coverage. The initial pass was documentation-only; the follow-up remediation pass fixed confirmed low-risk code/schema/test issues and updated the audit status.
 
 ## Scope
 
@@ -63,6 +63,8 @@ Key auth and business-rule references:
 - External webhooks are intentionally unauthenticated by staff headers and instead use provider verification or configured secrets.
 - QBO staging now has explicit account mapping validation and balanced-payload validation before approval/sync.
 - Financial, inventory, payment, and staff-access paths have meaningful transactions and audit logging in several high-risk handlers, but coverage is uneven and should be verified endpoint by endpoint.
+- Follow-up remediation added a schema repair for `transaction_lines.discount_amount`, aligned ROSIE capabilities access with its documented contract, hardened Helcim card refund/reverse idempotency replay, and stabilized DB-backed product/procurement/checkout tests.
+- Validation proof: `cargo test -p riverside-server` passes 300 server tests after remediation.
 
 ## Risk Register
 

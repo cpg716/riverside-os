@@ -12,7 +12,7 @@ Inspected `/api/transactions`, `/api/sessions`, and `/api/pos` route registratio
 | GET | `/api/transactions/pipeline-stats` | `transactions.rs` | Operations / order dashboards | `orders.view` | Staff Access | No | Transaction/order summary tables | Not fully traced | Medium | Reporting semantics depend on booked vs fulfilled split. |
 | GET | `/api/transactions/refunds/due` | `transactions.rs` | Refund queue / POS operations | `orders.refund_process` | Staff Access | No | Refund/payment tables | Not fully traced | High | Financial refund queue visibility. |
 | GET | `/api/transactions/fulfillment-queue` | `transactions.rs` | Operations fulfillment command center | `orders.view` | Staff Access | No | `transactions`, `transaction_lines` | Not fully traced | Medium | Feeds pickup readiness workflows. |
-| POST | `/api/transactions/checkout` | `transactions.rs`, `logic/transaction_checkout.rs` | POS cart checkout | POS session token only | Open register session | Yes | `transactions`, `transaction_lines`, `payment_transactions`, `payment_allocations`, register/session, inventory/reservation, loyalty/QBO outbox tables | Checkout logic tests and cart tender tests exist | Critical | Requires `x-riverside-pos-session-id` and token matching payload `session_id`; executes multi-step checkout in DB transaction. |
+| POST | `/api/transactions/checkout` | `transactions.rs`, `logic/transaction_checkout.rs` | POS cart checkout | POS session token only | Open register session | Yes | `transactions`, `transaction_lines`, `payment_transactions`, `payment_allocations`, register/session, inventory/reservation, loyalty evidence | Checkout logic tests and cart tender tests exist | Critical | Requires `x-riverside-pos-session-id` and token matching payload `session_id`; executes multi-step checkout in DB transaction. QBO sales posting is handled by reviewed Daily Staging Journal, not checkout-time direct outbox posting. |
 | PATCH | `/api/transactions/{transaction_id}/attribution` | `transactions.rs` | Transaction attribution modal | `orders.edit_attribution` | Staff Access | Yes | `transactions`, `transaction_lines`, audit log | Not fully traced | High | Changes staff commission attribution. |
 | PATCH | `/api/transactions/{transaction_id}/financial-date` | `transactions.rs` | QBO/reporting correction surfaces | `qbo.staging_approve` | Manager-class permission | Yes | `transactions`, audit/QBO-impacting data | Not fully traced | Critical | Alters booked/accounting date semantics. |
 | POST | `/api/transactions/{transaction_id}/pickup` | `transactions.rs` | POS order pickup | `orders.modify` | Staff Access; manager override in payload for guarded cases | Yes | `transactions`, `transaction_lines`, inventory, loyalty, lifecycle events | Not fully traced | Critical | Fulfillment and revenue recognition trigger. |
@@ -66,7 +66,7 @@ Inspected `/api/transactions`, `/api/sessions`, and `/api/pos` route registratio
 
 ## Mutation / Side Effect Notes
 
-- Checkout is the primary financial write path: transactions, transaction lines, payment transactions, payment allocations, deposit liability metadata, gift cards, loyalty, QBO outbox, inventory reservations, wedding disbursements, and receipt data.
+- Checkout is the primary financial write path: transactions, transaction lines, payment transactions, payment allocations, deposit liability metadata, gift cards, loyalty evidence, inventory reservations, wedding disbursements, and receipt data. QBO sales posting remains reviewed Daily Staging Journal only.
 - Pickup updates fulfillment/revenue recognition evidence and can affect inventory, loyalty, commission, reporting, and QBO staging inputs.
 - Returns, voids, refunds, exchange settlements, and RMS reversals are financial mutation endpoints.
 
@@ -102,4 +102,3 @@ Inspected `/api/transactions`, `/api/sessions`, and `/api/pos` route registratio
 - Add duplicate/retry tests for checkout, refund, void, and register close.
 - Confirm audit log rows for all Manager Access approvals and POS token session actions.
 - Document exact tables touched by close-session and refund workflows after a deeper source trace.
-

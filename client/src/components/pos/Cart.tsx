@@ -2179,7 +2179,7 @@ export default function Cart({
             )}
 
           {(selectedCustomer || parkedRows.length > 0 || pendingAlterationIntakes.length > 0 || pickupReadyAlterations.length > 0) ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-2 text-[10px] font-bold text-app-text-muted">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-bold text-app-text-muted">
               <span className="inline-flex items-center gap-1 rounded-lg bg-app-surface-2 px-2 py-1 font-black uppercase tracking-widest text-app-text">
                 <UserCircle size={12} aria-hidden />
                 {selectedCustomer
@@ -2237,8 +2237,8 @@ export default function Cart({
 
           {/* Cashier + default salesperson on one row (after sign-in). Sign-in uses full-screen overlay (Back Office style). */}
           {checkoutOperator ? (
-            <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-app-border/70 bg-app-surface-2/70 px-2.5 py-1.5">
-              <div className="flex min-w-0 max-w-full items-center gap-2">
+            <div className="grid w-full items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-2/70 px-3 py-2 sm:grid-cols-[auto_minmax(16rem,1fr)_auto]">
+              <div className="flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-app-surface px-2 py-1">
                 <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                   Cashier:
                 </span>
@@ -2248,7 +2248,7 @@ export default function Cart({
                 {lines.length === 0 ? (
                   <button
                     type="button"
-                    className="ui-btn-secondary shrink-0 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest"
+                    className="ui-btn-secondary shrink-0 px-2 py-1 text-[9px] font-black uppercase tracking-widest"
                     onClick={() => {
                       setCheckoutOperator(null);
                       setSalePinCredential("");
@@ -2261,13 +2261,12 @@ export default function Cart({
               </div>
               {!isGiftCardOnlyCart ? (
                 <>
-                  <div className="hidden h-6 w-px shrink-0 bg-app-border/80 sm:block" aria-hidden />
-                  <UserCircle
-                    size={16}
-                    className="hidden shrink-0 text-app-accent sm:block"
-                    aria-hidden
-                  />
-                  <label className="flex min-w-0 max-w-full basis-full items-center gap-2 sm:basis-auto sm:max-w-[min(100%,22.5rem)]">
+                  <label className="flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-app-surface px-2 py-1">
+                    <UserCircle
+                      size={15}
+                      className="shrink-0 text-app-accent"
+                      aria-hidden
+                    />
                     <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                       Salesperson
                     </span>
@@ -2282,7 +2281,7 @@ export default function Cart({
                         setPrimarySalespersonId(id);
                       }}
                       placeholder="Select Salesperson..."
-                      className="w-full sm:min-w-[12rem]"
+                      className="w-full min-w-[11rem]"
                     />
                   </label>
                   {lines.some((l) => (l.salesperson_id?.trim() ?? "") !== "") ? (
@@ -2301,9 +2300,9 @@ export default function Cart({
           ) : null}
 
           {/* Product search */}
-          <div className="relative w-full">
+          <div className="relative w-full rounded-2xl border border-app-border bg-app-surface p-1.5 shadow-sm">
             <Search
-              className="absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-app-text-muted"
+              className="absolute left-5 top-1/2 size-[22px] -translate-y-1/2 text-app-accent"
               aria-hidden
             />
             <input
@@ -2331,15 +2330,15 @@ export default function Cart({
                   }
                 }).catch(() => {});
               }}
-              className="ui-input h-11 w-full border-2 border-app-border pl-10 pr-28 text-base font-black shadow-inner focus:border-app-accent"
+              className="ui-input h-14 w-full rounded-xl border-2 border-app-border bg-app-surface-2 pl-12 pr-32 text-lg font-black shadow-inner focus:border-app-accent focus:bg-app-surface"
             />
             <button
               type="button"
               onClick={focusProductSearch}
               title="Focus product search (/)"
-              className="ui-touch-target absolute right-1.5 top-1/2 z-10 flex min-h-10 -translate-y-1/2 items-center gap-1 rounded-lg border border-app-border bg-app-surface-2 px-3 text-[9px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface hover:text-app-text"
+              className="ui-touch-target absolute right-3 top-1/2 z-10 flex min-h-11 -translate-y-1/2 items-center gap-1 rounded-lg border border-app-border bg-app-surface px-3 text-[9px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface-2 hover:text-app-text"
             >
-              <ScanSearch size={12} aria-hidden />
+              <ScanSearch size={13} aria-hidden />
               Focus /
             </button>
             <PosSearchResultList
@@ -2350,15 +2349,15 @@ export default function Cart({
           </div>
 
           {/* Sale tools row */}
-          <div className="flex items-center gap-2 border-t border-app-border/50 pt-2">
+          <div className="flex items-center gap-3 border-t border-app-border/50 pt-3">
             <button
               type="button"
               aria-label="Scroll cart actions left"
               onClick={() => scrollActionRibbon("left")}
               disabled={!actionRibbonCanScrollLeft}
-              className="ui-touch-target flex h-12 w-8 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-35"
+              className="ui-touch-target flex h-16 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-35"
             >
-              <ChevronLeft size={18} aria-hidden />
+              <ChevronLeft size={22} aria-hidden />
             </button>
             <div
               ref={actionRibbonRef}
@@ -2380,7 +2379,7 @@ export default function Cart({
                   scrollActionRibbon("end");
                 }
               }}
-              className="flex min-w-0 flex-1 gap-2 overflow-x-auto rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-app-accent/60"
+              className="flex min-w-0 flex-1 gap-3 overflow-x-auto rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-app-accent/60"
             >
               <button
                 type="button"
@@ -2388,10 +2387,10 @@ export default function Cart({
                   setWeddingDrawerPreferGroupPay(false);
                   setWeddingDrawerOpen(true);
                 }}
-                className={`ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border px-1.5 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px] ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:bg-app-surface hover:text-app-accent"}`}
+                className={`ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px] ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:bg-app-surface hover:text-app-accent"}`}
               >
-                <WEDDINGS_ICON size={16} />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <WEDDINGS_ICON size={20} />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   {activeWeddingMember ? "Switch" : "Wedding"}
                 </span>
               </button>
@@ -2407,10 +2406,10 @@ export default function Cart({
                   setAlterationIntakeOpen(true);
                 }}
                 title={selectedCustomer ? "Start alteration intake" : "Select a customer to start alteration intake"}
-                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-accent/60 bg-app-accent/10 px-1.5 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-accent/60 bg-app-accent/10 px-2 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <Scissors size={16} />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <Scissors size={20} />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Alteration
                 </span>
               </button>
@@ -2427,10 +2426,10 @@ export default function Cart({
                   setCustomPromptOpen(true);
                 }}
                 title={selectedCustomer ? "Start a custom order" : "Select a customer to start a custom order"}
-                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-warning/60 bg-app-warning/10 px-1.5 text-center text-app-warning shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-warning hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-warning/60 bg-app-warning/10 px-2 text-center text-app-warning shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-warning hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <Pencil size={16} />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <Pencil size={20} />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Custom
                 </span>
               </button>
@@ -2439,10 +2438,10 @@ export default function Cart({
                 data-testid="pos-exchange-wizard-trigger"
                 onClick={() => setExchangeWizardOpen(true)}
                 title="Exchange or return"
-                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-border bg-app-surface-2 px-1.5 text-center text-app-text shadow-sm ring-1 ring-black/5 transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95 dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-2 text-center text-app-text shadow-sm ring-1 ring-black/5 transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <ArrowLeftRight size={16} />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <ArrowLeftRight size={20} />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Return
                 </span>
               </button>
@@ -2451,10 +2450,10 @@ export default function Cart({
                 disabled={!selectedCustomer}
                 onClick={() => setOrderLoadOpen(true)}
                 title={selectedCustomer ? "View customer open orders" : "Select a customer to view open orders"}
-                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-info/60 bg-app-info/10 px-1.5 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <ORDER_HISTORY_ICON size={16} className="shrink-0" aria-hidden />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <ORDER_HISTORY_ICON size={20} className="shrink-0" aria-hidden />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Orders
                 </span>
               </button>
@@ -2463,10 +2462,10 @@ export default function Cart({
                 data-testid="pos-action-gift-card"
                 onClick={() => setGiftCardLoadOpen(true)}
                 title="Enter load amount, then scan or type the card code"
-                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-success/60 bg-app-success/10 px-1.5 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-success/60 bg-app-success/10 px-2 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <GIFT_CARDS_ICON size={16} className="shrink-0" aria-hidden />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <GIFT_CARDS_ICON size={20} className="shrink-0" aria-hidden />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Gift Card
                 </span>
               </button>
@@ -2498,10 +2497,10 @@ export default function Cart({
                   setRmsPaymentOpen(true);
                 }}
                 title="Add an RMS Charge Payment to collect payment on customer account"
-                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-violet-500/60 bg-violet-500/10 px-1.5 text-center text-violet-600 shadow-sm ring-1 ring-black/5 transition-all hover:bg-violet-600 hover:text-white dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-violet-500/60 bg-violet-500/10 px-2 text-center text-violet-600 shadow-sm ring-1 ring-black/5 transition-all hover:bg-violet-600 hover:text-white dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <CreditCard size={16} className="shrink-0" aria-hidden />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <CreditCard size={20} className="shrink-0" aria-hidden />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   RMS Pay
                 </span>
               </button>
@@ -2513,10 +2512,10 @@ export default function Cart({
                     fulfillment: l.fulfillment === 'layaway' ? 'takeaway' : 'layaway'
                   })));
                 }}
-                className={`ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border px-1.5 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px] ${lines.some(l => l.fulfillment === 'layaway') ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-warning/50 hover:bg-app-surface hover:text-app-warning"}`}
+                className={`ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px] ${lines.some(l => l.fulfillment === 'layaway') ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-warning/50 hover:bg-app-surface hover:text-app-warning"}`}
               >
-                <Clock size={16} />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <Clock size={20} />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Layaway
                 </span>
               </button>
@@ -2525,10 +2524,10 @@ export default function Cart({
                 onClick={() => setOrderReviewOpen(true)}
                 disabled={lines.length === 0}
                 title="Set rush and pickup/order details. Use Shipping to ship this current sale."
-                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-success/60 bg-app-success/10 px-1.5 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-success/60 bg-app-success/10 px-2 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <Zap size={16} className="shrink-0" aria-hidden />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <Zap size={20} className="shrink-0" aria-hidden />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Options
                 </span>
               </button>
@@ -2540,10 +2539,10 @@ export default function Cart({
                    setParkSaleDraftLabel(label);
                    setParkSalePromptOpen(true);
                 }}
-                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-accent/60 bg-app-accent/10 px-1.5 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-accent/60 bg-app-accent/10 px-2 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <Clock size={16} />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <Clock size={20} />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Park Sale
                 </span>
               </button>
@@ -2551,10 +2550,10 @@ export default function Cart({
                 type="button"
                 disabled={lines.length === 0 && !selectedCustomer}
                 onClick={() => setShowClearConfirm(true)}
-                className="ui-touch-target flex min-h-[68px] flex-[1_0_82px] flex-col items-center justify-center gap-1 rounded-xl border border-app-danger/60 bg-app-danger/10 px-1.5 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_92px] xl:min-h-[74px] xl:flex-[1_0_100px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/10 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <RotateCcw size={16} />
-                <span className="text-[8px] font-black uppercase leading-[9px] tracking-widest">
+                <RotateCcw size={20} />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Clear Sale
                 </span>
               </button>
@@ -2564,9 +2563,9 @@ export default function Cart({
               aria-label="Scroll cart actions right"
               onClick={() => scrollActionRibbon("right")}
               disabled={!actionRibbonCanScrollRight}
-              className="ui-touch-target flex h-12 w-8 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-35"
+              className="ui-touch-target flex h-16 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-35"
             >
-              <ChevronRight size={18} aria-hidden />
+              <ChevronRight size={22} aria-hidden />
             </button>
           </div>
           {pendingAlterationIntakes.length > 0 ? (

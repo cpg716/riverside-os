@@ -454,19 +454,6 @@ async fn launch_server_inner(
         }
     });
 
-    let qbo_outbox_pool = state.db.clone();
-    tokio::spawn(async move {
-        let handler = crate::jobs::qbo_sync::QboSyncHandler::new(qbo_outbox_pool);
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(20));
-        loop {
-            ticker.tick().await;
-            crate::api::health::WorkerHealth::mark_heartbeat("qbo_sync").await;
-            if let Err(e) = handler.sync_outbox().await {
-                tracing::error!(error = %e, "QBO outbox sync worker failed");
-            }
-        }
-    });
-
     let qbo_propose_state = state.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));

@@ -1287,6 +1287,13 @@ async fn lock_register_session_open_for_payment(
     Ok(())
 }
 
+fn is_provider_idempotency_violation(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(|db_error| db_error.constraint())
+        == Some("uq_payment_provider_attempts_provider_idempotency")
+}
+
 #[derive(Debug, Clone)]
 struct ResolvedHelcimTerminalRoute {
     terminal_key: String,
@@ -7192,6 +7199,16 @@ async fn process_helcim_card_refund(
         .idempotency_key
         .and_then(non_empty_string)
         .unwrap_or_else(|| format!("helcim-card-refund-{attempt_id}"));
+    if let Some(existing) = load_helcim_attempt_by_idempotency_key(
+        &state,
+        &idempotency_key,
+        register_session_id,
+        staff_id,
+    )
+    .await?
+    {
+        return Ok(Json(existing));
+    }
 
     let mut tx = state
         .db
@@ -7199,7 +7216,7 @@ async fn process_helcim_card_refund(
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
     lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
-    sqlx::query(
+    let insert_result = sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
@@ -7219,8 +7236,23 @@ async fn process_helcim_card_refund(
         payload.original_transaction_id
     ))
     .execute(&mut *tx)
-    .await
-    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    .await;
+    if let Err(error) = insert_result {
+        if is_provider_idempotency_violation(&error) {
+            let _ = tx.rollback().await;
+            if let Some(existing) = load_helcim_attempt_by_idempotency_key(
+                &state,
+                &idempotency_key,
+                register_session_id,
+                staff_id,
+            )
+            .await?
+            {
+                return Ok(Json(existing));
+            }
+        }
+        return Err(PaymentError::InvalidPayload(error.to_string()));
+    }
     tx.commit()
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -7324,13 +7356,23 @@ async fn process_helcim_card_reverse(
         .idempotency_key
         .and_then(non_empty_string)
         .unwrap_or_else(|| format!("helcim-card-reverse-{attempt_id}"));
+    if let Some(existing) = load_helcim_attempt_by_idempotency_key(
+        &state,
+        &idempotency_key,
+        register_session_id,
+        staff_id,
+    )
+    .await?
+    {
+        return Ok(Json(existing));
+    }
     let mut tx = state
         .db
         .begin()
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
     lock_register_session_open_for_payment(&mut tx, register_session_id).await?;
-    sqlx::query(
+    let insert_result = sqlx::query(
         r#"
         INSERT INTO payment_provider_attempts (
             id, provider, status, amount_cents, currency, register_session_id, staff_id,
@@ -7349,8 +7391,23 @@ async fn process_helcim_card_reverse(
         payload.original_transaction_id
     ))
     .execute(&mut *tx)
-    .await
-    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    .await;
+    if let Err(error) = insert_result {
+        if is_provider_idempotency_violation(&error) {
+            let _ = tx.rollback().await;
+            if let Some(existing) = load_helcim_attempt_by_idempotency_key(
+                &state,
+                &idempotency_key,
+                register_session_id,
+                staff_id,
+            )
+            .await?
+            {
+                return Ok(Json(existing));
+            }
+        }
+        return Err(PaymentError::InvalidPayload(error.to_string()));
+    }
     tx.commit()
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -8037,6 +8094,63 @@ fn cents_to_decimal_string(amount_cents: i64) -> String {
     format!("{sign}{}.{:02}", abs / 100, abs % 100)
 }
 
+fn should_skip_provider_refresh_for_idempotency_replay(attempt: &HelcimAttemptRow) -> bool {
+    attempt.status == "pending"
+}
+
+async fn load_helcim_attempt_by_idempotency_key(
+    state: &AppState,
+    idempotency_key: &str,
+    register_session_id: Option<Uuid>,
+    staff_id: Option<Uuid>,
+) -> Result<Option<HelcimAttemptResponse>, PaymentError> {
+    let attempt = sqlx::query_as::<_, HelcimAttemptRow>(
+        r#"
+        SELECT id, provider, status, amount_cents, currency, register_session_id, staff_id,
+               device_id, terminal_id, selected_terminal_key, terminal_route_source,
+               terminal_override_staff_id, terminal_override_reason, idempotency_key, provider_payment_id,
+               provider_transaction_id, error_code, error_message, raw_audit_reference,
+               created_at, updated_at, completed_at
+        FROM payment_provider_attempts
+        WHERE provider = 'helcim' AND idempotency_key = $1
+        "#,
+    )
+    .bind(idempotency_key)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+
+    let Some(attempt) = attempt else {
+        return Ok(None);
+    };
+
+    if let Some(session_id) = register_session_id {
+        if attempt.register_session_id != Some(session_id) {
+            return Err(PaymentError::Forbidden(
+                "Helcim attempt does not belong to this register session.".to_string(),
+            ));
+        }
+    } else if let Some(staff_id) = staff_id {
+        if attempt.staff_id != Some(staff_id) {
+            return Err(PaymentError::Forbidden(
+                "Helcim attempt does not belong to this staff member.".to_string(),
+            ));
+        }
+    } else {
+        return Err(PaymentError::Forbidden(
+            "Helcim attempt scope could not be verified.".to_string(),
+        ));
+    }
+
+    if should_skip_provider_refresh_for_idempotency_replay(&attempt) {
+        return Ok(Some(HelcimAttemptResponse::from_row(attempt, None, None)));
+    }
+
+    load_helcim_attempt(state, attempt.id, register_session_id)
+        .await
+        .map(Some)
+}
+
 async fn load_helcim_attempt(
     state: &AppState,
     attempt_id: Uuid,
@@ -8234,6 +8348,59 @@ async fn load_helcim_attempt_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_helcim_attempt_row(status: &str) -> HelcimAttemptRow {
+        let now = Utc::now();
+        HelcimAttemptRow {
+            id: Uuid::new_v4(),
+            provider: "helcim".to_string(),
+            status: status.to_string(),
+            amount_cents: 1_234,
+            currency: "usd".to_string(),
+            register_session_id: Some(Uuid::new_v4()),
+            staff_id: None,
+            device_id: None,
+            terminal_id: None,
+            selected_terminal_key: None,
+            terminal_route_source: None,
+            terminal_override_staff_id: None,
+            terminal_override_reason: None,
+            idempotency_key: "refund-replay-key".to_string(),
+            provider_payment_id: None,
+            provider_transaction_id: Some("123456789".to_string()),
+            error_code: None,
+            error_message: None,
+            raw_audit_reference: Some("helcim:cardRefund:123456789".to_string()),
+            created_at: now,
+            updated_at: now,
+            completed_at: None,
+        }
+    }
+
+    #[test]
+    fn pending_idempotency_replay_returns_attempt_without_provider_refresh() {
+        let attempt = sample_helcim_attempt_row("pending");
+        assert!(should_skip_provider_refresh_for_idempotency_replay(
+            &attempt
+        ));
+        let response = HelcimAttemptResponse::from_row(attempt, None, None);
+
+        assert_eq!(response.status, "pending");
+        assert_eq!(
+            response.provider_transaction_id.as_deref(),
+            Some("123456789")
+        );
+        assert!(response.safe_message.is_none());
+    }
+
+    #[test]
+    fn final_idempotency_replay_can_use_standard_attempt_loader() {
+        let attempt = sample_helcim_attempt_row("approved");
+
+        assert!(!should_skip_provider_refresh_for_idempotency_replay(
+            &attempt
+        ));
+    }
 
     #[test]
     fn helcim_purchase_409_maps_to_staff_actionable_conflict() {

@@ -4042,49 +4042,6 @@ pub async fn execute_checkout(
     let total_price = payload.total_price;
     let session_id_for_log = payload.session_id;
 
-    // Write completed transaction ledgers to qbo_sync_outbox before committing.
-    let qbo_payload = serde_json::json!({
-        "display_id": transaction_display_id,
-        "customer_id": payload.customer_id,
-        "booked_at": checkout_booked_at_local.as_deref().unwrap_or(""),
-        "total_price": payload.total_price.to_string(),
-        "amount_paid": amount_toward_order.to_string(),
-        "balance_due": balance_due.to_string(),
-        "rounding_adjustment": payload.rounding_adjustment.unwrap_or(Decimal::ZERO).to_string(),
-        "is_layaway": is_layaway,
-        "shipping_amount": order_shipping_amt.map(|d| d.to_string()),
-        "items": payload.items.iter().map(|item| {
-            serde_json::json!({
-                "variant_id": item.variant_id,
-                "product_id": item.product_id,
-                "quantity": item.quantity,
-                "unit_price": item.unit_price.to_string(),
-                "state_tax": item.state_tax.to_string(),
-                "local_tax": item.local_tax.to_string(),
-                "line_type": item.line_type.as_deref().unwrap_or("merchandise")
-            })
-        }).collect::<Vec<_>>(),
-        "payments": payment_splits.iter().map(|split| {
-            serde_json::json!({
-                "method": split.method,
-                "amount": split.amount.to_string(),
-                "gift_card_code": split.gift_card_code.clone()
-            })
-        }).collect::<Vec<_>>()
-    });
-
-    sqlx::query(
-        r#"
-        INSERT INTO qbo_sync_outbox (transaction_id, payload, status)
-        VALUES ($1, $2, 'pending')
-        "#,
-    )
-    .bind(transaction_id)
-    .bind(qbo_payload)
-    .execute(&mut *tx)
-    .await
-    .map_err(CheckoutError::Database)?;
-
     tx.commit().await?;
 
     // Broadcast system alerts for negative stock
@@ -5351,21 +5308,6 @@ mod tests {
         let product_id = Uuid::new_v4();
         let variant_id = Uuid::new_v4();
         let sku = format!("E2E-CHECKOUT-SPIFF-{}", Uuid::new_v4().simple());
-        let register_lane: i16 = sqlx::query_scalar(
-            r#"
-            SELECT gs.lane::smallint
-            FROM generate_series(1, 99) AS gs(lane)
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM register_sessions rs
-                WHERE rs.is_open = TRUE AND rs.register_lane = gs.lane
-            )
-            LIMIT 1
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("find open register lane for checkout test");
 
         sqlx::query(
             r#"
@@ -5385,21 +5327,36 @@ mod tests {
         .await
         .expect("insert staff");
 
-        sqlx::query(
-            r#"
-            INSERT INTO register_sessions (
-                id, opened_by, opening_float, is_open, register_lane, till_close_group_id
+        let register_lane = loop {
+            let candidate = ((Uuid::new_v4().as_u128() % 99) + 1) as i16;
+            let result = sqlx::query(
+                r#"
+                INSERT INTO register_sessions (
+                    id, opened_by, opening_float, is_open, register_lane, till_close_group_id
+                )
+                VALUES ($1, $2, 0, TRUE, $3, $4)
+                "#,
             )
-            VALUES ($1, $2, 0, TRUE, $3, $4)
-            "#,
-        )
-        .bind(session_id)
-        .bind(staff_id)
-        .bind(register_lane)
-        .bind(Uuid::new_v4())
-        .execute(&pool)
-        .await
-        .expect("insert register session");
+            .bind(session_id)
+            .bind(staff_id)
+            .bind(candidate)
+            .bind(Uuid::new_v4())
+            .execute(&pool)
+            .await;
+
+            match result {
+                Ok(_) => break candidate,
+                Err(error)
+                    if error
+                        .as_database_error()
+                        .and_then(|db_error| db_error.constraint())
+                        == Some("register_sessions_open_lane_uidx") =>
+                {
+                    continue;
+                }
+                Err(error) => panic!("insert register session: {error:?}"),
+            }
+        };
 
         sqlx::query(
             r#"

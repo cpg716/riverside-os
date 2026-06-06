@@ -67,6 +67,7 @@ Inspected `/api/qbo`, `/api/auth/qbo`, QBO staging routes, explicit mapping gate
 
 - `server/src/api/qbo.rs` includes balanced staging payload tests and credential key tests.
 - `server/src/logic/qbo_journal.rs` includes journal generation tests.
+- `cargo test -p riverside-server` compiles and runs the QBO background worker module in the full server suite.
 - Missing: endpoint-level permission tests, OAuth callback state/CSRF validation tests, sync/retry/void duplicate-click tests.
 
 ## Risks
@@ -80,4 +81,3 @@ Inspected `/api/qbo`, `/api/auth/qbo`, QBO staging routes, explicit mapping gate
 - Add duplicate-click/idempotency tests for approve, sync, retry, revert, and void.
 - Verify OAuth callback state handling and webhook signature verification expectations.
 - Expand QBO drilldown tests for deposit release, refunds, COGS freight, sales tax, and booked vs fulfilled dates.
-

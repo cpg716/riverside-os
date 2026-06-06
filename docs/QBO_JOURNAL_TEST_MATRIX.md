@@ -2,6 +2,8 @@
 
 Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/staging/propose`, review `warnings`, `totals.balanced`, and line memos. Use staging drilldown where available.
 
+QBO sales posting is **Daily Staging Journal only**. Checkout and Helcim webhook recovery record transactions, payments, allocations, and fulfillment evidence in ROS, but they do not directly post transaction-level revenue journals to QBO.
+
 ## Recognition-day revenue (effective qty)
 
 | Scenario | Expect |

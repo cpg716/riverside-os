@@ -38,6 +38,8 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 **Purpose:** Review **journal bundles** before they hit QBO.
 
+ROS does not post checkout-by-checkout revenue journals directly to QBO. Sales, tax, COGS, shipping income, deposits, returns, gift-card liability, tender clearing, and operational inventory movement flow through the reviewed **Daily QBO Staging Journal** so accounting has one clear approval point.
+
 1. **Staging** → sort by **date** or **status**.
 2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
 3. After **Z-Close**, ROS stages the daily journal for that business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a pending row when accounting opens. If the pending row already exists, staging refreshes it with the latest facts. If the day was already approved or synced and later activity changes the day, ROS creates a revision row for the same business date.

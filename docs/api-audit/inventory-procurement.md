@@ -69,6 +69,8 @@ Inspected `/api/products`, `/api/inventory`, `/api/inventory/physical`, `/api/pu
 
 - Critical stock/cost writes are variant stock-adjust, variant pricing, product model edits, PO receive/direct invoice, physical inventory publish, and lifecycle-created PO.
 - Lifecycle transition repair writes audit events and should not bypass receiving/pickup rules for risky transitions.
+- Remediation stabilized product pricing/model tests by using isolated per-test SKUs and removed cross-test cleanup that could delete another running test's fixture.
+- Remediation aligned purchase order DB-backed tests with the shared `.env` / `TEST_DATABASE_URL` test connection pattern.
 
 ## Transaction / Idempotency Notes
 
@@ -86,6 +88,7 @@ Inspected `/api/products`, `/api/inventory`, `/api/inventory/physical`, `/api/pu
 - `server/src/api/products.rs` has pricing/model tests.
 - `server/src/api/purchase_orders.rs` has PO tests.
 - `server/src/logic/physical_inventory.rs` has physical inventory tests.
+- `cargo test -p riverside-server` now passes the product pricing/model, procurement, and physical inventory test coverage together in the full parallel suite.
 - Missing: endpoint-level RBAC tests and duplicate-retry tests around receiving and physical publish.
 
 ## Risks
@@ -99,4 +102,3 @@ Inspected `/api/products`, `/api/inventory`, `/api/inventory/physical`, `/api/pu
 - Add idempotency tests for PO receiving and physical inventory publish.
 - Trace staff attribution and audit logs for every live-stock mutation.
 - Add a contract test proving batch-scan staging does not mutate stock.
-

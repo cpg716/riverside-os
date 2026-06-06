@@ -19,7 +19,7 @@ Inspected `/api/help/rosie/v1/*`, `/api/ai/visual/*`, ROSIE help docs, permissio
 | POST | `/api/help/rosie/v1/voice/synthesize`, `/speak`, `/stop` | `help.rs` | ROSIE voice | authenticated staff/POS | Staff/POS context | Host TTS/playback state | runtime state | Not traced | Medium | Local host side effect, not business data mutation. |
 | GET | `/api/help/rosie/v1/voice/status` | `help.rs` | ROSIE voice | authenticated staff/POS | Staff/POS context | No | runtime state | Not traced | Low | Playback status. |
 | GET/POST | `/api/help/rosie/v1/intelligence/status`, `/refresh` | `help.rs` | ROSIE settings/help | authenticated staff/POS; admin may be required by handler | Staff/POS context | Refresh yes | intelligence cache/index | Logic tests exist | Medium | Cache/index refresh, no business write expected. |
-| GET | `/api/help/rosie/v1/capabilities` | `help.rs` | ROSIE UI | `help.manage` in current handler comment/code path | Manager/Admin | No | capabilities/config | Help tests exist | Medium | Verify intended access; comment says any authenticated staff but code uses `help.manage`. |
+| GET | `/api/help/rosie/v1/capabilities` | `help.rs` | ROSIE UI | authenticated staff | Staff Access | No | capabilities/config | Regression test added | Low | Fixed: handler now matches intended any-authenticated-staff access. |
 | POST | `/api/help/rosie/v1/product-catalog-analyze`, `/product-catalog-suggest` | `help.rs` | Product intelligence | catalog permission preserved | Staff Access | Suggestion/write? analyze mostly read | products/catalog audit | Help tests exist | High | Must not mutate catalog without explicit staff confirmation. |
 | POST | `/api/help/rosie/v1/e2e/*` | `help.rs`, `e2e_gateway.rs` | ROSIE E2E tools | help/admin gate expected | Manager/Admin | Generates/runs test artifacts | test/manual artifacts | Not traced | Medium | Should stay non-production mutation only. |
 | GET/PUT/DELETE | `/api/help/admin/manuals*` | `help.rs` | Help settings | `help.manage` | Manager/Admin | Writes yes | help manual policy/content | Help tests exist | Medium | Help policy/content mutation. |
@@ -38,7 +38,7 @@ Inspected `/api/help/rosie/v1/*`, `/api/ai/visual/*`, ROSIE help docs, permissio
 - Help/ROSIE viewer paths support authenticated staff and POS fallback in selected handlers.
 - Admin Help Center operations require `help.manage`.
 - ROSIE reporting and product catalog tools have tests asserting underlying permissions are preserved.
-- `rosie_capabilities` has a comment/code mismatch worth follow-up: comment says any authenticated staff, code path requires `help.manage`.
+- `rosie_capabilities` now matches the intended access contract: any authenticated staff member may read capability metadata.
 
 ## Mutation / Side Effect Notes
 
@@ -60,8 +60,10 @@ Inspected `/api/help/rosie/v1/*`, `/api/ai/visual/*`, ROSIE help docs, permissio
 ## Test Coverage
 
 - `server/src/api/help.rs` includes permission-preservation tests for ROSIE operational context and product catalog analysis.
+- `server/src/api/help.rs` includes a regression test proving authenticated staff without `help.manage` can read ROSIE capabilities.
+- `cargo test -p riverside-server rosie_tool_context_` passes the current ROSIE tool-context matrix for orders, customers, weddings, inventory cost protection, unsupported-tool withholding, and permission denial.
 - `server/src/logic/rosie_intelligence.rs` includes telemetry/intelligence contract tests.
-- Missing: endpoint tests for chat upstream failure, tool-context read restrictions across every domain, and visual dispatch RBAC.
+- Missing: endpoint tests for visual dispatch RBAC and any future tool-context domains added after this audit.
 
 ## Risks
 
@@ -70,7 +72,5 @@ Inspected `/api/help/rosie/v1/*`, `/api/ai/visual/*`, ROSIE help docs, permissio
 
 ## Recommended Follow-Up
 
-- Add a ROSIE tool permission matrix test covering orders, customers, inventory cost, QBO, reports, and weddings.
-- Resolve or document the `rosie_capabilities` comment/code mismatch.
+- Keep the ROSIE tool permission matrix current when new operational tool domains are added.
 - Add explicit tests that ROSIE cannot write financial/payment/accounting/inventory state.
-

@@ -4046,13 +4046,6 @@ mod tests {
             .await
             .expect("connect test database");
 
-        // Clean up any leaked test SKUs from previous runs to prevent unique constraint failures
-        let _ = sqlx::query(
-            "DELETE FROM product_variants WHERE sku IN ('BASE-SKU', 'OVERRIDE-SKU', 'OOS-SKU', 'OVERRIDE-SKU-2', 'CLEAR-SKU', 'PRICE-SKU', 'NOOP-SKU')"
-        )
-        .execute(&pool)
-        .await;
-
         pool
     }
 
@@ -4586,25 +4579,32 @@ mod tests {
         // Insert two variants: one base-priced, one with an override
         let base_variant = Uuid::new_v4();
         let override_variant = Uuid::new_v4();
+        let base_sku = format!("BASE-SKU-{}", &base_variant.simple().to_string()[..8]);
+        let override_sku = format!(
+            "OVERRIDE-SKU-{}",
+            &override_variant.simple().to_string()[..8]
+        );
         sqlx::query(
             r#"
             INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
-            VALUES ($1, $2, 'BASE-SKU', '{}'::jsonb, 5, NULL, NOW())
+            VALUES ($1, $2, $3, '{}'::jsonb, 5, NULL, NOW())
             "#,
         )
         .bind(base_variant)
         .bind(product_id)
+        .bind(&base_sku)
         .execute(&pool)
         .await
         .expect("insert base variant");
         sqlx::query(
             r#"
             INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
-            VALUES ($1, $2, 'OVERRIDE-SKU', '{}'::jsonb, 3, 150.00, NOW())
+            VALUES ($1, $2, $3, '{}'::jsonb, 3, 150.00, NOW())
             "#,
         )
         .bind(override_variant)
         .bind(product_id)
+        .bind(&override_sku)
         .execute(&pool)
         .await
         .expect("insert override variant");
@@ -4645,7 +4645,7 @@ mod tests {
             serde_json::from_value(response["price_change_reprint_variants"].clone())
                 .expect("parse returned variants");
         assert_eq!(returned.len(), 1);
-        assert_eq!(returned[0]["sku"], "BASE-SKU");
+        assert_eq!(returned[0]["sku"], base_sku);
         assert_eq!(returned[0]["effective_retail"], "120.00");
 
         let base_labeled: Option<chrono::DateTime<chrono::Utc>> =
@@ -4680,14 +4680,16 @@ mod tests {
         let state = build_test_state(pool.clone());
 
         let oos_variant = Uuid::new_v4();
+        let oos_sku = format!("OOS-SKU-{}", &oos_variant.simple().to_string()[..8]);
         sqlx::query(
             r#"
             INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
-            VALUES ($1, $2, 'OOS-SKU', '{}'::jsonb, 0, NULL, NOW())
+            VALUES ($1, $2, $3, '{}'::jsonb, 0, NULL, NOW())
             "#,
         )
         .bind(oos_variant)
         .bind(product_id)
+        .bind(&oos_sku)
         .execute(&pool)
         .await
         .expect("insert oos variant");
@@ -4726,7 +4728,7 @@ mod tests {
             serde_json::from_value(response["price_change_reprint_variants"].clone())
                 .expect("parse returned variants");
         assert_eq!(returned.len(), 1);
-        assert_eq!(returned[0]["sku"], "OOS-SKU");
+        assert_eq!(returned[0]["sku"], oos_sku);
         assert_eq!(returned[0]["stock_on_hand"], 0);
         assert_eq!(returned[0]["effective_retail"], "99.99");
     }
@@ -4739,15 +4741,17 @@ mod tests {
         let (_staff_id, code) =
             insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
         let state = build_test_state(pool.clone());
+        let sku = format!("PRICE-SKU-{}", &variant_id.simple().to_string()[..8]);
 
         sqlx::query(
             r#"
             INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
-            VALUES ($1, $2, 'PRICE-SKU', '{}'::jsonb, 4, NULL, NOW())
+            VALUES ($1, $2, $3, '{}'::jsonb, 4, NULL, NOW())
             "#,
         )
         .bind(variant_id)
         .bind(product_id)
+        .bind(sku)
         .execute(&pool)
         .await
         .expect("insert variant");
@@ -4796,16 +4800,18 @@ mod tests {
         let (_staff_id, code) =
             insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
         let state = build_test_state(pool.clone());
+        let sku = format!("NOOP-SKU-{}", &variant_id.simple().to_string()[..8]);
 
         // base_retail_price on the product is 100.00 from insert_patchable_product
         sqlx::query(
             r#"
             INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
-            VALUES ($1, $2, 'NOOP-SKU', '{}'::jsonb, 2, 100.00, NOW())
+            VALUES ($1, $2, $3, '{}'::jsonb, 2, 100.00, NOW())
             "#,
         )
         .bind(variant_id)
         .bind(product_id)
+        .bind(sku)
         .execute(&pool)
         .await
         .expect("insert variant");
@@ -4852,16 +4858,18 @@ mod tests {
         let (_staff_id, code) =
             insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
         let state = build_test_state(pool.clone());
+        let sku = format!("CLEAR-SKU-{}", &variant_id.simple().to_string()[..8]);
 
         // base_retail_price on the product is 100.00; override is 80.00
         sqlx::query(
             r#"
             INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand, retail_price_override, shelf_labeled_at)
-            VALUES ($1, $2, 'CLEAR-SKU', '{}'::jsonb, 7, 80.00, NOW())
+            VALUES ($1, $2, $3, '{}'::jsonb, 7, 80.00, NOW())
             "#,
         )
         .bind(variant_id)
         .bind(product_id)
+        .bind(sku)
         .execute(&pool)
         .await
         .expect("insert variant");

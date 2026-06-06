@@ -76,14 +76,16 @@ Inspected `/api/payments` routes, Helcim webhook routes, key payment permission 
 ## Mutation / Side Effect Notes
 
 - Helcim purchase/refund/reverse endpoints talk to the external provider and persist payment provider attempts.
+- Helcim card refund/reverse now reuse an existing scoped provider attempt for a repeated client idempotency key before making another provider call.
 - Webhook handling persists provider events and can recover/finalize pending checkout attempts.
 - Deposit review/link operations write actual deposit events and reconciliation issue status changes.
 
 ## Transaction / Idempotency Notes
 
 - Terminal attempts include idempotency keys and final-status skip helpers.
+- Card refund/reverse requests with a repeated client idempotency key return the existing scoped Helcim attempt, including concurrent duplicate insert races.
 - Deposit create/link/review/reopen handlers use SQL transactions and event rows.
-- Follow-up should verify all provider charge/refund endpoints use consistent idempotency and provider retry handling.
+- Follow-up should add endpoint tests for provider charge/refund idempotency and provider retry handling.
 
 ## Audit Trail Notes
 
@@ -95,6 +97,7 @@ Inspected `/api/payments` routes, Helcim webhook routes, key payment permission 
 
 - `server/src/api/webhooks.rs` includes Helcim webhook signature and final-status tests.
 - `server/src/api/payments.rs` includes Helcim terminal purchase error mapping tests.
+- `server/src/api/payments.rs` includes unit coverage proving pending card refund/reverse idempotency replay returns the cached attempt without provider refresh.
 - `server/src/logic/helcim.rs` includes provider helper tests.
 - Missing: endpoint-level RBAC tests for every payment mutation, duplicate webhook replay tests, and terminal attempt release/simulate guard tests.
 
@@ -109,4 +112,3 @@ Inspected `/api/payments` routes, Helcim webhook routes, key payment permission 
 - Add a payment endpoint permission matrix test for `payments.view`, `payments.sync`, reconcile, deposit review/link/adjust, and POS-session fallback.
 - Add duplicate webhook replay tests for approved, failed, cancelled, and already-final attempts.
 - Confirm `simulate` is unreachable in production-like configuration.
-

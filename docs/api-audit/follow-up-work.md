@@ -1,9 +1,16 @@
 # API Audit Follow-Up Work
 
+## Resolved In Remediation Pass
+
+- Fixed ROSIE capabilities access mismatch and added a regression test.
+- Hardened Helcim card refund/reverse client-idempotency replay and added pending replay unit coverage.
+- Added `migrations/068_transaction_lines_discount_amount.sql` to repair line-level discount schema drift used by Customer Hub and reporting queries.
+- Stabilized DB-backed product/procurement/checkout tests so `cargo test -p riverside-server` passes in the full parallel suite.
+
 ## Highest Priority Prompts
 
 1. Audit and test POS checkout idempotency end to end.
-   - Scope: `POST /api/transactions/checkout`, Helcim attempts/webhooks, payment allocations, register session token, QBO outbox.
+   - Scope: `POST /api/transactions/checkout`, Helcim attempts/webhooks, payment allocations, register session token, and Daily QBO Staging evidence.
    - Output: failing/passing tests for duplicate checkout submit, duplicate webhook, terminal failure recovery, and stale/closed session.
 
 2. Audit and test refund, void, return, and exchange settlement authorization.

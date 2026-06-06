@@ -1009,14 +1009,14 @@ async fn handle_helcim_card_transaction(
         && final_payment_transaction_id.is_none()
     {
         if let Some(client_id) = checkout_client_id {
-            let txn: Option<(Uuid, String, Decimal, Decimal, Uuid)> = sqlx::query_as(
-                "SELECT id, display_id, total_price, rounding_adjustment, operator_id FROM transactions WHERE checkout_client_id = $1 AND status = 'processing'"
+            let txn: Option<(Uuid, Decimal, Decimal, Uuid)> = sqlx::query_as(
+                "SELECT id, total_price, rounding_adjustment, operator_id FROM transactions WHERE checkout_client_id = $1 AND status = 'processing'"
             )
             .bind(client_id)
             .fetch_optional(&mut *tx)
             .await?;
 
-            if let Some((tid, d_id, total_price, rounding_adjustment, operator_id)) = txn {
+            if let Some((tid, total_price, rounding_adjustment, operator_id)) = txn {
                 let payment_txn_id = Uuid::new_v4();
                 let payment_amount = Decimal::from(amount_cents) / Decimal::from(100);
 
@@ -1094,86 +1094,6 @@ async fn handle_helcim_card_transaction(
                     }),
                 )
                 .await;
-
-                let items: Vec<serde_json::Value> = sqlx::query_as(
-                    r#"
-                    SELECT variant_id, product_id, quantity, unit_price, state_tax, local_tax, fulfillment::text
-                    FROM transaction_lines
-                    WHERE transaction_id = $1
-                    "#
-                )
-                .bind(tid)
-                .fetch_all(&mut *tx)
-                .await?
-                .into_iter()
-                .map(|(vid, pid, qty, up, st, lt, ful): (Uuid, Uuid, i32, Decimal, Decimal, Decimal, String)| {
-                    serde_json::json!({
-                        "variant_id": vid,
-                        "product_id": pid,
-                        "quantity": qty,
-                        "unit_price": up.to_string(),
-                        "state_tax": st.to_string(),
-                        "local_tax": lt.to_string(),
-                        "line_type": if ful == "alteration_service" { "alteration_service" } else { "merchandise" }
-                    })
-                })
-                .collect();
-
-                let is_layaway = sqlx::query_scalar::<_, bool>(
-                    "SELECT EXISTS(SELECT 1 FROM transaction_lines WHERE transaction_id = $1 AND fulfillment = 'layaway')"
-                )
-                .bind(tid)
-                .fetch_one(&mut *tx)
-                .await?;
-
-                let customer_id = sqlx::query_scalar::<_, Option<Uuid>>(
-                    "SELECT customer_id FROM transactions WHERE id = $1",
-                )
-                .bind(tid)
-                .fetch_one(&mut *tx)
-                .await?;
-                let booked_at = sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>(
-                    "SELECT booked_at FROM transactions WHERE id = $1",
-                )
-                .bind(tid)
-                .fetch_one(&mut *tx)
-                .await?;
-                let shipping_amount = sqlx::query_scalar::<_, Option<Decimal>>(
-                    "SELECT shipping_amount_usd FROM transactions WHERE id = $1",
-                )
-                .bind(tid)
-                .fetch_one(&mut *tx)
-                .await?;
-
-                let qbo_payload = serde_json::json!({
-                    "display_id": d_id,
-                    "customer_id": customer_id,
-                    "booked_at": booked_at.to_rfc3339(),
-                    "total_price": total_price.to_string(),
-                    "amount_paid": payment_amount.to_string(),
-                    "balance_due": balance_due.to_string(),
-                    "rounding_adjustment": rounding_adjustment.to_string(),
-                    "is_layaway": is_layaway,
-                    "shipping_amount": shipping_amount.map(|d| d.to_string()),
-                    "items": items,
-                    "payments": vec![
-                        serde_json::json!({
-                            "method": "card_terminal",
-                            "amount": payment_amount.to_string()
-                        })
-                    ]
-                });
-
-                sqlx::query(
-                    r#"
-                    INSERT INTO qbo_sync_outbox (transaction_id, payload, status)
-                    VALUES ($1, $2, 'pending')
-                    "#,
-                )
-                .bind(tid)
-                .bind(qbo_payload)
-                .execute(&mut *tx)
-                .await?;
 
                 final_payment_transaction_id = Some(payment_txn_id);
             }

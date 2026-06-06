@@ -1062,6 +1062,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rosie_capabilities_allows_authenticated_staff_without_help_manage() {
+        let pool = connect_test_db().await;
+        let (_staff_id, code) = insert_staff_with_permissions(&pool, "salesperson", &[]).await;
+        let state = build_test_state(pool);
+
+        let Json(response) = rosie_capabilities(State(state), auth_headers(&code))
+            .await
+            .expect("authenticated staff can read ROSIE capabilities");
+
+        assert!(!response.available_tools.is_empty());
+        assert!(response
+            .available_tools
+            .iter()
+            .any(|tool| tool.requires_permission.is_some()));
+    }
+
+    #[tokio::test]
     async fn rosie_chat_proxy_retries_transport_failures() {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -1934,7 +1951,7 @@ async fn rosie_capabilities(
     headers: HeaderMap,
 ) -> Result<Json<crate::logic::rosie_intelligence::RosieSelfReflection>, Response> {
     // Allow any authenticated staff to query capabilities (no special permission needed)
-    let _staff = middleware::require_staff_with_permission(&_state, &headers, HELP_MANAGE)
+    let _staff = middleware::require_authenticated_staff_headers(&_state, &headers)
         .await
         .map_err(|e| e.into_response())?;
 

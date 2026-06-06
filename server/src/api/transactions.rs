@@ -619,6 +619,7 @@ mod tests {
                 ready_count: 0,
                 picked_up_count: 0,
             },
+            linked_alterations: Vec::new(),
             items,
             lifecycle_events: Vec::new(),
             is_tax_exempt: false,
