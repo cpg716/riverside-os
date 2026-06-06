@@ -10,6 +10,7 @@ import {
   Users,
   User,
   ShieldCheck,
+  ShoppingCart,
 } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
 import { useOfflineSync } from "../../lib/offlineQueue";
@@ -122,6 +123,7 @@ export default function GlobalTopBar({
   );
   const { isOnline, queueCount, pendingCount, blockedCount } = useOfflineSync(baseUrl, apiAuth);
   const isPosVariant = searchVariant === "pos";
+  const showBackofficePosShortcut = !isPosVariant && !onShellReturn;
 
   const isTailscaleRemote = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -228,6 +230,17 @@ export default function GlobalTopBar({
 
         {/* Global Action Cluster */}
         <div className="flex items-center gap-1 border-r border-app-border pr-2 sm:gap-1.5 sm:pr-3 md:mr-1">
+          {showBackofficePosShortcut ? (
+            <button
+              type="button"
+              onClick={onNavigateRegister}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text shadow-sm transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
+              title="Open POS register"
+            >
+              <ShoppingCart size={16} aria-hidden />
+              <span className="hidden sm:inline">POS</span>
+            </button>
+          ) : null}
           {onOpenRosie ? <RosieTriggerButton onOpen={onOpenRosie} /> : null}
           {onOpenHelp ? <HelpCenterTriggerButton onOpen={onOpenHelp} /> : null}
           {onOpenBugReport ? <BugReportTriggerButton onOpen={onOpenBugReport} /> : null}

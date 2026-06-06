@@ -54,21 +54,23 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
 
         tracing::info!("Unified Engine: Applying migration: {}...", file_name);
 
-        // Strip psql meta-commands and pg_dump session-state preamble
+        // Strip psql meta-commands before parsing, then skip pg_dump session-state
+        // statements after parsing so UPDATE ... SET clauses remain intact.
         let clean_sql = sql_content
             .lines()
             .filter(|line| {
                 let t = line.trim_start();
                 !t.starts_with('\\')
-                    && !t.starts_with("SET ")
-                    && !t.starts_with("SELECT pg_catalog.set_config")
             })
             .collect::<Vec<_>>()
             .join("\n");
 
         let mut tx = pool.begin().await?;
 
-        let statements = split_postgres_statements(&clean_sql);
+        let statements = split_postgres_statements(&clean_sql)
+            .into_iter()
+            .filter(|stmt| !is_ignored_pg_dump_statement(stmt))
+            .collect::<Vec<_>>();
 
         for stmt in &statements {
             if let Err(e) = sqlx::query(stmt).execute(&mut *tx).await {
@@ -251,9 +253,25 @@ fn split_postgres_statements(sql: &str) -> Vec<&str> {
     statements
 }
 
+fn is_ignored_pg_dump_statement(statement: &str) -> bool {
+    let Some(first_executable_line) = statement.lines().find_map(|line| {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with("--") || trimmed.starts_with("/*") {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }) else {
+        return true;
+    };
+
+    first_executable_line.starts_with("SET ")
+        || first_executable_line.starts_with("SELECT pg_catalog.set_config")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::split_postgres_statements;
+    use super::{is_ignored_pg_dump_statement, split_postgres_statements};
 
     #[test]
     fn split_postgres_statements_preserves_plpgsql_body() {
@@ -292,5 +310,29 @@ mod tests {
         assert!(statements[0].contains("\"semi;table\""));
         assert!(statements[0].contains("'value;still literal'"));
         assert!(statements[1].contains("$tag$body;still body$tag$"));
+    }
+
+    #[test]
+    fn pg_dump_statement_filter_preserves_update_set_clauses() {
+        let sql = r#"
+            SET statement_timeout = 0;
+
+            UPDATE qbo_sync_outbox
+            SET status = 'retired_daily_staging_only',
+                last_error = 'Retired: use reviewed Daily QBO Staging Journal.',
+                updated_at = NOW()
+            WHERE status IN ('pending', 'processing', 'failed');
+
+            SELECT pg_catalog.set_config('search_path', '', false);
+        "#;
+
+        let executable = split_postgres_statements(sql)
+            .into_iter()
+            .filter(|stmt| !is_ignored_pg_dump_statement(stmt))
+            .collect::<Vec<_>>();
+
+        assert_eq!(executable.len(), 1);
+        assert!(executable[0].starts_with("UPDATE qbo_sync_outbox"));
+        assert!(executable[0].contains("SET status = 'retired_daily_staging_only'"));
     }
 }

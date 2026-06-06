@@ -70,7 +70,9 @@ opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.27", features = ["http-proto", "reqwest-rustls"] }
 tracing-opentelemetry = "0.28"
 lettre = "0.11"
-imap = "2"
+# Keep exact until mailbox adapter migration is tested; imap 3.x is alpha and
+# forcing a newer imap-proto has broken compatibility before.
+imap = "=2.4.1"
 native-tls = "0.2"
 mail-parser = "0.10"
 
