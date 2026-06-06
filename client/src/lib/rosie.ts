@@ -14,6 +14,10 @@ export type RosieSettings = {
   speech_rate: number;
   microphone_enabled: boolean;
   microphone_mode: "push_to_talk" | "toggle";
+  cost_comparison_provider: string;
+  cost_comparison_model: string;
+  external_input_cost_per_1m_tokens: number;
+  external_output_cost_per_1m_tokens: number;
 };
 
 export type RosieChatMessage = {
@@ -422,6 +426,10 @@ export const DEFAULT_ROSIE_SETTINGS: RosieSettings = {
   speech_rate: 1,
   microphone_enabled: true,
   microphone_mode: "push_to_talk",
+  cost_comparison_provider: "custom_external_api",
+  cost_comparison_model: "set_model_in_settings",
+  external_input_cost_per_1m_tokens: 0,
+  external_output_cost_per_1m_tokens: 0,
 };
 
 function normalizeRosieSettings(raw: unknown): RosieSettings {
@@ -441,6 +449,8 @@ function normalizeRosieSettings(raw: unknown): RosieSettings {
       : 1;
   const microphoneMode =
     source.microphone_mode === "toggle" ? "toggle" : "push_to_talk";
+  const inputCost = Number(source.external_input_cost_per_1m_tokens);
+  const outputCost = Number(source.external_output_cost_per_1m_tokens);
   return {
     enabled: source.enabled !== false,
     local_first: source.local_first ?? legacy.direct_mode_enabled ?? true,
@@ -453,6 +463,20 @@ function normalizeRosieSettings(raw: unknown): RosieSettings {
     speech_rate: speechRate,
     microphone_enabled: source.microphone_enabled ?? legacy.voice_input_enabled ?? true,
     microphone_mode: microphoneMode,
+    cost_comparison_provider:
+      typeof source.cost_comparison_provider === "string" &&
+      source.cost_comparison_provider.trim().length > 0
+        ? source.cost_comparison_provider.trim()
+        : "custom_external_api",
+    cost_comparison_model:
+      typeof source.cost_comparison_model === "string" &&
+      source.cost_comparison_model.trim().length > 0
+        ? source.cost_comparison_model.trim()
+        : "set_model_in_settings",
+    external_input_cost_per_1m_tokens:
+      Number.isFinite(inputCost) && inputCost >= 0 ? inputCost : 0,
+    external_output_cost_per_1m_tokens:
+      Number.isFinite(outputCost) && outputCost >= 0 ? outputCost : 0,
   };
 }
 

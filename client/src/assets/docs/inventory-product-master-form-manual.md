@@ -12,11 +12,11 @@ tags: inventory-product-master-form, inventory, product-master, catalog
 
 ## Screenshots
 
-![Inventory control board](../images/help/inventory-control-board/main.png)
+![Inventory list](../images/help/inventory-product-master-form/inventory-list.png)
 
-![Receive Stock workflow](../images/help/inventory-receiving-bay/main.png)
+![Receive Stock context](../images/help/inventory-product-master-form/receiving-context.png)
 
-![Purchase order panel](../images/help/inventory-purchase-order-panel/main.png)
+![Purchase order context](../images/help/inventory-product-master-form/purchase-orders-context.png)
 
 ## What this is
 

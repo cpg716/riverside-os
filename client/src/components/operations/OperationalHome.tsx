@@ -408,6 +408,7 @@ interface WeatherForecastPayload {
   days: ForecastDay[];
   current?: ForecastCurrent | null;
   source?: string;
+  location?: string;
 }
 
 function WeatherDashboardWidget({
@@ -441,6 +442,7 @@ function WeatherDashboardWidget({
   const today = days[0];
   const tomorrow = days[1] ?? days[0];
   const current = forecast?.current;
+  const locationLabel = forecast?.location?.trim() || "Store weather";
   const headlineCondition = (
     current?.condition ?? today.condition
   ).toLowerCase();
@@ -468,7 +470,7 @@ function WeatherDashboardWidget({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[9px] font-black uppercase tracking-[0.16em] text-app-text-muted">
-                  Buffalo, NY
+                  {locationLabel}
                 </span>
                 <div className={`h-1.5 w-1.5 rounded-full ${forecast?.source === "mock" ? "bg-app-warning" : "bg-app-success"}`} />
                 {forecast?.source === "mock" ? (
@@ -521,7 +523,7 @@ function WeatherDashboardWidget({
           </div>
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Buffalo, NY</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">{locationLabel}</span>
               <div className={`h-1.5 w-1.5 rounded-full ${forecast?.source === "mock" ? "bg-app-warning" : "bg-app-success"}`} />
               {forecast?.source === "mock" ? (
                 <span className="rounded-full border border-app-warning/20 bg-app-warning/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-warning">
@@ -1187,19 +1189,38 @@ export default function OperationalHome({
     return stats;
   }, [fulfillmentQueue]);
 
+  const visibleRegisterSessions = useMemo(() => {
+    const primarySessionByGroup = new Map<string, OpenRegisterSessionRow>();
+    for (const session of openRegisterSessions) {
+      if (session.register_lane === 1) {
+        primarySessionByGroup.set(session.till_close_group_id, session);
+      }
+    }
+
+    return openRegisterSessions.filter((session) => {
+      if (session.register_lane === 1) return true;
+      const primarySession = primarySessionByGroup.get(session.till_close_group_id);
+      if (!primarySession) return true;
+      return (
+        session.cashier_name.trim().toLocaleLowerCase() !==
+        primarySession.cashier_name.trim().toLocaleLowerCase()
+      );
+    });
+  }, [openRegisterSessions]);
+
   const registerCloseStats = useMemo(() => {
     const groups = new Set<string>();
     let reconciling = 0;
-    for (const session of openRegisterSessions) {
+    for (const session of visibleRegisterSessions) {
       groups.add(session.till_close_group_id);
       if (session.lifecycle_status === "reconciling") reconciling += 1;
     }
     return {
-      openSessions: openRegisterSessions.length,
+      openSessions: visibleRegisterSessions.length,
       openDrawers: groups.size,
       reconciling,
     };
-  }, [openRegisterSessions]);
+  }, [visibleRegisterSessions]);
 
   const alterationStats = useMemo(() => {
     const stats = {
@@ -2344,7 +2365,7 @@ export default function OperationalHome({
               </div>
             </div>
             <div className="mt-4 space-y-2">
-              {openRegisterSessions.slice(0, 4).map((session) => (
+              {visibleRegisterSessions.slice(0, 4).map((session) => (
                 <button
                   type="button"
                   key={session.session_id}
@@ -2362,7 +2383,7 @@ export default function OperationalHome({
                   <ChevronRight size={15} className="shrink-0 text-app-text-muted opacity-40" />
                 </button>
               ))}
-              {!feedLoadErrors.registerSessions && openRegisterSessions.length === 0 ? (
+              {!feedLoadErrors.registerSessions && visibleRegisterSessions.length === 0 ? (
                 <div className="rounded-xl border border-app-border bg-app-surface-3 px-3 py-4 text-sm font-semibold text-app-text-muted">
                   No open register sessions right now.
                 </div>

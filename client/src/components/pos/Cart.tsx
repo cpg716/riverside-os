@@ -451,6 +451,7 @@ export default function Cart({
   const [rmsPaymentOpen, setRmsPaymentOpen] = useState(false);
   const [parkSalePromptOpen, setParkSalePromptOpen] = useState(false);
   const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
+  const [moreSaleActionsOpen, setMoreSaleActionsOpen] = useState(false);
 
   const {
     lines,
@@ -2283,7 +2284,7 @@ export default function Cart({
           {/* Sale tools row */}
           <div className="flex flex-wrap items-center gap-2 border-t border-app-border/50 pt-2">
             <span className="mr-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-              Sale tools
+              Quick sale actions
             </span>
             <div className="contents">
               <span className="sr-only">
@@ -2409,17 +2410,7 @@ export default function Cart({
                 className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-violet-500/35 bg-violet-500/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-violet-600 transition-all hover:bg-violet-600 hover:text-white"
               >
                 <CreditCard size={16} className="shrink-0" aria-hidden />
-                Payment
-              </button>
-              <button
-                type="button"
-                onClick={() => setOrderReviewOpen(true)}
-                disabled={lines.length === 0}
-                title="Set rush and pickup/order details. Use Shipping to ship this current sale."
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-success/35 bg-app-success/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-20"
-              >
-                <Zap size={16} className="shrink-0" aria-hidden />
-                Options
+                RMS Pay
               </button>
               <button
                 type="button"
@@ -2434,31 +2425,56 @@ export default function Cart({
             </div>
             <div className="contents">
               <span className="sr-only">
-                Hold / reset
+                More sale actions
               </span>
               <button
                 type="button"
-                disabled={lines.length === 0}
-                onClick={() => {
-                   const label = selectedCustomer ? `Sale for ${selectedCustomer.first_name} ${selectedCustomer.last_name}` : "Untitled Sale";
-                   setParkSaleDraftLabel(label);
-                   setParkSalePromptOpen(true);
-                }}
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-accent/40 bg-app-accent/5 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-20"
+                onClick={() => setMoreSaleActionsOpen((open) => !open)}
+                aria-expanded={moreSaleActionsOpen}
+                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-border bg-app-surface-2 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-text active:scale-95"
               >
-                <Clock size={16} />
-                Park Sale
-              </button>
-              <button
-                type="button"
-                disabled={lines.length === 0 && !selectedCustomer}
-                onClick={() => setShowClearConfirm(true)}
-                className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-danger/35 bg-app-danger/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-danger transition-all hover:bg-app-danger hover:text-white disabled:opacity-20"
-              >
-                <RotateCcw size={16} />
-                Clear Sale
+                More Actions
               </button>
             </div>
+            {moreSaleActionsOpen ? (
+              <div className="flex basis-full flex-wrap items-center gap-2 rounded-xl border border-app-border/60 bg-app-surface/80 p-2">
+                <span className="mr-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Less common
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setOrderReviewOpen(true)}
+                  disabled={lines.length === 0}
+                  title="Set rush and pickup/order details. Use Shipping to ship this current sale."
+                  className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-success/35 bg-app-success/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-20"
+                >
+                  <Zap size={16} className="shrink-0" aria-hidden />
+                  Options
+                </button>
+                <button
+                  type="button"
+                  disabled={lines.length === 0}
+                  onClick={() => {
+                     const label = selectedCustomer ? `Sale for ${selectedCustomer.first_name} ${selectedCustomer.last_name}` : "Untitled Sale";
+                     setParkSaleDraftLabel(label);
+                     setParkSalePromptOpen(true);
+                  }}
+                  className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-accent/40 bg-app-accent/5 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-20"
+                >
+                  <Clock size={16} />
+                  Park Sale
+                </button>
+                <button
+                  type="button"
+                  disabled={lines.length === 0 && !selectedCustomer}
+                  onClick={() => setShowClearConfirm(true)}
+                  className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-danger/35 bg-app-danger/10 px-2.5 text-[10px] font-black uppercase tracking-widest text-app-danger transition-all hover:bg-app-danger hover:text-white disabled:opacity-20"
+                >
+                  <RotateCcw size={16} />
+                  Clear Sale
+                </button>
+              </div>
+            ) : null}
           </div>
           {pendingAlterationIntakes.length > 0 ? (
             <div

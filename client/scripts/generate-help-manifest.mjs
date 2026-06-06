@@ -39,6 +39,9 @@ const CLIENT_LIB_HELP = path.join(REPO_ROOT, "client", "src", "lib", "help");
 const OUT_TS = path.join(CLIENT_LIB_HELP, "help-manifest.generated.ts");
 const OUT_RS = path.join(REPO_ROOT, "server", "src", "logic", "help_corpus_manuals.generated.rs");
 const OUT_QUALITY = path.join(DOCS_DIR, "help-quality-report.generated.json");
+const MIN_APPROVED_UNIQUE_SCREENSHOTS = 2;
+const TARGET_APPROVED_DEDICATED_SCREENSHOTS = 3;
+const TARGET_MAJOR_WORKFLOW_SCREENSHOTS = 4;
 
 const HELP_MANUAL_STANDARD = {
   required: {
@@ -403,11 +406,48 @@ function bodyNeedsDraftUpgrade(body) {
   );
 }
 
-function collectManualQuality(manual) {
+function collectLocalImageRefs(manual, body) {
+  const manualPath = path.join(REPO_ROOT, manual.markdown);
+  return [...body.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)]
+    .map((match) => match[1].trim())
+    .filter((imagePath) => !/^(?:https?:|data:)/i.test(imagePath))
+    .map((imagePath) => {
+      const cleanPath = imagePath.split("#")[0].split("?")[0];
+      const absolutePath = path.resolve(path.dirname(manualPath), cleanPath);
+      return posix(path.relative(REPO_ROOT, absolutePath));
+    });
+}
+
+function buildImageUsageMap(manuals) {
+  /** @type {Map<string, Set<string>>} */
+  const imageUsage = new Map();
+  for (const manual of manuals) {
+    const raw = fs.readFileSync(path.join(REPO_ROOT, manual.markdown), "utf8");
+    const { body } = splitFrontMatter(raw);
+    for (const imagePath of new Set(collectLocalImageRefs(manual, body))) {
+      if (!imageUsage.has(imagePath)) imageUsage.set(imagePath, new Set());
+      imageUsage.get(imagePath).add(manual.id);
+    }
+  }
+  return imageUsage;
+}
+
+function collectManualQuality(manual, imageUsage) {
   const raw = fs.readFileSync(path.join(REPO_ROOT, manual.markdown), "utf8");
   const { attrs, body } = splitFrontMatter(raw);
   const headings = extractHeadings(body);
   const numberedSteps = countNumberedSteps(body);
+  const localImageRefs = collectLocalImageRefs(manual, body);
+  const uniqueLocalImages = [...new Set(localImageRefs)];
+  const dedicatedImagePrefix = posix(
+    path.join("client", "src", "assets", "images", "help", manual.id),
+  );
+  const dedicatedLocalImages = uniqueLocalImages.filter((imagePath) =>
+    imagePath.startsWith(`${dedicatedImagePrefix}/`),
+  );
+  const reusedLocalImages = uniqueLocalImages.filter(
+    (imagePath) => (imageUsage.get(imagePath)?.size ?? 0) > 1,
+  );
   const requiredBuckets = Object.entries(HELP_MANUAL_STANDARD.required).map(
     ([key, bucket]) => ({
       key,
@@ -444,6 +484,16 @@ function collectManualQuality(manual) {
     if (numberedSteps < 2) {
       errors.push("Approved manuals need a numbered step list with at least 2 items.");
     }
+    if (uniqueLocalImages.length < MIN_APPROVED_UNIQUE_SCREENSHOTS) {
+      errors.push(
+        `Approved manuals need at least ${MIN_APPROVED_UNIQUE_SCREENSHOTS} unique local screenshots.`,
+      );
+    }
+    if (dedicatedLocalImages.length < TARGET_APPROVED_DEDICATED_SCREENSHOTS) {
+      warnings.push(
+        `Add dedicated workflow screenshots under client/src/assets/images/help/${manual.id}/; target ${TARGET_APPROVED_DEDICATED_SCREENSHOTS}-${TARGET_MAJOR_WORKFLOW_SCREENSHOTS}.`,
+      );
+    }
     if (placeholderHits.length > 0) {
       errors.push(`Approved manual still contains draft placeholder text: ${placeholderHits.join(", ")}.`);
     }
@@ -465,6 +515,17 @@ function collectManualQuality(manual) {
     title: manual.title,
     status: manual.status,
     source_path: manual.markdown,
+    screenshots: {
+      local_refs: localImageRefs.length,
+      unique_local: uniqueLocalImages.length,
+      dedicated_unique_local: dedicatedLocalImages.length,
+      reused_unique_local: reusedLocalImages.length,
+      target_unique_local_minimum: MIN_APPROVED_UNIQUE_SCREENSHOTS,
+      target_dedicated_unique_local: TARGET_APPROVED_DEDICATED_SCREENSHOTS,
+      major_workflow_target_unique_local: TARGET_MAJOR_WORKFLOW_SCREENSHOTS,
+      dedicated_paths: dedicatedLocalImages,
+      reused_paths: reusedLocalImages,
+    },
     required_buckets: requiredBuckets,
     optional_buckets: optionalBuckets,
     numbered_steps: numberedSteps,
@@ -475,11 +536,43 @@ function collectManualQuality(manual) {
 }
 
 function writeQualityReport(allManuals, qualityById) {
+  const screenshotBacklog = allManuals
+    .filter((manual) => manual.status === "approved")
+    .map((manual) => qualityById.get(manual.id))
+    .filter((quality) => quality.screenshots.dedicated_unique_local < TARGET_APPROVED_DEDICATED_SCREENSHOTS)
+    .map((quality) => ({
+      id: quality.id,
+      title: quality.title,
+      source_path: quality.source_path,
+      dedicated_unique_local: quality.screenshots.dedicated_unique_local,
+      unique_local: quality.screenshots.unique_local,
+      priority:
+        quality.screenshots.dedicated_unique_local === 0
+          ? "high"
+          : quality.screenshots.dedicated_unique_local === 1
+            ? "medium"
+            : "low",
+      next_action: `Add ${TARGET_APPROVED_DEDICATED_SCREENSHOTS}-${TARGET_MAJOR_WORKFLOW_SCREENSHOTS} dedicated Playwright screenshot specs for this manual.`,
+    }))
+    .sort((a, b) => {
+      const priorityRank = { high: 0, medium: 1, low: 2 };
+      return (
+        priorityRank[a.priority] - priorityRank[b.priority] ||
+        a.dedicated_unique_local - b.dedicated_unique_local ||
+        a.id.localeCompare(b.id)
+      );
+    });
   const report = {
     generated_at: new Date().toISOString(),
-    standard_version: "help-manual-standard-v1",
+    standard_version: "help-manual-standard-v2",
     published_manual_count: allManuals.filter((manual) => manual.status === "approved").length,
     draft_manual_count: allManuals.filter((manual) => manual.status === "draft").length,
+    screenshot_standard: {
+      approved_unique_local_minimum: MIN_APPROVED_UNIQUE_SCREENSHOTS,
+      approved_dedicated_unique_target: TARGET_APPROVED_DEDICATED_SCREENSHOTS,
+      major_workflow_unique_target: TARGET_MAJOR_WORKFLOW_SCREENSHOTS,
+    },
+    screenshot_backlog: screenshotBacklog,
     manuals: allManuals.map((manual) => qualityById.get(manual.id)),
   };
   fs.writeFileSync(OUT_QUALITY, `${JSON.stringify(report, null, 2)}\n`, "utf8");
@@ -562,12 +655,13 @@ function discoverManuals() {
 function validateManuals(manuals) {
   /** @type {Map<string, ReturnType<typeof collectManualQuality>>} */
   const qualityById = new Map();
+  const imageUsage = buildImageUsageMap(manuals);
   for (const m of manuals) {
     const abs = path.join(REPO_ROOT, m.markdown);
     if (!fs.existsSync(abs)) {
       throw new Error(`Manual ${m.id}: file not found: ${m.markdown}`);
     }
-    qualityById.set(m.id, collectManualQuality(m));
+    qualityById.set(m.id, collectManualQuality(m, imageUsage));
   }
   writeQualityReport(manuals, qualityById);
 

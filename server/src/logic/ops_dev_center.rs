@@ -205,6 +205,35 @@ pub struct GuardedActionResult {
     pub data: Value,
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct ReadinessSignoffRow {
+    pub check_key: String,
+    pub category: String,
+    pub label: String,
+    pub status: String,
+    pub notes: String,
+    pub evidence_ref: String,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub signed_off_by_staff_id: Option<Uuid>,
+    pub signed_off_by_staff_name: Option<String>,
+    pub signed_off_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReadinessSignoffInput {
+    pub category: String,
+    pub label: String,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub evidence_ref: String,
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct E2eFailurePlaybookItem {
     pub category: String,
@@ -1273,7 +1302,7 @@ async fn record_open_alert_error_event(
         "body": signal.body.as_str(),
         "severity": signal.severity.as_str(),
     });
-    bug_reports::upsert_server_error_event(
+    let recorded = bug_reports::upsert_server_error_event(
         pool,
         &format!("ops_alert_event:{}", signal.alert_id),
         &message,
@@ -1284,6 +1313,26 @@ async fn record_open_alert_error_event(
         server_log_snapshot,
     )
     .await?;
+    if recorded.inserted {
+        let pool_n = pool.clone();
+        let message = message.clone();
+        let severity = signal.severity.clone();
+        tokio::spawn(async move {
+            if let Err(error) = bug_reports::notify_error_event_email_recipients(
+                &pool_n,
+                recorded.id,
+                None,
+                &message,
+                "server_ops_alert",
+                &severity,
+                Some("/settings/ros-dev-center"),
+            )
+            .await
+            {
+                tracing::error!(error = %error, "ops alert email notification failed");
+            }
+        });
+    }
     Ok(())
 }
 
@@ -1601,6 +1650,120 @@ pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+pub async fn list_readiness_signoffs(
+    pool: &PgPool,
+) -> Result<Vec<ReadinessSignoffRow>, sqlx::Error> {
+    sqlx::query_as::<_, ReadinessSignoffRow>(
+        r#"
+        SELECT
+            r.check_key,
+            r.category,
+            r.label,
+            r.status,
+            r.notes,
+            r.evidence_ref,
+            r.expires_at,
+            r.signed_off_by_staff_id,
+            s.full_name AS signed_off_by_staff_name,
+            r.signed_off_at,
+            r.updated_at
+        FROM ops_readiness_signoffs r
+        LEFT JOIN staff s ON s.id = r.signed_off_by_staff_id
+        ORDER BY r.category, r.label
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn save_readiness_signoff(
+    pool: &PgPool,
+    check_key: &str,
+    input: ReadinessSignoffInput,
+    staff_id: Uuid,
+) -> Result<ReadinessSignoffRow, sqlx::Error> {
+    let status = input.status.unwrap_or_else(|| "ready".to_string());
+    if !matches!(status.as_str(), "ready" | "manual_required") {
+        return Err(sqlx::Error::Protocol(
+            "readiness signoff status must be ready or manual_required".to_string(),
+        ));
+    }
+    if !matches!(
+        input.category.as_str(),
+        "daily_open" | "go_live" | "evidence"
+    ) {
+        return Err(sqlx::Error::Protocol(
+            "readiness signoff category must be daily_open, go_live, or evidence".to_string(),
+        ));
+    }
+
+    sqlx::query_as::<_, ReadinessSignoffRow>(
+        r#"
+        WITH saved AS (
+            INSERT INTO ops_readiness_signoffs (
+                check_key,
+                category,
+                label,
+                status,
+                notes,
+                evidence_ref,
+                expires_at,
+                signed_off_by_staff_id,
+                signed_off_at,
+                updated_at
+            )
+            VALUES (
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                CASE WHEN $4 = 'ready' THEN $8 ELSE NULL END,
+                CASE WHEN $4 = 'ready' THEN CURRENT_TIMESTAMP ELSE NULL END,
+                CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (check_key) DO UPDATE SET
+                category = EXCLUDED.category,
+                label = EXCLUDED.label,
+                status = EXCLUDED.status,
+                notes = EXCLUDED.notes,
+                evidence_ref = EXCLUDED.evidence_ref,
+                expires_at = EXCLUDED.expires_at,
+                signed_off_by_staff_id = EXCLUDED.signed_off_by_staff_id,
+                signed_off_at = EXCLUDED.signed_off_at,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+        )
+        SELECT
+            saved.check_key,
+            saved.category,
+            saved.label,
+            saved.status,
+            saved.notes,
+            saved.evidence_ref,
+            saved.expires_at,
+            saved.signed_off_by_staff_id,
+            s.full_name AS signed_off_by_staff_name,
+            saved.signed_off_at,
+            saved.updated_at
+        FROM saved
+        LEFT JOIN staff s ON s.id = saved.signed_off_by_staff_id
+        "#,
+    )
+    .bind(check_key.trim())
+    .bind(input.category.trim())
+    .bind(input.label.trim())
+    .bind(status)
+    .bind(input.notes.trim())
+    .bind(input.evidence_ref.trim())
+    .bind(input.expires_at)
+    .bind(staff_id)
+    .fetch_one(pool)
+    .await
 }
 
 pub async fn list_alerts(pool: &PgPool) -> Result<Vec<AlertEventRow>, sqlx::Error> {
@@ -2466,7 +2629,7 @@ pub async fn health_snapshot(
     });
 
     // Weather
-    let weather_h = weather::health_check(http_client).await;
+    let weather_h = weather::health_check(http_client, pool).await;
     integrations.push(IntegrationHealthItem {
         key: "weather".to_string(),
         title: "Weather".to_string(),

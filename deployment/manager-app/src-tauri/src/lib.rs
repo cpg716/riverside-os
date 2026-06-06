@@ -7,6 +7,18 @@ use tokio::process::Command;
 
 mod app_updates;
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[cfg(windows)]
+fn suppress_child_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn suppress_child_console(_command: &mut Command) {}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct LogMessage {
     level: String,
@@ -141,6 +153,7 @@ async fn run_deployment_script(
         }
     }
 
+    suppress_child_console(&mut cmd);
     let mut child = cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -212,14 +225,16 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
         );
     }
 
-    let mut child = Command::new("powershell")
-        .arg("-NoProfile")
+    let mut cmd = Command::new("powershell");
+    cmd.arg("-NoProfile")
         .arg("-ExecutionPolicy")
         .arg("Bypass")
         .arg("-Command")
         .arg(&script_content)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    suppress_child_console(&mut cmd);
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn powershell: {e}"))?;
 
@@ -476,9 +491,11 @@ $out | ConvertTo-Json -Compress
         db_name = db_name,
     );
 
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
-        .arg(&ps_script)
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
+        .arg(&ps_script);
+    suppress_child_console(&mut cmd);
+    let output = cmd
         .output()
         .await
         .map_err(|e| format!("Failed to run postgres status probe: {e}"))?;

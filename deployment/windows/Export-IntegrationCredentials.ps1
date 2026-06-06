@@ -38,12 +38,12 @@ $env:PGPASSWORD = $db.appPassword
 try {
   $databaseUrl = "postgresql://$($db.appUser)@$($db.host):$($db.port)/$($db.databaseName)"
 
-  $exists = & $psql $databaseUrl -tAc -w "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'integration_credentials');"
+  $exists = & $psql $databaseUrl -w -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'integration_credentials');"
   if (($exists -join "").Trim() -ne "t") {
     throw "integration_credentials table does not exist. Run migrations first."
   }
 
-  $count = & $psql $databaseUrl -tAc -w "SELECT count(*) FROM integration_credentials;"
+  $count = & $psql $databaseUrl -w -tAc "SELECT count(*) FROM integration_credentials;"
   $count = ($count -join "").Trim()
   if ($count -eq "0") {
     throw "integration_credentials table is empty. Nothing to export."

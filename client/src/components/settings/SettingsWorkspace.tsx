@@ -1261,14 +1261,6 @@ export default function SettingsWorkspace({
                       brandKind: "icon" as const,
                     },
                     {
-                      id: "corecard",
-                      label: "CoreCard",
-                      desc: "RMS Charge host credentials",
-                      color: "bg-app-surface",
-                      brand: "corecredit" as IntegrationBrand,
-                      brandKind: "icon" as const,
-                    },
-                    {
                       id: "fal",
                       label: "Fal.ai",
                       desc: "Visual diffusion pipelines",

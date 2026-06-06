@@ -168,8 +168,8 @@ export default function App() {
       if (scriptName === 'install-server.ps1' && step === 3) {
         setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
         await invoke('run_deployment_script', { scriptName: 'repair-bootstrap-admin.ps1', args: undefined });
-        setLogs(prev => [...prev, { level: 'info', text: 'Installing Backoffice desktop app...' }]);
-        await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: ['-StationMode', 'backoffice'] });
+        setLogs(prev => [...prev, { level: 'info', text: 'Installing Main Hub desktop app...' }]);
+        await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: ['-StationMode', 'mainhub'] });
       }
     } catch (e) {
       setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
@@ -185,7 +185,7 @@ export default function App() {
     if (isExecuting) return;
     if (!requireElevation('Update Main Hub')) return;
     setIsExecuting(true);
-    setLogs([{ level: 'info', text: 'Updating Main Hub (Server)...' }]);
+    setLogs([{ level: 'info', text: 'Updating Main Hub...' }]);
 
     const unlisten = await listen<LogMessage>('deployment-log', (event) => {
       setLogs(prev => [...prev, event.payload]);
@@ -196,9 +196,9 @@ export default function App() {
       await invoke('run_deployment_script', { scriptName: 'install-server.ps1', args: undefined });
       setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
       await invoke('run_deployment_script', { scriptName: 'repair-bootstrap-admin.ps1', args: undefined });
-      setLogs(prev => [...prev, { level: 'info', text: 'Updating Backoffice desktop app...' }]);
-      await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: ['-StationMode', 'backoffice'] });
-      setLogs(prev => [...prev, { level: 'success', text: 'Server update complete.' }]);
+      setLogs(prev => [...prev, { level: 'info', text: 'Updating Main Hub desktop app...' }]);
+      await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: ['-StationMode', 'mainhub'] });
+      setLogs(prev => [...prev, { level: 'success', text: 'Main Hub update complete.' }]);
     } catch (e) {
       setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
     } finally {
@@ -385,7 +385,7 @@ export default function App() {
                     className={`w-full text-left p-6 rounded-xl border-2 transition-all ${role === 'main-hub' ? 'border-brand-500 bg-brand-50' : 'border-zinc-200 hover:border-zinc-300'}`}
                   >
                     <h3 className="font-semibold text-lg flex items-center gap-2">
-                      <Server className="w-5 h-5" /> Main Hub (Backoffice / Server)
+                      <Server className="w-5 h-5" /> Main Hub
                     </h3>
                     <p className="text-zinc-500 text-sm mt-1">The ONE Main Hub server per store. Installs PostgreSQL, API server, ROSIE AI, and the Backoffice desktop app.</p>
                   </button>

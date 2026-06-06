@@ -72,6 +72,24 @@ Default mode is IMPLEMENT unless the user explicitly asks for AUDIT.
   - Choose the safest, simplest one.
   - Proceed without exploring others.
 
+## Workspace & Validation Commands
+
+- Use the repository root as the workspace root.
+- Before finishing, run the root formatting/check commands if they exist.
+- If no root formatter exists, run the relevant package formatters:
+  - `cargo fmt` for Rust backend/Tauri code.
+  - `npm`/`pnpm` format or Prettier for frontend code.
+- Do not invent a formatter script; inspect `package.json`, `Cargo.toml`, `justfile`, `Makefile`, and `AGENTS.md` first.
+
+## Documentation & Help Update Gate
+
+- After any staff-facing UI, workflow, permissions, settings, POS/register, reporting, Help Center, or ROSIE behavior change, update the relevant markdown docs/manuals in the same change.
+- In-app Help manuals live in `client/src/assets/docs/*-manual.md`; screenshots live under `client/src/assets/images/help/`.
+- If a change affects how staff complete a task, update the relevant manual or staff doc, not only engineering docs.
+- If a manual is added/renamed or front matter changes, run `npm run generate:help` and keep generated Help artifacts with the change.
+- If screenshots or screenshot specs are impacted, update `client/scripts/help-screenshot-specs.mjs` and run the relevant help screenshot/refresh command when practical.
+- Before finishing meaningful user-facing changes, run `npm run check:help-impact`. Use `--help-not-needed` only for mechanical or non-user-facing changes, and state the reason in the final response.
+
 ---
 
 ## Mission
@@ -350,6 +368,7 @@ The main shell component is the central hub of Riverside OS. It manages global s
 
 - Never use `f32` or `f64` for money
 - Server-side money must use `rust_decimal::Decimal`
+- Use `Decimal` for money and cost fields.
 - Do not derive financial logic from rounded display values
 - SQL aggregate sums must use explicit `ROUND(..., 2)` or `::numeric` casting where needed to avoid sub-penny drift
 - Tax calculations must remain mathematically consistent with the server source of truth
@@ -391,6 +410,11 @@ The main shell component is the central hub of Riverside OS. It manages global s
 - Multi-step writes must use transactions from first mutation through commit
 - Never mix transaction-bound writes with direct `.execute(&state.db)` calls in the middle of the flow
 
+### Inventory and catalog discipline
+
+- Inventory stock changes must go through existing receiving, stock adjustment, physical inventory, or approved domain logic.
+- Catalog import remains catalog-only.
+
 ### sqlx discipline
 
 - Prefer `query_as` + `bind`
@@ -420,6 +444,7 @@ cargo sqlx prepare --workspace
 - Zero lint errors
 - Zero typecheck errors
 - `cargo fmt` is required
+- Run the repo’s documented format/typecheck/test commands before finishing meaningful changes.
 - Do not add temporary auth bypasses, PIN bypasses, or dev-only shortcuts into production code
 
 ### React / client architecture
@@ -459,6 +484,8 @@ cargo sqlx prepare --workspace
    - **Server-Validated Executions**: Do not trust client-side parameters. Verify product prices, discount limits, and tax exemptions against database states on the server side.
    - **User Confirmation Mandate**: Any write action or mutation (e.g. applying a custom discount, modifying shift availability, or updating wedding party links) suggested or initiated by the AI must display an explicit manual confirmation dialog/modal to the operator before committing.
    - **Upstream Connection Rules**: The local Gemma worker resolves AI requests locally; any remote failovers must respect the configured `RIVERSIDE_LLAMA_UPSTREAM` endpoint.
+   - Do not revive retired `/api/ai/*` routes or legacy AI tables.
+   - LLM/ROSIE output must be validated and staff-reviewed before business writes.
 
 ---
 

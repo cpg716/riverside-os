@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Customers workspace](../images/help/customers-workspace/main.png)
+![Customers workspace](../images/help/customers-customer-relationship-hub-drawer/customers-workspace.png)
 
-![Orders workspace](../images/help/orders-workspace/main.png)
+![Orders workspace](../images/help/customers-customer-relationship-hub-drawer/orders-workspace.png)
 
-![Wedding lookup drawer](../images/help/pos/wedding-lookup-drawer.png)
+![Wedding lookup drawer](../images/help/customers-customer-relationship-hub-drawer/wedding-lookup.png)
 
 ## What this is
 

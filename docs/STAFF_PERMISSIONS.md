@@ -187,7 +187,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `customers.couple_manage` | Link/unlink Joint Couple partners and create Joint accounts. |
 | `customers.rms_charge` | Legacy RMS Charge read compatibility key. |
 | `customers.rms_charge.view` | Back Office RMS Charge workspace read access. |
-| `customers.rms_charge.manage_links` | Link and unlink CoreCredit/CoreCard accounts. |
+| `customers.rms_charge.manage_links` | Link and unlink RMS Charge accounts. |
 | `customers.rms_charge.resolve_exceptions` | Retry, assign, and resolve RMS exceptions. |
 | `customers.rms_charge.reconcile` | Run and review RMS reconciliation. |
 | `customers.rms_charge.reverse` | Sensitive RMS refund and reversal actions. |

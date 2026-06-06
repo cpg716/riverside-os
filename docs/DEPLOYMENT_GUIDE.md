@@ -116,11 +116,6 @@ RIVERSIDE_JOB_TIMEOUT=300
 # Meilisearch (optional)
 RIVERSIDE_MEILISEARCH_URL=http://meilisearch:7700
 
-# CoreCard (optional)
-RIVERSIDE_CORECARD_ENVIRONMENT=production
-RIVERSIDE_CORECARD_MERCHANT_ID=your_merchant_id
-RIVERSIDE_CORECARD_API_KEY=your_production_api_key
-
 # QBO (optional)
 RIVERSIDE_QBO_CLIENT_ID=your_qbo_client_id
 RIVERSIDE_QBO_CLIENT_SECRET=your_qbo_client_secret

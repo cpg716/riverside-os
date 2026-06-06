@@ -11,6 +11,7 @@ import {
   checkoutWeddingOrderSeed,
   fetchReadiness,
   fetchTransactionDetail,
+  markLineReadyForPickup,
   pickupLine,
   transitionLine,
 } from "./helpers/weddingReadiness";
@@ -105,10 +106,11 @@ test.describe("Phase 4 wedding readiness certification", () => {
     const partialDetail = await fetchTransactionDetail(request, partialCheckout.transaction_id);
     const readyLine = partialDetail.items.find((item) => item.sku === readyProduct.sku);
     expect(readyLine).toBeTruthy();
-    await transitionLine(request, readyLine!.transaction_line_id, {
-      next_status: "ready_for_pickup",
-      reason: "Phase 4 partial readiness simulation",
-    });
+    await markLineReadyForPickup(
+      request,
+      readyLine!.transaction_line_id,
+      "Phase 4 partial readiness simulation",
+    );
     const partialReadiness = await fetchReadiness(request, partialMember.wedding_party_id);
     expect(partialReadiness.pickup.partial_ready_members).toBeGreaterThan(0);
     expect(partialReadiness.members.some((member) => member.status === "partial")).toBeTruthy();
@@ -130,10 +132,11 @@ test.describe("Phase 4 wedding readiness certification", () => {
       60,
     );
     const balanceDetail = await fetchTransactionDetail(request, balanceCheckout.transaction_id);
-    await transitionLine(request, balanceDetail.items[0]!.transaction_line_id, {
-      next_status: "ready_for_pickup",
-      reason: "Phase 4 balance block simulation",
-    });
+    await markLineReadyForPickup(
+      request,
+      balanceDetail.items[0]!.transaction_line_id,
+      "Phase 4 balance block simulation",
+    );
     const balanceReadiness = await fetchReadiness(request, balanceMember.wedding_party_id);
     expect(balanceReadiness.pickup.balance_blocked_members).toBeGreaterThan(0);
     expect(
@@ -143,6 +146,7 @@ test.describe("Phase 4 wedding readiness certification", () => {
     const completeProduct = await createSingleVariantProduct(request, uniqueSuffix("phase4-complete"), {
       namePrefix: "Phase 4 Complete",
       skuPrefix: "P4X",
+      stockOnHand: 1,
     });
     const completeCheckout = await checkoutWeddingOrderSeed(request, {
       customerId: fixture.customer.id,
@@ -156,10 +160,7 @@ test.describe("Phase 4 wedding readiness certification", () => {
     );
     const completeDetail = await fetchTransactionDetail(request, completeCheckout.transaction_id);
     const completeLine = completeDetail.items[0]!.transaction_line_id;
-    await transitionLine(request, completeLine, {
-      next_status: "ready_for_pickup",
-      reason: "Phase 4 complete readiness simulation",
-    });
+    await markLineReadyForPickup(request, completeLine, "Phase 4 complete readiness simulation");
     await pickupLine(request, completeCheckout.transaction_id, completeLine);
     const completeReadiness = await fetchReadiness(request, completeMember.wedding_party_id);
     expect(completeReadiness.status).toBe("complete");

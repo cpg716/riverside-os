@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Shippo Health Coverage**: Added local Shippo health-check test coverage so disabled, missing-token, and healthy credential states are verified without requiring live shipping labels.
 
 ### Fixed
+- **RMS Charge CoreCard Purge**: Removed obsolete CoreCard credential surfaces, fake-host E2E dependencies, stale validation scripts, and deployment/manual guidance so RMS Charge is documented and tested as the internal Riverside/R2S workflow.
 - **QBO Mapping Fallback Removal**: Removed fallback account mapping behavior from QBO journal staging and workspace copy. Exportable financial activity must now have explicit Chart of Accounts mappings instead of silently routing through a generic fallback.
 - **QBO Inventory Adjustment Mapping**: Renamed the legacy inventory adjustment revenue mapping key to `REVENUE_INVENTORY_ADJUSTMENT` so the mapping matrix remains explicit, mappable, and auditable.
 - **Helcim Health Test Isolation**: Serialized Helcim environment mutation in unit tests to prevent nondeterministic credential-state failures during parallel cargo test execution.

@@ -38,7 +38,7 @@ async fn get_weather_forecast(State(state): State<AppState>) -> Json<WeatherFore
 }
 
 async fn get_weather_health(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let health = crate::logic::weather::health_check(&state.http_client).await;
+    let health = crate::logic::weather::health_check(&state.http_client, &state.db).await;
     Json(json!({
         "configured": health.configured,
         "reachable": health.reachable,

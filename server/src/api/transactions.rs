@@ -132,9 +132,6 @@ impl From<crate::logic::transaction_checkout::CheckoutError> for TransactionErro
             crate::logic::transaction_checkout::CheckoutError::Database(d) => {
                 TransactionError::Database(d)
             }
-            crate::logic::transaction_checkout::CheckoutError::CoreCardHostFailure(m) => {
-                TransactionError::BadGateway(m)
-            }
         }
     }
 }

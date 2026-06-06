@@ -12,11 +12,11 @@ tags: back-office, shipments, fulfillment, tracking
 
 ## Screenshots
 
-![Customers workspace](../images/help/customers-workspace/main.png)
+![Customers workspace](../images/help/customers-shipments-hub-section/customers-workspace.png)
 
-![Orders workspace](../images/help/orders-workspace/main.png)
+![Orders workspace](../images/help/customers-shipments-hub-section/orders-workspace.png)
 
-![Wedding lookup drawer](../images/help/pos/wedding-lookup-drawer.png)
+![Remote access context](../images/help/customers-shipments-hub-section/remote-access-context.png)
 
 The **Shipments Hub** is the central command for all outgoing orders. It is where you fulfill "Shipping" orders placed at the register or through the online store.
 

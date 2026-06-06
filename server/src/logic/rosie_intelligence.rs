@@ -27,8 +27,20 @@ pub struct RosieUpstreamHealth {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RosieTokenMetrics {
     pub daily_tokens: i64,
+    pub daily_input_tokens: i64,
+    pub daily_output_tokens: i64,
     pub monthly_tokens: i64,
+    pub monthly_input_tokens: i64,
+    pub monthly_output_tokens: i64,
     pub estimated_monthly_cost: Decimal,
+    pub estimated_monthly_input_cost: Decimal,
+    pub estimated_monthly_output_cost: Decimal,
+    pub comparison_provider: String,
+    pub comparison_model: String,
+    pub input_cost_per_1m_tokens: Decimal,
+    pub output_cost_per_1m_tokens: Decimal,
+    pub estimate_basis: String,
+    pub speech_cost_note: String,
 }
 
 /// Record token usage telemetry (non-blocking, fire-and-forget)
@@ -89,45 +101,70 @@ pub fn record_telemetry_from_value(pool: PgPool, provider: &str, body: &serde_js
     }
 }
 
-/// Query token telemetry summary for cost analysis
-///
-/// Returns daily tokens, monthly tokens, and estimated monthly cost based on
-/// current model pricing (assumes $0.50 per 1M tokens as default placeholder).
+/// Query token telemetry summary for external API cost comparison.
 pub async fn get_token_metrics(pool: &PgPool) -> Result<RosieTokenMetrics, sqlx::Error> {
     let query = r#"
         WITH daily AS (
-            SELECT COALESCE(SUM(input_tokens + output_tokens), 0)::bigint AS total
+            SELECT
+                COALESCE(SUM(input_tokens), 0)::bigint AS input_total,
+                COALESCE(SUM(output_tokens), 0)::bigint AS output_total
             FROM rosie_token_telemetry
             WHERE DATE(timestamp) = CURRENT_DATE
         ),
         monthly AS (
-            SELECT COALESCE(SUM(input_tokens + output_tokens), 0)::bigint AS total
+            SELECT
+                COALESCE(SUM(input_tokens), 0)::bigint AS input_total,
+                COALESCE(SUM(output_tokens), 0)::bigint AS output_total
             FROM rosie_token_telemetry
             WHERE DATE_TRUNC('month', timestamp) = DATE_TRUNC('month', CURRENT_DATE)
         )
         SELECT
-            (SELECT total FROM daily) AS daily_tokens,
-            (SELECT total FROM monthly) AS monthly_tokens
+            (SELECT input_total FROM daily) AS daily_input_tokens,
+            (SELECT output_total FROM daily) AS daily_output_tokens,
+            (SELECT input_total FROM monthly) AS monthly_input_tokens,
+            (SELECT output_total FROM monthly) AS monthly_output_tokens,
+            COALESCE(rosie_config->>'cost_comparison_provider', 'custom_external_api') AS comparison_provider,
+            COALESCE(rosie_config->>'cost_comparison_model', 'set_model_in_settings') AS comparison_model,
+            COALESCE(NULLIF(rosie_config->>'external_input_cost_per_1m_tokens', '')::numeric, 0)::numeric AS input_cost_per_1m_tokens,
+            COALESCE(NULLIF(rosie_config->>'external_output_cost_per_1m_tokens', '')::numeric, 0)::numeric AS output_cost_per_1m_tokens
+        FROM store_settings
+        WHERE id = 1
     "#;
 
     let row = sqlx::query(query).fetch_one(pool).await?;
 
-    let daily_tokens: i64 = row.get("daily_tokens");
-    let monthly_tokens: i64 = row.get("monthly_tokens");
+    let daily_input_tokens: i64 = row.get("daily_input_tokens");
+    let daily_output_tokens: i64 = row.get("daily_output_tokens");
+    let monthly_input_tokens: i64 = row.get("monthly_input_tokens");
+    let monthly_output_tokens: i64 = row.get("monthly_output_tokens");
+    let input_cost_per_1m_tokens: Decimal = row.get("input_cost_per_1m_tokens");
+    let output_cost_per_1m_tokens: Decimal = row.get("output_cost_per_1m_tokens");
 
-    // Default cost: $0.50 per 1M tokens (placeholder - should be configurable)
-    // TODO: Make this configurable per provider/model
-    let cost_per_1m_tokens = Decimal::new(50, 2); // 0.50
-    let estimated_monthly_cost = if monthly_tokens > 0 {
-        (Decimal::from(monthly_tokens) * cost_per_1m_tokens) / Decimal::from(1_000_000)
-    } else {
-        Decimal::ZERO
-    };
+    let estimated_monthly_input_cost =
+        (Decimal::from(monthly_input_tokens) * input_cost_per_1m_tokens) / Decimal::from(1_000_000);
+    let estimated_monthly_output_cost = (Decimal::from(monthly_output_tokens)
+        * output_cost_per_1m_tokens)
+        / Decimal::from(1_000_000);
+    let estimated_monthly_cost = estimated_monthly_input_cost + estimated_monthly_output_cost;
+    let daily_tokens = daily_input_tokens + daily_output_tokens;
+    let monthly_tokens = monthly_input_tokens + monthly_output_tokens;
 
     Ok(RosieTokenMetrics {
         daily_tokens,
+        daily_input_tokens,
+        daily_output_tokens,
         monthly_tokens,
+        monthly_input_tokens,
+        monthly_output_tokens,
         estimated_monthly_cost,
+        estimated_monthly_input_cost,
+        estimated_monthly_output_cost,
+        comparison_provider: row.get("comparison_provider"),
+        comparison_model: row.get("comparison_model"),
+        input_cost_per_1m_tokens,
+        output_cost_per_1m_tokens,
+        estimate_basis: "Compares recorded local ROSIE LLM token usage against configured external API input/output token rates.".to_string(),
+        speech_cost_note: "TTS/STT API cost is not included until speech usage minutes are metered.".to_string(),
     })
 }
 

@@ -612,6 +612,86 @@ export default function RosieSettingsPanel() {
             </div>
           </div>
 
+          <div className="mt-6 rounded-2xl border border-app-border bg-app-surface p-5">
+            <h4 className="text-xs font-black uppercase tracking-widest text-app-text">
+              External API Cost Comparison
+            </h4>
+            <p className="mt-2 text-xs font-medium leading-relaxed text-app-text-muted">
+              Estimates what recorded local ROSIE LLM token usage would cost with
+              a configured Gemini, OpenAI/ChatGPT, or custom API model. Speech
+              input/output costs are not included until ROSIE records STT/TTS
+              usage minutes.
+            </p>
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-app-text-muted">
+                  Provider
+                </span>
+                <input
+                  type="text"
+                  value={localSettings.cost_comparison_provider}
+                  onChange={(event) =>
+                    updateLocalSettings({
+                      cost_comparison_provider: event.target.value,
+                    })
+                  }
+                  placeholder="openai, gemini, custom"
+                  className="ui-input w-full"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-app-text-muted">
+                  Model / Rate Card
+                </span>
+                <input
+                  type="text"
+                  value={localSettings.cost_comparison_model}
+                  onChange={(event) =>
+                    updateLocalSettings({
+                      cost_comparison_model: event.target.value,
+                    })
+                  }
+                  placeholder="gpt-4.1-mini, gemini-2.5-flash, custom"
+                  className="ui-input w-full"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-app-text-muted">
+                  Input $ / 1M Tokens
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.000001"
+                  value={localSettings.external_input_cost_per_1m_tokens}
+                  onChange={(event) =>
+                    updateLocalSettings({
+                      external_input_cost_per_1m_tokens: Number(event.target.value),
+                    })
+                  }
+                  className="ui-input w-full"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-xs font-bold uppercase tracking-widest text-app-text-muted">
+                  Output $ / 1M Tokens
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.000001"
+                  value={localSettings.external_output_cost_per_1m_tokens}
+                  onChange={(event) =>
+                    updateLocalSettings({
+                      external_output_cost_per_1m_tokens: Number(event.target.value),
+                    })
+                  }
+                  className="ui-input w-full"
+                />
+              </label>
+            </div>
+          </div>
+
           <div className="mt-6 rounded-2xl border border-app-border bg-app-surface p-5 text-sm font-medium text-app-text-muted">
             {!storeLoaded && "Loading store default…"}
             {storeLoaded && storeDefaults == null && (
@@ -649,6 +729,12 @@ export default function RosieSettingsPanel() {
                     {storeDefaults.voice_enabled
                       ? rosieVoiceLabel(storeDefaults.selected_voice)
                       : "Off"}
+                  </strong>
+                </span>
+                <span>
+                  Cost comparison:{" "}
+                  <strong className="text-app-text">
+                    {storeDefaults.cost_comparison_provider} / {storeDefaults.cost_comparison_model}
                   </strong>
                 </span>
               </div>
@@ -807,7 +893,23 @@ interface RosieTokenMonitorProps {
 }
 
 function RosieTokenMonitor({ backofficeHeaders }: RosieTokenMonitorProps) {
-  const [metrics, setMetrics] = useState({ daily: 0, monthly: 0, cost: 0 });
+  const [metrics, setMetrics] = useState({
+    daily: 0,
+    dailyInput: 0,
+    dailyOutput: 0,
+    monthly: 0,
+    monthlyInput: 0,
+    monthlyOutput: 0,
+    cost: 0,
+    inputCost: 0,
+    outputCost: 0,
+    provider: "custom_external_api",
+    model: "set_model_in_settings",
+    inputRate: 0,
+    outputRate: 0,
+    basis: "",
+    speechNote: "",
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -822,8 +924,20 @@ function RosieTokenMonitor({ backofficeHeaders }: RosieTokenMonitorProps) {
         const data = await res.json();
         setMetrics({
           daily: data.daily_tokens || 0,
+          dailyInput: data.daily_input_tokens || 0,
+          dailyOutput: data.daily_output_tokens || 0,
           monthly: data.monthly_tokens || 0,
+          monthlyInput: data.monthly_input_tokens || 0,
+          monthlyOutput: data.monthly_output_tokens || 0,
           cost: Number(data.estimated_monthly_cost) || 0,
+          inputCost: Number(data.estimated_monthly_input_cost) || 0,
+          outputCost: Number(data.estimated_monthly_output_cost) || 0,
+          provider: data.comparison_provider || "custom_external_api",
+          model: data.comparison_model || "set_model_in_settings",
+          inputRate: Number(data.input_cost_per_1m_tokens) || 0,
+          outputRate: Number(data.output_cost_per_1m_tokens) || 0,
+          basis: data.estimate_basis || "",
+          speechNote: data.speech_cost_note || "",
         });
       } catch (error) {
         console.error("Failed to fetch ROSIE token metrics:", error);
@@ -843,24 +957,42 @@ function RosieTokenMonitor({ backofficeHeaders }: RosieTokenMonitorProps) {
       {loading ? (
         <p className="text-sm font-medium text-app-text-muted">Loading token metrics…</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="space-y-1">
-            <p className="text-sm text-app-text-muted">Daily Token Use</p>
-            <p className="text-2xl font-mono text-app-text">{metrics.daily.toLocaleString()}</p>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            <div className="space-y-1">
+              <p className="text-sm text-app-text-muted">Daily LLM Tokens</p>
+              <p className="text-2xl font-mono text-app-text">{metrics.daily.toLocaleString()}</p>
+              <p className="text-xs text-app-text-muted">
+                In {metrics.dailyInput.toLocaleString()} / Out {metrics.dailyOutput.toLocaleString()}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-app-text-muted">Monthly LLM Tokens</p>
+              <p className="text-2xl font-mono text-app-text">{metrics.monthly.toLocaleString()}</p>
+              <p className="text-xs text-app-text-muted">
+                In {metrics.monthlyInput.toLocaleString()} / Out {metrics.monthlyOutput.toLocaleString()}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-app-text-muted">External API Estimate</p>
+              <p className="text-2xl font-mono text-green-600">${Number(metrics.cost).toFixed(2)}</p>
+              <p className="text-xs text-app-text-muted">
+                {metrics.provider} / {metrics.model}
+              </p>
+            </div>
           </div>
-          <div className="space-y-1">
-            <p className="text-sm text-app-text-muted">Actual Monthly Usage</p>
-            <p className="text-2xl font-mono text-app-text">{metrics.monthly.toLocaleString()}</p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm text-app-text-muted">Estimated Monthly Cost</p>
-            <p className="text-2xl font-mono text-green-600">${Number(metrics.cost).toFixed(2)}</p>
+          <div className="rounded-xl border border-app-border bg-app-surface p-4 text-xs font-medium leading-relaxed text-app-text-muted">
+            <p>
+              Rates: ${Number(metrics.inputRate).toFixed(6)} input / 1M tokens,
+              {" "}${Number(metrics.outputRate).toFixed(6)} output / 1M tokens.
+              Estimated split: ${Number(metrics.inputCost).toFixed(2)} input,
+              {" "}${Number(metrics.outputCost).toFixed(2)} output.
+            </p>
+            <p className="mt-2">{metrics.basis}</p>
+            <p className="mt-1">{metrics.speechNote}</p>
           </div>
         </div>
       )}
-      <p className="mt-4 text-[10px] text-app-text-muted">
-        * Estimates based on current provider rates ($0.50 per 1M tokens placeholder).
-      </p>
     </div>
   );
 }

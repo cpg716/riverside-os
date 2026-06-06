@@ -120,9 +120,9 @@ export default function RegisterSettings({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-app-bg text-app-text">
       <header className="shrink-0 border-b border-app-border bg-app-surface px-4 py-4 shadow-sm sm:px-8 sm:py-6">
-        <h2 className="text-2xl font-black tracking-tight italic">Terminal Overrides</h2>
+        <h2 className="text-2xl font-black tracking-tight italic">Register Settings</h2>
         <p className="text-xs font-semibold uppercase tracking-widest text-app-text-muted mt-1">
-          Hardware Bridging &amp; Device Logic
+          Printers, scanners, and register feedback
         </p>
       </header>
 
@@ -134,18 +134,18 @@ export default function RegisterSettings({
           {lifecycleStatus === 'reconciling' && (
             <section className="space-y-6 border-l-4 border-amber-500 pl-6 h-auto">
               <div>
-                <h3 className="text-lg font-black tracking-tight text-amber-600">Session Lifecycle Recovery</h3>
-                <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">The register is currently in RECONCILING mode.</p>
+                <h3 className="text-lg font-black tracking-tight text-amber-600">Register Recovery</h3>
+                <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">The register is currently waiting for close review.</p>
               </div>
               <div className="ui-card p-6 border-amber-500/30 bg-amber-500/5 space-y-4">
-                 <p className="text-xs font-bold leading-relaxed text-amber-700">If the register is incorrectly stuck in reconcile mode (e.g. following a terminal crash), you can force it back to active state here.</p>
+                 <p className="text-xs font-bold leading-relaxed text-amber-700">If the register is incorrectly stuck after a crash, restore it to active selling here.</p>
                  <button
                    type="button"
                    disabled={busy}
                    onClick={cancelReconciliation}
                    className="h-12 px-8 rounded-xl bg-amber-600 text-white font-black uppercase tracking-widest hover:bg-amber-500 active:scale-95 transition-all shadow-lg"
                  >
-                   {busy ? "RESTORING..." : "CANCEL RECONCILIATION & RE-OPEN"}
+                   {busy ? "RESTORING..." : "RESTORE REGISTER FOR SELLING"}
                  </button>
               </div>
             </section>
@@ -229,7 +229,7 @@ export default function RegisterSettings({
               </div>
               <div>
                 <h3 className="text-lg font-black tracking-tight">Printer &amp; Peripherals</h3>
-                <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">Assigned Hardware Nodes</p>
+                <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">Assigned register devices</p>
               </div>
             </div>
 

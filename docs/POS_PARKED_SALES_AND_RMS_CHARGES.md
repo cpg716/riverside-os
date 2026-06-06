@@ -8,10 +8,7 @@ For role-based operational use, start with:
   [`/Users/cpg/riverside-os/docs/staff/rms-charge-overview.md`](./staff/rms-charge-overview.md)
 - POS RMS quick guide:
   [`/Users/cpg/riverside-os/docs/staff/pos-rms-charge.md`](./staff/pos-rms-charge.md)
-- Full architecture:
-  [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](./CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)
-
-Server-backed **parked cart** snapshots (auditable), a durable **`pos_rms_charge_record`** ledger (**charges** from the unified **RMS Charge** financing tender and **payments** from the internal **RMS CHARGE PAYMENT** line), **Sales Support** follow-up (notifications and/or **Staff → Tasks** ad-hoc instances), and QBO pass-through mapping. Schema: **migrations [`68_pos_parked_and_rms_charge_audit.sql`](../migrations/legacy_prelaunch_history/68_pos_parked_and_rms_charge_audit.sql)**, **[`69_rms_charge_payment_line.sql`](../migrations/legacy_prelaunch_history/69_rms_charge_payment_line.sql)**, and **[`153_corecredit_corecard_phase1_foundation.sql`](../migrations/legacy_prelaunch_history/153_corecredit_corecard_phase1_foundation.sql)** for linked accounts, transaction financing metadata, and program/account fields.
+Server-backed **parked cart** snapshots (auditable), a durable **`pos_rms_charge_record`** ledger (**charges** from the unified **RMS Charge** financing tender and **payments** from the internal **RMS CHARGE PAYMENT** line), **Sales Support** follow-up (notifications and/or **Staff → Tasks** ad-hoc instances), and QBO pass-through mapping. Schema: **migrations [`68_pos_parked_and_rms_charge_audit.sql`](../migrations/legacy_prelaunch_history/68_pos_parked_and_rms_charge_audit.sql)**, **[`69_rms_charge_payment_line.sql`](../migrations/legacy_prelaunch_history/69_rms_charge_payment_line.sql)**, and legacy migration **153** for linked accounts, transaction financing metadata, and program/account fields.
 
 ## Parked sales
 
@@ -83,7 +80,7 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 ### Data model (`pos_rms_charge_record`)
 
 - One row per recorded event; **`record_kind`** ∈ **`charge`** | **`payment`** (migration **69**; existing rows backfilled **`charge`**).
-- **`charge`**: **`payment_method`** is the financing tender movement. New Phase 1 checkouts normalize under **`on_account_rms`** and store program/account detail in **`transactions.metadata`**, **`payment_transactions.metadata`**, and **`pos_rms_charge_record`** (`tender_family`, `program_code`, `program_label`, `masked_account`, linked CoreCredit ids, `resolution_status`).
+- **`charge`**: **`payment_method`** is the financing tender movement. New Phase 1 checkouts normalize under **`on_account_rms`** and store program/account detail in **`transactions.metadata`**, **`payment_transactions.metadata`**, and **`pos_rms_charge_record`** (`tender_family`, `program_code`, `program_label`, `masked_account`, linked RMS account ids, `resolution_status`).
 - **`payment`**: **`payment_method`** is the **collection** tender (**`cash`**, **`check`**). Linked **`order_id`** is the **payment-collection** order (single internal line **`ROS-RMS-CHARGE-PAYMENT`**, **`products.pos_line_kind = rms_charge_payment`**).
 - Common columns: **`register_session_id`**, optional **`customer_id`**, **`payment_transaction_id`** (unique when set), **`customer_display`**, **`order_short_ref`**, **`amount`**, **`operator_staff_id`**.
 
@@ -92,7 +89,7 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 - **`server/src/logic/order_checkout.rs`** — validates RMS payment carts (no mixed lines, no wedding disbursements, no discount events on the payment line, **cash/check** splits only, **skip stock** for the internal SKU, **`payment_transactions`** category **`rms_account_payment`** for that order shape). Inserts **`pos_rms_charge_record`** inside the checkout transaction for both charge and payment splits as applicable.
 - **`server/src/logic/checkout_validate.rs`** — zero tax, qty **1**, positive **`unit_price`** for **`rms_charge_payment`** lines.
 - **`server/src/logic/pos_rms_charge.rs`** — metadata normalization, **`insert_rms_record`**, receipt wording helpers, and **`notify_sales_support_after_checkout`** for **charge** notifications after commit.
-- **`server/src/logic/corecard/`** — server-only CoreCard broker, linked-account CRUD, account resolution, program list, summary fallback/live lookup, redaction helpers.
+- **`server/src/logic/pos_rms_charge.rs`** — RMS Charge metadata normalization, record insertion, receipt wording helpers, and Sales Support follow-up.
 - **`server/src/logic/tasks.rs`** — **`create_adhoc_rms_payment_followup_tasks`** after successful **payment** checkout (**`task_instance.assignment_id`** nullable — migration **69**).
 - **`server/src/services/inventory.rs`** — resolves **`pos_line_kind`** for tax/line behavior at checkout.
 
@@ -112,8 +109,8 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 - **`client/src/components/pos/Cart.tsx`** — includes a dedicated **Payment** button in the register toolbar to quickly load the RMS Charge Payment line; product search keyword **`PAYMENT`** (case-insensitive) also injects the seeded line via **`GET /api/pos/rms-payment-line-meta`**; **Price** numpad sets amount (**`price_override_reason`**: **`rms_charge_payment`**); **no tax** on the line.
 - Customer-facing receipts for this transaction shape suppress the internal **RMS CHARGE PAYMENT** merchandise line and print the payment summary / totals only.
 - **`client/src/components/pos/NexoCheckoutDrawer.tsx`** — prop **`rmsPaymentCollectionMode`**: only **Cash** and **Check** tender tabs; **`check`** uses payment method **`check`** (map in QBO **Settings → QBO Bridge → Mappings** matrix). Deposit / split-deposit controls are suppressed where inappropriate for RMS payment collection.
-- POS resolves accounts from **`customer_corecredit_accounts`** first, then the latest imported **`rms_account_list_snapshots`** when the snapshot is uniquely matched to the customer. Weekly account-list import performs unique normalized-phone matching; ambiguous phones remain unmatched for manual review.
-- Current POS completion records the selected account/program/reference and creates R2S follow-up. Live RMS/CoreCard host posting is not the POS success gate unless a future provider implementation explicitly enables it.
+- POS resolves accounts from Riverside's linked RMS account table first, then the latest imported **`rms_account_list_snapshots`** when the snapshot is uniquely matched to the customer. Weekly account-list import performs unique normalized-phone matching; ambiguous phones remain unmatched for manual review.
+- Current POS completion records the selected account/program/reference and creates R2S follow-up. There is no external financing-host posting step in the Riverside checkout path.
 - Payment collection resolves the linked or imported account in the drawer before cash/check tenders are added, so payment follow-up remains customer/account-driven rather than name-driven.
 
 ### Customers (Back Office) — RMS charge
@@ -136,7 +133,7 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 - **Ledger mapping** key **`RMS_CHARGE_FINANCING_CLEARING`** — explicit clearing mapping for live RMS Charge financed purchase tenders and their refund/reversal counterparts.
 - **Tender** row **`check`** in the granular mapping matrix (**`client/src/components/qbo/QboMappingMatrix.tsx`**, **`QBO_MATRIX_TENDERS`**) so **check** payments journal like other tenders.
 - RMS payment reversals debit the same **`RMS_R2S_PAYMENT_CLEARING`** account so refund-day journals stay balanced with the cash/check outflow.
-- Phase 3 reconciliation surfaces those clearing expectations inside the RMS Charge workspace so finance staff can triage Riverside/CoreCard/QBO mismatches without leaving the RMS toolset.
+- Phase 3 reconciliation surfaces those clearing expectations inside the RMS Charge workspace so finance staff can triage Riverside/R2S/QBO mismatches without leaving the RMS toolset.
 
 ### Reporting (Insights / Metabase)
 

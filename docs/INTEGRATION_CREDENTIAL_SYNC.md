@@ -10,7 +10,6 @@ The `integration_credentials` table stores **all** third-party integration secre
 - **QBO** — client ID, client secret, access/refresh tokens
 - **Podium** — client ID, client secret, refresh token, webhook secret
 - **Meilisearch** — URL, API key
-- **CoreCard** — client ID, client secret, webhook secret, merchant ID
 - **Fal.ai** — API key
 - **Shippo** — API token, webhook secret
 - **Geoapify** — API key

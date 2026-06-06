@@ -147,7 +147,10 @@ function Write-StationConfig($Config) {
   $stationLabel = "$($Config.register.stationLabel)".Trim()
 
   # Apply StationMode override if provided
-  if ($StationMode -eq "backoffice") {
+  if ($StationMode -eq "mainhub") {
+    $stationLabel = "Main Hub"
+    $Config.register.stationLabel = $stationLabel
+  } elseif ($StationMode -eq "backoffice") {
     $stationLabel = "Back Office"
     $Config.register.stationLabel = $stationLabel
   } elseif ($StationMode -eq "register1") {
@@ -158,8 +161,8 @@ function Write-StationConfig($Config) {
     $Config.register.stationLabel = $stationLabel
   }
 
-  if ($stationLabel -ne "Backoffice / Server" -and $stationLabel -ne "Back Office" -and $apiBase -match "^https?://(127\.0\.0\.1|localhost)(:|/|$)") {
-    throw "$stationLabel cannot use $apiBase. Enter the Backoffice / Server PC address, for example http://10.64.70.196:3000."
+  if ($stationLabel -ne "Main Hub" -and $stationLabel -ne "Backoffice / Server" -and $stationLabel -ne "Back Office" -and $apiBase -match "^https?://(127\.0\.0\.1|localhost)(:|/|$)") {
+    throw "$stationLabel cannot use $apiBase. Enter the Main Hub address, for example http://10.64.70.196:3000."
   }
   $Config.register.apiBase = $apiBase
 

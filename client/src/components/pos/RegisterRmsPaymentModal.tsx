@@ -381,7 +381,7 @@ export default function RegisterRmsPaymentModal({
               ) : lookupLoading ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-2 text-app-text-muted">
                   <Loader2 className="h-5 w-5 shrink-0 animate-spin" aria-hidden />
-                  <span className="text-xs font-bold">Querying CoreCredit status…</span>
+                  <span className="text-xs font-bold">Querying RMS Charge status…</span>
                 </div>
               ) : lookupError ? (
                 <div className="space-y-2">

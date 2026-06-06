@@ -253,9 +253,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
         cfg.show_barcode === true,
       );
   const headerLineValues = [
-    cfg.show_address ? cfg.store_address?.trim() || "2760 Delaware Ave, Buffalo, NY" : "",
-    cfg.show_phone ? cfg.store_phone?.trim() || "(716) 876-2424" : "",
-    cfg.show_email ? cfg.store_email?.trim() || "service@riversidemensshop.com" : "",
+    cfg.show_address ? cfg.store_address?.trim() || "6470 Transit Rd, Depew, NY" : "",
+    cfg.show_phone ? cfg.store_phone?.trim() || "(716) 833-8401" : "",
+    cfg.show_email ? cfg.store_email?.trim() || "info@riversidemens.com" : "",
     ...cfg.header_lines,
   ].filter(Boolean);
   const getReceiptLineMarkup = () =>
@@ -461,7 +461,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     value={cfg.store_address ?? ""}
                     onChange={(e) => setCfg({ ...cfg, store_address: e.target.value })}
                     className="ui-input mt-2 w-full text-sm font-bold"
-                    placeholder="2760 Delaware Ave, Buffalo, NY"
+                    placeholder="6470 Transit Rd, Depew, NY"
                   />
                 </label>
 
@@ -473,7 +473,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     value={cfg.store_phone ?? ""}
                     onChange={(e) => setCfg({ ...cfg, store_phone: e.target.value })}
                     className="ui-input mt-2 w-full text-sm font-bold"
-                    placeholder="(716) 876-2424"
+                    placeholder="(716) 833-8401"
                   />
                 </label>
 
@@ -485,7 +485,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     value={cfg.store_email ?? ""}
                     onChange={(e) => setCfg({ ...cfg, store_email: e.target.value })}
                     className="ui-input mt-2 w-full text-sm font-bold"
-                    placeholder="service@riversidemensshop.com"
+                    placeholder="info@riversidemens.com"
                   />
                 </label>
 

@@ -11,6 +11,7 @@ import {
   checkoutWeddingOrderSeed,
   fetchReadiness,
   fetchTransactionDetail,
+  markLineReadyForPickup,
   pickupLine,
   transitionLine,
   type ReadinessStatus,
@@ -46,10 +47,11 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
       { partyNamePrefix: "Phase 4 Walkthrough" },
     );
     const safeDetail = await fetchTransactionDetail(request, safeCheckout.transaction_id);
-    await transitionLine(request, safeDetail.items[0]!.transaction_line_id, {
-      next_status: "ready_for_pickup",
-      reason: "Phase 4 walkthrough safe wedding",
-    });
+    await markLineReadyForPickup(
+      request,
+      safeDetail.items[0]!.transaction_line_id,
+      "Phase 4 walkthrough safe wedding",
+    );
     const safeReadiness = await fetchReadiness(request, safeMember.wedding_party_id);
     expect(safeReadiness.status).toBe("safe");
     expect(safeReadiness.pickup.ready_members).toBeGreaterThan(0);
@@ -156,10 +158,11 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
     const partialDetail = await fetchTransactionDetail(request, partialCheckout.transaction_id);
     const partialReadyLine = partialDetail.items.find((item) => item.sku === partialReadyProduct.sku);
     expect(partialReadyLine).toBeTruthy();
-    await transitionLine(request, partialReadyLine!.transaction_line_id, {
-      next_status: "ready_for_pickup",
-      reason: "Phase 4 walkthrough partial ready",
-    });
+    await markLineReadyForPickup(
+      request,
+      partialReadyLine!.transaction_line_id,
+      "Phase 4 walkthrough partial ready",
+    );
     const partialReadiness = await fetchReadiness(request, partialMember.wedding_party_id);
     expect(partialReadiness.status).toBe("at_risk");
     expect(partialReadiness.pickup.partial_ready_members).toBeGreaterThan(0);
@@ -192,10 +195,11 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
       { partyNamePrefix: "Phase 4 Walkthrough" },
     );
     const balanceDetail = await fetchTransactionDetail(request, balanceCheckout.transaction_id);
-    await transitionLine(request, balanceDetail.items[0]!.transaction_line_id, {
-      next_status: "ready_for_pickup",
-      reason: "Phase 4 walkthrough balance blocked",
-    });
+    await markLineReadyForPickup(
+      request,
+      balanceDetail.items[0]!.transaction_line_id,
+      "Phase 4 walkthrough balance blocked",
+    );
     const balanceReadiness = await fetchReadiness(request, balanceMember.wedding_party_id);
     expect(balanceReadiness.status).toBe("at_risk");
     expect(balanceReadiness.pickup.balance_blocked_members).toBeGreaterThan(0);
@@ -215,6 +219,7 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
       {
         namePrefix: "Phase 4 Walkthrough Complete",
         skuPrefix: "P4WCO",
+        stockOnHand: 1,
       },
     );
     const completeCheckout = await checkoutWeddingOrderSeed(request, {
@@ -230,10 +235,7 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
     );
     const completeDetail = await fetchTransactionDetail(request, completeCheckout.transaction_id);
     const completeLine = completeDetail.items[0]!.transaction_line_id;
-    await transitionLine(request, completeLine, {
-      next_status: "ready_for_pickup",
-      reason: "Phase 4 walkthrough complete wedding",
-    });
+    await markLineReadyForPickup(request, completeLine, "Phase 4 walkthrough complete wedding");
     await pickupLine(request, completeCheckout.transaction_id, completeLine);
     const completeReadiness = await fetchReadiness(request, completeMember.wedding_party_id);
     expect(completeReadiness.status).toBe("complete");

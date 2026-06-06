@@ -5,18 +5,18 @@ order: 1008
 summary: "Review linked RMS Charge accounts, recent activity, open issues, and reconciliation support for the selected customer."
 source: client/src/components/customers/RmsChargeAdminSection.tsx
 last_scanned: 2026-06-02
-tags: customers, rms-charge, corecard, support, reconciliation
+tags: customers, rms-charge, r2s, support, reconciliation
 ---
 
 # RMS Charge Workspace
 
 ## Screenshots
 
-![Customers workspace](../images/help/customers-workspace/main.png)
+![Customers workspace](../images/help/customers-rms-charge-admin-section/customers-workspace.png)
 
-![Orders workspace](../images/help/orders-workspace/main.png)
+![Orders workspace](../images/help/customers-rms-charge-admin-section/orders-workspace.png)
 
-![Wedding lookup drawer](../images/help/pos/wedding-lookup-drawer.png)
+![Checkout context](../images/help/customers-rms-charge-admin-section/checkout-context.png)
 
 ## What this is
 
@@ -56,7 +56,7 @@ Move here when the question becomes RMS-specific:
 - `Exceptions`
   Open RMS issues that may need assignment, retry, resolve, or support follow-up.
 - `Reconciliation`
-  Differences between Riverside records, CoreCard host state, and accounting-clearing expectations across all RMS activity.
+  Differences between Riverside records, R2S follow-up state, and accounting-clearing expectations across all RMS activity.
 
 ## How to use it
 
@@ -65,7 +65,7 @@ Move here when the question becomes RMS-specific:
 3. Use `Accounts` to verify the link and status.
 4. Use `Transactions` when you need to review a specific RMS purchase or payment.
 5. Use `Exceptions` for failed or stale RMS issues.
-6. Use `Reconciliation` when finance or support needs to review a mismatch between Riverside, CoreCard, and accounting expectations.
+6. Use `Reconciliation` when finance or support needs to review a mismatch between Riverside, R2S, and accounting expectations.
 
 ## What each section tells you
 
@@ -118,7 +118,7 @@ Do not retry if the wrong customer, account, or program is selected.
 Use `Reconciliation` when support or finance needs to compare:
 
 - Riverside RMS records
-- CoreCard host results
+- R2S support follow-up results
 - Riverside's expected accounting-clearing behavior
 
 This is a support and finance review tool. It is not the first place to start for ordinary customer questions.

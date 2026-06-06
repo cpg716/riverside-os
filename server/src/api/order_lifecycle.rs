@@ -501,8 +501,7 @@ async fn transition_item(
         sqlx::query(
             r#"
             UPDATE transaction_lines
-            SET alteration_ready = false,
-                updated_at = now()
+            SET alteration_ready = false
             WHERE id = $1
             "#,
         )

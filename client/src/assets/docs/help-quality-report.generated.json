@@ -1,14 +1,555 @@
 {
-  "generated_at": "2026-06-05T16:51:29.808Z",
-  "standard_version": "help-manual-standard-v1",
+  "generated_at": "2026-06-06T02:04:20.292Z",
+  "standard_version": "help-manual-standard-v2",
   "published_manual_count": 68,
   "draft_manual_count": 0,
+  "screenshot_standard": {
+    "approved_unique_local_minimum": 2,
+    "approved_dedicated_unique_target": 3,
+    "major_workflow_unique_target": 4
+  },
+  "screenshot_backlog": [
+    {
+      "id": "inventory-universal-importer",
+      "title": "Universal Importer (inventory)",
+      "source_path": "client/src/assets/docs/inventory-universal-importer-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "inventory-variations-workspace",
+      "title": "Variations Workspace (inventory)",
+      "source_path": "client/src/assets/docs/inventory-variations-workspace-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "inventory-vendor-hub",
+      "title": "Vendor Hub (inventory)",
+      "source_path": "client/src/assets/docs/inventory-vendor-hub-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "inventory-workspace",
+      "title": "Inventory Workspace (inventory)",
+      "source_path": "client/src/assets/docs/inventory-workspace-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "layout-backoffice-sign-in-gate",
+      "title": "Backoffice Sign-In Gate",
+      "source_path": "client/src/assets/docs/layout-backoffice-sign-in-gate-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "layout-pos-shell",
+      "title": "Pos Shell (layout)",
+      "source_path": "client/src/assets/docs/layout-pos-shell-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "layout-pwa-update-prompt",
+      "title": "PWA Update Prompt",
+      "source_path": "client/src/assets/docs/layout-pwa-update-prompt-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "lockout",
+      "title": "Lockout Recovery Manual",
+      "source_path": "client/src/assets/docs/lockout-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "loyalty-redeem-dialog",
+      "title": "Reward Redemption Dialog",
+      "source_path": "client/src/assets/docs/loyalty-redeem-dialog-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "loyalty-workspace",
+      "title": "Loyalty Management Hub",
+      "source_path": "client/src/assets/docs/loyalty-workspace-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "notifications-notification-center-bell",
+      "title": "Notifications Bell",
+      "source_path": "client/src/assets/docs/notifications-notification-center-bell-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "notifications-notification-center-drawer",
+      "title": "Notification Center and Team Announcements",
+      "source_path": "client/src/assets/docs/notifications-notification-center-drawer-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "operations-fulfillment-command-center",
+      "title": "Pickup Queue",
+      "source_path": "client/src/assets/docs/operations-fulfillment-command-center-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pilot-recovery-governance",
+      "title": "Pilot Recovery and Governance",
+      "source_path": "client/src/assets/docs/pilot-recovery-governance-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-close-register-modal",
+      "title": "Closing the Register (Z-Report)",
+      "source_path": "client/src/assets/docs/pos-close-register-modal-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-custom-work",
+      "title": "Custom Orders & Rush Orders",
+      "source_path": "client/src/assets/docs/pos-custom-work-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-nexo-checkout-drawer",
+      "title": "Checkout & Payment",
+      "source_path": "client/src/assets/docs/pos-nexo-checkout-drawer-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-order-load-modal",
+      "title": "Customer Orders",
+      "source_path": "client/src/assets/docs/pos-order-load-modal-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-procurement-hub",
+      "title": "Procurement Hub (pos)",
+      "source_path": "client/src/assets/docs/pos-procurement-hub-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-receipt-summary-modal",
+      "title": "Receipt Preview and Delivery",
+      "source_path": "client/src/assets/docs/pos-receipt-summary-modal-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-register-dashboard",
+      "title": "Register Dashboard (pos)",
+      "source_path": "client/src/assets/docs/pos-register-dashboard-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-register-gift-card-load-modal",
+      "title": "Register Gift Card",
+      "source_path": "client/src/assets/docs/pos-register-gift-card-load-modal-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-register-overlay",
+      "title": "Register Overlay (pos)",
+      "source_path": "client/src/assets/docs/pos-register-overlay-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-register-reports",
+      "title": "Register Reports & Daily Sales",
+      "source_path": "client/src/assets/docs/pos-register-reports-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-shipping-manual",
+      "title": "Shipping & Fulfillment Guide",
+      "source_path": "client/src/assets/docs/pos-shipping-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-shipping-modal",
+      "title": "Shipping Quote Modal",
+      "source_path": "client/src/assets/docs/pos-shipping-modal-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "pos-sidebar",
+      "title": "POS Sidebar",
+      "source_path": "client/src/assets/docs/pos-sidebar-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "qbo-mapping-matrix",
+      "title": "QBO Mapping Matrix (qbo)",
+      "source_path": "client/src/assets/docs/qbo-mapping-matrix-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "qbo-workspace",
+      "title": "QBO Workspace",
+      "source_path": "client/src/assets/docs/qbo-workspace-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "reports-workspace",
+      "title": "Reports Workspace (reports)",
+      "source_path": "client/src/assets/docs/reports-workspace-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-backups",
+      "title": "Data Lifecycle & Backups",
+      "source_path": "client/src/assets/docs/settings-backups-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-bug-reports-settings-panel",
+      "title": "Bug Reports Settings",
+      "source_path": "client/src/assets/docs/settings-bug-reports-settings-panel-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-counterpoint-sync-settings-panel",
+      "title": "Counterpoint Sync and Sign-Off",
+      "source_path": "client/src/assets/docs/settings-counterpoint-sync-settings-panel-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-helcim-settings-panel",
+      "title": "Helcim Settings",
+      "source_path": "client/src/assets/docs/settings-helcim-settings-panel-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-meilisearch-settings-panel",
+      "title": "Meilisearch Settings",
+      "source_path": "client/src/assets/docs/settings-meilisearch-settings-panel-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-printers-and-scanners-panel",
+      "title": "Printers And Scanners Panel (settings)",
+      "source_path": "client/src/assets/docs/settings-printers-and-scanners-panel-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-receipt-builder-panel",
+      "title": "Receipt Settings Panel (settings)",
+      "source_path": "client/src/assets/docs/settings-receipt-builder-panel-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-remote-access-panel",
+      "title": "Remote Access Panel",
+      "source_path": "client/src/assets/docs/settings-remote-access-panel-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-ros-dev-center-panel",
+      "title": "ROS Dev Center",
+      "source_path": "client/src/assets/docs/settings-ros-dev-center-panel-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "staff-commission-manager-workspace",
+      "title": "Commission Manager Workspace (staff)",
+      "source_path": "client/src/assets/docs/staff-commission-manager-workspace-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "staff-commission-payouts-panel",
+      "title": "Commission Reports Panel (staff)",
+      "source_path": "client/src/assets/docs/staff-commission-payouts-panel-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "staff-schedule-panel",
+      "title": "Staff Schedule",
+      "source_path": "client/src/assets/docs/staff-schedule-panel-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "staff-weekly-grid-view",
+      "title": "Staff Weekly Grid View",
+      "source_path": "client/src/assets/docs/staff-weekly-grid-view-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "staff-workspace",
+      "title": "Staff Workspace (Team)",
+      "source_path": "client/src/assets/docs/staff-workspace-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "alterations-workspace",
+      "title": "Alterations Workspace",
+      "source_path": "client/src/assets/docs/alterations-workspace-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "customers-workspace",
+      "title": "Customers Workspace",
+      "source_path": "client/src/assets/docs/customers-workspace-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "help-center-drawer",
+      "title": "Help Center Drawer",
+      "source_path": "client/src/assets/docs/help-center-drawer-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "insights",
+      "title": "Insights (Metabase)",
+      "source_path": "client/src/assets/docs/insights-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "inventory-control-board",
+      "title": "Inventory Control Board",
+      "source_path": "client/src/assets/docs/inventory-control-board-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "inventory-purchase-order-panel",
+      "title": "Purchase Orders and Vendor Paperwork",
+      "source_path": "client/src/assets/docs/inventory-purchase-order-panel-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "inventory-receiving-bay",
+      "title": "Receive Stock",
+      "source_path": "client/src/assets/docs/inventory-receiving-bay-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "operations-operational-home",
+      "title": "Operations Home",
+      "source_path": "client/src/assets/docs/operations-operational-home-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "orders-workspace",
+      "title": "Orders Workspace",
+      "source_path": "client/src/assets/docs/orders-workspace-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "remote-access",
+      "title": "Remote Access",
+      "source_path": "client/src/assets/docs/remote-access-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "reports",
+      "title": "Reports (curated)",
+      "source_path": "client/src/assets/docs/reports-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "scheduler-workspace",
+      "title": "Scheduler Workspace",
+      "source_path": "client/src/assets/docs/scheduler-workspace-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-rosie-settings-panel",
+      "title": "ROSIE Settings",
+      "source_path": "client/src/assets/docs/settings-rosie-settings-panel-manual.md",
+      "dedicated_unique_local": 1,
+      "unique_local": 3,
+      "priority": "medium",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    }
+  ],
   "manuals": [
     {
       "id": "pos",
       "title": "Register (POS)",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-manual.md",
+      "screenshots": {
+        "local_refs": 4,
+        "unique_local": 4,
+        "dedicated_unique_local": 4,
+        "reused_unique_local": 4,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png",
+          "client/src/assets/images/help/pos/receipt-summary.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png",
+          "client/src/assets/images/help/pos/receipt-summary.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -53,6 +594,23 @@
       "title": "Reports (curated)",
       "status": "approved",
       "source_path": "client/src/assets/docs/reports-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/reports/catalog.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/insights/metabase-main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/reports/catalog.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -90,13 +648,32 @@
       "numbered_steps": 7,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/reports/; target 3-4."
+      ]
     },
     {
       "id": "insights",
       "title": "Insights (Metabase)",
       "status": "approved",
       "source_path": "client/src/assets/docs/insights-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/insights/metabase-main.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/insights/metabase-main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -134,13 +711,30 @@
       "numbered_steps": 20,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/insights/; target 3-4."
+      ]
     },
     {
       "id": "lockout",
       "title": "Lockout Recovery Manual",
       "status": "approved",
       "source_path": "client/src/assets/docs/lockout-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -178,13 +772,32 @@
       "numbered_steps": 20,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/lockout/; target 3-4."
+      ]
     },
     {
       "id": "remote-access",
       "title": "Remote Access",
       "status": "approved",
       "source_path": "client/src/assets/docs/remote-access-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/remote-access/panel-main.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/remote-access/panel-main.png",
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/operations-operational-home/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -222,13 +835,30 @@
       "numbered_steps": 7,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/remote-access/; target 3-4."
+      ]
     },
     {
       "id": "settings-backups",
       "title": "Data Lifecycle & Backups",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-backups-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
+          "client/src/assets/images/help/remote-access/panel-main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -266,13 +896,32 @@
       "numbered_steps": 7,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-backups/; target 3-4."
+      ]
     },
     {
       "id": "alterations-workspace",
       "title": "Alterations Workspace",
       "status": "approved",
       "source_path": "client/src/assets/docs/alterations-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/alterations-workspace/main.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/scheduler-workspace/main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/alterations-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -310,13 +959,30 @@
       "numbered_steps": 9,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/alterations-workspace/; target 3-4."
+      ]
     },
     {
       "id": "bug-report-flow",
       "title": "Bug Report Flow",
       "status": "approved",
       "source_path": "client/src/assets/docs/bug-report-flow-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 3,
+        "reused_unique_local": 0,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/bug-report-flow/help-drawer.png",
+          "client/src/assets/images/help/bug-report-flow/help-settings.png",
+          "client/src/assets/images/help/bug-report-flow/rosie-settings.png"
+        ],
+        "reused_paths": []
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -361,6 +1027,21 @@
       "title": "Customer Relationship Hub",
       "status": "approved",
       "source_path": "client/src/assets/docs/customers-customer-relationship-hub-drawer-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 3,
+        "reused_unique_local": 0,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/customers-customer-relationship-hub-drawer/customers-workspace.png",
+          "client/src/assets/images/help/customers-customer-relationship-hub-drawer/orders-workspace.png",
+          "client/src/assets/images/help/customers-customer-relationship-hub-drawer/wedding-lookup.png"
+        ],
+        "reused_paths": []
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -405,6 +1086,21 @@
       "title": "Customers Workspace",
       "status": "approved",
       "source_path": "client/src/assets/docs/customers-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 1,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/customers-workspace/main.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/orders-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -442,13 +1138,30 @@
       "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/customers-workspace/; target 3-4."
+      ]
     },
     {
       "id": "customers-podium-messaging-inbox-section",
       "title": "Podium Inbox",
       "status": "approved",
       "source_path": "client/src/assets/docs/customers-podium-messaging-inbox-section-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 3,
+        "reused_unique_local": 0,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/customers-podium-messaging-inbox-section/customers-workspace.png",
+          "client/src/assets/images/help/customers-podium-messaging-inbox-section/podium-settings.png",
+          "client/src/assets/images/help/customers-podium-messaging-inbox-section/operations-inbox-context.png"
+        ],
+        "reused_paths": []
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -493,6 +1206,21 @@
       "title": "RMS Charge Workspace",
       "status": "approved",
       "source_path": "client/src/assets/docs/customers-rms-charge-admin-section-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 3,
+        "reused_unique_local": 0,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/customers-rms-charge-admin-section/customers-workspace.png",
+          "client/src/assets/images/help/customers-rms-charge-admin-section/orders-workspace.png",
+          "client/src/assets/images/help/customers-rms-charge-admin-section/checkout-context.png"
+        ],
+        "reused_paths": []
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -537,6 +1265,21 @@
       "title": "Shipments Hub",
       "status": "approved",
       "source_path": "client/src/assets/docs/customers-shipments-hub-section-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 3,
+        "reused_unique_local": 0,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/customers-shipments-hub-section/customers-workspace.png",
+          "client/src/assets/images/help/customers-shipments-hub-section/orders-workspace.png",
+          "client/src/assets/images/help/customers-shipments-hub-section/remote-access-context.png"
+        ],
+        "reused_paths": []
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -581,6 +1324,21 @@
       "title": "Gift Cards Workspace",
       "status": "approved",
       "source_path": "client/src/assets/docs/gift-cards-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 3,
+        "reused_unique_local": 0,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/gift-cards-workspace/register-dashboard.png",
+          "client/src/assets/images/help/gift-cards-workspace/cart-with-gift-card.png",
+          "client/src/assets/images/help/gift-cards-workspace/checkout-drawer.png"
+        ],
+        "reused_paths": []
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -625,6 +1383,23 @@
       "title": "Help Center Drawer",
       "status": "approved",
       "source_path": "client/src/assets/docs/help-center-drawer-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/help-center-drawer/example.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
+          "client/src/assets/images/help/help-center-drawer/example.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -662,13 +1437,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/help-center-drawer/; target 3-4."
+      ]
     },
     {
       "id": "inventory-bulk-bar",
       "title": "Inventory Bulk Bar (inventory)",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-bulk-bar-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 3,
+        "reused_unique_local": 0,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/inventory-bulk-bar/inventory-list.png",
+          "client/src/assets/images/help/inventory-bulk-bar/receiving.png",
+          "client/src/assets/images/help/inventory-bulk-bar/purchase-orders.png"
+        ],
+        "reused_paths": []
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -713,6 +1505,23 @@
       "title": "Inventory Control Board",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-control-board-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/inventory-control-board/main.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/inventory-receiving-bay/main.png",
+          "client/src/assets/images/help/inventory-purchase-order-panel/main.png",
+          "client/src/assets/images/help/inventory-control-board/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -750,13 +1559,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-control-board/; target 3-4."
+      ]
     },
     {
       "id": "inventory-workspace",
       "title": "Inventory Workspace (inventory)",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/inventory-control-board/main.png",
+          "client/src/assets/images/help/inventory-receiving-bay/main.png",
+          "client/src/assets/images/help/inventory-purchase-order-panel/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -794,13 +1620,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-workspace/; target 3-4."
+      ]
     },
     {
       "id": "inventory-physical-inventory-workspace",
       "title": "Physical Inventory Workspace (inventory)",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-physical-inventory-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 3,
+        "reused_unique_local": 0,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/inventory-physical-inventory-workspace/inventory-list.png",
+          "client/src/assets/images/help/inventory-physical-inventory-workspace/physical-inventory.png",
+          "client/src/assets/images/help/inventory-physical-inventory-workspace/receiving-context.png"
+        ],
+        "reused_paths": []
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -845,6 +1688,21 @@
       "title": "Product Hub Drawer (inventory)",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-product-hub-drawer-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 3,
+        "reused_unique_local": 0,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/inventory-product-hub-drawer/inventory-list.png",
+          "client/src/assets/images/help/inventory-product-hub-drawer/receiving-context.png",
+          "client/src/assets/images/help/inventory-product-hub-drawer/purchase-orders-context.png"
+        ],
+        "reused_paths": []
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -889,6 +1747,21 @@
       "title": "Add Item (inventory)",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-product-master-form-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 3,
+        "reused_unique_local": 0,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/inventory-product-master-form/inventory-list.png",
+          "client/src/assets/images/help/inventory-product-master-form/receiving-context.png",
+          "client/src/assets/images/help/inventory-product-master-form/purchase-orders-context.png"
+        ],
+        "reused_paths": []
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -933,6 +1806,23 @@
       "title": "Purchase Orders and Vendor Paperwork",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-purchase-order-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/inventory-purchase-order-panel/main.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/inventory-control-board/main.png",
+          "client/src/assets/images/help/inventory-receiving-bay/main.png",
+          "client/src/assets/images/help/inventory-purchase-order-panel/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -970,13 +1860,32 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-purchase-order-panel/; target 3-4."
+      ]
     },
     {
       "id": "inventory-receiving-bay",
       "title": "Receive Stock",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-receiving-bay-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/inventory-receiving-bay/main.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/inventory-control-board/main.png",
+          "client/src/assets/images/help/inventory-purchase-order-panel/main.png",
+          "client/src/assets/images/help/inventory-receiving-bay/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1014,13 +1923,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-receiving-bay/; target 3-4."
+      ]
     },
     {
       "id": "inventory-universal-importer",
       "title": "Universal Importer (inventory)",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-universal-importer-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/inventory-control-board/main.png",
+          "client/src/assets/images/help/inventory-receiving-bay/main.png",
+          "client/src/assets/images/help/inventory-purchase-order-panel/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1058,13 +1984,30 @@
       "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-universal-importer/; target 3-4."
+      ]
     },
     {
       "id": "inventory-vendor-hub",
       "title": "Vendor Hub (inventory)",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-vendor-hub-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/inventory-control-board/main.png",
+          "client/src/assets/images/help/inventory-receiving-bay/main.png",
+          "client/src/assets/images/help/inventory-purchase-order-panel/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1102,13 +2045,30 @@
       "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-vendor-hub/; target 3-4."
+      ]
     },
     {
       "id": "layout-backoffice-sign-in-gate",
       "title": "Backoffice Sign-In Gate",
       "status": "approved",
       "source_path": "client/src/assets/docs/layout-backoffice-sign-in-gate-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/reports/catalog.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1146,13 +2106,30 @@
       "numbered_steps": 3,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/layout-backoffice-sign-in-gate/; target 3-4."
+      ]
     },
     {
       "id": "inventory-variations-workspace",
       "title": "Variations Workspace (inventory)",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-variations-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/inventory-control-board/main.png",
+          "client/src/assets/images/help/inventory-receiving-bay/main.png",
+          "client/src/assets/images/help/inventory-purchase-order-panel/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1190,13 +2167,30 @@
       "numbered_steps": 10,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/inventory-variations-workspace/; target 3-4."
+      ]
     },
     {
       "id": "layout-pos-shell",
       "title": "Pos Shell (layout)",
       "status": "approved",
       "source_path": "client/src/assets/docs/layout-pos-shell-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/reports/catalog.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1234,13 +2228,30 @@
       "numbered_steps": 8,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/layout-pos-shell/; target 3-4."
+      ]
     },
     {
       "id": "layout-pwa-update-prompt",
       "title": "PWA Update Prompt",
       "status": "approved",
       "source_path": "client/src/assets/docs/layout-pwa-update-prompt-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/reports/catalog.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1278,13 +2289,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/layout-pwa-update-prompt/; target 3-4."
+      ]
     },
     {
       "id": "loyalty-workspace",
       "title": "Loyalty Management Hub",
       "status": "approved",
       "source_path": "client/src/assets/docs/loyalty-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1322,13 +2350,30 @@
       "numbered_steps": 10,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/loyalty-workspace/; target 3-4."
+      ]
     },
     {
       "id": "loyalty-redeem-dialog",
       "title": "Reward Redemption Dialog",
       "status": "approved",
       "source_path": "client/src/assets/docs/loyalty-redeem-dialog-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1366,13 +2411,30 @@
       "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/loyalty-redeem-dialog/; target 3-4."
+      ]
     },
     {
       "id": "notifications-notification-center-bell",
       "title": "Notifications Bell",
       "status": "approved",
       "source_path": "client/src/assets/docs/notifications-notification-center-bell-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/orders-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1410,13 +2472,30 @@
       "numbered_steps": 10,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/notifications-notification-center-bell/; target 3-4."
+      ]
     },
     {
       "id": "notifications-notification-center-drawer",
       "title": "Notification Center and Team Announcements",
       "status": "approved",
       "source_path": "client/src/assets/docs/notifications-notification-center-drawer-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/orders-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1454,13 +2533,32 @@
       "numbered_steps": 19,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/notifications-notification-center-drawer/; target 3-4."
+      ]
     },
     {
       "id": "operations-operational-home",
       "title": "Operations Home",
       "status": "approved",
       "source_path": "client/src/assets/docs/operations-operational-home-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/operations-operational-home/main.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/orders-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1498,13 +2596,32 @@
       "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/operations-operational-home/; target 3-4."
+      ]
     },
     {
       "id": "orders-workspace",
       "title": "Orders Workspace",
       "status": "approved",
       "source_path": "client/src/assets/docs/orders-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/orders-workspace/main.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/pos/receipt-summary.png",
+          "client/src/assets/images/help/orders-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1542,13 +2659,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/orders-workspace/; target 3-4."
+      ]
     },
     {
       "id": "pos-close-register-modal",
       "title": "Closing the Register (Z-Report)",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-close-register-modal-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1586,13 +2720,30 @@
       "numbered_steps": 3,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-close-register-modal/; target 3-4."
+      ]
     },
     {
       "id": "pilot-recovery-governance",
       "title": "Pilot Recovery and Governance",
       "status": "approved",
       "source_path": "client/src/assets/docs/pilot-recovery-governance-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1630,13 +2781,30 @@
       "numbered_steps": 9,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pilot-recovery-governance/; target 3-4."
+      ]
     },
     {
       "id": "operations-fulfillment-command-center",
       "title": "Pickup Queue",
       "status": "approved",
       "source_path": "client/src/assets/docs/operations-fulfillment-command-center-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/orders-workspace/main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/pos/receipt-summary.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1674,13 +2842,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/operations-fulfillment-command-center/; target 3-4."
+      ]
     },
     {
       "id": "pos-custom-work",
       "title": "Custom Orders & Rush Orders",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-custom-work-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1718,13 +2903,30 @@
       "numbered_steps": 11,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-custom-work/; target 3-4."
+      ]
     },
     {
       "id": "pos-nexo-checkout-drawer",
       "title": "Checkout & Payment",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-nexo-checkout-drawer-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1762,13 +2964,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-nexo-checkout-drawer/; target 3-4."
+      ]
     },
     {
       "id": "pos-shipping-manual",
       "title": "Shipping & Fulfillment Guide",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-shipping-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1806,13 +3025,30 @@
       "numbered_steps": 15,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-shipping-manual/; target 3-4."
+      ]
     },
     {
       "id": "pos-shipping-modal",
       "title": "Shipping Quote Modal",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-shipping-modal-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1850,13 +3086,30 @@
       "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-shipping-modal/; target 3-4."
+      ]
     },
     {
       "id": "pos-sidebar",
       "title": "POS Sidebar",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-sidebar-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1894,13 +3147,30 @@
       "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-sidebar/; target 3-4."
+      ]
     },
     {
       "id": "pos-procurement-hub",
       "title": "Procurement Hub (pos)",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-procurement-hub-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1938,13 +3208,30 @@
       "numbered_steps": 8,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-procurement-hub/; target 3-4."
+      ]
     },
     {
       "id": "pos-receipt-summary-modal",
       "title": "Receipt Preview and Delivery",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-receipt-summary-modal-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/receipt-summary.png",
+          "client/src/assets/images/help/pos/receipt-preview.png",
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -1982,13 +3269,30 @@
       "numbered_steps": 3,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-receipt-summary-modal/; target 3-4."
+      ]
     },
     {
       "id": "pos-order-load-modal",
       "title": "Customer Orders",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-order-load-modal-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2026,13 +3330,30 @@
       "numbered_steps": 7,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-order-load-modal/; target 3-4."
+      ]
     },
     {
       "id": "pos-register-dashboard",
       "title": "Register Dashboard (pos)",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-register-dashboard-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2070,13 +3391,30 @@
       "numbered_steps": 3,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-register-dashboard/; target 3-4."
+      ]
     },
     {
       "id": "pos-register-gift-card-load-modal",
       "title": "Register Gift Card",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-register-gift-card-load-modal-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2114,13 +3452,30 @@
       "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-register-gift-card-load-modal/; target 3-4."
+      ]
     },
     {
       "id": "pos-register-overlay",
       "title": "Register Overlay (pos)",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-register-overlay-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2158,13 +3513,30 @@
       "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-register-overlay/; target 3-4."
+      ]
     },
     {
       "id": "pos-register-reports",
       "title": "Register Reports & Daily Sales",
       "status": "approved",
       "source_path": "client/src/assets/docs/pos-register-reports-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/insights/metabase-main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2202,13 +3574,30 @@
       "numbered_steps": 12,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/pos-register-reports/; target 3-4."
+      ]
     },
     {
       "id": "qbo-mapping-matrix",
       "title": "QBO Mapping Matrix (qbo)",
       "status": "approved",
       "source_path": "client/src/assets/docs/qbo-mapping-matrix-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/insights/metabase-main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2246,13 +3635,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/qbo-mapping-matrix/; target 3-4."
+      ]
     },
     {
       "id": "qbo-workspace",
       "title": "QBO Workspace",
       "status": "approved",
       "source_path": "client/src/assets/docs/qbo-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/insights/metabase-main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2290,13 +3696,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/qbo-workspace/; target 3-4."
+      ]
     },
     {
       "id": "reports-workspace",
       "title": "Reports Workspace (reports)",
       "status": "approved",
       "source_path": "client/src/assets/docs/reports-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/insights/metabase-main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2334,13 +3757,32 @@
       "numbered_steps": 7,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/reports-workspace/; target 3-4."
+      ]
     },
     {
       "id": "scheduler-workspace",
       "title": "Scheduler Workspace",
       "status": "approved",
       "source_path": "client/src/assets/docs/scheduler-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/scheduler-workspace/main.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/alterations-workspace/main.png",
+          "client/src/assets/images/help/scheduler-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2378,13 +3820,30 @@
       "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/scheduler-workspace/; target 3-4."
+      ]
     },
     {
       "id": "settings-bug-reports-settings-panel",
       "title": "Bug Reports Settings",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-bug-reports-settings-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2422,13 +3881,30 @@
       "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-bug-reports-settings-panel/; target 3-4."
+      ]
     },
     {
       "id": "settings-counterpoint-sync-settings-panel",
       "title": "Counterpoint Sync and Sign-Off",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-counterpoint-sync-settings-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/insights/metabase-main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2466,13 +3942,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-counterpoint-sync-settings-panel/; target 3-4."
+      ]
     },
     {
       "id": "settings-helcim-settings-panel",
       "title": "Helcim Settings",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-helcim-settings-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
+          "client/src/assets/images/help/remote-access/panel-main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2510,13 +4003,30 @@
       "numbered_steps": 8,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-helcim-settings-panel/; target 3-4."
+      ]
     },
     {
       "id": "settings-meilisearch-settings-panel",
       "title": "Meilisearch Settings",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-meilisearch-settings-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
+          "client/src/assets/images/help/remote-access/panel-main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2554,13 +4064,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-meilisearch-settings-panel/; target 3-4."
+      ]
     },
     {
       "id": "settings-receipt-builder-panel",
       "title": "Receipt Settings Panel (settings)",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-receipt-builder-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/receipt-preview.png",
+          "client/src/assets/images/help/pos/receipt-summary.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2598,13 +4125,30 @@
       "numbered_steps": 10,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-receipt-builder-panel/; target 3-4."
+      ]
     },
     {
       "id": "settings-remote-access-panel",
       "title": "Remote Access Panel",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-remote-access-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/remote-access/panel-main.png",
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/operations-operational-home/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2642,13 +4186,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-remote-access-panel/; target 3-4."
+      ]
     },
     {
       "id": "staff-commission-payouts-panel",
       "title": "Commission Reports Panel (staff)",
       "status": "approved",
       "source_path": "client/src/assets/docs/staff-commission-payouts-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/scheduler-workspace/main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/alterations-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2686,13 +4247,30 @@
       "numbered_steps": 7,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/staff-commission-payouts-panel/; target 3-4."
+      ]
     },
     {
       "id": "staff-schedule-panel",
       "title": "Staff Schedule",
       "status": "approved",
       "source_path": "client/src/assets/docs/staff-schedule-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/scheduler-workspace/main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/alterations-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2730,13 +4308,30 @@
       "numbered_steps": 12,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/staff-schedule-panel/; target 3-4."
+      ]
     },
     {
       "id": "settings-printers-and-scanners-panel",
       "title": "Printers And Scanners Panel (settings)",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-printers-and-scanners-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/pos/receipt-summary.png",
+          "client/src/assets/images/help/pos/receipt-preview.png",
+          "client/src/assets/images/help/remote-access/panel-main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2774,13 +4369,30 @@
       "numbered_steps": 9,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-printers-and-scanners-panel/; target 3-4."
+      ]
     },
     {
       "id": "staff-commission-manager-workspace",
       "title": "Commission Manager Workspace (staff)",
       "status": "approved",
       "source_path": "client/src/assets/docs/staff-commission-manager-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/scheduler-workspace/main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/alterations-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2818,13 +4430,30 @@
       "numbered_steps": 2,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/staff-commission-manager-workspace/; target 3-4."
+      ]
     },
     {
       "id": "staff-workspace",
       "title": "Staff Workspace (Team)",
       "status": "approved",
       "source_path": "client/src/assets/docs/staff-workspace-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/scheduler-workspace/main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/alterations-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2862,13 +4491,30 @@
       "numbered_steps": 3,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/staff-workspace/; target 3-4."
+      ]
     },
     {
       "id": "settings-ros-dev-center-panel",
       "title": "ROS Dev Center",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-ros-dev-center-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
+          "client/src/assets/images/help/remote-access/panel-main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2906,13 +4552,32 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-ros-dev-center-panel/; target 3-4."
+      ]
     },
     {
       "id": "settings-rosie-settings-panel",
       "title": "ROSIE Settings",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-rosie-settings-panel-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 1,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+        ],
+        "reused_paths": [
+          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2950,13 +4615,30 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-rosie-settings-panel/; target 3-4."
+      ]
     },
     {
       "id": "staff-weekly-grid-view",
       "title": "Staff Weekly Grid View",
       "status": "approved",
       "source_path": "client/src/assets/docs/staff-weekly-grid-view-manual.md",
+      "screenshots": {
+        "local_refs": 3,
+        "unique_local": 3,
+        "dedicated_unique_local": 0,
+        "reused_unique_local": 3,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/scheduler-workspace/main.png",
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/alterations-workspace/main.png"
+        ]
+      },
       "required_buckets": [
         {
           "key": "purpose",
@@ -2994,7 +4676,9 @@
       "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/staff-weekly-grid-view/; target 3-4."
+      ]
     }
   ]
 }

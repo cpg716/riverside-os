@@ -1,7 +1,7 @@
 # ============================================================
 # Riverside OS - ROSIE AI Stack Installer
 # ============================================================
-# Run this on the Backoffice / Server PC to deploy the ROSIE
+# Run this on the Main Hub to deploy the ROSIE
 # pre-compiled binaries and models, and verify integrity.
 #
 # Usage (elevated PowerShell):
@@ -85,8 +85,9 @@ $pkgBinDir   = Join-Path $pkgRosieDir "bin"
 # PINNED VERSIONS  (update here when upgrading components)
 # ============================================================
 $SHERPA_VERSION   = "1.13.2"
-$SHERPA_ARCH      = "win-x64"  # win-x64 | win-x86 | win-arm64
-$SHERPA_TAR_URL   = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$SHERPA_VERSION/sherpa-onnx-v$SHERPA_VERSION-$SHERPA_ARCH.tar.bz2"
+$SHERPA_ARCH      = "win-x64-shared-MD-Release"
+$SHERPA_TAR_NAME  = "sherpa-onnx-v$SHERPA_VERSION-$SHERPA_ARCH.tar.bz2"
+$SHERPA_TAR_URL   = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$SHERPA_VERSION/$SHERPA_TAR_NAME"
 
 # llama.cpp CPU runtime for the Host LLM. This is used when the
 # deployment package does not already include rosie\bin\llama-server.exe.
@@ -267,7 +268,7 @@ if ($missingSherpa.Count -gt 0) {
   $extractDir = Join-Path $env:TEMP "sherpa-onnx-extract-$SHERPA_VERSION"
 
   if (-not (Test-Path $tarPath)) {
-    Invoke-Download $SHERPA_TAR_URL $tarPath "sherpa-onnx-v$SHERPA_VERSION-$SHERPA_ARCH.tar.bz2"
+    Invoke-Download $SHERPA_TAR_URL $tarPath $SHERPA_TAR_NAME
   }
 
   if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }

@@ -63,6 +63,68 @@ function Assert-ClientDistMatchesSource([string]$ClientDistPath, [string]$Versio
   }
 }
 
+function Invoke-DownloadFile([string]$Url, [string]$OutFile, [string]$Label) {
+  Write-Host "Downloading $Label..."
+  $client = New-Object System.Net.WebClient
+  try {
+    $client.Headers.Add("User-Agent", "RiversideOS-Deployment-Packager")
+    if (Test-Path $OutFile) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
+    $client.DownloadFile($Url, $OutFile)
+  } finally {
+    $client.Dispose()
+  }
+}
+
+function Add-RosieSherpaBinaries([string]$PackageRoot) {
+  $sherpaVersion = "1.13.2"
+  $sherpaArchiveName = "sherpa-onnx-v$sherpaVersion-win-x64-shared-MD-Release.tar.bz2"
+  $sherpaUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$sherpaVersion/$sherpaArchiveName"
+  $rosieBinDest = Join-Path $PackageRoot "rosie\bin"
+  $cacheDir = Join-Path ([IO.Path]::GetTempPath()) "riverside-rosie-package"
+  $archivePath = Join-Path $cacheDir $sherpaArchiveName
+  $extractDir = Join-Path $cacheDir "sherpa-onnx-v$sherpaVersion"
+  $requiredBinaries = @("sherpa-onnx-offline.exe", "sherpa-onnx-offline-tts.exe")
+
+  New-Item -ItemType Directory -Force -Path $rosieBinDest | Out-Null
+  $missing = $requiredBinaries | Where-Object { -not (Test-Path (Join-Path $rosieBinDest $_)) }
+  if ($missing.Count -eq 0) {
+    Write-Host "Packaged ROSIE sherpa-onnx binaries already present"
+    return
+  }
+
+  New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+  Invoke-DownloadFile $sherpaUrl $archivePath $sherpaArchiveName
+
+  if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+  $tarOutput = & tar -xjf $archivePath -C $extractDir 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not extract ROSIE sherpa-onnx archive. Output: $tarOutput"
+  }
+
+  $exeRoot = Get-ChildItem $extractDir -Recurse -Filter "sherpa-onnx-offline.exe" |
+    Select-Object -First 1
+  if (-not $exeRoot) {
+    throw "ROSIE sherpa-onnx archive did not contain sherpa-onnx-offline.exe."
+  }
+
+  $exeDir = $exeRoot.DirectoryName
+  foreach ($binary in $requiredBinaries) {
+    $source = Join-Path $exeDir $binary
+    if (-not (Test-Path $source)) {
+      throw "ROSIE sherpa-onnx archive did not contain $binary."
+    }
+    Copy-Item $source (Join-Path $rosieBinDest $binary) -Force
+    Write-Host "Packaged rosie/bin/$binary"
+  }
+
+  Get-ChildItem $exeDir -Filter "*.dll" -ErrorAction SilentlyContinue |
+    Copy-Item -Destination $rosieBinDest -Force
+  Write-Host "Packaged ROSIE sherpa-onnx DLL dependencies"
+
+  Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 $repoRoot = Resolve-FullPath "$PSScriptRoot\..\.."
 $gitShort = Get-GitShort $repoRoot
 $gitFull = Get-GitFull $repoRoot
@@ -167,10 +229,11 @@ if (Test-Path $llamaSourceExe) {
   Copy-Item $llamaSourceExe (Join-Path $llamaBinDest "llama-server.exe") -Force
   Get-ChildItem $llamaBinSrc -Filter "*.dll" -ErrorAction SilentlyContinue |
     Copy-Item -Destination $llamaBinDest -Force
-  Write-Host "Packaged rosie/bin/llama-server.exe for Server PC ROSIE host"
+  Write-Host "Packaged rosie/bin/llama-server.exe for Main Hub ROSIE host"
 } else {
   Write-Warning "client/src-tauri/binaries/llama-server-x86_64-pc-windows-msvc.exe not found; Install-RosieAiStack.ps1 will download the pinned llama.cpp runtime during online install."
 }
+Add-RosieSherpaBinaries $packageRoot
 
 Copy-Item "$PSScriptRoot\start-riverside-llama.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideLlama.cmd" $packageRoot -Force
@@ -224,12 +287,12 @@ if (Test-Path $UpdaterDistPath) {
 $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "`nPackage build: $gitShort`n" +
   "`n1. Double-click Start-RiversideDeployment.cmd.`n" +
-  "2. Choose Backoffice / Server, Register #1, or Back Office Workstation.`n" +
+  "2. Choose Main Hub, Register #1, or Back Office Workstation.`n" +
   "3. Click Check, then Install, Update, Repair, or Uninstall.`n" +
   "4. Use ROS-ServerManager.exe for local server health, repairs, cleanup, and recovery when the Riverside app cannot load.`n" +
   "`nThe Deployment Manager writes riverside-deployment.config.json for you and runs`n" +
   "the correct installer for the selected station type.`n" +
-  "`nBackoffice / Server installs both:`n" +
+  "`nMain Hub installs both:`n" +
   "`n- The Riverside OS server, database setup, firewall rule, and startup task.`n" +
   "- The Riverside Windows desktop app configured to use the local server.`n" +
   "`nPassword handling:`n" +
@@ -245,8 +308,8 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "- Server uninstall keeps the database, backups, and logs by default.`n" +
   "`nManual fallback:`n" +
   "`n1. Copy riverside-deployment.config.example.json to riverside-deployment.config.json.`n" +
-  "2. Fill in the Server PC, database, secret, Register #1, and printer values.`n" +
-  "3. On the Backoffice / Server PC, open PowerShell as Administrator and run: .\install-server.ps1`n" +
+  "2. Fill in the Main Hub, database, secret, Register #1, and printer values.`n" +
+  "3. On the Main Hub, open PowerShell as Administrator and run: .\install-server.ps1`n" +
   "   Then install/configure the desktop app on the same PC: .\install-register.ps1`n" +
   "4. On Register #1, copy this package or the same config file, open PowerShell as Administrator, and run: .\install-register.ps1`n" +
   "`nThe Register installer writes C:\ProgramData\RiversideOS\station-config.json.`n" +

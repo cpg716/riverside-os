@@ -45,8 +45,6 @@ pub enum CheckoutError {
     InvalidPayload(String),
     #[error(transparent)]
     Database(#[from] sqlx::Error),
-    #[error("{0}")]
-    CoreCardHostFailure(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -2130,6 +2128,13 @@ pub async fn execute_checkout(
     let has_rms_charge = payment_splits
         .iter()
         .any(|s| pos_rms_charge::is_rms_method(&s.method));
+    if has_rms_charge || is_rms_payment_collection {
+        for split in &mut payment_splits {
+            if pos_rms_charge::is_rms_method(&split.method) || is_rms_payment_collection {
+                apply_manual_rms_tracking_metadata(&mut split.metadata);
+            }
+        }
+    }
     let (checkout_booked_at_local, checkout_business_date) =
         resolve_checkout_booked_at(pool, payload.booked_at_local.as_deref()).await?;
 
@@ -3499,6 +3504,9 @@ pub async fn execute_checkout(
                 continue;
             }
             let method = split.method.trim();
+            if pos_rms_charge::is_rms_method(method) || is_rms_payment_collection {
+                apply_manual_rms_tracking_metadata(&mut split.metadata);
+            }
 
             // 1. Store credit redemption
             if method.eq_ignore_ascii_case("store_credit") {
@@ -3687,7 +3695,6 @@ pub async fn execute_checkout(
                     Some(&split.metadata),
                 )
                 .await?;
-                // CoreCard posting event refs removed with CoreCard integration
                 rms_notifications.push(pos_rms_charge::RmsChargeNotify {
                     payment_transaction_id: payment_tx_id,
                     amount: split.amount,
@@ -3710,7 +3717,6 @@ pub async fn execute_checkout(
                     Some(&split.metadata),
                 )
                 .await?;
-                // CoreCard posting event refs removed with CoreCard integration
                 rms_notifications.push(pos_rms_charge::RmsChargeNotify {
                     payment_transaction_id: payment_tx_id,
                     amount: split.amount,
@@ -5977,6 +5983,4 @@ mod tests {
         .await
         .expect("cleanup wedding group pay checkout test");
     }
-
-    // CoreCard-specific tests removed with CoreCard integration
 }

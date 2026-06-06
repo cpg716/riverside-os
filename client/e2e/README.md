@@ -30,8 +30,8 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npx 
 # Production hardening audit contracts
 E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npx playwright test e2e/checkout-tender-financial-contract.spec.ts e2e/tax-audit-contract.spec.ts e2e/commission-audit-contract.spec.ts e2e/inventory-audit-contract.spec.ts e2e/offline-recovery-contract.spec.ts e2e/qbo-audit-contract.spec.ts e2e/register-audit-contract.spec.ts --workers=1
 
-# RMS / CoreCard deterministic suite
-E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" E2E_CORECARD_BASE="http://127.0.0.1:43400" npx playwright test e2e/pos-rms-charge.spec.ts e2e/corecard-webhooks.spec.ts e2e/customers-rms-charge.spec.ts e2e/rms-reconciliation.spec.ts e2e/rms-permissions.spec.ts --workers=1
+# RMS Charge deterministic suite
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npx playwright test e2e/pos-rms-charge.spec.ts e2e/customers-rms-charge.spec.ts e2e/rms-reconciliation.spec.ts e2e/rms-permissions.spec.ts --workers=1
 ```
 
 Normal local app development uses `npm run dev` at the repo root, which serves the UI on `http://localhost:5173` and the API on `http://127.0.0.1:3000`. That is a different stack from the deterministic Playwright default. If you want Playwright to target the normal dev stack instead, you must override both `E2E_BASE_URL` and `E2E_API_BASE` explicitly; otherwise use `npm run dev:e2e` or let Playwright auto-boot the dedicated `43173/43300` stack.
@@ -54,7 +54,7 @@ Config: [`playwright.config.ts`](../playwright.config.ts). Staff keypad default:
 - `npm run test:e2e:high-risk` → high-risk API regressions (tax audit, revenue basis aliases, help admin RBAC/payload shape, session route resilience)
 - `npm run test:e2e:phase2` → Phase 2 lifecycle coverage (help manual policy persist/revert and finance-sensitive endpoint contract checks)
 - `npm run test:e2e:tender` → deterministic tender-matrix contract coverage (manual card, card-reader mode, saved-card invalid-ID handling, credit-negative validation, cancel contract, session-safe behavior)
-- `npm run test:e2e:rms` → deterministic RMS Charge / CoreCard suite with the fake CoreCard host and seeded RMS fixtures
+- `npm run test:e2e:rms` → deterministic RMS Charge suite with seeded RMS fixtures; no external financing host is required
 - Production hardening audit contracts live in `checkout-tender-financial-contract.spec.ts`, `tax-audit-contract.spec.ts`, `commission-audit-contract.spec.ts`, `inventory-audit-contract.spec.ts`, `offline-recovery-contract.spec.ts`, `qbo-audit-contract.spec.ts`, and `register-audit-contract.spec.ts`; they are included in the standard release gate.
 
 Direct equivalents:
@@ -62,7 +62,7 @@ Direct equivalents:
 - `npm run test:e2e -- e2e/phase2-finance-and-help-lifecycle.spec.ts --workers=1`
 - `npm run test:e2e -- e2e/tender-matrix-contract.spec.ts --workers=1`
 - `npm run test:e2e -- e2e/checkout-tender-financial-contract.spec.ts e2e/tax-audit-contract.spec.ts e2e/commission-audit-contract.spec.ts e2e/inventory-audit-contract.spec.ts e2e/offline-recovery-contract.spec.ts e2e/qbo-audit-contract.spec.ts e2e/register-audit-contract.spec.ts --workers=1`
-- `npm run test:e2e -- e2e/pos-rms-charge.spec.ts e2e/corecard-webhooks.spec.ts e2e/customers-rms-charge.spec.ts e2e/rms-reconciliation.spec.ts e2e/rms-permissions.spec.ts --workers=1`
+- `npm run test:e2e -- e2e/pos-rms-charge.spec.ts e2e/customers-rms-charge.spec.ts e2e/rms-reconciliation.spec.ts e2e/rms-permissions.spec.ts --workers=1`
 
 **Root script aliases:**
 - `npm run dev` / `npm run dev:stack` → normal local app stack (`5173` UI / `3000` API)
@@ -70,36 +70,22 @@ Direct equivalents:
 
 **API gates (margin-pivot 403):** apply **`scripts/seeds/seed_e2e.sql`** after the baseline, required seed, and RBAC seed. It provides non-Admin **`5678`**; **`E2E_NON_ADMIN_CODE`** can still point tests at another existing non-Admin cashier code.
 
-## RMS / CoreCard E2E mode
+## RMS Charge E2E mode
 
-`npm run dev:e2e` now starts a dedicated fake CoreCard server at **`E2E_CORECARD_BASE`** (default `http://127.0.0.1:43400`) alongside the Rust API and Vite UI. Riverside points its server-only CoreCard broker at that fake host by exporting:
-
-- `RIVERSIDE_CORECARD_BASE_URL`
-- `RIVERSIDE_CORECARD_CLIENT_ID`
-- `RIVERSIDE_CORECARD_CLIENT_SECRET`
-- `RIVERSIDE_CORECARD_WEBHOOK_SECRET`
-- `RIVERSIDE_ENABLE_E2E_TEST_SUPPORT`
-
-The fake host lives at [`scripts/fake-corecard-server.mjs`](../../scripts/fake-corecard-server.mjs). It is intentionally isolated from Riverside business logic so sandbox/live host validation can swap in later without changing the Playwright scenarios.
+`npm run dev:e2e` starts the Rust API and Vite UI with **`RIVERSIDE_ENABLE_E2E_TEST_SUPPORT=1`** so the RMS fixtures can seed linked accounts, manual charge records, exceptions, and reconciliation rows. RMS Charge is an internal/manual workflow; it does not require external financing-host credentials, fake-host processes, or webhook simulation.
 
 ### Covered RMS scenarios
 
-- financed sale success
-- financed sale decline
+- manual financed sale recording
 - multi-match metadata persistence
-- RMS payment collection success
-- RMS payment collection host failure
-- webhook ingestion + idempotent replay
+- RMS payment collection
 - Back Office exception retry
 - reconciliation visibility
 - POS vs Back Office permission split
 - receipt wording for Standard vs RMS 90
 - legacy RMS/RMS90 compatibility smoke
 
-### Not covered until sandbox/live validation
+### Not covered by local E2E
 
-- real CoreCard credential exchange against a CoreCard tenant
-- live host latency/network edge behavior beyond deterministic fake-host timeout/unavailable responses
-- live sandbox ledger settlement timing, host-side reconciliation drift, and real webhook delivery infrastructure
-
-For that real-host pass, use [`docs/CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md`](../../docs/CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md) and run `npm run validate:corecard:sandbox` first.
+- real staff posting to the external RMS/R2S portal after Riverside records the charge or payment
+- operational reconciliation against RMS/R2S statements outside Riverside

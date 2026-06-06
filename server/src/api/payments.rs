@@ -117,7 +117,7 @@ async fn require_payment_permission_any(
             .iter()
             .any(|fallback| staff_has_permission(&effective, fallback));
 
-    tracing::info!(
+    tracing::debug!(
         staff_id = %staff.id,
         staff_name = %staff.full_name,
         staff_role = ?staff.role,

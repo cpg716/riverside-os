@@ -55,6 +55,10 @@ pub struct StoreEmailConfig {
     pub sync_enabled: bool,
     #[serde(default = "default_sync_limit")]
     pub sync_limit: i64,
+    #[serde(default)]
+    pub bug_report_notifications_enabled: bool,
+    #[serde(default)]
+    pub bug_report_notification_recipients: Vec<String>,
 }
 
 impl Default for StoreEmailConfig {
@@ -73,6 +77,8 @@ impl Default for StoreEmailConfig {
             smtp_tls: default_smtp_tls(),
             sync_enabled: true,
             sync_limit: default_sync_limit(),
+            bug_report_notifications_enabled: false,
+            bug_report_notification_recipients: Vec::new(),
         }
     }
 }
@@ -229,6 +235,32 @@ fn clean_addr(addr: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+pub fn normalize_email_recipients(recipients: &[String]) -> Result<Vec<String>, EmailError> {
+    let mut out = Vec::new();
+    for raw in recipients {
+        for part in raw.split([',', ';', '\n']) {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let Some(cleaned) = clean_addr(trimmed) else {
+                return Err(EmailError::InvalidPayload(format!(
+                    "invalid recipient email: {trimmed}"
+                )));
+            };
+            if !out.iter().any(|existing| existing == &cleaned) {
+                out.push(cleaned);
+            }
+        }
+    }
+    if out.len() > 12 {
+        return Err(EmailError::InvalidPayload(
+            "bug report notifications support up to 12 recipients".to_string(),
+        ));
+    }
+    Ok(out)
 }
 
 fn parse_mailbox(input: &str, fallback_name: Option<&str>) -> Result<Mailbox, EmailError> {

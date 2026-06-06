@@ -6,7 +6,9 @@ import {
   Bug,
   Clipboard,
   Download,
+  Mail,
   RefreshCw,
+  Save,
   Server,
   Trash2,
 } from "lucide-react";
@@ -66,6 +68,17 @@ type ErrorEventRow = {
   route: string | null;
   client_meta: Record<string, unknown>;
   server_log_snapshot: string;
+};
+
+type EmailSettings = {
+  enabled: boolean;
+  bug_report_notifications_enabled: boolean;
+  bug_report_notification_recipients: string[];
+};
+
+type EmailSettingsResponse = {
+  settings: EmailSettings;
+  credentials_configured: boolean;
 };
 
 function downloadJson(filename: string, data: unknown) {
@@ -235,6 +248,11 @@ export default function BugReportsSettingsPanel({
     "all" | "server" | "client"
   >("all");
   const [viewMode, setViewMode] = useState<"reports" | "events">("reports");
+  const [emailSettings, setEmailSettings] = useState<EmailSettings | null>(null);
+  const [emailCredentialsConfigured, setEmailCredentialsConfigured] =
+    useState(false);
+  const [emailRecipientsDraft, setEmailRecipientsDraft] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
 
   const { dialogRef: bugDetailRef } = useDialogAccessibility(detail !== null, {
     onEscape: () => setDetail(null),
@@ -302,10 +320,69 @@ export default function BugReportsSettingsPanel({
     }
   }, [backofficeHeaders, hasPermission, toast]);
 
+  const loadEmailSettings = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/email`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as EmailSettingsResponse;
+      setEmailSettings(data.settings);
+      setEmailCredentialsConfigured(Boolean(data.credentials_configured));
+      setEmailRecipientsDraft(
+        (data.settings.bug_report_notification_recipients ?? []).join("\n"),
+      );
+    } catch {
+      // Keep bug report triage usable even when email settings are unavailable.
+    }
+  }, [backofficeHeaders, hasPermission]);
+
   useEffect(() => {
     void loadList();
     void loadErrorEvents();
-  }, [loadErrorEvents, loadList]);
+    void loadEmailSettings();
+  }, [loadEmailSettings, loadErrorEvents, loadList]);
+
+  const saveEmailSettings = async () => {
+    if (!emailSettings || emailSaving) return;
+    setEmailSaving(true);
+    const recipients = emailRecipientsDraft
+      .split(/[,;\n]/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/email`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(backofficeHeaders() as Record<string, string>),
+        },
+        body: JSON.stringify({
+          bug_report_notifications_enabled:
+            emailSettings.bug_report_notifications_enabled,
+          bug_report_notification_recipients: recipients,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Bug report email settings could not be saved.", "error");
+        return;
+      }
+      const data = (await res.json()) as EmailSettingsResponse;
+      setEmailSettings(data.settings);
+      setEmailCredentialsConfigured(Boolean(data.credentials_configured));
+      setEmailRecipientsDraft(
+        (data.settings.bug_report_notification_recipients ?? []).join("\n"),
+      );
+      toast("Bug report email notifications saved.", "success");
+    } catch {
+      toast("Bug report email settings could not be saved.", "error");
+    } finally {
+      setEmailSaving(false);
+    }
+  };
+
 
   const openDetail = useCallback(async (id: string) => {
     try {
@@ -507,6 +584,69 @@ export default function BugReportsSettingsPanel({
           </button>
         ))}
       </div>
+
+      {emailSettings ? (
+        <div className="ui-card p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                <Mail className="h-4 w-4 text-app-accent" aria-hidden />
+                Email notifications
+              </p>
+              <p className="mt-1 max-w-2xl text-xs text-app-text-muted">
+                Send a summary-only email when staff file a bug report or ROS captures
+                a new automated error. Full screenshots, logs, and AI packages remain in
+                this secured Settings panel.
+              </p>
+              {!emailSettings.enabled || !emailCredentialsConfigured ? (
+                <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-200">
+                  Store Email must be enabled and SMTP credentials configured before
+                  these notifications can send.
+                </p>
+              ) : null}
+            </div>
+            <label className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-bold text-app-text">
+              <input
+                type="checkbox"
+                checked={emailSettings.bug_report_notifications_enabled}
+                onChange={(event) =>
+                  setEmailSettings((current) =>
+                    current
+                      ? {
+                          ...current,
+                          bug_report_notifications_enabled: event.target.checked,
+                        }
+                      : current,
+                  )
+                }
+              />
+              Enabled
+            </label>
+          </div>
+          <label className="mt-3 block">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Recipient email addresses
+            </span>
+            <textarea
+              className="ui-input mt-1 min-h-[84px] w-full text-sm"
+              value={emailRecipientsDraft}
+              onChange={(event) => setEmailRecipientsDraft(event.target.value)}
+              placeholder={"owner@example.com\nmanager@example.com"}
+            />
+          </label>
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+              disabled={emailSaving}
+              onClick={() => void saveEmailSettings()}
+            >
+              <Save className="h-3.5 w-3.5" aria-hidden />
+              {emailSaving ? "Saving…" : "Save email alerts"}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {viewMode === "events" ? (
         <div className="ui-card overflow-hidden">

@@ -88,5 +88,5 @@ Finance/admin should still confirm in external systems:
 
 - reconciliation:
   [`/Users/cpg/riverside-os/docs/staff/rms-charge-reconciliation.md`](../staff/rms-charge-reconciliation.md)
-- architecture:
-  [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](../CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)
+- operations:
+  [`/Users/cpg/riverside-os/docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)

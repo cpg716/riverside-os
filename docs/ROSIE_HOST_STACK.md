@@ -74,17 +74,18 @@ ROSIE token telemetry tracks AI token usage for cost analysis when evaluating lo
 ### Metrics API
 - **Endpoint**: `GET /api/settings/rosie/token-metrics`
 - **Permission**: Requires `settings.admin`
-- **Response**: Daily tokens, monthly tokens, estimated monthly cost
-- **Cost Rate**: Placeholder $0.50 per 1M tokens (configurable for per-provider rates)
+- **Response**: Daily/monthly input and output tokens, configured comparison provider/model, configured input/output rates, and estimated monthly input/output/total cost
+- **Cost Rate**: Read from ROSIE store settings (`external_input_cost_per_1m_tokens`, `external_output_cost_per_1m_tokens`) so admins can compare local Gemma usage against Gemini, OpenAI/ChatGPT, or a custom API rate card
 
 ### UI Component
 - **Location**: `RosieSettingsPanel.tsx` → `RosieTokenMonitor` component
-- **Display**: Daily token use, actual monthly usage, estimated monthly cost
+- **Display**: Daily/monthly LLM token use, input/output split, external API estimate, configured comparison provider/model, and configured input/output rates
 - **Access**: Visible to staff with `help.manage` permission
 
 ### Operational Notes
 - Telemetry is recorded for all ROSIE interactions regardless of provider (local or cloud)
-- Cost estimates use placeholder rates and should be configured with actual provider rates before production cloud deployment
+- Cost estimates use configured provider rates; update the ROSIE settings rate fields when Gemini/OpenAI/other API pricing changes
+- TTS/STT API cost is not included until ROSIE records speech input/output usage minutes
 - Data supports comparison between local Gemma costs vs cloud API pricing models
 
 ## Approval Status Labels

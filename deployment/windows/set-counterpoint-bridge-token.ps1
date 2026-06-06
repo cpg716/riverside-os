@@ -78,7 +78,7 @@ if (-not $cleanToken) {
 $serverDir = Join-Path $InstallRoot "server"
 $envPath = Join-Path $serverDir ".env"
 if (-not (Test-Path $serverDir)) {
-  throw "Riverside server folder was not found at $serverDir. Run Backoffice / Server install first."
+  throw "Riverside server folder was not found at $serverDir. Run Main Hub install first."
 }
 
 $env = Read-EnvMap $envPath

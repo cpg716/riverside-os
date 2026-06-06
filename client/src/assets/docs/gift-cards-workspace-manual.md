@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Register dashboard](../images/help/pos/register-dashboard.png)
+![Register dashboard](../images/help/gift-cards-workspace/register-dashboard.png)
 
-![Cart with lines](../images/help/pos/cart-with-lines.png)
+![Cart with gift card line](../images/help/gift-cards-workspace/cart-with-gift-card.png)
 
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
+![Checkout drawer](../images/help/gift-cards-workspace/checkout-drawer.png)
 
 ## What this is
 

@@ -7,6 +7,18 @@ use tauri::{command, AppHandle};
 
 use crate::install_contract::contract;
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[cfg(windows)]
+fn suppress_child_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn suppress_child_console(_command: &mut Command) {}
+
 #[derive(serde::Serialize)]
 pub struct ServerLocalStatus {
     pub is_local: bool,
@@ -73,7 +85,7 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
     #[cfg(not(windows))]
     {
         let _version = version;
-        Err("Server updates can only be executed on a Windows Server Host PC.".to_string())
+        Err("Main Hub updates can only be executed on the Windows Main Hub.".to_string())
     }
 
     #[cfg(windows)]
@@ -163,14 +175,16 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
             extraction_dir.to_string_lossy().replace('\'', "''")
         );
 
-        let output = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                &extract_script,
-            ])
+        let mut extract_cmd = Command::new("powershell");
+        extract_cmd.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &extract_script,
+        ]);
+        suppress_child_console(&mut extract_cmd);
+        let output = extract_cmd
             .output()
             .map_err(|e| format!("Failed to run PowerShell extraction: {e}"))?;
 
@@ -239,6 +253,7 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
         }
 
         let runner_script_path = temp_dir.join("update-runner.ps1");
+        let runner_log_path = temp_dir.join("main-hub-update-transcript.txt");
         // Resolve config path from the detected install root rather than hardcoding.
         let install_root = check_server_local_status()
             .map(|s| s.install_root)
@@ -247,9 +262,18 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
 
         let runner_content = format!(
             r#"$ErrorActionPreference = 'Stop'
+$transcriptStarted = $false
+$transcriptPath = '{runner_log_path}'
+try {{
+    Start-Transcript -Path $transcriptPath -Force | Out-Null
+    $transcriptStarted = $true
+    Write-Host "Transcript: $transcriptPath"
+}} catch {{
+    Write-Warning "Could not start transcript: $_"
+}}
 Set-Location -Path '{script_dir}'
 Write-Host '========================================='
-Write-Host 'Riverside OS: Running Server Update'
+Write-Host 'Riverside OS: Running Main Hub Update'
 Write-Host '========================================='
 
 $installRoot = '{install_root}'
@@ -281,7 +305,7 @@ try {{
     ./repair-bootstrap-admin.ps1 -ConfigPath '{config_path}'
 
     Write-Host 'Step 3: Updating client app on this PC (preserving existing config)...'
-    ./install-register.ps1 -ConfigPath '{config_path}'
+    ./install-register.ps1 -ConfigPath '{config_path}' -StationMode mainhub
 
     # Checksum verification
     if (Test-Path -Path $serverBin) {{
@@ -326,6 +350,10 @@ try {{
     Write-Host '========================================='
     Write-Host 'Update Complete! Relaunch Riverside on all stations.'
     Write-Host '========================================='
+    if ($transcriptStarted) {{
+        Stop-Transcript | Out-Null
+        $transcriptStarted = $false
+    }}
 }} catch {{
     Write-Error "Update failed: $_"
     if (Test-Path -Path $backupBin) {{
@@ -334,12 +362,18 @@ try {{
         Write-Host 'Rollback complete.'
     }}
     Write-Host 'Please check server logs for details.'
+    Write-Host "Update transcript: $transcriptPath"
+    if ($transcriptStarted) {{
+        Stop-Transcript | Out-Null
+        $transcriptStarted = $false
+    }}
     Read-Host 'Press Enter to exit'
     exit 1
 }}
 Read-Host 'Press Enter to close this window'
 "#,
             script_dir = script_dir.to_string_lossy().replace('\'', "''"),
+            runner_log_path = runner_log_path.to_string_lossy().replace('\'', "''"),
             install_root = install_root.replace('\'', "''"),
             config_path = config_path.replace('\'', "''"),
             task_name = contract::SERVER_TASK_NAME,
@@ -350,19 +384,22 @@ Read-Host 'Press Enter to close this window'
         std::fs::write(&runner_script_path, runner_content)
             .map_err(|e| format!("Failed to write update runner script: {e}"))?;
 
+        let escaped_runner = runner_script_path.to_string_lossy().replace('\'', "''");
         let spawn_cmd = format!(
-            "Start-Process powershell -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{}\"' -Verb RunAs",
-            runner_script_path.to_string_lossy().replace('"', "`\"")
+            "$args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-File', '{}'); Start-Process -FilePath 'powershell.exe' -ArgumentList $args -Verb RunAs",
+            escaped_runner
         );
 
-        let status = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                &spawn_cmd,
-            ])
+        let mut spawn_process = Command::new("powershell");
+        spawn_process.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &spawn_cmd,
+        ]);
+        suppress_child_console(&mut spawn_process);
+        let status = spawn_process
             .status()
             .map_err(|e| format!("Failed to spawn elevated installer process: {e}"))?;
 
@@ -370,6 +407,10 @@ Read-Host 'Press Enter to close this window'
             return Err("Elevated installer process did not start successfully. User may have rejected the UAC prompt.".to_string());
         }
 
-        Ok("Server update launched. Monitor the progress in the opened PowerShell window. Relaunch this client app when the update is complete.".to_string())
+        Ok(format!(
+            "Main Hub update launched. If the elevated PowerShell window is not visible, run {} manually. Transcript: {}. Relaunch Riverside when the update completes.",
+            runner_script_path.display(),
+            runner_log_path.display()
+        ))
     }
 }

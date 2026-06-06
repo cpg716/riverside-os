@@ -48,7 +48,7 @@ async fn record_server_api_error(
         "route": route,
         "error": error.to_string(),
     });
-    if let Err(e) = bug_reports::upsert_server_error_event(
+    match bug_reports::upsert_server_error_event(
         &state.db,
         &format!("server_api_error:{route}"),
         message,
@@ -60,12 +60,36 @@ async fn record_server_api_error(
     )
     .await
     {
-        tracing::error!(
-            error = %e,
-            source_error = %error,
-            route,
-            "failed to record server api error as staff error event"
-        );
+        Ok(recorded) => {
+            if recorded.inserted {
+                let pool_n = state.db.clone();
+                let route = route.to_string();
+                let message = message.to_string();
+                tokio::spawn(async move {
+                    if let Err(e) = bug_reports::notify_error_event_email_recipients(
+                        &pool_n,
+                        recorded.id,
+                        None,
+                        &message,
+                        "server_api_error",
+                        "error",
+                        Some(&route),
+                    )
+                    .await
+                    {
+                        tracing::error!(error = %e, "server error email notification failed");
+                    }
+                });
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                source_error = %error,
+                route,
+                "failed to record server api error as staff error event"
+            );
+        }
     }
 }
 
@@ -271,6 +295,50 @@ async fn get_ops_stations(
         }
     };
     Ok(Json(rows))
+}
+
+async fn get_readiness_signoffs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ops_dev_center::ReadinessSignoffRow>>, Response> {
+    let _ = require_view(&state, &headers).await?;
+    let rows = ops_dev_center::list_readiness_signoffs(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "ops readiness signoffs failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "could not load readiness signoffs" })),
+            )
+                .into_response()
+        })?;
+    Ok(Json(rows))
+}
+
+async fn post_readiness_signoff(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(check_key): Path<String>,
+    Json(body): Json<ops_dev_center::ReadinessSignoffInput>,
+) -> Result<Json<ops_dev_center::ReadinessSignoffRow>, Response> {
+    let staff = require_actions(&state, &headers).await?;
+    if check_key.trim().is_empty() {
+        return Err(bad_request("check_key is required"));
+    }
+    let row = ops_dev_center::save_readiness_signoff(&state.db, &check_key, body, staff.id)
+        .await
+        .map_err(|e| {
+            if matches!(e, sqlx::Error::Protocol(_)) {
+                return bad_request(&e.to_string());
+            }
+            tracing::error!(error = %e, "ops readiness signoff save failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "could not save readiness signoff" })),
+            )
+                .into_response()
+        })?;
+    Ok(Json(row))
 }
 
 async fn get_ops_alerts(
@@ -1042,6 +1110,11 @@ pub fn router() -> Router<AppState> {
         .route("/e2e-health", get(get_e2e_health))
         .route("/stations", get(get_ops_stations))
         .route("/stations/heartbeat", post(post_station_heartbeat))
+        .route("/readiness/signoffs", get(get_readiness_signoffs))
+        .route(
+            "/readiness/signoffs/{check_key}",
+            post(post_readiness_signoff),
+        )
         .route("/alerts", get(get_ops_alerts))
         .route("/alerts/ack", post(post_ops_alert_ack))
         .route("/actions/{action_key}", post(post_ops_action))

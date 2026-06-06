@@ -1185,7 +1185,7 @@ async fn get_transaction_artifacts(
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| {
                         if external_transaction_id.is_some() || host_reference.is_some() {
-                            "corecard_live".to_string()
+                            "external_rms_reference".to_string()
                         } else {
                             "manual".to_string()
                         }

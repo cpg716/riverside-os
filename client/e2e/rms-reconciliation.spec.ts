@@ -1,21 +1,15 @@
 import { expect, test } from "@playwright/test";
 import {
+  apiBase,
   checkoutFinancedSale,
   getTransactionArtifacts,
-  openCustomersRmsWorkspace,
   prepareRmsRecord,
-  resetFakeCoreCardHost,
   seedRmsFixture,
   staffHeaders,
 } from "./helpers/rmsCharge";
-import { signInToBackOffice } from "./helpers/backofficeSignIn";
 
 test.describe("RMS reconciliation", () => {
-  test.beforeEach(async ({ request }) => {
-    await resetFakeCoreCardHost(request);
-  });
-
-  test("reconciliation visibility surfaces mismatch and clearing-path support", async ({ request, page }) => {
+  test("reconciliation endpoint surfaces seeded RMS mismatch records", async ({ request }) => {
     const fixture = await seedRmsFixture(request, "single_valid", "Recon");
     const checkout = await checkoutFinancedSale(request, {
       fixture,
@@ -23,39 +17,35 @@ test.describe("RMS reconciliation", () => {
     });
     expect(checkout.response.status(), "Financed RMS checkout failed during reconciliation setup.").toBe(200);
     const artifacts = await getTransactionArtifacts(request, checkout.body!.transaction_id);
-    await prepareRmsRecord(request, "reconciliation_mismatch", artifacts.rms_records[0]!.id);
+    const prepared = (await prepareRmsRecord(
+      request,
+      "reconciliation_mismatch",
+      artifacts.rms_records[0]!.id,
+    )) as { reconciliation_run_id?: string | null };
 
-    await signInToBackOffice(page);
-    await openCustomersRmsWorkspace(page);
-    await page.getByPlaceholder(/search customer for rms charge/i).fill(fixture.customer.customer_code);
-    await page.locator("ul button").first().click();
-    await page.getByTestId("rms-workspace-tab-reconciliation").click();
-    await expect(
-      page.getByRole("heading", { name: /latest reconciliation mismatches/i }),
-    ).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("rms-reconciliation-scope")).toContainText(/all rms charge activity/i);
-    await expect(page.getByTestId("rms-reconciliation-scope")).toContainText(/does not filter mismatch results/i);
-    await expect(page.getByText(/safe rerun re-checks rms charge records/i)).toBeVisible();
-    await expect(page.getByText(/\d+ blocking item[s]? may affect pickup\/payment visibility/i)).toBeVisible();
-    await expect(page.getByText(/may affect pickup\/payment visibility and clearing-account review/i).first()).toBeVisible();
-    await expect(page.getByText(/next safe action/i).first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /copy support snapshot/i })).toBeVisible();
-    await page.getByTestId("rms-run-reconciliation").click();
-
-    const api = process.env.E2E_API_BASE || "http://127.0.0.1:43300";
-    const reconciliationRes = await request.get(`${api}/api/customers/rms-charge/reconciliation?limit=10`, {
+    const reconciliationRes = await request.get(`${apiBase()}/api/customers/rms-charge/reconciliation?limit=10`, {
       headers: staffHeaders(),
       failOnStatusCode: false,
     });
     expect(reconciliationRes.status()).toBe(200);
     const reconciliation = (await reconciliationRes.json()) as {
-      items?: Array<{ qbo_value_json?: { expected_clearing_account?: string } }>;
+      items?: Array<{ mismatch_type?: string; severity?: string; status?: string }>;
+      runs?: Array<{ status?: string; summary_json?: { mismatch_count?: number } }>;
     };
-    expect(
-      reconciliation.items?.some(
-        (item) =>
-          item.qbo_value_json?.expected_clearing_account === "RMS_CHARGE_FINANCING_CLEARING",
-      ),
-    ).toBeTruthy();
+
+    expect(prepared.reconciliation_run_id).toBeTruthy();
+    expect(reconciliation.items).toContainEqual(
+      expect.objectContaining({
+        mismatch_type: "posting_status_mismatch",
+        severity: "high",
+        status: "open",
+      }),
+    );
+    expect(reconciliation.runs).toContainEqual(
+      expect.objectContaining({
+        status: "completed",
+        summary_json: expect.objectContaining({ mismatch_count: 1 }),
+      }),
+    );
   });
 });

@@ -10,11 +10,6 @@ export function apiBase(): string {
   return raw.replace(/\/$/, "");
 }
 
-export function corecardBase(): string {
-  const raw = process.env.E2E_CORECARD_BASE?.trim() || "http://127.0.0.1:43400";
-  return raw.replace(/\/$/, "");
-}
-
 export function staffCode(code?: string): string {
   return code?.trim() || process.env.E2E_BO_STAFF_CODE?.trim() || "1234";
 }
@@ -37,8 +32,8 @@ export type SeedFixtureResponse = {
   };
   linked_accounts: Array<{
     id: string;
-    corecredit_customer_id: string;
-    corecredit_account_id: string;
+    rms_customer_id: string;
+    rms_account_id: string;
     masked_account: string;
     status: string;
     is_primary: boolean;
@@ -103,7 +98,6 @@ export type TransactionArtifacts = {
     program_code?: string | null;
     program_label?: string | null;
     masked_account?: string | null;
-    linked_corecredit_account_id?: string | null;
     posting_status: string;
     host_reference?: string | null;
     source_mode: string;
@@ -111,39 +105,6 @@ export type TransactionArtifacts = {
     metadata_json?: Record<string, unknown> | null;
   }>;
 };
-
-export async function resetFakeCoreCardHost(request: APIRequestContext) {
-  const res = await request.post(`${corecardBase()}/__admin/reset`, {
-    failOnStatusCode: false,
-  });
-  expect(res.status()).toBe(200);
-}
-
-export async function setFakeCoreCardScenario(
-  request: APIRequestContext,
-  operation: string,
-  response: string,
-  accountId?: string,
-) {
-  const res = await request.post(`${corecardBase()}/__admin/scenario`, {
-    data: {
-      operation,
-      account_id: accountId ?? "*",
-      response,
-    },
-    failOnStatusCode: false,
-  });
-  expect(res.status()).toBe(200);
-}
-
-export async function getFakeCoreCardCalls(request: APIRequestContext) {
-  const res = await request.get(`${corecardBase()}/__admin/calls`, {
-    failOnStatusCode: false,
-  });
-  expect(res.status()).toBe(200);
-  const body = (await res.json()) as { calls: Array<Record<string, unknown>> };
-  return body.calls;
-}
 
 export async function ensureSessionAuth(
   request: APIRequestContext,
@@ -285,7 +246,26 @@ export async function seedRmsFixture(
       `Failed to seed RMS fixture "${fixture}" (status ${res.status()}): ${bodyText || "<empty body>"}`,
     );
   }
-  return (await res.json()) as SeedFixtureResponse;
+  const raw = (await res.json()) as Omit<SeedFixtureResponse, "linked_accounts"> & {
+    linked_accounts: Array<
+      Omit<SeedFixtureResponse["linked_accounts"][number], "rms_customer_id" | "rms_account_id"> & {
+        corecredit_customer_id: string;
+        corecredit_account_id: string;
+      }
+    >;
+  };
+  return {
+    ...raw,
+    linked_accounts: raw.linked_accounts.map((account) => ({
+      id: account.id,
+      rms_customer_id: account.corecredit_customer_id,
+      rms_account_id: account.corecredit_account_id,
+      masked_account: account.masked_account,
+      status: account.status,
+      is_primary: account.is_primary,
+      program_group: account.program_group,
+    })),
+  };
 }
 
 export async function prepareRmsRecord(
@@ -349,7 +329,6 @@ export async function checkoutFinancedSale(
   options: {
     fixture: SeedFixtureResponse;
     programCode: "standard" | "rms90";
-    hostScenario?: string;
     referenceNumber?: string;
   },
 ): Promise<{ response: Awaited<ReturnType<APIRequestContext["post"]>>; body?: CheckoutResponse }> {
@@ -360,14 +339,6 @@ export async function checkoutFinancedSale(
       ? options.fixture.linked_accounts.find((row) => row.program_group?.toLowerCase().includes("90"))
       : options.fixture.linked_accounts[0];
   expect(account).toBeTruthy();
-  if (options.hostScenario && options.hostScenario !== "success") {
-    await setFakeCoreCardScenario(
-      request,
-      "purchase",
-      options.hostScenario,
-      account?.corecredit_account_id,
-    );
-  }
   const paymentMethod = options.programCode === "rms90" ? "on_account_rms90" : "on_account_rms";
   const checkoutClientId = crypto.randomUUID();
   const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
@@ -394,8 +365,8 @@ export async function checkoutFinancedSale(
             program_code: options.programCode,
             program_label: options.programCode === "rms90" ? "RMS 90" : "Standard",
             masked_account: account?.masked_account,
-            linked_corecredit_customer_id: account?.corecredit_customer_id,
-            linked_corecredit_account_id: account?.corecredit_account_id,
+            linked_rms_customer_id: account?.rms_customer_id,
+            linked_rms_account_id: account?.rms_account_id,
             resolution_status: "selected",
             reference_number: options.referenceNumber,
           },
@@ -428,16 +399,11 @@ export async function checkoutFinancedSale(
 export async function checkoutRmsPaymentCollection(
   request: APIRequestContext,
   fixture: SeedFixtureResponse,
-  hostScenario?: string,
   referenceNumber?: string,
 ) {
   const { sessionId, sessionToken } = await ensureSessionAuth(request);
   const operatorStaffId = await verifyStaffId(request);
   const paymentMeta = await fetchRmsPaymentMeta(request);
-  const account = fixture.linked_accounts[0];
-  if (hostScenario && hostScenario !== "success") {
-    await setFakeCoreCardScenario(request, "payment", hostScenario, account.corecredit_account_id);
-  }
 
   const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
     headers: {
@@ -514,21 +480,6 @@ export async function fetchReceiptEscpos(
   expect(parsed.receiptline_markdown, body.slice(0, 1000)).toBeDefined();
 
   return parsed.receiptline_markdown ?? "";
-}
-
-export async function postCoreCardWebhook(
-  request: APIRequestContext,
-  payload: Record<string, unknown>,
-) {
-  return request.post(`${apiBase()}/api/webhooks/corecard`, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-riverside-corecard-webhook-secret":
-        process.env.RIVERSIDE_CORECARD_WEBHOOK_SECRET?.trim() || "e2e-corecard-webhook",
-    },
-    data: payload,
-    failOnStatusCode: false,
-  });
 }
 
 export async function openCustomersRmsWorkspace(page: Page) {

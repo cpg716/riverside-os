@@ -252,6 +252,7 @@ async fn submit_bug_report(
 
     let pool_n = state.db.clone();
     let summary_preview = summary.to_string();
+    let staff_name = staff.full_name.clone();
     tokio::spawn(async move {
         if let Err(e) = bug_reports::notify_settings_admins_new_report(
             &pool_n,
@@ -262,6 +263,17 @@ async fn submit_bug_report(
         .await
         {
             tracing::error!(error = %e, "notify_settings_admins_new_report failed");
+        }
+        if let Err(e) = bug_reports::notify_bug_report_email_recipients(
+            &pool_n,
+            id,
+            correlation_id,
+            &staff_name,
+            &summary_preview,
+        )
+        .await
+        {
+            tracing::error!(error = %e, "notify_bug_report_email_recipients failed");
         }
     });
 
@@ -490,6 +502,28 @@ async fn submit_error_event(
         )
             .into_response()
     })?;
+
+    let pool_n = state.db.clone();
+    let staff_name = staff.full_name.clone();
+    let message_preview = message.to_string();
+    let event_source_preview = event_source.to_string();
+    let severity_preview = severity.to_string();
+    let route_preview = route.map(str::to_string);
+    tokio::spawn(async move {
+        if let Err(e) = bug_reports::notify_error_event_email_recipients(
+            &pool_n,
+            id,
+            Some(&staff_name),
+            &message_preview,
+            &event_source_preview,
+            &severity_preview,
+            route_preview.as_deref(),
+        )
+        .await
+        {
+            tracing::error!(error = %e, "notify_error_event_email_recipients failed");
+        }
+    });
 
     Ok(Json(json!({ "id": id })))
 }

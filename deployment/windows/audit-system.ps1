@@ -333,7 +333,7 @@ if ($config -and $config.register -and $config.register.receiptPrinter) {
 # 8. Updater Path Contract Probes
 # Verifies that the file-system paths the Tauri updater checks for Main Hub
 # detection actually exist on this machine.  If these fail, Settings → Updates
-# will show the satellite "Go to Main Hub" instructions even on the server PC.
+# will show the satellite "Go to Main Hub" instructions even on the Main Hub.
 #
 # SYNC: These paths MUST match install_contract.rs constants and install-server.ps1.
 #       Run deployment\windows\validate-install-contract.ps1 before every release.

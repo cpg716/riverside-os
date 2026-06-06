@@ -21,9 +21,8 @@ CREATE TEMP TABLE e2e_rms_record_ids AS
   SELECT id FROM pos_rms_charge_record WHERE transaction_id IN (SELECT id FROM e2e_transaction_ids)
   OR customer_id IN (SELECT id FROM e2e_customer_ids);
 
--- 3. Cleanup CoreCredit / CoreCard
+-- 3. Cleanup RMS Charge support tables
 DELETE FROM corecredit_exception_queue WHERE rms_record_id IN (SELECT id FROM e2e_rms_record_ids) OR account_id LIKE 'CC-E2E%';
-DELETE FROM corecard_posting_event WHERE pos_rms_charge_record_id IN (SELECT id FROM e2e_rms_record_ids);
 DELETE FROM corecredit_event_log WHERE related_rms_record_id IN (SELECT id FROM e2e_rms_record_ids);
 DELETE FROM corecredit_reconciliation_item WHERE rms_record_id IN (SELECT id FROM e2e_rms_record_ids);
 

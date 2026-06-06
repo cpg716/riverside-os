@@ -45,7 +45,7 @@ This regenerates:
 - `client/src/lib/help/help-manifest.generated.ts`
 - `server/src/logic/help_corpus_manuals.generated.rs`
 
-For the full Help Center refresh path, including AIDocs and Playwright screenshots:
+For the full Help Center refresh path, including Playwright screenshots:
 
 ```bash
 npm run generate:help:refresh
@@ -70,7 +70,6 @@ The compatibility script now posts to `POST /api/help/admin/ops/reindex-search` 
 After changing `docs/staff/*.md` or `docs/staff/CORPUS.manifest.json`, run:
 
 ```bash
-npm run help:aidocs:check
 python3 scripts/verify_ai_knowledge_drift.py
 ```
 

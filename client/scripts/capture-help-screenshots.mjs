@@ -584,6 +584,19 @@ async function runSpec(page, api, spec, opts) {
       });
       return capture(page, spec);
     }
+    case "bug-report-dialog": {
+      await prepareBase(page, opts);
+      await page.getByTestId("bug-report-trigger").click();
+      await page.getByRole("dialog", { name: /report a bug/i }).waitFor({
+        state: "visible",
+        timeout: 20000,
+      });
+      await page.getByText(/attach screenshot/i).waitFor({
+        state: "visible",
+        timeout: 20000,
+      });
+      return capture(page, spec);
+    }
     case "settings-panel": {
       await prepareBase(page, opts);
       await openSettingsSection(page, spec.sectionButton);

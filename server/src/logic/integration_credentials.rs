@@ -165,41 +165,6 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         env_key: "RIVERSIDE_OPS_E2E_GITHUB_TOKEN",
     },
     IntegrationCredentialMapping {
-        integration_key: "corecard",
-        credential_key: "base_url",
-        env_key: "RIVERSIDE_CORECARD_BASE_URL",
-    },
-    IntegrationCredentialMapping {
-        integration_key: "corecard",
-        credential_key: "client_id",
-        env_key: "RIVERSIDE_CORECARD_CLIENT_ID",
-    },
-    IntegrationCredentialMapping {
-        integration_key: "corecard",
-        credential_key: "client_secret",
-        env_key: "RIVERSIDE_CORECARD_CLIENT_SECRET",
-    },
-    IntegrationCredentialMapping {
-        integration_key: "corecard",
-        credential_key: "webhook_secret",
-        env_key: "RIVERSIDE_CORECARD_WEBHOOK_SECRET",
-    },
-    IntegrationCredentialMapping {
-        integration_key: "corecard",
-        credential_key: "merchant_number",
-        env_key: "RIVERSIDE_CORECARD_MERCHANT_NUMBER",
-    },
-    IntegrationCredentialMapping {
-        integration_key: "corecard",
-        credential_key: "merchant_id",
-        env_key: "RIVERSIDE_CORECARD_MERCHANT_ID",
-    },
-    IntegrationCredentialMapping {
-        integration_key: "corecard",
-        credential_key: "tenant_probe_path",
-        env_key: "RIVERSIDE_CORECARD_TENANT_PROBE_PATH",
-    },
-    IntegrationCredentialMapping {
         integration_key: "weather",
         credential_key: "api_key",
         env_key: "RIVERSIDE_VISUAL_CROSSING_API_KEY",

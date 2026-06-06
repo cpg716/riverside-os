@@ -89,7 +89,7 @@ pub async fn require_staff_with_permission(
 
     let has = staff_has_permission(&eff, permission);
 
-    tracing::info!(
+    tracing::debug!(
         staff_id = %staff.id,
         staff_name = %staff.full_name,
         staff_role = ?staff.role,

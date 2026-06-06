@@ -153,7 +153,7 @@ export const HELP_MANUALS: HelpManual[] = [
     title: "RMS Charge Workspace",
     summary: "Review linked RMS Charge accounts, recent activity, open issues, and reconciliation support for the selected customer.",
     markdown: manual_11_raw,
-    tags: ["customers","rms-charge","corecard","support","reconciliation"],
+    tags: ["customers","rms-charge","r2s","support","reconciliation"],
   },
   {
     id: "customers-shipments-hub-section",

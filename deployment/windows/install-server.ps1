@@ -467,7 +467,7 @@ function Invoke-PsqlFile($PsqlPath, $DatabaseUrl, $FilePath) {
 }
 
 function Invoke-PsqlScalar($PsqlPath, $DatabaseUrl, [string]$Sql) {
-  $result = & $PsqlPath $DatabaseUrl -tAc -w $Sql
+  $result = & $PsqlPath $DatabaseUrl -w -tAc $Sql
   if ($LASTEXITCODE -ne 0) {
     throw "psql scalar query failed. $($result -join "`n")"
   }
@@ -514,7 +514,7 @@ function Get-DatabaseEncoding($PsqlPath, $Db, [string]$DatabaseName) {
   $env:PGPASSWORD = $Db.adminPassword
   try {
     $adminUrl = "postgresql://$($Db.adminUser)@$($Db.host):$($Db.port)/$DatabaseName"
-    $encoding = & $PsqlPath $adminUrl -tAc -w "SHOW server_encoding;"
+    $encoding = & $PsqlPath $adminUrl -w -tAc "SHOW server_encoding;"
     if ($LASTEXITCODE -ne 0) {
       throw "Could not check encoding for database '$DatabaseName'."
     }
@@ -527,7 +527,7 @@ function Get-DatabaseEncoding($PsqlPath, $Db, [string]$DatabaseName) {
 function Assert-DatabaseUtf8($PsqlPath, $Db, [string]$DatabaseName) {
   $encoding = Get-DatabaseEncoding $PsqlPath $Db $DatabaseName
   if ($encoding -ne "UTF8") {
-    throw "Database '$DatabaseName' is encoded as '$encoding'. Riverside OS requires UTF8. During a fresh failed install, run Reset-RiversideDatabase.cmd, then rerun Backoffice / Server Install."
+    throw "Database '$DatabaseName' is encoded as '$encoding'. Riverside OS requires UTF8. During a fresh failed install, run Reset-RiversideDatabase.cmd, then rerun Main Hub Install."
   }
 }
 
@@ -897,7 +897,7 @@ function Get-MigrationSortKey($File) {
 }
 
 function Get-MigrationLedgerExists($PsqlPath, $DatabaseUrl) {
-  $ledgerCheck = & $PsqlPath $DatabaseUrl -tAc -w "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ros_schema_migrations');"
+  $ledgerCheck = & $PsqlPath $DatabaseUrl -w -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ros_schema_migrations');"
   if ($LASTEXITCODE -ne 0) {
     throw "Could not check migration ledger."
   }
@@ -906,7 +906,7 @@ function Get-MigrationLedgerExists($PsqlPath, $DatabaseUrl) {
 
 function Get-MigrationApplied($PsqlPath, $DatabaseUrl, [string]$Version) {
   $migrationVersion = Escape-SqlLiteral $Version
-  $applied = & $PsqlPath $DatabaseUrl -tAc -w "SELECT EXISTS(SELECT 1 FROM ros_schema_migrations WHERE version = '$migrationVersion');"
+  $applied = & $PsqlPath $DatabaseUrl -w -tAc "SELECT EXISTS(SELECT 1 FROM ros_schema_migrations WHERE version = '$migrationVersion');"
   return (($applied -join "").Trim() -eq "t")
 }
 
@@ -916,7 +916,7 @@ function Add-MigrationLedgerEntry($PsqlPath, $DatabaseUrl, [string]$Version) {
 }
 
 function Test-CoreIdentityMigrationApplied($PsqlPath, $DatabaseUrl) {
-  $result = & $PsqlPath $DatabaseUrl -tAc -w "SELECT to_regclass('public.store_settings') IS NOT NULL AND to_regclass('public.variant_sku_seq') IS NOT NULL;"
+  $result = & $PsqlPath $DatabaseUrl -w -tAc "SELECT to_regclass('public.store_settings') IS NOT NULL AND to_regclass('public.variant_sku_seq') IS NOT NULL;"
   return (($result -join "").Trim() -eq "t")
 }
 
@@ -1263,7 +1263,7 @@ if ($script:postgresReachable) {
       Invoke-PsqlAdmin $psql $db $roleSql
       $env:PGPASSWORD = $db.adminPassword
       try {
-        $exists = & $psql "postgresql://$($db.adminUser)@$($db.host):$($db.port)/postgres" -tAc -w "SELECT 1 FROM pg_database WHERE datname = '$databaseName';"
+        $exists = & $psql "postgresql://$($db.adminUser)@$($db.host):$($db.port)/postgres" -w -tAc "SELECT 1 FROM pg_database WHERE datname = '$databaseName';"
         if (($exists -join "").Trim() -ne "1") {
           Invoke-PsqlAdmin $psql $db "CREATE DATABASE ""$databaseName"" WITH OWNER ""$appUser"" TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C';"
         }

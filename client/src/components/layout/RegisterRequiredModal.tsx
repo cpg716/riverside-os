@@ -4,8 +4,8 @@ import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 export default function RegisterRequiredModal({
   open,
-  title = "Open or join a till",
-  message = "This action needs an active till session. Enter POS, then open Register #1 or join an open lane, and try again.",
+  title = "Open or join Register #",
+  message = "This action needs an active register session. Open Register #1 or join an open Register #, then try again.",
   onClose,
   onGoToRegister,
 }: {
@@ -57,7 +57,7 @@ export default function RegisterRequiredModal({
             }}
             className="ui-btn-primary flex-1 py-3 text-sm font-black"
           >
-            Go to POS
+            Go to Register
           </button>
         </div>
       </div>

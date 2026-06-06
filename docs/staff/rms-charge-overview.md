@@ -14,7 +14,7 @@ In day-to-day use, Riverside staff see one financing tender:
 
 Program selection happens **after** the tender is chosen. That means staff do not choose separate buttons for `RMS` versus `RMS 90`.
 
-POS account lookup uses linked RMS/CoreCredit accounts first, then the latest imported RMS Account List when the imported account is uniquely matched to the Riverside customer. It does not rely on name-only matching.
+POS account lookup uses linked RMS Charge accounts first, then the latest imported RMS Account List when the imported account is uniquely matched to the Riverside customer. It does not rely on name-only matching.
 
 ## Two kinds of RMS activity
 

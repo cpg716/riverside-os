@@ -147,7 +147,7 @@ How to verify in ROS Dev Center:
 | **`scheduler-mobile-ergonomics.spec.ts`** | Scheduler mobile ergonomics across phone/tablet/iPad/desktop viewports | Responsive Appointments/Scheduler smoke |
 | **`customer-relationship-mobile-cards.spec.ts`** | Customer Relationship Hub responsive cards, profile defaults, history, loyalty controls, linked profiles, and staff-facing timeline language | Mocked CustomerHub APIs; viewport coverage |
 | **`customers-lifecycle.spec.ts`** | Add-customer address flows, lookup failure resilience, duplicate review timing, and lifecycle filter/hub badge alignment | Customer workspace + mocked address/lookup behavior |
-| **`customers-rms-charge.spec.ts`** | Back Office RMS Charge exception ownership/retry, resolution notes, reconciliation usability, and account link correction | Uses fake CoreCard/test-support fixtures |
+| **`customers-rms-charge.spec.ts`** | Back Office RMS Charge exception ownership/retry, resolution notes, reconciliation usability, and account link correction | RMS test-support fixtures; no external financing host |
 | **`orders-custom-contract.spec.ts`** | Custom vs special vs wedding order contracts, custom detail persistence, cost deferral until receipt, deposits, odd-cent balance, and pickup lifecycle | API-centric Orders/Fulfillment contract |
 | **`phase2-tender-ui.spec.ts`** | POS tender drawer smoke: core tender tabs, customer-linked Saved Card / Store Credit | Uses explicit POS register-ready and cashier-overlay contracts; release gate. |
 | **`tax-exempt-and-card-branding.spec.ts`** | HELCIM branding + tax-exempt checkout drawer flow + customer-linked vault tab | Uses explicit POS register-ready and cashier-overlay contracts; release gate. |
@@ -179,9 +179,8 @@ How to verify in ROS Dev Center:
 | **`qbo-audit-contract.spec.ts`** | Balanced staged proposal, mapped accounts, dedupe, staging visibility, drilldown tender linkage, one-time approval, and store-local business-date cutoff | Production hardening audit contract |
 | **`register-audit-contract.spec.ts`** | Register #1/till group lifecycle, closed-token rejection, and Z-close parked-sale purge/audit rows | Production hardening audit contract |
 | **`intelligence-and-finance.spec.ts`** | Wedding health, inventory brain, commission trace rationale, Helcim setup/payment config auth/secret hygiene, and product intelligence payloads | API-centric intelligence/finance contract |
-| **`pos-rms-charge.spec.ts`** | POS RMS financed sale success/decline, no-customer block, multi-match metadata, payment collection success/failure, receipt wording, and legacy RMS/RMS90 compatibility | Fake CoreCard host + RMS test-support fixtures |
-| **`corecard-webhooks.spec.ts`** | CoreCard webhook ingestion updates state and replay remains idempotent | Fake CoreCard/CoreCard webhook contract |
-| **`rms-reconciliation.spec.ts`** | RMS reconciliation mismatch visibility and clearing-path support | Fake CoreCard/test-support fixtures |
+| **`pos-rms-charge.spec.ts`** | POS RMS manual financed sale recording, no-customer block, multi-match metadata, payment collection, receipt wording, and legacy RMS/RMS90 compatibility | RMS test-support fixtures; no external financing host |
+| **`rms-reconciliation.spec.ts`** | RMS reconciliation mismatch visibility and clearing-path support | RMS test-support fixtures; no external financing host |
 | **`rms-permissions.spec.ts`** | POS-limited vs Back Office admin RMS workspace capability split | Requires seeded staff permission split |
 
 ---
@@ -238,7 +237,7 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 | Settings / backups / integrations | **`settings-mobile.spec.ts`**, **`settings-mobile-sections.spec.ts`**, **`settings-deeplink-contract.spec.ts`**, **`podium-settings.spec.ts`**, visual paths | Full backup flow, every integration card |
 | Scheduler | **`scheduler-mobile-ergonomics.spec.ts`**, **`alterations-smart-scheduler.spec.ts`** | Book/edit appointment breadth |
 | Alterations / gift cards / loyalty | **`alterations-register-lookup-mobile.spec.ts`**, **`alterations-safety.spec.ts`**, **`alterations-smart-scheduler.spec.ts`**, **`gift-card-redemption-contract.spec.ts`**, **`gift-cards-mobile-cards.spec.ts`**, **`loyalty-redemption-contract.spec.ts`**, **`loyalty-eligible-mobile.spec.ts`** | Additional edge cases for legacy data |
-| POS register / cart / checkout | **`pos-golden.spec.ts`**, **`phase2-tender-ui.spec.ts`**, **`tender-matrix-contract.spec.ts`**, **`checkout-tender-financial-contract.spec.ts`**, **`tax-exempt-and-card-branding.spec.ts`**, **`exchange-wizard.spec.ts`**, **`register-close-reconciliation.spec.ts`**, **`pos-rms-charge.spec.ts`**, **`corecard-webhooks.spec.ts`** | Hardware/live tender validation |
+| POS register / cart / checkout | **`pos-golden.spec.ts`**, **`phase2-tender-ui.spec.ts`**, **`tender-matrix-contract.spec.ts`**, **`checkout-tender-financial-contract.spec.ts`**, **`tax-exempt-and-card-branding.spec.ts`**, **`exchange-wizard.spec.ts`**, **`register-close-reconciliation.spec.ts`**, **`pos-rms-charge.spec.ts`** | Hardware/live tender validation |
 | POS Dashboard | **`morning-compass-coach.spec.ts`**, **`pos-navigation-contract.spec.ts`**, **`pos-small-screen-smoke.spec.ts`** | Notification action breadth |
 | POS Reports / other rails | **`pos-navigation-contract.spec.ts`**, **`pos-modal-smoke.spec.ts`**, **`pos-dropdown-visibility.spec.ts`**, **`pos-alterations-intake.spec.ts`**, **`rms-permissions.spec.ts`**, **`rms-reconciliation.spec.ts`** | Procurement rail depth |
 

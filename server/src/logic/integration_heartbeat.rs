@@ -82,7 +82,7 @@ pub async fn run_integration_heartbeat(
     .await?;
 
     // 4. Weather
-    let weather_h = weather::health_check(http_client).await;
+    let weather_h = weather::health_check(http_client, pool).await;
     let (weather_status, weather_detail) = if !weather_h.configured {
         (
             "CAUTION".to_string(),

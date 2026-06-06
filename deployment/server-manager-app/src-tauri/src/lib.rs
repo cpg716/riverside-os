@@ -7,6 +7,18 @@ use tokio::process::Command;
 
 mod app_updates;
 
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[cfg(windows)]
+fn suppress_child_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn suppress_child_console(_command: &mut Command) {}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct LogMessage {
     level: String,
@@ -107,9 +119,11 @@ fn relaunch_elevated() -> Result<(), String> {
 }
 
 async fn run_powershell_capture(script: &str) -> Result<String, String> {
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
-        .arg(script)
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
+        .arg(script);
+    suppress_child_console(&mut cmd);
+    let output = cmd
         .output()
         .await
         .map_err(|e| format!("Failed to spawn powershell: {e}"))?;
@@ -186,6 +200,7 @@ async fn run_inline(app: AppHandle, script: &str) -> Result<(), String> {
 }
 
 async fn run_command_with_logs(app: AppHandle, mut cmd: Command) -> Result<(), String> {
+    suppress_child_console(&mut cmd);
     let mut child = cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

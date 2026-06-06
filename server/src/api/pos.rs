@@ -56,6 +56,8 @@ struct RmsChargeAccountChoice {
     available_credit: Option<String>,
     current_balance: Option<String>,
     source: String,
+    linked_rms_customer_id: Option<String>,
+    linked_rms_account_id: Option<String>,
     linked_corecredit_customer_id: Option<String>,
     linked_corecredit_account_id: Option<String>,
 }
@@ -332,6 +334,8 @@ async fn load_rms_account_choices(
                 available_credit,
                 current_balance,
                 source: "linked_account".to_string(),
+                linked_rms_customer_id: Some(corecredit_customer_id.clone()),
+                linked_rms_account_id: Some(corecredit_account_id.clone()),
                 linked_corecredit_customer_id: Some(corecredit_customer_id),
                 linked_corecredit_account_id: Some(corecredit_account_id),
             },
@@ -418,6 +422,8 @@ async fn load_rms_account_choices(
             available_credit: decimal_snapshot(open_to_buy),
             current_balance: decimal_snapshot(balance),
             source: "account_list_import".to_string(),
+            linked_rms_customer_id: None,
+            linked_rms_account_id: Some(account_number.clone()),
             linked_corecredit_customer_id: None,
             linked_corecredit_account_id: Some(account_number),
         });

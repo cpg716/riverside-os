@@ -97,7 +97,9 @@ export async function applyInstallerStationConfig() {
   const stationLabel = config.register.stationLabel?.trim();
   const apiBase = normalizeApiBase(config.register.apiBase);
   const shouldApplyApiBase =
-    stationLabel === "Backoffice / Server" || !isLoopbackApiBase(apiBase);
+    stationLabel === "Main Hub" ||
+    stationLabel === "Backoffice / Server" ||
+    !isLoopbackApiBase(apiBase);
   if (shouldApplyApiBase) {
     changed = setIfChanged("ros_api_base_override", apiBase) || changed;
   }

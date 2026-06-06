@@ -66,15 +66,15 @@ When a Markdown file is **removed** from this repository, add an entry here **be
 | **Where content lives now** | n/a (tracked in git history and issue backlog if needed) |
 | **Summary** | Documented specific bugs triaged and resolved during the `v0.1.8` and `v0.1.9` bug-squashing sprints. |
 
-### CoreCard/CoreCredit Phase Documents (`docs/CORECARD_CORECREDIT_PHASE1/2/3.md`)
+### Retired financing integration phase documents
 
 | Field | Content |
 |-------|---------|
-| **Former path** | `docs/CORECARD_CORECREDIT_PHASE1.md`, `docs/CORECARD_CORECREDIT_PHASE2.md`, `docs/CORECARD_CORECREDIT_PHASE3.md` |
+| **Former path** | Legacy third-party financing phase docs |
 | **Date retired** | 2026-05-19 |
-| **Why removed** | Superseded by the unified CoreCard/CoreCredit full architecture guide. |
-| **Where content lives now** | [`docs/CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](CORECARD_CORECREDIT_FULL_ARCHITECTURE.md) |
-| **Summary** | Outlined the initial phased approach to implementing the CoreCard financing integration. Phase 1 focused on manual R2S reporting, Phase 2 on the weekly Account List snapshot imports, and Phase 3 on exception queues and live tenant reads. Consolidated and updated into `CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`. |
+| **Why removed** | Superseded by the current RMS Charge/R2S operational workflow. |
+| **Where content lives now** | [`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`](POS_PARKED_SALES_AND_RMS_CHARGES.md) |
+| **Summary** | Outlined an older third-party financing integration plan. Current Riverside behavior records RMS Charge activity internally and creates R2S follow-up instead. |
 
 ### Legacy AI Endpoints (`docs/API_AI.md`)
 

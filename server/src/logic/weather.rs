@@ -160,6 +160,7 @@ pub struct WeatherForecastResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current: Option<CurrentWeatherContext>,
     pub source: String,
+    pub location: String,
 }
 
 fn vc_max_pulls_per_day() -> i32 {
@@ -520,6 +521,7 @@ pub async fn fetch_weather_forecast(
             days,
             current,
             source: "mock".to_string(),
+            location: settings.location.clone(),
         };
     }
 
@@ -542,6 +544,7 @@ pub async fn fetch_weather_forecast(
                     days,
                     current,
                     source: "mock".to_string(),
+                    location: settings.location.clone(),
                 };
             }
             days.sort_by_key(|r| r.date);
@@ -558,6 +561,7 @@ pub async fn fetch_weather_forecast(
                 days,
                 current,
                 source: "live".to_string(),
+                location: settings.location.clone(),
             }
         }
         Err(e) => {
@@ -568,6 +572,7 @@ pub async fn fetch_weather_forecast(
                 days,
                 current,
                 source: "mock".to_string(),
+                location: settings.location.clone(),
             }
         }
     }
@@ -896,26 +901,23 @@ pub struct WeatherHealth {
     pub message: String,
 }
 
-pub async fn health_check(http: &reqwest::Client) -> WeatherHealth {
+pub async fn health_check(http: &reqwest::Client, pool: &PgPool) -> WeatherHealth {
     let start = std::time::Instant::now();
-    let api_key = match std::env::var("RIVERSIDE_VISUAL_CROSSING_API_KEY")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-    {
-        Some(k) => k,
-        None => {
-            return WeatherHealth {
-                configured: false,
-                reachable: false,
-                latency_ms: 0,
-                message: "Visual Crossing not configured (RIVERSIDE_VISUAL_CROSSING_API_KEY unset)"
-                    .to_string(),
-            };
-        }
-    };
+    let settings = load_store_weather_settings(pool).await;
+    let settings = apply_weather_runtime_settings(pool, settings).await;
+    if let Some(reason) = live_unavailable_reason(&settings) {
+        return WeatherHealth {
+            configured: false,
+            reachable: false,
+            latency_ms: 0,
+            message: format!("Visual Crossing not configured ({reason})"),
+        };
+    }
     let url = format!(
-        "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/Buffalo,NY,US/today?unitGroup=us&contentType=json&include=current&key={}",
-        urlencoding::encode(&api_key)
+        "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{}/today?unitGroup={}&contentType=json&include=current&key={}",
+        urlencoding::encode(settings.location.trim()),
+        urlencoding::encode(settings.unit_group.trim()),
+        urlencoding::encode(settings.api_key.trim())
     );
     match http.get(&url).send().await {
         Ok(resp) if resp.status().is_success() => WeatherHealth {

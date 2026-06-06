@@ -31,7 +31,7 @@ function Escape-SqlLiteral([string]$Value) {
 }
 
 function Invoke-PsqlText([string]$PsqlPath, [string]$DatabaseUrl, [string]$Sql) {
-  $output = & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -tAc -w $Sql
+  $output = & $PsqlPath $DatabaseUrl -v ON_ERROR_STOP=1 -w -tAc $Sql
   if ($LASTEXITCODE -ne 0) {
     throw "psql failed with exit code $LASTEXITCODE."
   }

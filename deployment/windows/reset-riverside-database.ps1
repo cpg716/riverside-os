@@ -217,7 +217,7 @@ try {
     }
   } else {
     [System.Windows.Forms.MessageBox]::Show(
-      "Riverside database reset complete. The database was recreated as UTF8. Reopen Start-RiversideDeployment.cmd and run Backoffice / Server Install.",
+      "Riverside database reset complete. The database was recreated as UTF8. Reopen Start-RiversideDeployment.cmd and run Main Hub Install.",
       "Reset complete",
       "OK",
       "Information"

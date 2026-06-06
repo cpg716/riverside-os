@@ -19,6 +19,18 @@ import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
 
+function attendanceHistoryWindow(): { from: string; to: string } {
+  const today = new Date();
+  const from = new Date(today);
+  from.setFullYear(today.getFullYear() - 2);
+  const to = new Date(today);
+  to.setFullYear(today.getFullYear() + 1);
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+  };
+}
+
 type StaffRole = "admin" | "salesperson" | "sales_support" | "staff_support" | "alterations";
 
 export interface HubRow {
@@ -167,12 +179,13 @@ export default function StaffEditDrawer({
 
   const loadAttendance = useCallback(async () => {
     if (staff.id === "NEW") return;
+    const attendanceWindow = attendanceHistoryWindow();
     try {
       const [availRes, historyRes] = await Promise.all([
         fetch(`${baseUrl}/api/staff/schedule/weekly/${encodeURIComponent(staff.id)}`, {
           headers: backofficeHeaders(),
         }),
-        fetch(`${baseUrl}/api/staff/schedule/exceptions?staff_id=${encodeURIComponent(staff.id)}&from=2024-01-01&to=2030-12-31`, {
+        fetch(`${baseUrl}/api/staff/schedule/exceptions?staff_id=${encodeURIComponent(staff.id)}&from=${attendanceWindow.from}&to=${attendanceWindow.to}`, {
           headers: backofficeHeaders(),
         }),
       ]);

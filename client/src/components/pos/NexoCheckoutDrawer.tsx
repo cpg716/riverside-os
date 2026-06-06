@@ -218,8 +218,16 @@ interface RmsChargeAccountChoice {
   available_credit?: string | null;
   current_balance?: string | null;
   source?: string | null;
-  linked_corecredit_customer_id?: string | null;
-  linked_corecredit_account_id?: string | null;
+  linked_rms_customer_id?: string | null;
+  linked_rms_account_id?: string | null;
+}
+
+function rmsLinkedCustomerId(account: RmsChargeAccountChoice | null): string | undefined {
+  return account?.linked_rms_customer_id ?? undefined;
+}
+
+function rmsLinkedAccountId(account: RmsChargeAccountChoice | null): string | undefined {
+  return account?.linked_rms_account_id ?? account?.link_id ?? undefined;
 }
 
 interface RmsChargeResolveResponse {
@@ -1594,12 +1602,8 @@ export default function NexoCheckoutDrawer({
                       masked_account: rmsSelectedAccount?.masked_account ?? undefined,
                       source_mode: rmsSelectedAccount?.source ?? "manual",
                       rms_charge_source: rmsSelectedAccount?.source ?? "manual",
-                      linked_corecredit_customer_id:
-                        rmsSelectedAccount?.linked_corecredit_customer_id ?? undefined,
-                      linked_corecredit_account_id:
-                        rmsSelectedAccount?.linked_corecredit_account_id ??
-                        rmsSelectedAccount?.link_id ??
-                        undefined,
+                      linked_rms_customer_id: rmsLinkedCustomerId(rmsSelectedAccount),
+                      linked_rms_account_id: rmsLinkedAccountId(rmsSelectedAccount),
                       reference_number: rmsReferenceNumber.trim() || undefined,
                       host_reference: rmsReferenceNumber.trim() || undefined,
                       resolution_status:
@@ -1619,8 +1623,8 @@ export default function NexoCheckoutDrawer({
                       masked_account: rmsSelectedAccount?.masked_account ?? undefined,
                       source_mode: rmsSelectedAccount?.source ?? "manual",
                       rms_charge_source: rmsSelectedAccount?.source ?? "manual",
-                      linked_corecredit_customer_id: rmsSelectedAccount?.linked_corecredit_customer_id ?? undefined,
-                      linked_corecredit_account_id: rmsSelectedAccount?.linked_corecredit_account_id ?? rmsSelectedAccount?.link_id ?? undefined,
+                      linked_rms_customer_id: rmsLinkedCustomerId(rmsSelectedAccount),
+                      linked_rms_account_id: rmsLinkedAccountId(rmsSelectedAccount),
                       reference_number: rmsReferenceNumber.trim() || undefined,
                       host_reference: rmsReferenceNumber.trim() || undefined,
                       resolution_status:
@@ -1639,8 +1643,8 @@ export default function NexoCheckoutDrawer({
                   masked_account: rmsSelectedAccount?.masked_account ?? undefined,
                   source_mode: rmsSelectedAccount?.source ?? "manual",
                   rms_charge_source: rmsSelectedAccount?.source ?? "manual",
-                  linked_corecredit_customer_id: rmsSelectedAccount?.linked_corecredit_customer_id ?? undefined,
-                  linked_corecredit_account_id: rmsSelectedAccount?.linked_corecredit_account_id ?? rmsSelectedAccount?.link_id ?? undefined,
+                  linked_rms_customer_id: rmsLinkedCustomerId(rmsSelectedAccount),
+                  linked_rms_account_id: rmsLinkedAccountId(rmsSelectedAccount),
                   reference_number: rmsReferenceNumber.trim() || undefined,
                   host_reference: rmsReferenceNumber.trim() || undefined,
                   resolution_status:
@@ -1658,8 +1662,8 @@ export default function NexoCheckoutDrawer({
                     masked_account: rmsSelectedAccount?.masked_account ?? undefined,
                     source_mode: rmsSelectedAccount?.source ?? "manual",
                     rms_charge_source: rmsSelectedAccount?.source ?? "manual",
-                    linked_corecredit_customer_id: rmsSelectedAccount?.linked_corecredit_customer_id ?? undefined,
-                    linked_corecredit_account_id: rmsSelectedAccount?.linked_corecredit_account_id ?? rmsSelectedAccount?.link_id ?? undefined,
+                    linked_rms_customer_id: rmsLinkedCustomerId(rmsSelectedAccount),
+                    linked_rms_account_id: rmsLinkedAccountId(rmsSelectedAccount),
                     reference_number: rmsReferenceNumber.trim() || undefined,
                     host_reference: rmsReferenceNumber.trim() || undefined,
                     resolution_status:

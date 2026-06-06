@@ -30,7 +30,6 @@ const SETTINGS_ORDER = [
   "Podium",
   "Shippo",
   "Helcim",
-  "CoreCard",
   "QuickBooks",
   "Counterpoint",
   "NuORDER",

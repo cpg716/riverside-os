@@ -40,6 +40,18 @@ fn clean_text(value: Option<&Value>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn clean_rms_customer_id(metadata: &Value) -> Option<String> {
+    clean_text(metadata.get("linked_rms_customer_id"))
+        .or_else(|| clean_text(metadata.get("rms_customer_id")))
+        .or_else(|| clean_text(metadata.get("linked_corecredit_customer_id")))
+}
+
+fn clean_rms_account_id(metadata: &Value) -> Option<String> {
+    clean_text(metadata.get("linked_rms_account_id"))
+        .or_else(|| clean_text(metadata.get("rms_account_id")))
+        .or_else(|| clean_text(metadata.get("linked_corecredit_account_id")))
+}
+
 fn r2s_report_due_at_from_now() -> String {
     (Utc::now() + Duration::days(1)).to_rfc3339()
 }
@@ -452,12 +464,8 @@ where
     .bind(program_code)
     .bind(program_label)
     .bind(masked_account)
-    .bind(clean_text(
-        metadata_json.get("linked_corecredit_customer_id"),
-    ))
-    .bind(clean_text(
-        metadata_json.get("linked_corecredit_account_id"),
-    ))
+    .bind(clean_rms_customer_id(&metadata_json))
+    .bind(clean_rms_account_id(&metadata_json))
     .bind(resolution_status)
     .bind(metadata_json.clone())
     .bind(clean_text(metadata_json.get("external_transaction_id")))

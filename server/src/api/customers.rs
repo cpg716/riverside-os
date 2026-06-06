@@ -1996,7 +1996,7 @@ async fn fetch_rms_charge_record_detail(
                 r.metadata_json->>'rms_charge_source',
                 r.metadata_json->>'source_mode',
                 CASE
-                    WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'corecard_live'
+                    WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'external_rms_reference'
                     ELSE 'manual'
                 END
             ) AS source_mode,
@@ -2423,7 +2423,7 @@ async fn list_rms_charge_records(
                         r.metadata_json->>'rms_charge_source',
                         r.metadata_json->>'source_mode',
                         CASE
-                            WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'corecard_live'
+                            WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'external_rms_reference'
                             ELSE 'manual'
                         END
                     ) AS source_mode,
@@ -2553,7 +2553,7 @@ async fn list_rms_charge_records(
                         r.metadata_json->>'rms_charge_source',
                         r.metadata_json->>'source_mode',
                         CASE
-                            WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'corecard_live'
+                            WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'external_rms_reference'
                             ELSE 'manual'
                         END
                     ) AS source_mode,
@@ -2682,7 +2682,7 @@ async fn list_rms_charge_records(
                     r.metadata_json->>'rms_charge_source',
                     r.metadata_json->>'source_mode',
                     CASE
-                        WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'corecard_live'
+                        WHEN r.external_transaction_id IS NOT NULL OR r.host_reference IS NOT NULL THEN 'external_rms_reference'
                         ELSE 'manual'
                     END
                 ) AS source_mode,

@@ -48,13 +48,13 @@ $databaseUrl = "postgresql://$($db.appUser):$($db.appPassword)@$($db.host):$($db
 
 $env:PGPASSWORD = $db.appPassword
 try {
-  $tableExists = & $psql $databaseUrl -tAc -w "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'integration_credentials');"
+  $tableExists = & $psql $databaseUrl -w -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'integration_credentials');"
   if (($tableExists -join "").Trim() -ne "t") {
     Write-Warning "integration_credentials table does not exist yet. Skipping credential import."
     return
   }
 
-  $existingCount = & $psql $databaseUrl -tAc -w "SELECT count(*) FROM integration_credentials;"
+  $existingCount = & $psql $databaseUrl -w -tAc "SELECT count(*) FROM integration_credentials;"
   $existingCount = ($existingCount -join "").Trim()
 
   if ($existingCount -ne "0" -and -not $Force) {
@@ -64,16 +64,16 @@ try {
 
   if ($existingCount -ne "0" -and $Force) {
     Write-Host "Clearing $existingCount existing credential rows for forced import..."
-    & $psql $databaseUrl -c "TRUNCATE TABLE integration_credentials;" -w 2>&1 | Write-Host
+    & $psql $databaseUrl -w -c "TRUNCATE TABLE integration_credentials;" 2>&1 | Write-Host
   }
 
   Write-Host "Importing integration credentials from $SqlPath..."
-  & $psql $databaseUrl -v ON_ERROR_STOP=1 -1 -f $SqlPath -w 2>&1 | Write-Host
+  & $psql $databaseUrl -v ON_ERROR_STOP=1 -1 -w -f $SqlPath 2>&1 | Write-Host
   if ($LASTEXITCODE -ne 0) {
     throw "psql import failed with exit code $LASTEXITCODE."
   }
 
-  $importedCount = & $psql $databaseUrl -tAc -w "SELECT count(*) FROM integration_credentials;"
+  $importedCount = & $psql $databaseUrl -w -tAc "SELECT count(*) FROM integration_credentials;"
   $importedCount = ($importedCount -join "").Trim()
   Write-Host "Integration credentials imported: $importedCount rows." -ForegroundColor Green
 } finally {

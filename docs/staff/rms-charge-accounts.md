@@ -18,7 +18,7 @@ Use it to:
 
 ## How linking works
 
-Riverside links a Riverside customer to one or more RMS Charge accounts in `customer_corecredit_accounts`.
+Riverside links a Riverside customer to one or more RMS Charge accounts in the RMS account link table.
 
 Important rules:
 

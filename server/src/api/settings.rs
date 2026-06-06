@@ -14,6 +14,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::Row;
@@ -340,6 +341,14 @@ fn default_rosie_microphone_mode() -> RosieMicrophoneMode {
     RosieMicrophoneMode::PushToTalk
 }
 
+fn default_rosie_cost_comparison_provider() -> String {
+    "custom_external_api".to_string()
+}
+
+fn default_rosie_cost_comparison_model() -> String {
+    "set_model_in_settings".to_string()
+}
+
 impl Default for ReceiptConfig {
     fn default() -> Self {
         Self {
@@ -412,6 +421,14 @@ pub struct RosieConfig {
     pub microphone_enabled: bool,
     #[serde(default = "default_rosie_microphone_mode")]
     pub microphone_mode: RosieMicrophoneMode,
+    #[serde(default = "default_rosie_cost_comparison_provider")]
+    pub cost_comparison_provider: String,
+    #[serde(default = "default_rosie_cost_comparison_model")]
+    pub cost_comparison_model: String,
+    #[serde(default)]
+    pub external_input_cost_per_1m_tokens: Decimal,
+    #[serde(default)]
+    pub external_output_cost_per_1m_tokens: Decimal,
 }
 
 impl Default for RosieConfig {
@@ -427,6 +444,10 @@ impl Default for RosieConfig {
             speech_rate: default_rosie_speech_rate(),
             microphone_enabled: true,
             microphone_mode: default_rosie_microphone_mode(),
+            cost_comparison_provider: default_rosie_cost_comparison_provider(),
+            cost_comparison_model: default_rosie_cost_comparison_model(),
+            external_input_cost_per_1m_tokens: Decimal::ZERO,
+            external_output_cost_per_1m_tokens: Decimal::ZERO,
         }
     }
 }
@@ -1989,6 +2010,8 @@ struct PatchEmailSettingsBody {
     smtp_tls: Option<String>,
     sync_enabled: Option<bool>,
     sync_limit: Option<i64>,
+    bug_report_notifications_enabled: Option<bool>,
+    bug_report_notification_recipients: Option<Vec<String>>,
 }
 
 async fn get_email_settings(
@@ -2066,6 +2089,13 @@ async fn patch_email_settings(
     }
     if let Some(v) = body.sync_limit {
         cfg.sync_limit = v.clamp(1, 250);
+    }
+    if let Some(v) = body.bug_report_notifications_enabled {
+        cfg.bug_report_notifications_enabled = v;
+    }
+    if let Some(v) = body.bug_report_notification_recipients {
+        cfg.bug_report_notification_recipients = email::normalize_email_recipients(&v)
+            .map_err(|error| SettingsError::InvalidPayload(error.to_string()))?;
     }
     email::save_store_email_config(&state.db, &cfg).await?;
     email::email_settings_response(&state.db)

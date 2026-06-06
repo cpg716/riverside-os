@@ -6,6 +6,8 @@ use sqlx::PgPool;
 use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 
+use crate::logic::email;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]
 #[sqlx(type_name = "bug_report_status", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -60,6 +62,12 @@ pub struct StaffErrorEventRow {
     pub route: Option<String>,
     pub client_meta: Value,
     pub server_log_snapshot: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct UpsertStaffErrorEventResult {
+    pub id: Uuid,
+    pub inserted: bool,
 }
 
 /// Count submissions by this staff member since `since` (for abuse throttling).
@@ -376,6 +384,27 @@ pub async fn ingest_fallback_errors(pool: &PgPool) -> Result<usize, sqlx::Error>
         .await?;
 
         count += 1;
+        let pool_n = pool.clone();
+        let event_id = event.id;
+        let message = event.message.clone();
+        let event_source = event.event_source.clone();
+        let severity = event.severity.clone();
+        let route = event.route.clone();
+        tokio::spawn(async move {
+            if let Err(error) = notify_error_event_email_recipients(
+                &pool_n,
+                event_id,
+                None,
+                &message,
+                &event_source,
+                &severity,
+                route.as_deref(),
+            )
+            .await
+            {
+                tracing::error!(error = %error, "fallback error email notification failed");
+            }
+        });
     }
 
     // Cleanup/truncate the file under lock by filtering out successfully ingested events
@@ -413,7 +442,7 @@ pub async fn upsert_server_error_event(
     route: Option<&str>,
     client_meta: &Value,
     server_log_snapshot: &str,
-) -> Result<Uuid, sqlx::Error> {
+) -> Result<UpsertStaffErrorEventResult, sqlx::Error> {
     let mut meta = client_meta.as_object().cloned().unwrap_or_else(Map::new);
     meta.insert(
         "server_dedupe_key".to_string(),
@@ -458,9 +487,12 @@ pub async fn upsert_server_error_event(
             .bind(server_log_snapshot)
             .execute(pool)
             .await?;
-            Ok(id)
+            Ok(UpsertStaffErrorEventResult {
+                id,
+                inserted: false,
+            })
         } else {
-            insert_staff_error_event(
+            let id = insert_staff_error_event(
                 pool,
                 None,
                 message,
@@ -470,7 +502,8 @@ pub async fn upsert_server_error_event(
                 &meta,
                 server_log_snapshot,
             )
-            .await
+            .await?;
+            Ok(UpsertStaffErrorEventResult { id, inserted: true })
         }
     }
     .await;
@@ -497,7 +530,10 @@ pub async fn upsert_server_error_event(
                         fallback_id = %fallback_id,
                         "Database unavailable. Server error event saved to fallback file."
                     );
-                    Ok(fallback_id)
+                    Ok(UpsertStaffErrorEventResult {
+                        id: fallback_id,
+                        inserted: true,
+                    })
                 }
                 Err(file_err) => {
                     tracing::error!(
@@ -659,4 +695,126 @@ pub async fn notify_settings_admins_new_report(
         crate::logic::notifications::fan_out_notification_to_staff_ids(pool, nid, &staff).await?;
     }
     Ok(())
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn preview(value: &str, max_chars: usize) -> String {
+    if value.chars().count() > max_chars {
+        format!("{}…", value.chars().take(max_chars).collect::<String>())
+    } else {
+        value.to_string()
+    }
+}
+
+async fn send_configured_bug_report_emails(
+    pool: &PgPool,
+    subject: String,
+    html_body: String,
+    notification_kind: &str,
+) -> Result<(), sqlx::Error> {
+    let cfg = email::load_store_email_config(pool).await?;
+    if !cfg.bug_report_notifications_enabled || cfg.bug_report_notification_recipients.is_empty() {
+        return Ok(());
+    }
+    let recipients =
+        match email::normalize_email_recipients(&cfg.bug_report_notification_recipients) {
+            Ok(recipients) => recipients,
+            Err(error) => {
+                tracing::warn!(
+                    target = "email",
+                    notification_kind,
+                    error = %error,
+                    "Bug report email notification recipients are invalid"
+                );
+                return Ok(());
+            }
+        };
+    for recipient in recipients {
+        if let Err(error) = email::send_email(
+            pool,
+            &recipient,
+            &subject,
+            &html_body,
+            None,
+            None,
+            "automated",
+        )
+        .await
+        {
+            tracing::warn!(
+                target = "email",
+                notification_kind,
+                recipient = %recipient,
+                error = %error,
+                "Bug report email notification send failed"
+            );
+        }
+    }
+    Ok(())
+}
+
+pub async fn notify_bug_report_email_recipients(
+    pool: &PgPool,
+    report_id: Uuid,
+    correlation_id: Uuid,
+    staff_name: &str,
+    summary: &str,
+) -> Result<(), sqlx::Error> {
+    let summary = preview(summary.trim(), 600);
+    let subject = format!(
+        "Riverside OS bug report filed ({})",
+        &correlation_id.to_string()[..8]
+    );
+    let html_body = format!(
+        "<h2>Riverside OS bug report filed</h2>\
+         <p><strong>Staff:</strong> {staff}</p>\
+         <p><strong>Report ID:</strong> {report_id}</p>\
+         <p><strong>Correlation ID:</strong> {correlation_id}</p>\
+         <p><strong>Summary:</strong></p><p>{summary}</p>\
+         <p>Open Riverside OS Settings → ROS Support Center → Bug reports for the screenshot, browser log, server log snapshot, and AI diagnostic export.</p>",
+        staff = html_escape(staff_name),
+        report_id = report_id,
+        correlation_id = correlation_id,
+        summary = html_escape(&summary).replace('\n', "<br>"),
+    );
+    send_configured_bug_report_emails(pool, subject, html_body, "manual_bug_report").await
+}
+
+pub async fn notify_error_event_email_recipients(
+    pool: &PgPool,
+    event_id: Uuid,
+    staff_name: Option<&str>,
+    message: &str,
+    event_source: &str,
+    severity: &str,
+    route: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    let source = preview(event_source.trim(), 80);
+    let message = preview(message.trim(), 600);
+    let subject = format!("Riverside OS automated error captured ({source})");
+    let html_body = format!(
+        "<h2>Riverside OS automated error captured</h2>\
+         <p><strong>Actor:</strong> {actor}</p>\
+         <p><strong>Event ID:</strong> {event_id}</p>\
+         <p><strong>Source:</strong> {source}</p>\
+         <p><strong>Severity:</strong> {severity}</p>\
+         <p><strong>Route:</strong> {route}</p>\
+         <p><strong>Message:</strong></p><p>{message}</p>\
+         <p>Open Riverside OS Settings → ROS Support Center → Developer Errors and use the AI diagnostic package for Codex.</p>",
+        actor = html_escape(staff_name.unwrap_or("Unknown")),
+        event_id = event_id,
+        source = html_escape(&source),
+        severity = html_escape(severity),
+        route = html_escape(route.unwrap_or("—")),
+        message = html_escape(&message).replace('\n', "<br>"),
+    );
+    send_configured_bug_report_emails(pool, subject, html_body, "automated_error_event").await
 }

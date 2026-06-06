@@ -2,6 +2,38 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 import { signInToBackOffice, openBackofficeSidebarTab } from "./helpers/backofficeSignIn";
 import { apiBase, seedRmsFixture, staffHeaders } from "./helpers/rmsCharge";
 
+function futureDateKey(daysFromToday: number): string {
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+    date.setDate(date.getDate() + daysFromToday);
+    return date.toISOString().split("T")[0]!;
+}
+
+function displayDateKey(dateKey: string): string {
+    const date = new Date(`${dateKey}T12:00:00`);
+    return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+}
+
+function capacityDateLabel(dateKey: string): string {
+    const date = new Date(`${dateKey}T12:00:00`);
+    const weekday = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(date);
+    const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(date);
+    return `${weekday}, ${month} ${date.getDate()}`;
+}
+
+function suggestionButtonName(dateKey: string): RegExp {
+    const date = new Date(`${dateKey}T12:00:00`);
+    const weekday = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(date);
+    const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(date);
+    return new RegExp(`${month}\\s+${date.getDate()}\\s+${weekday}`, "i");
+}
+
+const MANUAL_REVIEW_DATE = futureDateKey(10);
+const SAFE_WORK_DATE = futureDateKey(11);
+const OVERLOADED_DATE = futureDateKey(12);
+const NO_STAFF_DATE = futureDateKey(13);
+const ALTERATION_DUE_AT = `${futureDateKey(30)}T12:00:00Z`;
+
 const CUSTOMER = {
     id: "11111111-1111-4111-8111-111111111111",
     customer_code: "ALT-SCHED",
@@ -34,7 +66,7 @@ const ALTERATION = {
     charge_amount: null,
     intake_channel: "back_office",
     source_snapshot: null,
-    due_at: "2026-06-01T12:00:00Z",
+    due_at: ALTERATION_DUE_AT,
     fitting_at: null,
     appointment_id: null,
     wedding_member_id: null,
@@ -183,6 +215,15 @@ test.describe("Smart Alterations Scheduler E2E", () => {
             completed_at: string | null;
             created_at: string;
         }> = [];
+        const alterationWithTotals = () => ({
+            ...alterationState,
+            total_units_jacket: alterationItems
+                .filter((item) => item.capacity_bucket === "jacket")
+                .reduce((sum, item) => sum + item.units, 0),
+            total_units_pant: alterationItems
+                .filter((item) => item.capacity_bucket === "pant")
+                .reduce((sum, item) => sum + item.units, 0),
+        });
 
         // Mock Customers (matches /api/customers, /api/customers/browse, etc)
         await page.route(/\/api\/customers($|\?|\/)/, async (route) => {
@@ -206,7 +247,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
-                body: JSON.stringify([ALTERATION]),
+                body: JSON.stringify([alterationWithTotals()]),
             });
         });
 
@@ -229,6 +270,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                     completed_at: null,
                     created_at: new Date().toISOString(),
                 });
+                alterationState = alterationWithTotals();
                 await route.fulfill({
                     status: 200,
                     contentType: "application/json",
@@ -244,7 +286,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                 contentType: "application/json",
                 body: JSON.stringify([
                     {
-                        date: "2026-05-14",
+                        date: MANUAL_REVIEW_DATE,
                         jacket_units_used: 12,
                         pant_units_used: 4,
                         jacket_units_available: 16,
@@ -253,7 +295,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                         has_staff: true,
                     },
                     {
-                        date: "2026-05-15",
+                        date: SAFE_WORK_DATE,
                         jacket_units_used: 5,
                         pant_units_used: 2,
                         jacket_units_available: 23,
@@ -262,7 +304,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                         has_staff: true,
                     },
                     {
-                        date: "2026-05-16",
+                        date: OVERLOADED_DATE,
                         jacket_units_used: 27,
                         pant_units_used: 23,
                         jacket_units_available: 1,
@@ -271,7 +313,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                         has_staff: true,
                     },
                     {
-                        date: "2026-05-17",
+                        date: NO_STAFF_DATE,
                         jacket_units_used: 0,
                         pant_units_used: 0,
                         jacket_units_available: 0,
@@ -289,25 +331,26 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                 status: 200,
                 contentType: "application/json",
                 body: JSON.stringify([
-                    { date: "2026-05-15", score: 100, is_manual_only: false, reason: "Best fit" },
-                    { date: "2026-05-16", score: 90, is_manual_only: false, reason: "High capacity" },
+                    { date: SAFE_WORK_DATE, score: 100, is_manual_only: false, reason: "Best fit" },
+                    { date: OVERLOADED_DATE, score: 90, is_manual_only: false, reason: "High capacity" },
                 ]),
             });
         });
 
         // Mock Patch Alteration
         await page.route(`**/api/alterations/${ALTERATION.id}`, async (route) => {
-            if (route.request().method() === "PATCH") {
+            if (route.request().method() === "GET") {
+                alterationState = alterationWithTotals();
+                await route.fulfill({
+                    status: 200,
+                    contentType: "application/json",
+                    body: JSON.stringify(alterationState),
+                });
+            } else if (route.request().method() === "PATCH") {
                 const body = route.request().postDataJSON();
                 alterationState = {
-                    ...alterationState,
+                    ...alterationWithTotals(),
                     ...body,
-                    total_units_jacket: alterationItems
-                        .filter((item) => item.capacity_bucket === "jacket")
-                        .reduce((sum, item) => sum + item.units, 0),
-                    total_units_pant: alterationItems
-                        .filter((item) => item.capacity_bucket === "pant")
-                        .reduce((sum, item) => sum + item.units, 0),
                 };
                 await route.fulfill({
                     status: 200,
@@ -351,18 +394,17 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         // Phase 2: Schedule
         await expect(page.getByRole("heading", { name: "Capacity Outlook" })).toBeVisible();
         await expect(page.getByText("Requested work: 4 jacket units, 2 pant units.")).toBeVisible();
-        await expect(page.getByText("Next safe day: Friday, May 15.")).toBeVisible();
+        await expect(page.getByText(`Next safe day: ${capacityDateLabel(SAFE_WORK_DATE)}.`)).toBeVisible();
         await expect(page.getByText("1 day is over capacity in this window.")).toBeVisible();
         await expect(page.getByText("1 day has no alterations staff scheduled.")).toBeVisible();
         await expect(page.getByText("Thursdays require manual review.")).toBeVisible();
         await expect(page.getByText("Smart Work Day Suggestions")).toBeVisible();
 
-        // Select the first suggestion (May 15)
-        await page.getByRole("button", { name: /Friday/i }).first().click();
+        await page.getByRole("button", { name: suggestionButtonName(SAFE_WORK_DATE) }).click();
 
         // Verify card updated
         await expect(page.getByText("Work Day Scheduled")).toBeVisible();
-        await expect(page.getByText("5/15/2026")).toBeVisible();
+        await expect(page.getByText(displayDateKey(SAFE_WORK_DATE))).toBeVisible();
         await expect(
             page.getByText("Selected day: 5/28 jacket units, 2/24 pant units booked."),
         ).toBeVisible();

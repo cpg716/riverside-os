@@ -192,9 +192,9 @@ export default function UpdateManagerPanel() {
       setUpdateStep("extracting");
       const msg = await downloadAndRunServerInstaller(targetVersion);
       setUpdateStep("running_installer");
-      setUpdateLog(l => [...l, "Installer launched in elevated PowerShell window.", msg]);
+      setUpdateLog(l => [...l, msg]);
       setUpdateStep("done");
-      toast("Server update launched — monitor the PowerShell window.", "success");
+      toast("Main Hub update runner launched. Runner path and transcript are shown below.", "success");
     } catch (e) {
       setUpdateStep("error");
       setUpdateLog(l => [...l, `Error: ${String(e)}`]);
@@ -213,7 +213,13 @@ export default function UpdateManagerPanel() {
           : "Web browser",
     [tauriShellVersion],
   );
-  const stationLabel = stationConfig?.register?.stationLabel?.trim() ?? "";
+  const stationLabel = useMemo(() => {
+    const installerLabel = stationConfig?.register?.stationLabel?.trim();
+    if (installerLabel) return installerLabel;
+    if (serverLocalStatus?.is_local) return "Main Hub";
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem("ros.station.label")?.trim() ?? "";
+  }, [serverLocalStatus?.is_local, stationConfig?.register?.stationLabel]);
   const updateRole = useMemo(() => {
     if (serverLocalStatus?.is_local) {
       return {
@@ -441,8 +447,8 @@ export default function UpdateManagerPanel() {
                 This station did not finish updating. Close and reopen the
                 Windows app.{" "}
                 {serverLocalStatus?.is_local
-                  ? "If the server is behind, use the \"Update local server\" button in the Server Update section below."
-                  : "If the server is behind, go to the Backoffice / Server PC and use the Server Update section in Settings there."}
+                  ? "If the server is behind, use the Main Hub update button below."
+                  : "If the server is behind, go to the Main Hub and use the Main Hub Update section in Settings there."}
                 {" "}Diagnostic detail: {releaseDiagnostic}.
               </div>
             ) : null}
@@ -479,7 +485,7 @@ export default function UpdateManagerPanel() {
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
                 The Main Hub server must be updated to v{serverUpdateCheck?.latest_version} first.
-                Go to the Backoffice / Server PC and run the server update there before updating this station.
+                Go to the Main Hub and run the server update there before updating this station.
               </span>
             </div>
           )}
@@ -565,7 +571,7 @@ export default function UpdateManagerPanel() {
                 <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
                   {serverLocalStatus?.is_local
                     ? "This is the Main Hub. Runs the full release update: server/API, client app files, database migrations, ROSIE runtime assets, and the local desktop app."
-                    : "Go to the Main Hub (server PC) to run server updates."}
+                    : "Go to the Main Hub to run server updates."}
                 </p>
               </div>
             </div>
@@ -683,14 +689,14 @@ export default function UpdateManagerPanel() {
 
               {updateStep === "done" && (
                 <p className="text-xs text-emerald-700 font-semibold">
-                  Installer is running in the PowerShell window. Relaunch Riverside when it completes.
+                  Main Hub update runner launched. Use the runner/transcript path shown above if no elevated PowerShell window is visible. Relaunch Riverside after it completes.
                 </p>
               )}
             </div>
           ) : (
             <div className="mt-4 space-y-3">
               <div className="rounded-xl border border-app-border bg-app-surface-2/40 px-4 py-3 text-xs font-semibold leading-relaxed text-app-text-muted">
-                Go to the Main Hub (server PC) and open Settings → Updates to run the server update from there.
+                Go to the Main Hub and open Settings → Updates to run the server update from there.
               </div>
               <ol className="space-y-2 text-xs font-medium leading-relaxed text-app-text-muted">
                 {[

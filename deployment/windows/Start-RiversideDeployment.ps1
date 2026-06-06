@@ -390,7 +390,7 @@ function Refresh-ServerManagerStatus {
       return
     }
     if ($packageVersion -ne "unknown" -and $installedVersion -ne $packageVersion) {
-      $serverVerdictValue.Text = "Server update required. Run Update This Server PC."
+      $serverVerdictValue.Text = "Server update required. Run Update This Main Hub."
       return
     }
     if ($taskState -eq "missing") {
@@ -406,7 +406,7 @@ function Refresh-ServerManagerStatus {
 function Start-RiversideServerFromManager {
   $task = Get-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
   if (-not $task) {
-    throw "Riverside OS Server task is missing. Run Backoffice / Server Repair."
+    throw "Riverside OS Server task is missing. Run Main Hub Repair."
   }
   Add-Log "Starting Riverside OS Server task..."
   Start-ScheduledTask -TaskName "Riverside OS Server"
@@ -469,8 +469,8 @@ function Set-RoleControlState {
   }
   if ($serverMode) {
     $apiBaseText.Enabled = $true
-    $updateButton.Text = "Update This Server PC"
-    $repairButton.Text = "Repair Server"
+    $updateButton.Text = "Update This Main Hub"
+    $repairButton.Text = "Repair Main Hub"
   } else {
     $updateButton.Text = "Update This PC"
     $repairButton.Text = "Repair Settings"
@@ -480,7 +480,7 @@ function Set-RoleControlState {
 function Set-RoleDefaults {
   if ($serverRadio.Checked) {
     $apiBaseText.Text = "http://127.0.0.1:3000"
-    $stationLabelText.Text = "Backoffice / Server"
+    $stationLabelText.Text = "Main Hub"
     $cashDrawerCheck.Checked = $false
   } elseif ($registerRadio.Checked) {
     $apiBaseText.Text = Get-ServerApiBaseFromField
@@ -583,7 +583,7 @@ function Save-FormToConfig {
 
   if ($serverRadio.Checked) {
     $config.register.apiBase = "http://127.0.0.1:3000"
-    $config.register.stationLabel = "Backoffice / Server"
+    $config.register.stationLabel = "Main Hub"
     $config.register.cashDrawerEnabled = $false
   } else {
     $config.register.apiBase = Normalize-ApiBase $apiBaseText.Text
@@ -630,7 +630,7 @@ $roleGroup.Size = New-Object System.Drawing.Size(760, 74)
 $form.Controls.Add($roleGroup)
 
 $serverRadio = New-Object System.Windows.Forms.RadioButton
-$serverRadio.Text = "Backoffice / Server"
+$serverRadio.Text = "Main Hub"
 $serverRadio.Location = New-Object System.Drawing.Point(18, 30)
 $serverRadio.Size = New-Object System.Drawing.Size(180, 28)
 $serverRadio.Checked = $true
@@ -1056,13 +1056,13 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
 
   if ($Action -eq "Install" -or $Action -eq "Update") {
     if ($serverRadio.Checked) {
-      Add-Log "$Action This Backoffice / Server PC..."
+      Add-Log "$Action This Main Hub PC..."
       Invoke-Installer "install-server.ps1"
       Invoke-Installer "repair-bootstrap-admin.ps1"
       Add-Log "Server $($Action.ToLowerInvariant()) complete."
-      Add-Log "$Action Backoffice desktop app..."
-      Invoke-Installer "install-register.ps1"
-      Add-Log "Backoffice desktop app $($Action.ToLowerInvariant()) complete."
+      Add-Log "$Action Main Hub desktop app..."
+      Invoke-Installer "install-register.ps1" @("-StationMode", "mainhub")
+      Add-Log "Main Hub desktop app $($Action.ToLowerInvariant()) complete."
       Refresh-ServerManagerStatus
     } elseif ($registerRadio.Checked) {
       Add-Log "$Action Register #1..."
@@ -1078,12 +1078,12 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
 
   if ($Action -eq "Repair") {
     if ($serverRadio.Checked) {
-      Add-Log "Repairing This Backoffice / Server PC..."
+      Add-Log "Repairing This Main Hub PC..."
       Invoke-Installer "install-server.ps1"
       Invoke-Installer "repair-bootstrap-admin.ps1"
-      Add-Log "Repairing Backoffice desktop app..."
-      Invoke-Installer "install-register.ps1"
-      Add-Log "Backoffice / Server repair complete."
+      Add-Log "Repairing Main Hub desktop app..."
+      Invoke-Installer "install-register.ps1" @("-StationMode", "mainhub")
+      Add-Log "Main Hub repair complete."
       Refresh-ServerManagerStatus
     } else {
       Add-Log "Repairing workstation settings..."
@@ -1097,7 +1097,7 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
     if ($serverRadio.Checked) {
       $choice = [System.Windows.Forms.MessageBox]::Show(
         "This removes the Riverside server service, firewall rule, and app files from this PC. The database, backups, and logs are kept. Continue?",
-        "Uninstall Backoffice / Server",
+        "Uninstall Main Hub",
         "YesNo",
         "Warning"
       )

@@ -81,6 +81,7 @@ interface WeatherForecastPayload {
   days: ForecastDay[];
   current?: ForecastCurrent | null;
   source?: string;
+  location?: string;
 }
 
 
@@ -285,6 +286,7 @@ export default function RegisterDashboard({
 
   const todayWeather = forecast?.days?.[0];
   const current = forecast?.current;
+  const weatherLocationLabel = forecast?.location?.trim() || "Store weather";
   const cond = (current?.condition ?? todayWeather?.condition ?? "").toLowerCase();
   const WxIcon = cond.includes("snow") ? Snowflake : cond.includes("rain") ? CloudRain : cond.includes("cloud") ? Cloud : Sun;
 
@@ -523,7 +525,7 @@ export default function RegisterDashboard({
                  <div className="flex items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 px-4 py-4">
                     <div>
                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Buffalo, NY</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">{weatherLocationLabel}</span>
                           <div className={`h-1 w-1 rounded-full ${forecast?.source === "mock" ? "bg-app-warning" : "bg-app-success"}`} />
                           {forecast?.source === "mock" ? (
                             <span className="rounded-full border border-app-warning/30 bg-app-warning/12 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-warning">
@@ -532,10 +534,10 @@ export default function RegisterDashboard({
                           ) : null}
                        </div>
                        <p className="text-3xl font-bold text-app-text">
-                         {current != null ? `${current.temp.toFixed(0)}°` : todayWeather ? `${todayWeather.temp_high.toFixed(0)}°` : "72°"}
+                         {current != null ? `${current.temp.toFixed(0)}°` : todayWeather ? `${todayWeather.temp_high.toFixed(0)}°` : "—"}
                        </p>
                        <p className="text-xs font-bold text-app-text-muted uppercase tracking-widest mt-1">
-                         {cond || "Clear Skies"}
+                         {cond || "Weather unavailable"}
                        </p>
                        {forecast?.source === "mock" ? (
                          <p className="mt-2 max-w-[16rem] text-[11px] font-medium ui-caution-text">

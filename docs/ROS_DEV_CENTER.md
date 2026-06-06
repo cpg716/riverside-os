@@ -9,6 +9,7 @@ In v1 (v0.2.1), it is shipped as an embedded Back Office workspace at **Settings
 ## Purpose
 
 - Track system health (API/DB + key integrations).
+- Consolidate owner-facing readiness answers for daily opening and production/go-live certification.
 - Monitor all register workstations as a fleet.
 - Surface and triage operational alerts with acknowledgement state.
 - Execute sensitive maintenance actions through audited guardrails.
@@ -127,6 +128,27 @@ The panel is intentionally safe:
 - no secrets are returned
 - no mutations are triggered
 - the client-only API base is computed in the browser; the rest comes from `/api/ops/runtime-diagnostics`
+
+### Owner Readiness tab
+
+The embedded Operations Center includes a read-only **Readiness** tab. It does not create a second Operations Center and does not replace deployment, backup, QBO, Counterpoint, Help Center, or staff pilot signoff evidence.
+
+The tab answers two owner-facing questions:
+- **Daily Open Readiness:** whether Riverside OS can safely open and operate today.
+- **Go-Live / Production Certification:** whether this environment is certified for production rollout, a major release, or a new Register # station.
+
+Readiness reuses existing runtime signals where available:
+- `/api/ops/health/snapshot`
+- `/api/ops/stations`
+- `/api/ops/alerts`
+- `/api/ops/runtime-diagnostics`
+- existing Helcim, Counterpoint, bug-report, and integration health endpoints already loaded by `RosOperationsCenter`
+
+Where a required check has no authoritative runtime source, it is shown as **Manual signoff required** instead of being marked ready. Examples include QBO/accounting signoff, hardware stress evidence, backup restore drill proof, Help Center freshness, and staff pilot/go-no-go approval.
+
+Manual signoffs are persisted in `ops_readiness_signoffs` and are guarded by `ops.dev_center.actions`. A current signoff can only upgrade checks that are explicitly manual; it cannot override automated blocked/warning checks from payments, stations, alerts, Counterpoint, or database health.
+
+The tab can navigate to source tabs, copy the current diagnostics snapshot, and record manager-reviewed manual signoff evidence. It does not perform payments, inventory posting, accounting posting, deployment actions, or destructive maintenance.
 
 Related operator-visible fallback surfaces:
 - **Insights** shows an inline warning when automatic Metabase sign-in falls back to the normal Metabase login page.

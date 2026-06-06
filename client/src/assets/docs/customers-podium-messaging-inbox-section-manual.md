@@ -12,11 +12,11 @@ tags: customers, podium, messaging, inbox, communications
 
 ## Screenshots
 
-![Customers workspace](../images/help/customers-workspace/main.png)
+![Customers workspace](../images/help/customers-podium-messaging-inbox-section/customers-workspace.png)
 
-![Orders workspace](../images/help/orders-workspace/main.png)
+![Podium settings](../images/help/customers-podium-messaging-inbox-section/podium-settings.png)
 
-![Wedding lookup drawer](../images/help/pos/wedding-lookup-drawer.png)
+![Operations inbox context](../images/help/customers-podium-messaging-inbox-section/operations-inbox-context.png)
 
 ## What this is
 

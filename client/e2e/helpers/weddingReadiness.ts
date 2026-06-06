@@ -2,6 +2,7 @@ import { expect, type APIRequestContext } from "@playwright/test";
 import {
   apiBase,
   ensureSessionAuth,
+  staffCode,
   staffHeaders,
   verifyStaffId,
 } from "./rmsCharge";
@@ -192,6 +193,31 @@ export async function transitionLine(
   });
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
+export async function markLineReceived(
+  request: APIRequestContext,
+  lineId: string,
+  reason = "Phase 4 readiness item received before pickup prep",
+) {
+  await transitionLine(request, lineId, {
+    next_status: "received",
+    reason,
+  });
+}
+
+export async function markLineReadyForPickup(
+  request: APIRequestContext,
+  lineId: string,
+  reason = "Phase 4 readiness item ready after receipt",
+) {
+  await transitionLine(request, lineId, {
+    next_status: "ready_for_pickup",
+    override_checks: true,
+    manager_staff_code: staffCode(),
+    manager_pin: staffCode(),
+    reason,
+  });
 }
 
 export async function pickupLine(
