@@ -1875,6 +1875,119 @@ struct RmsChargeMarkReportedBody {
     note: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct CustomerRmsChargeStatusResponse {
+    has_account: bool,
+    accounts: Vec<CustomerRmsChargeProfileAccount>,
+}
+
+#[derive(Debug, Serialize)]
+struct CustomerRmsChargeProfileAccount {
+    masked_account: String,
+    status: String,
+    source: String,
+    is_primary: bool,
+    program_group: Option<String>,
+    current_balance: Option<Decimal>,
+    open_to_buy: Option<Decimal>,
+    minimum_due: Option<Decimal>,
+    past_due: Option<Decimal>,
+    import_payments: Option<Decimal>,
+    import_charges: Option<Decimal>,
+    import_returns: Option<Decimal>,
+    import_finance_charge: Option<Decimal>,
+    riverside_payment_total: Decimal,
+    riverside_charge_total: Decimal,
+    payment_reporting: CustomerRmsChargeReportingSummary,
+    charge_reporting: CustomerRmsChargeReportingSummary,
+    import_uploaded_at: Option<DateTime<Utc>>,
+    import_report_run_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+struct CustomerRmsChargeReportingSummary {
+    status: String,
+    total_count: i64,
+    reported_count: i64,
+    unreported_count: i64,
+    overdue_count: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RmsAccountListUnmatchedQuery {
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    limit: Option<i64>,
+    #[serde(default)]
+    offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+struct RmsAccountListUnmatchedRow {
+    id: Uuid,
+    masked_account: String,
+    account_year: Option<String>,
+    customer_name: Option<String>,
+    business_name: Option<String>,
+    address_line: Option<String>,
+    city: Option<String>,
+    state: Option<String>,
+    postal_code: Option<String>,
+    phone: Option<String>,
+    balance: Option<Decimal>,
+    minimum_due: Option<Decimal>,
+    past_due: Option<Decimal>,
+    open_to_buy: Option<Decimal>,
+    payments: Option<Decimal>,
+    charges: Option<Decimal>,
+    match_status: String,
+    match_method: Option<String>,
+    parser_warnings: Value,
+    batch_id: Uuid,
+    import_uploaded_at: DateTime<Utc>,
+    import_report_run_at: Option<DateTime<Utc>>,
+    source_filename: Option<String>,
+    total_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct RmsAccountListUnmatchedResponse {
+    items: Vec<RmsAccountListUnmatchedRow>,
+    total_count: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RmsAccountListManualMatchBody {
+    customer_id: Uuid,
+}
+
+#[derive(Debug, FromRow)]
+struct CustomerRmsChargeSnapshotRow {
+    account_number: String,
+    account_year: Option<String>,
+    current_balance: Option<Decimal>,
+    open_to_buy: Option<Decimal>,
+    minimum_due: Option<Decimal>,
+    past_due: Option<Decimal>,
+    import_payments: Option<Decimal>,
+    import_charges: Option<Decimal>,
+    import_returns: Option<Decimal>,
+    import_finance_charge: Option<Decimal>,
+    import_uploaded_at: DateTime<Utc>,
+    import_report_run_at: Option<DateTime<Utc>>,
+    riverside_payment_total: Decimal,
+    riverside_charge_total: Decimal,
+    payment_report_total_count: i64,
+    payment_reported_count: i64,
+    payment_unreported_count: i64,
+    payment_overdue_count: i64,
+    charge_report_total_count: i64,
+    charge_reported_count: i64,
+    charge_unreported_count: i64,
+    charge_overdue_count: i64,
+}
+
 #[derive(Debug, Serialize, FromRow)]
 struct RmsChargeRecordApiRow {
     id: Uuid,
@@ -2288,6 +2401,687 @@ async fn get_latest_rms_account_list_import(
         .await
         .map_err(CustomerError::Database)?;
     Ok(Json(response))
+}
+
+fn mask_customer_account_identifier(value: &str) -> String {
+    let last4: String = value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    if last4.is_empty() {
+        "Linked account".to_string()
+    } else {
+        format!("••••{last4}")
+    }
+}
+
+fn rms_customer_account_status(open_to_buy: Option<Decimal>, past_due: Option<Decimal>) -> String {
+    if past_due.unwrap_or(Decimal::ZERO) > Decimal::ZERO {
+        "past_due".to_string()
+    } else if open_to_buy.unwrap_or(Decimal::ZERO) <= Decimal::ZERO {
+        "no_open_to_buy".to_string()
+    } else {
+        "active".to_string()
+    }
+}
+
+fn rms_reporting_summary(
+    total_count: i64,
+    reported_count: i64,
+    unreported_count: i64,
+    overdue_count: i64,
+) -> CustomerRmsChargeReportingSummary {
+    let status = if total_count <= 0 {
+        "no_records"
+    } else if overdue_count > 0 {
+        "overdue"
+    } else if unreported_count > 0 && reported_count > 0 {
+        "mixed"
+    } else if unreported_count > 0 {
+        "unreported"
+    } else {
+        "reported"
+    };
+    CustomerRmsChargeReportingSummary {
+        status: status.to_string(),
+        total_count,
+        reported_count,
+        unreported_count,
+        overdue_count,
+    }
+}
+
+async fn get_customer_rms_charge_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+) -> Result<Json<CustomerRmsChargeStatusResponse>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
+        .bind(customer_id)
+        .fetch_one(&state.db)
+        .await?;
+    if !exists {
+        return Err(CustomerError::NotFound);
+    }
+
+    let linked_rows: Vec<(
+        String,
+        String,
+        bool,
+        Option<String>,
+        Option<Decimal>,
+        Option<Decimal>,
+        Decimal,
+        Decimal,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+    )> = sqlx::query_as(
+        r#"
+        SELECT
+            a.corecredit_account_id,
+            a.status,
+            a.is_primary,
+            a.program_group,
+            NULLIF(a.available_credit_snapshot, '')::numeric,
+            NULLIF(a.current_balance_snapshot, '')::numeric,
+            COALESCE((
+                SELECT SUM(r.amount)
+                FROM pos_rms_charge_record r
+                WHERE r.customer_id = a.customer_id
+                  AND r.record_kind = 'payment'
+                  AND r.linked_corecredit_account_id = a.corecredit_account_id
+                  AND r.posting_status NOT IN ('reversed', 'refunded')
+            ), 0)::numeric AS riverside_payment_total,
+            COALESCE((
+                SELECT SUM(r.amount)
+                FROM pos_rms_charge_record r
+                WHERE r.customer_id = a.customer_id
+                  AND r.record_kind = 'charge'
+                  AND r.linked_corecredit_account_id = a.corecredit_account_id
+                  AND r.posting_status NOT IN ('reversed', 'refunded')
+            ), 0)::numeric AS riverside_charge_total,
+            COALESCE(pay_report.total_count, 0)::bigint AS payment_report_total_count,
+            COALESCE(pay_report.reported_count, 0)::bigint AS payment_reported_count,
+            COALESCE(pay_report.unreported_count, 0)::bigint AS payment_unreported_count,
+            COALESCE(pay_report.overdue_count, 0)::bigint AS payment_overdue_count,
+            COALESCE(charge_report.total_count, 0)::bigint AS charge_report_total_count,
+            COALESCE(charge_report.reported_count, 0)::bigint AS charge_reported_count,
+            COALESCE(charge_report.unreported_count, 0)::bigint AS charge_unreported_count,
+            COALESCE(charge_report.overdue_count, 0)::bigint AS charge_overdue_count
+        FROM customer_corecredit_accounts a
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*)::bigint AS total_count,
+                COUNT(*) FILTER (WHERE report_status = 'reported')::bigint AS reported_count,
+                COUNT(*) FILTER (WHERE report_status = 'unreported' AND due_at >= now())::bigint AS unreported_count,
+                COUNT(*) FILTER (WHERE report_status = 'unreported' AND due_at < now())::bigint AS overdue_count
+            FROM (
+                SELECT
+                    CASE
+                        WHEN (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $2
+                        )
+                        THEN COALESCE(NULLIF(r.metadata_json->>'r2s_report_status', ''), 'unreported')
+                        ELSE 'not_required'
+                    END AS report_status,
+                    CASE
+                        WHEN (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $2
+                        )
+                        THEN COALESCE((NULLIF(r.metadata_json->>'r2s_report_due_at', ''))::timestamptz, r.created_at + interval '1 day')
+                        ELSE r.created_at
+                    END AS due_at
+                FROM pos_rms_charge_record r
+                WHERE r.customer_id = a.customer_id
+                  AND r.linked_corecredit_account_id = a.corecredit_account_id
+                  AND r.record_kind = 'payment'
+                  AND r.posting_status NOT IN ('reversed', 'refunded')
+            ) rows
+            WHERE report_status != 'not_required'
+        ) pay_report ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*)::bigint AS total_count,
+                COUNT(*) FILTER (WHERE report_status = 'reported')::bigint AS reported_count,
+                COUNT(*) FILTER (WHERE report_status = 'unreported' AND due_at >= now())::bigint AS unreported_count,
+                COUNT(*) FILTER (WHERE report_status = 'unreported' AND due_at < now())::bigint AS overdue_count
+            FROM (
+                SELECT
+                    CASE
+                        WHEN (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $2
+                        )
+                        THEN COALESCE(NULLIF(r.metadata_json->>'r2s_report_status', ''), 'unreported')
+                        ELSE 'not_required'
+                    END AS report_status,
+                    CASE
+                        WHEN (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $2
+                        )
+                        THEN COALESCE((NULLIF(r.metadata_json->>'r2s_report_due_at', ''))::timestamptz, r.created_at + interval '1 day')
+                        ELSE r.created_at
+                    END AS due_at
+                FROM pos_rms_charge_record r
+                WHERE r.customer_id = a.customer_id
+                  AND r.linked_corecredit_account_id = a.corecredit_account_id
+                  AND r.record_kind = 'charge'
+                  AND r.posting_status NOT IN ('reversed', 'refunded')
+            ) rows
+            WHERE report_status != 'not_required'
+        ) charge_report ON TRUE
+        WHERE a.customer_id = $1
+          AND lower(a.status) NOT IN ('closed', 'inactive')
+        ORDER BY a.is_primary DESC, a.updated_at DESC
+        "#,
+    )
+    .bind(customer_id)
+    .bind(rms_r2s_reporting_activation_cutoff())
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut linked_account_ids = HashSet::new();
+    let mut accounts: Vec<CustomerRmsChargeProfileAccount> = linked_rows
+        .into_iter()
+        .map(
+            |(
+                account_id,
+                status,
+                is_primary,
+                program_group,
+                open_to_buy,
+                current_balance,
+                riverside_payment_total,
+                riverside_charge_total,
+                payment_report_total_count,
+                payment_reported_count,
+                payment_unreported_count,
+                payment_overdue_count,
+                charge_report_total_count,
+                charge_reported_count,
+                charge_unreported_count,
+                charge_overdue_count,
+            )| {
+                linked_account_ids.insert(account_id.clone());
+                CustomerRmsChargeProfileAccount {
+                    masked_account: mask_customer_account_identifier(&account_id),
+                    status,
+                    source: "linked_account".to_string(),
+                    is_primary,
+                    program_group,
+                    current_balance,
+                    open_to_buy,
+                    minimum_due: None,
+                    past_due: None,
+                    import_payments: None,
+                    import_charges: None,
+                    import_returns: None,
+                    import_finance_charge: None,
+                    riverside_payment_total,
+                    riverside_charge_total,
+                    payment_reporting: rms_reporting_summary(
+                        payment_report_total_count,
+                        payment_reported_count,
+                        payment_unreported_count,
+                        payment_overdue_count,
+                    ),
+                    charge_reporting: rms_reporting_summary(
+                        charge_report_total_count,
+                        charge_reported_count,
+                        charge_unreported_count,
+                        charge_overdue_count,
+                    ),
+                    import_uploaded_at: None,
+                    import_report_run_at: None,
+                }
+            },
+        )
+        .collect();
+
+    let snapshot_rows: Vec<CustomerRmsChargeSnapshotRow> = sqlx::query_as(
+        r#"
+        WITH latest_batch AS (
+            SELECT id, uploaded_at, report_run_at
+            FROM rms_account_list_import_batches
+            WHERE status = 'imported'
+            ORDER BY uploaded_at DESC, created_at DESC
+            LIMIT 1
+        ),
+        target_customer AS (
+            SELECT NULLIF(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), '') AS phone_digits
+            FROM customers
+            WHERE id = $1
+        ),
+        unique_customer_phone AS (
+            SELECT phone_digits
+            FROM (
+                SELECT NULLIF(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), '') AS phone_digits
+                FROM customers
+            ) normalized
+            WHERE phone_digits IS NOT NULL
+            GROUP BY phone_digits
+            HAVING COUNT(*) = 1
+        )
+        SELECT
+            s.account_number,
+            s.account_year,
+            s.balance AS current_balance,
+            s.open_to_buy,
+            s.minimum_due,
+            s.past_due,
+            s.payments AS import_payments,
+            s.charges AS import_charges,
+            s.returns_amount AS import_returns,
+            s.finance_charge AS import_finance_charge,
+            b.uploaded_at AS import_uploaded_at,
+            b.report_run_at AS import_report_run_at,
+            COALESCE((
+                SELECT SUM(r.amount)
+                FROM pos_rms_charge_record r
+                WHERE r.customer_id = $1
+                  AND r.record_kind = 'payment'
+                  AND r.linked_corecredit_account_id = s.account_number
+                  AND r.posting_status NOT IN ('reversed', 'refunded')
+            ), 0)::numeric AS riverside_payment_total,
+            COALESCE((
+                SELECT SUM(r.amount)
+                FROM pos_rms_charge_record r
+                WHERE r.customer_id = $1
+                  AND r.record_kind = 'charge'
+                  AND r.linked_corecredit_account_id = s.account_number
+                  AND r.posting_status NOT IN ('reversed', 'refunded')
+            ), 0)::numeric AS riverside_charge_total,
+            COALESCE(pay_report.total_count, 0)::bigint AS payment_report_total_count,
+            COALESCE(pay_report.reported_count, 0)::bigint AS payment_reported_count,
+            COALESCE(pay_report.unreported_count, 0)::bigint AS payment_unreported_count,
+            COALESCE(pay_report.overdue_count, 0)::bigint AS payment_overdue_count,
+            COALESCE(charge_report.total_count, 0)::bigint AS charge_report_total_count,
+            COALESCE(charge_report.reported_count, 0)::bigint AS charge_reported_count,
+            COALESCE(charge_report.unreported_count, 0)::bigint AS charge_unreported_count,
+            COALESCE(charge_report.overdue_count, 0)::bigint AS charge_overdue_count
+        FROM rms_account_list_snapshots s
+        JOIN latest_batch b ON b.id = s.batch_id
+        LEFT JOIN target_customer c ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*)::bigint AS total_count,
+                COUNT(*) FILTER (WHERE report_status = 'reported')::bigint AS reported_count,
+                COUNT(*) FILTER (WHERE report_status = 'unreported' AND due_at >= now())::bigint AS unreported_count,
+                COUNT(*) FILTER (WHERE report_status = 'unreported' AND due_at < now())::bigint AS overdue_count
+            FROM (
+                SELECT
+                    CASE
+                        WHEN (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $2
+                        )
+                        THEN COALESCE(NULLIF(r.metadata_json->>'r2s_report_status', ''), 'unreported')
+                        ELSE 'not_required'
+                    END AS report_status,
+                    CASE
+                        WHEN (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $2
+                        )
+                        THEN COALESCE((NULLIF(r.metadata_json->>'r2s_report_due_at', ''))::timestamptz, r.created_at + interval '1 day')
+                        ELSE r.created_at
+                    END AS due_at
+                FROM pos_rms_charge_record r
+                WHERE r.customer_id = $1
+                  AND r.linked_corecredit_account_id = s.account_number
+                  AND r.record_kind = 'payment'
+                  AND r.posting_status NOT IN ('reversed', 'refunded')
+            ) rows
+            WHERE report_status != 'not_required'
+        ) pay_report ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*)::bigint AS total_count,
+                COUNT(*) FILTER (WHERE report_status = 'reported')::bigint AS reported_count,
+                COUNT(*) FILTER (WHERE report_status = 'unreported' AND due_at >= now())::bigint AS unreported_count,
+                COUNT(*) FILTER (WHERE report_status = 'unreported' AND due_at < now())::bigint AS overdue_count
+            FROM (
+                SELECT
+                    CASE
+                        WHEN (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $2
+                        )
+                        THEN COALESCE(NULLIF(r.metadata_json->>'r2s_report_status', ''), 'unreported')
+                        ELSE 'not_required'
+                    END AS report_status,
+                    CASE
+                        WHEN (
+                            lower(COALESCE(NULLIF(r.metadata_json->>'r2s_reporting_required', ''), 'false')) = 'true'
+                            OR r.metadata_json ? 'r2s_report_status'
+                            OR r.created_at >= $2
+                        )
+                        THEN COALESCE((NULLIF(r.metadata_json->>'r2s_report_due_at', ''))::timestamptz, r.created_at + interval '1 day')
+                        ELSE r.created_at
+                    END AS due_at
+                FROM pos_rms_charge_record r
+                WHERE r.customer_id = $1
+                  AND r.linked_corecredit_account_id = s.account_number
+                  AND r.record_kind = 'charge'
+                  AND r.posting_status NOT IN ('reversed', 'refunded')
+            ) rows
+            WHERE report_status != 'not_required'
+        ) charge_report ON TRUE
+        WHERE s.matched_customer_id = $1
+           OR (
+                s.matched_customer_id IS NULL
+                AND s.normalized_phone IS NOT NULL
+                AND s.normalized_phone = c.phone_digits
+                AND EXISTS (
+                    SELECT 1
+                    FROM unique_customer_phone u
+                    WHERE u.phone_digits = c.phone_digits
+                )
+           )
+        ORDER BY
+            CASE WHEN s.matched_customer_id = $1 THEN 0 ELSE 1 END,
+            s.balance DESC NULLS LAST,
+            s.account_number ASC
+        "#,
+    )
+    .bind(customer_id)
+    .bind(rms_r2s_reporting_activation_cutoff())
+    .fetch_all(&state.db)
+    .await?;
+
+    for row in snapshot_rows {
+        if linked_account_ids.contains(&row.account_number) {
+            continue;
+        }
+        accounts.push(CustomerRmsChargeProfileAccount {
+            masked_account: mask_customer_account_identifier(&row.account_number),
+            status: rms_customer_account_status(row.open_to_buy, row.past_due),
+            source: "weekly_import".to_string(),
+            is_primary: accounts.is_empty(),
+            program_group: row.account_year,
+            current_balance: row.current_balance,
+            open_to_buy: row.open_to_buy,
+            minimum_due: row.minimum_due,
+            past_due: row.past_due,
+            import_payments: row.import_payments,
+            import_charges: row.import_charges,
+            import_returns: row.import_returns,
+            import_finance_charge: row.import_finance_charge,
+            riverside_payment_total: row.riverside_payment_total,
+            riverside_charge_total: row.riverside_charge_total,
+            payment_reporting: rms_reporting_summary(
+                row.payment_report_total_count,
+                row.payment_reported_count,
+                row.payment_unreported_count,
+                row.payment_overdue_count,
+            ),
+            charge_reporting: rms_reporting_summary(
+                row.charge_report_total_count,
+                row.charge_reported_count,
+                row.charge_unreported_count,
+                row.charge_overdue_count,
+            ),
+            import_uploaded_at: Some(row.import_uploaded_at),
+            import_report_run_at: row.import_report_run_at,
+        });
+    }
+
+    Ok(Json(CustomerRmsChargeStatusResponse {
+        has_account: !accounts.is_empty(),
+        accounts,
+    }))
+}
+
+async fn list_rms_account_list_unmatched(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<RmsAccountListUnmatchedQuery>,
+) -> Result<Json<RmsAccountListUnmatchedResponse>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+    let limit = q.limit.unwrap_or(25).clamp(1, 100);
+    let offset = q.offset.unwrap_or(0).max(0);
+    let search =
+        q.q.as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                format!(
+                    "%{}%",
+                    value
+                        .replace('\\', "\\\\")
+                        .replace('%', "\\%")
+                        .replace('_', "\\_")
+                )
+            });
+
+    let rows: Vec<RmsAccountListUnmatchedRow> = sqlx::query_as(
+        r#"
+        WITH latest_batch AS (
+            SELECT id, uploaded_at, report_run_at, source_filename
+            FROM rms_account_list_import_batches
+            WHERE status = 'imported'
+            ORDER BY uploaded_at DESC, created_at DESC
+            LIMIT 1
+        )
+        SELECT
+            s.id,
+            CASE
+                WHEN NULLIF(regexp_replace(s.account_number, '[^[:alnum:]]', '', 'g'), '') IS NULL
+                THEN 'Linked account'
+                ELSE '••••' || right(regexp_replace(s.account_number, '[^[:alnum:]]', '', 'g'), 4)
+            END AS masked_account,
+            s.account_year,
+            s.customer_name,
+            s.business_name,
+            s.address_line,
+            s.city,
+            s.state,
+            s.postal_code,
+            s.phone,
+            s.balance,
+            s.minimum_due,
+            s.past_due,
+            s.open_to_buy,
+            s.payments,
+            s.charges,
+            s.match_status,
+            s.match_method,
+            s.parser_warnings,
+            s.batch_id,
+            b.uploaded_at AS import_uploaded_at,
+            b.report_run_at AS import_report_run_at,
+            b.source_filename,
+            COUNT(*) OVER()::bigint AS total_count
+        FROM rms_account_list_snapshots s
+        JOIN latest_batch b ON b.id = s.batch_id
+        WHERE s.matched_customer_id IS NULL
+          AND s.match_status <> 'matched'
+          AND (
+            $1::text IS NULL
+            OR s.account_number ILIKE $1 ESCAPE '\'
+            OR COALESCE(s.customer_name, '') ILIKE $1 ESCAPE '\'
+            OR COALESCE(s.business_name, '') ILIKE $1 ESCAPE '\'
+            OR COALESCE(s.phone, '') ILIKE $1 ESCAPE '\'
+            OR COALESCE(s.address_line, '') ILIKE $1 ESCAPE '\'
+          )
+        ORDER BY
+            CASE WHEN COALESCE(s.balance, 0) <> 0 OR COALESCE(s.past_due, 0) <> 0 THEN 0 ELSE 1 END,
+            s.customer_name ASC NULLS LAST,
+            s.account_number ASC
+        LIMIT $2 OFFSET $3
+        "#,
+    )
+    .bind(search)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await?;
+    let total_count = rows.first().map(|row| row.total_count).unwrap_or(0);
+    Ok(Json(RmsAccountListUnmatchedResponse {
+        items: rows,
+        total_count,
+    }))
+}
+
+async fn match_rms_account_list_snapshot(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(snapshot_id): Path<Uuid>,
+    Json(body): Json<RmsAccountListManualMatchBody>,
+) -> Result<Json<RmsAccountListUnmatchedResponse>, CustomerError> {
+    let staff = require_rms_charge_manage_staff(&state, &headers).await?;
+    let mut tx = state.db.begin().await?;
+    let customer_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
+            .bind(body.customer_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if !customer_exists {
+        return Err(CustomerError::NotFound);
+    }
+
+    let snapshot: Option<(
+        Uuid,
+        String,
+        Option<String>,
+        Option<Decimal>,
+        Option<Decimal>,
+        Option<Decimal>,
+        Option<Decimal>,
+    )> = sqlx::query_as(
+        r#"
+        SELECT id, account_number, account_year, open_to_buy, balance, past_due, minimum_due
+        FROM rms_account_list_snapshots
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(snapshot_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((_id, account_number, account_year, open_to_buy, balance, past_due, _minimum_due)) =
+        snapshot
+    else {
+        return Err(CustomerError::NotFound);
+    };
+
+    sqlx::query(
+        r#"
+        UPDATE rms_account_list_snapshots
+        SET matched_customer_id = $2,
+            match_status = 'matched',
+            match_confidence = 1.00,
+            match_method = 'manual'
+        WHERE id = $1
+        "#,
+    )
+    .bind(snapshot_id)
+    .bind(body.customer_id)
+    .execute(&mut *tx)
+    .await?;
+
+    let should_be_primary: bool = sqlx::query_scalar(
+        r#"
+        SELECT NOT EXISTS (
+            SELECT 1
+            FROM customer_corecredit_accounts
+            WHERE customer_id = $1
+              AND lower(status) NOT IN ('closed', 'inactive')
+        )
+        "#,
+    )
+    .bind(body.customer_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if should_be_primary {
+        sqlx::query(
+            "UPDATE customer_corecredit_accounts SET is_primary = false, updated_at = now() WHERE customer_id = $1",
+        )
+        .bind(body.customer_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO customer_corecredit_accounts (
+            customer_id,
+            corecredit_customer_id,
+            corecredit_account_id,
+            status,
+            is_primary,
+            program_group,
+            last_verified_at,
+            verified_by_staff_id,
+            verification_source,
+            notes,
+            available_credit_snapshot,
+            current_balance_snapshot,
+            past_due_snapshot,
+            last_balance_sync_at,
+            last_status_sync_at,
+            updated_at
+        )
+        VALUES (
+            $1, $2, $2, $3, $4, $5, now(), $6, 'rms_account_list_manual_match',
+            'Linked from weekly RMS Charge account-list import.',
+            $7, $8, $9, now(), now(), now()
+        )
+        ON CONFLICT (customer_id, corecredit_account_id) DO UPDATE
+        SET status = EXCLUDED.status,
+            program_group = EXCLUDED.program_group,
+            last_verified_at = now(),
+            verified_by_staff_id = EXCLUDED.verified_by_staff_id,
+            verification_source = EXCLUDED.verification_source,
+            notes = EXCLUDED.notes,
+            available_credit_snapshot = EXCLUDED.available_credit_snapshot,
+            current_balance_snapshot = EXCLUDED.current_balance_snapshot,
+            past_due_snapshot = EXCLUDED.past_due_snapshot,
+            last_balance_sync_at = now(),
+            last_status_sync_at = now(),
+            updated_at = now()
+        "#,
+    )
+    .bind(body.customer_id)
+    .bind(&account_number)
+    .bind(rms_customer_account_status(open_to_buy, past_due))
+    .bind(should_be_primary)
+    .bind(account_year)
+    .bind(staff.id)
+    .bind(open_to_buy.map(|value| format!("{value:.2}")))
+    .bind(balance.map(|value| format!("{value:.2}")))
+    .bind(past_due.map(|value| format!("{value:.2}")))
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(Json(RmsAccountListUnmatchedResponse {
+        items: Vec::new(),
+        total_count: 0,
+    }))
 }
 
 async fn list_rms_charge_records(
@@ -2843,6 +3637,18 @@ pub fn router() -> Router<AppState> {
         .route(
             "/rms-charge/account-list/latest",
             get(get_latest_rms_account_list_import),
+        )
+        .route(
+            "/rms-charge/account-list/unmatched",
+            get(list_rms_account_list_unmatched),
+        )
+        .route(
+            "/rms-charge/account-list/snapshots/{snapshot_id}/match",
+            post(match_rms_account_list_snapshot),
+        )
+        .route(
+            "/{customer_id}/rms-charge/status",
+            get(get_customer_rms_charge_status),
         )
         .route("/groups", get(list_customer_groups))
         .route(

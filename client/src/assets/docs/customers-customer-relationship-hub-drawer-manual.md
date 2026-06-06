@@ -48,9 +48,17 @@ This applies to Transaction Records, fulfillment-order work, alterations, loyalt
 
 ## Linked profiles
 
+Use **Link a Partner** to search for an existing Riverside customer first. If the partner does not already have a customer profile, use **Add new customer instead** to create and link the new record.
+
 When two profiles are linked, use **Person view** to switch between each person. Profile details, measurements, Podium SMS, mailbox email, and contact preferences stay tied to the selected person. Transaction Records, purchase history, and loyalty are shared while the profiles remain linked.
 
 When linked profiles are split, the parent profile retains joined purchase history. The separated profile keeps its own contact details, measurements, messages, and a timeline note that points staff to the parent profile for pre-split purchase history.
+
+## RMS Charge status
+
+Use the **RMS Charge** card on the Profile tab to confirm whether the customer has an RMS Charge account on file, review account balance details from the latest weekly account import, compare imported payment/charge totals with Riverside RMS activity, and see whether RMS Charge and RMS Payment records have been reported.
+
+Use the all-customer **RMS Charge** workspace from Customers when staff need account-list uploads, reconciliation, records, or detailed RMS Charge review.
 
 ## Working with degraded sections
 

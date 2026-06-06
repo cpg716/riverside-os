@@ -12,7 +12,7 @@ import { ClipboardCheck, RefreshCw, Upload, FileSpreadsheet, CheckCircle2, Alert
 const baseUrl = getBaseUrl();
 const PAGE = 100;
 
-function fmtMoney(s?: string | null) {
+function fmtMoney(s?: string | number | null) {
   const t = String(s ?? "").trim();
   if (!t) return "—";
   const normalized = t.replace(/,/g, "");
@@ -172,6 +172,37 @@ interface AccountListPreviewResponse {
   sample_accounts: AccountListPreviewAccount[];
 }
 
+interface RmsAccountListUnmatchedRow {
+  id: string;
+  masked_account: string;
+  account_year?: string | null;
+  customer_name?: string | null;
+  business_name?: string | null;
+  address_line?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  phone?: string | null;
+  balance?: string | number | null;
+  minimum_due?: string | number | null;
+  past_due?: string | number | null;
+  open_to_buy?: string | number | null;
+  payments?: string | number | null;
+  charges?: string | number | null;
+  match_status: string;
+  match_method?: string | null;
+  parser_warnings: unknown;
+  batch_id: string;
+  import_uploaded_at: string;
+  import_report_run_at?: string | null;
+  source_filename?: string | null;
+}
+
+interface RmsAccountListUnmatchedResponse {
+  items: RmsAccountListUnmatchedRow[];
+  total_count: number;
+}
+
 export interface RmsChargeAdminSectionProps {
   surface: "pos" | "backoffice";
   onOpenTransactionInBackoffice?: (transactionId: string) => void;
@@ -189,6 +220,10 @@ export default function RmsChargeAdminSection({
   const canReportToR2s =
     hasPermission("rms_charge.report_to_r2s") ||
     hasPermission("customers.rms_charge.reporting") ||
+    hasPermission("customers.rms_charge");
+
+  const canManageLinks =
+    hasPermission("customers.rms_charge.manage_links") ||
     hasPermission("customers.rms_charge");
 
   const apiAuth = useCallback(
@@ -228,6 +263,11 @@ export default function RmsChargeAdminSection({
   const [uploading, setUploading] = useState(false);
   const [previewData, setPreviewData] = useState<AccountListPreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [unmatchedRows, setUnmatchedRows] = useState<RmsAccountListUnmatchedRow[]>([]);
+  const [unmatchedTotal, setUnmatchedTotal] = useState(0);
+  const [unmatchedLoading, setUnmatchedLoading] = useState(false);
+  const [unmatchedSearch, setUnmatchedSearch] = useState("");
+  const [matchingSnapshotId, setMatchingSnapshotId] = useState<string | null>(null);
 
   const fetchLatestImport = useCallback(async () => {
     setLoadingLatest(true);
@@ -245,11 +285,62 @@ export default function RmsChargeAdminSection({
     }
   }, [apiAuth]);
 
+  const fetchUnmatchedRows = useCallback(async () => {
+    setUnmatchedLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "25");
+      if (unmatchedSearch.trim()) params.set("q", unmatchedSearch.trim());
+      const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/unmatched?${params.toString()}`, {
+        headers: apiAuth(),
+      });
+      const data = (await res.json().catch(() => ({}))) as Partial<RmsAccountListUnmatchedResponse> & {
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Could not load unmatched RMS accounts");
+      setUnmatchedRows(Array.isArray(data.items) ? data.items : []);
+      setUnmatchedTotal(Number(data.total_count ?? 0));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not load unmatched RMS accounts", "error");
+      setUnmatchedRows([]);
+      setUnmatchedTotal(0);
+    } finally {
+      setUnmatchedLoading(false);
+    }
+  }, [apiAuth, toast, unmatchedSearch]);
+
   useEffect(() => {
     if (activeTab === "import") {
       void fetchLatestImport();
+      void fetchUnmatchedRows();
     }
-  }, [activeTab, fetchLatestImport]);
+  }, [activeTab, fetchLatestImport, fetchUnmatchedRows]);
+
+  const matchImportedAccount = useCallback(
+    async (snapshotId: string, customer: Customer) => {
+      if (!canManageLinks) return;
+      setMatchingSnapshotId(snapshotId);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/customers/rms-charge/account-list/snapshots/${encodeURIComponent(snapshotId)}/match`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...apiAuth() },
+            body: JSON.stringify({ customer_id: customer.id }),
+          },
+        );
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(body.error ?? "Could not match RMS account");
+        toast(`Matched RMS account to ${customer.first_name} ${customer.last_name}.`, "success");
+        await Promise.all([fetchLatestImport(), fetchUnmatchedRows()]);
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Could not match RMS account", "error");
+      } finally {
+        setMatchingSnapshotId(null);
+      }
+    },
+    [apiAuth, canManageLinks, fetchLatestImport, fetchUnmatchedRows, toast],
+  );
 
   const handlePreview = async (file: File) => {
     setUploading(true);
@@ -950,6 +1041,100 @@ export default function RmsChargeAdminSection({
               ) : (
                 <div className="p-4 rounded-xl border border-dotted border-app-border bg-app-surface/20 text-center text-xs text-app-text-muted">
                   No Excel list has been imported yet.
+                </div>
+              )}
+            </div>
+
+            <div className="ui-card p-6">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-app-text-muted">
+                    Unmatched Accounts
+                  </h3>
+                  <p className="mt-1 text-[11px] text-app-text-muted">
+                    Match imported RMS accounts that did not automatically link to a Riverside customer.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={unmatchedLoading}
+                  onClick={() => void fetchUnmatchedRows()}
+                  className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs"
+                >
+                  <RefreshCw size={14} className={unmatchedLoading ? "animate-spin" : ""} />
+                  Refresh
+                </button>
+              </div>
+              <div className="mb-4">
+                <input
+                  value={unmatchedSearch}
+                  onChange={(event) => setUnmatchedSearch(event.target.value)}
+                  placeholder="Search unmatched account, name, phone, or address..."
+                  className="ui-input w-full py-2 text-xs font-semibold normal-case"
+                />
+              </div>
+              {unmatchedLoading ? (
+                <div className="flex items-center gap-2 text-sm text-app-text-muted">
+                  <Loader2 size={16} className="animate-spin" />
+                  Loading unmatched accounts...
+                </div>
+              ) : unmatchedRows.length === 0 ? (
+                <div className="rounded-xl border border-dotted border-app-border bg-app-surface/20 p-4 text-center text-xs text-app-text-muted">
+                  {latestImport?.latest ? "No unmatched accounts in the latest import." : "Upload an account list to review unmatched accounts."}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Showing {unmatchedRows.length} of {unmatchedTotal}
+                  </div>
+                  {unmatchedRows.map((row) => (
+                    <div
+                      key={row.id}
+                      className="rounded-xl border border-app-border bg-app-surface-2 p-4"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="font-black text-app-text">
+                            {row.customer_name || row.business_name || "Unnamed RMS account"}
+                          </div>
+                          <div className="mt-1 font-mono text-[11px] font-bold text-app-text-muted">
+                            {row.masked_account}
+                            {row.account_year ? ` · ${row.account_year}` : ""}
+                          </div>
+                          <div className="mt-2 text-[11px] leading-relaxed text-app-text-muted">
+                            {[row.phone, row.address_line, row.city, row.state, row.postal_code]
+                              .filter(Boolean)
+                              .join(" · ") || "No phone or address imported"}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-right text-[11px]">
+                          <span className="text-app-text-muted">Balance</span>
+                          <span className="font-mono font-bold text-app-text">{fmtMoney(row.balance)}</span>
+                          <span className="text-app-text-muted">Open to buy</span>
+                          <span className="font-mono font-bold text-app-text">{fmtMoney(row.open_to_buy)}</span>
+                          <span className="text-app-text-muted">Past due</span>
+                          <span className="font-mono font-bold text-rose-600">{fmtMoney(row.past_due)}</span>
+                        </div>
+                      </div>
+                      <div className="mt-4 rounded-xl border border-app-border bg-app-surface p-3">
+                        <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Match to Riverside customer
+                        </div>
+                        {canManageLinks ? (
+                          <CustomerSearchInput
+                            key={row.id}
+                            disabled={matchingSnapshotId === row.id}
+                            placeholder="Search customer by name, phone, email, or code..."
+                            onSelect={(customer) => void matchImportedAccount(row.id, customer)}
+                          />
+                        ) : (
+                          <p className="text-xs text-app-text-muted">
+                            RMS Charge link permission is needed to match imported accounts.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

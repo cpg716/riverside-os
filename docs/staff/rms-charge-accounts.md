@@ -29,6 +29,20 @@ Important rules:
 - removing a link changes Riverside's customer relationship only; it does not change the RMS Charge account itself
 - link and unlink corrections are recorded in the staff audit trail
 
+## Weekly import matching
+
+The weekly RMS/R2S Account List import tries to match accounts to Riverside customers by unique phone number. Accounts that cannot be matched automatically appear in **Customers → RMS Charge → Weekly Account Import → Unmatched Accounts**.
+
+Use the unmatched queue to:
+
+- review the imported account name, masked account, phone, address, balance, open-to-buy, and past-due amount
+- search for the correct Riverside customer
+- manually match the imported account to that customer
+
+Manual matching updates the imported snapshot and creates or refreshes the Riverside RMS account link. After the match, the account can appear in the Customer Profile RMS Charge card and in POS RMS account resolution.
+
+Do not match from name alone. Confirm phone, address, and profile context before selecting a customer.
+
 ## Manual account review
 
 Day-to-day account review in Customer → RMS Charge is manual-first. Do not use account links, balances, or programs as proof that external RMS posting happened automatically.
@@ -57,8 +71,9 @@ Day-to-day account review in Customer → RMS Charge is manual-first. Do not use
 1. Confirm the correct customer is attached.
 2. Check whether a duplicate or wrong customer profile was used.
 3. Check whether the customer should already have a linked RMS account.
-4. If the customer truly has no linked account in Riverside, do not force the sale through RMS Charge.
-5. Escalate to trained sales support or a manager to review linking and verification.
+4. Review the RMS Charge unmatched import queue for a weekly-import account that needs manual matching.
+5. If the customer truly has no linked account in Riverside, do not force the sale through RMS Charge.
+6. Escalate to trained sales support or a manager to review linking and verification.
 
 ## What not to do
 

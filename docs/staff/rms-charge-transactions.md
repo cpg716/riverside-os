@@ -38,6 +38,8 @@ It does **not**:
 - create ledger rows
 - post anything to R2S, external RMS systems, or QBO
 
+After each import, review **Unmatched Accounts** in the same workspace. Manual matching links an imported RMS account to the correct Riverside customer so Customer Profile, POS RMS account resolution, and RMS transaction review use the same account reference.
+
 RMS Charge remains the source of truth for operational financing activity. Imported Account List balances should be read as `Last imported balance` and `Last imported open-to-buy`, not live balances.
 
 If the weekly upload is older than seven days, Riverside creates a reminder titled `Upload weekly RMS Charge account list` for staff who manage RMS Charge reporting.

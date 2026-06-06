@@ -26,6 +26,7 @@ Use this workspace when a customer has an RMS Charge account and staff need to:
 - review available credit, current balance, and recent RMS activity
 - check whether Riverside posted a purchase or payment successfully
 - work an open issue or review reconciliation differences
+- review unmatched weekly import accounts and match them to the correct Riverside customer
 
 Back Office staff use the full workspace. POS staff only see the limited RMS-safe view allowed by their role.
 
@@ -66,6 +67,7 @@ Move here when the question becomes RMS-specific:
 4. Use `Transactions` when you need to review a specific RMS purchase or payment.
 5. Use `Exceptions` for failed or stale RMS issues.
 6. Use `Reconciliation` when finance or support needs to review a mismatch between Riverside, R2S, and accounting expectations.
+7. Use `Weekly Account Import` → `Unmatched Accounts` after each upload to resolve imported accounts that did not automatically match.
 
 ## What each section tells you
 
@@ -79,6 +81,14 @@ The account cards show:
 - last verification time
 
 If no account is linked, stop and verify that the correct customer profile is selected before promising RMS financing or payment collection.
+
+### Weekly Account Import
+
+Use this area to preview and commit the weekly RMS/R2S Account List report. After the import, review `Unmatched Accounts`.
+
+Unmatched rows are imported accounts that could not be linked automatically by a unique phone match. Search for the correct Riverside customer in each row and select them to create the manual match. Manual matching updates the imported snapshot and creates or refreshes the Riverside RMS account link for that customer.
+
+Do not match from name alone. Confirm phone, address, and customer profile context before selecting a customer.
 
 ### Overview
 

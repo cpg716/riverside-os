@@ -299,6 +299,38 @@ function customerTimelineKindLabel(kind: string): string {
   }
 }
 
+function rmsReportingStatusLabel(status: string): string {
+  switch (status) {
+    case "reported":
+      return "Reported";
+    case "unreported":
+      return "Unreported";
+    case "overdue":
+      return "Overdue";
+    case "mixed":
+      return "Mixed";
+    case "no_records":
+      return "No records";
+    default:
+      return humanizeToken(status);
+  }
+}
+
+function rmsReportingStatusClassName(status: string): string {
+  switch (status) {
+    case "reported":
+      return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700";
+    case "unreported":
+      return "border-amber-500/25 bg-amber-500/10 text-amber-800";
+    case "overdue":
+      return "border-rose-500/25 bg-rose-500/10 text-rose-700";
+    case "mixed":
+      return "border-sky-500/25 bg-sky-500/10 text-sky-700";
+    default:
+      return "border-app-border bg-app-surface-2 text-app-text-muted";
+  }
+}
+
 /** Server: `inbound` = customer; `automated` = system templates; `outbound` = ROS staff or integration sender name. */
 function podiumThreadSentByLabel(m: {
   direction: string;
@@ -388,6 +420,41 @@ interface CustomerOpenSummary {
   orders: number | null;
   layaways: number | null;
   alterations: number | null;
+}
+
+interface CustomerRmsChargeStatus {
+  has_account: boolean;
+  accounts: CustomerRmsChargeProfileAccount[];
+}
+
+interface CustomerRmsChargeProfileAccount {
+  masked_account: string;
+  status: string;
+  source: string;
+  is_primary: boolean;
+  program_group?: string | null;
+  current_balance?: string | number | null;
+  open_to_buy?: string | number | null;
+  minimum_due?: string | number | null;
+  past_due?: string | number | null;
+  import_payments?: string | number | null;
+  import_charges?: string | number | null;
+  import_returns?: string | number | null;
+  import_finance_charge?: string | number | null;
+  riverside_payment_total: string | number;
+  riverside_charge_total: string | number;
+  payment_reporting: CustomerRmsChargeReportingSummary;
+  charge_reporting: CustomerRmsChargeReportingSummary;
+  import_uploaded_at?: string | null;
+  import_report_run_at?: string | null;
+}
+
+interface CustomerRmsChargeReportingSummary {
+  status: string;
+  total_count: number;
+  reported_count: number;
+  unreported_count: number;
+  overdue_count: number;
 }
 
 interface LoyaltyLedgerEntry {
@@ -536,6 +603,9 @@ export function CustomerRelationshipHubDrawer({
   const canOrdersView = hasPermission("orders.view");
   const canShipmentsView = hasPermission("shipments.view");
   const canAlterationsView = hasPermission("alterations.manage");
+  const canRmsChargeView =
+    hasPermission("customers.rms_charge") ||
+    hasPermission("customers.rms_charge.view");
   const isCompactHub = useMediaQuery("(max-width: 1279px)");
   const backofficeOrderOpener =
     onOpenOrderInBackoffice ?? onOpenTransactionInBackoffice;
@@ -561,6 +631,10 @@ export function CustomerRelationshipHubDrawer({
     layaways: null,
     alterations: null,
   });
+  const [rmsChargeStatus, setRmsChargeStatus] =
+    useState<CustomerRmsChargeStatus | null>(null);
+  const [rmsChargeStatusLoading, setRmsChargeStatusLoading] = useState(false);
+  const [rmsChargeStatusError, setRmsChargeStatusError] = useState<string | null>(null);
   const [loyaltyLedger, setLoyaltyLedger] = useState<LoyaltyLedgerEntry[]>([]);
   const [loyaltyIssuances, setLoyaltyIssuances] = useState<LoyaltyIssuanceRow[]>([]);
   const [loyaltyCardActivity, setLoyaltyCardActivity] = useState<LoyaltyCardActivity[]>([]);
@@ -684,8 +758,6 @@ export function CustomerRelationshipHubDrawer({
   const appliedInitialHubTab = useRef<string | null>(null);
   const [coupleLinkingBusy, setCoupleLinkingBusy] = useState(false);
   const [unlinkConfirmOpen, setUnlinkConfirmOpen] = useState(false);
-  /** When true, shows the couple partner selection popover/modal. */
-  const [showCouplePicker, setShowCouplePicker] = useState(false);
   const [showCreatePartner, setShowCreatePartner] = useState(false);
   const [partnerDraft, setPartnerDraft] = useState({
     first_name: "",
@@ -792,6 +864,33 @@ export function CustomerRelationshipHubDrawer({
       setLoading(false);
     }
   }, [baseUrl, customer.id, apiAuth]);
+
+  const loadRmsChargeStatus = useCallback(async () => {
+    if (!canRmsChargeView) return;
+    setRmsChargeStatusLoading(true);
+    setRmsChargeStatusError(null);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/${customer.id}/rms-charge/status`,
+        { headers: apiAuth() },
+      );
+      const data = (await res.json().catch(() => ({}))) as CustomerRmsChargeStatus & {
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Could not load RMS Charge status.");
+      setRmsChargeStatus({
+        has_account: Boolean(data.has_account),
+        accounts: Array.isArray(data.accounts) ? data.accounts : [],
+      });
+    } catch (error) {
+      setRmsChargeStatus(null);
+      setRmsChargeStatusError(
+        error instanceof Error ? error.message : "Could not load RMS Charge status.",
+      );
+    } finally {
+      setRmsChargeStatusLoading(false);
+    }
+  }, [apiAuth, baseUrl, canRmsChargeView, customer.id]);
 
   const syncPodiumContact = useCallback(async () => {
     setContactSyncBusy(true);
@@ -1148,6 +1247,8 @@ export function CustomerRelationshipHubDrawer({
       setCustomerAlterationsLoadError(null);
       setLoyaltyLoadError(null);
       setPodiumThreadLoadError(null);
+      setRmsChargeStatus(null);
+      setRmsChargeStatusError(null);
       return;
     }
     if (!permissionsLoaded) {
@@ -1166,6 +1267,8 @@ export function CustomerRelationshipHubDrawer({
       setCustomerAlterationsLoadError(null);
       setLoyaltyLoadError(null);
       setPodiumThreadLoadError(null);
+      setRmsChargeStatus(null);
+      setRmsChargeStatusError(null);
       setTab("profile");
       setNoteDraft("");
       return;
@@ -1183,6 +1286,12 @@ export function CustomerRelationshipHubDrawer({
         setTimelineLoadError(null);
       }
       void loadOpenSummary();
+      if (canRmsChargeView) {
+        void loadRmsChargeStatus();
+      } else {
+        setRmsChargeStatus(null);
+        setRmsChargeStatusError(null);
+      }
     }
     setNoteDraft("");
     setHubShipmentFocusId(null);
@@ -1192,9 +1301,11 @@ export function CustomerRelationshipHubDrawer({
     permissionsLoaded,
     canHubView,
     canTimeline,
+    canRmsChargeView,
     loadHub,
     loadTimeline,
     loadOpenSummary,
+    loadRmsChargeStatus,
   ]);
 
   useEffect(() => {
@@ -1824,7 +1935,6 @@ export function CustomerRelationshipHubDrawer({
         return;
       }
       toast("Joint couple account created", "success");
-      setShowCouplePicker(false);
       await loadHub();
     } catch {
       toast("Error linking accounts", "error");
@@ -3064,6 +3174,159 @@ export function CustomerRelationshipHubDrawer({
 
           {tab === "profile" && (
             <div className="order-3 space-y-6">
+              {canRmsChargeView ? (
+                <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                        RMS Charge
+                      </h3>
+                      <p className="mt-1 text-sm font-semibold text-app-text">
+                        {rmsChargeStatusLoading
+                          ? "Checking account status..."
+                          : rmsChargeStatusError
+                            ? "Status unavailable"
+                            : rmsChargeStatus?.has_account
+                              ? "RMS Charge account on file"
+                              : "No RMS Charge account on file"}
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest ${
+                        rmsChargeStatus?.has_account
+                          ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700"
+                          : "border-app-border bg-app-surface text-app-text-muted"
+                      }`}
+                    >
+                      {rmsChargeStatusLoading
+                        ? "Checking"
+                        : rmsChargeStatusError
+                          ? "Unavailable"
+                          : rmsChargeStatus?.has_account
+                            ? "Has account"
+                            : "No account"}
+                    </span>
+                  </div>
+                  {rmsChargeStatusError ? (
+                    <p className="mt-2 text-xs font-semibold text-amber-700">
+                      {rmsChargeStatusError}
+                    </p>
+                  ) : null}
+                  {!rmsChargeStatusLoading &&
+                  !rmsChargeStatusError &&
+                  rmsChargeStatus?.accounts.length ? (
+                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                      {rmsChargeStatus.accounts.map((account) => (
+                        <div
+                          key={`${account.source}-${account.masked_account}`}
+                          className="rounded-xl border border-app-border bg-app-surface p-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-mono text-sm font-black text-app-text">
+                                {account.masked_account}
+                              </p>
+                              <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                {account.source === "weekly_import"
+                                  ? "Weekly import"
+                                  : "Linked account"}
+                                {account.is_primary ? " · Primary" : ""}
+                                {account.program_group ? ` · ${account.program_group}` : ""}
+                              </p>
+                            </div>
+                            <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              {humanizeToken(account.status)}
+                            </span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                            <p>
+                              <span className="font-black text-app-text-muted">Balance:</span>{" "}
+                              {account.current_balance != null
+                                ? fmtMoney(account.current_balance)
+                                : "—"}
+                            </p>
+                            <p className="text-right">
+                              <span className="font-black text-app-text-muted">Open to buy:</span>{" "}
+                              {account.open_to_buy != null ? fmtMoney(account.open_to_buy) : "—"}
+                            </p>
+                            <p>
+                              <span className="font-black text-app-text-muted">Minimum due:</span>{" "}
+                              {account.minimum_due != null
+                                ? fmtMoney(account.minimum_due)
+                                : "—"}
+                            </p>
+                            <p className="text-right">
+                              <span className="font-black text-app-text-muted">Past due:</span>{" "}
+                              {account.past_due != null ? fmtMoney(account.past_due) : "—"}
+                            </p>
+                            <p>
+                              <span className="font-black text-app-text-muted">Import payments:</span>{" "}
+                              {account.import_payments != null
+                                ? fmtMoney(account.import_payments)
+                                : "—"}
+                            </p>
+                            <p className="text-right">
+                              <span className="font-black text-app-text-muted">Riverside payments:</span>{" "}
+                              {fmtMoney(account.riverside_payment_total)}
+                            </p>
+                            <p>
+                              <span className="font-black text-app-text-muted">Import charges:</span>{" "}
+                              {account.import_charges != null
+                                ? fmtMoney(account.import_charges)
+                                : "—"}
+                            </p>
+                            <p className="text-right">
+                              <span className="font-black text-app-text-muted">Riverside charges:</span>{" "}
+                              {fmtMoney(account.riverside_charge_total)}
+                            </p>
+                          </div>
+                          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                            <div className="rounded-lg border border-app-border bg-app-surface-2 p-2">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                RMS Charge reporting
+                              </p>
+                              <div className="mt-1 flex items-center justify-between gap-2">
+                                <span
+                                  className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${rmsReportingStatusClassName(account.charge_reporting.status)}`}
+                                >
+                                  {rmsReportingStatusLabel(account.charge_reporting.status)}
+                                </span>
+                                <span className="font-mono text-[11px] text-app-text-muted">
+                                  {account.charge_reporting.reported_count}/{account.charge_reporting.total_count}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-app-border bg-app-surface-2 p-2">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                RMS Payment reporting
+                              </p>
+                              <div className="mt-1 flex items-center justify-between gap-2">
+                                <span
+                                  className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${rmsReportingStatusClassName(account.payment_reporting.status)}`}
+                                >
+                                  {rmsReportingStatusLabel(account.payment_reporting.status)}
+                                </span>
+                                <span className="font-mono text-[11px] text-app-text-muted">
+                                  {account.payment_reporting.reported_count}/{account.payment_reporting.total_count}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          {account.import_uploaded_at || account.import_report_run_at ? (
+                            <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
+                              Latest account data{" "}
+                              {account.import_report_run_at
+                                ? readableDateTime(account.import_report_run_at)
+                                : readableDateTime(account.import_uploaded_at)}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
               {hub.couple_id ? (
                 <section className="rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 p-4 relative overflow-hidden">
                   <Heart className="absolute -right-4 -bottom-4 h-24 w-24 text-app-accent/10 -rotate-12" />
@@ -3135,7 +3398,7 @@ export function CustomerRelationshipHubDrawer({
                     <div className="h-12 w-12 flex items-center justify-center rounded-full bg-app-surface-active text-app-text-muted">
                       <Heart size={24} />
                     </div>
-                    <div>
+                    <div className="w-full max-w-xl">
                       <h3 className="font-bold text-app-text">
                         Link a Partner
                       </h3>
@@ -3143,42 +3406,43 @@ export function CustomerRelationshipHubDrawer({
                         Combine profiles specifically for couples. One joint
                         history, individual contact/fitting details.
                       </p>
-                      <div className="w-full max-w-sm">
-                        {!showCouplePicker && !showCreatePartner ? (
-                          <div className="flex gap-2">
+                      <div className="mt-4 w-full">
+                        {!showCreatePartner ? (
+                          <div className="space-y-3 text-left">
+                            <div>
+                              <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Link existing customer
+                              </label>
+                              <CustomerSearchInput
+                                onSelect={linkCouple}
+                                placeholder="Search current customers by name, phone, email, or code..."
+                                excludeCustomerId={customer.id}
+                              />
+                            </div>
                             <button
                               type="button"
-                              onClick={() => setShowCouplePicker(true)}
-                              className="ui-button-secondary flex-1"
+                              onClick={() => {
+                                setShowCreatePartner(true);
+                              }}
+                              className="ui-button-secondary w-full"
                             >
-                              Find existing profile...
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setShowCreatePartner(true)}
-                              className="ui-button-primary bg-emerald-600 border-emerald-700 flex-1"
-                            >
-                              Add as new customer
-                            </button>
-                          </div>
-                        ) : showCouplePicker ? (
-                          <div className="space-y-3">
-                            <CustomerSearchInput
-                              onSelect={linkCouple}
-                              placeholder="Type name or email..."
-                              autoFocus
-                              excludeCustomerId={customer.id}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowCouplePicker(false)}
-                              className="text-xs font-semibold text-app-text-muted hover:text-app-text w-full text-center"
-                            >
-                              Cancel
+                              Add new customer instead
                             </button>
                           </div>
                         ) : (
                           <div className="space-y-4 text-left bg-app-surface border border-app-border p-4 rounded-xl">
+                            <div className="flex items-center justify-between gap-3">
+                              <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Create new linked customer
+                              </h4>
+                              <button
+                                type="button"
+                                onClick={() => setShowCreatePartner(false)}
+                                className="text-xs font-semibold text-app-text-muted hover:text-app-text"
+                              >
+                                Search existing
+                              </button>
+                            </div>
                             <div className="grid grid-cols-2 gap-3">
                               <div className="space-y-1">
                                 <label className="text-[10px] font-black uppercase text-app-text-muted">
