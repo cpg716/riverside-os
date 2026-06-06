@@ -14,7 +14,6 @@ import {
   X,
   ArrowLeftRight,
   Truck,
-  UserCircle,
   Clock,
   Zap,
   Package,
@@ -1579,6 +1578,11 @@ export default function Cart({
     return commissionStaff.find((s) => s.id === id)?.full_name ?? "";
   }, [commissionStaff, primarySalespersonId]);
 
+  const hasLineSalespersonOverrides = useMemo(
+    () => lines.some((line) => (line.salesperson_id?.trim() ?? "") !== ""),
+    [lines],
+  );
+
   // --- Initialization & Data Sync ---
   useEffect(() => {
     let cancelled = false;
@@ -2184,14 +2188,8 @@ export default function Cart({
               </div>
             )}
 
-          {(selectedCustomer || parkedRows.length > 0 || pendingAlterationIntakes.length > 0 || pickupReadyAlterations.length > 0) ? (
+          {(activeWeddingMember || parkedRows.length > 0 || pendingAlterationIntakes.length > 0 || pickupReadyAlterations.length > 0 || offlineQueueCount > 0 || failedPrintCount > 0) ? (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-bold text-app-text-muted">
-              <span className="inline-flex items-center gap-1 rounded-lg bg-app-surface-2 px-2 py-1 font-black uppercase tracking-widest text-app-text">
-                <UserCircle size={12} aria-hidden />
-                {selectedCustomer
-                  ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}`
-                  : "Walk-in sale"}
-              </span>
               {activeWeddingMember ? (
                 <span className="inline-flex items-center gap-1 rounded-lg border border-app-accent/25 bg-app-accent/10 px-2 py-1 font-black uppercase tracking-widest text-app-accent">
                   <WEDDINGS_ICON size={12} aria-hidden />
@@ -2243,8 +2241,8 @@ export default function Cart({
 
           {/* Cashier + default salesperson on one row (after sign-in). Sign-in uses full-screen overlay (Back Office style). */}
           {checkoutOperator ? (
-            <div className="grid w-full items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface-2/70 px-3 py-2 sm:grid-cols-[auto_minmax(16rem,1fr)_auto]">
-              <div className="flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-app-surface px-2 py-1">
+            <div className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border/70 bg-app-surface-2/70 px-3 py-1.5">
+              <div className="flex min-w-0 items-center gap-2">
                 <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                   Cashier:
                 </span>
@@ -2254,7 +2252,7 @@ export default function Cart({
                 {lines.length === 0 ? (
                   <button
                     type="button"
-                    className="ui-btn-secondary shrink-0 px-2 py-1 text-[9px] font-black uppercase tracking-widest"
+                    className="ui-btn-secondary h-8 shrink-0 px-2 text-[9px] font-black uppercase tracking-widest"
                     onClick={() => {
                       setCheckoutOperator(null);
                       setSalePinCredential("");
@@ -2266,15 +2264,9 @@ export default function Cart({
                 ) : null}
               </div>
               {!isGiftCardOnlyCart ? (
-                <>
-                  <label className="flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-app-surface px-2 py-1">
-                    <UserCircle
-                      size={15}
-                      className="shrink-0 text-app-accent"
-                      aria-hidden
-                    />
-                    <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-                      Salesperson
+                  <label className="flex min-w-[18rem] flex-1 items-center justify-center gap-2">
+                    <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                      Salesperson:
                     </span>
                     <span className="sr-only">
                       Default for commission on all lines unless a line overrides
@@ -2287,15 +2279,10 @@ export default function Cart({
                         setPrimarySalespersonId(id);
                       }}
                       placeholder="Select Salesperson..."
-                      className="w-full min-w-[11rem]"
+                      displayLabel={hasLineSalespersonOverrides ? "SPLIT" : undefined}
+                      className="min-w-[12rem]"
                     />
                   </label>
-                  {lines.some((l) => (l.salesperson_id?.trim() ?? "") !== "") ? (
-                    <span className="shrink-0 rounded-full bg-app-warning/12 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-app-warning ring-1 ring-app-warning/20">
-                      Line overrides
-                    </span>
-                  ) : null}
-                </>
               ) : null}
               <PosRegisterLiveClock
                 timeZone={receiptTimezone}

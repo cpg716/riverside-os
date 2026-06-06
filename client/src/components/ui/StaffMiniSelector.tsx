@@ -15,6 +15,7 @@ interface StaffMiniSelectorProps {
   className?: string;
   size?: "sm" | "md" | "lg";
   showAvatar?: boolean;
+  displayLabel?: string;
 }
 
 const baseUrl = getBaseUrl();
@@ -64,6 +65,7 @@ export default function StaffMiniSelector({
   className = "",
   size = "md",
   showAvatar = true,
+  displayLabel,
 }: StaffMiniSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -109,7 +111,7 @@ export default function StaffMiniSelector({
             baseUrl={baseUrl}
           />
           <span className="flex-1 truncate text-left">
-            {selectedStaff ? selectedStaff.full_name : placeholder}
+            {displayLabel ?? (selectedStaff ? selectedStaff.full_name : placeholder)}
           </span>
           <ChevronDown size={iconSize} className={`shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
         </button>
