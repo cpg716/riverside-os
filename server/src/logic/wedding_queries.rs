@@ -617,7 +617,7 @@ pub async fn try_load_party_ledger(
             NULL::uuid AS transaction_id,
             pt.id AS payment_tx_id,
             'Group Payout'::text AS customer_name,
-            pa.target_transaction_id AS wedding_member_id,
+            wm.id AS wedding_member_id,
             'payment'::text AS kind,
             pa.amount_allocated AS amount,
             pt.created_at AS created_at,
@@ -697,7 +697,7 @@ pub async fn try_load_party_financial_context(
             total_cost,
             total_revenue,
             margin_percent,
-            free_suits_marked,
+            free_suits_marked::int AS free_suits_marked,
             -- Qualification Count: Number of members in this party who have an order with a suit fulfillment
             -- used as a proxy for the "5 suits" buy-in.
             (

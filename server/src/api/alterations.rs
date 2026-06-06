@@ -891,8 +891,7 @@ async fn patch_alteration(
                 let _ = sqlx::query(
                     r#"
                     UPDATE transaction_lines
-                    SET alteration_ready = true,
-                        updated_at = now()
+                    SET alteration_ready = true
                     WHERE id = $1
                     "#,
                 )

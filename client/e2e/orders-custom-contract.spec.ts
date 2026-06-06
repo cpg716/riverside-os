@@ -116,6 +116,16 @@ type TransactionListResponse = {
   }>;
 };
 
+type WeddingPartyFinancialContext = {
+  lines: Array<{
+    payment_tx_id?: string | null;
+    wedding_member_id: string;
+    kind: string;
+    amount: string;
+    customer_name: string;
+  }>;
+};
+
 const CUSTOM_CATALOG_CATEGORY_ID = "90000000-0000-0000-0000-000000000001";
 
 type KnownCustomCatalogSeed = {
@@ -415,6 +425,22 @@ async function fetchTransactionDetail(
   });
   expect(res.status()).toBe(200);
   return (await res.json()) as TransactionDetail;
+}
+
+async function fetchWeddingFinancialContext(
+  request: Parameters<typeof test>[0]["request"],
+  weddingPartyId: string,
+): Promise<WeddingPartyFinancialContext> {
+  const res = await request.get(
+    `${apiBase()}/api/weddings/parties/${weddingPartyId}/financial-context`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as WeddingPartyFinancialContext;
 }
 
 async function fetchOrders(
@@ -917,6 +943,17 @@ test.describe("Orders custom vs special contract", () => {
     expect(parseMoneyToCents(afterDetail.balance_due ?? "0.00")).toBe(
       beforeBalanceCents - 5000,
     );
+
+    const partyId = afterDetail.wedding_summary?.wedding_party_id;
+    expect(partyId).toBeTruthy();
+    const financialContext = await fetchWeddingFinancialContext(request, partyId!);
+    const groupPayLine = financialContext.lines.find(
+      (line) =>
+        line.kind === "payment" &&
+        line.customer_name === "Group Payout" &&
+        line.amount === "50.00",
+    );
+    expect(groupPayLine?.wedding_member_id).toBe(attachedMember.id);
   });
 
   test("special orders keep deposit balance and pickup status distinct", async ({

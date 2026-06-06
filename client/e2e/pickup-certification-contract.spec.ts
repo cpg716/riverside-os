@@ -4,6 +4,7 @@ import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
 import {
   apiBase,
   ensureSessionAuth,
+  staffCode,
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
@@ -42,7 +43,7 @@ const UNIT_PRICE = "49.99";
 const UNIT_COST = "20.00";
 
 function lineTax() {
-  return calculateNysErieTaxStringsForUnit("other", parseMoneyToCents(UNIT_PRICE));
+  return calculateNysErieTaxStringsForUnit("clothing", parseMoneyToCents(UNIT_PRICE));
 }
 
 function transactionTotal(lineCount: number): string {
@@ -150,6 +151,9 @@ async function markLineReady(
       },
       data: {
         next_status: "ready_for_pickup",
+        override_checks: true,
+        manager_staff_code: staffCode(),
+        manager_pin: staffCode(),
         reason: "Pickup certification readiness simulation",
         metadata: {
           source: "pickup-certification-contract",

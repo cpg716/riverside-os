@@ -1917,6 +1917,13 @@ test.describe("QBO audit contract", () => {
     const operatorStaffId = await verifyStaffId(request);
     const product = await createQboProduct(request, operatorStaffId);
     await seedQboMappings(request, product.categoryId, activityDate);
+    const expectedTax = calculateNysErieTaxStringsForUnit(
+      "clothing",
+      parseMoneyToCents("110.00"),
+    );
+    const expectedSingleTenderCents = parseMoneyToCents(
+      totalFor("110.00", expectedTax.stateTax, expectedTax.localTax),
+    );
     const checkout = await checkoutQboProduct(request, {
       product,
       sessionId,
@@ -1973,6 +1980,12 @@ test.describe("QBO audit contract", () => {
     expect(postableLines.some((line) => line.qbo_account_id === "E2E_CASH")).toBe(true);
     expect(postableLines.some((line) => line.qbo_account_id === "E2E_REVENUE")).toBe(true);
     expect(postableLines.some((line) => line.qbo_account_id === "E2E_SALES_TAX")).toBe(true);
+    const proposedTenderLine = proposed.payload.lines.find(
+      (line) => line.memo.startsWith("Tenders") && line.qbo_account_id === "E2E_CASH",
+    );
+    expect(moneyToCents(proposedTenderLine?.debit)).toBeGreaterThanOrEqual(
+      expectedSingleTenderCents,
+    );
     expect(proposed.payload.warnings ?? []).not.toContain(
       "Sales tax collected but no `tax` / SALES_TAX or MISC mapping; add qbo_mappings row.",
     );
@@ -2006,7 +2019,9 @@ test.describe("QBO audit contract", () => {
     const refreshedTenderLine = refreshed.payload.lines.find(
       (line) => line.memo.startsWith("Tenders") && line.qbo_account_id === "E2E_CASH",
     );
-    expect(moneyToCents(refreshedTenderLine?.debit)).toBe(parseMoneyToCents("239.26"));
+    expect(
+      moneyToCents(refreshedTenderLine?.debit) - moneyToCents(proposedTenderLine?.debit),
+    ).toBe(expectedSingleTenderCents);
 
     const listRes = await request.get(
       `${apiBase()}/api/qbo/staging?from=${activityDate}&to=${activityDate}`,
@@ -2045,8 +2060,13 @@ test.describe("QBO audit contract", () => {
     const contributor = drilldown.contributors?.find(
       (row) => row.transaction_id === checkout.transaction_id,
     );
+    const secondContributor = drilldown.contributors?.find(
+      (row) => row.transaction_id === secondCheckout.transaction_id,
+    );
     expect(contributor).toBeTruthy();
-    expect(moneyToCents(contributor?.amount)).toBe(parseMoneyToCents("119.63"));
+    expect(secondContributor).toBeTruthy();
+    expect(moneyToCents(contributor?.amount)).toBe(expectedSingleTenderCents);
+    expect(moneyToCents(secondContributor?.amount)).toBe(expectedSingleTenderCents);
 
     const approveRes = await request.post(`${apiBase()}/api/qbo/staging/${proposed.id}/approve`, {
       headers: staffHeaders(),
