@@ -36,6 +36,12 @@ Review the proposal date, totals, journal lines, balance status, and drilldown e
 
 After a register is closed for the day, ROS stages the daily journal for that store-local business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a pending row when accounting opens. If the day is already staged but still pending, staging refreshes the same row with the latest facts. If the day was already approved, synced, or voided and later sales, returns, deposits, or payment-date corrections change the day, ROS creates a revision proposal for the same business date.
 
+## ✨ QBO exception explainer
+
+The staging view includes a ROSIE explainer for visible QBO review facts: connection readiness, mapping readiness, open staged rows, blocking rows, warning rows, failed posting rows, and latest failure detail.
+
+ROSIE does not create mappings, approve journals, post journals, retry journals, or invent accounting routes. Use it to understand the queue faster, then use the normal QBO controls for accounting actions.
+
 ### Connection health
 
 Before syncing, confirm the QBO connection is healthy:

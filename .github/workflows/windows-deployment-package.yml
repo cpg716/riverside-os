@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 env:
   RIVERSIDE_BUILD_SHA: ${{ github.sha }}
@@ -58,8 +59,19 @@ jobs:
             throw "Deployment PowerShell parse validation failed."
           }
 
+  require-playwright-green:
+    name: Require Playwright E2E green
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Wait for same-commit Playwright E2E
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/require-playwright-success.mjs --sha "${{ github.sha }}"
+
   build-register-updater:
-    needs: validate-scripts
+    needs: [validate-scripts, require-playwright-green]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -259,7 +271,7 @@ jobs:
           path: client/updater-dist/
 
   build-server-binary:
-    needs: validate-scripts
+    needs: [validate-scripts, require-playwright-green]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -283,7 +295,7 @@ jobs:
           path: target/release/riverside-server.exe
 
   build-deployment-manager:
-    needs: validate-scripts
+    needs: [validate-scripts, require-playwright-green]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -407,7 +419,7 @@ jobs:
           path: deployment/manager-app/updater-dist/
 
   build-server-manager:
-    needs: validate-scripts
+    needs: [validate-scripts, require-playwright-green]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -539,7 +551,7 @@ jobs:
           path: deployment/server-manager-app/updater-dist/
 
   build-counterpoint-bridge-gui:
-    needs: validate-scripts
+    needs: [validate-scripts, require-playwright-green]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -796,6 +808,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
           $version = (Get-Content "client/package.json" | ConvertFrom-Json).version
@@ -855,3 +868,8 @@ jobs:
             --build-manifest riverside-deployment-manager-updater-build-manifest.json `
             --build-manifest ros-server-manager-updater-build-manifest.json `
             --build-manifest counterpoint-bridge-gui-updater-build-manifest.json
+          node scripts/update-release-build-metadata.mjs `
+            --repo $env:GITHUB_REPOSITORY `
+            --tag $tag `
+            --sha $env:GITHUB_SHA `
+            --run-url "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"

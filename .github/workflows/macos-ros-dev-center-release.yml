@@ -17,13 +17,26 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  require-playwright-green:
+    name: Require Playwright E2E green
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Wait for same-commit Playwright E2E
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/require-playwright-success.mjs --sha "${{ github.sha }}"
+
   build-macos:
+    needs: require-playwright-green
     runs-on: macos-latest
     env:
       RIVERSIDE_BUILD_SHA: ${{ github.sha }}
@@ -142,3 +155,8 @@ jobs:
             --tag "$tag" \
             --manifest latest-ros-dev-center-macos.json \
             --build-manifest ros-dev-center-updater-build-manifest.json
+          node scripts/update-release-build-metadata.mjs \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$tag" \
+            --sha "$GITHUB_SHA" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

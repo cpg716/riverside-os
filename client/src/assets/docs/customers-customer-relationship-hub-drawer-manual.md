@@ -32,9 +32,17 @@ Deterministic customer facts stay primary. Optional ROSIE customer snapshot insi
 3. Open the needed tab for orders, alterations, loyalty, messages, measurements, or timeline.
 4. Treat degraded section messages as missing data until that section reloads.
 
-## Customer Snapshot
+## ✨ Things to know
 
-Customer Snapshot summarizes current customer context, recent activity, important relationship details, and next steps. Use it to orient yourself before opening deeper tabs.
+Things to know summarizes current customer context, recent activity, important relationship details, and next steps. Use it to orient yourself before opening deeper tabs.
+
+The optional ROSIE customer snapshot explains only the visible facts from the profile. It does not create tasks, send messages, change RMS status, or replace staff review.
+
+## ✨ Message drafts
+
+In Messages, use the draft chips for a quick check-in, pickup update, or wedding update. Drafts fill the SMS or email compose box only. Staff must review, edit if needed, and tap Send.
+
+Draft chips do not bypass opt-in warnings, missing phone/email warnings, Podium delivery rules, or Manager Access requirements.
 
 ## Tabs and sub-sections
 

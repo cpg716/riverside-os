@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
@@ -8,6 +8,7 @@ import CustomerSearchInput from "../ui/CustomerSearchInput";
 import type { Customer } from "../pos/CustomerSelector";
 import PromptModal from "../ui/PromptModal";
 import { ClipboardCheck, RefreshCw, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 
 const baseUrl = getBaseUrl();
 const PAGE = 100;
@@ -268,6 +269,46 @@ export default function RmsChargeAdminSection({
   const [unmatchedLoading, setUnmatchedLoading] = useState(false);
   const [unmatchedSearch, setUnmatchedSearch] = useState("");
   const [matchingSnapshotId, setMatchingSnapshotId] = useState<string | null>(null);
+  const rmsInsightFacts = useMemo(() => {
+    const latest = latestImport?.latest;
+    return {
+      title: "RMS Charge weekly review",
+      metrics: [
+        { id: "parsed-accounts", label: "Parsed accounts", value: latest ? String(latest.parsed_account_count) : "0" },
+        { id: "matched-accounts", label: "Matched accounts", value: latestImport ? String(latestImport.matched_count) : "0" },
+        { id: "unmatched-accounts", label: "Unmatched accounts", value: latestImport ? String(latestImport.unmatched_count) : "0" },
+        { id: "snapshot-balance", label: "Snapshot balance", value: latest ? fmtMoney(latest.total_balance) : "—" },
+        { id: "past-due", label: "Past due", value: latest ? fmtMoney(latest.total_past_due) : "—" },
+      ],
+      bullets: [
+        {
+          id: "import-freshness",
+          label: !latest
+            ? "No weekly RMS account list has been imported yet."
+            : latestImport?.stale
+              ? `The latest import is older than ${latestImport.stale_after_days} days and should be refreshed.`
+              : "The latest RMS account list import is fresh.",
+          severity: !latest || latestImport?.stale ? "warning" : "success",
+        },
+        {
+          id: "matching",
+          label:
+            latestImport && latestImport.unmatched_count > 0
+              ? `${latestImport.unmatched_count} imported account${latestImport.unmatched_count === 1 ? "" : "s"} still need customer matching.`
+              : "No unmatched imported accounts are visible in the latest import.",
+          severity: latestImport && latestImport.unmatched_count > 0 ? "warning" : "success",
+        },
+        {
+          id: "reporting",
+          label: "RMS Charge and RMS Payment reporting stays manual in the R2S review workflow.",
+          severity: "info",
+        },
+      ],
+      disclaimers: [
+        "Explain visible RMS import and reporting facts only. Do not report to R2S, post charges, post payments, or match customers without staff confirmation.",
+      ],
+    };
+  }, [latestImport]);
 
   const fetchLatestImport = useCallback(async () => {
     setLoadingLatest(true);
@@ -1043,6 +1084,23 @@ export default function RmsChargeAdminSection({
                   No Excel list has been imported yet.
                 </div>
               )}
+              <div className="mt-4 rounded-xl border border-app-accent/25 bg-app-accent/5 px-3 py-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
+                  ✨ RMS review explainer
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  ROSIE summarizes the visible import status. Matching, R2S reporting, charges, and
+                  payments remain staff-reviewed actions.
+                </p>
+                <RosieInsightSummary
+                  surface="rms_charge_review"
+                  title="RMS Charge Weekly Review"
+                  mode="explain"
+                  getHeaders={apiAuth}
+                  facts={rmsInsightFacts}
+                  className="mt-3"
+                />
+              </div>
             </div>
 
             <div className="ui-card p-6">

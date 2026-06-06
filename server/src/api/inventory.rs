@@ -92,6 +92,22 @@ pub struct BatchScanResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ProductOrderCounts {
+    pub special_order: i32,
+    pub custom: i32,
+    pub wedding_order: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProductScopeMetrics {
+    pub stock_on_hand: i32,
+    pub reserved_stock: i32,
+    pub available_stock: i32,
+    pub recent_sold_30: i32,
+    pub open_orders: ProductOrderCounts,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ProductIntelligence {
     pub variant_id: Uuid,
     pub product_id: Uuid,
@@ -104,7 +120,12 @@ pub struct ProductIntelligence {
     pub qty_on_order: i32,
     pub unit_cost: Option<Decimal>,
     pub retail_price: Decimal,
+    pub employee_price: Decimal,
     pub last_sale_date: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_received_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub next_expected_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub variation: ProductScopeMetrics,
+    pub all_variations: ProductScopeMetrics,
 }
 
 #[derive(Debug, Deserialize)]
@@ -315,6 +336,15 @@ async fn fetch_product_intelligence(
         return Err(StatusCode::NOT_FOUND.into_response());
     };
 
+    let employee_price = crate::services::inventory::resolve_variant_by_id(
+        &state.db,
+        variant_id,
+        state.global_employee_markup,
+    )
+    .await
+    .map(|resolved| resolved.employee_price)
+    .unwrap_or(retail);
+
     // 3. Fetch Qty On Order (Sum of open PO lines)
     let qty_on_order: i32 = sqlx::query_scalar(
         r#"
@@ -328,6 +358,34 @@ async fn fetch_product_intelligence(
     .fetch_one(&state.db)
     .await
     .unwrap_or(0);
+
+    let next_expected_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        r#"
+        SELECT MIN(po.expected_at)
+        FROM purchase_order_lines pol
+        JOIN purchase_orders po ON pol.purchase_order_id = po.id
+        WHERE pol.variant_id = $1
+          AND po.status IN ('submitted', 'partially_received')
+          AND pol.quantity_received < pol.quantity_ordered
+        "#,
+    )
+    .bind(variant_id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    let last_received_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        r#"
+        SELECT MAX(created_at)
+        FROM inventory_transactions
+        WHERE variant_id = $1
+          AND tx_type = 'po_receipt'
+        "#,
+    )
+    .bind(variant_id)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
 
     // 4. Fetch Last Sale Date
     let last_sale_date: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
@@ -345,6 +403,95 @@ async fn fetch_product_intelligence(
     .await
     .unwrap_or(None);
 
+    let recent_sold_30_variant: i32 = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(tl.quantity), 0)::int4
+        FROM transaction_lines tl
+        JOIN transactions t ON t.id = tl.transaction_id
+        WHERE tl.variant_id = $1
+          AND tl.quantity > 0
+          AND t.booked_at >= NOW() - INTERVAL '30 days'
+        "#,
+    )
+    .bind(variant_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let recent_sold_30_product: i32 = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(tl.quantity), 0)::int4
+        FROM transaction_lines tl
+        JOIN transactions t ON t.id = tl.transaction_id
+        WHERE tl.product_id = $1
+          AND tl.quantity > 0
+          AND t.booked_at >= NOW() - INTERVAL '30 days'
+        "#,
+    )
+    .bind(product_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    let parent_stock: (i32, i32) = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(SUM(stock_on_hand), 0)::int4,
+            COALESCE(SUM(reserved_stock), 0)::int4
+        FROM product_variants
+        WHERE product_id = $1
+          AND is_active = TRUE
+        "#,
+    )
+    .bind(product_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or((soh, res));
+
+    async fn fetch_order_counts(
+        db: &sqlx::PgPool,
+        variant_id: Option<Uuid>,
+        product_id: Option<Uuid>,
+    ) -> ProductOrderCounts {
+        let rows: Vec<(String, i32)> = sqlx::query_as(
+            r#"
+            SELECT tl.fulfillment::text, COALESCE(SUM(tl.quantity), 0)::int4
+            FROM transaction_lines tl
+            WHERE ($1::uuid IS NULL OR tl.variant_id = $1)
+              AND ($2::uuid IS NULL OR tl.product_id = $2)
+              AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+              AND COALESCE(tl.order_lifecycle_status::text, '') <> 'picked_up'
+              AND tl.quantity > 0
+            GROUP BY tl.fulfillment::text
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default();
+
+        let mut counts = ProductOrderCounts {
+            special_order: 0,
+            custom: 0,
+            wedding_order: 0,
+        };
+        for (kind, qty) in rows {
+            match kind.as_str() {
+                "special_order" => counts.special_order = qty,
+                "custom" => counts.custom = qty,
+                "wedding_order" => counts.wedding_order = qty,
+                _ => {}
+            }
+        }
+        counts
+    }
+
+    let variation_orders = fetch_order_counts(&state.db, Some(variant_id), None).await;
+    let product_orders = fetch_order_counts(&state.db, None, Some(product_id)).await;
+    let parent_soh = parent_stock.0;
+    let parent_reserved = parent_stock.1;
+
     Ok(ProductIntelligence {
         variant_id,
         product_id,
@@ -357,7 +504,24 @@ async fn fetch_product_intelligence(
         qty_on_order,
         unit_cost: if show_cost { Some(cost) } else { None },
         retail_price: retail,
+        employee_price,
         last_sale_date,
+        last_received_at,
+        next_expected_at,
+        variation: ProductScopeMetrics {
+            stock_on_hand: soh,
+            reserved_stock: res,
+            available_stock: (soh - res).max(0),
+            recent_sold_30: recent_sold_30_variant,
+            open_orders: variation_orders,
+        },
+        all_variations: ProductScopeMetrics {
+            stock_on_hand: parent_soh,
+            reserved_stock: parent_reserved,
+            available_stock: (parent_soh - parent_reserved).max(0),
+            recent_sold_30: recent_sold_30_product,
+            open_orders: product_orders,
+        },
     })
 }
 

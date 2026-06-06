@@ -764,6 +764,28 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
         ];
     }, [readinessByMemberId, stats]);
 
+    const readinessTakeaways = useMemo(() => {
+        const readinessRows = Object.values(readinessByMemberId || {});
+        const balanceBlocked = readinessRows.filter(row => row?.status === 'balance_blocked').length;
+        const rows = [];
+        if (stats.needsAppointment > 0) {
+            rows.push(`${stats.needsAppointment} member${stats.needsAppointment === 1 ? "" : "s"} still need measurement scheduling before orders can stay on pace.`);
+        }
+        if (stats.needsOrdering > 0) {
+            rows.push(`${stats.needsOrdering} measured member${stats.needsOrdering === 1 ? "" : "s"} still need order review.`);
+        }
+        if (stats.needsReceiving > 0) {
+            rows.push(`${stats.needsReceiving} order${stats.needsReceiving === 1 ? "" : "s"} are waiting on receiving before fitting or pickup.`);
+        }
+        if (balanceBlocked > 0) {
+            rows.push(`${balanceBlocked} member${balanceBlocked === 1 ? "" : "s"} have balance holds before release.`);
+        }
+        if (rows.length === 0) {
+            rows.push(stats.total > 0 ? "Milestones look clear from the visible party data; review balances and pickup completion before closeout." : "Add members to start readiness tracking.");
+        }
+        return rows.slice(0, 4);
+    }, [readinessByMemberId, stats]);
+
     // Compact date formatter for print
     const formatPrintDate = (dateString) => {
         if (!dateString) return '-';
@@ -1102,6 +1124,17 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                                     <p className="mt-1 text-[11px] font-semibold opacity-75">{card.helper}</p>
                                 </div>
                             ))}
+                        </div>
+                        <div className="mt-4 rounded-xl border border-app-accent/25 bg-app-surface px-4 py-3">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">✨ ROSIE readiness takeaways</p>
+                            <ul className="mt-2 space-y-1.5 text-xs font-semibold text-app-text-muted">
+                                {readinessTakeaways.map((item) => (
+                                    <li key={item} className="flex gap-2">
+                                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-app-accent" />
+                                        <span>{item}</span>
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
                     </div>
 

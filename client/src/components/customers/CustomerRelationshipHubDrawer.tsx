@@ -2126,6 +2126,36 @@ export function CustomerRelationshipHubDrawer({
   const weddings: WeddingMembership[] = hub?.weddings ?? [];
   const activeWedding = weddings.find((w) => w.active);
   const pastWeddings = weddings.filter((w) => !w.active);
+  const draftCustomerMessage = (kind: "check_in" | "pickup" | "wedding") => {
+    if (!hub) return;
+    const name = hub.first_name || "there";
+    const openWorkCount =
+      (openSummary.orders ?? 0) + (openSummary.layaways ?? 0) + (openSummary.alterations ?? 0);
+    if (messageViewMode === "email") {
+      const subject =
+        kind === "pickup"
+          ? "Quick update from Riverside"
+          : kind === "wedding"
+            ? "Wedding party update"
+            : "Checking in from Riverside";
+      const body =
+        kind === "pickup"
+          ? `Hi ${name},\n\nWe are checking in with an update from Riverside. Please reply here or call the shop if you have any questions before pickup.\n\nThank you,\nRiverside Men's Shop`
+          : kind === "wedding" && activeWedding
+            ? `Hi ${name},\n\nWe are reviewing ${activeWedding.party_name} and wanted to make sure everything is on track. Please reply here or call the shop if anything has changed.\n\nThank you,\nRiverside Men's Shop`
+            : `Hi ${name},\n\nWe are checking in from Riverside. Please reply here or call the shop if you need anything from us.\n\nThank you,\nRiverside Men's Shop`;
+      setPodiumComposeSubject(subject);
+      setPodiumComposeHtml(body);
+      return;
+    }
+    const sms =
+      kind === "pickup"
+        ? `Hi ${name}, Riverside here. We are checking in with an update before pickup. Reply here or call the shop with any questions.`
+        : kind === "wedding" && activeWedding
+          ? `Hi ${name}, Riverside here. We are reviewing ${activeWedding.party_name}; reply here or call the shop if anything has changed.`
+          : `Hi ${name}, Riverside here. Checking in${openWorkCount > 0 ? " on your open Riverside items" : ""}. Reply here or call the shop if you need anything.`;
+    setSmsReplyDraft(sms);
+  };
   const loyaltyEarnedPoints = loyaltyLedger
     .filter((row) => row.delta_points > 0)
     .reduce((sum, row) => sum + row.delta_points, 0);
@@ -3068,7 +3098,7 @@ export function CustomerRelationshipHubDrawer({
               className="rounded-2xl border border-app-border bg-app-surface-2/90 p-4"
             >
               <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                Customer Snapshot
+                ✨ Things to know
               </h3>
               <ul className="grid gap-2 sm:grid-cols-2">
                 {hub.snapshot_items.slice(0, 7).map((item) => (
@@ -3085,7 +3115,7 @@ export function CustomerRelationshipHubDrawer({
                 title="Customer Snapshot"
                 getHeaders={apiAuth}
                 facts={{
-                  title: "Customer Snapshot",
+                  title: "Customer Things To Know",
                   bullets: hub.snapshot_items.slice(0, 7).map((item, index) => ({
                     id: `snapshot-${index}`,
                     label: item.label,
@@ -3782,6 +3812,32 @@ export function CustomerRelationshipHubDrawer({
                         <div className="mb-2 flex flex-wrap items-center gap-2">
                           <button
                             type="button"
+                            onClick={() => draftCustomerMessage("check_in")}
+                            disabled={!canHubEdit || !hub.phone}
+                            className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
+                          >
+                            ✨ Draft check-in
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => draftCustomerMessage("pickup")}
+                            disabled={!canHubEdit || !hub.phone}
+                            className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
+                          >
+                            ✨ Draft pickup
+                          </button>
+                          {activeWedding ? (
+                            <button
+                              type="button"
+                              onClick={() => draftCustomerMessage("wedding")}
+                              disabled={!canHubEdit || !hub.phone}
+                              className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
+                            >
+                              ✨ Draft wedding
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
                             onClick={() => smsAttachmentInputRef.current?.click()}
                             disabled={!canHubEdit || !hub.phone}
                             className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
@@ -3859,6 +3915,34 @@ export function CustomerRelationshipHubDrawer({
                             Warning: This customer has opted out of all email communications.
                           </p>
                         ) : null}
+                        <div className="mb-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => draftCustomerMessage("check_in")}
+                            disabled={!canHubEdit || !hub.email}
+                            className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
+                          >
+                            ✨ Draft check-in
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => draftCustomerMessage("pickup")}
+                            disabled={!canHubEdit || !hub.email}
+                            className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
+                          >
+                            ✨ Draft pickup
+                          </button>
+                          {activeWedding ? (
+                            <button
+                              type="button"
+                              onClick={() => draftCustomerMessage("wedding")}
+                              disabled={!canHubEdit || !hub.email}
+                              className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
+                            >
+                              ✨ Draft wedding
+                            </button>
+                          ) : null}
+                        </div>
                         <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                           Subject
                         </label>

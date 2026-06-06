@@ -57,7 +57,7 @@ Use **Work missing categories** or **Work missing vendors** to filter the invent
 
 If a Counterpoint/Lightspeed normalization candidate exists, use **Review next product** to open Product Hub for that product family. If the reference status says **Not ready**, rebuild Counterpoint aliases and import the Lightspeed reference from Settings > Counterpoint before treating the normalization counts as actionable.
 
-Use **Show diagnostics** only when you need the detailed reference counters. ROSIE insight is optional. If ROSIE is unavailable, the deterministic cleanup counts above it remain the source of truth.
+Use **Show diagnostics** only when you need the detailed reference counters. The **✨ Product cleanup review queue** explains the visible cleanup counts and reference status. ROSIE insight is optional. If ROSIE is unavailable, the deterministic cleanup counts above it remain the source of truth.
 
 ## What to watch for
 

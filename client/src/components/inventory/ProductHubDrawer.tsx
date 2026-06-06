@@ -952,6 +952,28 @@ export default function ProductHubDrawer({
     .filter((event) => event.kind.startsWith("inventory_"))
     .slice(0, 5);
 
+  const employeeBaseCost = parseMoney(hub?.product.base_cost ?? 0);
+  const employeeBaseRetail = parseMoney(hub?.product.base_retail_price ?? 0);
+  const employeeMarkupText = employeeMarkupDraft.trim();
+  const employeeMarkupPercent = employeeMarkupText
+    ? Number.parseFloat(employeeMarkupText)
+    : parseMoney(hub?.store_default_employee_markup_percent ?? 15);
+  const employeeExtraAmount = parseMoney(employeeExtraDraft);
+  const employeePreview =
+    Number.isFinite(employeeMarkupPercent) && employeeBaseCost > 0
+      ? employeeBaseCost * (1 + employeeMarkupPercent / 100) + Math.max(0, employeeExtraAmount)
+      : null;
+  const employeePricingMode =
+    hub?.product.employee_markup_percent != null || employeeExtraAmount > 0
+      ? "Override: Cost + %"
+      : "Standard employee discount";
+  const employeePreviewWarning =
+    employeeBaseCost <= 0
+      ? "Add cost before using a cost-plus employee override."
+      : employeePreview != null && employeeBaseRetail > 0 && employeePreview > employeeBaseRetail
+        ? "Preview is above retail. Review markup or cost before using employee pricing."
+        : null;
+
   const tabBtn = (id: HubTab, label: string) => (
     <button
       key={id}
@@ -1657,6 +1679,43 @@ export default function ProductHubDrawer({
                       )}
                       %). Extra is added per unit after markup.
                     </p>
+                    <div className="mb-4 grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Mode
+                        </p>
+                        <p className="mt-1 text-sm font-black text-app-text">
+                          {employeePricingMode}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Current cost
+                        </p>
+                        <p className="mt-1 text-sm font-black tabular-nums text-app-text">
+                          {money(hub.product.base_cost)}
+                        </p>
+                      </div>
+                      <div
+                        className={`rounded-2xl border px-4 py-3 ${
+                          employeePreviewWarning
+                            ? "border-amber-200 bg-amber-50 text-amber-800"
+                            : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        }`}
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest opacity-70">
+                          Employee price preview
+                        </p>
+                        <p className="mt-1 text-sm font-black tabular-nums">
+                          {employeePreview == null ? "Needs cost" : money(employeePreview)}
+                        </p>
+                        {employeePreviewWarning ? (
+                          <p className="mt-1 text-[10px] font-bold leading-snug">
+                            {employeePreviewWarning}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
                     <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
                       <div className="min-w-[140px] flex-1">
                         <label

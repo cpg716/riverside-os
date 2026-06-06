@@ -145,6 +145,7 @@ async function createTaxProduct(
     taxCategoryOverride?: "clothing" | "footwear" | "accessory" | "service" | null;
     label: string;
     stockOnHand?: number;
+    unitCost?: string;
   },
 ): Promise<CreatedTaxProduct> {
   const suffix = uniqueSuffix(options.label);
@@ -157,7 +158,7 @@ async function createTaxProduct(
       suffix,
     ));
   const sku = `TAX-${suffix}`.toUpperCase();
-  const unitCost = "40.00";
+  const unitCost = options.unitCost ?? "40.00";
   const vendor = await createVendor(request, suffix);
 
   const createRes = await request.post(`${apiBase()}/api/products`, {
@@ -250,6 +251,52 @@ async function createCustomerWithProfileDiscount(
   return customer.id;
 }
 
+async function createVariantDiscountEvent(
+  request: APIRequestContext,
+  product: CreatedTaxProduct,
+  percentOff: string,
+): Promise<string> {
+  const suffix = uniqueSuffix("below-cost-promo");
+  const start = new Date(Date.now() - 60_000).toISOString();
+  const end = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+  const createRes = await request.post(`${apiBase()}/api/discount-events`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      name: `E2E Below Cost Promo ${suffix}`,
+      receipt_label: "E2E Approved Promo",
+      starts_at: start,
+      ends_at: end,
+      percent_off: percentOff,
+      scope_type: "variants",
+    },
+    failOnStatusCode: false,
+  });
+  const createText = await createRes.text();
+  expect(createRes.status(), createText.slice(0, 1000)).toBe(200);
+  const created = JSON.parse(createText) as { id: string };
+  expect(created.id).toBeTruthy();
+
+  const attachRes = await request.post(
+    `${apiBase()}/api/discount-events/${created.id}/variants`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        variant_id: product.variantId,
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const attachText = await attachRes.text();
+  expect(attachRes.status(), attachText.slice(0, 1000)).toBe(200);
+  return created.id;
+}
+
 async function checkoutTaxProduct(
   request: APIRequestContext,
   options: {
@@ -266,6 +313,12 @@ async function checkoutTaxProduct(
     customerId?: string | null;
     isTaxExempt?: boolean;
     taxExemptReason?: string;
+    discountEventId?: string;
+    belowCostApproval?: {
+      approved_by_staff_id: string;
+      reason?: string;
+      line_signature?: string;
+    };
   },
 ) {
   const quantity = options.quantity ?? 1;
@@ -288,6 +341,7 @@ async function checkoutTaxProduct(
       is_tax_exempt: options.isTaxExempt ?? false,
       tax_exempt_reason: options.taxExemptReason,
       checkout_client_id: crypto.randomUUID(),
+      below_cost_approval: options.belowCostApproval,
       items: [
         {
           product_id: options.product.productId,
@@ -301,6 +355,7 @@ async function checkoutTaxProduct(
           salesperson_id: options.operatorStaffId,
           original_unit_price: options.originalUnitPrice,
           price_override_reason: options.priceOverrideReason,
+          discount_event_id: options.discountEventId,
         },
       ],
       payment_splits: [
@@ -660,6 +715,79 @@ test.describe("tax audit contract", () => {
     });
     expect(wrongPriceRes.status()).toBe(400);
     await expect(wrongPriceRes.text()).resolves.toMatch(/customer profile discount/i);
+  });
+
+  test("manual below-cost discounts require manager approval unless promotion-backed", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "100.00",
+      unitCost: "80.00",
+      label: "below-cost-manual",
+    });
+    const belowCostTax = taxFor("clothing", "70.00");
+
+    const blockedRes = await checkoutTaxProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "70.00",
+      originalUnitPrice: "100.00",
+      stateTax: belowCostTax.stateTax,
+      localTax: belowCostTax.localTax,
+      priceOverrideReason: "E2E manual below cost",
+    });
+    const blockedText = await blockedRes.text();
+    expect(blockedRes.status(), blockedText.slice(0, 1000)).toBe(400);
+    expect(blockedText).toMatch(/below cost.*manager/i);
+
+    const approvedRes = await checkoutTaxProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "70.00",
+      originalUnitPrice: "100.00",
+      stateTax: belowCostTax.stateTax,
+      localTax: belowCostTax.localTax,
+      priceOverrideReason: "E2E manual below cost",
+      belowCostApproval: {
+        approved_by_staff_id: operatorStaffId,
+        reason: "E2E manager approved below-cost discount",
+        line_signature: "e2e-manual-below-cost",
+      },
+    });
+    const approvedText = await approvedRes.text();
+    expect(approvedRes.status(), approvedText.slice(0, 1000)).toBe(200);
+
+    const promoProduct = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "100.00",
+      unitCost: "80.00",
+      label: "below-cost-promo",
+    });
+    const discountEventId = await createVariantDiscountEvent(
+      request,
+      promoProduct,
+      "35.00",
+    );
+    const promoTax = taxFor("clothing", "65.00");
+    const promoRes = await checkoutTaxProduct(request, {
+      product: promoProduct,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "65.00",
+      originalUnitPrice: "100.00",
+      stateTax: promoTax.stateTax,
+      localTax: promoTax.localTax,
+      discountEventId,
+    });
+    const promoText = await promoRes.text();
+    expect(promoRes.status(), promoText.slice(0, 1000)).toBe(200);
   });
 
   test("tax-exempt checkout requires a reason and preserves zero tax at server boundary", async ({

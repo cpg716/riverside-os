@@ -1862,9 +1862,12 @@ export default function InventoryControlBoard({
                 ))}
               </ul>
             ) : null}
+            <p className="mt-4 text-[10px] font-black uppercase tracking-widest text-app-accent">
+              ✨ Product cleanup review queue
+            </p>
             <RosieInsightSummary
               surface="product_cleanup_review"
-              title="Product Cleanup Review"
+              title="✨ Product Cleanup Review"
               mode="explain"
               allowedActions={[
                 {

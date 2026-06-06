@@ -17,6 +17,7 @@ interface CartItemRowProps {
   removeLine: (rowId: string) => void;
   onEditAlterationLine?: (intakeId: string) => void;
   onLineProductTitleClick: (line: CartLineItem) => void;
+  orderSalespersonId?: string;
   orderSalespersonLabel: string;
   hideLineSalesperson?: boolean;
   updateLineGiftWrapStatus: (rowId: string, status: boolean) => void;
@@ -25,6 +26,14 @@ interface CartItemRowProps {
 
 function cartLineKey(l: Pick<CartLineItem, "cart_row_id">): string {
   return l.cart_row_id;
+}
+
+function discountDisplayLabel(reason?: string): string | null {
+  const normalized = reason?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "customer profile discount") return "Special Discount";
+  if (normalized === "employee discount") return "Employee Discount";
+  return null;
 }
 
 export function CartItemRow({
@@ -41,6 +50,7 @@ export function CartItemRow({
   onEditAlterationLine,
   onLineProductTitleClick,
   commissionStaff,
+  orderSalespersonId = "",
   orderSalespersonLabel,
   hideLineSalesperson = false,
   updateLineGiftWrapStatus,
@@ -54,6 +64,7 @@ export function CartItemRow({
   const saleCents = parseMoneyToCents(line.standard_retail_price);
   const showRegSale =
     line.original_unit_price != null && regCents > saleCents;
+  const automaticDiscountLabel = discountDisplayLabel(line.price_override_reason);
   const offPct =
     showRegSale && regCents > 0
       ? Math.round((1 - saleCents / regCents) * 100)
@@ -122,6 +133,11 @@ export function CartItemRow({
                 #{line.gift_card_load_code}
               </span>
             ) : null}
+            {automaticDiscountLabel ? (
+              <span className="rounded bg-app-accent/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-accent ring-1 ring-app-accent/20">
+                {automaticDiscountLabel}
+              </span>
+            ) : null}
             {line.fulfillment !== "takeaway" ? (
               <span className={`rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest border ${
                 line.fulfillment === "custom"
@@ -149,10 +165,12 @@ export function CartItemRow({
                 size="sm"
                 staff={commissionStaff}
                 selectedId={line.salesperson_id ?? ""}
-              onSelect={(id) => updateLineSalesperson(line.cart_row_id, id)}
-              placeholder={`Default (${orderSalespersonLabel || 'None'})`}
-              className="scale-90 origin-left"
-            />
+                onSelect={(id) => updateLineSalesperson(line.cart_row_id, id)}
+                placeholder={`Default (${orderSalespersonLabel || "None"})`}
+                placeholderAvatarId={orderSalespersonId || undefined}
+                placeholderAvatarName={orderSalespersonLabel || undefined}
+                className="scale-90 origin-left"
+              />
           </div>
           )}
         </div>

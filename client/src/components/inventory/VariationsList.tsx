@@ -18,7 +18,8 @@ type VariantPatch =
   | { quantity_delta: number }
   | { web_published: boolean }
   | { track_low_stock: boolean }
-  | { retail_price_override: string | null };
+  | { retail_price_override: string | null }
+  | { cost_override: string | null };
 
 export interface VariationsListProps {
   variants: HubVariant[];

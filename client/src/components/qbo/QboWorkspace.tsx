@@ -7,6 +7,7 @@ import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 
 const baseUrl = getBaseUrl();
 
@@ -490,6 +491,56 @@ export default function QboWorkspace({
       failedCount: staging.filter((row) => row.status === "failed").length,
     };
   }, [staging]);
+  const qboInsightFacts = useMemo(() => {
+    const openRows =
+      accountingSummary.pendingCount +
+      accountingSummary.approvedCount +
+      accountingSummary.failedCount;
+    return {
+      title: "QBO staging review",
+      metrics: [
+        { id: "staged-rows", label: "Staged rows", value: String(staging.length) },
+        { id: "open-rows", label: "Still open", value: String(openRows) },
+        { id: "blocking-rows", label: "Cannot send", value: String(accountingSummary.blockingRows.length) },
+        { id: "warning-rows", label: "Check first", value: String(accountingSummary.warningRows.length) },
+        { id: "failed-rows", label: "Posting failed", value: String(accountingSummary.failedCount) },
+      ],
+      bullets: [
+        {
+          id: "connection",
+          label: connectionReady
+            ? "QuickBooks connection details are configured."
+            : "QuickBooks connection setup is incomplete.",
+          severity: connectionReady ? "success" : "warning",
+        },
+        {
+          id: "mappings",
+          label: mappingsReady
+            ? "At least one QBO mapping set is available for staging review."
+            : "QBO mappings need review before journals can be trusted.",
+          severity: mappingsReady ? "success" : "warning",
+        },
+        {
+          id: "latest-failed",
+          label: accountingSummary.latestFailed
+            ? `Latest failed send: ${accountingSummary.latestFailed.sync_date} - ${accountingSummary.latestFailed.error_message ?? "no error detail"}`
+            : "No failed QuickBooks sending is visible in this queue.",
+          severity: accountingSummary.latestFailed ? "warning" : "success",
+        },
+        {
+          id: "open-review",
+          label:
+            openRows > 0
+              ? `${openRows} journal row${openRows === 1 ? "" : "s"} still need review, sending, or failure follow-up.`
+              : "No open journal rows need review in this queue.",
+          severity: openRows > 0 ? "info" : "success",
+        },
+      ],
+      disclaimers: [
+        "Explain visible QBO staging facts only. Do not create mappings, approve journals, post journals, or invent accounting routes.",
+      ],
+    };
+  }, [accountingSummary, connectionReady, mappingsReady, staging.length]);
 
   const copySupportSnapshot = async () => {
     const latestPosted = accountingSummary.latestPosted;
@@ -981,6 +1032,24 @@ export default function QboWorkspace({
             Copy support snapshot
           </button>
         </div>
+      </div>
+
+      <div className="ui-card bg-[color-mix(in_srgb,var(--app-warning)_10%,var(--app-surface-2))] px-5 py-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          ✨ QBO exception explainer
+        </p>
+        <p className="mt-2 text-sm font-semibold text-app-text">
+          ROSIE can summarize the visible staging queue, but account mapping, approval, and posting
+          stay in the existing QBO review controls.
+        </p>
+        <RosieInsightSummary
+          surface="qbo_staging_review"
+          title="QBO Staging"
+          mode="explain"
+          getHeaders={() => backofficeHeaders() as Record<string, string>}
+          facts={qboInsightFacts}
+          className="mt-3"
+        />
       </div>
 
       <div className="ui-card bg-[color-mix(in_srgb,var(--app-warning)_10%,var(--app-surface-2))] px-5 py-4">

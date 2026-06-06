@@ -90,6 +90,10 @@ Unmatched rows are imported accounts that could not be linked automatically by a
 
 Do not match from name alone. Confirm phone, address, and customer profile context before selecting a customer.
 
+The **✨ RMS review explainer** summarizes visible weekly import facts: freshness, parsed account count, matched and unmatched account count, snapshot balance, past due balance, and the reminder that R2S reporting remains manual.
+
+ROSIE does not report records to R2S, post charges, post payments, change balances, or match imported accounts without staff confirmation.
+
 ### Overview
 
 Use `Overview` for a quick answer to:

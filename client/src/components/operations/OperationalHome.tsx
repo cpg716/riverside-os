@@ -2128,9 +2128,12 @@ export default function OperationalHome({
                 ))
               )}
             </div>
+            <p className="mt-4 text-[10px] font-black uppercase tracking-widest text-app-accent">
+              ✨ Daily operations brief
+            </p>
             <RosieInsightSummary
               surface="daily_operational_briefing"
-              title="Today at Riverside"
+              title="✨ Today at Riverside"
               facts={dailyBriefingFacts}
               getHeaders={taskAuth}
             />

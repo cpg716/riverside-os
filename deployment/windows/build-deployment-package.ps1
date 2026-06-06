@@ -237,6 +237,7 @@ Add-RosieSherpaBinaries $packageRoot
 
 Copy-Item "$PSScriptRoot\start-riverside-llama.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideLlama.cmd" $packageRoot -Force
+Copy-Item "$PSScriptRoot\watch-rosie-stack.ps1" $packageRoot -Force
 
 
 $manifest = @{

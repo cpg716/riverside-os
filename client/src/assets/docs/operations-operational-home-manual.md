@@ -57,7 +57,9 @@ Successful **no issues** states are different from failed feeds. If a feed canno
 
 Daily Operational Briefing is optional. It appears below deterministic operational content and should explain the facts already on the screen.
 
-If ROSIE is slow or unavailable, the briefing request times out or falls back quietly. Staff should keep using the deterministic cards and workflow links.
+The **✨ Daily operations brief** summarizes the visible store facts for the day: appointments, weddings, fulfillment pressure, register close state, alterations, tasks, and active notifications. It is an explanation layer only; staff still opens the source workflow before making customer promises, inventory decisions, accounting decisions, or register-close decisions.
+
+If ROSIE is slow or unavailable, the briefing request shows an unavailable state. Staff should keep using the deterministic cards and workflow links, and support should treat ROSIE as a Host stack issue.
 
 ## Degraded feeds
 

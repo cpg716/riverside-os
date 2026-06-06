@@ -6,8 +6,8 @@ This file is the canonical source of truth for the approved ROSIE Host runtime s
 It defines:
 - the Host deployment model
 - the approved production LLM / STT / TTS stack
-- the fallback story
-- what is implemented now vs what is still a constrained fallback
+- the fail-closed production policy
+- what is implemented now vs what is development-only diagnostic support
 
 If runtime code, env notes, or workstation setup drift from this file, this file wins and the drift must be corrected explicitly.
 
@@ -46,12 +46,12 @@ All runtime components are pre-compiled native binaries invoked directly by the 
 | Kokoro TTS model | `C:\RiversideOS\rosie\tts\kokoro-multi-lang-v1_0\` |
 | Gemma GGUF | `C:\RiversideOS\rosie\models\gemma-4-e4b\google_gemma-4-E4B-it-Q4_K_M.gguf` |
 
-**Acquisition behaviour:** Binaries and models are **never committed to git**. The deployment ZIP may optionally pre-bundle them for air-gapped installs. If absent, `Install-RosieAiStack.ps1` downloads them automatically on first run. A failed Gemma GGUF download is a warning (not fatal) — STT/TTS may remain functional, but the stack is not marked fully ready until LLM, STT, TTS, and binaries all verify.
+**Acquisition behaviour:** Binaries and models are **never committed to git**. The deployment ZIP may optionally pre-bundle them for air-gapped installs. If absent, `Install-RosieAiStack.ps1` downloads them automatically on first run. Production install is fail-closed: LLM, STT, TTS, and required binaries must all verify before setup is considered successful.
 
 **Readiness files:**
 - `C:\RiversideOS\rosie\rosie_status.json` is the component-level readiness manifest and records LLM/STT/TTS/binary status.
 - `C:\RiversideOS\rosie\rosie_ready` is written only when the full ROSIE stack is usable.
-- Deployment and audit tools must treat a missing `rosie_ready` with a present status manifest as partial setup, not as a successful full install.
+- Deployment and audit tools must treat a missing `rosie_ready` as a ROSIE blocker, not as a successful degraded install.
 
 **Version pins** (update the version pin block at the top of `Install-RosieAiStack.ps1`):
 - sherpa-onnx: **v1.13.2** (Windows x64)
@@ -90,7 +90,7 @@ ROSIE token telemetry tracks AI token usage for cost analysis when evaluating lo
 
 ## Approval Status Labels
 - Approved production default: explicitly approved as the intended production stack baseline.
-- Approved fallback/dev fallback: allowed when the production-default component is unavailable, or for constrained development/bootstrap use.
+- Development/diagnostic only: may exist for local debugging, but must not be treated as production continuity.
 - Temporary implementation: implemented now but not an approved long-term product decision.
 
 ## Approved Production Stack
@@ -101,18 +101,18 @@ ROSIE token telemetry tracks AI token usage for cost analysis when evaluating lo
 - Expected file: `google_gemma-4-E4B-it-Q4_K_M.gguf`
 - Default Host path: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf`
 - Desktop path: Tauri direct/local via `rosie_llama_*`
-- Server fallback path: `POST /api/help/rosie/v1/chat/completions`
+- Server-governed Host path: `POST /api/help/rosie/v1/chat/completions`
 - Approval status: Approved production default
 
 ### 1.5. Optional Cloud Provider (Gemini API)
 - Runtime: Google Gemini API (cloud-based)
 - Model family: Gemini 2.5 Pro
 - Configuration: `GEMINI_API_KEY` environment variable
-- Provider selection: `ROSIE_PROVIDER_MODE` (local-gemma, gemini-api, auto)
+- Provider selection: `ROSIE_PROVIDER_MODE` (production default: `local-gemma`; `gemini-api` and `auto` require explicit configuration)
 - Privacy mode: `ROSIE_FORCE_LOCAL_FOR_SENSITIVE` (default: true)
-- Approval status: Optional cloud provider for performance/multimodal capabilities
+- Approval status: Optional explicit provider, not production fallback
 - Use case: Faster inference, multimodal understanding, streaming responses
-- Fallback: Automatically falls back to local Gemma if unavailable or for sensitive queries
+- Failure behavior: cloud provider failure returns to local Gemma only when explicitly configured; local Gemma failure blocks ROSIE until the Host stack is healthy.
 
 ### 2. STT
 - Engine: SenseVoice Small via Sherpa-ONNX
@@ -140,13 +140,14 @@ ROSIE token telemetry tracks AI token usage for cost analysis when evaluating lo
 - macOS workstation verification may still run `cpu` providers when OpenVINO is not applicable on that Host.
 - Approval status: Approved production deployment note
 
-## Approved Fallbacks
+## Production Reliability
 
-### LLM fallback
-- Runtime: `RIVERSIDE_LLAMA_UPSTREAM` Axum fallback
-- Allowed when the local/direct Host runtime is unavailable
-- Must still use the same governed ROSIE tool path
-- Approval status: Approved fallback/dev fallback
+### Host supervision
+- `start-riverside-llama.ps1` registers `Riverside OS LLM Host` with persistent restart settings.
+- `watch-rosie-stack.ps1` registers as `Riverside OS ROSIE Watchdog` during `Install-RosieAiStack.ps1`.
+- The watchdog checks required binaries, Gemma GGUF, SenseVoice assets, Kokoro assets, and the LLM `/health` endpoint.
+- If the LLM HTTP health check fails, the watchdog starts the LLM host task or recreates it through `start-riverside-llama.ps1`.
+- `rosie_ready` is removed when the stack is not fully healthy.
 
 ### Insight summaries
 - Shared ROSIE insight summaries use the OpenAI-compatible `llama-server` endpoint configured by `RIVERSIDE_LLAMA_UPSTREAM`.
@@ -173,39 +174,27 @@ RIVERSIDE_LLAMA_EXTRA_ARGS="--reasoning off" npm run dev:server
 - ROSIE request payloads also set `chat_template_kwargs.enable_thinking=false` and `reasoning=false` so direct API calls do not burn the response budget on hidden reasoning.
 - Restart stale API processes after pulling a branch that changes ROSIE routes.
 
-### STT fallback
-- Engine: `whisper.cpp` `whisper-cli`
-- Expected fallback model: `ggml-small.en.bin`
-- Approval status: Approved fallback/dev fallback
-
-### TTS fallback
-- Engine: host speech command
-- Current macOS fallback: `/usr/bin/say`
-- Approval status: Approved fallback/dev fallback
-
-## Fallback Behavior
+## Failure Behavior
 
 ### LLM
-- If the Host local/direct runtime is available, Tauri should prefer it when `local_first` is enabled.
-- If local/direct runtime is unavailable, Tauri and PWA use the Axum fallback route.
-- If neither local/direct nor configured upstream is available, ROSIE chat is explicitly unavailable.
+- If the Host local/direct runtime is available, Tauri should use it when `local_first` is enabled.
+- If local/direct runtime is unavailable, Tauri blocks the request and surfaces ROSIE unavailable.
+- PWA and server-governed calls use `RIVERSIDE_LLAMA_UPSTREAM`, which must point at the healthy Host runtime in production.
 
 ### STT
-- If SenseVoice is unavailable, the explicit voice-input control should fall back to `whisper-cli` when configured.
-- If neither SenseVoice nor fallback STT is available, ROSIE remains text-only.
+- If SenseVoice is unavailable, voice input is blocked and the stack is unhealthy.
 
 ### TTS
-- If Kokoro is unavailable, local playback may fall back to the host speech command when configured.
-- If neither Kokoro nor fallback TTS is available, ROSIE remains text-only and visible text stays primary.
+- If Kokoro is unavailable, voice output is blocked and the stack is unhealthy.
 
 ## Implemented Now
 - Tauri direct/local `llama-server` path
-- Axum ROSIE fallback path
+- Server-governed ROSIE Host path
 - SenseVoice Small STT wiring in the Tauri voice layer
 - Kokoro-82M TTS wiring in the Tauri voice layer
 - ROSIE Help Center voice controls and runtime status visibility
 - `scripts/verify_rosie_local_stack.sh` local verification helper
-- Provider abstraction for switching between local Gemma and Gemini API
+- Provider abstraction for explicit local Gemma, Gemini API, or auto mode selection
 - Capability registry for ROSIE self-awareness
 - E2E API gateway for manual generation and workflow testing
 - Streaming TTS support with `--stream` flag
@@ -215,18 +204,18 @@ RIVERSIDE_LLAMA_EXTRA_ARGS="--reasoning off" npm run dev:server
 - SenseVoice can transcribe local speech into the normal Ask ROSIE text path.
 - Kokoro can speak ROSIE text responses after the governed ROSIE flow completes.
 
-## Still a Constrained Fallback, Not the Primary Story
+## Development/Diagnostic Only
 - `whisper.cpp` + `ggml-small.en.bin`
 - macOS `/usr/bin/say`
 - any older tiny bootstrap model such as Qwen 0.5B
 
-These may remain in the codebase as explicit fallback-only paths, but they are not the approved primary stack.
+These may remain in the codebase for local debugging, but they are not production continuity paths.
 
 ## Runtime Expectations
 
 ### Host expectations
 - The Host must provide the approved production assets or explicit env overrides for them.
-- The Host is responsible for running the local ROSIE stack or an explicitly configured upstream fallback.
+- The Host is responsible for running the local ROSIE stack and keeping `rosie_ready` current.
 - Runtime assumptions must be explicit in env/config and must match this file.
 - For local development, `npm run dev` should auto-start the approved local Gemma Host runtime when the pinned assets are present and no explicit non-loopback upstream override is configured.
 

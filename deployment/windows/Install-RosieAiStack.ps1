@@ -348,7 +348,7 @@ foreach ($file in $STT_FILES) {
 $sttMissing = @($STT_FILES | Where-Object { -not (Test-Path (Join-Path $sttModelDir $_)) })
 $sttReady = $sttMissing.Count -eq 0
 if (-not $sttReady) {
-  Write-Warning "      Some STT model files could not be downloaded. ROSIE voice input will be unavailable."
+  Write-Warning "      Some STT model files could not be downloaded. ROSIE voice input is blocked until setup is repaired."
 } else {
   Write-Host "      STT models ready at: $sttModelDir"
   $STT_HF_REPO | Out-File -FilePath $sttVersionFile -Encoding utf8
@@ -392,7 +392,7 @@ $ttsRequiredFiles = @($TTS_FILES + $TTS_ESPEAK_FILES)
 $ttsMissing = @($ttsRequiredFiles | Where-Object { -not (Test-Path (Join-Path $ttsModelDir $_)) })
 $ttsReady = $ttsMissing.Count -eq 0
 if (-not $ttsReady) {
-  Write-Warning "      Some TTS model files could not be downloaded. ROSIE voice output will be unavailable."
+  Write-Warning "      Some TTS model files could not be downloaded. ROSIE voice output is blocked until setup is repaired."
 } else {
   Write-Host "      TTS models ready at: $ttsModelDir"
   $TTS_HF_REPO | Out-File -FilePath $ttsVersionFile -Encoding utf8
@@ -421,6 +421,7 @@ New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 $modelDest = Join-Path $modelsDir $pin.filename
 
 $needsDownload = $true
+$llmInstallError = ""
 if (Test-Path $modelDest) {
   Write-Host "      Verifying Gemma model SHA256..."
   $existingHash = (Get-FileHash -Algorithm SHA256 -Path $modelDest).Hash.ToLowerInvariant()
@@ -446,9 +447,9 @@ if ($needsDownload) {
     }
     Write-Host "      Gemma model downloaded and verified successfully."
   } catch {
+    $llmInstallError = $_.Exception.Message
     Write-Warning "      Gemma model verification/download failed: $($_.Exception.Message)"
-    Write-Warning "      ROSIE LLM will be unavailable. Re-run Install-RosieAiStack.ps1 when network is available."
-    # Do NOT throw - partial ROSIE (STT/TTS without LLM) is better than full failure
+    Write-Warning "      ROSIE LLM is blocked until Install-RosieAiStack.ps1 completes successfully."
   }
 }
 
@@ -500,6 +501,12 @@ if ($stackReady) {
 } else {
   if (Test-Path $readyFlag) { Remove-Item $readyFlag -Force -ErrorAction SilentlyContinue }
   Write-Warning "      ROSIE stack is not fully ready. See $statusPath for component details."
+  $failureReason = if (-not [string]::IsNullOrWhiteSpace($llmInstallError)) {
+    " Gemma setup error: $llmInstallError"
+  } else {
+    ""
+  }
+  throw "ROSIE setup did not complete. LLM, STT, TTS, and required binaries must all be ready before the Main Hub can rely on ROSIE.$failureReason"
 }
 
 # ============================================================
@@ -528,23 +535,42 @@ if ($SkipEnvPatch) {
   }
   $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_HOST" "127.0.0.1"
   $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_PORT" "8080"
+  $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_UPSTREAM" "http://127.0.0.1:8080"
+  $envLines = Set-EnvLine $envLines "ROSIE_PROVIDER_MODE" "local-gemma"
+  $envLines = Set-EnvLine $envLines "ROSIE_FORCE_LOCAL_FOR_SENSITIVE" "true"
 
   $utf8NoBom = New-Object System.Text.UTF8Encoding $false
   [System.IO.File]::WriteAllLines($serverEnvPath, $envLines, $utf8NoBom)
   Write-Host "      Server .env updated."
 
-  # Restart LLM scheduled task if registered
-  $taskName = "Riverside OS LLM Host"
-  $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-  if ($task -and (Test-Path $modelDest)) {
-    Write-Host "      Restarting scheduled task '$taskName'..."
-    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 1
-    Get-Process -Name "llama-server" -ErrorAction SilentlyContinue |
-      ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Seconds 1
-    Start-ScheduledTask -TaskName $taskName
-    Write-Host "      Scheduled task restarted."
+  $startScriptSource = Join-Path $ScriptRoot "start-riverside-llama.ps1"
+  $watchdogScriptSource = Join-Path $ScriptRoot "watch-rosie-stack.ps1"
+  $startScriptDest = Join-Path $ServerInstallRoot "start-riverside-llama.ps1"
+  $watchdogScriptDest = Join-Path $ServerInstallRoot "watch-rosie-stack.ps1"
+  if (Test-Path $startScriptSource) {
+    Copy-Item $startScriptSource $startScriptDest -Force
+  }
+  if (Test-Path $watchdogScriptSource) {
+    Copy-Item $watchdogScriptSource $watchdogScriptDest -Force
+  }
+
+  if (Test-Path $startScriptDest) {
+    Write-Host "      Registering and starting the ROSIE LLM Host task..."
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $startScriptDest -InstallRoot $ServerInstallRoot | Out-Null
+  }
+
+  if (Test-Path $watchdogScriptDest) {
+    $watchdogTaskName = "Riverside OS ROSIE Watchdog"
+    Write-Host "      Registering ROSIE watchdog task..."
+    Unregister-ScheduledTask -TaskName $watchdogTaskName -Confirm:$false -ErrorAction SilentlyContinue
+    $watchdogAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$watchdogScriptDest`" -InstallRoot `"$ServerInstallRoot`""
+    $startupTrigger = New-ScheduledTaskTrigger -AtStartup
+    $repeatTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+    $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+    Register-ScheduledTask -TaskName $watchdogTaskName -Action $watchdogAction -Trigger @($startupTrigger, $repeatTrigger) -Principal $principal -Settings $settings | Out-Null
+    Start-ScheduledTask -TaskName $watchdogTaskName
+    Write-Host "      ROSIE watchdog registered."
   }
 }
 

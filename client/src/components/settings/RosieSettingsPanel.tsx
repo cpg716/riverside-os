@@ -278,7 +278,7 @@ export default function RosieSettingsPanel() {
           <div className="rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-xs font-bold uppercase tracking-widest text-app-text-muted">
             Effective mode:{" "}
             <span className="text-app-text">
-              {effectiveSettings.local_first ? "Local host first" : "Axum fallback only"}
+              {effectiveSettings.local_first ? "Host stack required" : "Server-governed host route"}
             </span>
           </div>
         </div>
@@ -377,8 +377,8 @@ export default function RosieSettingsPanel() {
 
           <label className="flex items-center justify-between gap-4 rounded-xl border border-app-border bg-app-surface p-4 cursor-pointer">
             <div>
-              <p className="text-sm font-bold text-app-text">Local First</p>
-              <p className="mt-1 text-xs text-app-text-muted">Try Host stack first, then Axum fallback</p>
+              <p className="text-sm font-bold text-app-text">Require Host Stack</p>
+              <p className="mt-1 text-xs text-app-text-muted">Use the local Gemma host directly and block ROSIE if it is not healthy</p>
             </div>
             <input
               type="checkbox"

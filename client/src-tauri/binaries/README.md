@@ -3,7 +3,7 @@
 Tauri bundles `llama-server` from this folder. Spawn/stop behavior lives in [`client/src-tauri/src/llama_server.rs`](../src/llama_server.rs).
 
 The canonical ROSIE stack source of truth is [`docs/ROSIE_HOST_STACK.md`](../../../docs/ROSIE_HOST_STACK.md).
-Use that file for approval status, fallback policy, and Host expectations.
+Use that file for approval status, fail-closed policy, and Host expectations.
 
 ## Approved production stack
 
@@ -14,7 +14,7 @@ The approved production Host stack is:
 - STT: SenseVoice Small via Sherpa-ONNX
 - TTS: Kokoro-82M via Sherpa-ONNX
 
-Fallback-only paths remain supported where the Host stack file says they are allowed, but they are not the primary story.
+Fallback-only paths are development/diagnostic tools only. Production ROSIE requires the Gemma, SenseVoice, and Kokoro Host stack to be healthy.
 
 ## Pinned local asset expectations
 
@@ -48,12 +48,9 @@ The desktop shell treats that sidecar as the local-first direct runtime path.
 | `RIVERSIDE_LLAMA_PORT` | `8080` | Loopback port for the local Host runtime. |
 | `RIVERSIDE_LLAMA_PERF_PROFILE` | `auto` | llama.cpp launch profile: `intel-i9-12900`, `minisforum-v3`, `apple-m3-pro`, `apple-m3-pro-cpu`, or `portable-cpu`. |
 | `RIVERSIDE_LLAMA_EXTRA_ARGS` | `--reasoning off` when unset | Optional non-performance llama-server args. ROS launchers append the selected performance profile after this value. |
-| `RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH` | `~/.local/share/uv/tools/sherpa-onnx/bin/python` | Python runtime used by the SenseVoice and Kokoro helper scripts. |
 | `RIVERSIDE_SENSEVOICE_MODEL_DIR` | SenseVoice path above | Approved primary STT model directory. |
 | `RIVERSIDE_KOKORO_MODEL_DIR` | Kokoro path above | Approved primary TTS model directory. |
 | `RIVERSIDE_SHERPA_PROVIDER` | `cpu` | Sherpa provider; Host deployments may use OpenVINO where applicable. |
-| `RIVERSIDE_WHISPER_CLI_PATH` / `RIVERSIDE_WHISPER_MODEL_PATH` | unset | Fallback-only STT path. |
-| `RIVERSIDE_TTS_FALLBACK_COMMAND_PATH` | `/usr/bin/say` | Fallback-only host TTS path. |
 
 ## Verification
 

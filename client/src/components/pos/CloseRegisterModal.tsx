@@ -10,6 +10,7 @@ import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { getCheckoutQueueSummary, type CheckoutQueueSummary } from "../../lib/offlineQueue";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 
 const MANDATORY_NOTE_OVER_USD = 5;
 
@@ -1203,6 +1204,52 @@ export default function CloseRegisterModal({
     needsNote && notes.trim() === "" ? "Cash discrepancy note" : null,
   ].filter(Boolean);
   const closeReady = closeBlockers.length === 0;
+  const closeInsightFacts = {
+    title: `Register #${registerOrdinal ?? registerLane ?? "?"} close review`,
+    metrics: [
+      { id: "expected-cash", label: "Expected cash", value: `$${centsToFixed2(expectedCents)}` },
+      { id: "actual-cash", label: "Actual counted", value: `$${centsToFixed2(actualCents)}` },
+      {
+        id: "cash-discrepancy",
+        label: "Cash over or short",
+        value: `${discrepancyCents < 0 ? "-" : "+"}$${centsToFixed2(Math.abs(discrepancyCents))}`,
+        tone: isOff ? "warning" : "success",
+      },
+      { id: "tender-count", label: "Tender families", value: String(recon.tenders.length) },
+    ],
+    bullets: [
+      {
+        id: "close-ready",
+        label: closeReady
+          ? "All close blockers are clear; staff still reviews the Z-report before final close."
+          : `Close is blocked by ${closeBlockers.join(", ")}.`,
+        severity: closeReady ? "success" : "warning",
+      },
+      {
+        id: "cash-note",
+        label: needsNote
+          ? "Cash discrepancy is over the required note threshold."
+          : "Cash discrepancy is within the no-note threshold, but staff can still document it.",
+        severity: needsNote ? "warning" : "info",
+      },
+      {
+        id: "card-review",
+        label: helcimReviewMessage ?? "No unresolved card payment review blocker is visible.",
+        severity: helcimReviewMessage ? "warning" : "success",
+      },
+      {
+        id: "offline-queue",
+        label:
+          offlineQueueSummary.totalCount > 0
+            ? `${offlineQueueSummary.totalCount} checkout recovery item${offlineQueueSummary.totalCount === 1 ? "" : "s"} must clear before close.`
+            : "No checkout recovery items are blocking close.",
+        severity: offlineQueueSummary.totalCount > 0 ? "warning" : "success",
+      },
+    ],
+    disclaimers: [
+      "Explain visible close facts only. Do not close the register, change tender totals, change counted cash, or approve payment outcomes.",
+    ],
+  };
 
   if (step === "checks") {
     return createPortal(
@@ -1412,6 +1459,23 @@ export default function CloseRegisterModal({
                 ? "Cash and payment reviews are clear."
                 : `Before closing: ${closeBlockers.join(", ")}.`}
             </p>
+          </div>
+          <div className="rounded-2xl border border-app-accent/25 bg-app-accent/5 px-4 py-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
+              ✨ Register close explainer
+            </p>
+            <p className="mt-1 text-xs font-semibold text-app-text-muted">
+              ROSIE explains the visible close facts only. Final close, cash counts, and payment
+              outcomes stay in the normal manager-reviewed workflow.
+            </p>
+            <RosieInsightSummary
+              surface="register_close_review"
+              title="Register Close"
+              mode="explain"
+              getHeaders={() => Object.fromEntries(jsonAuthHeaders().entries())}
+              facts={closeInsightFacts}
+              className="mt-3"
+            />
           </div>
           {renderOfflineQueueBlocker()}
           {renderHelcimReviewBlocker()}

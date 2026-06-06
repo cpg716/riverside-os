@@ -1898,7 +1898,7 @@ export default function CounterpointSyncSettingsPanel() {
           </p>
         </div>
         <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          Optional explanation of displayed checks only
+          ✨ Counterpoint exception explainer
         </p>
         <RosieInsightSummary
           surface="counterpoint_status"

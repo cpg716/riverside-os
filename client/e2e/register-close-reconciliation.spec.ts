@@ -121,6 +121,7 @@ type HelcimAttemptResponse = {
 type TransactionDetailResponse = {
   total_price: string;
   items: Array<{
+    unit_price: string;
     transaction_line_id: string;
     quantity: number;
     quantity_returned: number;
@@ -901,7 +902,10 @@ test.describe("Register close / reconciliation", () => {
     const primaryHistory = history.find((row) => row.id === primary?.session_id);
     expect(primaryHistory).toBeTruthy();
     expect(primaryHistory?.register_lane).toBe(1);
-    expect(primaryHistory?.total_sales).toBe(detail.total_price);
+    const expectedNetSales = detail.items
+      .reduce((sum, item) => sum + Number(item.unit_price) * item.quantity, 0)
+      .toFixed(2);
+    expect(primaryHistory?.total_sales).toBe(expectedNetSales);
     expect(history.some((row) => row.id === satellite?.session_id)).toBeFalsy();
     expect(history.some((row) => row.id === tertiary?.session_id)).toBeFalsy();
   });

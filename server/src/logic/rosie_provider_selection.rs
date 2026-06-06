@@ -1,7 +1,7 @@
 //! Provider selection logic for ROSIE.
 //!
-//! Automatically selects between local Gemma and Gemini API based on availability,
-//! latency, privacy requirements, and user configuration.
+//! Selects between local Gemma and explicitly configured cloud providers.
+//! Production defaults to local Gemma and fails closed when the Host stack is unhealthy.
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -19,8 +19,7 @@ pub enum RosieProviderMode {
 
 impl Default for RosieProviderMode {
     fn default() -> Self {
-        // Default to auto selection
-        RosieProviderMode::Auto
+        RosieProviderMode::LocalGemma
     }
 }
 
@@ -30,7 +29,7 @@ impl RosieProviderMode {
             "local" | "local-gemma" => RosieProviderMode::LocalGemma,
             "gemini" | "gemini-api" => RosieProviderMode::GeminiApi,
             "auto" => RosieProviderMode::Auto,
-            _ => RosieProviderMode::Auto,
+            _ => RosieProviderMode::LocalGemma,
         }
     }
 }
@@ -81,7 +80,7 @@ pub async fn select_llm_provider(
             GeminiProvider::from_env()
                 .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
                 .or_else(|_| {
-                    tracing::warn!("Gemini API provider unavailable, falling back to local Gemma");
+                    tracing::warn!("Gemini API provider unavailable, using local Gemma");
                     LocalGemmaProvider::from_env().map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
                 })
         }
@@ -94,7 +93,7 @@ pub async fn select_llm_provider(
                 GeminiProvider::from_env()
                     .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
                     .or_else(|_| {
-                        tracing::warn!("Gemini API unavailable, falling back to local Gemma");
+                        tracing::warn!("Gemini API unavailable, using local Gemma");
                         LocalGemmaProvider::from_env()
                             .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
                     })
@@ -103,8 +102,8 @@ pub async fn select_llm_provider(
                 LocalGemmaProvider::from_env()
                     .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
                     .or_else(|_| {
-                        tracing::warn!("Local Gemma unavailable, trying Gemini API");
-                        GeminiProvider::from_env().map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
+                        tracing::error!("Local Gemma unavailable; ROSIE is blocked until the Host stack is healthy");
+                        Err("Local Gemma is unavailable; ROSIE requires the Host stack to be running".to_string())
                     })
             }
         }
@@ -135,7 +134,7 @@ async fn should_use_gemini(config: &RosieProviderConfig, query_type: &QueryType)
     // Check if local Gemma is available
     let local_available = check_local_gemma_availability().await;
 
-    // If both are available, prefer Gemini for non-sensitive queries
+    // If both are available in explicit auto mode, prefer Gemini for non-sensitive queries.
     if gemini_available && local_available {
         match query_type {
             QueryType::Sensitive => false,
@@ -209,14 +208,14 @@ mod tests {
         assert_eq!(RosieProviderMode::from_str("auto"), RosieProviderMode::Auto);
         assert_eq!(
             RosieProviderMode::from_str("unknown"),
-            RosieProviderMode::Auto
+            RosieProviderMode::LocalGemma
         );
     }
 
     #[test]
     fn test_provider_config_default() {
         let config = RosieProviderConfig::default();
-        assert_eq!(config.mode, RosieProviderMode::Auto);
+        assert_eq!(config.mode, RosieProviderMode::LocalGemma);
         assert!(config.force_local_for_sensitive);
     }
 }

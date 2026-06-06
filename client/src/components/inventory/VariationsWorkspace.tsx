@@ -234,6 +234,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
             notes?: string;
           }
         | { retail_price_override: string | null }
+        | { cost_override: string | null }
         | { web_published: boolean }
         | { track_low_stock: boolean },
     ): Promise<VariantPricingPatchResponse | null> => {
@@ -547,7 +548,16 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
               </div>
               <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-widest">
                 <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 text-app-text-muted">
-                  ${centsToFixed2(parseMoneyToCents(v.effective_retail))}
+                  Retail ${centsToFixed2(parseMoneyToCents(v.effective_retail))}
+                </span>
+                <span
+                  className={`rounded-lg border px-2 py-1 ${
+                    v.cost_override
+                      ? "border-amber-200 bg-amber-50 text-amber-700"
+                      : "border-app-border bg-app-surface-2 text-app-text-muted"
+                  }`}
+                >
+                  Cost {v.cost_override ? `$${centsToFixed2(parseMoneyToCents(v.cost_override))}` : "inherited"}
                 </span>
                 <span className={`rounded-lg border px-2 py-1 ${v.web_published ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-app-border bg-app-surface-2 text-app-text-muted"}`}>
                   {v.web_published ? "Online" : "Not online"}
@@ -575,6 +585,13 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 </button>
                 <button
                   type="button"
+                  onClick={() => void patchVariant(v.id, { cost_override: null })}
+                  className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-amber-300 hover:text-amber-700`}
+                >
+                  Clear Cost
+                </button>
+                <button
+                  type="button"
                   onClick={() =>
                     void handlePrintTags([v], "Inventory tag sent to print.")
                   }
@@ -594,7 +611,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => setMaintenanceTarget({ variantId: v.id, sku: v.sku, type: "return_to_vendor" })}
-                  className={`${cardActionButtonClass} col-span-2 border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:text-app-accent`}
+                  className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:text-app-accent`}
                 >
                   Return to Vendor
                 </button>

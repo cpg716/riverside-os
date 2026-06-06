@@ -145,7 +145,11 @@ export type RosieInsightSurface =
   | "daily_operational_briefing"
   | "receiving_review"
   | "product_cleanup_review"
-  | "follow_up_opportunities";
+  | "follow_up_opportunities"
+  | "register_close_review"
+  | "qbo_staging_review"
+  | "rms_charge_review"
+  | "wedding_readiness_review";
 
 export type RosieInsightMode = "summary" | "explain" | "next_steps";
 
@@ -1105,15 +1109,11 @@ export async function rosieChatCompletions(
   }
 
   if (rosieDirectTransportAllowed(settings)) {
-    try {
-      await ensureRosieLocalLlmRunning();
-      return await invoke<RosieChatCompletionResponse>(
-        "rosie_llama_chat_completions",
-        { payload: rosiePayload },
-      );
-    } catch (error) {
-      console.warn("ROSIE direct transport failed, falling back to Axum:", error);
-    }
+    await ensureRosieLocalLlmRunning();
+    return await invoke<RosieChatCompletionResponse>(
+      "rosie_llama_chat_completions",
+      { payload: rosiePayload },
+    );
   }
 
   const response = await fetch(
@@ -1423,65 +1423,6 @@ function sanitizeRosieAnswerText(raw: unknown): string {
   return text;
 }
 
-function summarizeRosieFallbackValue(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value.trim();
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function buildRosieGroundedFallbackAnswer(
-  request: RosieGroundedHelpRequest,
-  context: RosieToolContextResponse,
-): string {
-  const reportTool = context.tool_results.find((tool) => tool.tool_name === "reporting_run");
-  if (reportTool) {
-    const summary = summarizeRosieFallbackValue(reportTool.result).slice(0, 420);
-    return [
-      "I found an approved RiversideOS report result, but the local model did not produce a final sentence.",
-      summary
-        ? `Here is the returned report context: ${summary}`
-        : "The report returned, but it did not include displayable summary data.",
-    ].join(" ");
-  }
-
-  const operationalTool = context.tool_results.find((tool) =>
-    [
-      "order_summary",
-      "customer_hub_snapshot",
-      "wedding_actions",
-      "inventory_variant_intelligence",
-    ].includes(tool.tool_name),
-  );
-  if (operationalTool) {
-    const summary = summarizeRosieFallbackValue(operationalTool.result).slice(0, 420);
-    return [
-      `I found approved ${operationalTool.tool_name.replaceAll("_", " ")} context, but the local model did not produce a final sentence.`,
-      summary
-        ? `Here is the returned operational context: ${summary}`
-        : "The tool returned, but it did not include displayable summary data.",
-    ].join(" ");
-  }
-
-  const source = context.sources.find((entry) => entry.excerpt.trim());
-  if (source) {
-    return [
-      request.mode === "conversation"
-        ? "I found grounded RiversideOS guidance, but the local model did not produce a final sentence."
-        : "I found grounded Help Center guidance, but the local model did not produce a final sentence.",
-      `${source.title}: ${source.excerpt.slice(0, 520)}`,
-    ].join(" ");
-  }
-
-  return request.mode === "conversation"
-    ? "I could not get a final answer from the local ROSIE model, and no approved RiversideOS context was returned for that question. Try asking again with a specific customer, order, report, wedding, or inventory item."
-    : "I could not get a final answer from the local ROSIE model, and no Help Center source was returned for that question. Try a more specific workflow or search term.";
-}
-
 function rosieConversationalGreeting(question: string): string | null {
   const normalized = question.trim().toLowerCase().replace(/[!.?]+$/g, "");
   if (!/^(hi|hello|hey|good morning|good afternoon|good evening|yo|howdy)$/.test(normalized)) {
@@ -1567,7 +1508,7 @@ export async function askRosieGroundedHelp(
   }
 
   if (!answer) {
-    answer = buildRosieGroundedFallbackAnswer(request, context);
+    throw new Error("ROSIE local Gemma returned no usable answer after retry.");
   }
 
   return {
@@ -1666,7 +1607,7 @@ export async function askRosieGroundedHelpStream(
   }
 
   if (!answer) {
-    answer = buildRosieGroundedFallbackAnswer(request, context);
+    throw new Error("ROSIE local Gemma returned no usable answer after retry.");
   }
 
   return {

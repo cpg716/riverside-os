@@ -239,6 +239,11 @@ export interface CheckoutPayload {
   items: unknown[];
   alteration_intakes?: CheckoutAlterationIntakePayload[];
   order_payments?: CheckoutOrderPaymentPayload[];
+  below_cost_approval?: {
+    approved_by_staff_id: string;
+    reason?: string;
+    line_signature?: string;
+  };
   actor_name?: string | null;
   payment_splits?: CheckoutPaymentSplitPayload[] | null;
   applied_deposit_amount?: string;

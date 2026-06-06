@@ -353,6 +353,7 @@ export default function Cart({
   const [saleDateTimeLocal, setSaleDateTimeLocal] = useState<string | null>(null);
   const [pickupConfirmed, setPickupConfirmed] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const isEmployeeSale = Boolean(employeeCustomerId) && selectedCustomer?.id === employeeCustomerId;
   const [activeWeddingMember, setActiveWeddingMember] = useState<WeddingMember | null>(null);
   const [activeWeddingPartyName, setActiveWeddingPartyName] = useState<string | null>(null);
   const [disbursementMembers, setDisbursementMembers] = useState<WeddingMember[]>([]);
@@ -369,6 +370,13 @@ export default function Cart({
 
   // --- UI States (Restored to Cart.tsx) ---
   const [checkoutDrawerOpen, setCheckoutDrawerOpen] = useState(false);
+  const [belowCostApprovalPromptOpen, setBelowCostApprovalPromptOpen] =
+    useState(false);
+  const [belowCostApproval, setBelowCostApproval] = useState<{
+    approvedByStaffId: string;
+    lineSignature: string;
+    reason: string;
+  } | null>(null);
   const [weddingDrawerOpen, setWeddingDrawerOpen] = useState(false);
   const [weddingDrawerPreferGroupPay, setWeddingDrawerPreferGroupPay] = useState(false);
   const [measDrawerOpen, setMeasDrawerOpen] = useState(false);
@@ -390,6 +398,7 @@ export default function Cart({
   const [cashAdjustOpen, setCashAdjustOpen] = useState(false);
   const [openDepositPrompt, setOpenDepositPrompt] = useState<OpenDepositPrompt | null>(null);
   const [intelligenceVariantId, setIntelligenceVariantId] = useState<string | null>(null);
+  const [intelligenceLine, setIntelligenceLine] = useState<CartLineItem | null>(null);
   const [showPrintRetryPanel, setShowPrintRetryPanel] = useState(false);
   const openDepositSuppressedRef = useRef(false);
 
@@ -824,6 +833,7 @@ export default function Cart({
 
   const openLineProductBrowser = useCallback((line: CartLineItem) => {
     if (line.line_type === "alteration_service") return;
+    setIntelligenceLine(line);
     setIntelligenceVariantId(line.variant_id);
   }, []);
 
@@ -1233,11 +1243,78 @@ export default function Cart({
     setEditingOrderPaymentAmount("");
   }, [orderPaymentLines.length, pendingReturnTender]);
   const hasSalespersonAttribution = useCallback(() => {
+    if (isEmployeeSale) return true;
     return (
       primarySalespersonId.trim() !== "" ||
       lines.some((l) => (l.salesperson_id?.trim() ?? "") !== "")
     );
-  }, [lines, primarySalespersonId]);
+  }, [isEmployeeSale, lines, primarySalespersonId]);
+
+  const belowCostManualDiscountLines = useMemo(() => {
+    const automaticReasons = new Set([
+      "customer profile discount",
+      "employee discount",
+      "custom_order_booking",
+      "pending_return_refund",
+      "alteration_service",
+      "wedding promo (free suit selection)",
+    ]);
+    return lines
+      .filter((line) => {
+        const reason = line.price_override_reason?.trim();
+        if (!reason || automaticReasons.has(reason.toLowerCase())) return false;
+        if (line.discount_event_id) return false;
+        if (line.quantity <= 0) return false;
+        if (line.line_type === "alteration_service" || line.fulfillment === "custom") {
+          return false;
+        }
+        const unitCents = parseMoneyToCents(line.standard_retail_price);
+        const costCents = parseMoneyToCents(line.unit_cost);
+        return costCents <= 0 || unitCents < costCents;
+      })
+      .map((line) => ({
+        cartRowId: line.cart_row_id,
+        variantId: line.variant_id,
+        sku: line.sku,
+        name: line.name,
+        reason: line.price_override_reason?.trim() || "Manual discount",
+        unitCents: parseMoneyToCents(line.standard_retail_price),
+        costCents: parseMoneyToCents(line.unit_cost),
+      }));
+  }, [lines]);
+
+  const belowCostLineSignature = useMemo(
+    () =>
+      belowCostManualDiscountLines
+        .map(
+          (line) =>
+            `${line.cartRowId}:${line.variantId}:${line.unitCents}:${line.costCents}:${line.reason}`,
+        )
+        .join("|"),
+    [belowCostManualDiscountLines],
+  );
+
+  useEffect(() => {
+    if (
+      belowCostApproval &&
+      belowCostApproval.lineSignature !== belowCostLineSignature
+    ) {
+      setBelowCostApproval(null);
+    }
+  }, [belowCostApproval, belowCostLineSignature]);
+
+  const activeBelowCostApproval =
+    belowCostApproval?.lineSignature === belowCostLineSignature
+      ? belowCostApproval
+      : null;
+
+  const openCheckoutDrawerWithGuard = useCallback(() => {
+    if (belowCostManualDiscountLines.length > 0 && !activeBelowCostApproval) {
+      setBelowCostApprovalPromptOpen(true);
+      return;
+    }
+    setCheckoutDrawerOpen(true);
+  }, [activeBelowCostApproval, belowCostManualDiscountLines.length]);
 
   const ensurePosTokenForSession = useCallback(async () => {
     const success = await hydratePosRegisterAuthIfNeeded({
@@ -1274,6 +1351,7 @@ export default function Cart({
     activeWeddingMember,
     cashierName,
     primarySalespersonId,
+    employeeCustomerId,
     disbursementMembers,
     posShipping,
     pendingAlterationIntakes,
@@ -1281,6 +1359,13 @@ export default function Cart({
     pickupAlterationIds: pickupReadyAlterations.map((alteration) => alteration.id),
     pickupConfirmed,
     pickupTransactionId,
+    belowCostApproval: activeBelowCostApproval
+      ? {
+          approvedByStaffId: activeBelowCostApproval.approvedByStaffId,
+          reason: activeBelowCostApproval.reason,
+          lineSignature: activeBelowCostApproval.lineSignature,
+        }
+      : null,
     saleDateTimeLocal,
     totals,
     toast,
@@ -2141,7 +2226,7 @@ export default function Cart({
 
   return (
     <div
-      className="relative grid h-full min-h-0 w-full overflow-y-auto bg-app-bg lg:overflow-hidden lg:[grid-template-columns:minmax(0,1fr)_clamp(300px,28vw,376px)]"
+      className="relative grid h-full min-h-0 w-full overflow-hidden bg-app-bg lg:[grid-template-columns:minmax(0,1fr)_clamp(300px,28vw,376px)]"
       data-testid="pos-register-cart-shell"
       data-sale-hydrated={saleHydrated ? "true" : "false"}
       data-cashier-blocked={!checkoutOperator ? "true" : "false"}
@@ -2264,6 +2349,16 @@ export default function Cart({
                 ) : null}
               </div>
               {!isGiftCardOnlyCart ? (
+                isEmployeeSale ? (
+                  <div className="flex min-w-[18rem] flex-1 items-center justify-center gap-2">
+                    <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                      Salesperson:
+                    </span>
+                    <span className="inline-flex h-9 min-w-[12rem] items-center justify-center rounded-xl border-2 border-app-success/25 bg-app-success/10 px-4 text-sm font-black uppercase tracking-widest text-app-success">
+                      Employee Sale
+                    </span>
+                  </div>
+                ) : (
                   <label className="flex min-w-[18rem] flex-1 items-center justify-center gap-2">
                     <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                       Salesperson:
@@ -2283,6 +2378,7 @@ export default function Cart({
                       className="min-w-[12rem]"
                     />
                   </label>
+                )
               ) : null}
               <PosRegisterLiveClock
                 timeZone={receiptTimezone}
@@ -2634,8 +2730,9 @@ export default function Cart({
                   }}
                   onLineProductTitleClick={openLineProductBrowser}
                   commissionStaff={commissionStaff}
+                  orderSalespersonId={primarySalespersonId}
                   orderSalespersonLabel={primarySalespersonLabel}
-                  hideLineSalesperson={isGiftCardOnlyCart}
+                  hideLineSalesperson={isGiftCardOnlyCart || isEmployeeSale}
                 />
               ))}
             </div>
@@ -3150,7 +3247,7 @@ export default function Cart({
                if (!hasCheckoutWork) return toast("Add at least one item, transaction payment, or wedding group payment before checking out.", "error");
                 if (!ensureSaleCashier()) return;
                if (pendingReturnTender?.returnOnly) {
-                 setCheckoutDrawerOpen(true);
+                 openCheckoutDrawerWithGuard();
                  return;
                }
                if (isRmsPaymentCart) {
@@ -3171,7 +3268,7 @@ export default function Cart({
                    );
                    return;
                  }
-                 setCheckoutDrawerOpen(true);
+                 openCheckoutDrawerWithGuard();
                  return;
                }
 
@@ -3206,7 +3303,7 @@ export default function Cart({
                if (!selectedCustomer) {
                  setShowWalkinConfirm(true);
                } else {
-                 setCheckoutDrawerOpen(true);
+                 openCheckoutDrawerWithGuard();
                }
              }}
              className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? 'bg-app-success border-app-success text-white hover:brightness-110 shadow-app-success/40' : 'bg-app-surface-2 border-app-border text-app-text-muted cursor-not-allowed opacity-50'}`}
@@ -4010,7 +4107,7 @@ export default function Cart({
         onClose={() => setShowWalkinConfirm(false)}
         onConfirm={() => {
           setShowWalkinConfirm(false);
-          setCheckoutDrawerOpen(true);
+          openCheckoutDrawerWithGuard();
         }}
         title="Checkout as Walk-in?"
         message="No customer is assigned to this sale. Confirming as a walk-in will skip loyalty points and wedding tracking."
@@ -4291,32 +4388,66 @@ export default function Cart({
         }}
       />
 
+      <ManagerApprovalModal
+        isOpen={belowCostApprovalPromptOpen}
+        onClose={() => setBelowCostApprovalPromptOpen(false)}
+        title="Below-Cost Approval"
+        message={`${belowCostManualDiscountLines.length} manual discount line${belowCostManualDiscountLines.length === 1 ? "" : "s"} are below cost or missing cost. Manager Access is required before checkout.`}
+        onApprove={async (pin, managerId) => {
+          try {
+            const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...apiAuth() },
+              body: JSON.stringify({
+                pin,
+                staff_id: managerId,
+                authorize_action: "pos_below_cost_manual_discount",
+                authorize_metadata: {
+                  line_count: belowCostManualDiscountLines.length,
+                  line_signature: belowCostLineSignature,
+                  lines: belowCostManualDiscountLines.map((line) => ({
+                    variant_id: line.variantId,
+                    sku: line.sku,
+                    unit_cents: line.unitCents,
+                    cost_cents: line.costCents,
+                    reason: line.reason,
+                  })),
+                },
+              }),
+            });
+            if (!res.ok) {
+              toast("Manager approval failed. Check the Access PIN and try again.", "error");
+              return false;
+            }
+            const staff = (await res.json()) as { staff_id?: string };
+            setBelowCostApproval({
+              approvedByStaffId: staff.staff_id ?? managerId,
+              lineSignature: belowCostLineSignature,
+              reason: "Manager approved below-cost manual discount",
+            });
+            setBelowCostApprovalPromptOpen(false);
+            toast("Below-cost discount approved. Continue to Pay.", "success");
+            setCheckoutDrawerOpen(true);
+            return true;
+          } catch {
+            toast("Manager approval is unavailable. Try again or call a manager.", "error");
+            return false;
+          }
+        }}
+      />
+
       {intelligenceVariantId && (
         <ProductIntelligenceDrawer
           variantId={intelligenceVariantId}
-          onClose={() => setIntelligenceVariantId(null)}
-          onAddToSale={async (sku, priceOverride) => {
-            let item: SearchResult | undefined = searchResults.find(
-              (r) => r.sku === sku,
-            );
-            if (!item) {
-              try {
-                const res = await fetch(
-                  `${baseUrl}/api/inventory/scan/${encodeURIComponent(sku)}`,
-                  { headers: apiAuth() },
-                );
-                if (!res.ok) {
-                  toast("We couldn't add that item. Try searching again or scan the SKU.", "error");
-                  return;
-                }
-                const r = (await res.json()) as Record<string, unknown>;
-                item = scanPayloadToResolvedItem(r) as SearchResult;
-              } catch {
-                toast("We couldn't add that item. Please try again.", "error");
-                return;
-              }
-            }
-            addItem(item, priceOverride);
+          currentUnitPrice={intelligenceLine?.standard_retail_price ?? null}
+          regularUnitPrice={
+            intelligenceLine?.original_unit_price ??
+            intelligenceLine?.catalog_standard_retail_price ??
+            null
+          }
+          onClose={() => {
+            setIntelligenceVariantId(null);
+            setIntelligenceLine(null);
           }}
         />
       )}
@@ -4473,7 +4604,7 @@ export default function Cart({
                 ship_to: null,
               });
               setOrderReviewOpen(false);
-              setCheckoutDrawerOpen(true);
+              openCheckoutDrawerWithGuard();
             }}
             onUpdateLineLifecycleStatus={updateLineOrderLifecycleStatus}
           />

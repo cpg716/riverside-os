@@ -38,6 +38,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 const CUSTOMER_PROFILE_DISCOUNT_REASON: &str = "Customer profile discount";
+const EMPLOYEE_DISCOUNT_REASON: &str = "Employee Discount";
+const CUSTOMER_PROFILE_DISCOUNT_RECEIPT_LABEL: &str = "Special Discount";
 
 #[derive(Debug, Error)]
 pub enum CheckoutError {
@@ -127,6 +129,15 @@ pub struct WeddingDisbursement {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct BelowCostApproval {
+    pub approved_by_staff_id: Uuid,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub line_signature: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CheckoutOrderPayment {
     pub client_line_id: String,
     pub target_transaction_id: Uuid,
@@ -161,6 +172,8 @@ pub struct CheckoutRequest {
     pub wedding_disbursements: Option<Vec<WeddingDisbursement>>,
     #[serde(default)]
     pub order_payments: Vec<CheckoutOrderPayment>,
+    #[serde(default)]
+    pub below_cost_approval: Option<BelowCostApproval>,
     #[serde(default)]
     pub checkout_client_id: Option<Uuid>,
     /// Store-local date/time selected in Register for this transaction only.
@@ -1122,6 +1135,23 @@ async fn staff_id_active(pool: &PgPool, id: Uuid) -> Result<bool, CheckoutError>
     Ok(ok)
 }
 
+fn is_manual_below_cost_reason(reason: &str) -> bool {
+    let normalized = reason.trim();
+    if normalized.is_empty() {
+        return false;
+    }
+    ![
+        CUSTOMER_PROFILE_DISCOUNT_REASON,
+        EMPLOYEE_DISCOUNT_REASON,
+        "custom_order_booking",
+        "pending_return_refund",
+        "alteration_service",
+        "Wedding Promo (Free Suit Selection)",
+    ]
+    .iter()
+    .any(|known| normalized.eq_ignore_ascii_case(known))
+}
+
 /// One bundle cart line becomes multiple component lines (inventory, tax, commission) using
 /// retail-weighted apportionment of the bundle unit price.
 async fn expand_bundle_checkout_items(
@@ -1751,6 +1781,23 @@ pub async fn execute_checkout(
         &payload.alteration_intakes,
     )?;
 
+    let is_employee_purchase_order: bool = if let Some(cid) = customer_id_orig {
+        sqlx::query_scalar::<_, bool>(
+            r#"SELECT EXISTS(SELECT 1 FROM staff WHERE employee_customer_id = $1)"#,
+        )
+        .bind(cid)
+        .fetch_one(pool)
+        .await?
+    } else {
+        false
+    };
+    if is_employee_purchase_order {
+        payload.primary_salesperson_id = None;
+        for item in &mut payload.items {
+            item.salesperson_id = None;
+        }
+    }
+
     if !staff_id_active(pool, payload.operator_staff_id).await? {
         return Err(CheckoutError::InvalidPayload(
             "operator_staff_id is invalid or inactive".to_string(),
@@ -1867,6 +1914,7 @@ pub async fn execute_checkout(
         let kind = resolved.pos_line_kind.as_deref();
         if payload.primary_salesperson_id.is_none()
             && item.salesperson_id.is_none()
+            && !is_employee_purchase_order
             && !matches!(
                 kind,
                 Some("pos_gift_card_load") | Some("rms_charge_payment")
@@ -2026,6 +2074,40 @@ pub async fn execute_checkout(
             }
             continue;
         }
+        if reason
+            .map(|r| r.eq_ignore_ascii_case(EMPLOYEE_DISCOUNT_REASON))
+            .unwrap_or(false)
+        {
+            if !is_employee_purchase_order {
+                return Err(CheckoutError::InvalidPayload(
+                    "Employee Discount requires a linked employee customer account".to_string(),
+                ));
+            }
+            if item.discount_event_id.is_some() {
+                return Err(CheckoutError::InvalidPayload(
+                    "Employee Discount cannot be combined with a sale event discount".to_string(),
+                ));
+            }
+            let kind = resolved.pos_line_kind.as_deref();
+            if matches!(
+                kind,
+                Some("rms_charge_payment")
+                    | Some("pos_gift_card_load")
+                    | Some("alteration_service")
+            ) || item.line_type.as_deref() == Some("alteration_service")
+            {
+                return Err(CheckoutError::InvalidPayload(
+                    "Employee Discount only applies to merchandise lines".to_string(),
+                ));
+            }
+            if !checkout_validate::money_close_decimal(item.unit_price, resolved.employee_price) {
+                return Err(CheckoutError::InvalidPayload(format!(
+                    "unit price for variant {} does not match employee price",
+                    item.variant_id
+                )));
+            }
+            continue;
+        }
         if item.unit_price >= retail {
             continue;
         }
@@ -2123,6 +2205,65 @@ pub async fn execute_checkout(
         discount_event_labels.insert(idx, receipt_label);
     }
 
+    let mut below_cost_lines: Vec<Value> = Vec::new();
+    for item in &payload.items {
+        if item.quantity <= 0 || item.discount_event_id.is_some() {
+            continue;
+        }
+        let Some(reason) = item
+            .price_override_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|reason| is_manual_below_cost_reason(reason))
+        else {
+            continue;
+        };
+        let resolved = resolved_variants.get(&item.variant_id).unwrap();
+        if matches!(
+            resolved.pos_line_kind.as_deref(),
+            Some("rms_charge_payment") | Some("pos_gift_card_load") | Some("alteration_service")
+        ) || item.line_type.as_deref() == Some("alteration_service")
+            || item.fulfillment == DbFulfillmentType::Custom
+        {
+            continue;
+        }
+        if resolved.unit_cost <= Decimal::ZERO || item.unit_price < resolved.unit_cost {
+            below_cost_lines.push(json!({
+                "product_id": item.product_id,
+                "variant_id": item.variant_id,
+                "sku": resolved.sku,
+                "name": resolved.name,
+                "unit_price": item.unit_price,
+                "unit_cost": resolved.unit_cost,
+                "standard_retail_price": resolved.standard_retail_price,
+                "reason": reason,
+            }));
+        }
+    }
+
+    let below_cost_approval_metadata = if below_cost_lines.is_empty() {
+        None
+    } else {
+        let approval = payload.below_cost_approval.as_ref().ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "Manual discounts below cost require Manager Access approval before checkout"
+                    .to_string(),
+            )
+        })?;
+        let ok = pricing_limits::is_admin_or_manager(pool, approval.approved_by_staff_id).await?;
+        if !ok {
+            return Err(CheckoutError::InvalidPayload(
+                "Manual discounts below cost require an active manager approval".to_string(),
+            ));
+        }
+        Some(json!({
+            "approved_by_staff_id": approval.approved_by_staff_id,
+            "reason": approval.reason.as_deref().unwrap_or("Manager approved below-cost manual discount"),
+            "line_signature": approval.line_signature,
+            "lines": below_cost_lines,
+        }))
+    };
+
     let (mut payment_splits, payment_activity_label) = resolve_payment_splits(&payload)?;
 
     let has_rms_charge = payment_splits
@@ -2153,6 +2294,11 @@ pub async fn execute_checkout(
                 "business_date".to_string(),
                 json!(business_date.to_string()),
             );
+        }
+    }
+    if let Some(metadata) = below_cost_approval_metadata {
+        if let Some(obj) = transaction_financing_metadata.as_object_mut() {
+            obj.insert("below_cost_approval".to_string(), metadata);
         }
     }
 
@@ -2628,17 +2774,6 @@ pub async fn execute_checkout(
         .map(|j| j.0.clone())
         .unwrap_or_else(|| json!({}));
 
-    let is_employee_purchase_order: bool = if let Some(cid) = customer_id_orig {
-        sqlx::query_scalar::<_, bool>(
-            r#"SELECT EXISTS(SELECT 1 FROM staff WHERE employee_customer_id = $1)"#,
-        )
-        .bind(cid)
-        .fetch_one(&mut *tx)
-        .await?
-    } else {
-        false
-    };
-
     let (transaction_id, transaction_display_id): (Uuid, String) = if is_completing_processing {
         sqlx::query(
             r#"
@@ -2850,6 +2985,23 @@ pub async fn execute_checkout(
                     "overridden_unit_price": item.unit_price,
                 })
             });
+            if let Some(reason) = override_reason {
+                let receipt_label = if reason.eq_ignore_ascii_case(CUSTOMER_PROFILE_DISCOUNT_REASON)
+                {
+                    Some(CUSTOMER_PROFILE_DISCOUNT_RECEIPT_LABEL)
+                } else if reason.eq_ignore_ascii_case(EMPLOYEE_DISCOUNT_REASON) {
+                    Some(EMPLOYEE_DISCOUNT_REASON)
+                } else {
+                    None
+                };
+                if let Some(label) = receipt_label {
+                    let mut base = override_meta.unwrap_or_else(|| json!({}));
+                    if let serde_json::Value::Object(ref mut m) = base {
+                        m.insert("discount_event_label".to_string(), json!(label));
+                    }
+                    override_meta = Some(base);
+                }
+            }
             if let Some(label) = discount_event_labels.get(&idx) {
                 let mut base = override_meta.unwrap_or_else(|| json!({}));
                 if let serde_json::Value::Object(ref mut m) = base {
@@ -3074,7 +3226,7 @@ pub async fn execute_checkout(
                 sqlx::query(
                     r#"
                 INSERT INTO discount_event_usage (
-                    event_id, transaction_id, transaction_line_id, variant_id, quantity,
+                    event_id, transaction_id, order_item_id, variant_id, quantity,
                     line_subtotal, discount_percent
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7)

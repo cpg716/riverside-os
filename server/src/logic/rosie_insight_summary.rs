@@ -18,6 +18,10 @@ pub enum RosieInsightSurface {
     ReceivingReview,
     ProductCleanupReview,
     FollowUpOpportunities,
+    RegisterCloseReview,
+    QboStagingReview,
+    RmsChargeReview,
+    WeddingReadinessReview,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -115,6 +119,10 @@ impl RosieInsightSurface {
             Self::ReceivingReview => "Receiving Review",
             Self::ProductCleanupReview => "Product Cleanup Review",
             Self::FollowUpOpportunities => "Follow-Up Opportunities",
+            Self::RegisterCloseReview => "Register Close Review",
+            Self::QboStagingReview => "QBO Staging Review",
+            Self::RmsChargeReview => "RMS Charge Review",
+            Self::WeddingReadinessReview => "Wedding Readiness Review",
         }
     }
 }

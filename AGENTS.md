@@ -30,6 +30,9 @@ Default mode is IMPLEMENT unless the user explicitly asks for AUDIT.
 - Do not restate unchanged code.
 - If the fix is unclear within 2–3 files: STOP and ask for clarification instead of expanding scope.
 - Run targeted validation first.
+- When changing UI, workflows, or reporting semantics, identify impacted Playwright/E2E specs and either update/run the targeted specs or explicitly report why they were not run.
+- Before release tagging/publishing, Playwright E2E must be green for the exact commit being released.
+- When reusing the same release version/tag for rebuilt assets, update the GitHub release title/body with the latest build date, build SHA, workflow run, and current release notes; do not rely on GitHub's original "released X ago" timestamp.
 - Do not run full pack/build unless requested or clearly necessary.
 
 ### AUDIT
@@ -1012,6 +1015,7 @@ Do not create duplicate Lightspeed-style matching columns.
 - Follow SemVer
 - Use `npm run bump <new_version>` for coordinated updates
 - Update `CHANGELOG.md` with release notes for shipped changes
+- Same-version rebuilds must keep the existing release tag but refresh GitHub release notes with a visible **Latest Build** block.
 
 ---
 

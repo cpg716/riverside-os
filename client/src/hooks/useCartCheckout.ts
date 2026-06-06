@@ -27,6 +27,7 @@ interface UseCartCheckoutProps {
   activeWeddingMember: WeddingMember | null;
   cashierName?: string | null;
   primarySalespersonId: string;
+  employeeCustomerId: string | null;
   disbursementMembers: WeddingMember[];
   posShipping: PosShippingSelection | null;
   pendingAlterationIntakes: PendingAlterationIntake[];
@@ -34,6 +35,11 @@ interface UseCartCheckoutProps {
   pickupAlterationIds?: string[];
   pickupConfirmed: boolean;
   pickupTransactionId: string | null;
+  belowCostApproval: {
+    approvedByStaffId: string;
+    reason?: string;
+    lineSignature?: string;
+  } | null;
   saleDateTimeLocal?: string | null;
   totals: CartTotals;
   toast: (msg: string, type?: "success" | "error" | "info") => void;
@@ -111,6 +117,7 @@ export function useCartCheckout({
   activeWeddingMember,
   cashierName,
   primarySalespersonId,
+  employeeCustomerId,
   disbursementMembers,
   posShipping,
   pendingAlterationIntakes,
@@ -118,6 +125,7 @@ export function useCartCheckout({
   pickupAlterationIds = [],
   pickupConfirmed,
   pickupTransactionId,
+  belowCostApproval,
   saleDateTimeLocal,
   totals,
   toast,
@@ -273,7 +281,8 @@ export function useCartCheckout({
         return null;
       }
 
-      const primaryTrim = primarySalespersonId.trim();
+      const isEmployeeSale = Boolean(employeeCustomerId) && selectedCustomer?.id === employeeCustomerId;
+      const primaryTrim = isEmployeeSale ? "" : primarySalespersonId.trim();
       if (orderPaymentLines.length > 0) {
         if (!selectedCustomer?.id) {
           toast("Select a customer before checking out with an order payment.", "error");
@@ -386,6 +395,15 @@ export function useCartCheckout({
         ship_to: posShipping?.to_address ?? options?.ship_to ?? null,
         actor_name: op.fullName.trim() || cashierName?.trim() || null,
         payment_splits,
+        ...(belowCostApproval
+          ? {
+              below_cost_approval: {
+                approved_by_staff_id: belowCostApproval.approvedByStaffId,
+                reason: belowCostApproval.reason,
+                line_signature: belowCostApproval.lineSignature,
+              },
+            }
+          : {}),
         is_tax_exempt: ledgerSignals.isTaxExempt,
         tax_exempt_reason: ledgerSignals.isTaxExempt ? (ledgerSignals.taxExemptReason ?? "Other") : undefined,
         rounding_adjustment: ledgerSignals.roundingAdjustmentCents ? centsToFixed2(ledgerSignals.roundingAdjustmentCents) : undefined,
@@ -411,7 +429,7 @@ export function useCartCheckout({
               unit_cost: centsToFixed2(parseMoneyToCents(l.unit_cost)),
               state_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.state_tax)),
               local_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.local_tax)),
-              salesperson_id: l.salesperson_id?.trim() || null,
+              salesperson_id: isEmployeeSale ? null : l.salesperson_id?.trim() || null,
               custom_item_type: l.custom_item_type,
               custom_order_details: l.custom_order_details ?? undefined,
               is_rush: l.is_rush || (appliesOrderOptions ? Boolean(options?.is_rush) : false),
@@ -594,8 +612,8 @@ export function useCartCheckout({
     }
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
-    cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
-    pickupAlterationIds, pickupConfirmed, pickupTransactionId, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, checkoutClientId
+    cashierName, primarySalespersonId, employeeCustomerId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
+    pickupAlterationIds, pickupConfirmed, pickupTransactionId, belowCostApproval, saleDateTimeLocal, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, checkoutClientId
   ]);
 
   return {

@@ -35,6 +35,12 @@ Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** au
 
 If a card terminal outcome blocks close, use **Review** in the closing workflow or **POS → Payments** to record the outcome before continuing.
 
+## ✨ Register close explainer
+
+The Z-Report step includes a ROSIE explainer for visible close facts: expected cash, actual counted cash, cash over/short, card review blockers, check review, and checkout recovery blockers.
+
+ROSIE does not close the register, change tender totals, change counted cash, approve payment outcomes, or remove required notes. Treat the explainer as a plain-English review aid before the normal close controls.
+
 ## Professional Z-Report
 Upon closing, a professional, full-page **Z-Audit Report** is generated. 
 - **Audit Grade**: Replaces legacy thermal strips with high-fidelity Letter/A4 documents.

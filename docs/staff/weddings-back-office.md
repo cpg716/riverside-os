@@ -39,6 +39,8 @@ Use **Weddings** to manage **groups**, **money**, and **dates** for formalwear p
 
 Readiness uses existing ROS truth. It does not move lifecycle states automatically.
 
+Party detail also shows **✨ ROSIE readiness takeaways** from the visible milestone and readiness data. These takeaways group the highest-level risks, such as missing measurement appointments, missing orders, receiving blockers, or balance holds. They do not update member status, collect money, release garments, or replace the readiness panel.
+
 Common readiness labels:
 
 | Label | Meaning | Next action |
