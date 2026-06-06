@@ -33,11 +33,12 @@ Use **Staff** for **people** (roster, PIN on profile, per-person access, per-per
 **Purpose:** Recurring **checklist templates** and **assignments** (not the same screen as POS **My tasks**, but it configures what appears there).
 
 1. **Staff** → **Tasks** (sidebar subsection requires **tasks.complete**; inside the panel, **tasks.manage** is required to edit **templates** and assignments).
-2. **Templates:** define recurring steps (open, close, compliance).
+2. **Templates:** define recurring steps (open, close, compliance). Mark only true blockers as **Required**; optional steps can be tracked without blocking final completion.
 3. **Assignments:** map templates to roles or people; use **Edit** to change recurrence, assignee, customer link, active status, or date window.
-4. **Team board:** monitor open instances and inspect checklist detail (**tasks.view_team** where applicable).
+4. **Team board:** monitor open instances, assigned-by ownership, overdue work, and checklist detail (**tasks.view_team** where applicable).
+5. **Print:** print open task lists, history, or a task detail sheet when paper sign-off is required.
 
-Floor staff complete items in **POS → Tasks** or Operations widgets — see [pos-tasks.md](pos-tasks.md).
+Floor staff complete items in **POS → Tasks** or Operations widgets — see [pos-tasks.md](pos-tasks.md). Open overdue work is also reported back to the staff member who assigned it, so assignment ownership stays visible after materialization.
 
 ## Schedule
 

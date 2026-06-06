@@ -23,7 +23,16 @@ pub enum TaskError {
     InvalidState(String),
 }
 
-type PendingTaskInstance = (Uuid, Uuid, Uuid, String, NaiveDate, Option<Uuid>, String);
+type PendingTaskInstance = (
+    Uuid,
+    Uuid,
+    Uuid,
+    String,
+    NaiveDate,
+    Option<Uuid>,
+    String,
+    Option<Uuid>,
+);
 type DueTaskAssignment = (
     Uuid,
     Uuid,
@@ -32,6 +41,7 @@ type DueTaskAssignment = (
     String,
     Uuid,
     DbStaffRole,
+    Option<Uuid>,
 );
 
 pub async fn load_store_timezone_name(pool: &PgPool) -> Result<String, sqlx::Error> {
@@ -118,9 +128,22 @@ pub async fn ensure_task_instances(pool: &PgPool, staff_id: Uuid) -> Result<(), 
 
     let mut tx = pool.begin().await?;
 
-    let rows: Vec<(Uuid, Uuid, DbTaskRecurrence, Option<Uuid>, String)> = sqlx::query_as(
+    let rows: Vec<(
+        Uuid,
+        Uuid,
+        DbTaskRecurrence,
+        Option<Uuid>,
+        String,
+        Option<Uuid>,
+    )> = sqlx::query_as(
         r#"
-        SELECT ta.id, ta.template_id, ta.recurrence, ta.customer_id, t.title
+        SELECT
+            ta.id,
+            ta.template_id,
+            ta.recurrence,
+            ta.customer_id,
+            t.title,
+            ta.assigned_by_staff_id
         FROM task_assignment ta
         JOIN task_checklist_template t ON t.id = ta.template_id
         WHERE ta.active = TRUE
@@ -138,7 +161,7 @@ pub async fn ensure_task_instances(pool: &PgPool, staff_id: Uuid) -> Result<(), 
     .fetch_all(&mut *tx)
     .await?;
 
-    for (assignment_id, template_id, recurrence, customer_id, title) in rows {
+    for (assignment_id, template_id, recurrence, customer_id, title, assigned_by_staff_id) in rows {
         let period_key = period_key_for(recurrence, today);
         let due_date = due_date_for(recurrence, today);
 
@@ -164,9 +187,9 @@ pub async fn ensure_task_instances(pool: &PgPool, staff_id: Uuid) -> Result<(), 
             r#"
             INSERT INTO task_instance (
                 assignment_id, assignee_staff_id, period_key, due_date, status,
-                customer_id, title_snapshot
+                customer_id, title_snapshot, assigned_by_staff_id
             )
-            VALUES ($1, $2, $3, $4, 'open', $5, $6)
+            VALUES ($1, $2, $3, $4, 'open', $5, $6, $7)
             RETURNING id
             "#,
         )
@@ -176,6 +199,7 @@ pub async fn ensure_task_instances(pool: &PgPool, staff_id: Uuid) -> Result<(), 
         .bind(due_date)
         .bind(customer_id)
         .bind(&title)
+        .bind(assigned_by_staff_id)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -222,7 +246,8 @@ pub async fn materialize_due_task_instances_between(
                     ta.customer_id,
                     t.title,
                     s.id,
-                    s.role
+                    s.role,
+                    ta.assigned_by_staff_id
                 FROM task_assignment ta
                 JOIN task_checklist_template t ON t.id = ta.template_id
                 JOIN staff s ON s.is_active = TRUE
@@ -239,7 +264,17 @@ pub async fn materialize_due_task_instances_between(
         .fetch_all(pool)
         .await?;
 
-        for (assignment_id, template_id, recurrence, customer_id, title, staff_id, role) in rows {
+        for (
+            assignment_id,
+            template_id,
+            recurrence,
+            customer_id,
+            title,
+            staff_id,
+            role,
+            assigned_by_staff_id,
+        ) in rows
+        {
             let period_key = period_key_for(recurrence, anchor);
             let due_date = due_date_for(recurrence, anchor);
             if due_date < from_d || due_date > to_d {
@@ -262,6 +297,7 @@ pub async fn materialize_due_task_instances_between(
                 due_date,
                 customer_id,
                 title,
+                assigned_by_staff_id,
             ));
         }
 
@@ -269,15 +305,24 @@ pub async fn materialize_due_task_instances_between(
     }
 
     let mut tx = pool.begin().await?;
-    for (assignment_id, template_id, staff_id, period_key, due_date, customer_id, title) in pending
+    for (
+        assignment_id,
+        template_id,
+        staff_id,
+        period_key,
+        due_date,
+        customer_id,
+        title,
+        assigned_by_staff_id,
+    ) in pending
     {
         let inserted_id: Option<Uuid> = sqlx::query_scalar(
             r#"
             INSERT INTO task_instance (
                 assignment_id, assignee_staff_id, period_key, due_date, status,
-                customer_id, title_snapshot
+                customer_id, title_snapshot, assigned_by_staff_id
             )
-            VALUES ($1, $2, $3, $4, 'open', $5, $6)
+            VALUES ($1, $2, $3, $4, 'open', $5, $6, $7)
             ON CONFLICT (assignment_id, assignee_staff_id, period_key) DO NOTHING
             RETURNING id
             "#,
@@ -288,6 +333,7 @@ pub async fn materialize_due_task_instances_between(
         .bind(due_date)
         .bind(customer_id)
         .bind(&title)
+        .bind(assigned_by_staff_id)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -333,6 +379,9 @@ pub struct TaskInstanceListRow {
     pub status: DbTaskInstanceStatus,
     pub customer_id: Option<Uuid>,
     pub period_key: String,
+    pub assigned_by_staff_id: Option<Uuid>,
+    pub assigned_by_name: Option<String>,
+    pub overdue_days: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -349,10 +398,24 @@ pub async fn list_open_instances_for_staff(
     ensure_task_instances(pool, staff_id).await?;
     let rows = sqlx::query_as::<_, TaskInstanceListRow>(
         r#"
-        SELECT id, title_snapshot, due_date, status, customer_id, period_key
-        FROM task_instance
-        WHERE assignee_staff_id = $1 AND status = 'open'
-        ORDER BY due_date NULLS LAST, materialized_at ASC
+        SELECT
+            ti.id,
+            ti.title_snapshot,
+            ti.due_date,
+            ti.status,
+            ti.customer_id,
+            ti.period_key,
+            ti.assigned_by_staff_id,
+            assigner.full_name AS assigned_by_name,
+            CASE
+                WHEN ti.due_date IS NOT NULL AND ti.due_date < CURRENT_DATE
+                THEN (CURRENT_DATE - ti.due_date)::int
+                ELSE NULL
+            END AS overdue_days
+        FROM task_instance ti
+        LEFT JOIN staff assigner ON assigner.id = ti.assigned_by_staff_id
+        WHERE ti.assignee_staff_id = $1 AND ti.status = 'open'
+        ORDER BY ti.due_date NULLS LAST, ti.materialized_at ASC
         "#,
     )
     .bind(staff_id)
@@ -368,10 +431,20 @@ pub async fn list_recent_completed_for_staff(
 ) -> Result<Vec<TaskInstanceListRow>, TaskError> {
     let rows = sqlx::query_as::<_, TaskInstanceListRow>(
         r#"
-        SELECT id, title_snapshot, due_date, status, customer_id, period_key
-        FROM task_instance
-        WHERE assignee_staff_id = $1 AND status = 'completed'
-        ORDER BY completed_at DESC NULLS LAST
+        SELECT
+            ti.id,
+            ti.title_snapshot,
+            ti.due_date,
+            ti.status,
+            ti.customer_id,
+            ti.period_key,
+            ti.assigned_by_staff_id,
+            assigner.full_name AS assigned_by_name,
+            NULL::int AS overdue_days
+        FROM task_instance ti
+        LEFT JOIN staff assigner ON assigner.id = ti.assigned_by_staff_id
+        WHERE ti.assignee_staff_id = $1 AND ti.status = 'completed'
+        ORDER BY ti.completed_at DESC NULLS LAST
         LIMIT $2
         "#,
     )
@@ -389,9 +462,25 @@ pub async fn get_instance_detail(
 ) -> Result<TaskInstanceDetail, TaskError> {
     let meta: Option<TaskInstanceListRow> = sqlx::query_as(
         r#"
-        SELECT id, title_snapshot, due_date, status, customer_id, period_key
-        FROM task_instance
-        WHERE id = $1 AND assignee_staff_id = $2
+        SELECT
+            ti.id,
+            ti.title_snapshot,
+            ti.due_date,
+            ti.status,
+            ti.customer_id,
+            ti.period_key,
+            ti.assigned_by_staff_id,
+            assigner.full_name AS assigned_by_name,
+            CASE
+                WHEN ti.status = 'open'::task_instance_status
+                  AND ti.due_date IS NOT NULL
+                  AND ti.due_date < CURRENT_DATE
+                THEN (CURRENT_DATE - ti.due_date)::int
+                ELSE NULL
+            END AS overdue_days
+        FROM task_instance ti
+        LEFT JOIN staff assigner ON assigner.id = ti.assigned_by_staff_id
+        WHERE ti.id = $1 AND ti.assignee_staff_id = $2
         "#,
     )
     .bind(instance_id)
@@ -435,9 +524,25 @@ pub async fn get_instance_detail_any(
     if allow_manage {
         let meta: Option<TaskInstanceListRow> = sqlx::query_as(
             r#"
-            SELECT id, title_snapshot, due_date, status, customer_id, period_key
-            FROM task_instance
-            WHERE id = $1
+            SELECT
+                ti.id,
+                ti.title_snapshot,
+                ti.due_date,
+                ti.status,
+                ti.customer_id,
+                ti.period_key,
+                ti.assigned_by_staff_id,
+                assigner.full_name AS assigned_by_name,
+                CASE
+                    WHEN ti.status = 'open'::task_instance_status
+                      AND ti.due_date IS NOT NULL
+                      AND ti.due_date < CURRENT_DATE
+                    THEN (CURRENT_DATE - ti.due_date)::int
+                    ELSE NULL
+                END AS overdue_days
+            FROM task_instance ti
+            LEFT JOIN staff assigner ON assigner.id = ti.assigned_by_staff_id
+            WHERE ti.id = $1
             "#,
         )
         .bind(instance_id)
@@ -579,6 +684,9 @@ pub struct TeamTaskRow {
     pub assignee_staff_id: Uuid,
     pub assignee_name: String,
     pub assignee_avatar_key: String,
+    pub assigned_by_staff_id: Option<Uuid>,
+    pub assigned_by_name: Option<String>,
+    pub overdue_days: Option<i32>,
 }
 
 pub async fn list_team_open_tasks(pool: &PgPool) -> Result<Vec<TeamTaskRow>, TaskError> {
@@ -591,9 +699,17 @@ pub async fn list_team_open_tasks(pool: &PgPool) -> Result<Vec<TeamTaskRow>, Tas
             ti.status,
             ti.assignee_staff_id,
             s.full_name AS assignee_name,
-            s.avatar_key AS assignee_avatar_key
+            s.avatar_key AS assignee_avatar_key,
+            ti.assigned_by_staff_id,
+            assigner.full_name AS assigned_by_name,
+            CASE
+                WHEN ti.due_date IS NOT NULL AND ti.due_date < CURRENT_DATE
+                THEN (CURRENT_DATE - ti.due_date)::int
+                ELSE NULL
+            END AS overdue_days
         FROM task_instance ti
         JOIN staff s ON s.id = ti.assignee_staff_id
+        LEFT JOIN staff assigner ON assigner.id = ti.assigned_by_staff_id
         WHERE ti.status = 'open'
         ORDER BY ti.due_date NULLS LAST, s.full_name ASC
         "#,
@@ -613,6 +729,9 @@ pub struct TaskHistoryRow {
     pub assignee_staff_id: Uuid,
     pub assignee_name: String,
     pub assignee_avatar_key: String,
+    pub assigned_by_staff_id: Option<Uuid>,
+    pub assigned_by_name: Option<String>,
+    pub overdue_days: Option<i32>,
 }
 
 pub async fn list_task_history(
@@ -648,10 +767,20 @@ pub async fn list_task_history(
                 ti.completed_at,
                 ti.assignee_staff_id,
                 s.full_name AS assignee_name,
-                s.avatar_key AS assignee_avatar_key
+                s.avatar_key AS assignee_avatar_key,
+                ti.assigned_by_staff_id,
+                assigner.full_name AS assigned_by_name,
+                CASE
+                    WHEN ti.status = 'open'::task_instance_status
+                      AND ti.due_date IS NOT NULL
+                      AND ti.due_date < CURRENT_DATE
+                    THEN (CURRENT_DATE - ti.due_date)::int
+                    ELSE NULL
+                END AS overdue_days
             FROM UNNEST($1::uuid[]) WITH ORDINALITY AS t(id, ord)
             JOIN task_instance ti ON ti.id = t.id
             JOIN staff s ON s.id = ti.assignee_staff_id
+            LEFT JOIN staff assigner ON assigner.id = ti.assigned_by_staff_id
             WHERE ($2::uuid IS NULL OR ti.assignee_staff_id = $2)
             ORDER BY t.ord
             LIMIT $3 OFFSET $4
@@ -675,14 +804,25 @@ pub async fn list_task_history(
                 ti.completed_at,
                 ti.assignee_staff_id,
                 s.full_name AS assignee_name,
-                s.avatar_key AS assignee_avatar_key
+                s.avatar_key AS assignee_avatar_key,
+                ti.assigned_by_staff_id,
+                assigner.full_name AS assigned_by_name,
+                CASE
+                    WHEN ti.status = 'open'::task_instance_status
+                      AND ti.due_date IS NOT NULL
+                      AND ti.due_date < CURRENT_DATE
+                    THEN (CURRENT_DATE - ti.due_date)::int
+                    ELSE NULL
+                END AS overdue_days
             FROM task_instance ti
             JOIN staff s ON s.id = ti.assignee_staff_id
+            LEFT JOIN staff assigner ON assigner.id = ti.assigned_by_staff_id
             WHERE ($1::uuid IS NULL OR ti.assignee_staff_id = $1)
               AND ($2::text IS NULL OR (
                 LOWER(ti.title_snapshot) LIKE $2
                 OR LOWER(ti.period_key) LIKE $2
                 OR LOWER(s.full_name) LIKE $2
+                OR LOWER(COALESCE(assigner.full_name, '')) LIKE $2
               ))
             ORDER BY ti.completed_at DESC NULLS LAST, ti.materialized_at DESC
             LIMIT $3 OFFSET $4
@@ -884,6 +1024,7 @@ fn validate_assignment_target(
 
 pub async fn admin_create_assignment(
     pool: &PgPool,
+    assigned_by_staff_id: Uuid,
     body: CreateAssignmentPayload,
 ) -> Result<Uuid, TaskError> {
     validate_assignment_target(
@@ -896,9 +1037,10 @@ pub async fn admin_create_assignment(
         r#"
         INSERT INTO task_assignment (
             template_id, recurrence, recurrence_config, assignee_kind,
-            assignee_staff_id, assignee_role, customer_id, active, starts_on, ends_on
+            assignee_staff_id, assignee_role, customer_id, active, starts_on, ends_on,
+            assigned_by_staff_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING id
         "#,
     )
@@ -912,6 +1054,7 @@ pub async fn admin_create_assignment(
     .bind(body.active)
     .bind(body.starts_on)
     .bind(body.ends_on)
+    .bind(assigned_by_staff_id)
     .fetch_one(pool)
     .await?;
 
@@ -985,6 +1128,8 @@ pub struct AssignmentListRow {
     pub active: bool,
     pub starts_on: Option<NaiveDate>,
     pub ends_on: Option<NaiveDate>,
+    pub assigned_by_staff_id: Option<Uuid>,
+    pub assigned_by_name: Option<String>,
 }
 
 pub async fn admin_list_assignments(pool: &PgPool) -> Result<Vec<AssignmentListRow>, TaskError> {
@@ -1004,10 +1149,13 @@ pub async fn admin_list_assignments(pool: &PgPool) -> Result<Vec<AssignmentListR
             c.phone AS customer_phone,
             ta.active,
             ta.starts_on,
-            ta.ends_on
+            ta.ends_on,
+            ta.assigned_by_staff_id,
+            assigner.full_name AS assigned_by_name
         FROM task_assignment ta
         JOIN task_checklist_template t ON t.id = ta.template_id
         LEFT JOIN customers c ON c.id = ta.customer_id
+        LEFT JOIN staff assigner ON assigner.id = ta.assigned_by_staff_id
         ORDER BY ta.created_at DESC
         "#,
     )
@@ -1043,6 +1191,16 @@ pub struct DueInstanceRow {
     pub due_date: NaiveDate,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct OverdueAssignerTaskRow {
+    pub id: Uuid,
+    pub assigned_by_staff_id: Uuid,
+    pub assignee_name: String,
+    pub title_snapshot: String,
+    pub due_date: NaiveDate,
+    pub overdue_days: i32,
+}
+
 /// Open instances with due_date between `from_d` and `to_d` inclusive (store-local), for notification sweep.
 pub async fn open_instances_due_between(
     pool: &PgPool,
@@ -1066,6 +1224,36 @@ pub async fn open_instances_due_between(
     )
     .bind(from_d)
     .bind(to_d)
+    .fetch_all(pool)
+    .await
+}
+
+/// Open tasks past due, grouped later by the staff member who assigned them.
+pub async fn open_instances_overdue_for_assigners(
+    pool: &PgPool,
+    today: NaiveDate,
+) -> Result<Vec<OverdueAssignerTaskRow>, sqlx::Error> {
+    sqlx::query_as::<_, OverdueAssignerTaskRow>(
+        r#"
+        SELECT
+            ti.id,
+            ti.assigned_by_staff_id,
+            assignee.full_name AS assignee_name,
+            ti.title_snapshot,
+            ti.due_date,
+            ($1::date - ti.due_date)::int AS overdue_days
+        FROM task_instance ti
+        JOIN staff assignee ON assignee.id = ti.assignee_staff_id
+        JOIN staff assigner ON assigner.id = ti.assigned_by_staff_id
+        WHERE ti.status = 'open'
+          AND ti.assigned_by_staff_id IS NOT NULL
+          AND ti.due_date IS NOT NULL
+          AND ti.due_date < $1
+          AND assigner.is_active = TRUE
+        ORDER BY ti.due_date ASC, assignee.full_name ASC
+        "#,
+    )
+    .bind(today)
     .fetch_all(pool)
     .await
 }
@@ -1115,9 +1303,9 @@ pub async fn create_adhoc_rms_payment_followup_tasks(
             r#"
             INSERT INTO task_instance (
                 assignment_id, assignee_staff_id, period_key, due_date, status,
-                customer_id, title_snapshot
+                customer_id, title_snapshot, assigned_by_staff_id
             )
-            VALUES (NULL, $1, $2, $3, 'open', $4, $5)
+            VALUES (NULL, $1, $2, $3, 'open', $4, $5, $6)
             RETURNING id
             "#,
         )
@@ -1126,6 +1314,7 @@ pub async fn create_adhoc_rms_payment_followup_tasks(
         .bind(today)
         .bind(customer_id)
         .bind(title)
+        .bind(operator_staff_id)
         .fetch_one(pool)
         .await?;
 

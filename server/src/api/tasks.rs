@@ -333,10 +333,10 @@ async fn admin_create_assignment(
     headers: HeaderMap,
     Json(body): Json<CreateAssignmentPayload>,
 ) -> Result<Json<serde_json::Value>, Response> {
-    middleware::require_staff_with_permission(&state, &headers, TASKS_MANAGE)
+    let staff = middleware::require_staff_with_permission(&state, &headers, TASKS_MANAGE)
         .await
         .map_err(map_gate_err)?;
-    let id = tasks::admin_create_assignment(&state.db, body)
+    let id = tasks::admin_create_assignment(&state.db, staff.id, body)
         .await
         .map_err(map_task_err)?;
     Ok(Json(json!({ "id": id })))

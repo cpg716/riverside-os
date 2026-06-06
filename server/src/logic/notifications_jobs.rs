@@ -1482,6 +1482,68 @@ async fn run_task_due_reminders(pool: &PgPool) -> Result<(), sqlx::Error> {
     let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'task_due_soon'"#)
         .execute(pool)
         .await?;
+
+    let overdue = tasks::open_instances_overdue_for_assigners(pool, today).await?;
+    let mut by_assigner: HashMap<Uuid, Vec<tasks::OverdueAssignerTaskRow>> = HashMap::new();
+    for row in overdue {
+        by_assigner
+            .entry(row.assigned_by_staff_id)
+            .or_default()
+            .push(row);
+    }
+
+    let overdue_like_pat = format!("%:{day_key}");
+    let _ = sqlx::query(
+        r#"DELETE FROM app_notification WHERE kind = 'task_overdue_assigned_bundle' AND dedupe_key LIKE $1"#,
+    )
+    .bind(&overdue_like_pat)
+    .execute(pool)
+    .await?;
+
+    for (assigner_id, list) in by_assigner {
+        let dedupe = format!("task_overdue_assigned_bundle:{assigner_id}:{day_key}");
+        let n = list.len();
+        let items: Vec<Value> = list
+            .into_iter()
+            .map(|r| {
+                let day_label = if r.overdue_days == 1 {
+                    "1 day overdue".to_string()
+                } else {
+                    format!("{} days overdue", r.overdue_days)
+                };
+                bundle_row(
+                    r.title_snapshot.clone(),
+                    format!(
+                        "{} · Assigned to {} · Due {}",
+                        day_label,
+                        r.assignee_name,
+                        r.due_date.format("%Y-%m-%d")
+                    ),
+                    json!({ "type": "staff_tasks", "instance_id": r.id.to_string() }),
+                )
+            })
+            .collect();
+        let title = format!("Assigned tasks overdue ({n})");
+        let body = format!("{n} task(s) you assigned are past due and still unfinished.");
+        let deep = json!({
+            "type": "notification_bundle",
+            "bundle_kind": "task_overdue_assigned",
+            "items": items,
+        });
+        let aud = json!({ "mode": "staff_ids", "staff_ids": [assigner_id.to_string()] });
+        let nid = upsert_app_notification_by_dedupe(
+            pool,
+            "task_overdue_assigned_bundle",
+            &title,
+            &body,
+            deep,
+            "generator",
+            aud,
+            &dedupe,
+        )
+        .await?;
+        fan_out_notification_to_staff_ids(pool, nid, &[assigner_id]).await?;
+    }
     Ok(())
 }
 

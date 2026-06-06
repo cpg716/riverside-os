@@ -14,6 +14,8 @@
 
 **Rush Order Priority:** Specific fulfillment or payment processing tasks triggered by **Rush Orders** will appear with a priority indicator. **Complete these items first** to ensure customer "Need By" dates are met.
 
+Task rows can show who assigned the work and whether it is overdue. Managers and assigners use those fields for follow-up, so leave unfinished work open instead of completing it early.
+
 ## Common tasks
 
 ### Start of shift
@@ -21,12 +23,13 @@
 1. POS → **Tasks**.
 2. Open the first **due** item.
 3. Check boxes **in order**; add **notes** if the template asks (e.g. “rack temp logged”).
-4. When the drawer says required items are clear, tap **Complete checklist**; confirm toast.
+4. Use **Print** if the task needs paper sign-off.
+5. When the drawer says required items are clear, tap **Complete checklist**; confirm toast.
 
 ### If you cannot finish today
 
 1. Leave item **open** and add a **note** with **why** and **who** you told.
-2. Do not **complete** falsely — managers use history for compliance.
+2. Do not **complete** falsely — managers use history and overdue notifications for compliance.
 
 ### Find what a vague task means
 
@@ -45,6 +48,7 @@
 | Checkbox won’t stick | Slow network; wait | Retry; if 403, permission |
 | Duplicate tasks | Manager fixes **assignment** rules | [STAFF_TASKS_AND_REGISTER_SHIFT.md](../STAFF_TASKS_AND_REGISTER_SHIFT.md) |
 | Wrong tasks after cover shift | **Shift primary** identity | Handoff doc |
+| Manager received overdue notice | Finish the task or explain why it remains open | Assigned-by tracking routes unfinished work back to the assigning manager |
 
 ## When to get a manager
 
@@ -58,4 +62,4 @@
 - [staff-administration.md](staff-administration.md)
 - [../STAFF_TASKS_AND_REGISTER_SHIFT.md](../STAFF_TASKS_AND_REGISTER_SHIFT.md)
 
-**Last reviewed:** 2026-05-17
+**Last reviewed:** 2026-06-06

@@ -30,6 +30,7 @@ This workspace handles the administrative lifecycle of your team. It is divided 
 - To reset or update a staff member's 4-digit **Access PIN**.
 - To adjust commission rates for specific garment categories.
 - To grant or revoke permissions (e.g., allowing a senior salesperson to void transactions).
+- To manage recurring staff checklist tasks and review task completion.
 
 ## Staff Profile Layout
 
@@ -53,6 +54,12 @@ While **Roles** (Admin, Manager, Salesperson) provide a baseline set of permissi
 - **admin**: Full system access, including financial settings and DB tools.
 - **orders.modify**: Required for processing returns or manual price overrides.
 - **inventory.manage**: Required for adding new SKUs or posting receipts.
+
+## Staff Tasks
+
+The **Tasks** subsection is where admins build reusable checklist templates, assign them to a role or individual, and review completion. Template steps can be marked **Required** or optional. Required steps block final checklist completion until they are checked.
+
+Open task lists, team task lists, history, and individual task sheets can be printed. Task rows show assigned-by ownership and overdue status when available, and unfinished overdue work is reported back to the staff member who assigned it.
 
 ## What to watch for
 

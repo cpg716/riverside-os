@@ -2,7 +2,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { useToast } from "../ui/ToastProviderLogic";
-import { CheckSquare, Square } from "lucide-react";
+import { CheckSquare, Printer, Square } from "lucide-react";
 
 const baseUrl = getBaseUrl();
 
@@ -13,6 +13,9 @@ export interface TaskInstanceDetailJson {
   status: string;
   customer_id: string | null;
   period_key: string;
+  assigned_by_staff_id?: string | null;
+  assigned_by_name?: string | null;
+  overdue_days?: number | null;
   items: {
     id: string;
     sort_order: number;
@@ -132,6 +135,74 @@ export default function TaskChecklistDrawer({
     }
   };
 
+  const printTask = () => {
+    if (!detail) return;
+    const esc = (value: string | null | undefined) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const due = detail.due_date ?? "No due date";
+    const overdue =
+      detail.overdue_days && detail.overdue_days > 0
+        ? `<span class="badge danger">${detail.overdue_days} day${detail.overdue_days === 1 ? "" : "s"} overdue</span>`
+        : "";
+    const items = detail.items
+      .map(
+        (item) => `
+          <li>
+            <span class="box">${item.done_at ? "✓" : ""}</span>
+            <span>${esc(item.label)}</span>
+            ${item.required ? '<span class="badge">Required</span>' : '<span class="badge muted">Optional</span>'}
+          </li>
+        `,
+      )
+      .join("");
+    const win = window.open("", "_blank", "width=850,height=950");
+    if (!win) {
+      toast("Print window was blocked. Allow popups and try again.", "error");
+      return;
+    }
+    win.document.write(`<!doctype html>
+      <html>
+        <head>
+          <title>${esc(detail.title_snapshot)}</title>
+          <style>
+            body { font-family: Inter, system-ui, sans-serif; color: #111827; padding: 32px; }
+            h1 { font-size: 24px; margin: 0 0 8px; }
+            .meta { color: #4b5563; font-size: 13px; line-height: 1.6; margin-bottom: 20px; }
+            .badge { display: inline-block; margin-left: 8px; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+            .badge.muted { color: #6b7280; }
+            .badge.danger { color: #991b1b; border-color: #fecaca; background: #fef2f2; }
+            ul { list-style: none; padding: 0; margin: 0; }
+            li { display: flex; align-items: flex-start; gap: 10px; border-bottom: 1px solid #e5e7eb; padding: 10px 0; }
+            .box { width: 18px; height: 18px; border: 2px solid #111827; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; }
+            .footer { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; font-size: 12px; color: #4b5563; }
+            .line { border-bottom: 1px solid #111827; height: 28px; margin-top: 6px; }
+            @media print { body { padding: 18px; } }
+          </style>
+        </head>
+        <body>
+          <h1>${esc(detail.title_snapshot)}</h1>
+          <div class="meta">
+            Status: ${esc(detail.status)} ${overdue}<br />
+            Due: ${esc(due)} · Period: ${esc(detail.period_key)}<br />
+            Assigned by: ${esc(detail.assigned_by_name ?? "Not recorded")}<br />
+            Progress: ${doneCount}/${detail.items.length} checked
+          </div>
+          <ul>${items}</ul>
+          <div class="footer">
+            <div>Completed by<div class="line"></div></div>
+            <div>Completed at<div class="line"></div></div>
+          </div>
+        </body>
+      </html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
   const title = detail?.title_snapshot ?? "Task";
 
   return (
@@ -159,6 +230,16 @@ export default function TaskChecklistDrawer({
               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 {requiredRemaining === 0 ? "Ready to complete" : `${requiredRemaining} required left`}
               </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-app-text-muted">
+              {detail.assigned_by_name ? (
+                <span>Assigned by {detail.assigned_by_name}</span>
+              ) : null}
+              {detail.overdue_days && detail.overdue_days > 0 ? (
+                <span className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2 py-0.5 font-black uppercase tracking-widest text-app-danger">
+                  {detail.overdue_days} day{detail.overdue_days === 1 ? "" : "s"} overdue
+                </span>
+              ) : null}
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-app-surface">
               <div
@@ -202,18 +283,38 @@ export default function TaskChecklistDrawer({
           </ul>
 
           {detail.status === "open" ? (
-            <button
-              type="button"
-              disabled={requiredRemaining > 0 || completeBusy}
-              onClick={() => void completeChecklist()}
-              className="ui-btn-primary w-full disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {completeBusy ? "Completing..." : "Complete checklist"}
-            </button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={printTask}
+                className="ui-btn-secondary inline-flex items-center justify-center gap-2 sm:w-auto"
+              >
+                <Printer size={16} aria-hidden />
+                Print
+              </button>
+              <button
+                type="button"
+                disabled={requiredRemaining > 0 || completeBusy}
+                onClick={() => void completeChecklist()}
+                className="ui-btn-primary flex-1 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {completeBusy ? "Completing..." : "Complete checklist"}
+              </button>
+            </div>
           ) : (
-            <p className="rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-sm font-semibold text-app-text-muted">
-              This checklist is already closed.
-            </p>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={printTask}
+                className="ui-btn-secondary inline-flex items-center justify-center gap-2"
+              >
+                <Printer size={16} aria-hidden />
+                Print
+              </button>
+              <p className="rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-sm font-semibold text-app-text-muted">
+                This checklist is already closed.
+              </p>
+            </div>
           )}
         </div>
       )}

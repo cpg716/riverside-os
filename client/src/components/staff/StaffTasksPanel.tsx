@@ -6,7 +6,9 @@ import {
   Users,
   History,
   Plus,
+  Printer,
   Search,
+  Trash2,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
@@ -27,8 +29,15 @@ type MeJson = {
     due_date: string | null;
     status: string;
     period_key: string;
+    assigned_by_name?: string | null;
+    overdue_days?: number | null;
   }[];
-  completed_recent: { id: string; title_snapshot: string; due_date: string | null }[];
+  completed_recent: {
+    id: string;
+    title_snapshot: string;
+    due_date: string | null;
+    assigned_by_name?: string | null;
+  }[];
 };
 
 type TemplateRow = { id: string; title: string; description: string | null };
@@ -47,6 +56,8 @@ type AssignmentRow = {
   active: boolean;
   starts_on: string | null;
   ends_on: string | null;
+  assigned_by_staff_id: string | null;
+  assigned_by_name: string | null;
 };
 type TeamRow = {
   instance_id: string;
@@ -56,6 +67,8 @@ type TeamRow = {
   assignee_name: string;
   assignee_avatar_key: string;
   assignee_avatar_photo_url?: string | null;
+  assigned_by_name?: string | null;
+  overdue_days?: number | null;
 };
 type HistRow = {
   instance_id: string;
@@ -66,6 +79,8 @@ type HistRow = {
   assignee_name: string;
   assignee_avatar_key: string;
   assignee_avatar_photo_url?: string | null;
+  assigned_by_name?: string | null;
+  overdue_days?: number | null;
 };
 type HubRow = {
   id: string;
@@ -77,6 +92,7 @@ type HubRow = {
 };
 
 type SubTab = "mine" | "team" | "admin";
+type TemplateDraftItem = { id: string; label: string; required: boolean };
 
 export default function StaffTasksPanel({
   focusInstanceId,
@@ -123,7 +139,10 @@ export default function StaffTasksPanel({
 
   const [tplTitle, setTplTitle] = useState("");
   const [tplDesc, setTplDesc] = useState("");
-  const [tplItems, setTplItems] = useState("Count cash drawer\nVerify float");
+  const [tplItems, setTplItems] = useState<TemplateDraftItem[]>([
+    { id: "item-1", label: "Count cash drawer", required: true },
+    { id: "item-2", label: "Verify float", required: true },
+  ]);
 
   const [asgTemplate, setAsgTemplate] = useState("");
   const [asgRecurrence, setAsgRecurrence] = useState("daily");
@@ -231,6 +250,91 @@ export default function StaffTasksPanel({
     return pieces.length > 0 ? pieces.join(" · ") : null;
   };
 
+  const addTemplateItem = () => {
+    setTplItems((items) => [
+      ...items,
+      { id: `item-${Date.now()}-${items.length}`, label: "", required: true },
+    ]);
+  };
+
+  const updateTemplateItem = (id: string, patch: Partial<TemplateDraftItem>) => {
+    setTplItems((items) =>
+      items.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+  };
+
+  const removeTemplateItem = (id: string) => {
+    setTplItems((items) =>
+      items.length > 1 ? items.filter((item) => item.id !== id) : items,
+    );
+  };
+
+  const printRows = (
+    title: string,
+    rows: {
+      title: string;
+      assignee?: string | null;
+      due?: string | null;
+      status?: string | null;
+      assignedBy?: string | null;
+      overdueDays?: number | null;
+    }[],
+  ) => {
+    if (rows.length === 0) {
+      toast("Nothing to print.", "error");
+      return;
+    }
+    const esc = (value: string | null | undefined) =>
+      String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    const bodyRows = rows
+      .map(
+        (row) => `
+          <tr>
+            <td>${esc(row.title)}</td>
+            <td>${esc(row.assignee ?? "")}</td>
+            <td>${esc(row.due ?? "")}</td>
+            <td>${esc(row.status ?? "")}</td>
+            <td>${esc(row.assignedBy ?? "")}</td>
+            <td>${row.overdueDays && row.overdueDays > 0 ? `${row.overdueDays} day${row.overdueDays === 1 ? "" : "s"}` : ""}</td>
+          </tr>
+        `,
+      )
+      .join("");
+    const win = window.open("", "_blank", "width=900,height=700");
+    if (!win) {
+      toast("Print window was blocked.", "error");
+      return;
+    }
+    win.document.write(`<!doctype html>
+      <html>
+        <head>
+          <title>${esc(title)}</title>
+          <style>
+            body { font-family: Inter, Arial, sans-serif; padding: 24px; color: #111827; }
+            h1 { font-size: 22px; margin: 0 0 6px; }
+            .meta { color: #6b7280; margin-bottom: 18px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; vertical-align: top; }
+            th { background: #f3f4f6; text-transform: uppercase; letter-spacing: .06em; font-size: 10px; }
+          </style>
+        </head>
+        <body>
+          <h1>${esc(title)}</h1>
+          <div class="meta">Printed ${new Date().toLocaleString()}</div>
+          <table>
+            <thead><tr><th>Task</th><th>Assignee</th><th>Due</th><th>Status</th><th>Assigned by</th><th>Overdue</th></tr></thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </body>
+      </html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
   const createTemplate = async () => {
     const title = tplTitle.trim();
     if (!title) {
@@ -238,10 +342,12 @@ export default function StaffTasksPanel({
       return;
     }
     const items = tplItems
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((label) => ({ label, required: true }));
+      .map((item) => ({ label: item.label.trim(), required: item.required }))
+      .filter((item) => item.label.length > 0);
+    if (items.length === 0) {
+      toast("Add at least one checklist step.", "error");
+      return;
+    }
     try {
       const res = await fetch(`${baseUrl}/api/tasks/admin/templates`, {
         method: "POST",
@@ -256,6 +362,7 @@ export default function StaffTasksPanel({
       toast("Template saved.", "success");
       setTplTitle("");
       setTplDesc("");
+      setTplItems([{ id: `item-${Date.now()}`, label: "", required: true }]);
       void refreshAdmin();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Create failed", "error");
@@ -390,9 +497,30 @@ export default function StaffTasksPanel({
         {sub === "mine" ? (
           <div className="space-y-4">
             <section>
-              <h3 className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Open
-              </h3>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Open
+                </h3>
+                <button
+                  type="button"
+                  onClick={() =>
+                    printRows(
+                      "My open tasks",
+                      (me?.open ?? []).map((t) => ({
+                        title: t.title_snapshot,
+                        due: t.due_date ?? t.period_key,
+                        status: t.status,
+                        assignedBy: t.assigned_by_name,
+                        overdueDays: t.overdue_days,
+                      })),
+                    )
+                  }
+                  className="ui-btn-secondary inline-flex items-center gap-2 text-xs"
+                >
+                  <Printer size={14} />
+                  Print
+                </button>
+              </div>
               {!me?.open?.length ? (
                 <p className="text-sm text-app-text-muted">No open tasks.</p>
               ) : (
@@ -404,9 +532,23 @@ export default function StaffTasksPanel({
                         onClick={() => setDrawerId(t.id)}
                         className="flex w-full items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2.5 text-left"
                       >
-                        <span className="font-semibold text-app-text">{t.title_snapshot}</span>
-                        <span className="text-[10px] text-app-text-muted">
-                          {t.due_date ?? t.period_key}
+                        <span className="min-w-0">
+                          <span className="block font-semibold text-app-text">
+                            {t.title_snapshot}
+                          </span>
+                          {t.assigned_by_name ? (
+                            <span className="block text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                              Assigned by {t.assigned_by_name}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2 text-[10px] text-app-text-muted">
+                          {t.overdue_days && t.overdue_days > 0 ? (
+                            <span className="rounded-full bg-red-500/10 px-2 py-1 font-black text-red-600">
+                              {t.overdue_days}d overdue
+                            </span>
+                          ) : null}
+                          <span>{t.due_date ?? t.period_key}</span>
                         </span>
                       </button>
                     </li>
@@ -433,15 +575,37 @@ export default function StaffTasksPanel({
 
         {sub === "team" ? (
           <div className="flex flex-col gap-3 min-h-0 flex-1">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-muted" />
-              <input
-                type="text"
-                placeholder="Search team tasks…"
-                className="ui-input h-9 w-full pl-8 text-xs font-bold"
-                value={teamSearch}
-                onChange={(e) => setTeamSearch(e.target.value)}
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[220px] flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-muted" />
+                <input
+                  type="text"
+                  placeholder="Search team tasks…"
+                  className="ui-input h-9 w-full pl-8 text-xs font-bold"
+                  value={teamSearch}
+                  onChange={(e) => setTeamSearch(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  printRows(
+                    "Open team tasks",
+                    filteredTeam.map((r) => ({
+                      title: r.title_snapshot,
+                      assignee: r.assignee_name,
+                      due: r.due_date,
+                      status: "open",
+                      assignedBy: r.assigned_by_name,
+                      overdueDays: r.overdue_days,
+                    })),
+                  )
+                }
+                className="ui-btn-secondary inline-flex items-center gap-2 text-xs"
+              >
+                <Printer size={14} />
+                Print
+              </button>
             </div>
             <ul className="space-y-2 overflow-y-auto">
             {team.length === 0 ? (
@@ -461,10 +625,18 @@ export default function StaffTasksPanel({
                     />
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-app-text">{r.title_snapshot}</p>
-                      <p className="text-xs text-app-text-muted">{r.assignee_name}</p>
+                      <p className="text-xs text-app-text-muted">
+                        {r.assignee_name}
+                        {r.assigned_by_name ? ` · assigned by ${r.assigned_by_name}` : ""}
+                      </p>
                     </div>
-                    <span className="text-[10px] text-app-text-muted">
-                      {r.due_date ?? "—"}
+                    <span className="flex shrink-0 items-center gap-2 text-[10px] text-app-text-muted">
+                      {r.overdue_days && r.overdue_days > 0 ? (
+                        <span className="rounded-full bg-red-500/10 px-2 py-1 font-black text-red-600">
+                          {r.overdue_days}d overdue
+                        </span>
+                      ) : null}
+                      <span>{r.due_date ?? "—"}</span>
                     </span>
                   </button>
                 </li>
@@ -499,15 +671,89 @@ export default function StaffTasksPanel({
                   />
                 </label>
               </div>
-              <label className="mt-3 block text-[10px] font-black uppercase text-app-text-muted">
-                Items (one per line)
-                <textarea
-                  className="ui-input mt-1 min-h-[100px] w-full font-mono text-sm"
-                  value={tplItems}
-                  onChange={(e) => setTplItems(e.target.value)}
-                />
-              </label>
-              <button type="button" onClick={() => void createTemplate()} className="ui-btn-primary mt-3">
+              <div className="mt-4 rounded-lg border border-app-border bg-app-bg/40 p-3">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Checklist steps
+                    </p>
+                    <p className="text-xs text-app-text-muted">
+                      {tplItems.filter((item) => item.required).length} required ·{" "}
+                      {tplItems.filter((item) => !item.required).length} optional
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addTemplateItem}
+                    className="ui-btn-secondary inline-flex items-center gap-2 text-xs"
+                  >
+                    <Plus size={14} />
+                    Add step
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {tplItems.map((item, idx) => (
+                    <div
+                      key={item.id}
+                      className="grid gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 sm:grid-cols-[auto_1fr_auto_auto]"
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-app-surface-2 text-xs font-black text-app-text-muted">
+                        {idx + 1}
+                      </span>
+                      <input
+                        className="ui-input h-9 w-full text-sm"
+                        value={item.label}
+                        onChange={(e) =>
+                          updateTemplateItem(item.id, { label: e.target.value })
+                        }
+                        placeholder="Checklist step"
+                      />
+                      <label className="flex h-9 items-center gap-2 rounded-lg border border-app-border px-3 text-xs font-black uppercase tracking-widest text-app-text-muted">
+                        <input
+                          type="checkbox"
+                          checked={item.required}
+                          onChange={(e) =>
+                            updateTemplateItem(item.id, { required: e.target.checked })
+                          }
+                        />
+                        Required
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeTemplateItem(item.id)}
+                        disabled={tplItems.length === 1}
+                        className="ui-btn-secondary inline-flex h-9 items-center gap-2 text-xs disabled:opacity-40"
+                        title="Remove step"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                {[
+                  ["Daily", "Opening, closing, and register routines."],
+                  ["Weekly", "Recurring floor, stock, or admin reviews."],
+                  ["Monthly", "Compliance checks and recurring audits."],
+                  ["Yearly", "Annual renewals and long-cycle work."],
+                ].map(([label, copy]) => (
+                  <div
+                    key={label}
+                    className="rounded-lg border border-app-border bg-app-bg/30 p-3"
+                  >
+                    <p className="text-xs font-black uppercase tracking-widest text-app-text">
+                      {label}
+                    </p>
+                    <p className="mt-1 text-xs text-app-text-muted">{copy}</p>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => void createTemplate()}
+                className="ui-btn-primary mt-3"
+              >
                 Save template
               </button>
             </section>
@@ -689,6 +935,9 @@ export default function StaffTasksPanel({
                           ? ` · ${assignmentCustomerLabel(a) ?? "linked customer"}`
                           : ""}
                       </p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                        Assigned by {a.assigned_by_name ?? "Unknown"}
+                      </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
@@ -712,10 +961,34 @@ export default function StaffTasksPanel({
             </section>
 
             <section>
-              <h3 className="mb-2 flex items-center gap-2 text-sm font-black text-app-text">
-                <History size={16} />
-                History
-              </h3>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="flex items-center gap-2 text-sm font-black text-app-text">
+                  <History size={16} />
+                  History
+                </h3>
+                <button
+                  type="button"
+                  onClick={() =>
+                    printRows(
+                      "Task history",
+                      history.map((h) => ({
+                        title: h.title_snapshot,
+                        assignee: h.assignee_name,
+                        due: h.period_key,
+                        status: h.completed_at
+                          ? `done ${new Date(h.completed_at).toLocaleString()}`
+                          : h.status,
+                        assignedBy: h.assigned_by_name,
+                        overdueDays: h.overdue_days,
+                      })),
+                    )
+                  }
+                  className="ui-btn-secondary inline-flex items-center gap-2 text-xs"
+                >
+                  <Printer size={14} />
+                  Print
+                </button>
+              </div>
               <div className="relative mb-3">
                 <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-muted" />
                 <input
@@ -744,6 +1017,7 @@ export default function StaffTasksPanel({
                         {h.completed_at
                           ? `· done ${new Date(h.completed_at).toLocaleString()}`
                           : ""}
+                        {h.assigned_by_name ? ` · assigned by ${h.assigned_by_name}` : ""}
                       </p>
                     </div>
                   </li>
