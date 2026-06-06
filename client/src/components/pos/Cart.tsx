@@ -464,6 +464,12 @@ export default function Cart({
   const [rmsPaymentOpen, setRmsPaymentOpen] = useState(false);
   const [parkSalePromptOpen, setParkSalePromptOpen] = useState(false);
   const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const requestProductSearchFocus = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+  }, []);
 
   const {
     lines,
@@ -511,6 +517,7 @@ export default function Cart({
     setCheckoutDepositLedger,
     setPosShipping,
     setPickupConfirmed,
+    onReadyForNextScan: requestProductSearchFocus,
     baseUrl,
     apiAuth,
 	  });
@@ -1392,7 +1399,6 @@ export default function Cart({
 
 
 	  // pendingExchangeOriginalOrderIdRef removed
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const actionRibbonRef = useRef<HTMLDivElement | null>(null);
   const didInitialProductSearchFocusRef = useRef(false);
   const initialTransactionApplyingRef = useRef<string | null>(null);

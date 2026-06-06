@@ -160,6 +160,7 @@ interface UseCartActionsProps {
   setCheckoutDepositLedger: (v: string) => void;
   setPosShipping: (v: PosShippingSelection | null) => void;
   setPickupConfirmed: (v: boolean) => void;
+  onReadyForNextScan: () => void;
   baseUrl: string;
   apiAuth: () => Record<string, string>;
 }
@@ -187,6 +188,7 @@ export function useCartActions({
   setCheckoutDepositLedger,
   setPosShipping,
   setPickupConfirmed,
+  onReadyForNextScan,
   baseUrl,
   apiAuth,
 }: UseCartActionsProps) {
@@ -379,11 +381,12 @@ export function useCartActions({
     setSearch("");
     setSearchResults([]);
     playPosScanSuccess();
+    onReadyForNextScan();
   }, [
     checkoutOperator, giftCardLoadMeta, rmsPaymentMeta, lines, activeWeddingMember,
     employeeCustomerId, selectedCustomer, toast, setPendingCustomItem,
     setCustomPromptOpen, setActiveWeddingMember, setActiveWeddingPartyName,
-    setDisbursementMembers, setSearch, setSearchResults
+    setDisbursementMembers, setSearch, setSearchResults, onReadyForNextScan
   ]);
 
   const addGiftCardLoadToCart = useCallback(async (code: string, amountCents: number) => {
@@ -434,7 +437,8 @@ export function useCartActions({
     setSearchResults([]);
     setGiftCardLoadOpen(false);
     playPosScanSuccess();
-  }, [checkoutOperator, giftCardLoadMeta, toast, setSearch, setSearchResults, setGiftCardLoadOpen, baseUrl, apiAuth, setGiftCardLoadMeta]);
+    onReadyForNextScan();
+  }, [checkoutOperator, giftCardLoadMeta, toast, setSearch, setSearchResults, setGiftCardLoadOpen, baseUrl, apiAuth, setGiftCardLoadMeta, onReadyForNextScan]);
 
   const onExchangeContinue = useCallback(
     (args: { originalTransactionId: string; customer: Customer | null }) => {
@@ -479,6 +483,7 @@ export function useCartActions({
         setSearch("");
         setSearchResults([]);
         playPosScanSuccess();
+        onReadyForNextScan();
         return;
       }
 
@@ -491,7 +496,7 @@ export function useCartActions({
         }
       }).catch(() => {});
     },
-    [ensureSaleCashier, setSearch, lines, setLines, setSearchResults, addItem],
+    [ensureSaleCashier, setSearch, lines, setLines, setSearchResults, addItem, onReadyForNextScan],
   );
 
   const handleSearchResultClick = useCallback((
