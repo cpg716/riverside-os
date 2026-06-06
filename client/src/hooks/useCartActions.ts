@@ -23,6 +23,7 @@ function newCartRowId(): string {
 }
 
 const CUSTOMER_PROFILE_DISCOUNT_REASON = "Customer profile discount";
+const EMPLOYEE_DISCOUNT_REASON = "Employee Discount";
 
 export function cartLineKey(l: Pick<CartLineItem, "cart_row_id">): string {
   return l.cart_row_id;
@@ -38,6 +39,10 @@ function isCustomerProfileDiscountLine(line: CartLineItem): boolean {
   return line.price_override_reason === CUSTOMER_PROFILE_DISCOUNT_REASON;
 }
 
+function isEmployeeDiscountLine(line: CartLineItem): boolean {
+  return line.price_override_reason === EMPLOYEE_DISCOUNT_REASON;
+}
+
 function isAutomaticPricingEligible(
   line: CartLineItem,
   rmsPaymentSku?: string | null,
@@ -48,7 +53,7 @@ function isAutomaticPricingEligible(
   if (rmsPaymentSku && line.sku === rmsPaymentSku) return false;
   if (giftCardLoadSku && line.sku === giftCardLoadSku) return false;
   if (line.discount_event_id) return false;
-  if (line.price_override_reason && !isCustomerProfileDiscountLine(line)) return false;
+  if (line.price_override_reason && !isCustomerProfileDiscountLine(line) && !isEmployeeDiscountLine(line)) return false;
   return true;
 }
 
@@ -70,13 +75,16 @@ function applyCustomerPricingAndDiscounts(
   const isEmployee = Boolean(employeeCustomerId) && customer?.id === employeeCustomerId;
 
   if (isEmployee) {
-    const hasEmpPrice = catalogEmployeeVal != null && String(catalogEmployeeVal).trim() !== "" && Number(catalogEmployeeVal) > 0;
+    const hasEmpPrice =
+      catalogEmployeeVal != null &&
+      String(catalogEmployeeVal).trim() !== "" &&
+      parseMoneyToCents(catalogEmployeeVal) > 0;
     if (hasEmpPrice) {
       const empCents = parseMoneyToCents(catalogEmployeeVal);
       if (
         parseMoneyToCents(line.standard_retail_price) === empCents &&
         line.original_unit_price === centsToFixed2(catalogRetailCents) &&
-        line.price_override_reason === undefined
+        line.price_override_reason === EMPLOYEE_DISCOUNT_REASON
       ) {
         return line;
       }
@@ -89,7 +97,7 @@ function applyCustomerPricingAndDiscounts(
         state_tax: stateTax,
         local_tax: localTax,
         original_unit_price: centsToFixed2(catalogRetailCents),
-        price_override_reason: undefined,
+        price_override_reason: EMPLOYEE_DISCOUNT_REASON,
       };
     }
   }
@@ -207,18 +215,24 @@ export function useCartActions({
     setLines((prev) => {
       let changed = false;
       const next = prev.map((line) => {
-        const updated = applyCustomerPricingAndDiscounts(
+        const priced = applyCustomerPricingAndDiscounts(
           line,
           selectedCustomer,
           employeeCustomerId,
           rmsPaymentMeta?.sku,
           giftCardLoadMeta?.sku,
         );
+        const updated = isEmployeeMode && priced.salesperson_id
+          ? { ...priced, salesperson_id: null }
+          : priced;
         if (updated !== line) changed = true;
         return updated;
       });
       return changed ? next : prev;
     });
+    if (isEmployeeMode) {
+      setPrimarySalespersonId("");
+    }
   }, [
     selectedCustomer,
     customerDiscountPercent,
@@ -227,6 +241,7 @@ export function useCartActions({
     lines,
     rmsPaymentMeta?.sku,
     giftCardLoadMeta?.sku,
+    setPrimarySalespersonId,
   ]);
 
   const ensureSaleCashier = useCallback((): boolean => {
@@ -355,7 +370,8 @@ export function useCartActions({
         newLine.state_tax = stateTax;
         newLine.local_tax = localTax;
         newLine.original_unit_price = centsToFixed2(parseMoneyToCents(item.standard_retail_price));
-        newLine.price_override_reason = undefined;
+        newLine.price_override_reason = EMPLOYEE_DISCOUNT_REASON;
+        newLine.salesperson_id = null;
       }
 
       if (priceOverride) {

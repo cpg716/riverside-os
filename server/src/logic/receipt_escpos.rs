@@ -290,7 +290,7 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
             if let Some(label) = &it.discount_event_label {
                 let t = label.trim();
                 if !t.is_empty() {
-                    push_line(out, &format!("Discount: {t}"));
+                    push_line(out, t);
                 }
             }
         }
@@ -504,7 +504,7 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
                 if let Some(label) = &it.discount_event_label {
                     let t = label.trim();
                     if !t.is_empty() {
-                        out_lines.push(format!("Discount Event: {}", receiptline_escape(t)));
+                        out_lines.push(receiptline_escape(t));
                     }
                 }
             }

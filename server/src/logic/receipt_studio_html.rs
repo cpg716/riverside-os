@@ -30,17 +30,31 @@ fn build_items_table(order: &ReceiptOrder) -> String {
             .as_deref()
             .map(|v| format!(" ({})", html_escape(v)))
             .unwrap_or_default();
+        let discount_label = it
+            .discount_event_label
+            .as_deref()
+            .map(str::trim)
+            .filter(|label| !label.is_empty());
+        let discount_row = discount_label
+            .map(|label| {
+                format!(
+                    "<tr><td colspan=\"3\" style=\"padding:0 0 5px 0;color:#7c3aed;font-size:11px;font-weight:800;\">{}</td></tr>",
+                    html_escape(label)
+                )
+            })
+            .unwrap_or_default();
         rows.push_str(&format!(
             "<tr>\
                <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:55%\">{}{}</td>\
                <td style=\"text-align:right;padding-left:8px;width:25%\">{} \u{00d7} {}</td>\
                <td style=\"text-align:right;padding-left:8px;width:20%\">{}</td>\
-             </tr>",
+             </tr>{}",
             html_escape(&it.product_name),
             var,
             it.quantity,
             html_escape(&it.sku),
-            it.unit_price
+            it.unit_price,
+            discount_row
         ));
     }
     format!(
