@@ -200,7 +200,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "inventory-physical-inventory-workspace",
     title: "Physical Inventory Workspace (inventory)",
-    summary: "Run full-store or category counts, surface missed in-scope SKUs during review, and publish reconciled stock with audit history.",
+    summary: "Run full-store or category counts, capture unknown scans, review variances, approve publish with Manager Access, and keep Physical Inventory reports in the count workspace.",
     markdown: manual_18_raw,
     tags: ["inventory-physical-inventory-workspace","inventory","physical-count","reconciliation"],
   },
