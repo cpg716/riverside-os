@@ -635,6 +635,53 @@ test.describe("inventory audit contract", () => {
     expect(activeSession).toBeNull();
   });
 
+  test("physical inventory scanner replay id is idempotent", async ({ request }) => {
+    await cancelActivePhysicalInventorySession(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const suffix = uniqueSuffix("physical-replay-id");
+    const categoryId = await createNonClothingCategory(request, operatorStaffId, suffix);
+    const product = await createSingleVariantProduct(request, suffix, {
+      categoryId,
+      stockOnHand: 0,
+      namePrefix: "Physical Replay",
+      skuPrefix: "PHY-REPLAY",
+    });
+    const session = await createPhysicalInventorySession(request, categoryId);
+    const clientScanId = crypto.randomUUID();
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const res = await request.post(`${apiBase()}/api/inventory/physical/sessions/${session.id}/counts`, {
+        headers: {
+          ...adminHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          variant_id: product.variantId,
+          quantity: 1,
+          source: "laser",
+          client_scan_id: clientScanId,
+        },
+        failOnStatusCode: false,
+      });
+      const bodyText = await res.text();
+      expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+      expect((JSON.parse(bodyText) as { counted_qty: number }).counted_qty).toBe(1);
+    }
+
+    const detail = await request.get(`${apiBase()}/api/inventory/physical/sessions/${session.id}`, {
+      headers: adminHeaders(),
+      failOnStatusCode: false,
+    });
+    const detailText = await detail.text();
+    expect(detail.status(), detailText.slice(0, 1000)).toBe(200);
+    const countedRow = (JSON.parse(detailText) as { counts: Array<{ variant_id: string; counted_qty: number }> })
+      .counts
+      .find((row) => row.variant_id === product.variantId);
+    expect(countedRow?.counted_qty).toBe(1);
+
+    await cancelActivePhysicalInventorySession(request);
+  });
+
   test("takeaway return with restock restores stock and records refund truth", async ({
     request,
   }) => {

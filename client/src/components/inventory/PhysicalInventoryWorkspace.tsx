@@ -109,6 +109,7 @@ interface ReviewSummary {
   total_shrinkage: number;
   total_surplus: number;
   zero_cost_movement_count: number;
+  non_sale_movement_count: number;
   accounting_impact: string | number;
   rows_matching_filter?: number;
   rows_returned?: number;
@@ -148,6 +149,16 @@ interface DiscoveredItem {
   resolution_note: string | null;
 }
 
+interface OfflinePhysicalScan {
+  id: string;
+  session_id: string;
+  session_number: string;
+  code: string;
+  source: ScanMode;
+  queued_at: string;
+  attempts: number;
+}
+
 interface PhysicalInventoryReport {
   session: PISession;
   approvals: Record<string, unknown>[];
@@ -164,6 +175,7 @@ type WorkspaceReportTab = "variance_rows" | "scan_rows" | "discovered_rows" | "a
 
 const COUNT_FEED_LIMIT = 500;
 const REVIEW_ROW_LIMIT = 500;
+const OFFLINE_SCAN_QUEUE_KEY = "ros.physical_inventory.offline_scans.v1";
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -175,6 +187,32 @@ function fmt(dt: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function newClientScanId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const value = Math.floor(Math.random() * 16);
+    const nibble = char === "x" ? value : (value & 0x3) | 0x8;
+    return nibble.toString(16);
+  });
+}
+
+function loadOfflinePhysicalScans(): OfflinePhysicalScan[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(OFFLINE_SCAN_QUEUE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as OfflinePhysicalScan[];
+    return Array.isArray(parsed) ? parsed.filter((row) => row?.id && row?.code) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOfflinePhysicalScans(rows: OfflinePhysicalScan[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(OFFLINE_SCAN_QUEUE_KEY, JSON.stringify(rows.slice(-1000)));
 }
 
 function formatMaybeMoney(value: string | number | null | undefined): string {
@@ -300,7 +338,12 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   const [scanMode, setScanMode] = useState<ScanMode>("laser");
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
   const [scanSearch, setScanSearch] = useState("");
+  const [offlineScans, setOfflineScans] = useState<OfflinePhysicalScan[]>(() =>
+    loadOfflinePhysicalScans(),
+  );
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const offlineScansRef = useRef<OfflinePhysicalScan[]>(offlineScans);
+  const flushingOfflineRef = useRef(false);
 
   // ── Review state
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
@@ -461,38 +504,33 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   // Scanning
   // ─────────────────────────────────────────────────────────────────────────────
 
-  const recordDiscoveredScan = useCallback(async (code: string) => {
+  const enqueueOfflineScan = useCallback((
+    code: string,
+    source: ScanMode,
+    clientScanId = newClientScanId(),
+  ) => {
     if (!activeSession) return;
-    const res = await fetch(
-      `${BASE_URL}/api/inventory/physical/sessions/${activeSession.id}/discovered`,
-      {
-        method: "POST",
-        headers: mergeH({ "Content-Type": "application/json" }),
-        body: JSON.stringify({
-          scanned_code: code,
-          source: scanMode,
-        }),
-      },
-    );
-    if (!res.ok) {
-      playScanError();
-      showFeedback({ type: "error", message: `NOT FOUND: ${code}` });
-      return;
-    }
-    const item = (await res.json()) as DiscoveredItem;
-    setDiscoveredItems((prev) => {
-      const idx = prev.findIndex((row) => row.id === item.id);
-      if (idx === -1) return [item, ...prev];
-      const next = [...prev];
-      next[idx] = item;
+    const row: OfflinePhysicalScan = {
+      id: clientScanId,
+      session_id: activeSession.id,
+      session_number: activeSession.session_number,
+      code,
+      source,
+      queued_at: new Date().toISOString(),
+      attempts: 0,
+    };
+    setOfflineScans((prev) => {
+      if (prev.some((existing) => existing.id === row.id)) return prev;
+      const next = [...prev, row].slice(-1000);
+      saveOfflinePhysicalScans(next);
       return next;
     });
     playScanWarning();
     showFeedback({
       type: "warning",
-      message: `UNKNOWN CAPTURED: ${code} · Review before publish`,
+      message: `QUEUED OFFLINE: ${code}`,
     });
-  }, [activeSession, mergeH, scanMode, showFeedback]);
+  }, [activeSession, showFeedback]);
 
   const updateDiscoveredItem = useCallback(async (
     item: DiscoveredItem,
@@ -540,19 +578,64 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     toast(status === "resolved" ? "Discovered scan resolved." : "Discovered scan ignored.", "success");
   }, [activeSession, mergeH, toast]);
 
-  const handleScan = useCallback(
-    async (code: string) => {
-      if (!activeSession || activeSession.status !== "open") return;
+  const submitScan = useCallback(
+    async (
+      code: string,
+      source: ScanMode,
+      clientScanId = newClientScanId(),
+      queueOnNetworkFailure = true,
+    ) => {
+      if (!activeSession || activeSession.status !== "open") return false;
 
       // Resolve the code against inventory
-      const resolveRes = await fetch(
-        `${BASE_URL}/api/inventory/scan-resolve?code=${encodeURIComponent(code)}`,
-        { headers: mergeH() },
-      );
+      let resolveRes: Response;
+      try {
+        resolveRes = await fetch(
+          `${BASE_URL}/api/inventory/scan-resolve?code=${encodeURIComponent(code)}`,
+          { headers: mergeH() },
+        );
+      } catch {
+        if (queueOnNetworkFailure) enqueueOfflineScan(code, source, clientScanId);
+        return false;
+      }
 
       if (!resolveRes.ok) {
-        await recordDiscoveredScan(code);
-        return;
+        let discoveredRes: Response;
+        try {
+          discoveredRes = await fetch(
+            `${BASE_URL}/api/inventory/physical/sessions/${activeSession.id}/discovered`,
+            {
+              method: "POST",
+              headers: mergeH({ "Content-Type": "application/json" }),
+              body: JSON.stringify({
+                scanned_code: code,
+                source,
+              }),
+            },
+          );
+        } catch {
+          if (queueOnNetworkFailure) enqueueOfflineScan(code, source, clientScanId);
+          return false;
+        }
+        if (!discoveredRes.ok) {
+          playScanError();
+          showFeedback({ type: "error", message: `NOT FOUND: ${code}` });
+          return false;
+        }
+        const item = (await discoveredRes.json()) as DiscoveredItem;
+        setDiscoveredItems((prev) => {
+          const idx = prev.findIndex((row) => row.id === item.id);
+          if (idx === -1) return [item, ...prev];
+          const next = [...prev];
+          next[idx] = item;
+          return next;
+        });
+        playScanWarning();
+        showFeedback({
+          type: "warning",
+          message: `UNKNOWN CAPTURED: ${code} · Review before publish`,
+        });
+        return true;
       }
 
       const resolved = (await resolveRes.json()) as {
@@ -562,18 +645,25 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       };
 
       // Add to session count
-      const countRes = await fetch(
-        `${BASE_URL}/api/inventory/physical/sessions/${activeSession.id}/counts`,
-        {
-          method: "POST",
-          headers: mergeH({ "Content-Type": "application/json" }),
-          body: JSON.stringify({
-            variant_id: resolved.variant_id,
-            quantity: 1,
-            source: scanMode,
-          }),
-        },
-      );
+      let countRes: Response;
+      try {
+        countRes = await fetch(
+          `${BASE_URL}/api/inventory/physical/sessions/${activeSession.id}/counts`,
+          {
+            method: "POST",
+            headers: mergeH({ "Content-Type": "application/json" }),
+            body: JSON.stringify({
+              variant_id: resolved.variant_id,
+              quantity: 1,
+              source,
+              client_scan_id: clientScanId,
+            }),
+          },
+        );
+      } catch {
+        if (queueOnNetworkFailure) enqueueOfflineScan(code, source, clientScanId);
+        return false;
+      }
 
       if (countRes.ok) {
         const { counted_qty } = (await countRes.json()) as { counted_qty: number };
@@ -603,17 +693,59 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               review_status: "pending",
               review_note: null,
               last_scanned_at: new Date().toISOString(),
-              scan_source: scanMode,
+              scan_source: source,
             },
             ...prev,
           ].slice(0, COUNT_FEED_LIMIT);
         });
+        return true;
       } else {
         playScanWarning();
         showFeedback({ type: "warning", message: "Count update failed" });
+        return false;
       }
     },
-    [activeSession, scanMode, showFeedback, mergeH, recordDiscoveredScan],
+    [activeSession, enqueueOfflineScan, mergeH, showFeedback],
+  );
+
+  const flushOfflineScans = useCallback(async () => {
+    if (!activeSession || activeSession.status !== "open" || flushingOfflineRef.current) return;
+    const pending = loadOfflinePhysicalScans()
+      .filter((row) => row.session_id === activeSession.id)
+      .slice(0, 25);
+    if (pending.length === 0) return;
+    flushingOfflineRef.current = true;
+    let replayed = 0;
+    try {
+      for (const row of pending) {
+        const ok = await submitScan(row.code, row.source, row.id, false);
+        setOfflineScans((prev) => {
+          const next = ok
+            ? prev.filter((existing) => existing.id !== row.id)
+            : prev.map((existing) =>
+                existing.id === row.id
+                  ? { ...existing, attempts: existing.attempts + 1 }
+                  : existing,
+              );
+          saveOfflinePhysicalScans(next);
+          return next;
+        });
+        if (!ok) break;
+        replayed += 1;
+      }
+      if (replayed > 0) {
+        toast(`${replayed} queued physical inventory scan${replayed === 1 ? "" : "s"} replayed.`, "success");
+      }
+    } finally {
+      flushingOfflineRef.current = false;
+    }
+  }, [activeSession, submitScan, toast]);
+
+  const handleScan = useCallback(
+    async (code: string) => {
+      await submitScan(code, scanMode);
+    },
+    [scanMode, submitScan],
   );
 
   // Wire HID scanner hook — only active in counting phase with laser mode
@@ -621,6 +753,29 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     onScan: (code) => void handleScan(code),
     enabled: phase === "counting" && scanMode === "laser",
   });
+
+  useEffect(() => {
+    offlineScansRef.current = offlineScans;
+  }, [offlineScans]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      void flushOfflineScans();
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, [flushOfflineScans]);
+
+  useEffect(() => {
+    if (
+      activeSession?.status === "open" &&
+      phase === "counting" &&
+      offlineScansRef.current.some((row) => row.session_id === activeSession.id) &&
+      navigator.onLine !== false
+    ) {
+      void flushOfflineScans();
+    }
+  }, [activeSession, flushOfflineScans, phase]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Session Actions
@@ -833,8 +988,17 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     () => discoveredItems.filter((item) => item.status === "pending").length,
     [discoveredItems],
   );
+  const sessionOfflineScans = useMemo(
+    () => offlineScans.filter((row) => row.session_id === activeSession?.id),
+    [activeSession?.id, offlineScans],
+  );
   const zeroCostMovementCount = reviewSummary?.zero_cost_movement_count ?? 0;
-  const publishBlocked = pendingDiscoveredCount > 0 || zeroCostMovementCount > 0;
+  const nonSaleMovementCount = reviewSummary?.non_sale_movement_count ?? 0;
+  const publishBlocked =
+    pendingDiscoveredCount > 0 ||
+    zeroCostMovementCount > 0 ||
+    nonSaleMovementCount > 0 ||
+    sessionOfflineScans.length > 0;
   const reviewDelta = reviewSummary
     ? reviewSummary.total_surplus - reviewSummary.total_shrinkage
     : 0;
@@ -1353,7 +1517,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               <button
                 type="button"
                 onClick={() => void moveToReview()}
-                disabled={counts.length === 0 || working}
+                disabled={counts.length === 0 || working || sessionOfflineScans.length > 0}
                 className="flex items-center gap-2 h-full px-8 rounded-[20px] bg-amber-500 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-amber-500/20 hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
               >
 	                <ClipboardList size={14} /> Review Count
@@ -1400,6 +1564,24 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                      </div>
                    </div>
                  )}
+
+                 {sessionOfflineScans.length > 0 ? (
+                   <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-4 text-amber-700">
+                     <p className="text-[10px] font-black uppercase tracking-widest">
+                       Offline scan queue
+                     </p>
+                     <p className="mt-1 text-xs font-bold leading-relaxed">
+                       {sessionOfflineScans.length} scan{sessionOfflineScans.length === 1 ? "" : "s"} are saved on this device and must replay before review.
+                     </p>
+                     <button
+                       type="button"
+                       onClick={() => void flushOfflineScans()}
+                       className="mt-3 rounded-xl border border-amber-500/30 bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text"
+                     >
+                       Retry Queue
+                     </button>
+                   </div>
+                 ) : null}
 
                  <div className="space-y-4">
 	                   <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Add item by lookup</label>
@@ -1756,7 +1938,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           </div>
         )}
 
-        {pendingDiscoveredCount > 0 || zeroCostMovementCount > 0 ? (
+        {publishBlocked ? (
           <div className="flex items-start gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-4 text-red-700">
             <AlertCircle className="mt-0.5 shrink-0" size={18} />
             <div>
@@ -1768,7 +1950,13 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                   ? `${pendingDiscoveredCount} discovered scan${pendingDiscoveredCount === 1 ? "" : "s"} must be resolved or ignored. `
                   : ""}
                 {zeroCostMovementCount > 0
-                  ? `${zeroCostMovementCount} movement row${zeroCostMovementCount === 1 ? "" : "s"} need unit cost before accounting impact can be posted.`
+                  ? `${zeroCostMovementCount} movement row${zeroCostMovementCount === 1 ? "" : "s"} need unit cost before accounting impact can be posted. `
+                  : ""}
+                {nonSaleMovementCount > 0
+                  ? `${nonSaleMovementCount} non-sale inventory movement${nonSaleMovementCount === 1 ? "" : "s"} happened during the count; restart or reconcile before publish. `
+                  : ""}
+                {sessionOfflineScans.length > 0
+                  ? `${sessionOfflineScans.length} queued offline scan${sessionOfflineScans.length === 1 ? "" : "s"} must replay before publish.`
                   : ""}
               </p>
             </div>

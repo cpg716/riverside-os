@@ -2,12 +2,13 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReceivingBay from "./ReceivingBay";
 import ReceivingReport from "./ReceivingReport";
+import QuickProcurementItemModal from "./QuickProcurementItemModal";
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
-import { AlertTriangle, Clock, FileText, Truck, Plus, Printer, Mail } from "lucide-react";
+import { AlertTriangle, Clock, FileText, Truck, Plus, Printer, Mail, ArrowRight } from "lucide-react";
 
 interface PurchaseOrder {
   id: string;
@@ -51,12 +52,14 @@ interface NtboLifecycleItem {
 
 interface PurchaseOrderLineDetail {
   line_id: string;
+  variant_id: string;
   sku: string;
   product_name: string;
   variation_label?: string | null;
   qty_ordered: number;
   qty_previously_received: number;
   unit_cost: string;
+  prior_effective_cost?: string | number;
 }
 
 interface PurchaseOrderDetail {
@@ -111,6 +114,13 @@ function purchaseOrderStatusLabel(status: string): string {
   }
 }
 
+function variantMoneyInput(value: string | number | null | undefined): string {
+  if (typeof value === "number") {
+    return value > 1000 ? (value / 100).toFixed(2) : value.toFixed(2);
+  }
+  return centsToFixed2(parseMoneyToCents(value ?? "0"));
+}
+
 function poEmailText(detail: PurchaseOrderDetail): string {
   const lines = detail.lines.map((line) => (
     `${line.qty_ordered} x ${line.product_name}${line.variation_label ? ` - ${line.variation_label}` : ""} (${line.sku}) @ $${line.unit_cost}`
@@ -130,18 +140,21 @@ export default function PurchaseOrderPanel({
   mode = "order",
   onOpenOrderStock,
   onOpenReceiving,
+  onOpenAddItem,
 }: {
   initialPoId?: string | null;
   onInitialPoConsumed?: () => void;
   mode?: PurchaseOrderPanelMode;
   onOpenOrderStock?: () => void;
   onOpenReceiving?: () => void;
+  onOpenAddItem?: () => void;
 }) {
   const { toast } = useToast();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const consumedInitialPo = useRef(false);
   const ordersLoadedOnce = useRef(false);
   const lastLoadedOrders = useRef<PurchaseOrder[]>([]);
+  const editorRef = useRef<HTMLDivElement | null>(null);
   const canManageLifecycle = hasPermission("orders.lifecycle_manage");
 
   useEffect(() => {
@@ -155,8 +168,12 @@ export default function PurchaseOrderPanel({
   const [ordersLoadError, setOrdersLoadError] = useState<string | null>(null);
   const [ordersShowingStale, setOrdersShowingStale] = useState(false);
   const [variantId, setVariantId] = useState("");
+  const [selectedVariant, setSelectedVariant] = useState<VariantSearchResult | null>(null);
   const [qty, setQty] = useState(1);
   const [unitCost, setUnitCost] = useState("0.00");
+  const [retailPrice, setRetailPrice] = useState("0.00");
+  const [lineBusy, setLineBusy] = useState(false);
+  const [quickItemOpen, setQuickItemOpen] = useState(false);
   const [receivingPoId, setReceivingPoId] = useState<string | null>(null);
   const [nonInventoryNeeds, setNonInventoryNeeds] = useState<WeddingNonInventoryItem[]>([]);
   const [ntboItems, setNtboItems] = useState<NtboLifecycleItem[]>([]);
@@ -166,6 +183,8 @@ export default function PurchaseOrderPanel({
   const [ntboVendorId, setNtboVendorId] = useState("");
   const [ntboPoBusy, setNtboPoBusy] = useState(false);
   const [viewingReceivingEventId, setViewingReceivingEventId] = useState<string | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<PurchaseOrderDetail | null>(null);
+  const [selectedDetailLoading, setSelectedDetailLoading] = useState(false);
 
   interface ReceivingHistoryRow {
     id: string;
@@ -180,6 +199,29 @@ export default function PurchaseOrderPanel({
   }
   const [receivingHistory, setReceivingHistory] = useState<ReceivingHistoryRow[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const isReceiveMode = mode === "receive";
+
+  const scrollEditorIntoView = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  const openPurchaseOrderEditor = useCallback(
+    (poId: string) => {
+      setSelectedPo(poId);
+      scrollEditorIntoView();
+    },
+    [scrollEditorIntoView],
+  );
+
+  useEffect(() => {
+    setVariantId("");
+    setSelectedVariant(null);
+    setQty(1);
+    setUnitCost("0.00");
+    setRetailPrice("0.00");
+  }, [selectedPo]);
 
   const loadReceivingHistory = useCallback(
     async (poId: string) => {
@@ -276,12 +318,23 @@ export default function PurchaseOrderPanel({
 
   useEffect(() => {
     const id = initialPoId?.trim();
-    if (id && orders.some((o) => o.id === id) && !consumedInitialPo.current) {
-      setSelectedPo(id);
+    const initialOrder = id ? orders.find((order) => order.id === id) : null;
+    if (id && initialOrder && !consumedInitialPo.current) {
+      if (
+        isReceiveMode &&
+        initialOrder.status !== "cancelled" &&
+        initialOrder.status !== "closed" &&
+        (initialOrder.po_kind === "direct_invoice" || initialOrder.status !== "draft")
+      ) {
+        setSelectedPo(id);
+        setReceivingPoId(id);
+      } else {
+        openPurchaseOrderEditor(id);
+      }
       consumedInitialPo.current = true;
       onInitialPoConsumed?.();
     }
-  }, [initialPoId, orders, onInitialPoConsumed]);
+  }, [initialPoId, isReceiveMode, openPurchaseOrderEditor, orders, onInitialPoConsumed]);
 
   useEffect(() => {
     fetch(apiUrl(baseUrl, "/api/vendors"), {
@@ -322,9 +375,11 @@ export default function PurchaseOrderPanel({
       toast(body.error ?? "Failed to create PO draft", "error");
       return;
     }
-    const created = (await res.json().catch(() => ({}))) as { id?: string };
+    const created = (await res.json().catch(() => ({}))) as PurchaseOrder;
     if (typeof created.id === "string" && created.id.trim().length > 0) {
-      setSelectedPo(created.id);
+      setOrders((prev) => [created, ...prev.filter((order) => order.id !== created.id)]);
+      openPurchaseOrderEditor(created.id);
+      toast("PO draft opened. Add items before marking it sent.", "success");
     }
     void refresh();
   };
@@ -344,9 +399,20 @@ export default function PurchaseOrderPanel({
       toast(body.error ?? "Failed to create direct invoice draft", "error");
       return;
     }
-    const created = (await res.json().catch(() => ({}))) as { id?: string };
+    const created = (await res.json().catch(() => ({}))) as PurchaseOrder;
     if (typeof created.id === "string" && created.id.trim().length > 0) {
-      setSelectedPo(created.id);
+      setOrders((prev) => [created, ...prev.filter((order) => order.id !== created.id)]);
+      if (isReceiveMode) {
+        setReceivingPoId(created.id);
+      } else {
+        openPurchaseOrderEditor(created.id);
+      }
+      toast(
+        isReceiveMode
+          ? "Direct invoice opened. Add invoice lines before posting receipt."
+          : "Direct invoice draft opened.",
+        "success",
+      );
     }
     void refresh();
   };
@@ -361,30 +427,72 @@ export default function PurchaseOrderPanel({
       toast("Unit cost must be non-negative", "error");
       return;
     }
-    const res = await fetch(`${baseUrl}/api/purchase-orders/${selectedPo}/lines`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(backofficeHeaders() as Record<string, string>),
-      },
-      body: JSON.stringify({
-        variant_id: variantId.trim(),
-        quantity_ordered: qty,
-        unit_cost: centsToFixed2(parseMoneyToCents(unitCost)),
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      toast(body.error ?? "Failed to add PO line", "error");
+    if (parseMoneyToCents(retailPrice) < 0) {
+      toast("Retail must be non-negative", "error");
       return;
     }
-    toast("PO line added", "success");
-    void refresh();
+    setLineBusy(true);
+    try {
+      if (selectedVariant) {
+        const currentRetailCents = parseMoneyToCents(variantMoneyInput(selectedVariant.retail_price));
+        const nextRetailCents = parseMoneyToCents(retailPrice);
+        if (currentRetailCents !== nextRetailCents) {
+          const priceRes = await fetch(`${baseUrl}/api/products/variants/${selectedVariant.variant_id}/pricing`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              ...(backofficeHeaders() as Record<string, string>),
+            },
+            body: JSON.stringify({
+              retail_price_override: centsToFixed2(nextRetailCents),
+            }),
+          });
+          if (!priceRes.ok) {
+            const body = await priceRes.json().catch(() => ({}));
+            throw new Error(body.error ?? "Retail price could not be updated.");
+          }
+        }
+      }
+
+      const res = await fetch(`${baseUrl}/api/purchase-orders/${selectedPo}/lines`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(backofficeHeaders() as Record<string, string>),
+        },
+        body: JSON.stringify({
+          variant_id: variantId.trim(),
+          quantity_ordered: qty,
+          unit_cost: centsToFixed2(parseMoneyToCents(unitCost)),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Failed to add PO line");
+      }
+      const detailRes = await fetch(`${baseUrl}/api/purchase-orders/${selectedPo}`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (detailRes.ok) {
+        setSelectedDetail((await detailRes.json()) as PurchaseOrderDetail);
+      }
+      toast("PO line added", "success");
+      setVariantId("");
+      setSelectedVariant(null);
+      setQty(1);
+      setUnitCost("0.00");
+      setRetailPrice("0.00");
+      void refresh();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Failed to add PO line", "error");
+    } finally {
+      setLineBusy(false);
+    }
   };
 
-  const submitPo = async () => {
-    if (!selectedPo) return;
-    const res = await fetch(`${baseUrl}/api/purchase-orders/${selectedPo}/submit`, {
+  const submitPo = async (poId = selectedPo) => {
+    if (!poId) return;
+    const res = await fetch(`${baseUrl}/api/purchase-orders/${poId}/submit`, {
       method: "POST",
       headers: backofficeHeaders() as Record<string, string>,
     });
@@ -398,7 +506,6 @@ export default function PurchaseOrderPanel({
   };
 
   const selected = orders.find((o) => o.id === selectedPo);
-  const isReceiveMode = mode === "receive";
   useEffect(() => {
     if (isReceiveMode) return;
     if (selected?.status === "draft" && selected.po_kind !== "direct_invoice") {
@@ -446,11 +553,11 @@ export default function PurchaseOrderPanel({
       setSelectedNtboIds(new Set());
       await loadNtboItems();
       await refresh();
-      if (body.purchase_order_id) setSelectedPo(body.purchase_order_id);
+      if (body.purchase_order_id) openPurchaseOrderEditor(body.purchase_order_id);
     } finally {
       setNtboPoBusy(false);
     }
-  }, [backofficeHeaders, loadNtboItems, ntboVendorId, refresh, selectedDraftForNtbo, selectedNtboIds, toast]);
+  }, [backofficeHeaders, loadNtboItems, ntboVendorId, openPurchaseOrderEditor, refresh, selectedDraftForNtbo, selectedNtboIds, toast]);
 
   const canSubmitSelected =
     !!selected &&
@@ -479,6 +586,25 @@ export default function PurchaseOrderPanel({
     }
     return (await res.json()) as PurchaseOrderDetail;
   }, [backofficeHeaders, toast]);
+
+  useEffect(() => {
+    if (!selectedPo) {
+      setSelectedDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setSelectedDetailLoading(true);
+    loadPurchaseOrderDetail(selectedPo)
+      .then((detail) => {
+        if (!cancelled) setSelectedDetail(detail);
+      })
+      .finally(() => {
+        if (!cancelled) setSelectedDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadPurchaseOrderDetail, selectedPo]);
 
   const printSelectedPo = useCallback(async () => {
     if (!selectedPo) return;
@@ -538,6 +664,13 @@ export default function PurchaseOrderPanel({
     window.location.href = `mailto:${selectedVendor.email}?subject=${subject}&body=${body}`;
   }, [loadPurchaseOrderDetail, selectedPo, selectedVendor, toast]);
 
+  const useQuickCreatedVariant = useCallback((variant: VariantSearchResult) => {
+    setVariantId(variant.variant_id);
+    setSelectedVariant(variant);
+    setUnitCost(variantMoneyInput(variant.cost_price));
+    setRetailPrice(variantMoneyInput(variant.retail_price));
+  }, []);
+
   /* ── Helpers for the NTBO collapsible ── */
   const [ntboExpanded, setNtboExpanded] = useState(true);
 
@@ -547,10 +680,21 @@ export default function PurchaseOrderPanel({
         <ReceivingBay
           poId={receivingPoId}
           onClose={() => setReceivingPoId(null)}
+          onOpenAddItem={onOpenAddItem}
           onComplete={() => {
             setReceivingPoId(null);
             void refresh();
           }}
+        />
+      )}
+      {quickItemOpen && selected && (
+        <QuickProcurementItemModal
+          vendorId={selected.vendor_id}
+          vendorName={selected.vendor_name}
+          defaultCost={unitCost}
+          defaultRetail={retailPrice}
+          onCreated={useQuickCreatedVariant}
+          onClose={() => setQuickItemOpen(false)}
         />
       )}
 
@@ -797,7 +941,7 @@ export default function PurchaseOrderPanel({
                   className={`group cursor-pointer transition-colors ${
                     selectedPo === o.id ? "bg-app-accent/8" : "hover:bg-app-surface-2/40"
                   }`}
-                  onClick={() => setSelectedPo(o.id)}
+                  onClick={() => openPurchaseOrderEditor(o.id)}
                 >
                   <td className="px-5 py-3 font-mono font-bold text-app-accent">{o.po_number}</td>
                   <td className="px-5 py-3 font-bold text-app-text">{o.vendor_name}</td>
@@ -823,11 +967,21 @@ export default function PurchaseOrderPanel({
                     </span>
                   </td>
                   <td className="px-5 py-3 text-right">
-                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openPurchaseOrderEditor(o.id);
+                        }}
+                        className="h-7 rounded-lg border border-app-border bg-app-surface px-3 text-[9px] font-bold text-app-text hover:border-app-accent hover:text-app-accent transition-all"
+                      >
+                        Open
+                      </button>
                       {o.status === "draft" && o.po_kind !== "direct_invoice" && (
                         <button
                           type="button"
-                          onClick={(e) => { e.stopPropagation(); setSelectedPo(o.id); void submitPo(); }}
+                          onClick={(e) => { e.stopPropagation(); openPurchaseOrderEditor(o.id); void submitPo(o.id); }}
                           className="h-7 rounded-lg border border-app-border bg-app-surface px-3 text-[9px] font-bold text-app-text hover:border-app-accent hover:text-app-accent transition-all"
                         >
                           Mark Sent
@@ -853,14 +1007,18 @@ export default function PurchaseOrderPanel({
 
       {/* ── Add Lines to Selected PO ── */}
       {selected && (
-        <div className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
+        <div ref={editorRef} className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-bold text-app-text">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                Open paperwork
+              </p>
+              <p className="mt-1 text-lg font-black text-app-text">
                 {selected.po_number} <span className="text-app-text-muted">· {selected.vendor_name}</span>
               </p>
-              <p className="text-[10px] text-app-text-muted mt-0.5">
+              <p className="mt-1 text-[10px] font-bold text-app-text-muted">
                 {purchaseOrderTypeLabel(selected.po_kind)} · {purchaseOrderStatusLabel(selected.status)}
+                {selectedDetailLoading ? " · loading lines" : ` · ${selectedDetail?.lines.length ?? 0} line${(selectedDetail?.lines.length ?? 0) === 1 ? "" : "s"}`}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -912,17 +1070,61 @@ export default function PurchaseOrderPanel({
             </div>
           </div>
 
-          {/* Add line form */}
+          {selectedDetail?.lines.length ? (
+            <div className="overflow-hidden rounded-xl border border-app-border">
+              <table className="w-full text-left text-[11px]">
+                <thead className="bg-app-surface-2/70 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  <tr>
+                    <th className="px-3 py-2">Item</th>
+                    <th className="px-3 py-2 text-center">Ordered</th>
+                    <th className="px-3 py-2 text-center">Rcvd</th>
+                    <th className="px-3 py-2 text-right">Unit Cost</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-app-border/40">
+                  {selectedDetail.lines.map((line) => (
+                    <tr key={line.line_id} className="bg-app-surface">
+                      <td className="px-3 py-2">
+                        <p className="font-bold text-app-text">{line.product_name}</p>
+                        <p className="font-mono text-[10px] text-app-text-muted">
+                          {line.variation_label ? `${line.variation_label} · ` : ""}{line.sku}
+                        </p>
+                      </td>
+                      <td className="px-3 py-2 text-center font-mono font-bold text-app-text">{line.qty_ordered}</td>
+                      <td className="px-3 py-2 text-center font-mono font-bold text-app-text-muted">{line.qty_previously_received}</td>
+                      <td className="px-3 py-2 text-right font-mono font-bold text-app-text">${variantMoneyInput(line.unit_cost)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-app-border bg-app-surface-2/60 px-4 py-3 text-xs font-semibold text-app-text-muted">
+              No lines yet. Search or scan an item below, confirm quantity, cost, and retail, then add it to this paperwork.
+            </div>
+          )}
+
+          {selected.status === "draft" ? (
           <div className="flex flex-wrap items-end gap-3 rounded-xl border border-app-border/40 bg-app-surface-2 p-4">
             <div className="min-w-[260px] flex-1 space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Search Item</label>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Search or scan item</label>
               <VariantSearchInput
                 onSelect={(v: VariantSearchResult) => {
                   setVariantId(v.variant_id);
-                  if (v.cost_price) setUnitCost(String(typeof v.cost_price === "number" ? (v.cost_price / 100).toFixed(2) : v.cost_price));
+                  setSelectedVariant(v);
+                  setUnitCost(variantMoneyInput(v.cost_price));
+                  setRetailPrice(variantMoneyInput(v.retail_price));
                 }}
                 placeholder="SKU or product name..."
               />
+              {selectedVariant && (
+                <p className="text-[10px] font-bold text-app-text-muted">
+                  {selectedVariant.sku}
+                  {selectedVariant.variation_label ? ` · ${selectedVariant.variation_label}` : ""}
+                  {" · "}current cost ${variantMoneyInput(selectedVariant.cost_price)}
+                  {" · "}current retail ${variantMoneyInput(selectedVariant.retail_price)}
+                </p>
+              )}
             </div>
             <div className="w-[140px] space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Unit Cost</label>
@@ -934,6 +1136,20 @@ export default function PurchaseOrderPanel({
                   min="0"
                   value={unitCost}
                   onChange={(e) => setUnitCost(e.target.value)}
+                  className="w-full h-11 bg-app-surface border border-app-border rounded-xl pl-7 pr-3 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
+                />
+              </div>
+            </div>
+            <div className="w-[140px] space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Retail</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted/40">$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={retailPrice}
+                  onChange={(e) => setRetailPrice(e.target.value)}
                   className="w-full h-11 bg-app-surface border border-app-border rounded-xl pl-7 pr-3 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
                 />
               </div>
@@ -950,13 +1166,35 @@ export default function PurchaseOrderPanel({
             </div>
             <button
               type="button"
-              disabled={!selectedPo || !variantId}
+              disabled={!selectedPo || !variantId || lineBusy}
               onClick={addLine}
               className="h-11 rounded-xl bg-app-accent px-6 text-xs font-bold text-white shadow-md shadow-app-accent/20 hover:brightness-110 disabled:opacity-20 active:scale-95 transition-all"
             >
-              Add Line
+              {lineBusy ? "Adding..." : "Add Line"}
             </button>
+            <button
+              type="button"
+              onClick={() => setQuickItemOpen(true)}
+              className="h-11 rounded-xl border border-app-border bg-app-surface px-4 text-xs font-bold text-app-text-muted transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
+            >
+              <Plus size={13} className="inline mr-1" /> Quick Add Item
+            </button>
+            {onOpenAddItem && (
+              <button
+                type="button"
+                onClick={onOpenAddItem}
+                className="h-11 rounded-xl border border-app-border/70 bg-app-surface/70 px-4 text-xs font-bold text-app-text-muted transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
+              >
+                Full Catalog
+              </button>
+            )}
           </div>
+          ) : (
+            <div className="flex items-start gap-2 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-xs font-semibold text-app-text-muted">
+              <ArrowRight size={14} className="mt-0.5 shrink-0 text-app-accent" />
+              Sent purchase orders are locked for line entry. Continue from Receive Stock to stage invoice quantities and freight before posting inventory.
+            </div>
+          )}
         </div>
       )}
 

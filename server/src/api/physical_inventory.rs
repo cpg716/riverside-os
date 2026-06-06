@@ -74,6 +74,7 @@ impl IntoResponse for PhysicalInventoryError {
             || msg.contains("resolved_variant_id required")
             || msg.contains("Resolve or ignore")
             || msg.contains("Set unit cost")
+            || msg.contains("Resolve non-sale inventory movement")
             || msg.contains("baseline_type must")
             || msg.contains("Manager Access")
             || msg.contains("scope must")
@@ -393,6 +394,8 @@ async fn get_review(
     let accounting_impact = rows.iter().fold(rust_decimal::Decimal::ZERO, |acc, r| {
         acc + r.accounting_impact
     });
+    let non_sale_movement_count =
+        physical_inventory::count_non_sale_movements(&state.db, id).await?;
     let q = query.q.unwrap_or_default().trim().to_ascii_lowercase();
     let offset = query.offset.unwrap_or(0);
     let limit = bounded_review_limit(query.limit);
@@ -431,6 +434,7 @@ async fn get_review(
             "total_shrinkage": total_shrinkage,
             "total_surplus": total_surplus,
             "zero_cost_movement_count": zero_cost_movement_count,
+            "non_sale_movement_count": non_sale_movement_count,
             "accounting_impact": accounting_impact,
             "rows_matching_filter": matching_rows,
             "rows_returned": rows_returned,

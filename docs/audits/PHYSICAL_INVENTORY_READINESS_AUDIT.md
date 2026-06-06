@@ -28,8 +28,10 @@ This pass fixed several concrete blockers:
 - Publish blocks non-zero movement rows with zero unit cost before accounting impact can be posted.
 - Physical Inventory reports now live in the Physical Inventory workspace, with session-scoped variance, scan stream, discovered scan, accounting, and approval rows available for Metabase consumption.
 - 200k-SKU sessions are protected by bounded count/review/report UI reads, set-based review sales math, indexes for recent scan feeds and transaction-line joins, and publish logic that skips no-op ledger writes while still evaluating the full session.
+- Offline scanner submissions are saved on the scanner device and replayed with client scan idempotency so dropped responses do not double-count known items.
+- Publish blocks if non-sale inventory movements touch in-scope variants during the count, preventing Physical Inventory from overwriting adjustments, returns, damage/loss, RTV, or receipt movements.
 
-Current status: GO for controlled manager-run category or full-store Physical Inventory sessions after targeted validation. CAUTION remains for the first full production live-inventory cutover until store procedure covers non-sale movement timing, offline scanner fallback, and area/location assignment.
+Current status: GO for controlled manager-run category or full-store Physical Inventory sessions after targeted validation. CAUTION remains for the first full production live-inventory cutover until store procedure covers area/location assignment and a real 200k-SKU hardware drill is completed.
 
 ## 2. Current Physical Inventory Architecture
 
@@ -121,12 +123,13 @@ Frontend:
 5. Server resolves barcode/vendor UPC/SKU through `/api/inventory/scan-resolve`.
 6. Known items increment `physical_inventory_counts`, record `physical_inventory_audit`, and write `inventory_count_scan_stream`.
 7. Unknown items are captured in `physical_inventory_discovered_items` and stay pending until resolved or ignored.
-8. Staff can save for the day; the session remains `open`.
-9. Manager moves session to `reviewing`; server materializes uncounted in-scope variants as count rows with zero quantity.
-10. Review shows expected start quantity, counted quantity, sales during the count, final stock, live-stock adjustment variance, unit cost, and accounting impact.
-11. Manager can edit a count row in review; server records an audit adjustment.
-12. Manager publishes from `reviewing` only after Manager Access signoff; server locks session and variant rows, computes final stock, writes absolute `stock_on_hand`, writes `inventory_transactions`, materializes accounting impact rows, writes audit/approval rows, and marks session `published`.
-13. Session reports remain available inside the Physical Inventory workspace.
+8. Offline scanner submissions replay from the scanner device before Review; queued scans use `client_scan_id` to avoid double-counting known items on retry.
+9. Staff can save for the day; the session remains `open`.
+10. Manager moves session to `reviewing`; server materializes uncounted in-scope variants as count rows with zero quantity.
+11. Review shows expected start quantity, counted quantity, sales during the count, final stock, live-stock adjustment variance, unit cost, non-sale movement blockers, and accounting impact.
+12. Manager can edit a count row in review; server records an audit adjustment.
+13. Manager publishes from `reviewing` only after Manager Access signoff; server locks session and variant rows, blocks non-sale movement conflicts, computes final stock, writes absolute `stock_on_hand`, writes `inventory_transactions`, materializes accounting impact rows, writes audit/approval rows, and marks session `published`.
+14. Session reports remain available inside the Physical Inventory workspace.
 
 ## 5. Gaps and Blockers Found
 
@@ -142,11 +145,9 @@ Critical blockers fixed in this pass:
 
 Residual limitations:
 
-- No offline queue for scanner submissions; scanner stations are connection-required.
 - No scanner-only Access PIN shell separate from the Back Office guard; the direct route still uses the existing authenticated shell.
 - No photo capture on discovered items.
 - No un-scan/reversal action in the scanner UI; count corrections are still performed in Review.
-- No full movement reconciliation for returns, exchanges, damaged/lost, RTV, or manual stock adjustments during an active count. Receiving is blocked, and POS sales are modeled, but other movement classes require store procedure control.
 - No location/area assignment workflow, despite inventory location tables existing.
 - No draft/planned/paused state split. `save` updates `last_saved_at`; operational pause is procedural.
 
@@ -159,6 +160,7 @@ Residual limitations:
   - Fixes unresolved review count logic to consider only pending variance/uncounted rows.
   - Adds the scanner URL card, baseline reason selector, discovered-scan queue, Manager Access publish flow, publish blockers, and in-workspace reports panel.
   - Caps recent count feed and review worklists so large sessions do not force the browser to render all rows.
+  - Adds local offline scan queue replay and blocks Review while queued scans remain on the device.
 
 - `server/src/api/physical_inventory.rs`
   - Overrides count payload `staff_id` with authenticated staff.
@@ -167,6 +169,7 @@ Residual limitations:
   - Uses schema-valid `ok` status for accepted variances.
   - Adds discovered-scan, session report, and Manager Access publish endpoints.
   - Bounds count/review responses and returns full-session summary counts separately from displayed rows.
+  - Surfaces non-sale movement conflicts in the review summary.
 
 - `server/src/logic/physical_inventory.rs`
   - Records raw scan increments in `inventory_count_scan_stream`.
@@ -178,10 +181,14 @@ Residual limitations:
   - Blocks publish for unresolved discovered scans and zero-cost movement rows.
   - Materializes accounting impact rows and Manager Access approval rows.
   - Uses set-based sales aggregation for review and skips no-op stock/ledger writes during publish.
+  - Adds idempotent scan replay handling and blocks publish when non-sale inventory movements occurred in scope.
 
 - `migrations/071_physical_inventory_readiness_controls.sql`
   - Adds `baseline_type`, discovered-scan capture, approval, and accounting-impact persistence.
   - Adds large-session indexes for recent count feeds and transaction-line joins.
+
+- `migrations/072_physical_inventory_scan_idempotency.sql`
+  - Adds `client_scan_id` to the raw scan stream and a per-session unique replay index.
 
 - `client/src/App.tsx`, `client/public/manifest.json`, `client/src/components/settings/StationNetworkPanel.tsx`
   - Adds the `/physical-inventory/scanner` route, PWA shortcut, and setup URLs for PC USB, iPad Bluetooth, and iPad camera scanner stations.
@@ -189,16 +196,15 @@ Residual limitations:
 - `client/src/assets/docs/inventory-physical-inventory-workspace-manual.md`
   - Documents corrected sales handling, scanner URLs, discovered scans, Manager Access publish, QBO/accounting cost capture, and workspace reports.
 
-Migrations added: `071_physical_inventory_readiness_controls.sql`.
+Migrations added: `071_physical_inventory_readiness_controls.sql`, `072_physical_inventory_scan_idempotency.sql`.
 
 ## 7. Remaining Risks
 
-- Business-open count logic is improved for POS sales, but not complete for every movement type. A robust model needs session movement reconciliation rows or a queryable inventory movement ledger by variant/time/type.
-- Scanner submissions are connection-required; no offline queue exists for physical count scans.
 - Count corrections still happen in Review; there is no quick un-scan/reversal control in the scanner panel.
 - Discovered items have resolution status, but no photo capture.
 - Location/area assignment is not part of the active workflow.
 - Historical session reporting is now in the Physical Inventory workspace, but print/export controls are not yet specialized for each report table.
+- Unknown-scan offline replay can increment the discovered scan count if the response drops after the server saved it; this does not affect stock but can inflate the review note for that unknown code.
 
 ## 8. Physical Inventory Reporting Requirements
 
@@ -233,10 +239,10 @@ Current readiness:
 - The PWA manifest includes a Physical Inventory Scanner shortcut.
 - Settings -> Station & Network shows Physical Inventory Scanner URLs for each detected network address.
 - Unknown scans are captured in the workspace instead of being a dead end.
+- Network-loss scans are saved locally on the scanner device and replayed with duplicate protection for known items.
 
 Still limited:
 
-- No offline queue for scanner submissions; current behavior should be treated as connection-required.
 - No un-scan/reversal action in the scanner UI.
 - No scanner-only Access PIN shell separate from the existing Back Office sign-in guard.
 
@@ -335,6 +341,7 @@ Phone scanner:
 - [ ] Manually search/select a SKU.
 - [ ] Scan multiple quantities.
 - [ ] Confirm recent counts show correctly.
+- [ ] Simulate a scanner connection loss and confirm queued scans replay before Review.
 - [ ] Deny camera permission and confirm scanner shows a clear error and manual lookup remains available.
 - [ ] Scan from a PC with a USB scanner and confirm ROS treats the HID input as a scan.
 - [ ] Scan from an iPad with a Bluetooth scanner and confirm ROS treats the HID input as a scan.
@@ -354,7 +361,7 @@ Business-open counting:
 - [ ] Count an item before it is sold.
 - [ ] Sell it before publish and confirm publish preserves the POS sale.
 - [ ] Attempt PO receiving while count is open/reviewing and confirm it is blocked.
-- [ ] Process a return/adjustment during count and confirm this remains a documented gap.
+- [ ] Process a return/adjustment during count and confirm publish is blocked for non-sale movement review.
 
 Review/approval:
 
@@ -398,6 +405,7 @@ Conditions:
 - Use only Manager/Admin staff with `physical_inventory.mutate`.
 - Keep receiving paused until publish/cancel.
 - Resolve or ignore every discovered scan before publish.
+- Replay every queued scanner-device scan before review/publish.
 - Correct zero-cost variants before publish when the row has a quantity movement.
 - Reconcile QBO through daily staging and the Physical Inventory workspace accounting report.
-- Control non-sale movements during active counts because returns, RTV, damage/loss, and manual adjustments are not fully reconciled by the count review.
+- Restart or reconcile the count if non-sale movement blockers appear during review.

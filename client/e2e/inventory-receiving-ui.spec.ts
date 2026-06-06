@@ -89,6 +89,88 @@ test.describe("Inventory receiving operator verification", () => {
     ).toBeVisible({ timeout: 20_000 });
   });
 
+  test("Batch Scan sidebar entry opens the batch resolution tool", async ({ page }) => {
+    await signInToBackOffice(page, { persistSession: true });
+    await openBackofficeSidebarTab(page, "inventory");
+
+    const batchScanButton = page.getByRole("navigation", { name: "Main Navigation" }).getByRole("button", {
+      name: /^batch scan$/i,
+    });
+    await expect(batchScanButton).toBeVisible({ timeout: 15_000 });
+    await batchScanButton.click({ force: true });
+
+    await expect(page.getByRole("heading", { name: /^batch scan$/i }).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole("button", { name: /^resolve batch$/i })).toBeVisible();
+    await expect(page.getByText(/no stock mutation/i)).toBeVisible();
+  });
+
+  test("New PO opens editable paperwork immediately", async ({ page, request }) => {
+    const suffix = uniqueSuffix("ui-new-po");
+    const vendor = await createVendor(request, suffix);
+    const quickSku = `QPO-${suffix}`.toUpperCase();
+
+    await signInToBackOffice(page, { persistSession: true });
+    await openInventoryPurchaseOrders(page);
+
+    await page.locator("select").first().selectOption({ label: vendor.name });
+    await page.getByRole("button", { name: /^new po$/i }).click();
+
+    await expect(page.getByText(/^open paperwork$/i)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(vendor.name).last()).toBeVisible();
+    await expect(page.getByText(/no lines yet/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /^add line$/i })).toBeVisible();
+
+    await page.getByRole("button", { name: /quick add item/i }).click();
+    const dialog = page.getByRole("dialog", { name: /quick add item/i });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel(/item name/i).fill(`Quick PO Item ${suffix}`);
+    await dialog.getByLabel(/^sku$/i).fill(quickSku);
+    await dialog.getByLabel(/unit cost/i).fill("12.34");
+    await dialog.getByLabel(/^retail$/i).fill("45.67");
+    await dialog.getByRole("button", { name: /create & use item/i }).click();
+    await expect(dialog).toBeHidden({ timeout: 20_000 });
+
+    await expect(page.getByText(quickSku)).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: /^add line$/i }).click();
+    await expect(page.locator("table").filter({ hasText: quickSku }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+
+  test("Direct Invoice opens receiving item entry immediately", async ({ page, request }) => {
+    const suffix = uniqueSuffix("ui-direct-open");
+    const vendor = await createVendor(request, suffix);
+    const quickSku = `QDI-${suffix}`.toUpperCase();
+
+    await signInToBackOffice(page, { persistSession: true });
+    await openInventoryReceiveStock(page);
+
+    await page.locator("select").first().selectOption({ label: vendor.name });
+    await page.getByRole("button", { name: /^direct invoice$/i }).click();
+
+    await expect(page.getByRole("heading", { name: /^receive stock$/i }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByText(/add invoice lines above/i)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/search or scan item/i).first()).toBeVisible();
+
+    await page.locator("#drawer-root").getByRole("button", { name: /quick add item/i }).click();
+    const dialog = page.getByRole("dialog", { name: /quick add item/i });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel(/item name/i).fill(`Quick Invoice Item ${suffix}`);
+    await dialog.getByLabel(/^sku$/i).fill(quickSku);
+    await dialog.getByLabel(/unit cost/i).fill("22.22");
+    await dialog.getByLabel(/^retail$/i).fill("66.66");
+    await dialog.getByRole("button", { name: /create & use item/i }).click();
+    await expect(dialog).toBeHidden({ timeout: 20_000 });
+
+    await expect(page.getByText(quickSku)).toBeVisible({ timeout: 20_000 });
+    await page.locator("#drawer-root").getByRole("button", { name: /^add line$/i }).click();
+    await expect(page.locator("#drawer-root").getByText(quickSku)).toBeVisible({ timeout: 20_000 });
+  });
+
   test("standard PO can be submitted, staged without stock mutation, and then received", async ({
     page,
     request,
@@ -158,13 +240,15 @@ test.describe("Inventory receiving operator verification", () => {
     });
     expect(JSON.stringify(insightRequests[0])).not.toContain(product.sku);
 
-    const receivingRow = page.locator("tr").filter({ hasText: product.sku }).first();
-    const receivingNowInput = receivingRow.getByRole("spinbutton");
+    const drawerRoot = page.locator("#drawer-root");
+    const receivingRow = drawerRoot.locator("tr").filter({ hasText: product.sku }).first();
+    const receivingNowInput = receivingRow.getByRole("spinbutton", {
+      name: new RegExp(`receiving quantity for ${product.sku}`, "i"),
+    });
     await expect(receivingNowInput).toBeVisible({ timeout: 10_000 });
     await receivingNowInput.fill("1");
     await expect(page.getByText(/next: post inventory/i)).toBeVisible({ timeout: 10_000 });
 
-    const drawerRoot = page.locator("#drawer-root");
     const postInventoryButton = drawerRoot
       .getByRole("button", { name: /post receipt/i })
       .last();
@@ -238,13 +322,15 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(page.getByText(/^check paperwork$/i).first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/next: count & invoice/i)).toBeVisible({ timeout: 10_000 });
 
-    const receivingRow = page.locator("tr").filter({ hasText: product.sku }).first();
-    const receivingNowInput = receivingRow.getByRole("spinbutton");
+    const drawerRoot = page.locator("#drawer-root");
+    const receivingRow = drawerRoot.locator("tr").filter({ hasText: product.sku }).first();
+    const receivingNowInput = receivingRow.getByRole("spinbutton", {
+      name: new RegExp(`receiving quantity for ${product.sku}`, "i"),
+    });
     await expect(receivingNowInput).toBeVisible({ timeout: 10_000 });
     await receivingNowInput.fill("1");
     await expect(page.getByText(/next: post inventory/i)).toBeVisible({ timeout: 10_000 });
 
-    const drawerRoot = page.locator("#drawer-root");
     const postInventoryButton = drawerRoot
       .getByRole("button", { name: /post receipt/i })
       .last();

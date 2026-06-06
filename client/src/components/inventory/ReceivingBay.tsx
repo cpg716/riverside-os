@@ -13,11 +13,14 @@ import {
   Camera,
   CheckCircle,
   CheckSquare,
+  Plus,
   ShieldCheck,
   Truck,
   X,
 } from "lucide-react";
 import CameraScanner from "./CameraScanner";
+import QuickProcurementItemModal from "./QuickProcurementItemModal";
+import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
 import { playScanSuccess, playScanError, playScanWarning, warmUpAudio } from "../../lib/scanSounds";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
@@ -83,6 +86,13 @@ interface ScanFeedback {
 
 function toNumberCost(v: string | number | undefined): number {
   return parseMoneyToCents(v) / 100;
+}
+
+function variantMoneyInput(value: string | number | null | undefined): string {
+  if (typeof value === "number") {
+    return value > 1000 ? (value / 100).toFixed(2) : value.toFixed(2);
+  }
+  return centsToFixed2(parseMoneyToCents(value ?? "0"));
 }
 
 const COST_ALERT_THRESHOLD = 0.05;
@@ -187,11 +197,12 @@ interface Props {
   poId: string;
   onComplete: () => void;
   onClose: () => void;
+  onOpenAddItem?: () => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
+export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem }: Props) {
   const { backofficeHeaders } = useBackofficeAuth();
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
@@ -200,6 +211,14 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   const [detail, setDetail] = useState<PurchaseOrderDetail | null>(null);
   const [lines, setLines] = useState<WorksheetLine[]>([]);
   const [scanInput, setScanInput] = useState("");
+  const [selectedVariant, setSelectedVariant] = useState<VariantSearchResult | null>(null);
+  const [entryQty, setEntryQty] = useState(1);
+  const [entryCost, setEntryCost] = useState("0.00");
+  const [entryRetail, setEntryRetail] = useState("0.00");
+  const [lineBusy, setLineBusy] = useState(false);
+  const [quickItemOpen, setQuickItemOpen] = useState(false);
+  const [quickItemSeedSku, setQuickItemSeedSku] = useState("");
+  const [lineSaveBusy, setLineSaveBusy] = useState<string | null>(null);
   const [freight, setFreight] = useState("0.00");
   const [invoiceNum, setInvoiceNum] = useState("");
   const [loading, setLoading] = useState(false);
@@ -216,6 +235,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   const { toast } = useToast();
   const scannerRef = useRef<HTMLInputElement>(null);
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoReceiveAfterLoadRef = useRef<{ variantId: string; qty: number } | null>(null);
   // Track timing of chars in the scan input for HID detection
   const lastCharTimeRef = useRef<number>(Date.now());
   const charIntervalsRef = useRef<number[]>([]);
@@ -269,7 +289,23 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       }
       const data = (await res.json()) as PurchaseOrderDetail;
       setDetail(data);
-      setLines((prev) => mergeWorksheetLines(data.lines, prev));
+      setLines((prev) => {
+        const merged = mergeWorksheetLines(data.lines, prev);
+        const autoReceive = autoReceiveAfterLoadRef.current;
+        if (!autoReceive) return merged;
+        autoReceiveAfterLoadRef.current = null;
+        let applied = false;
+        return merged.map((line) => {
+          if (applied || line.variant_id !== autoReceive.variantId) return line;
+          const remaining = Math.max(0, line.qty_ordered - line.qty_previously_received);
+          applied = true;
+          return {
+            ...line,
+            qty_receiving: Math.min(Math.max(autoReceive.qty, 0), remaining),
+            line_status: "received",
+          };
+        });
+      });
 
       // Load vendor's use_vendor_upc setting
       if (data.vendor_id) {
@@ -316,15 +352,111 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
     [lines, useVendorUpc],
   );
 
+  const canEditDirectInvoiceLines =
+    detail?.po_kind === "direct_invoice" && detail.status === "draft";
+
+  const selectEntryVariant = useCallback((variant: VariantSearchResult) => {
+    setSelectedVariant(variant);
+    setEntryCost(variantMoneyInput(variant.cost_price));
+    setEntryRetail(variantMoneyInput(variant.retail_price));
+  }, []);
+
+  const updateUnpostedLine = useCallback(
+    async (line: WorksheetLine, updates: { quantityOrdered?: number; unitCost?: number }) => {
+      const quantityOrdered = updates.quantityOrdered ?? line.qty_ordered;
+      const unitCost = updates.unitCost ?? line.unit_cost;
+      if (quantityOrdered < line.qty_previously_received || quantityOrdered <= 0) {
+        toast("Ordered quantity must stay above received quantity.", "error");
+        return;
+      }
+      if (unitCost < 0) {
+        toast("Unit cost must be zero or higher.", "error");
+        return;
+      }
+      setLineSaveBusy(line.line_id);
+      try {
+        const body: { quantity_ordered?: number; unit_cost?: string } = {};
+        if (updates.quantityOrdered !== undefined) body.quantity_ordered = quantityOrdered;
+        if (updates.unitCost !== undefined) body.unit_cost = centsToFixed2(Math.round(unitCost * 100));
+        const res = await fetch(`${BASE_URL}/api/purchase-orders/${poId}/lines/${line.line_id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...apiAuth(),
+          },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? "Line could not be updated.");
+        }
+        setLines((prev) =>
+          prev.map((row) =>
+            row.line_id === line.line_id
+              ? {
+                  ...row,
+                  qty_ordered: updates.quantityOrdered ?? row.qty_ordered,
+                  qty_receiving: Math.min(
+                    row.qty_receiving,
+                    Math.max(0, (updates.quantityOrdered ?? row.qty_ordered) - row.qty_previously_received),
+                  ),
+                  unit_cost: updates.unitCost ?? row.unit_cost,
+                }
+              : row,
+          ),
+        );
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Line could not be updated.", "error");
+      } finally {
+        setLineSaveBusy(null);
+      }
+    },
+    [apiAuth, poId, toast],
+  );
+
+  const lookupVariantByCode = useCallback(
+    async (code: string): Promise<VariantSearchResult | null> => {
+      const trimmed = code.trim();
+      if (trimmed.length < 2) return null;
+      try {
+        const res = await fetch(
+          `${BASE_URL}/api/products/control-board?search=${encodeURIComponent(trimmed)}&limit=8`,
+          { headers: apiAuth() },
+        );
+        if (!res.ok) return null;
+        const data = (await res.json()) as { rows?: VariantSearchResult[] };
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        return (
+          rows.find((row) => row.sku.toLowerCase() === trimmed.toLowerCase()) ??
+          rows[0] ??
+          null
+        );
+      } catch {
+        return null;
+      }
+    },
+    [apiAuth],
+  );
+
   const processScan = useCallback(
-    (code: string) => {
+    async (code: string) => {
       const sku = code.trim();
       if (!sku) return;
 
       const idx = matchLine(sku);
       if (idx === -1) {
+        if (canEditDirectInvoiceLines) {
+          const variant = await lookupVariantByCode(sku);
+          if (variant) {
+            selectEntryVariant(variant);
+            playScanWarning();
+            showFeedback({ type: "warning", message: `${variant.product_name} found. Confirm qty, cost, and retail, then Add Line.` });
+            return;
+          }
+          setQuickItemSeedSku(sku);
+        }
         playScanError();
-        showFeedback({ type: "error", message: `Not on this purchase order: ${sku}` });
+        showFeedback({ type: "error", message: canEditDirectInvoiceLines ? `SKU not found. Use Quick Add Item to create ${sku}.` : `Not on this purchase order: ${sku}` });
         return;
       }
 
@@ -346,7 +478,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       playScanSuccess();
       showFeedback({ type: "success", message: `${line.product_name} · ${line.qty_receiving + 1} received` });
     },
-    [lines, matchLine, showFeedback],
+    [canEditDirectInvoiceLines, lines, lookupVariantByCode, matchLine, selectEntryVariant, showFeedback],
   );
 
   // ── HID scanner detection in the dedicated scan input ─────────────────────
@@ -357,7 +489,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       const code = scanInput.trim();
       if (!code) return;
 
-      processScan(code);
+      void processScan(code);
       setScanInput("");
       charIntervalsRef.current = [];
       scannerRef.current?.focus();
@@ -376,9 +508,85 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   // ── Camera scan handler ────────────────────────────────────────────────────
 
   const handleCameraScan = useCallback(
-    (code: string) => processScan(code),
+    (code: string) => void processScan(code),
     [processScan],
   );
+
+  const addInvoiceLine = useCallback(async () => {
+    if (!selectedVariant || !canEditDirectInvoiceLines) return;
+    if (entryQty <= 0) {
+      toast("Quantity must be greater than zero.", "error");
+      return;
+    }
+    const costCents = parseMoneyToCents(entryCost);
+    const retailCents = parseMoneyToCents(entryRetail);
+    if (costCents < 0 || retailCents < 0) {
+      toast("Cost and retail must be non-negative.", "error");
+      return;
+    }
+    setLineBusy(true);
+    try {
+      const currentRetailCents = parseMoneyToCents(variantMoneyInput(selectedVariant.retail_price));
+      if (currentRetailCents !== retailCents) {
+        const priceRes = await fetch(`${BASE_URL}/api/products/variants/${selectedVariant.variant_id}/pricing`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...apiAuth(),
+          },
+          body: JSON.stringify({
+            retail_price_override: centsToFixed2(retailCents),
+          }),
+        });
+        if (!priceRes.ok) {
+          const body = (await priceRes.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? "Retail price could not be updated.");
+        }
+      }
+
+      const res = await fetch(`${BASE_URL}/api/purchase-orders/${poId}/lines`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...apiAuth(),
+        },
+        body: JSON.stringify({
+          variant_id: selectedVariant.variant_id,
+          quantity_ordered: entryQty,
+          unit_cost: centsToFixed2(costCents),
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not add invoice line.");
+      }
+      autoReceiveAfterLoadRef.current = {
+        variantId: selectedVariant.variant_id,
+        qty: entryQty,
+      };
+      await loadPo();
+      setSelectedVariant(null);
+      setEntryQty(1);
+      setEntryCost("0.00");
+      setEntryRetail("0.00");
+      toast("Invoice line added and staged for receiving.", "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not add invoice line.", "error");
+    } finally {
+      setLineBusy(false);
+      scannerRef.current?.focus();
+    }
+  }, [
+    apiAuth,
+    canEditDirectInvoiceLines,
+    entryCost,
+    entryQty,
+    entryRetail,
+    loadPo,
+    poId,
+    selectedVariant,
+    toast,
+  ]);
 
   // ── Submit all received ────────────────────────────────────────────────────
 
@@ -574,11 +782,11 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   if (loadError) {
     return createPortal(
       <div className="fixed inset-0 z-[100] flex flex-col bg-app-bg font-sans">
-        <div className="flex items-center justify-between bg-app-text px-6 py-4 text-white">
+        <div className="flex items-center justify-between border-b border-app-border bg-app-surface px-6 py-4 text-app-text">
           <button
             type="button"
             onClick={onClose}
-            className="ml-auto rounded-lg p-2 hover:bg-app-surface/15"
+            className="ml-auto rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
             aria-label="Close"
           >
             <X size={22} />
@@ -638,6 +846,20 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-app-bg font-sans">
+      {quickItemOpen && detail && (
+        <QuickProcurementItemModal
+          vendorId={detail.vendor_id}
+          vendorName={detail.vendor_name}
+          initialSku={quickItemSeedSku}
+          defaultCost={entryCost}
+          defaultRetail={entryRetail}
+          onCreated={selectEntryVariant}
+          onClose={() => {
+            setQuickItemOpen(false);
+            setQuickItemSeedSku("");
+          }}
+        />
+      )}
       {/* Scan feedback color bar */}
       {feedback && (
         <div
@@ -648,33 +870,33 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       )}
 
       {/* ── Header ── */}
-      <header className="z-10 shrink-0 bg-app-text text-white shadow-xl">
+      <header className="z-10 shrink-0 border-b border-app-border bg-app-surface text-app-text shadow-xl">
         <div className="flex items-center gap-4 px-5 py-3">
           {/* Left: Identity */}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <Truck size={18} className="text-emerald-400 shrink-0" />
+              <Truck size={18} className="text-emerald-500 shrink-0" />
               <h2 className="text-base font-bold truncate">Receive Stock</h2>
-              <span className="text-xs font-mono text-white/60">{detail.po_number}</span>
+              <span className="text-xs font-mono text-app-text-muted">{detail.po_number}</span>
               {useVendorUpc && (
                 <span className="rounded-full bg-violet-600/30 px-2 py-0.5 text-[9px] font-bold text-violet-300">UPC Mode</span>
               )}
             </div>
-            <p className="text-[10px] text-white/50 mt-0.5">
+            <p className="text-[10px] text-app-text-muted mt-0.5">
               {detail.vendor_name} · {detail.status}{detail.po_kind ? ` · ${detail.po_kind}` : ""}
             </p>
           </div>
 
           {/* Center: Scanner */}
           <div className="flex items-center gap-2 max-w-md flex-1">
-            <div className="flex shrink-0 overflow-hidden rounded-lg border border-white/20">
+            <div className="flex shrink-0 overflow-hidden rounded-lg border border-app-border">
               {(["laser", "camera"] as const).map((m) => (
                 <button
                   key={m}
                   type="button"
                   onClick={() => { setScanMode(m); warmUpAudio(); }}
                   className={`flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-bold uppercase transition ${
-                    scanMode === m ? "bg-app-surface/15 text-white" : "text-white/40 hover:text-white/70"
+                    scanMode === m ? "bg-app-accent/10 text-app-accent" : "text-app-text-muted hover:text-app-text"
                   }`}
                 >
                   {m === "laser" ? <Barcode size={12} /> : <Camera size={12} />}
@@ -684,42 +906,42 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
             </div>
             {scanMode === "laser" && (
               <form onSubmit={(e) => e.preventDefault()} className="group relative flex-1">
-                <Barcode className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-white/40 group-focus-within:text-emerald-400" size={16} />
+                <Barcode className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-app-text-muted group-focus-within:text-emerald-500" size={16} />
                 <input
                   ref={scannerRef}
                   value={scanInput}
                   onChange={handleScanInputChange}
                   onKeyDown={handleScanInputKeyDown}
                   disabled={receivingClosed}
-                  className="w-full rounded-lg border border-white/20 bg-black/30 py-2 pl-9 pr-3 font-mono text-sm text-white placeholder:text-white/35 outline-none focus:ring-2 focus:ring-emerald-400/50 disabled:opacity-40"
+                  className="w-full rounded-lg border border-app-border bg-app-bg py-2 pl-9 pr-3 font-mono text-sm text-app-text placeholder:text-app-text-muted/70 outline-none focus:ring-2 focus:ring-emerald-400/50 disabled:opacity-40"
                   placeholder="Scan UPC or SKU..."
                   autoComplete="off"
                 />
               </form>
             )}
             {scanCount > 0 && (
-              <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400">{scanCount}</span>
+              <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-600">{scanCount}</span>
             )}
           </div>
 
           {/* Right: Total + actions */}
           <div className="flex items-center gap-4 shrink-0">
             <div className="text-right">
-              <p className="text-[9px] font-bold uppercase text-white/40">Total</p>
+              <p className="text-[9px] font-bold uppercase text-app-text-muted">Total</p>
               <p className="font-mono text-2xl font-bold text-emerald-400">${centsToFixed2(grandTotalCents)}</p>
             </div>
             <button
               type="button"
               disabled={receivingClosed}
               onClick={markAllRemaining}
-              className="flex items-center gap-1.5 rounded-lg border border-white/20 bg-black/30 px-3 py-2 text-[9px] font-bold uppercase text-white/70 hover:bg-app-surface/10 disabled:opacity-30 transition-all"
+              className="flex items-center gap-1.5 rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-bold uppercase text-app-text-muted hover:text-app-text disabled:opacity-30 transition-all"
             >
               <CheckSquare size={13} /> Fill All
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg p-1.5 text-white/40 hover:bg-app-surface/10 hover:text-white transition-colors"
+              className="rounded-lg p-1.5 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text transition-colors"
               aria-label="Close"
             >
               <X size={18} />
@@ -810,6 +1032,95 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
         </div>
       )}
 
+      {canEditDirectInvoiceLines && (
+        <div className="shrink-0 border-b border-app-border bg-app-surface px-5 py-3">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-end gap-3 rounded-2xl border border-app-border bg-app-surface-2 p-3">
+            <div className="min-w-[280px] flex-1 space-y-1">
+              <label className="ml-1 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
+                Search or scan item
+              </label>
+              <VariantSearchInput
+                onSelect={selectEntryVariant}
+                placeholder="Search SKU, UPC, or product name..."
+              />
+              {selectedVariant && (
+                <p className="text-[10px] font-bold text-app-text-muted">
+                  {selectedVariant.sku}
+                  {selectedVariant.variation_label ? ` · ${selectedVariant.variation_label}` : ""}
+                  {" · "}current cost ${variantMoneyInput(selectedVariant.cost_price)}
+                  {" · "}current retail ${variantMoneyInput(selectedVariant.retail_price)}
+                </p>
+              )}
+            </div>
+            <div className="w-[92px] space-y-1">
+              <label className="ml-1 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Qty</label>
+              <input
+                type="number"
+                min={1}
+                value={entryQty}
+                onChange={(e) => setEntryQty(Number.parseInt(e.target.value || "1", 10))}
+                className="ui-input h-10 w-full text-center text-sm font-bold"
+              />
+            </div>
+            <div className="w-[132px] space-y-1">
+              <label className="ml-1 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Unit Cost</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted/50">$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={entryCost}
+                  onChange={(e) => setEntryCost(e.target.value)}
+                  className="ui-input h-10 w-full pl-7 text-sm font-bold"
+                />
+              </div>
+            </div>
+            <div className="w-[132px] space-y-1">
+              <label className="ml-1 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Retail</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted/50">$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={entryRetail}
+                  onChange={(e) => setEntryRetail(e.target.value)}
+                  className="ui-input h-10 w-full pl-7 text-sm font-bold"
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={!selectedVariant || lineBusy}
+              onClick={() => void addInvoiceLine()}
+              className="h-10 rounded-xl bg-app-accent px-4 text-xs font-bold text-white shadow-md shadow-app-accent/20 transition-all hover:brightness-110 active:scale-95 disabled:opacity-30"
+            >
+              {lineBusy ? "Adding..." : "Add Line"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setQuickItemOpen(true)}
+              className="h-10 rounded-xl border border-app-border bg-app-surface px-4 text-xs font-bold text-app-text-muted transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
+            >
+              <Plus size={13} className="inline mr-1" /> Quick Add Item
+            </button>
+            {onOpenAddItem && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenAddItem();
+                }}
+                className="h-10 rounded-xl border border-app-border/70 bg-app-surface/70 px-4 text-xs font-bold text-app-text-muted transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
+              >
+                Full Catalog
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Line Table ── */}
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:px-6">
         <div className="mx-auto max-w-6xl overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
@@ -825,9 +1136,24 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border/40">
-              {lines.map((line) => {
+              {lines.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-5 py-12 text-center">
+                    <p className="text-sm font-black text-app-text">
+                      {canEditDirectInvoiceLines ? "Add invoice lines above." : "No receivable lines on this paperwork."}
+                    </p>
+                    <p className="mx-auto mt-2 max-w-xl text-xs font-semibold leading-relaxed text-app-text-muted">
+                      {canEditDirectInvoiceLines
+                        ? "Search or scan products, confirm quantity, cost, and retail, then add the line before posting inventory."
+                        : "Close this screen and open the correct PO or direct invoice from Receive Stock."}
+                    </p>
+                  </td>
+                </tr>
+              ) : lines.map((line) => {
                 const remaining = Math.max(0, line.qty_ordered - line.qty_previously_received);
                 const hasCostAlert = unitCostAlerts(line.prior_effective_cost, line.unit_cost);
+                const canEditUnpostedLine = !receivingClosed && line.qty_previously_received === 0;
+                const rowSaving = lineSaveBusy === line.line_id;
                 return (
                   <tr key={line.line_id} className="transition-colors hover:bg-app-surface-2/30">
                     <td className="px-5 py-3">
@@ -837,10 +1163,44 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
                         {useVendorUpc && line.vendor_upc && <span className="ml-1 text-violet-500">UPC: {line.vendor_upc}</span>}
                       </p>
                     </td>
-                    <td className="px-4 py-3 text-center font-bold text-app-text-muted">{line.qty_ordered}</td>
+                    <td className="px-4 py-3 text-center">
+                      {canEditUnpostedLine ? (
+                        <input
+                          aria-label={`Ordered quantity for ${line.sku}`}
+                          type="number"
+                          min={1}
+                          value={line.qty_ordered}
+                          disabled={rowSaving}
+                          onChange={(e) => {
+                            const raw = Number.parseInt(e.target.value || "1", 10);
+                            const val = Number.isFinite(raw) ? Math.max(1, raw) : 1;
+                            setLines((prev) =>
+                              prev.map((l) =>
+                                l.line_id === line.line_id
+                                  ? {
+                                      ...l,
+                                      qty_ordered: val,
+                                      qty_receiving: Math.min(l.qty_receiving, Math.max(0, val - l.qty_previously_received)),
+                                    }
+                                  : l,
+                              ),
+                            );
+                          }}
+                          onBlur={(e) => {
+                            const raw = Number.parseInt(e.target.value || "1", 10);
+                            const val = Number.isFinite(raw) ? Math.max(1, raw) : 1;
+                            void updateUnpostedLine(line, { quantityOrdered: val });
+                          }}
+                          className="mx-auto block w-16 rounded-lg border border-app-border bg-app-surface p-1.5 text-center text-sm font-bold text-app-text outline-none focus:border-app-accent disabled:opacity-40"
+                        />
+                      ) : (
+                        <span className="font-bold text-app-text-muted">{line.qty_ordered}</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-center font-bold text-app-text-muted bg-app-accent-2/5">{line.qty_previously_received}</td>
                     <td className="px-4 py-3 bg-app-accent-2/5">
                       <input
+                        aria-label={`Receiving quantity for ${line.sku}`}
                         type="number"
                         min={0}
                         max={remaining}
@@ -855,9 +1215,38 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
                       />
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className={`text-sm font-bold tabular-nums ${hasCostAlert ? "text-amber-600" : "text-app-text"}`}>
-                        ${line.unit_cost.toFixed(2)}
-                      </span>
+                      {canEditUnpostedLine ? (
+                        <div className="ml-auto w-24">
+                          <div className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-app-text-muted/50">$</span>
+                            <input
+                              aria-label={`Unit cost for ${line.sku}`}
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={line.unit_cost.toFixed(2)}
+                              disabled={rowSaving}
+                              onChange={(e) => {
+                                const raw = Number.parseFloat(e.target.value || "0");
+                                const val = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+                                setLines((prev) => prev.map((l) => l.line_id === line.line_id ? { ...l, unit_cost: val } : l));
+                              }}
+                              onBlur={(e) => {
+                                const raw = Number.parseFloat(e.target.value || "0");
+                                const val = Number.isFinite(raw) ? Math.max(0, raw) : 0;
+                                void updateUnpostedLine(line, { unitCost: val });
+                              }}
+                              className={`w-full rounded-lg border bg-app-surface py-1.5 pl-5 pr-2 text-right text-sm font-bold tabular-nums outline-none focus:border-app-accent disabled:opacity-40 ${
+                                hasCostAlert ? "border-amber-300 text-amber-600" : "border-app-border text-app-text"
+                              }`}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <span className={`text-sm font-bold tabular-nums ${hasCostAlert ? "text-amber-600" : "text-app-text"}`}>
+                          ${line.unit_cost.toFixed(2)}
+                        </span>
+                      )}
                       {line.prior_effective_cost > 0 && (
                         <p className="text-[9px] text-app-text-muted">was ${line.prior_effective_cost.toFixed(2)}</p>
                       )}

@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use rust_decimal::Decimal;
@@ -107,6 +107,12 @@ pub struct AddPoLineRequest {
     pub variant_id: Uuid,
     pub quantity_ordered: i32,
     pub unit_cost: Decimal,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdatePoLineRequest {
+    pub quantity_ordered: Option<i32>,
+    pub unit_cost: Option<Decimal>,
 }
 
 #[derive(Debug, FromRow)]
@@ -268,6 +274,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/{po_id}", get(get_po_details))
         .route("/{po_id}/lines", post(add_po_line))
+        .route("/{po_id}/lines/{line_id}", patch(update_po_line))
         .route("/{po_id}/submit", post(submit_po))
         .route("/{po_id}/receive", post(receive_po))
         .route("/{po_id}/receiving-history", get(list_receiving_history))
@@ -416,6 +423,105 @@ async fn add_po_line(
     .await?;
 
     Ok(Json(json!({ "status": "line_added" })))
+}
+
+async fn update_po_line(
+    State(state): State<AppState>,
+    Path((po_id, line_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdatePoLineRequest>,
+) -> Result<Json<serde_json::Value>, PurchaseOrderError> {
+    require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
+    if payload.quantity_ordered.is_none() && payload.unit_cost.is_none() {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "quantity_ordered or unit_cost is required".to_string(),
+        ));
+    }
+
+    #[derive(Debug, FromRow)]
+    struct LineEditContext {
+        status: String,
+        quantity_ordered: i32,
+        quantity_received: i32,
+        unit_cost: Decimal,
+    }
+
+    let mut tx = state.db.begin().await?;
+    let context = sqlx::query_as::<_, LineEditContext>(
+        r#"
+        SELECT
+            po.status::text AS status,
+            pol.quantity_ordered,
+            pol.quantity_received,
+            pol.unit_cost
+        FROM purchase_order_lines pol
+        INNER JOIN purchase_orders po ON po.id = pol.purchase_order_id
+        WHERE po.id = $1
+          AND pol.id = $2
+        FOR UPDATE OF po, pol
+        "#,
+    )
+    .bind(po_id)
+    .bind(line_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(PurchaseOrderError::NotFound)?;
+
+    if context.status == "cancelled" || context.status == "closed" {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "closed or cancelled purchase order lines cannot be edited".to_string(),
+        ));
+    }
+    if !matches!(
+        context.status.as_str(),
+        "draft" | "submitted" | "partially_received"
+    ) {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "purchase order status does not allow line edits".to_string(),
+        ));
+    }
+    if context.quantity_received > 0 {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "received purchase order lines cannot be edited; use stock correction or vendor return flows for posted inventory".to_string(),
+        ));
+    }
+
+    let quantity_ordered = payload.quantity_ordered.unwrap_or(context.quantity_ordered);
+    let unit_cost = payload.unit_cost.unwrap_or(context.unit_cost);
+    if quantity_ordered <= 0 {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "quantity_ordered must be greater than zero".to_string(),
+        ));
+    }
+    if unit_cost < Decimal::ZERO {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "unit_cost cannot be negative".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE purchase_order_lines
+        SET quantity_ordered = $1,
+            unit_cost = $2
+        WHERE purchase_order_id = $3
+          AND id = $4
+        "#,
+    )
+    .bind(quantity_ordered)
+    .bind(unit_cost)
+    .bind(po_id)
+    .bind(line_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(json!({
+        "status": "line_updated",
+        "quantity_ordered": quantity_ordered,
+        "unit_cost": unit_cost,
+    })))
 }
 
 async fn submit_po(

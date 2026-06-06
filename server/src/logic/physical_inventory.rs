@@ -95,6 +95,7 @@ pub struct AddCountRequest {
     pub quantity: i32,
     pub source: String,
     pub staff_id: Option<Uuid>,
+    pub client_scan_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -449,6 +450,56 @@ pub async fn upsert_count(
     started_at: DateTime<Utc>,
 ) -> Result<i32> {
     let qty = req.quantity.max(0);
+    let mut tx = pool.begin().await?;
+
+    let stream_claimed = if qty > 0 {
+        match (req.staff_id, req.client_scan_id) {
+            (Some(staff_id), Some(client_scan_id)) => {
+                let inserted: Option<Uuid> = sqlx::query_scalar(
+                    r#"
+                    INSERT INTO inventory_count_scan_stream
+                        (session_id, staff_id, variant_id, quantity, device_id, client_scan_id)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (session_id, client_scan_id)
+                    WHERE client_scan_id IS NOT NULL
+                    DO NOTHING
+                    RETURNING id
+                    "#,
+                )
+                .bind(session_id)
+                .bind(staff_id)
+                .bind(req.variant_id)
+                .bind(qty)
+                .bind(&req.source)
+                .bind(client_scan_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .context("Failed to claim physical inventory scan replay id")?;
+
+                if inserted.is_none() {
+                    let counted_qty: i32 = sqlx::query_scalar(
+                        r#"
+                        SELECT counted_qty
+                        FROM physical_inventory_counts
+                        WHERE session_id = $1 AND variant_id = $2
+                        "#,
+                    )
+                    .bind(session_id)
+                    .bind(req.variant_id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .unwrap_or(0);
+                    tx.commit().await?;
+                    return Ok(counted_qty);
+                }
+                true
+            }
+            _ => false,
+        }
+    } else {
+        false
+    };
+
     // Upsert: if row exists, add qty; otherwise insert fresh
     let new_qty: i32 = sqlx::query_scalar(
         r#"
@@ -468,7 +519,7 @@ pub async fn upsert_count(
     .bind(qty)
     .bind(&req.source)
     .bind(req.staff_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .context("Failed to upsert count")?;
 
@@ -485,10 +536,10 @@ pub async fn upsert_count(
     .bind(new_qty)
     .bind(req.staff_id)
     .bind(format!("Scanned via {}", req.source))
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
-    if qty > 0 {
+    if qty > 0 && !stream_claimed {
         if let Some(staff_id) = req.staff_id {
             sqlx::query(
                 r#"
@@ -502,12 +553,13 @@ pub async fn upsert_count(
             .bind(req.variant_id)
             .bind(qty)
             .bind(&req.source)
-            .execute(pool)
+            .execute(&mut *tx)
             .await?;
         }
     }
 
     let _ = started_at; // used contextually
+    tx.commit().await?;
     Ok(new_qty)
 }
 
@@ -534,6 +586,25 @@ pub async fn list_discovered_items(pool: &PgPool, session_id: Uuid) -> Result<Ve
     .fetch_all(pool)
     .await
     .context("Failed to load discovered physical inventory scans")
+}
+
+pub async fn count_non_sale_movements(pool: &PgPool, session_id: Uuid) -> Result<i64> {
+    sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM inventory_transactions it
+        JOIN physical_inventory_snapshots pis
+          ON pis.session_id = $1
+         AND pis.variant_id = it.variant_id
+        JOIN physical_inventory_sessions s ON s.id = pis.session_id
+        WHERE it.created_at >= s.started_at
+          AND it.tx_type::text NOT IN ('sale', 'physical_inventory')
+        "#,
+    )
+    .bind(session_id)
+    .fetch_one(pool)
+    .await
+    .context("Failed to check non-sale inventory movements during count")
 }
 
 pub async fn record_discovered_item(
@@ -942,6 +1013,28 @@ pub async fn publish_session(
     if pending_discovered > 0 {
         return Err(anyhow!(
             "Resolve or ignore {pending_discovered} discovered scan(s) before publishing"
+        ));
+    }
+
+    let non_sale_movements: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM inventory_transactions it
+        JOIN physical_inventory_snapshots pis
+          ON pis.session_id = $1
+         AND pis.variant_id = it.variant_id
+        JOIN physical_inventory_sessions s ON s.id = pis.session_id
+        WHERE it.created_at >= s.started_at
+          AND it.tx_type::text NOT IN ('sale', 'physical_inventory')
+        "#,
+    )
+    .bind(session_id)
+    .fetch_one(&mut *tx)
+    .await
+    .context("Failed to check non-sale inventory movements before publish")?;
+    if non_sale_movements > 0 {
+        return Err(anyhow!(
+            "Resolve non-sale inventory movement first: {non_sale_movements} in-scope movement(s) happened during this count"
         ));
     }
 

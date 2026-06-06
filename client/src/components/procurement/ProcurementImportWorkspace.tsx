@@ -136,8 +136,10 @@ function confidencePercent(value?: string | null): string {
 
 export default function ProcurementImportWorkspace({
   onOpenReceiving,
+  onOpenPurchaseOrder,
 }: {
-  onOpenReceiving?: () => void;
+  onOpenReceiving?: (purchaseOrderId?: string) => void;
+  onOpenPurchaseOrder?: (purchaseOrderId: string) => void;
 }) {
   const baseUrl = getBaseUrl();
   const { backofficeHeaders } = useBackofficeAuth();
@@ -289,10 +291,21 @@ export default function ProcurementImportWorkspace({
         body: JSON.stringify({ target, learn_vendor_profile: learnVendorProfile }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "Conversion failed");
-      const converted = await res.json();
-      toast(`Created ${converted.po_number}. Stock has not been posted.`, "success");
+      const converted = (await res.json()) as {
+        purchase_order_id?: string;
+        po_number?: string;
+        po_kind?: string;
+      };
+      toast(`Created ${converted.po_number ?? "vendor paperwork"}. Stock has not been posted.`, "success");
       await loadImports();
       await openImport(detail.document.id);
+      if (converted.purchase_order_id) {
+        if (target === "direct_invoice") {
+          onOpenReceiving?.(converted.purchase_order_id);
+        } else {
+          onOpenPurchaseOrder?.(converted.purchase_order_id);
+        }
+      }
     } catch (error) {
       toast(error instanceof Error ? error.message : "Conversion failed.", "error");
     } finally {
@@ -355,7 +368,7 @@ export default function ProcurementImportWorkspace({
           {onOpenReceiving ? (
             <button
               type="button"
-              onClick={onOpenReceiving}
+              onClick={() => onOpenReceiving()}
               className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-accent hover:text-app-accent"
             >
               Open Receiving
@@ -591,10 +604,10 @@ export default function ProcurementImportWorkspace({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => void convert("direct_invoice")} disabled={!!busy} className="rounded-2xl bg-app-accent px-5 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50">
-                    Create Direct Invoice Draft
+                    Create & Open Direct Invoice
                   </button>
                   <button type="button" onClick={() => void convert("standard_po")} disabled={!!busy} className="rounded-2xl border border-app-border bg-app-surface-2 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-accent disabled:opacity-50">
-                    Create PO Draft
+                    Create & Open PO
                   </button>
                 </div>
               </div>

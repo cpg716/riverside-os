@@ -37,6 +37,8 @@ Use **Physical count** to run a full-store or category-limited count, review var
 
 Physical Inventory is designed for large catalogs. Scanner entry keeps a recent worklist in the browser instead of loading every counted SKU, and Review shows a bounded high-impact/search result set while publish evaluates the full session on the server. For broad analysis across very large sessions, use the Physical Inventory workspace report data as the Metabase source instead of trying to inspect every row in the browser.
 
+If a scanner station loses connection during counting, scans are saved on that device and replayed with duplicate protection when the connection returns. Do not move to Review until the offline scan queue is empty.
+
 ## Review and publish behavior
 
 - Review is built from the full in-scope snapshot, not only from scanned SKUs.
@@ -47,6 +49,7 @@ Physical Inventory is designed for large catalogs. Scanner entry keeps a recent 
 - Scan increments are attributed to the signed-in staff member and retained in the raw scan stream for audit review.
 - Unknown scans are retained in the session until staff resolve or ignore them.
 - Publish is blocked when discovered scans are still pending or when non-zero stock movement rows have zero unit cost.
+- Publish is also blocked when non-sale inventory movements, such as adjustments, returns, damage/loss, RTV, or receipts, touched in-scope variants during the count. Restart or reconcile the count before publishing.
 - Manager Access signoff is recorded with the session reports when reviewed stock is published.
 
 ## Recovery and escalation

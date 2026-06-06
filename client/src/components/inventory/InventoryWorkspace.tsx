@@ -362,6 +362,7 @@ export default function InventoryWorkspace({
   surface = "backoffice",
 }: InventoryWorkspaceProps) {
   const [section, setSection] = useState<InventorySection>("hub");
+  const [localProcurementPoId, setLocalProcurementPoId] = useState<string | null>(null);
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
   const baseUrl = getBaseUrl();
@@ -419,6 +420,11 @@ export default function InventoryWorkspace({
   const meta = SECTION_META[section];
   const isPosSurface = surface === "pos";
   const activeJob = JOB_BY_SECTION[section];
+  const activeProcurementPoId = procurementDeepLinkPoId ?? localProcurementPoId;
+  const consumeProcurementPoId = () => {
+    if (localProcurementPoId) setLocalProcurementPoId(null);
+    onProcurementDeepLinkConsumed?.();
+  };
   const renderSubtoolChips = (job: InventoryJob) =>
     job.sections.length > 1 ? (
       <div className="mt-4 flex flex-wrap gap-2">
@@ -556,9 +562,10 @@ export default function InventoryWorkspace({
           {!isPosSurface && section === "purchase_orders" && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
               <PurchaseOrderPanel
-                initialPoId={procurementDeepLinkPoId ?? null}
-                onInitialPoConsumed={onProcurementDeepLinkConsumed}
+                initialPoId={activeProcurementPoId}
+                onInitialPoConsumed={consumeProcurementPoId}
                 onOpenReceiving={() => setSection("receiving")}
+                onOpenAddItem={() => setSection("add")}
               />
             </div>
           )}
@@ -594,16 +601,26 @@ export default function InventoryWorkspace({
                 </div>
               </div>
               <PurchaseOrderPanel
-                initialPoId={procurementDeepLinkPoId ?? null}
-                onInitialPoConsumed={onProcurementDeepLinkConsumed}
+                initialPoId={activeProcurementPoId}
+                onInitialPoConsumed={consumeProcurementPoId}
                 mode="receive"
                 onOpenOrderStock={() => setSection("purchase_orders")}
+                onOpenAddItem={() => setSection("add")}
               />
             </div>
           )}
           {!isPosSurface && section === "po_invoice_import" && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-              <ProcurementImportWorkspace onOpenReceiving={() => setSection("receiving")} />
+              <ProcurementImportWorkspace
+                onOpenReceiving={(poId) => {
+                  if (poId) setLocalProcurementPoId(poId);
+                  setSection("receiving");
+                }}
+                onOpenPurchaseOrder={(poId) => {
+                  setLocalProcurementPoId(poId);
+                  setSection("purchase_orders");
+                }}
+              />
             </div>
           )}
           {!isPosSurface && section === "batch_scan" && (
