@@ -14,6 +14,14 @@ The Gift Card subsystem remains **hardened and ledger-first** since the April au
 
 **Overall Status:** Production Ready — 0 blockers, 0 regressions.
 
+### June 2026 Remediation Addendum
+
+The June 2026 gift-card review found and repaired three production-readiness gaps:
+
+- Scanner and typed code workflows now normalize gift-card codes to uppercase and resolve existing cards case-insensitively.
+- Open-card lists and liability summary counts now exclude expired active cards, matching redemption lookup behavior.
+- Reuse/refill rules are explicit: depleted purchased, loyalty, donated, and promo cards can be reassigned through the matching workflow while preserving history; active unexpired cards can be topped up; expired purchased cards with remaining balance are blocked from reload until QBO breakage review; expired non-liability balances are closed before reassignment and do not create QBO breakage.
+
 ---
 
 ## 2. Card Taxonomy — Now 4 Kinds
@@ -76,7 +84,8 @@ pos_load_purchased_in_tx(tx, code, amount, customer_id, session_id, transaction_
       → Enforce card_kind == 'purchased'
       → Reject if 'void'
       → If depleted/zero: reactivate (status='active', is_liability=true, add to original_value)
-      → If active: add to current_balance, extend expiry
+      → If active and unexpired: add to current_balance, extend expiry
+      → If active, expired, and positive balance: block reload until breakage review
   → If new code: INSERT as purchased, active, is_liability=true
   → INSERT gift_card_events (kind varies: 'issued' for new/reactivated, 'loaded' for top-up)
 ```
@@ -86,10 +95,12 @@ pos_load_purchased_in_tx(tx, code, amount, customer_id, session_id, transaction_
 issue_loyalty_load(state, headers, body)
   → Requires POS/staff authentication
   → 1-year expiry
-  → If existing active card:
+  → If existing active, unexpired card:
       → Enforce card_kind == 'loyalty_reward'
       → Add amount to balance, extend expiry
       → Event: 'loaded'
+  → If depleted/zero: reactivate with new value and preserve history
+  → If expired with positive balance: close expired non-liability value before reassigning
   → If new: INSERT as loyalty_reward, not liability
       → Event: 'issued'
 ```
@@ -97,7 +108,7 @@ issue_loyalty_load(state, headers, body)
 ### 3.5 Donated / Promo Issuance
 - **Donated**: Requires `gift_cards.manage` permission. Creates `donated_giveaway`, not liability, 1-year expiry.
 - **Promo**: Same permission. Creates `promo_gift_card` with required `event_name`. Not liability, 1-year expiry.
-- Neither supports top-up on existing codes (always creates a new card).
+- Existing unexpired cards can be topped up through the matching workflow. Depleted cards can be reassigned while preserving history. Expired non-liability balances are closed before reassignment.
 
 ### 3.6 Voiding
 ```

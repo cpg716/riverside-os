@@ -740,7 +740,7 @@ function LoyaltyBatchRedeemDialog({
           customer_id: current.id,
           points_to_redeem: threshold,
           apply_to_sale: centsToFixed2(0),
-          remainder_card_code: cardCode.trim(),
+          remainder_card_code: cardCode.trim().toUpperCase(),
         }),
       });
       const data = (await res.json()) as {
@@ -758,7 +758,7 @@ function LoyaltyBatchRedeemDialog({
       const expirationDate = formatLetterDate(addOneYear(issuedOn));
       const issuedRow: BatchIssuedReward = {
         customer: current,
-        card_code: cardCode.trim(),
+        card_code: cardCode.trim().toUpperCase(),
         points_deducted: data.points_deducted ?? threshold,
         reward_amount: rewardAmount,
         issue_date: issueDate,
@@ -920,7 +920,7 @@ function LoyaltyBatchRedeemDialog({
                     <input
                       ref={cardInputRef}
                       value={cardCode}
-                      onChange={(event) => setCardCode(event.target.value)}
+                      onChange={(event) => setCardCode(event.target.value.toUpperCase())}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") void issueCurrentCard();
                       }}

@@ -34,6 +34,7 @@ After checkout is fully paid, the gift card receives the loaded balance and the 
 - The card is only credited after the full sale is paid.
 - If the sale is canceled or left unpaid, the card does not receive the balance.
 - After checkout, the sale-complete receipt summary shows the loaded card as a masked code so staff can confirm the right card was credited.
+- Scanned card codes are normalized to uppercase for reliable pre-printed card lookup.
 
 ## Steps
 
@@ -48,6 +49,8 @@ After checkout is fully paid, the gift card receives the loaded balance and the 
 - Use this modal only for **purchased** gift cards.
 - Do not use it for loyalty, donated, or promo cards.
 - A void card cannot be loaded here.
+- A depleted purchased card can be reused; its old history remains on the same card code.
+- An expired purchased card with remaining balance must go through breakage review before reloading.
 
 ## If something looks wrong
 

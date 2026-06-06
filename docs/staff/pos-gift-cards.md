@@ -17,12 +17,14 @@ Use POS **Gift Cards** for balance lookup and use the **Register** gift card but
 ### Sell / load value on a purchased card at the register
 
 1. POS → **Register** → **GIFT CARD** (open register session / signed-in staff).
-2. Enter the **load amount** on the keypad, then **scan** (or type) the card code.
+2. Enter the **load amount** on the keypad, then **scan** (or type) the card code. Codes are normalized to uppercase, so scanner case does not matter.
 3. Add the line to the cart.
 4. Finish checkout.
 
 The card is only credited after the full sale is paid. If checkout does not complete, the card is not loaded.
 After the sale, the receipt summary shows the loaded card as a masked code so staff can confirm the right card was credited.
+
+Purchased cards with a positive, unexpired balance can be added to. Depleted purchased cards can be reused for a new sale; the old event history stays attached to that card code. Expired purchased cards with remaining balance must go through breakage review before they can be reloaded.
 
 ### Back Office gift card limits
 
@@ -53,6 +55,7 @@ After the sale, the receipt summary shows the gift card type and masked card cod
 
 1. Stop — do not re-issue without manager.
 2. Check **Back Office → Gift Cards → Card Inventory** for **events** trail.
+3. A depleted purchased card may be reused through Register after manager/customer verification; a void card cannot.
 
 ## Helping a coworker
 

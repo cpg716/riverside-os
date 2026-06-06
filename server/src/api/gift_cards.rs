@@ -10,7 +10,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -184,7 +184,7 @@ async fn list_gift_cards(
     }
 
     if open_only {
-        qb.push(" AND gc.card_status = 'active'::gift_card_status AND gc.current_balance > 0 ");
+        qb.push(" AND gc.card_status = 'active'::gift_card_status AND gc.current_balance > 0 AND (gc.expires_at IS NULL OR gc.expires_at > now()) ");
     }
 
     match sort {
@@ -214,12 +214,14 @@ async fn get_gift_card_summary(
             COUNT(*) FILTER (
                 WHERE gc.card_status = 'active'::gift_card_status
                   AND gc.current_balance > 0
+                  AND (gc.expires_at IS NULL OR gc.expires_at > now())
             )::bigint AS open_cards_count,
             COALESCE(
                 SUM(gc.current_balance) FILTER (
                     WHERE gc.is_liability = TRUE
                       AND gc.card_status = 'active'::gift_card_status
                       AND gc.current_balance > 0
+                      AND (gc.expires_at IS NULL OR gc.expires_at > now())
                 ),
                 0
             )::numeric(14,2) AS active_liability_balance,
@@ -253,6 +255,7 @@ async fn list_gift_cards_open(
         LEFT JOIN customers c ON c.id = gc.customer_id
         WHERE gc.card_status = 'active'::gift_card_status
           AND gc.current_balance > 0
+          AND (gc.expires_at IS NULL OR gc.expires_at > now())
         ORDER BY gc.current_balance DESC
         LIMIT 200
         "#,
@@ -280,12 +283,12 @@ async fn get_gift_card_by_code(
             gc.promo_event_name, gc.notes, gc.created_at
         FROM gift_cards gc
         LEFT JOIN customers c ON c.id = gc.customer_id
-        WHERE gc.code = $1
+        WHERE UPPER(BTRIM(gc.code::text)) = $1
           AND gc.card_status = 'active'::gift_card_status
           AND (gc.expires_at IS NULL OR gc.expires_at > now())
         "#,
     )
-    .bind(code.trim())
+    .bind(gift_card_ops::normalize_gift_card_code(&code))
     .fetch_optional(&state.db)
     .await?;
 
@@ -360,7 +363,7 @@ async fn issue_loyalty_load(
     Json(body): Json<IssueLoyaltyLoadRequest>,
 ) -> Result<Json<GiftCardRow>, GiftCardError> {
     require_gift_card_lookup(&state, &headers).await?;
-    let code = body.code.trim().to_string();
+    let code = gift_card_ops::normalize_gift_card_code(&body.code);
     if code.is_empty() {
         return Err(GiftCardError::InvalidPayload(
             "code is required".to_string(),
@@ -371,87 +374,22 @@ async fn issue_loyalty_load(
             "amount must be positive".to_string(),
         ));
     }
-
-    // 1-year expiry for loyalty rewards.
-    let expires_at = Utc::now() + Duration::days(365);
-
     let mut tx = state.db.begin().await?;
-
-    let existing: Option<(Uuid, Decimal, String)> = sqlx::query_as(
-        "SELECT id, current_balance, card_kind::text FROM gift_cards WHERE code = $1 AND card_status = 'active'::gift_card_status AND (expires_at IS NULL OR expires_at > now()) FOR UPDATE"
+    let id = gift_card_ops::load_non_liability_gift_card_in_tx(
+        &mut tx,
+        gift_card_ops::NonLiabilityGiftCardLoad {
+            card_kind: gift_card_ops::GIFT_CARD_KIND_LOYALTY_REWARD,
+            code: &code,
+            amount: body.amount,
+            customer_id: body.customer_id,
+            session_id: body.session_id,
+            transaction_id: body.transaction_id,
+            notes: body.notes.as_deref(),
+            promo_event_name: None,
+        },
     )
-    .bind(&code)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    let id = if let Some((existing_id, balance, card_kind)) = existing {
-        if !card_kind.eq_ignore_ascii_case("loyalty_reward") {
-            return Err(GiftCardError::InvalidPayload(
-                "This code belongs to a different gift card type. Use a loyalty reward card code instead.".to_string(),
-            ));
-        }
-        let new_balance = balance + body.amount;
-        sqlx::query(
-            "UPDATE gift_cards SET current_balance = $1, expires_at = GREATEST(expires_at, $2) WHERE id = $3"
-        )
-        .bind(new_balance)
-        .bind(expires_at)
-        .bind(existing_id)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO gift_card_events
-                (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id)
-            VALUES ($1, 'loaded', $2, $3, $4, $5)
-            "#,
-        )
-        .bind(existing_id)
-        .bind(body.amount)
-        .bind(new_balance)
-        .bind(body.transaction_id)
-        .bind(body.session_id)
-        .execute(&mut *tx)
-        .await?;
-
-        existing_id
-    } else {
-        let new_id: Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO gift_cards
-                (code, card_kind, card_status, current_balance, original_value,
-                 is_liability, expires_at, customer_id, issued_session_id, issued_order_id, notes)
-            VALUES ($1, 'loyalty_reward', 'active', $2, $2, FALSE, $3, $4, $5, $6, $7)
-            RETURNING id
-            "#,
-        )
-        .bind(&code)
-        .bind(body.amount)
-        .bind(expires_at)
-        .bind(body.customer_id)
-        .bind(body.session_id)
-        .bind(body.transaction_id)
-        .bind(body.notes.as_deref())
-        .fetch_one(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO gift_card_events
-                (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id)
-            VALUES ($1, 'issued', $2, $2, $3, $4)
-            "#,
-        )
-        .bind(new_id)
-        .bind(body.amount)
-        .bind(body.transaction_id)
-        .bind(body.session_id)
-        .execute(&mut *tx)
-        .await?;
-
-        new_id
-    };
+    .await
+    .map_err(|e| GiftCardError::InvalidPayload(e.to_string()))?;
 
     tx.commit().await?;
 
@@ -476,7 +414,7 @@ async fn issue_donated(
     Json(body): Json<IssueDonatedRequest>,
 ) -> Result<Json<GiftCardRow>, GiftCardError> {
     require_gift_cards_manage(&state, &headers).await?;
-    let code = body.code.trim().to_string();
+    let code = gift_card_ops::normalize_gift_card_code(&body.code);
     if code.is_empty() {
         return Err(GiftCardError::InvalidPayload(
             "code is required".to_string(),
@@ -487,40 +425,22 @@ async fn issue_donated(
             "amount must be positive".to_string(),
         ));
     }
-
-    // 1-year expiry for donated/giveaway cards.
-    let expires_at = Utc::now() + Duration::days(365);
-
     let mut tx = state.db.begin().await?;
-
-    let id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO gift_cards
-            (code, card_kind, card_status, current_balance, original_value,
-             is_liability, expires_at, customer_id, notes)
-        VALUES ($1, 'donated_giveaway', 'active', $2, $2, FALSE, $3, $4, $5)
-        RETURNING id
-        "#,
+    let id = gift_card_ops::load_non_liability_gift_card_in_tx(
+        &mut tx,
+        gift_card_ops::NonLiabilityGiftCardLoad {
+            card_kind: gift_card_ops::GIFT_CARD_KIND_DONATED_GIVEAWAY,
+            code: &code,
+            amount: body.amount,
+            customer_id: body.customer_id,
+            session_id: None,
+            transaction_id: None,
+            notes: body.notes.as_deref(),
+            promo_event_name: None,
+        },
     )
-    .bind(&code)
-    .bind(body.amount)
-    .bind(expires_at)
-    .bind(body.customer_id)
-    .bind(body.notes.as_deref())
-    .fetch_one(&mut *tx)
-    .await?;
-
-    sqlx::query(
-        r#"
-        INSERT INTO gift_card_events
-            (gift_card_id, event_kind, amount, balance_after)
-        VALUES ($1, 'issued', $2, $2)
-        "#,
-    )
-    .bind(id)
-    .bind(body.amount)
-    .execute(&mut *tx)
-    .await?;
+    .await
+    .map_err(|e| GiftCardError::InvalidPayload(e.to_string()))?;
 
     tx.commit().await?;
 
@@ -546,7 +466,7 @@ async fn issue_promo(
     Json(body): Json<IssuePromoRequest>,
 ) -> Result<Json<GiftCardRow>, GiftCardError> {
     require_gift_cards_manage(&state, &headers).await?;
-    let code = body.code.trim().to_string();
+    let code = gift_card_ops::normalize_gift_card_code(&body.code);
     let event_name = body.event_name.trim().to_string();
     if code.is_empty() {
         return Err(GiftCardError::InvalidPayload(
@@ -564,39 +484,23 @@ async fn issue_promo(
         ));
     }
 
-    let expires_at = Utc::now() + Duration::days(365);
     let mut tx = state.db.begin().await?;
-
-    let id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO gift_cards
-            (code, card_kind, card_status, current_balance, original_value,
-             is_liability, expires_at, customer_id, promo_event_name, notes)
-        VALUES ($1, 'promo_gift_card', 'active', $2, $2, FALSE, $3, $4, $5, $6)
-        RETURNING id
-        "#,
+    let promo_note = format!("Promo gift card: {event_name}");
+    let id = gift_card_ops::load_non_liability_gift_card_in_tx(
+        &mut tx,
+        gift_card_ops::NonLiabilityGiftCardLoad {
+            card_kind: gift_card_ops::GIFT_CARD_KIND_PROMO_GIFT_CARD,
+            code: &code,
+            amount: body.amount,
+            customer_id: body.customer_id,
+            session_id: None,
+            transaction_id: None,
+            notes: body.notes.as_deref().or(Some(promo_note.as_str())),
+            promo_event_name: Some(&event_name),
+        },
     )
-    .bind(&code)
-    .bind(body.amount)
-    .bind(expires_at)
-    .bind(body.customer_id)
-    .bind(&event_name)
-    .bind(body.notes.as_deref())
-    .fetch_one(&mut *tx)
-    .await?;
-
-    sqlx::query(
-        r#"
-        INSERT INTO gift_card_events
-            (gift_card_id, event_kind, amount, balance_after, notes)
-        VALUES ($1, 'issued', $2, $2, $3)
-        "#,
-    )
-    .bind(id)
-    .bind(body.amount)
-    .bind(format!("Promo gift card: {event_name}"))
-    .execute(&mut *tx)
-    .await?;
+    .await
+    .map_err(|e| GiftCardError::InvalidPayload(e.to_string()))?;
 
     tx.commit().await?;
 
@@ -680,10 +584,11 @@ async fn get_gift_card_events_by_code(
     headers: HeaderMap,
 ) -> Result<Json<Vec<GiftCardEvent>>, GiftCardError> {
     require_gift_card_lookup(&state, &headers).await?;
-    let id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM gift_cards WHERE code = $1")
-        .bind(code.trim())
-        .fetch_optional(&state.db)
-        .await?;
+    let id: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM gift_cards WHERE UPPER(BTRIM(code::text)) = $1")
+            .bind(gift_card_ops::normalize_gift_card_code(&code))
+            .fetch_optional(&state.db)
+            .await?;
     let Some(card_id) = id else {
         return Err(GiftCardError::NotFound);
     };

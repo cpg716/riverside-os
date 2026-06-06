@@ -1,6 +1,6 @@
 //! In-transaction gift card balance changes shared by checkout and refunds.
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rust_decimal::Decimal;
 use serde_json::json;
 use sqlx::{PgPool, Postgres, Transaction};
@@ -10,6 +10,9 @@ pub const GIFT_CARD_SUB_TYPE_PAID_LIABILITY: &str = "paid_liability";
 pub const GIFT_CARD_SUB_TYPE_LOYALTY_GIVEAWAY: &str = "loyalty_giveaway";
 pub const GIFT_CARD_SUB_TYPE_DONATED_GIVEAWAY: &str = "donated_giveaway";
 pub const GIFT_CARD_SUB_TYPE_PROMO_GIFT_CARD: &str = "promo_gift_card";
+pub const GIFT_CARD_KIND_LOYALTY_REWARD: &str = "loyalty_reward";
+pub const GIFT_CARD_KIND_DONATED_GIVEAWAY: &str = "donated_giveaway";
+pub const GIFT_CARD_KIND_PROMO_GIFT_CARD: &str = "promo_gift_card";
 
 #[derive(Debug, thiserror::Error)]
 pub enum GiftCardOpError {
@@ -35,6 +38,21 @@ pub struct GiftCardCreditPlan {
     pub card_kind: String,
     pub normalized_code: String,
     pub new_balance: Decimal,
+}
+
+pub fn normalize_gift_card_code(code: &str) -> String {
+    code.trim().to_ascii_uppercase()
+}
+
+fn validate_supported_non_liability_kind(card_kind: &str) -> Result<(), GiftCardOpError> {
+    match card_kind {
+        GIFT_CARD_KIND_LOYALTY_REWARD
+        | GIFT_CARD_KIND_DONATED_GIVEAWAY
+        | GIFT_CARD_KIND_PROMO_GIFT_CARD => Ok(()),
+        _ => Err(GiftCardOpError::BadRequest(
+            "This gift card type cannot be issued from this workflow.".to_string(),
+        )),
+    }
 }
 
 pub fn canonical_gift_card_sub_type_for_kind(
@@ -75,17 +93,18 @@ pub async fn prepare_redemption_in_tx(
         ));
     }
 
+    let normalized_code = normalize_gift_card_code(code);
     let card: Option<(Uuid, Decimal, String)> = sqlx::query_as(
         r#"
         SELECT id, current_balance, card_kind::text
         FROM gift_cards
-        WHERE code = $1
+        WHERE UPPER(BTRIM(code::text)) = $1
           AND card_status = 'active'::gift_card_status
           AND (expires_at IS NULL OR expires_at > now())
         FOR UPDATE
         "#,
     )
-    .bind(code)
+    .bind(&normalized_code)
     .fetch_optional(&mut **tx)
     .await?;
 
@@ -144,19 +163,18 @@ pub async fn credit_gift_card_in_tx(
             "credit amount must be positive".into(),
         ));
     }
-    let trimmed_code = code.trim().to_string();
-    let normalized_code = trimmed_code.to_ascii_uppercase();
+    let normalized_code = normalize_gift_card_code(code);
     let row: Option<(Uuid, Decimal, String)> = sqlx::query_as(
         r#"
         SELECT id, current_balance, card_kind::text
         FROM gift_cards
-        WHERE code = $1
+        WHERE UPPER(BTRIM(code::text)) = $1
           AND card_status = 'active'::gift_card_status
           AND (expires_at IS NULL OR expires_at > now())
         FOR UPDATE
         "#,
     )
-    .bind(&trimmed_code)
+    .bind(&normalized_code)
     .fetch_optional(&mut **tx)
     .await?;
 
@@ -205,8 +223,8 @@ pub async fn pos_load_purchased_in_tx(
     session_id: Option<Uuid>,
     transaction_id_for_events: Option<Uuid>,
 ) -> Result<Uuid, GiftCardOpError> {
-    let code = code.trim();
-    if code.is_empty() {
+    let normalized_code = normalize_gift_card_code(code);
+    if normalized_code.is_empty() {
         return Err(GiftCardOpError::BadRequest("code is required".into()));
     }
     if amount <= Decimal::ZERO {
@@ -217,19 +235,19 @@ pub async fn pos_load_purchased_in_tx(
 
     let expires_at = Utc::now() + Duration::days(365 * 9);
 
-    let row: Option<(Uuid, String, String, Decimal)> = sqlx::query_as(
+    let row: Option<(Uuid, String, String, Decimal, DateTime<Utc>)> = sqlx::query_as(
         r#"
-        SELECT id, card_kind::text, card_status::text, current_balance
+        SELECT id, card_kind::text, card_status::text, current_balance, expires_at
         FROM gift_cards
-        WHERE code = $1
+        WHERE UPPER(BTRIM(code::text)) = $1
         FOR UPDATE
         "#,
     )
-    .bind(code)
+    .bind(&normalized_code)
     .fetch_optional(&mut **tx)
     .await?;
 
-    let card_id = if let Some((id, kind, status, balance)) = row {
+    let card_id = if let Some((id, kind, status, balance, existing_expires_at)) = row {
         if !kind.eq_ignore_ascii_case("purchased") {
             return Err(GiftCardOpError::BadRequest(
                 "this card code is not a purchased gift card — use Back Office for other card types"
@@ -239,6 +257,15 @@ pub async fn pos_load_purchased_in_tx(
         if status.eq_ignore_ascii_case("void") {
             return Err(GiftCardOpError::BadRequest(
                 "this card is void and cannot be loaded".into(),
+            ));
+        }
+
+        if status.eq_ignore_ascii_case("active")
+            && balance > Decimal::ZERO
+            && existing_expires_at <= Utc::now()
+        {
+            return Err(GiftCardOpError::BadRequest(
+                "this purchased gift card is expired with remaining balance; run gift card expiration/breakage review before reloading".into(),
             ));
         }
 
@@ -324,7 +351,7 @@ pub async fn pos_load_purchased_in_tx(
             RETURNING id
             "#,
         )
-        .bind(code)
+        .bind(&normalized_code)
         .bind(amount)
         .bind(expires_at)
         .bind(customer_id)
@@ -343,6 +370,197 @@ pub async fn pos_load_purchased_in_tx(
         .bind(amount)
         .bind(transaction_id_for_events)
         .bind(session_id)
+        .execute(&mut **tx)
+        .await?;
+
+        new_id
+    };
+
+    Ok(card_id)
+}
+
+pub struct NonLiabilityGiftCardLoad<'a> {
+    pub card_kind: &'a str,
+    pub code: &'a str,
+    pub amount: Decimal,
+    pub customer_id: Option<Uuid>,
+    pub session_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
+    pub notes: Option<&'a str>,
+    pub promo_event_name: Option<&'a str>,
+}
+
+pub async fn load_non_liability_gift_card_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    input: NonLiabilityGiftCardLoad<'_>,
+) -> Result<Uuid, GiftCardOpError> {
+    validate_supported_non_liability_kind(input.card_kind)?;
+    let normalized_code = normalize_gift_card_code(input.code);
+    if normalized_code.is_empty() {
+        return Err(GiftCardOpError::BadRequest("code is required".into()));
+    }
+    if input.amount <= Decimal::ZERO {
+        return Err(GiftCardOpError::BadRequest(
+            "amount must be positive".into(),
+        ));
+    }
+
+    let expires_at = Utc::now() + Duration::days(365);
+    let existing: Option<(Uuid, String, String, Decimal, DateTime<Utc>)> = sqlx::query_as(
+        r#"
+        SELECT id, card_kind::text, card_status::text, current_balance, expires_at
+        FROM gift_cards
+        WHERE UPPER(BTRIM(code::text)) = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(&normalized_code)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let card_id = if let Some((id, existing_kind, status, balance, existing_expires_at)) = existing
+    {
+        if !existing_kind.eq_ignore_ascii_case(input.card_kind) {
+            return Err(GiftCardOpError::BadRequest(
+                "This code belongs to a different gift card type. Use the matching card workflow instead."
+                    .to_string(),
+            ));
+        }
+        if status.eq_ignore_ascii_case("void") {
+            return Err(GiftCardOpError::BadRequest(
+                "this card is void and cannot be loaded".into(),
+            ));
+        }
+
+        let expired = existing_expires_at <= Utc::now();
+        if status.eq_ignore_ascii_case("active") && balance > Decimal::ZERO && !expired {
+            let new_balance = balance + input.amount;
+            sqlx::query(
+                r#"
+                UPDATE gift_cards
+                SET current_balance = $1,
+                    expires_at = GREATEST(expires_at, $2),
+                    customer_id = COALESCE($3, customer_id),
+                    notes = COALESCE($4, notes),
+                    promo_event_name = COALESCE($5, promo_event_name)
+                WHERE id = $6
+                "#,
+            )
+            .bind(new_balance)
+            .bind(expires_at)
+            .bind(input.customer_id)
+            .bind(input.notes)
+            .bind(input.promo_event_name)
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO gift_card_events
+                    (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, notes)
+                VALUES ($1, 'loaded', $2, $3, $4, $5, $6)
+                "#,
+            )
+            .bind(id)
+            .bind(input.amount)
+            .bind(new_balance)
+            .bind(input.transaction_id)
+            .bind(input.session_id)
+            .bind(input.notes)
+            .execute(&mut **tx)
+            .await?;
+
+            id
+        } else {
+            if expired && balance > Decimal::ZERO {
+                sqlx::query(
+                    r#"
+                    INSERT INTO gift_card_events
+                        (gift_card_id, event_kind, amount, balance_after, notes)
+                    VALUES ($1, 'expired', $2, 0.00, $3)
+                    "#,
+                )
+                .bind(id)
+                .bind(-balance)
+                .bind("Expired non-liability card balance closed before reassignment.")
+                .execute(&mut **tx)
+                .await?;
+            }
+
+            sqlx::query(
+                r#"
+                UPDATE gift_cards
+                SET current_balance = $1,
+                    card_status = 'active'::gift_card_status,
+                    expires_at = $2,
+                    original_value = COALESCE(original_value, 0) + $1,
+                    customer_id = COALESCE($3, customer_id),
+                    notes = COALESCE($4, notes),
+                    promo_event_name = COALESCE($5, promo_event_name)
+                WHERE id = $6
+                "#,
+            )
+            .bind(input.amount)
+            .bind(expires_at)
+            .bind(input.customer_id)
+            .bind(input.notes)
+            .bind(input.promo_event_name)
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO gift_card_events
+                    (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, notes)
+                VALUES ($1, 'issued', $2, $2, $3, $4, $5)
+                "#,
+            )
+            .bind(id)
+            .bind(input.amount)
+            .bind(input.transaction_id)
+            .bind(input.session_id)
+            .bind(input.notes)
+            .execute(&mut **tx)
+            .await?;
+
+            id
+        }
+    } else {
+        let new_id: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO gift_cards
+                (code, card_kind, card_status, current_balance, original_value,
+                 is_liability, expires_at, customer_id, issued_session_id, issued_order_id, promo_event_name, notes)
+            VALUES ($1, $2::gift_card_kind, 'active', $3, $3, FALSE, $4, $5, $6, $7, $8, $9)
+            RETURNING id
+            "#,
+        )
+        .bind(&normalized_code)
+        .bind(input.card_kind)
+        .bind(input.amount)
+        .bind(expires_at)
+        .bind(input.customer_id)
+        .bind(input.session_id)
+        .bind(input.transaction_id)
+        .bind(input.promo_event_name)
+        .bind(input.notes)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO gift_card_events
+                (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, notes)
+            VALUES ($1, 'issued', $2, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(new_id)
+        .bind(input.amount)
+        .bind(input.transaction_id)
+        .bind(input.session_id)
+        .bind(input.notes)
         .execute(&mut **tx)
         .await?;
 
@@ -605,6 +823,227 @@ mod tests {
         assert_eq!(plan.canonical_sub_type, GIFT_CARD_SUB_TYPE_PAID_LIABILITY);
         assert_eq!(plan.new_balance, Decimal::new(1500, 2));
         assert_eq!(plan.new_status, "active");
+
+        tx.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn redemption_matches_scanned_codes_case_insensitively() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let card_id = Uuid::new_v4();
+        let code = format!("gc-scan-{}", Uuid::new_v4().simple());
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'purchased', 'active', $3, $3, TRUE, $4)
+            "#,
+        )
+        .bind(card_id)
+        .bind(&code)
+        .bind(Decimal::new(2500, 2))
+        .bind(Utc::now() + Duration::days(30))
+        .execute(&mut *tx)
+        .await
+        .expect("insert card");
+
+        let plan = prepare_redemption_in_tx(
+            &mut tx,
+            &code.to_ascii_uppercase(),
+            Some(GIFT_CARD_SUB_TYPE_PAID_LIABILITY),
+            Decimal::new(1000, 2),
+        )
+        .await
+        .expect("scanner-normalized code should match stored code");
+
+        assert_eq!(plan.card_id, card_id);
+        assert_eq!(plan.new_balance, Decimal::new(1500, 2));
+
+        tx.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn purchased_reload_reactivates_depleted_card_but_rejects_expired_positive_balance() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let depleted_id = Uuid::new_v4();
+        let depleted_code = format!("GC-REUSE-{}", Uuid::new_v4().simple());
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'purchased', 'depleted', 0.00, $3, TRUE, $4)
+            "#,
+        )
+        .bind(depleted_id)
+        .bind(&depleted_code)
+        .bind(Decimal::new(5000, 2))
+        .bind(Utc::now() - Duration::days(1))
+        .execute(&mut *tx)
+        .await
+        .expect("insert depleted card");
+
+        let reused_id = pos_load_purchased_in_tx(
+            &mut tx,
+            &depleted_code,
+            Decimal::new(3000, 2),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("depleted purchased card can be reused");
+        assert_eq!(reused_id, depleted_id);
+
+        let (balance, status): (Decimal, String) = sqlx::query_as(
+            "SELECT current_balance, card_status::text FROM gift_cards WHERE id = $1",
+        )
+        .bind(depleted_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("load reused card");
+        assert_eq!(balance, Decimal::new(3000, 2));
+        assert_eq!(status, "active");
+
+        let expired_id = Uuid::new_v4();
+        let expired_code = format!("GC-EXPIRED-{}", Uuid::new_v4().simple());
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'purchased', 'active', $3, $3, TRUE, $4)
+            "#,
+        )
+        .bind(expired_id)
+        .bind(&expired_code)
+        .bind(Decimal::new(1200, 2))
+        .bind(Utc::now() - Duration::days(1))
+        .execute(&mut *tx)
+        .await
+        .expect("insert expired card");
+
+        let error = pos_load_purchased_in_tx(
+            &mut tx,
+            &expired_code,
+            Decimal::new(1000, 2),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("expired purchased balance must not be resurrected");
+        assert!(error.to_string().contains("breakage review"));
+
+        tx.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn non_liability_load_reuses_depleted_card_and_closes_expired_balance() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let depleted_id = Uuid::new_v4();
+        let depleted_code = format!("LOY-REUSE-{}", Uuid::new_v4().simple());
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'loyalty_reward', 'depleted', 0.00, $3, FALSE, $4)
+            "#,
+        )
+        .bind(depleted_id)
+        .bind(&depleted_code)
+        .bind(Decimal::new(1000, 2))
+        .bind(Utc::now() - Duration::days(1))
+        .execute(&mut *tx)
+        .await
+        .expect("insert depleted loyalty card");
+
+        let reused_id = load_non_liability_gift_card_in_tx(
+            &mut tx,
+            NonLiabilityGiftCardLoad {
+                card_kind: GIFT_CARD_KIND_LOYALTY_REWARD,
+                code: &depleted_code,
+                amount: Decimal::new(1500, 2),
+                customer_id: None,
+                session_id: None,
+                transaction_id: None,
+                notes: None,
+                promo_event_name: None,
+            },
+        )
+        .await
+        .expect("depleted loyalty card can be reused");
+        assert_eq!(reused_id, depleted_id);
+
+        let expired_id = Uuid::new_v4();
+        let expired_code = format!("DON-EXPIRED-{}", Uuid::new_v4().simple());
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'donated_giveaway', 'active', $3, $3, FALSE, $4)
+            "#,
+        )
+        .bind(expired_id)
+        .bind(&expired_code)
+        .bind(Decimal::new(2000, 2))
+        .bind(Utc::now() - Duration::days(1))
+        .execute(&mut *tx)
+        .await
+        .expect("insert expired donated card");
+
+        let reassigned_id = load_non_liability_gift_card_in_tx(
+            &mut tx,
+            NonLiabilityGiftCardLoad {
+                card_kind: GIFT_CARD_KIND_DONATED_GIVEAWAY,
+                code: &expired_code,
+                amount: Decimal::new(500, 2),
+                customer_id: None,
+                session_id: None,
+                transaction_id: None,
+                notes: Some("new donation"),
+                promo_event_name: None,
+            },
+        )
+        .await
+        .expect("expired non-liability card can be reassigned without resurrecting old balance");
+        assert_eq!(reassigned_id, expired_id);
+
+        let balance: Decimal =
+            sqlx::query_scalar("SELECT current_balance FROM gift_cards WHERE id = $1")
+                .bind(expired_id)
+                .fetch_one(&mut *tx)
+                .await
+                .expect("load reassigned card balance");
+        assert_eq!(balance, Decimal::new(500, 2));
+
+        let expired_event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM gift_card_events WHERE gift_card_id = $1 AND event_kind = 'expired'",
+        )
+        .bind(expired_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("load expired event count");
+        assert_eq!(expired_event_count, 1);
 
         tx.rollback().await.expect("rollback transaction");
     }

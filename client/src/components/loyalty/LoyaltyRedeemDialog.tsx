@@ -78,7 +78,7 @@ export function LoyaltyRedeemDialog({
         body: JSON.stringify({
           customer_id: customer.id,
           apply_to_sale: centsToFixed2(0),
-          remainder_card_code: cardCode.trim(),
+          remainder_card_code: cardCode.trim().toUpperCase(),
           notify_customer_sms: false,
           notify_customer_email: false,
           ...(registerSessionId ? { session_id: registerSessionId } : {}),
@@ -199,7 +199,7 @@ export function LoyaltyRedeemDialog({
                         type="text"
                         placeholder="Scan Card Code..."
                         value={cardCode}
-                        onChange={(e) => setCardCode(e.target.value)}
+                        onChange={(e) => setCardCode(e.target.value.toUpperCase())}
                         className="ui-input w-full pl-14 font-mono text-lg font-black tracking-[0.2em] uppercase placeholder:text-[10px] placeholder:tracking-widest h-20 rounded-[24px] focus:ring-amber-500 focus:border-amber-500"
                       />
                       <Plus className="absolute left-6 top-1/2 -translate-y-1/2 h-6 w-6 text-app-text-muted opacity-40" />

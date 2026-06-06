@@ -229,7 +229,8 @@ function IssueForm({ mode, onDone }: IssueFormProps) {
 
   const submit = async () => {
     setErr(null);
-    if (!code.trim()) { setErr("Card code is required."); return; }
+    const normalizedCode = code.trim().toUpperCase();
+    if (!normalizedCode) { setErr("Card code is required."); return; }
     if (isPromo && !eventName.trim()) { setErr("Event name is required."); return; }
     const amtCents = parseMoneyToCents(amount);
     if (amtCents <= 0) { setErr("Enter a positive amount."); return; }
@@ -239,7 +240,7 @@ function IssueForm({ mode, onDone }: IssueFormProps) {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(backofficeHeaders() as Record<string, string>) },
         body: JSON.stringify({
-          code: code.trim(),
+          code: normalizedCode,
           amount: centsToFixed2(amtCents),
           ...(isPromo ? { event_name: eventName.trim() } : {}),
           notes: notes.trim() || undefined,
@@ -250,7 +251,7 @@ function IssueForm({ mode, onDone }: IssueFormProps) {
         const b = (await res.json()) as { error?: string };
         throw new Error(b.error ?? "Failed to issue card");
       }
-      toast(`${isPromo ? "Promo gift card" : "Gift card"} ${code} issued successfully.`, "success");
+      toast(`${isPromo ? "Promo gift card" : "Gift card"} ${normalizedCode} issued successfully.`, "success");
       onDone();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
@@ -267,7 +268,7 @@ function IssueForm({ mode, onDone }: IssueFormProps) {
       {err && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{err}</p>}
       <label className="block">
         <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Card code</span>
-        <input value={code} onChange={e => setCode(e.target.value)} placeholder="Scan or type…" className="ui-input mt-1 w-full" />
+          <input value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="Scan or type…" className="ui-input mt-1 w-full" />
       </label>
       <label className="block">
         <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Amount ($)</span>
@@ -434,7 +435,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
   };
 
   const lookupScannedCard = async () => {
-    const code = scanCode.trim();
+    const code = scanCode.trim().toUpperCase();
     if (!code) {
       toast("Scan or enter a gift card code.", "error");
       return;
@@ -603,7 +604,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
                 <div className="flex min-w-0 flex-1 gap-2 lg:max-w-xl">
                   <input
                     value={scanCode}
-                    onChange={(event) => setScanCode(event.target.value)}
+                    onChange={(event) => setScanCode(event.target.value.toUpperCase())}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") void lookupScannedCard();
                     }}

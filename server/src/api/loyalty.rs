@@ -13,7 +13,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -565,71 +565,21 @@ async fn redeem_reward(
     // Load remainder onto a loyalty gift card if needed.
     let mut remainder_card_id: Option<Uuid> = None;
     if remainder > Decimal::ZERO {
-        let expires_at = Utc::now() + Duration::days(365);
-
-        // Try to load on existing active card first, otherwise issue new one.
-        let existing: Option<(Uuid, Decimal, String)> = sqlx::query_as(
-            "SELECT id, current_balance, card_kind::text FROM gift_cards WHERE code = $1 AND card_status = 'active'::gift_card_status FOR UPDATE",
+        let card_id = crate::logic::gift_card_ops::load_non_liability_gift_card_in_tx(
+            &mut tx,
+            crate::logic::gift_card_ops::NonLiabilityGiftCardLoad {
+                card_kind: crate::logic::gift_card_ops::GIFT_CARD_KIND_LOYALTY_REWARD,
+                code: &reward_card_code,
+                amount: remainder,
+                customer_id: Some(effective_customer_id),
+                session_id: body.session_id,
+                transaction_id: body.transaction_id,
+                notes: None,
+                promo_event_name: None,
+            },
         )
-        .bind(&reward_card_code)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let card_id = if let Some((eid, old_bal, card_kind)) = existing {
-            if !card_kind.eq_ignore_ascii_case("loyalty_reward") {
-                return Err(LoyaltyError::InvalidPayload(
-                    "This code belongs to a different gift card type. Use a loyalty reward card code instead."
-                        .to_string(),
-                ));
-            }
-            let new_bal = old_bal + remainder;
-            sqlx::query("UPDATE gift_cards SET current_balance = $1, expires_at = GREATEST(expires_at, $2) WHERE id = $3")
-                .bind(new_bal)
-                .bind(expires_at)
-                .bind(eid)
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query(
-                "INSERT INTO gift_card_events (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id) VALUES ($1, 'loaded', $2, $3, $4, $5)",
-            )
-            .bind(eid)
-            .bind(remainder)
-            .bind(new_bal)
-            .bind(body.transaction_id)
-            .bind(body.session_id)
-            .execute(&mut *tx)
-            .await?;
-            eid
-        } else {
-            let new_id: Uuid = sqlx::query_scalar(
-                r#"
-                INSERT INTO gift_cards
-                    (code, card_kind, card_status, current_balance, original_value,
-                     is_liability, expires_at, customer_id, issued_session_id, issued_order_id, notes)
-                VALUES ($1, 'loyalty_reward', 'active', $2, $2, FALSE, $3, $4, $5, $6, $7)
-                RETURNING id
-                "#,
-            )
-            .bind(&reward_card_code)
-            .bind(remainder)
-            .bind(expires_at)
-            .bind(effective_customer_id)
-            .bind(body.session_id)
-            .bind(body.transaction_id)
-            .bind(Option::<&str>::None)
-            .fetch_one(&mut *tx)
-            .await?;
-            sqlx::query(
-                "INSERT INTO gift_card_events (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id) VALUES ($1, 'issued', $2, $2, $3, $4)",
-            )
-            .bind(new_id)
-            .bind(remainder)
-            .bind(body.transaction_id)
-            .bind(body.session_id)
-            .execute(&mut *tx)
-            .await?;
-            new_id
-        };
+        .await
+        .map_err(|e| LoyaltyError::InvalidPayload(e.to_string()))?;
 
         remainder_card_id = Some(card_id);
 

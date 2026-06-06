@@ -14,6 +14,8 @@ Use **Gift Cards** for card lookup, donated/giveaway issuance, promo gift card i
 
 Purchased gift cards are sold or reloaded from **Register** only. Do not issue customer-paid gift card value from Back Office.
 
+Gift card codes are normalized to uppercase for scanner workflows. Reusing a depleted physical card preserves all prior event history on the same code. Cards with a positive, unexpired balance can be topped up through the matching workflow. Expired purchased cards with remaining balance must be swept through QBO breakage review before reuse; expired loyalty, donated, and promo balances are closed as non-liability value before the code is reassigned.
+
 ---
 
 ## Gift Cards
@@ -35,6 +37,7 @@ Purchased gift cards are sold or reloaded from **Register** only. Do not issue c
 1. **Gift Cards** → **Issue Donated**.
 2. Complete fields; add **reason** in notes if the form supports it.
 3. File any **paper approval** your finance team requires.
+4. If the code was previously depleted, Riverside reactivates the same card record and keeps prior history. If it had an expired non-liability balance, Riverside closes the expired balance before loading the new approved value.
 
 ### Issue Promo
 
@@ -45,6 +48,7 @@ Purchased gift cards are sold or reloaded from **Register** only. Do not issue c
 3. Link a customer if the card is assigned to one person.
 4. Add notes for finance/support context if needed.
 5. Confirm the new card appears in **Gift Cards** with the event name.
+6. Promo codes can be reused after depletion; the new event name is saved on the card record.
 
 ---
 
@@ -88,6 +92,8 @@ Purchased gift cards are sold or reloaded from **Register** only. Do not issue c
 ## POS coordination
 
 If POS says a gift card type does not match, check the card record in Back Office first. Purchased cards should be sold/reloaded from **Register** and redeemed as **Paid**. Loyalty reward cards should be redeemed as **Loyalty**. Donated cards should be redeemed as **Donated**. Promo gift cards should be redeemed as **Promo**.
+
+Expired purchased-card balances post to gift card breakage during QBO proposal generation. Loyalty, donated, and promo cards expire after one year but do not create purchased-card breakage because they are not customer-paid liabilities.
 
 ## Helping a coworker
 

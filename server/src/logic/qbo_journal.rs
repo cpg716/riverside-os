@@ -153,6 +153,7 @@ pub async fn sweep_expired_gift_cards(
         SELECT id, current_balance, code
         FROM gift_cards
         WHERE is_liability = TRUE
+          AND card_kind = 'purchased'::gift_card_kind
           AND current_balance > 0
           AND card_status = 'active'::gift_card_status
           AND (expires_at AT TIME ZONE $2)::date <= $1::date
@@ -2184,6 +2185,58 @@ mod tests {
         assert_eq!(count, 1);
 
         // Clean up
+        sqlx::query("DELETE FROM gift_cards WHERE id = $1")
+            .bind(card_id)
+            .execute(&pool)
+            .await
+            .ok();
+    }
+
+    #[tokio::test]
+    async fn gift_card_breakage_sweep_excludes_non_purchased_cards() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let pool = PgPool::connect(&database_url).await.expect("connect pool");
+
+        let code = format!("GC-NONBREAK-{}", uuid::Uuid::new_v4().simple());
+        let card_id = uuid::Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'loyalty_reward', 'active', $3, $3, FALSE, NOW() - INTERVAL '5 days')
+            "#,
+        )
+        .bind(card_id)
+        .bind(&code)
+        .bind(Decimal::new(2500, 2))
+        .execute(&pool)
+        .await
+        .expect("insert expired loyalty gift card");
+
+        let today = chrono::Utc::now().date_naive();
+        sweep_expired_gift_cards(&pool, today).await.expect("sweep");
+
+        let (bal, status): (Decimal, String) = sqlx::query_as(
+            "SELECT current_balance, card_status::text FROM gift_cards WHERE id = $1",
+        )
+        .bind(card_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load card");
+        assert_eq!(bal, Decimal::new(2500, 2));
+        assert_eq!(status, "active");
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM gift_card_events WHERE gift_card_id = $1 AND event_kind = 'expiration_breakage'",
+        )
+        .bind(card_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load event count");
+        assert_eq!(count, 0);
+
         sqlx::query("DELETE FROM gift_cards WHERE id = $1")
             .bind(card_id)
             .execute(&pool)
