@@ -325,7 +325,7 @@ export default function PosShell({
 
   return (
     <div
-      className="flex flex-1 w-full bg-app-bg font-sans antialiased transition-colors duration-300"
+      className="flex min-h-0 flex-1 w-full overflow-hidden bg-app-bg font-sans antialiased transition-colors duration-300"
       data-testid="pos-shell-root"
       data-pos-active-tab={activePosTab}
       data-register-open={isRegisterOpen ? "true" : "false"}
@@ -340,9 +340,9 @@ export default function PosShell({
         onSubSectionChange={onSubSectionChange}
       />
 
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 
-        <div className="flex flex-1 flex-col workspace-snap" onClick={(e) => { const t = e.target; if (t instanceof HTMLElement && t.closest('[data-pin-entry="true"]')) return; if (!collapsed) onToggleCollapse(); }}>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden workspace-snap" onClick={(e) => { const t = e.target; if (t instanceof HTMLElement && t.closest('[data-pin-entry="true"]')) return; if (!collapsed) onToggleCollapse(); }}>
           {activePosTab === "pos-dashboard" && (!isRegisterOpen || !sessionId ? (
               <div className="flex flex-1 items-center justify-center bg-app-bg p-6 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-40">Open register to view the sales dashboard.</div>
             ) : (
@@ -369,7 +369,7 @@ export default function PosShell({
 
           {(activePosTab === "register") && (
             <div
-              className="relative flex min-h-0 flex-1 flex-col"
+              className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
               data-testid="pos-register-panel"
               data-register-state={
                 !isRegisterOpen ? "needs-open" : sessionId ? "mounted" : "missing-session"

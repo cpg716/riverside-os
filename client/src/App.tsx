@@ -1725,7 +1725,11 @@ function AppShell({
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-app-bg antialiased font-sans">
+    <div
+      className={`flex flex-col bg-app-bg antialiased font-sans ${
+        posMode ? "h-screen overflow-hidden" : "min-h-screen"
+      }`}
+    >
       <GlobalTopBar
         segments={breadcrumbSegments}
         onNavigateRegister={navigateRegister}
