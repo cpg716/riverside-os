@@ -86,6 +86,10 @@ export default function StaffMiniSelector({
   const buttonPadding = size === "lg" ? "px-6 py-3" : size === "sm" ? "px-2 py-1" : "px-4 py-2";
   const buttonText = size === "lg" ? "text-base" : size === "sm" ? "text-[10px]" : "text-sm";
   const dropdownItemPadding = size === "lg" ? "px-4 py-3 text-sm" : "px-2 py-2 text-xs";
+  const handleSelect = (id: string) => {
+    setIsOpen(false);
+    onSelect(id);
+  };
 
   return (
     <div ref={containerRef} className={`relative flex justify-center ${className}`}>
@@ -118,8 +122,7 @@ export default function StaffMiniSelector({
             <button
               type="button"
               onClick={() => {
-                onSelect("");
-                setIsOpen(false);
+                handleSelect("");
               }}
               className={`flex w-full items-center gap-2 rounded-lg transition-colors hover:bg-app-surface-2 ${dropdownItemPadding} font-bold text-app-text-muted text-left`}
             >
@@ -139,8 +142,7 @@ export default function StaffMiniSelector({
                 data-testid={`staff-identity-selector-${idx + 1}`}
                 data-staff-id={s.id}
                 onClick={() => {
-                  onSelect(s.id);
-                  setIsOpen(false);
+                  handleSelect(s.id);
                 }}
                 className={`flex w-full items-center gap-2 rounded-lg transition-colors ${
                   selectedId === s.id
