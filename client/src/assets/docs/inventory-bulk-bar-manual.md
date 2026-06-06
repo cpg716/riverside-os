@@ -50,7 +50,7 @@ Bulk actions are for clean, reviewed selections only. Before applying a bulk cha
 
 Use **Inventory → Batch Scan** when you have a group of scanned SKUs, barcodes, or vendor UPCs and need to confirm which records ROS can resolve. Paste or scan one code per line, then run **Resolve Batch**.
 
-Batch Scan is resolution-only. It does not receive inventory, adjust stock, start a physical count, or change costs. If the scan is part of receiving, continue through **Receive Stock**. If it is part of a count or correction, use **Count/Reconcile** or the approved stock-adjustment workflow.
+Batch Scan is resolution-only. It does not receive inventory, adjust stock, start a physical count, or change costs. If the scan is part of receiving, continue through **Receive Stock**. If it is part of a count or correction, use **Physical Inventory** or the approved stock-adjustment workflow.
 
 
 ## What to watch for

@@ -274,7 +274,7 @@ const SEARCH_SHORTCUTS: Record<SearchShortcutIntent, SearchShortcut> = {
   physical_inventory: {
     intent: "physical_inventory",
     key: "shortcut:physical_inventory",
-    title: "Count/Reconcile",
+    title: "Physical Inventory",
     subtitle: "Open physical inventory mismatch review.",
     tab: "inventory",
     section: "physical",

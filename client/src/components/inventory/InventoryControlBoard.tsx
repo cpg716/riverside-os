@@ -1959,7 +1959,7 @@ export default function InventoryControlBoard({
                 {adjustRow.sku}
               </p>
               <p className="mt-3 max-w-xs text-[11px] font-semibold leading-relaxed text-app-text-muted">
-                Use +/- for a count mistake or small correction. Use Damage/Loss for damaged, missing, or unsellable merchandise. Use Return to Vendor when stock is leaving for vendor credit or a claim. Use Count/Reconcile for a full or category count.
+                Use +/- for a count mistake or small correction. Use Damage/Loss for damaged, missing, or unsellable merchandise. Use Return to Vendor when stock is leaving for vendor credit or a claim. Use Physical Inventory for a full or category count.
               </p>
             </div>
 

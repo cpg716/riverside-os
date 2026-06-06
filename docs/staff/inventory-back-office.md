@@ -2,7 +2,7 @@
 
 **Audience:** Inventory leads, buyers, receivers.
 
-**Where in ROS:** Back Office → **Inventory**. Opening Inventory shows the **Inventory Hub**. Main jobs: **Find Item**, **Add/Edit Catalog**, **Promotions**, **Order Stock**, **Receive Stock**, **Correct Stock**, **Count/Reconcile**.
+**Where in ROS:** Back Office → **Inventory**. Opening Inventory shows the **Inventory Hub**. Main jobs: **Find Item**, **Add/Edit Catalog**, **Promotions**, **Order Stock**, **Receive Stock**, **Correct Stock**, **Physical Inventory**.
 
 **Related permissions:** **catalog.view** / **catalog.edit** for catalog surfaces. **procurement.view** / **procurement.mutate** for PO-style receiving. **physical_inventory.view** for **Physical count**.
 
@@ -20,7 +20,7 @@ Pick the area that matches the **job**, not the person:
 | **Order Stock** | Build vendor orders and review buying guidance | Purchase Orders, Stock Guidance |
 | **Receive Stock** | Post arrived merchandise from vendor paperwork | Receiving, direct invoice receiving |
 | **Correct Stock** | Review damaged/lost stock and return-to-vendor movements | Damaged / Loss, Return to Vendor |
-| **Count/Reconcile** | Run physical counts and publish reviewed variances | Physical count |
+| **Physical Inventory** | Run physical counts and publish reviewed variances | Physical count |
 
 Old deep links and saved shortcuts still open the same tools. The labels above are the staff-facing mental model for deciding where to start.
 
@@ -167,7 +167,7 @@ Choose the correction path by the real-world reason:
 | Fix a small count mistake | **Find Item** stock adjustment | The shelf count was off by one or needs a small count correction. |
 | Record damage or loss | **Find Item** → **Damage/Loss** | Merchandise is damaged, missing, or unsellable. |
 | Return merchandise to a vendor | **Find Item** → **Return to Vendor** | Merchandise is leaving for vendor credit or a vendor claim. |
-| Run a full or category count | **Count/Reconcile** | You are reconciling a shelf, category, cycle count, or full-store count. |
+| Run a full or category count | **Physical Inventory** | You are reconciling a shelf, category, cycle count, or full-store count. |
 
 The **Damage/Loss History** and **Vendor Return History** sections under **Correct Stock** are review/report sections. They show prior movements; they are not the starting point for a new correction.
 
@@ -181,9 +181,9 @@ Open **Product Hub** from **Find Item**. The **SKUs & Stock** tab supports three
 
 All views should represent the same filtered SKUs. Used Counterpoint SKUs and new ROS SKUs must both remain searchable, editable, sellable, and usable in receiving and order workflows.
 
-## Count/Reconcile
+## Physical Inventory
 
-1. **Count/Reconcile** (requires **physical_inventory.view**).
+1. **Physical Inventory** (requires **physical_inventory.view**).
 2. **Start or resume** session; scan **location** per SOP.
 3. **Review variances** before posting adjustments — large shrink hits **financial** review.
 4. For **full store** or category counts, review also surfaces in-scope SKUs that were **not counted**. Do not treat those rows as already reviewed just because they were not scanned.

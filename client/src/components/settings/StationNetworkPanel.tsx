@@ -362,6 +362,30 @@ export default function StationNetworkPanel() {
               </div>
             </div>
 
+            <div>
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
+                Physical Inventory Scanner URLs
+              </h4>
+              <div className="space-y-2">
+                {networkInfo.urls.map((u) => {
+                  const scannerUrl = `${u.url.replace(/\/$/, "")}/physical-inventory/scanner`;
+                  return (
+                    <UrlCard
+                      key={scannerUrl}
+                      label={`${u.label} — Physical Inventory Scanner`}
+                      url={scannerUrl}
+                      kind={u.kind}
+                      copied={copied === scannerUrl}
+                      onCopy={() => copyUrl(scannerUrl)}
+                    />
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
+                Use this focused URL for iPad PWA camera scanning, iPad Bluetooth scanners, or PC USB scanners during count sessions.
+              </p>
+            </div>
+
             {networkInfo.tailscale_ip && (
               <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-3">
                 <div className="flex items-center gap-2">
@@ -412,11 +436,16 @@ export default function StationNetworkPanel() {
           />
           <GuideStep
             number={3}
+            title="Physical Inventory Scanner"
+            description="Open the Physical Inventory Scanner URL on the counting device. PC USB scanners and iPad Bluetooth scanners work when configured as keyboard input with Enter after each scan; iPad camera scanning uses the PWA camera scanner."
+          />
+          <GuideStep
+            number={4}
             title="Back Office — Second Computer"
             description="Same as a register: use the LAN URL. If using the desktop app, configure the API host at sign-in. If using a browser, just navigate to the LAN URL."
           />
           <GuideStep
-            number={4}
+            number={5}
             title="Remote Access (Tailscale)"
             description="Install Tailscale on both the server and the remote device. Use the Tailscale IP shown above (100.x.x.x) as the API host."
           />

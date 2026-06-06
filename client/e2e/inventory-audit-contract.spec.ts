@@ -9,6 +9,7 @@ import {
   createDraftPurchaseOrder,
   createSingleVariantProduct,
   createVendor,
+  e2eAdminCode,
   getInventoryIntelligence,
   getProductHubInventory,
   getPurchaseOrderDetail,
@@ -243,9 +244,18 @@ async function movePhysicalInventorySessionToReview(
 async function publishPhysicalInventorySession(
   request: APIRequestContext,
   sessionId: string,
+  managerStaffId: string,
 ): Promise<{ status: number; bodyText: string }> {
   const res = await request.post(`${apiBase()}/api/inventory/physical/sessions/${sessionId}/publish`, {
-    headers: adminHeaders(),
+    headers: {
+      ...adminHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      manager_staff_id: managerStaffId,
+      manager_pin: e2eAdminCode(),
+      approval_note: "E2E Manager Access publish verification",
+    },
     failOnStatusCode: false,
   });
   return {
@@ -609,7 +619,7 @@ test.describe("inventory audit contract", () => {
     expect(blockedReceipt.status(), blockedText.slice(0, 1000)).toBe(400);
     expect(blockedText).toContain("Receiving is paused");
 
-    const publishAttempt = await publishPhysicalInventorySession(request, session.id);
+    const publishAttempt = await publishPhysicalInventorySession(request, session.id, operatorStaffId);
 
     expect(publishAttempt.status, publishAttempt.bodyText.slice(0, 1000)).toBe(200);
     const receipt = await receivePurchaseOrder(request, po.id, {

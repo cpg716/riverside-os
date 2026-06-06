@@ -17,6 +17,7 @@ export interface PhysicalInventorySession {
   status: "open" | "reviewing" | "published" | "cancelled";
   scope: "full" | "category";
   category_ids: string[];
+  baseline_type?: "normal" | "first_inventory" | "baseline_correction";
   started_at: string;
   last_saved_at: string;
   published_at: string | null;

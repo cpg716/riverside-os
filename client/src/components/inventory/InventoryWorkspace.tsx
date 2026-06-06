@@ -107,7 +107,7 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string; 
     toolLabel: "Catalog Import",
   },
   physical: {
-    title: "Count/Review",
+    title: "Physical Inventory",
     subtitle: "Cycle counts and full-store stock review.",
     toolLabel: "Physical Inventory",
   },
@@ -173,7 +173,7 @@ const INVENTORY_JOBS: InventoryJob[] = [
     sections: ["damaged", "rtv"],
   },
   {
-    label: "Count/Reconcile",
+    label: "Physical Inventory",
     description: "Run physical counts and publish reviewed variances.",
     primarySection: "physical",
     sections: ["physical"],

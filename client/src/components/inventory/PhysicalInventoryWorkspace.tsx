@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ClipboardList,
   Edit3,
+  FileText,
   ListFilter,
   Loader2,
   Package,
@@ -43,6 +44,7 @@ import {
 } from "../../lib/scanSounds";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import ManagerApprovalModal from "../pos/ManagerApprovalModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import VariantSearchInput from "../ui/VariantSearchInput";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
@@ -57,6 +59,7 @@ interface PISession {
   status: "open" | "reviewing" | "published" | "cancelled";
   scope: "full" | "category";
   category_ids: string[];
+  baseline_type: "normal" | "first_inventory" | "baseline_correction";
   started_at: string;
   last_saved_at: string;
   published_at: string | null;
@@ -90,8 +93,11 @@ interface ReviewRow {
   adjusted_qty: number | null;
   effective_qty: number;
   sales_since_start: number;
+  sales_after_count: number;
   final_stock: number;
   delta: number;
+  unit_cost: string | number;
+  accounting_impact: string | number;
   review_status: string;
   review_note: string | null;
 }
@@ -102,6 +108,12 @@ interface ReviewSummary {
   missing_variants: number;
   total_shrinkage: number;
   total_surplus: number;
+  zero_cost_movement_count: number;
+  accounting_impact: string | number;
+  rows_matching_filter?: number;
+  rows_returned?: number;
+  rows_hidden?: number;
+  row_limit?: number;
 }
 
 interface ScanFeedback {
@@ -121,8 +133,37 @@ interface Category {
   name: string;
 }
 
+interface DiscoveredItem {
+  id: string;
+  session_id: string;
+  scanned_code: string;
+  scan_source: "laser" | "camera" | "manual";
+  first_scanned_at: string;
+  last_scanned_at: string;
+  scan_count: number;
+  status: "pending" | "resolved" | "ignored";
+  resolved_variant_id: string | null;
+  resolved_sku: string | null;
+  resolved_product_name: string | null;
+  resolution_note: string | null;
+}
+
+interface PhysicalInventoryReport {
+  session: PISession;
+  approvals: Record<string, unknown>[];
+  variance_rows: Record<string, unknown>[];
+  scan_rows: Record<string, unknown>[];
+  discovered_rows: Record<string, unknown>[];
+  accounting_rows: Record<string, unknown>[];
+}
+
 type Phase = "manager" | "counting" | "review";
 type ScanMode = "laser" | "camera";
+type BaselineType = "normal" | "first_inventory" | "baseline_correction";
+type WorkspaceReportTab = "variance_rows" | "scan_rows" | "discovered_rows" | "accounting_rows" | "approvals";
+
+const COUNT_FEED_LIMIT = 500;
+const REVIEW_ROW_LIMIT = 500;
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -134,6 +175,72 @@ function fmt(dt: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatMaybeMoney(value: string | number | null | undefined): string {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return "$0.00";
+  return numeric.toLocaleString(undefined, { style: "currency", currency: "USD" });
+}
+
+function titleizeKey(value: string): string {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatReportCell(value: unknown, key: string): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "object") return JSON.stringify(value);
+  const text = String(value);
+  if (/cost|amount|impact|total|value/.test(key)) return formatMaybeMoney(text);
+  if (/(_at|date)$/.test(key)) {
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toLocaleString();
+  }
+  return text.replace(/_/g, " ");
+}
+
+function ReportTable({
+  rows,
+  emptyLabel,
+}: {
+  rows: Record<string, unknown>[];
+  emptyLabel: string;
+}) {
+  const columns = rows.length > 0 ? Object.keys(rows[0]).filter((key) => key !== "variance_summary") : [];
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-2xl border border-app-border bg-app-surface px-5 py-10 text-center text-[10px] font-black uppercase tracking-[0.25em] text-app-text-muted">
+        {emptyLabel}
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-app-border bg-app-surface">
+      <table className="w-full text-left text-xs">
+        <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          <tr>
+            {columns.map((key) => (
+              <th key={key} className="whitespace-nowrap px-4 py-3">
+                {titleizeKey(key)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-app-border/50">
+          {rows.slice(0, 250).map((row, index) => (
+            <tr key={index} className="hover:bg-app-surface-2/60">
+              {columns.map((key) => (
+                <td key={key} className="max-w-[280px] px-4 py-3 font-semibold text-app-text-muted">
+                  <span className="line-clamp-2">{formatReportCell(row[key], key)}</span>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function StatusBadge({ status }: { status: PISession["status"] }) {
@@ -156,6 +263,13 @@ function StatusBadge({ status }: { status: PISession["status"] }) {
 
 export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   const { backofficeHeaders } = useBackofficeAuth();
+  const isScannerRoute =
+    typeof window !== "undefined" &&
+    (window.location.pathname.replace(/\/+$/, "") || "/") === "/physical-inventory/scanner";
+  const scannerUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/physical-inventory/scanner`
+      : "/physical-inventory/scanner";
   const mergeH = useCallback(
     (extra?: HeadersInit): HeadersInit => {
       const base = new Headers(backofficeHeaders());
@@ -178,9 +292,11 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   const [showMoveConfirm, setShowMoveConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [publishConfirm, setPublishConfirm] = useState(false);
+  const [managerPublishOpen, setManagerPublishOpen] = useState(false);
 
   // ── Counting state
   const [counts, setCounts] = useState<CountRow[]>([]);
+  const [discoveredItems, setDiscoveredItems] = useState<DiscoveredItem[]>([]);
   const [scanMode, setScanMode] = useState<ScanMode>("laser");
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
   const [scanSearch, setScanSearch] = useState("");
@@ -201,10 +317,16 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   // ── New Session form state
   const [showNewSession, setShowNewSession] = useState(false);
   const [newScope, setNewScope] = useState<"full" | "category">("full");
+  const [newBaselineType, setNewBaselineType] = useState<BaselineType>("normal");
   const [newCatIds, setNewCatIds] = useState<string[]>([]);
   const [newExcludeReserved, setNewExcludeReserved] = useState(false);
   const [newExcludeLayaway, setNewExcludeLayaway] = useState(false);
   const [newNotes, setNewNotes] = useState("");
+  const [reportSessionId, setReportSessionId] = useState<string | null>(null);
+  const [workspaceReport, setWorkspaceReport] = useState<PhysicalInventoryReport | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportLoadError, setReportLoadError] = useState<string | null>(null);
+  const [reportTab, setReportTab] = useState<WorkspaceReportTab>("variance_rows");
   const isCompactLayout = useMediaQuery("(max-width: 1023px)");
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -224,7 +346,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       const data = await activeRes.json() as PISession | null;
       setActiveSession(data ?? null);
       if (data && (data.status === "open" || data.status === "reviewing")) {
-        setPhase(data.status === "reviewing" ? "review" : "manager");
+        setPhase(data.status === "reviewing" ? "review" : isScannerRoute ? "counting" : "manager");
       }
     }
     if (listRes.ok) {
@@ -234,24 +356,49 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     if (catRes.ok) {
       setCategories((await catRes.json()) as Category[]);
     }
-  }, [mergeH]);
+  }, [isScannerRoute, mergeH]);
 
   useEffect(() => { void loadData(); }, [loadData]);
 
-  const loadCounts = useCallback(async (sessionId: string) => {
+  const loadDiscovered = useCallback(async (sessionId: string) => {
     const res = await fetch(
-      `${BASE_URL}/api/inventory/physical/sessions/${sessionId}`,
+      `${BASE_URL}/api/inventory/physical/sessions/${sessionId}/discovered`,
       { headers: mergeH() },
     );
     if (!res.ok) return;
-    const data = (await res.json()) as { session: PISession; counts: CountRow[] };
-    setCounts(data.counts);
+    const data = (await res.json()) as { items: DiscoveredItem[] };
+    setDiscoveredItems(data.items);
   }, [mergeH]);
 
-  const loadReview = useCallback(async (sessionId: string) => {
+  const loadCounts = useCallback(async (sessionId: string) => {
+    const res = await fetch(
+      `${BASE_URL}/api/inventory/physical/sessions/${sessionId}?limit=${COUNT_FEED_LIMIT}`,
+      { headers: mergeH() },
+    );
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      session: PISession;
+      counts: CountRow[];
+      count_total?: number;
+    };
+    setCounts(data.counts);
+    setActiveSession((prev) =>
+      prev?.id === sessionId
+        ? { ...prev, total_counted: data.count_total ?? data.counts.length }
+        : prev,
+    );
+    await loadDiscovered(sessionId);
+  }, [loadDiscovered, mergeH]);
+
+  const loadReview = useCallback(async (sessionId: string, query = "") => {
     try {
+      const params = new URLSearchParams({
+        limit: String(REVIEW_ROW_LIMIT),
+      });
+      const trimmedQuery = query.trim();
+      if (trimmedQuery) params.set("q", trimmedQuery);
       const res = await fetch(
-        `${BASE_URL}/api/inventory/physical/sessions/${sessionId}/review`,
+        `${BASE_URL}/api/inventory/physical/sessions/${sessionId}/review?${params.toString()}`,
         { headers: mergeH() },
       );
       if (!res.ok) {
@@ -263,12 +410,42 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       setReviewSummary(data.summary);
       setReviewLoadError(null);
       setLastReviewLoadedAt(new Date().toLocaleString());
+      await loadDiscovered(sessionId);
     } catch (error) {
       setReviewLoadError(
         error instanceof Error ? error.message : "Could not refresh count review.",
       );
     }
+  }, [loadDiscovered, mergeH]);
+
+  const loadWorkspaceReport = useCallback(async (sessionId: string) => {
+    setReportLoading(true);
+    setReportLoadError(null);
+    setReportSessionId(sessionId);
+    try {
+      const res = await fetch(
+        `${BASE_URL}/api/inventory/physical/sessions/${sessionId}/reports`,
+        { headers: mergeH() },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not load physical inventory reports.");
+      }
+      setWorkspaceReport((await res.json()) as PhysicalInventoryReport);
+    } catch (error) {
+      setWorkspaceReport(null);
+      setReportLoadError(
+        error instanceof Error ? error.message : "Could not load physical inventory reports.",
+      );
+    } finally {
+      setReportLoading(false);
+    }
   }, [mergeH]);
+
+  const currentReportRows = useMemo(() => {
+    if (!workspaceReport) return [];
+    return workspaceReport[reportTab] ?? [];
+  }, [reportTab, workspaceReport]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Feedback flash
@@ -284,6 +461,85 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   // Scanning
   // ─────────────────────────────────────────────────────────────────────────────
 
+  const recordDiscoveredScan = useCallback(async (code: string) => {
+    if (!activeSession) return;
+    const res = await fetch(
+      `${BASE_URL}/api/inventory/physical/sessions/${activeSession.id}/discovered`,
+      {
+        method: "POST",
+        headers: mergeH({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          scanned_code: code,
+          source: scanMode,
+        }),
+      },
+    );
+    if (!res.ok) {
+      playScanError();
+      showFeedback({ type: "error", message: `NOT FOUND: ${code}` });
+      return;
+    }
+    const item = (await res.json()) as DiscoveredItem;
+    setDiscoveredItems((prev) => {
+      const idx = prev.findIndex((row) => row.id === item.id);
+      if (idx === -1) return [item, ...prev];
+      const next = [...prev];
+      next[idx] = item;
+      return next;
+    });
+    playScanWarning();
+    showFeedback({
+      type: "warning",
+      message: `UNKNOWN CAPTURED: ${code} · Review before publish`,
+    });
+  }, [activeSession, mergeH, scanMode, showFeedback]);
+
+  const updateDiscoveredItem = useCallback(async (
+    item: DiscoveredItem,
+    status: "resolved" | "ignored",
+  ) => {
+    if (!activeSession) return;
+    let resolvedVariantId: string | null = null;
+    if (status === "resolved") {
+      const resolveRes = await fetch(
+        `${BASE_URL}/api/inventory/scan-resolve?code=${encodeURIComponent(item.scanned_code)}`,
+        { headers: mergeH() },
+      );
+      if (!resolveRes.ok) {
+        toast("Create or update the item barcode/SKU before marking it resolved.", "error");
+        return;
+      }
+      const resolved = (await resolveRes.json()) as { variant_id: string };
+      resolvedVariantId = resolved.variant_id;
+    }
+
+    const res = await fetch(
+      `${BASE_URL}/api/inventory/physical/sessions/${activeSession.id}/discovered/${item.id}`,
+      {
+        method: "PATCH",
+        headers: mergeH({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          status,
+          resolved_variant_id: resolvedVariantId,
+          resolution_note:
+            status === "resolved"
+              ? "Catalog item resolved from scanner workspace."
+              : "Reviewed and excluded from this count.",
+        }),
+      },
+    );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      toast(body.error ?? "Could not update discovered scan.", "error");
+      return;
+    }
+    const updated = (await res.json()) as DiscoveredItem;
+    setDiscoveredItems((prev) =>
+      prev.map((row) => row.id === updated.id ? updated : row),
+    );
+    toast(status === "resolved" ? "Discovered scan resolved." : "Discovered scan ignored.", "success");
+  }, [activeSession, mergeH, toast]);
+
   const handleScan = useCallback(
     async (code: string) => {
       if (!activeSession || activeSession.status !== "open") return;
@@ -291,11 +547,11 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       // Resolve the code against inventory
       const resolveRes = await fetch(
         `${BASE_URL}/api/inventory/scan-resolve?code=${encodeURIComponent(code)}`,
+        { headers: mergeH() },
       );
 
       if (!resolveRes.ok) {
-        playScanError();
-        showFeedback({ type: "error", message: `NOT FOUND: ${code}` });
+        await recordDiscoveredScan(code);
         return;
       }
 
@@ -332,7 +588,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           if (idx >= 0) {
             const next = [...prev];
             next[idx] = { ...next[idx], counted_qty, last_scanned_at: new Date().toISOString() };
-            return next;
+            return next.slice(0, COUNT_FEED_LIMIT);
           }
           return [
             {
@@ -350,14 +606,14 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               scan_source: scanMode,
             },
             ...prev,
-          ];
+          ].slice(0, COUNT_FEED_LIMIT);
         });
       } else {
         playScanWarning();
         showFeedback({ type: "warning", message: "Count update failed" });
       }
     },
-    [activeSession, scanMode, showFeedback, mergeH],
+    [activeSession, scanMode, showFeedback, mergeH, recordDiscoveredScan],
   );
 
   // Wire HID scanner hook — only active in counting phase with laser mode
@@ -378,6 +634,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       method: "POST",
       headers: mergeH({ "Content-Type": "application/json" }),
       body: JSON.stringify({
+        scope: newScope,
+        baseline_type: newBaselineType,
         category_ids: newCatIds,
         exclude_reserved: newExcludeReserved,
         exclude_layaway: newExcludeLayaway,
@@ -390,8 +648,10 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       setShowNewSession(false);
       setPhase("counting");
       setCounts([]);
+      setDiscoveredItems([]);
       setNewNotes("");
       setNewCatIds([]);
+      setNewBaselineType("normal");
     } else {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
       toast(err.error ?? "Could not start session", "error");
@@ -468,13 +728,22 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     }
   };
 
-  const publish = async () => {
+  const publishWithApproval = async (managerPin: string, managerStaffId: string) => {
     if (!activeSession) return;
     setWorking(true);
     setPublishConfirm(false);
+    setManagerPublishOpen(false);
     const res = await fetch(
       `${BASE_URL}/api/inventory/physical/sessions/${activeSession.id}/publish`,
-      { method: "POST", headers: mergeH() },
+      {
+        method: "POST",
+        headers: mergeH({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          manager_staff_id: managerStaffId,
+          manager_pin: managerPin,
+          approval_note: `Manager Access signoff for ${activeSession.session_number}`,
+        }),
+      },
     );
     if (res.ok) {
       const publishedAt = new Date().toLocaleString();
@@ -489,6 +758,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         completedAt: publishedAt,
       });
       await loadData();
+      await loadWorkspaceReport(activeSession.id);
       setPhase("manager");
     } else {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -502,6 +772,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       toast(message, "error");
     }
     setWorking(false);
+    return res.ok;
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -516,6 +787,14 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       void loadReview(activeSession.id);
     }
   }, [activeSession, phase, loadCounts, loadReview]);
+
+  useEffect(() => {
+    if (!activeSession || activeSession.status !== "reviewing" || phase !== "review") return;
+    const handle = window.setTimeout(() => {
+      void loadReview(activeSession.id, reviewSearch);
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [activeSession, loadReview, phase, reviewSearch]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Filtered views
@@ -545,18 +824,86 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     () =>
       reviewRows.filter(
         (row) =>
-          row.delta !== 0 ||
-          row.counted_qty === 0 ||
-          row.adjusted_qty !== null ||
-          row.review_status !== "approved",
+          row.review_status === "pending" &&
+          (row.delta !== 0 || row.counted_qty === 0),
       ).length,
     [reviewRows],
   );
+  const pendingDiscoveredCount = useMemo(
+    () => discoveredItems.filter((item) => item.status === "pending").length,
+    [discoveredItems],
+  );
+  const zeroCostMovementCount = reviewSummary?.zero_cost_movement_count ?? 0;
+  const publishBlocked = pendingDiscoveredCount > 0 || zeroCostMovementCount > 0;
   const reviewDelta = reviewSummary
     ? reviewSummary.total_surplus - reviewSummary.total_shrinkage
     : 0;
 
   const root = document.getElementById("drawer-root");
+  const reportTabs: { id: WorkspaceReportTab; label: string }[] = [
+    { id: "variance_rows", label: "Variance" },
+    { id: "scan_rows", label: "Scan Stream" },
+    { id: "discovered_rows", label: "Discovered" },
+    { id: "accounting_rows", label: "Accounting" },
+    { id: "approvals", label: "Signoff" },
+  ];
+  const workspaceReportPanel = (
+    <DashboardGridCard
+      title="Physical Inventory Reports"
+      subtitle="Session reports stay with the count workspace"
+      icon={FileText}
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-black text-app-text">
+              {workspaceReport?.session.session_number ?? "Select a session"}
+            </p>
+            <p className="text-[11px] font-semibold text-app-text-muted">
+              Variance, raw scans, discovered scans, accounting impact, and Manager Access signoff.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {reportTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setReportTab(tab.id)}
+                className={`rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest ${
+                  reportTab === tab.id
+                    ? "border-app-accent bg-app-accent text-white"
+                    : "border-app-border bg-app-surface text-app-text-muted hover:bg-app-surface-2"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {reportLoading ? (
+          <div className="flex items-center justify-center gap-3 rounded-2xl border border-app-border bg-app-surface px-5 py-10 text-sm font-bold text-app-text-muted">
+            <Loader2 className="animate-spin" size={18} />
+            Loading physical inventory reports
+          </div>
+        ) : reportLoadError ? (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-4 text-sm font-bold text-red-700">
+            {reportLoadError}
+          </div>
+        ) : workspaceReport ? (
+          <ReportTable rows={currentReportRows} emptyLabel="No rows for this report" />
+        ) : (
+          <ReportTable rows={[]} emptyLabel="Choose Reports from a count session" />
+        )}
+
+        {reportSessionId && workspaceReport ? (
+          <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-[11px] font-semibold text-app-text-muted">
+            These report rows are supplied by the Physical Inventory API and can be used as a Metabase source without adding them to the global Reports workspace.
+          </div>
+        ) : null}
+      </div>
+    </DashboardGridCard>
+  );
 
   // ─────────────────────────────────────────────────────────────────────────────
    if (phase === "manager") {
@@ -576,6 +923,32 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           <p className="mt-1 text-xs font-semibold">
             Publish only after the manager confirms count sheets, uncounted items, and any receiving hold are resolved.
           </p>
+        </div>
+
+        <div className="rounded-2xl border border-app-border bg-app-surface px-5 py-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">
+                Scanner PWA
+              </p>
+              <p className="mt-1 break-all font-mono text-xs font-bold text-app-text">
+                {scannerUrl}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Use this on iPad camera scanning, iPad Bluetooth scanners, or a PC USB scanner. Keyboard-style scanners should send Enter after each code.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard?.writeText(scannerUrl);
+                toast("Physical Inventory Scanner URL copied.", "success");
+              }}
+              className="rounded-xl border border-app-border bg-app-surface-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface"
+            >
+              Copy URL
+            </button>
+          </div>
         </div>
 
         {publishOutcome ? (
@@ -657,7 +1030,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         {/* Start new session */}
         {/* Start new session */}
         {!activeSession && (
-          <DashboardGridCard 
+          <DashboardGridCard
             title="Count Setup"
             subtitle="Start a new physical inventory session"
             icon={Plus}
@@ -703,6 +1076,19 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                   </div>
 
                   <div className="space-y-4">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Inventory reason</label>
+                    <select
+                      value={newBaselineType}
+                      onChange={(e) => setNewBaselineType(e.target.value as BaselineType)}
+                      className="ui-input h-14 w-full rounded-2xl px-4 text-xs font-black uppercase tracking-widest"
+                    >
+                      <option value="normal">Normal count</option>
+                      <option value="first_inventory">First inventory cleanup</option>
+                      <option value="baseline_correction">Baseline correction</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-4 md:col-span-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 ml-2">Leave out from count</label>
                     <div className="grid grid-cols-2 gap-3">
                        <button
@@ -786,7 +1172,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         )}
 
         {/* Session History */}
-        <DashboardGridCard 
+        <DashboardGridCard
           title="Session Manager"
           subtitle="Resume, review, or cancel inventory counts"
           icon={Settings}
@@ -826,7 +1212,14 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                       </p>
                     </div>
                     {s.status === "open" || s.status === "reviewing" ? (
-                      <div className="mt-3 flex justify-end">
+                      <div className="mt-3 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void loadWorkspaceReport(s.id)}
+                          className="rounded-lg border border-app-border bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                        >
+                          Reports
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -838,7 +1231,17 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                           Cancel
                         </button>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => void loadWorkspaceReport(s.id)}
+                          className="rounded-lg border border-app-border bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                        >
+                          Reports
+                        </button>
+                      </div>
+                    )}
                   </article>
                 ))}
               </div>
@@ -863,6 +1266,14 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                       <td className="px-6 py-4 text-app-text-muted opacity-60">{fmt(s.started_at)}</td>
                       <td className="px-6 py-4 font-black text-app-text">{s.total_counted ?? 0}</td>
                       <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void loadWorkspaceReport(s.id)}
+                          className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-2"
+                        >
+                          Reports
+                        </button>
                         {(s.status === "open" || s.status === "reviewing") && (
                           <button
                             type="button"
@@ -876,6 +1287,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                             <Trash2 size={16} />
                           </button>
                         )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -884,6 +1296,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
             )}
           </div>
 	        </DashboardGridCard>
+
+        {workspaceReportPanel}
 
 	        <ConfirmationModal
           isOpen={showCancelConfirm}
@@ -1003,11 +1417,62 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                  </div>
               </div>
             </DashboardGridCard>
+
+            <DashboardGridCard
+              title="Discovered Scans"
+              subtitle={`${pendingDiscoveredCount} pending unknown code${pendingDiscoveredCount === 1 ? "" : "s"}`}
+              icon={AlertCircle}
+            >
+              <div className="space-y-2">
+                {discoveredItems.length === 0 ? (
+                  <p className="rounded-2xl border border-app-border bg-app-surface px-4 py-8 text-center text-[10px] font-black uppercase tracking-[0.25em] text-app-text-muted">
+                    No unknown scans captured
+                  </p>
+                ) : (
+                  discoveredItems.slice(0, 12).map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-app-border bg-app-surface px-4 py-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-sm font-black text-app-text">
+                            {item.scanned_code}
+                          </p>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                            {item.scan_source} · {item.scan_count} scan{item.scan_count === 1 ? "" : "s"} · {item.status}
+                          </p>
+                        </div>
+                        <StatusBadge status={item.status === "pending" ? "reviewing" : "published"} />
+                      </div>
+                      {item.status === "pending" ? (
+                        <div className="mt-3 flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void updateDiscoveredItem(item, "resolved")}
+                            className="rounded-lg bg-app-accent px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white"
+                          >
+                            Resolve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void updateDiscoveredItem(item, "ignored")}
+                            className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                          >
+                            Ignore
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </DashboardGridCard>
           </div>
 
           <DashboardGridCard 
-	            title="Count Feed"
-	            subtitle={`${counts.length} item${counts.length === 1 ? "" : "s"} scanned`}
+	            title="Recent Count Feed"
+	            subtitle={`Showing ${counts.length.toLocaleString()} recent row${counts.length === 1 ? "" : "s"}${activeSession.total_counted ? ` of ${activeSession.total_counted.toLocaleString()} counted` : ""}`}
             icon={ListFilter}
           >
             <div className="absolute top-4 right-6 w-64 z-10">
@@ -1145,7 +1610,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
             <button
               type="button"
               onClick={() => setPublishConfirm(true)}
-              className="flex items-center gap-2 h-12 px-8 rounded-[20px] bg-emerald-600 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-600/20 hover:brightness-110 active:scale-95 transition-all"
+              disabled={publishBlocked || working}
+              className="flex items-center gap-2 h-12 px-8 rounded-[20px] bg-emerald-600 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-600/20 hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
             >
               <CheckCircle size={14} /> Publish Reviewed Counts
             </button>
@@ -1167,7 +1633,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
             </div>
             <button
               type="button"
-              onClick={() => void loadReview(activeSession.id)}
+              onClick={() => void loadReview(activeSession.id, reviewSearch)}
               className="rounded-xl border border-amber-500/30 bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text"
             >
               Try Again
@@ -1290,9 +1756,32 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           </div>
         )}
 
-        <DashboardGridCard 
-	          title="Count Differences"
-	          subtitle="Review expected stock against counted stock"
+        {pendingDiscoveredCount > 0 || zeroCostMovementCount > 0 ? (
+          <div className="flex items-start gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-4 text-red-700">
+            <AlertCircle className="mt-0.5 shrink-0" size={18} />
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest">
+                Publish blocked
+              </p>
+              <p className="mt-1 text-sm font-bold leading-relaxed">
+                {pendingDiscoveredCount > 0
+                  ? `${pendingDiscoveredCount} discovered scan${pendingDiscoveredCount === 1 ? "" : "s"} must be resolved or ignored. `
+                  : ""}
+                {zeroCostMovementCount > 0
+                  ? `${zeroCostMovementCount} movement row${zeroCostMovementCount === 1 ? "" : "s"} need unit cost before accounting impact can be posted.`
+                  : ""}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        <DashboardGridCard
+          title="Count Differences"
+          subtitle={
+              reviewSummary?.rows_hidden
+                ? `Showing ${reviewSummary.rows_returned?.toLocaleString() ?? REVIEW_ROW_LIMIT.toLocaleString()} of ${reviewSummary.rows_matching_filter?.toLocaleString() ?? reviewSummary.total_variants_in_scope.toLocaleString()} matching rows. Publish evaluates the full session.`
+                : "Review expected stock against counted stock"
+            }
           icon={ListFilter}
         >
           <div className="absolute top-4 right-6 w-64 z-10">
@@ -1426,6 +1915,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           </div>
         </DashboardGridCard>
 
+        {workspaceReportPanel}
+
         <div className="sticky bottom-4 z-20 rounded-2xl border border-app-border bg-app-surface/95 p-3 shadow-2xl shadow-black/15 backdrop-blur">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs font-semibold text-app-text-muted">
@@ -1444,7 +1935,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               <button
                 type="button"
                 onClick={() => setPublishConfirm(true)}
-                className="ui-btn-primary min-h-11 px-4 text-[10px] font-black uppercase tracking-widest"
+                disabled={publishBlocked || working}
+                className="ui-btn-primary min-h-11 px-4 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
               >
                 Publish Counts
               </button>
@@ -1462,8 +1954,19 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           }
           confirmLabel="Publish Reviewed Counts"
           variant="info"
-          onConfirm={() => void publish()}
+          onConfirm={() => {
+            setPublishConfirm(false);
+            setManagerPublishOpen(true);
+          }}
           onClose={() => setPublishConfirm(false)}
+        />
+
+        <ManagerApprovalModal
+          isOpen={managerPublishOpen}
+          title="Publish Physical Inventory"
+          message="Manager Access is required to publish reviewed counts and update live stock. This signoff is saved with the session reports."
+          onClose={() => setManagerPublishOpen(false)}
+          onApprove={(pin, managerId) => publishWithApproval(pin, managerId)}
         />
 
         {/* Edit Modal (Adjustment) */}

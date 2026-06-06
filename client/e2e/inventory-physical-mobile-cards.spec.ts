@@ -18,7 +18,7 @@ const SESSION_NUMBER = "PI-2026-0426";
 async function openInventoryPhysicalCount(page: Page): Promise<void> {
   await openBackofficeSidebarTab(page, "inventory");
   let physicalCountButton = page.getByRole("button", {
-    name: /^count\/(?:review|reconcile)$/i,
+    name: /^physical inventory$/i,
   });
   if (!(await physicalCountButton.isVisible().catch(() => false))) {
     const menuToggle = page.getByRole("button", { name: /toggle menu/i });
@@ -36,7 +36,7 @@ async function openInventoryPhysicalCount(page: Page): Promise<void> {
       .catch(() => {});
     physicalCountButton = page
       .getByRole("navigation", { name: "Main Navigation" })
-      .getByRole("button", { name: /^count\/(?:review|reconcile)$/i });
+      .getByRole("button", { name: /^physical inventory$/i });
   }
   await expect(physicalCountButton).toBeVisible({ timeout: 20_000 });
   await physicalCountButton.click({ force: true });
@@ -121,7 +121,7 @@ async function mockPhysicalInventoryApis(page: Page): Promise<void> {
     });
   });
 
-  await page.route(`**/api/inventory/physical/sessions/${SESSION_ID}/review`, async (route) => {
+  await page.route(new RegExp(`/api/inventory/physical/sessions/${SESSION_ID}/review(?:\\?.*)?$`), async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -155,7 +155,7 @@ async function mockPhysicalInventoryApis(page: Page): Promise<void> {
     });
   });
 
-  await page.route(`**/api/inventory/physical/sessions/${SESSION_ID}`, async (route) => {
+  await page.route(new RegExp(`/api/inventory/physical/sessions/${SESSION_ID}(?:\\?.*)?$`), async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",

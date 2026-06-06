@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { openBackofficeSidebarTab, signInToBackOffice } from "./helpers/backofficeSignIn";
 import {
+  e2eAdminCode,
   getInventoryIntelligence,
   uniqueSuffix,
 } from "./helpers/inventoryReceiving";
+import { verifyStaffId } from "./helpers/rmsCharge";
 import {
   addPhysicalInventoryCount,
   cancelActivePhysicalInventorySession,
@@ -18,7 +20,7 @@ async function openInventoryPhysicalCount(page: Parameters<typeof test>[0]["page
     page.getByRole("navigation", { name: "Breadcrumb" }).getByText(/^inventory$/i),
   ).toBeVisible({ timeout: 15_000 });
   const physicalCountButton = page.getByRole("button", {
-    name: /^count\/(?:review|reconcile)$/i,
+    name: /^physical inventory$/i,
   });
   await expect(physicalCountButton).toBeVisible({ timeout: 15_000 });
   await physicalCountButton.click({ force: true });
@@ -33,6 +35,7 @@ test.describe("Physical inventory review and publish verification", () => {
     request,
   }) => {
     const suffix = uniqueSuffix("ui-physical");
+    const managerStaffId = await verifyStaffId(request);
     await cancelActivePhysicalInventorySession(request);
 
     const { category, countedProduct, missingProduct } =
@@ -42,6 +45,9 @@ test.describe("Physical inventory review and publish verification", () => {
     await movePhysicalInventorySessionToReview(request, session.id);
 
     await signInToBackOffice(page, { persistSession: true });
+    await page.evaluate((staffId) => {
+      localStorage.setItem("ros_last_staff_id", staffId);
+    }, managerStaffId);
     await openInventoryPhysicalCount(page);
 
     const reviewHeading = page.getByRole("heading", {
@@ -70,7 +76,7 @@ test.describe("Physical inventory review and publish verification", () => {
     await expect(page.getByText(/sales during the count are deducted in review/i)).toBeVisible();
     await expect(page.getByText(/receiving must stay paused until publish or cancel/i)).toBeVisible();
     await expect(page.getByText(/retrying refresh is safe and does not update live stock/i)).toBeVisible();
-    await page.getByRole("button", { name: /publish reviewed counts/i }).click();
+    await page.getByRole("button", { name: /^publish counts$/i }).click();
 
     const publishDialog = page.getByText(
       new RegExp(
@@ -80,13 +86,27 @@ test.describe("Physical inventory review and publish verification", () => {
     );
     await expect(publishDialog).toBeVisible({ timeout: 10_000 });
 
+    await page.getByRole("button", { name: /^publish reviewed counts$/i }).last().click();
+    const approvalDialog = page.getByRole("dialog", { name: /publish physical inventory/i });
+    await expect(approvalDialog).toBeVisible({ timeout: 10_000 });
+    const managerSelect = approvalDialog.locator("select");
+    await expect
+      .poll(
+        async () => managerSelect.locator(`option[value="${managerStaffId}"]`).count(),
+        { timeout: 10_000 },
+      )
+      .toBe(1);
+    await managerSelect.selectOption(managerStaffId);
+    for (const digit of e2eAdminCode()) {
+      await approvalDialog.getByTestId(`pin-key-${digit}`).click();
+    }
     const publishResponse = page.waitForResponse(
       (response) =>
         response.url().includes(`/api/inventory/physical/sessions/${session.id}/publish`) &&
         response.request().method() === "POST" &&
         response.status() === 200,
     );
-    await page.getByRole("button", { name: /^publish reviewed counts$/i }).last().click();
+    await approvalDialog.getByRole("button", { name: /^approve$/i }).click();
     await publishResponse;
 
     await expect(page.getByText(/publish completed/i).first()).toBeVisible({

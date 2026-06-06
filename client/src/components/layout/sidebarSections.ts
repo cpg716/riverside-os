@@ -67,7 +67,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "receiving", label: "Receive Stock" },
     { id: "batch_scan", label: "Batch Scan" },
     { id: "damaged", label: "Correct Stock" },
-    { id: "physical", label: "Count/Reconcile" },
+    { id: "physical", label: "Physical Inventory" },
   ],
   "online-store": [
     { id: "dashboard", label: "Dashboard" },

@@ -332,9 +332,19 @@ function App() {
    * Path-based shell entry:
    * - `/pos` opens POS shell.
    * - `/settings` and `/settings/:section` open Settings with section normalization.
+   * - `/physical-inventory/scanner` opens Inventory → Physical Inventory scanner.
    */
   useEffect(() => {
     if (loading) return;
+    const path = window.location.pathname.replace(/\/+$/, "") || "/";
+    if (path === "/physical-inventory/scanner") {
+      if (posMode) {
+        setPosMode(false);
+      }
+      enterBackofficeShell("inventory", "physical");
+      return;
+    }
+
     const settingsRoute = parseSettingsPathname(window.location.pathname);
     if (settingsRoute) {
       if (posMode) {
@@ -350,7 +360,6 @@ function App() {
       return;
     }
 
-    const path = window.location.pathname.replace(/\/+$/, "") || "/";
     if (path === "/pos") {
       setPosMode(true);
       setInsightsMode(false);

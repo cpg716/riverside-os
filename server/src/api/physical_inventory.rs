@@ -1,7 +1,7 @@
 //! Physical Inventory HTTP routes — session CRUD, counting, review, and publish.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, patch, post},
@@ -14,8 +14,41 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{PHYSICAL_INVENTORY_MUTATE, PHYSICAL_INVENTORY_VIEW};
-use crate::logic::physical_inventory::{self, AddCountRequest, CreateSessionRequest};
+use crate::auth::pins;
+use crate::logic::physical_inventory::{
+    self, AddCountRequest, CreateSessionRequest, RecordDiscoveredItemRequest,
+    ResolveDiscoveredItemRequest,
+};
 use crate::middleware::require_staff_with_permission;
+use crate::models::DbStaffRole;
+
+const DEFAULT_COUNT_LIMIT: i64 = 500;
+const DEFAULT_REVIEW_LIMIT: usize = 500;
+const MAX_REVIEW_LIMIT: usize = 1_000;
+
+#[derive(Deserialize)]
+struct CountQuery {
+    limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct ReviewQuery {
+    q: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+}
+
+fn bounded_count_limit(limit: Option<i64>) -> i64 {
+    limit
+        .unwrap_or(DEFAULT_COUNT_LIMIT)
+        .clamp(1, DEFAULT_COUNT_LIMIT)
+}
+
+fn bounded_review_limit(limit: Option<usize>) -> usize {
+    limit
+        .unwrap_or(DEFAULT_REVIEW_LIMIT)
+        .clamp(1, MAX_REVIEW_LIMIT)
+}
 
 // ── Error type ────────────────────────────────────────────────────────────────
 
@@ -35,6 +68,14 @@ impl IntoResponse for PhysicalInventoryError {
         let status = if msg.contains("already exists")
             || msg.contains("not found")
             || msg.contains("must be in")
+            || msg.contains("scan source must")
+            || msg.contains("scanned_code required")
+            || msg.contains("discovered item status")
+            || msg.contains("resolved_variant_id required")
+            || msg.contains("Resolve or ignore")
+            || msg.contains("Set unit cost")
+            || msg.contains("baseline_type must")
+            || msg.contains("Manager Access")
             || msg.contains("scope must")
             || msg.contains("category_ids required")
         {
@@ -62,7 +103,16 @@ pub fn router() -> Router<AppState> {
             "/sessions/{id}/counts/{count_id}/accept",
             post(accept_variance),
         )
+        .route(
+            "/sessions/{id}/discovered",
+            get(list_discovered).post(record_discovered),
+        )
+        .route(
+            "/sessions/{id}/discovered/{item_id}",
+            patch(resolve_discovered),
+        )
         .route("/sessions/{id}/review", get(get_review))
+        .route("/sessions/{id}/reports", get(get_workspace_report))
         .route("/sessions/{id}/move-to-review", post(move_to_review))
         .route("/sessions/{id}/save", post(save_session))
         .route("/sessions/{id}/publish", post(publish_session))
@@ -81,7 +131,7 @@ async fn list_sessions(
     let rows = sqlx::query_as::<_, physical_inventory::PhysicalInventorySession>(
         r#"
         SELECT id, session_number, status, scope, category_ids,
-               started_at, last_saved_at, published_at, notes,
+               baseline_type, started_at, last_saved_at, published_at, notes,
                exclude_reserved, exclude_layaway
         FROM physical_inventory_sessions
         ORDER BY started_at DESC
@@ -108,6 +158,7 @@ async fn list_sessions(
             "status": s.status,
             "scope": s.scope,
             "category_ids": s.category_ids,
+            "baseline_type": s.baseline_type,
             "started_at": s.started_at,
             "last_saved_at": s.last_saved_at,
             "published_at": s.published_at,
@@ -149,6 +200,7 @@ async fn get_session(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    Query(query): Query<CountQuery>,
 ) -> Result<Json<serde_json::Value>, PhysicalInventoryError> {
     require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_VIEW)
         .await
@@ -157,7 +209,7 @@ async fn get_session(
     let session = sqlx::query_as::<_, physical_inventory::PhysicalInventorySession>(
         r#"
         SELECT id, session_number, status, scope, category_ids,
-               started_at, last_saved_at, published_at, notes,
+               baseline_type, started_at, last_saved_at, published_at, notes,
                exclude_reserved, exclude_layaway
         FROM physical_inventory_sessions
         WHERE id = $1
@@ -167,6 +219,14 @@ async fn get_session(
     .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+
+    let count_limit = bounded_count_limit(query.limit);
+    let count_total: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM physical_inventory_counts WHERE session_id = $1")
+            .bind(id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(0);
 
     let counts = sqlx::query_as::<_, physical_inventory::CountRow>(
         r#"
@@ -179,13 +239,20 @@ async fn get_session(
         JOIN products p ON p.id = pv.product_id
         WHERE pic.session_id = $1
         ORDER BY pic.last_scanned_at DESC
+        LIMIT $2
         "#,
     )
     .bind(id)
+    .bind(count_limit)
     .fetch_all(&state.db)
     .await?;
 
-    Ok(Json(json!({ "session": session, "counts": counts })))
+    Ok(Json(json!({
+        "session": session,
+        "counts": counts,
+        "count_total": count_total,
+        "count_limit": count_limit,
+    })))
 }
 
 #[derive(Deserialize)]
@@ -217,11 +284,15 @@ async fn add_count(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-    Json(payload): Json<AddCountRequest>,
+    Json(mut payload): Json<AddCountRequest>,
 ) -> Result<Json<serde_json::Value>, PhysicalInventoryError> {
-    require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_MUTATE)
+    let staff = require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_MUTATE)
         .await
         .map_err(|_| anyhow::anyhow!("physical_inventory.mutate permission required"))?;
+    payload.staff_id = Some(staff.id);
+    if !matches!(payload.source.as_str(), "laser" | "camera" | "manual") {
+        return Err(anyhow::anyhow!("scan source must be 'laser', 'camera', or 'manual'").into());
+    }
 
     // Verify session is open
     let (status, started_at): (String, chrono::DateTime<chrono::Utc>) =
@@ -264,7 +335,7 @@ async fn patch_count(
     Path((session_id, count_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<PatchCountRequest>,
 ) -> Result<Json<serde_json::Value>, PhysicalInventoryError> {
-    require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_MUTATE)
+    let staff = require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_MUTATE)
         .await
         .map_err(|_| anyhow::anyhow!("physical_inventory.mutate permission required"))?;
 
@@ -274,7 +345,7 @@ async fn patch_count(
         count_id,
         body.adjusted_qty,
         body.note,
-        None,
+        Some(staff.id),
     )
     .await?;
     Ok(Json(json!({ "status": "adjusted" })))
@@ -296,6 +367,7 @@ async fn get_review(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    Query(query): Query<ReviewQuery>,
 ) -> Result<Json<serde_json::Value>, PhysicalInventoryError> {
     require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_VIEW)
         .await
@@ -314,14 +386,56 @@ async fn get_review(
         .map(|r| r.delta.abs())
         .sum();
     let total_surplus: i32 = rows.iter().filter(|r| r.delta > 0).map(|r| r.delta).sum();
+    let zero_cost_movement_count = rows
+        .iter()
+        .filter(|r| r.delta != 0 && r.unit_cost <= rust_decimal::Decimal::ZERO)
+        .count() as i64;
+    let accounting_impact = rows.iter().fold(rust_decimal::Decimal::ZERO, |acc, r| {
+        acc + r.accounting_impact
+    });
+    let q = query.q.unwrap_or_default().trim().to_ascii_lowercase();
+    let offset = query.offset.unwrap_or(0);
+    let limit = bounded_review_limit(query.limit);
+    let mut visible_rows: Vec<_> = if q.is_empty() {
+        rows
+    } else {
+        rows.into_iter()
+            .filter(|row| {
+                row.sku.to_ascii_lowercase().contains(&q)
+                    || row.product_name.to_ascii_lowercase().contains(&q)
+                    || row
+                        .variation_label
+                        .as_ref()
+                        .map(|label| label.to_ascii_lowercase().contains(&q))
+                        .unwrap_or(false)
+            })
+            .collect()
+    };
+    visible_rows.sort_by(|a, b| {
+        b.delta
+            .abs()
+            .cmp(&a.delta.abs())
+            .then_with(|| a.product_name.cmp(&b.product_name))
+            .then_with(|| a.sku.cmp(&b.sku))
+    });
+    let matching_rows = visible_rows.len();
+    let response_rows: Vec<_> = visible_rows.into_iter().skip(offset).take(limit).collect();
+    let rows_returned = response_rows.len();
+    let rows_hidden = matching_rows.saturating_sub(offset + rows_returned);
     Ok(Json(json!({
-        "rows": rows,
+        "rows": response_rows,
         "summary": {
             "total_counted": total_counted,
             "total_variants_in_scope": total_variants_in_scope,
             "missing_variants": missing_variants,
             "total_shrinkage": total_shrinkage,
             "total_surplus": total_surplus,
+            "zero_cost_movement_count": zero_cost_movement_count,
+            "accounting_impact": accounting_impact,
+            "rows_matching_filter": matching_rows,
+            "rows_returned": rows_returned,
+            "rows_hidden": rows_hidden,
+            "row_limit": limit,
         }
     })))
 }
@@ -334,7 +448,7 @@ pub async fn confirm_variance(
     staff_id: Option<Uuid>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE physical_inventory_counts SET review_status = 'confirmed' WHERE id = $1 AND session_id = $2",
+        "UPDATE physical_inventory_counts SET review_status = 'ok' WHERE id = $1 AND session_id = $2",
     )
     .bind(count_id)
     .bind(session_id)
@@ -350,6 +464,68 @@ pub async fn confirm_variance(
     .await?;
 
     Ok(())
+}
+
+async fn list_discovered(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, PhysicalInventoryError> {
+    require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_VIEW)
+        .await
+        .map_err(|_| anyhow::anyhow!("physical_inventory.view permission required"))?;
+
+    let rows = physical_inventory::list_discovered_items(&state.db, id).await?;
+    Ok(Json(json!({ "items": rows })))
+}
+
+async fn record_discovered(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<RecordDiscoveredItemRequest>,
+) -> Result<Json<serde_json::Value>, PhysicalInventoryError> {
+    let staff = require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_MUTATE)
+        .await
+        .map_err(|_| anyhow::anyhow!("physical_inventory.mutate permission required"))?;
+
+    let item =
+        physical_inventory::record_discovered_item(&state.db, id, payload, Some(staff.id)).await?;
+    Ok(Json(json!(item)))
+}
+
+async fn resolve_discovered(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((session_id, item_id)): Path<(Uuid, Uuid)>,
+    Json(payload): Json<ResolveDiscoveredItemRequest>,
+) -> Result<Json<serde_json::Value>, PhysicalInventoryError> {
+    let staff = require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_MUTATE)
+        .await
+        .map_err(|_| anyhow::anyhow!("physical_inventory.mutate permission required"))?;
+
+    let item = physical_inventory::resolve_discovered_item(
+        &state.db,
+        session_id,
+        item_id,
+        payload,
+        Some(staff.id),
+    )
+    .await?;
+    Ok(Json(json!(item)))
+}
+
+async fn get_workspace_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, PhysicalInventoryError> {
+    require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_VIEW)
+        .await
+        .map_err(|_| anyhow::anyhow!("physical_inventory.view permission required"))?;
+
+    let report = physical_inventory::build_workspace_report(&state.db, id).await?;
+    Ok(Json(json!(report)))
 }
 
 async fn move_to_review(
@@ -376,15 +552,49 @@ async fn save_session(
     Ok(Json(json!({ "status": "saved" })))
 }
 
+#[derive(Deserialize)]
+struct PublishSessionRequest {
+    manager_staff_id: Uuid,
+    manager_pin: String,
+    approval_note: Option<String>,
+}
+
 async fn publish_session(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
+    Json(body): Json<PublishSessionRequest>,
 ) -> Result<Json<serde_json::Value>, PhysicalInventoryError> {
     let staff = require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_MUTATE)
         .await
         .map_err(|_| anyhow::anyhow!("physical_inventory.mutate permission required"))?;
-    let result = physical_inventory::publish_session(&state.db, id, Some(staff.id)).await?;
+    let manager =
+        pins::authenticate_staff_by_id(&state.db, body.manager_staff_id, Some(&body.manager_pin))
+            .await
+            .map_err(|_| anyhow::anyhow!("Manager Access PIN was not approved"))?;
+    if manager.role != DbStaffRole::Admin {
+        return Err(anyhow::anyhow!("Manager Access is required to publish").into());
+    }
+
+    let _ = pins::log_staff_access(
+        &state.db,
+        manager.id,
+        "physical_inventory_publish_approval",
+        json!({
+            "session_id": id,
+            "operator_staff_id": staff.id,
+        }),
+    )
+    .await;
+
+    let result = physical_inventory::publish_session(
+        &state.db,
+        id,
+        Some(staff.id),
+        manager.id,
+        body.approval_note,
+    )
+    .await?;
     Ok(Json(json!(result)))
 }
 
