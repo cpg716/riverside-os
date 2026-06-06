@@ -502,22 +502,95 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
 
   return (
     <div className="flex flex-1 flex-col bg-app-surface">
-      {/* Header Controls (1:1 UI/UX Restoration) */}
+      {/* Header Controls */}
       <div className="flex flex-col gap-3 border-b border-app-border bg-app-surface-2 p-4 no-print xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
-          <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
             <Calendar className="text-app-accent" size={20} />
             <div>
               <h2 className="text-lg font-black tracking-tight text-app-text uppercase italic">
                 Appointment Schedule
               </h2>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-app-text-muted opacity-80 max-w-md">
+              <p className="max-w-md text-[10px] font-semibold uppercase tracking-wider text-app-text-muted opacity-80">
                 General store visits and services. Party-specific workflow stays in Wedding Manager unless you explicitly link a booking.
               </p>
             </div>
           </div>
-          
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-app-border bg-app-surface p-1 shadow-sm">
+
+            <div className="relative group/search min-w-[18rem] flex-1 xl:max-w-sm">
+              <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${searchQuery ? 'text-app-accent' : 'text-app-text-muted'}`} />
+              <input
+                type="text"
+                placeholder="Search appointments…"
+                data-testid="scheduler-search-input"
+                className="ui-input h-11 w-full pl-10 pr-10 text-sm font-bold"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => setIsSearching(true)}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSearchResults([]);
+                    setSearchFailed(false);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-app-text-muted hover:text-app-text"
+                >
+                  <X size={14} />
+                </button>
+              )}
+
+              {isSearching && searchQuery.trim() && (
+                <div
+                  data-testid="scheduler-search-popover"
+                  className="absolute left-0 top-full z-[100] mt-2 max-h-[500px] w-[min(96vw,28rem)] overflow-y-auto rounded-2xl border border-app-border bg-app-surface p-4 text-left shadow-2xl sm:w-[min(92vw,400px)]"
+                >
+                  <div className="mb-3 flex items-center justify-between px-1">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Search Results</span>
+                    <button onClick={() => setIsSearching(false)} className="text-app-text-muted hover:text-app-text"><X size={14}/></button>
+                  </div>
+                  {searchFailed ? (
+                    <p className="rounded-xl border border-app-warning/30 bg-app-warning/10 p-4 text-center text-xs font-semibold text-app-warning">
+                      Appointment search is unavailable right now.
+                    </p>
+                  ) : searchResults.length === 0 ? (
+                    <p className="p-4 text-center text-xs text-app-text-muted italic">No matching appointments found.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {searchResults.map(a => (
+                        <div 
+                          key={a.id} 
+                          className="group/res cursor-pointer rounded-xl border border-app-border p-3 transition-all hover:border-app-accent hover:bg-app-accent/5"
+                          onClick={() => {
+                            const date = new Date(a.datetime);
+                            setSelectedDate(date);
+                            setViewMode('day');
+                            setIsSearching(false);
+                          }}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <div className="text-xs font-black uppercase text-app-text">{a.customerName || a.customer_display_name || 'Anonymous'}</div>
+                              <div className="mt-0.5 text-[9px] font-bold text-app-text-muted">
+                                {new Date(a.datetime).toLocaleDateString()} @ {new Date(a.datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {a.type || a.appointment_type}
+                              </div>
+                            </div>
+                            <div className="text-[9px] font-black uppercase text-app-accent opacity-0 transition-opacity group-hover/res:opacity-100">Jump to Day →</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border bg-app-surface p-1 shadow-sm">
             <button
               type="button"
               onClick={handlePrev}
@@ -563,83 +636,13 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
               </button>
             </div>
           </div>
-          
           <button
             type="button"
             onClick={handleToday}
-            className="ui-touch-target inline-flex items-center justify-center rounded px-3 text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
+            className="ui-touch-target inline-flex min-h-[44px] items-center justify-center rounded-lg border border-app-border bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-surface-2"
           >
             Today
           </button>
-
-          <div className="relative group/search lg:ml-4">
-            <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${searchQuery ? 'text-app-accent' : 'text-app-text-muted'}`} />
-            <input
-              type="text"
-              placeholder="Search appointments…"
-              data-testid="scheduler-search-input"
-              className="ui-input h-10 w-full min-w-0 pl-10 pr-10 text-[11px] font-bold lg:w-64"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => setIsSearching(true)}
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery("");
-                  setSearchResults([]);
-                  setSearchFailed(false);
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-app-text-muted hover:text-app-text"
-              >
-                <X size={14} />
-              </button>
-            )}
-
-            {isSearching && searchQuery.trim() && (
-              <div
-                data-testid="scheduler-search-popover"
-                className="absolute top-full left-0 z-[100] mt-2 max-h-[500px] w-[min(96vw,28rem)] overflow-y-auto rounded-2xl border border-app-border bg-app-surface p-4 text-left shadow-2xl sm:w-[min(92vw,400px)]"
-              >
-                <div className="flex items-center justify-between mb-3 px-1">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Search Results</span>
-                  <button onClick={() => setIsSearching(false)} className="text-app-text-muted hover:text-app-text"><X size={14}/></button>
-                </div>
-                {searchFailed ? (
-                  <p className="rounded-xl border border-app-warning/30 bg-app-warning/10 p-4 text-center text-xs font-semibold text-app-warning">
-                    Appointment search is unavailable right now.
-                  </p>
-                ) : searchResults.length === 0 ? (
-                  <p className="p-4 text-center text-xs text-app-text-muted italic">No matching appointments found.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {searchResults.map(a => (
-                      <div 
-                        key={a.id} 
-                        className="group/res p-3 rounded-xl border border-app-border hover:border-app-accent hover:bg-app-accent/5 transition-all cursor-pointer"
-                        onClick={() => {
-                          const date = new Date(a.datetime);
-                          setSelectedDate(date);
-                          setViewMode('day');
-                          setIsSearching(false);
-                        }}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="text-xs font-black uppercase text-app-text">{a.customerName || a.customer_display_name || 'Anonymous'}</div>
-                            <div className="text-[9px] font-bold text-app-text-muted mt-0.5">
-                              {new Date(a.datetime).toLocaleDateString()} @ {new Date(a.datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {a.type || a.appointment_type}
-                            </div>
-                          </div>
-                          <div className="text-[9px] font-black uppercase text-app-accent opacity-0 group-hover/res:opacity-100 transition-opacity">Jump to Day →</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
 

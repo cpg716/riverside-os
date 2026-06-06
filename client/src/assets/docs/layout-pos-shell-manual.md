@@ -29,7 +29,8 @@ This is the main **Register desktop shell** used on the Windows Tauri app after 
 
 - On Windows register stations, Riverside now opens in a maximized desktop window so the POS shell has enough room for the cart, drawer, and sidebar.
 - Before the cart opens, the Register Access screen now runs a station-readiness check for API reachability and receipt-printer connectivity.
-- Core cashier actions in the cart use larger touch targets, and **Park Sale** now uses a Riverside prompt instead of a browser dialog.
+- Core cashier actions in the cart use larger touch targets. Disabled actions stay visible but muted, so staff can see what becomes available after selecting a customer or adding sale lines.
+- **Park Sale** uses a Riverside prompt instead of a browser dialog.
 - Register #1 is the main cash-drawer lane. Other lanes still depend on Register #1 being open first.
 - Standalone POS workflows like `Shipping`, `Layaways`, `RMS Charge`, and `Podium Inbox` should stay top-level in the rail rather than being nested under `Customers` or `Inventory`.
 - The POS shell is separate from **Shop Host** and separate from **Remote Access**. A normal register station should not be used to start host mode unless that PC is intentionally acting as the host machine.

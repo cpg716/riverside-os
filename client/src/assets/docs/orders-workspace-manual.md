@@ -30,6 +30,7 @@ The Orders workspace is the main place to review unfulfilled Special, Custom, an
 - Open order work in POS when staff need to review it from the register or copy its unfulfilled lines into a new sale.
 - After Register checkout activity, reopen the parent Transaction Record or return to Orders to see the latest authoritative data instead of a stale snapshot.
 - Use the `Order Integrity` summary at the top of the workspace to quickly see which visible orders are still waiting on booking details, still carrying balance due, or already showing action-needed / overdue follow-up counts from the existing pipeline stats feed.
+- Use the search bar and filter chips above the list to narrow the table before opening a row. The desktop table separates the secondary header labels, such as date, lifecycle, cashier, and deposit, so staff can scan the main work first.
 
 ## Order Lifecycle
 
@@ -48,6 +49,7 @@ The Orders workspace is the main place to review unfulfilled Special, Custom, an
 - Wedding order detail should show the linked party, member role, and event date so staff know to keep balances and pickup work in the wedding workflow.
 - A paid wedding balance does not automatically mean the order is ready. Confirm the linked member is actually ready for pickup before release.
 - The lifecycle panel in order detail is the quickest way to tell whether the order is still waiting on measurements, still carrying a deposit balance, fully paid, or already picked up.
+- In the list view, read each column from left to right: Transaction, Customer, Order Items, Salesperson, Status, Amounts, and Balance. Use **Register** from the row when the work needs register review.
 
 Check the order type before making changes so the right team follows up on it.
 

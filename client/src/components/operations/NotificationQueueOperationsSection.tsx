@@ -235,8 +235,8 @@ export default function NotificationQueueOperationsSection({
 
       <div className="flex flex-1 flex-col p-3 sm:p-6 lg:p-8 animate-workspace-snap">
         <div className="ui-card flex flex-col overflow-hidden">
-          <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-2 px-4 py-4 lg:flex-row lg:flex-wrap lg:items-center lg:gap-4 lg:px-5">
-            <div className="relative group min-w-0 flex-1">
+          <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-2 px-4 py-4 lg:px-5">
+            <div className="relative group min-w-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors" size={16} />
               <input
                 value={search}
@@ -245,44 +245,46 @@ export default function NotificationQueueOperationsSection({
                 className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
               />
             </div>
-            <select
-              value={entityType}
-              onChange={(event) => setEntityType(event.target.value)}
-              className="ui-input h-10 min-w-[11rem] text-sm font-bold"
-            >
-              <option value="all">All types</option>
-              <option value="order">Orders</option>
-              <option value="alteration">Alterations</option>
-              <option value="appointment">Appointments</option>
-            </select>
-            <div className="flex flex-wrap items-center gap-2">
-              {filterTabs.map((tab) => {
-                const active = status === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setStatus(tab.id)}
-                    className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${
-                      active
-                        ? "border-app-accent/20 bg-app-accent/10 text-app-accent"
-                        : "border-app-border bg-app-surface-3 text-app-text-muted hover:bg-app-surface hover:text-app-text"
-                    }`}
-                    aria-pressed={active}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-              <label className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-surface-3 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                <input
-                  type="checkbox"
-                  checked={includeReviewed}
-                  onChange={(event) => setIncludeReviewed(event.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-app-border"
-                />
-                Archive
-              </label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <select
+                value={entityType}
+                onChange={(event) => setEntityType(event.target.value)}
+                className="ui-input h-10 min-w-[11rem] text-sm font-bold"
+              >
+                <option value="all">All types</option>
+                <option value="order">Orders</option>
+                <option value="alteration">Alterations</option>
+                <option value="appointment">Appointments</option>
+              </select>
+              <div className="flex flex-wrap items-center gap-2">
+                {filterTabs.map((tab) => {
+                  const active = status === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setStatus(tab.id)}
+                      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${
+                        active
+                          ? "border-app-accent/20 bg-app-accent/10 text-app-accent"
+                          : "border-app-border bg-app-surface-3 text-app-text-muted hover:bg-app-surface hover:text-app-text"
+                      }`}
+                      aria-pressed={active}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+                <label className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-surface-3 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={includeReviewed}
+                    onChange={(event) => setIncludeReviewed(event.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-app-border"
+                  />
+                  Reviewed archive
+                </label>
+              </div>
             </div>
           </div>
 

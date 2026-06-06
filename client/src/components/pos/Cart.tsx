@@ -2361,7 +2361,7 @@ export default function Cart({
               aria-label="Scroll cart actions left"
               onClick={() => scrollActionRibbon("left")}
               disabled={!actionRibbonCanScrollLeft}
-              className="ui-touch-target flex h-16 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-35"
+              className="ui-touch-target flex h-16 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-70"
             >
               <ChevronLeft size={22} aria-hidden />
             </button>
@@ -2456,7 +2456,7 @@ export default function Cart({
                 disabled={!selectedCustomer}
                 onClick={() => setOrderLoadOpen(true)}
                 title={selectedCustomer ? "View customer open orders" : "Select a customer to view open orders"}
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <ORDER_HISTORY_ICON size={20} className="shrink-0" aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
@@ -2530,7 +2530,7 @@ export default function Cart({
                 onClick={() => setOrderReviewOpen(true)}
                 disabled={lines.length === 0}
                 title="Set rush and pickup/order details. Use Shipping to ship this current sale."
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-success/60 bg-app-success/10 px-2 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-success/60 bg-app-success/10 px-2 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <Zap size={20} className="shrink-0" aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
@@ -2545,7 +2545,7 @@ export default function Cart({
                    setParkSaleDraftLabel(label);
                    setParkSalePromptOpen(true);
                 }}
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-accent/60 bg-app-accent/10 px-2 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-accent/60 bg-app-accent/10 px-2 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <Clock size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
@@ -2556,7 +2556,7 @@ export default function Cart({
                 type="button"
                 disabled={lines.length === 0 && !selectedCustomer}
                 onClick={() => setShowClearConfirm(true)}
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/10 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:opacity-60 disabled:hover:bg-app-surface-2 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/10 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <RotateCcw size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
@@ -2569,7 +2569,7 @@ export default function Cart({
               aria-label="Scroll cart actions right"
               onClick={() => scrollActionRibbon("right")}
               disabled={!actionRibbonCanScrollRight}
-              className="ui-touch-target flex h-16 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:opacity-35"
+              className="ui-touch-target flex h-16 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-70"
             >
               <ChevronRight size={22} aria-hidden />
             </button>

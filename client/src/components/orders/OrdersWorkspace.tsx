@@ -1938,12 +1938,24 @@ export default function OrdersWorkspace({
               </colgroup>
               <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-3">
                 <tr>
-                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Transaction / Date</th>
+                  <th className="px-4 py-3 text-[9px] font-black uppercase leading-tight tracking-[0.14em] text-app-text-muted">
+                    <span className="block">Transaction</span>
+                    <span className="mt-0.5 block text-[8px] tracking-[0.12em] opacity-70">Date</span>
+                  </th>
                   <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Customer</th>
-                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">{viewPreset === "open" ? "Order Items / Lifecycle" : "Sale Lines / Lifecycle"}</th>
-                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Salesperson / Cashier</th>
+                  <th className="px-4 py-3 text-[9px] font-black uppercase leading-tight tracking-[0.14em] text-app-text-muted">
+                    <span className="block">{viewPreset === "open" ? "Order Items" : "Sale Lines"}</span>
+                    <span className="mt-0.5 block text-[8px] tracking-[0.12em] opacity-70">Lifecycle</span>
+                  </th>
+                  <th className="px-4 py-3 text-[9px] font-black uppercase leading-tight tracking-[0.14em] text-app-text-muted">
+                    <span className="block">Salesperson</span>
+                    <span className="mt-0.5 block text-[8px] tracking-[0.12em] opacity-70">Cashier</span>
+                  </th>
                   <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Status</th>
-                  <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Transaction Amounts</th>
+                  <th className="px-4 py-3 text-[9px] font-black uppercase leading-tight tracking-[0.14em] text-app-text-muted">
+                    <span className="block">Amounts</span>
+                    <span className="mt-0.5 block text-[8px] tracking-[0.12em] opacity-70">Sale / Deposit</span>
+                  </th>
                   <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Balance</th>
                 </tr>
               </thead>

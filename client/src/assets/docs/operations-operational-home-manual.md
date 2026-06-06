@@ -45,6 +45,8 @@ Open **Operations → Customer Notifications** to review automated customer mess
 
 Use this center for automated-message delivery and staff review only. It does not show regular staff-written Podium texts or regular staff-written emails, and it does not mark an order picked up, mark an alteration picked up, collect payment, or change customer communication preferences.
 
+Use the full-width search row to find a customer, message type, status, delivery method, or delivery error. Use the status chips and **Reviewed archive** filter below search to separate active rows from reviewed history.
+
 ## What to check first
 
 Start with the KPI strip, then **What Changed Today** and **What Needs Attention**. These cards show current operational signals such as movement, register status, till control, blockers, warnings, weddings, alterations, pickups, and inventory work.

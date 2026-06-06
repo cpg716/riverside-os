@@ -42,11 +42,12 @@ Use the **Scheduler** to:
 ## Steps
 
 1. Open **Appointments → Scheduler** in the sidebar.
-2. Select your preferred view (Day, Week, Month).
-3. **Book Appointment**: Click on an empty time slot or use the **New Appointment** button.
-4. Fill in the **Customer**, **Appointment Type** (e.g., Bridal Consultation, Tux Fitting), and **Assigned Staff**.
-5. Save the appointment. It will appear on the calendar and notify the assigned staff member.
-6. **Edit/Move**: Drag and drop appointments to change times, or click an entry to open the full edit dialog.
+2. Use the top search field first when looking for an existing booking by customer or appointment detail.
+3. Select your preferred view with **Day** or **Week**, then use the date controls or **Today** to move the calendar.
+4. **Book Appointment**: Click on an empty time slot or use the **New Appt** button.
+5. Fill in the **Customer**, **Appointment Type** (e.g., Bridal Consultation, Tux Fitting), and **Assigned Staff**.
+6. Save the appointment. It will appear on the calendar and notify the assigned staff member.
+7. **Edit/Move**: Drag and drop appointments to change times, or click an entry to open the full edit dialog.
 
 ## What to watch for
 
