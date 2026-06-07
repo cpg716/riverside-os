@@ -140,7 +140,7 @@ async function main() {
         </tr>
         <tr>
           <td>Authorized Stations</td>
-          <td>Server PC / Register #1 / Register #2 (iPad) / Counterpoint PC</td>
+          <td>Main Hub / Register #1 / Register #2 (iPad) / Counterpoint PC</td>
         </tr>
         <tr>
           <td>Generated On</td>
