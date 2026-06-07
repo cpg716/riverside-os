@@ -4,7 +4,7 @@ use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
     response::{IntoResponse, Response},
-    routing::{delete, get},
+    routing::{delete, get, post},
     Json, Router,
 };
 use chrono::{DateTime, Duration, NaiveDate, Utc};
@@ -125,6 +125,22 @@ pub struct DiscountUsageReportRow {
     pub subtotal_sum: Decimal,
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct DiscountUsageItemRow {
+    pub variant_id: Uuid,
+    pub sku: String,
+    pub product_name: String,
+    pub line_count: i64,
+    pub units_sold: i64,
+    pub subtotal_sum: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DiscountUsageDetailResponse {
+    pub summary: DiscountUsageReportRow,
+    pub items: Vec<DiscountUsageItemRow>,
+}
+
 fn naive_day_start_utc(d: NaiveDate) -> DateTime<Utc> {
     match d.and_hms_opt(0, 0, 0) {
         Some(naive_dt) => DateTime::from_naive_utc_and_offset(naive_dt, Utc),
@@ -198,6 +214,9 @@ pub fn router() -> Router<AppState> {
             "/{id}",
             get(get_event).patch(patch_event).delete(delete_event),
         )
+        .route("/{id}/usage-report", get(event_usage_report))
+        .route("/{id}/end-now", post(end_event_now))
+        .route("/{id}/cancel", post(cancel_event))
         .route("/{id}/variants", get(list_variants).post(add_variant))
         .route("/{id}/variants/{variant_id}", delete(remove_variant))
 }
@@ -253,6 +272,70 @@ async fn usage_report(
     .fetch_all(&state.db)
     .await?;
     Ok(Json(rows))
+}
+
+async fn event_usage_report(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    Query(q): Query<UsageReportQuery>,
+) -> Result<Json<DiscountUsageDetailResponse>, DiscountEventError> {
+    require_staff_with_permission(&state, &headers, CATALOG_VIEW)
+        .await
+        .map_err(|_| DiscountEventError::Forbidden)?;
+    let (start, end) = usage_report_range(&q);
+    let event_name =
+        sqlx::query_scalar::<_, String>("SELECT name FROM discount_events WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or(DiscountEventError::NotFound)?;
+    let summary = sqlx::query_as::<_, DiscountUsageReportRow>(
+        r#"
+        SELECT
+            $1::uuid AS event_id,
+            $2::text AS event_name,
+            COUNT(u.id)::bigint AS line_count,
+            COALESCE(SUM(u.quantity), 0)::bigint AS units_sold,
+            COALESCE(SUM(u.line_subtotal), 0)::numeric AS subtotal_sum
+        FROM discount_event_usage u
+        WHERE u.event_id = $1
+          AND u.created_at >= $3
+          AND u.created_at < $4
+        "#,
+    )
+    .bind(id)
+    .bind(&event_name)
+    .bind(start)
+    .bind(end)
+    .fetch_one(&state.db)
+    .await?;
+    let items = sqlx::query_as::<_, DiscountUsageItemRow>(
+        r#"
+        SELECT
+            u.variant_id,
+            pv.sku,
+            p.name AS product_name,
+            COUNT(u.id)::bigint AS line_count,
+            COALESCE(SUM(u.quantity), 0)::bigint AS units_sold,
+            COALESCE(SUM(u.line_subtotal), 0)::numeric AS subtotal_sum
+        FROM discount_event_usage u
+        INNER JOIN product_variants pv ON pv.id = u.variant_id
+        INNER JOIN products p ON p.id = pv.product_id
+        WHERE u.event_id = $1
+          AND u.created_at >= $2
+          AND u.created_at < $3
+        GROUP BY u.variant_id, pv.sku, p.name
+        ORDER BY subtotal_sum DESC NULLS LAST, p.name ASC
+        LIMIT 200
+        "#,
+    )
+    .bind(id)
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(DiscountUsageDetailResponse { summary, items }))
 }
 
 async fn list_active_events(
@@ -483,6 +566,55 @@ async fn patch_event(
     .bind(vend)
     .fetch_one(&state.db)
     .await?;
+    Ok(Json(row))
+}
+
+async fn end_event_now(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<DiscountEventRow>, DiscountEventError> {
+    require_staff_with_permission(&state, &headers, CATALOG_EDIT)
+        .await
+        .map_err(|_| DiscountEventError::Forbidden)?;
+    let row = sqlx::query_as::<_, DiscountEventRow>(
+        r#"
+        UPDATE discount_events
+        SET ends_at = now(), is_active = false
+        WHERE id = $1
+        RETURNING id, name, receipt_label, starts_at, ends_at, percent_off, is_active, created_at,
+                  scope_type, scope_category_id, scope_vendor_id
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(DiscountEventError::NotFound)?;
+    Ok(Json(row))
+}
+
+async fn cancel_event(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<DiscountEventRow>, DiscountEventError> {
+    require_staff_with_permission(&state, &headers, CATALOG_EDIT)
+        .await
+        .map_err(|_| DiscountEventError::Forbidden)?;
+    let row = sqlx::query_as::<_, DiscountEventRow>(
+        r#"
+        UPDATE discount_events
+        SET is_active = false,
+            ends_at = CASE WHEN starts_at > now() THEN starts_at ELSE LEAST(ends_at, now()) END
+        WHERE id = $1
+        RETURNING id, name, receipt_label, starts_at, ends_at, percent_off, is_active, created_at,
+                  scope_type, scope_category_id, scope_vendor_id
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(DiscountEventError::NotFound)?;
     Ok(Json(row))
 }
 

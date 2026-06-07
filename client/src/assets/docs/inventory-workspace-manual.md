@@ -28,6 +28,7 @@ Each subsection is job-based:
 - **New Item** for creating a product and its sellable SKUs
 - **Purchase Orders** for standard POs, direct invoices, customer order needs, and Min/Max reorder suggestions
 - **Receive Stock** for the same purchase-order-backed receiving workflow
+- **Promotions** for creating, ending, and reviewing POS discount events
 - **Reports** for historical PO, invoice, and receiving reports
 - **Import** for catalog-only CSV mapping
 - **Vendors** for supplier review and merge cleanup
@@ -40,12 +41,14 @@ Each subsection is job-based:
 3. Use **Inventory List** or **Product hub** for catalog corrections, not the receiving worksheet.
 4. Use **Import** only for catalog structure. Live stock changes belong in **Receiving** or **Physical count**.
 5. Use **Reports** when you need to search, view, or reprint historical receiving paperwork by vendor, invoice, PO, item, SKU, or date.
+6. Use **Promotions** to review each promotion as its own record before drilling into item performance.
 
 ## Workflow notes
 
 - **Receive Stock** opens the purchase-order-backed workflow directly. It is not a separate manual stock-adjustment path.
 - Standard POs must be **drafted**, lined, and **submitted** before receiving can begin.
 - Direct invoices skip the separate submit step but still land in the same **Receive Stock** final posting path.
+- **Promotions** track no-tax line subtotal, units, and line count by promotion. Select a promotion from the registry to review its item-level performance, scan SKUs into a selected-SKU promotion, or end/cancel an active promotion.
 - Inventory guidance in this workspace now assumes **Counterpoint sync** is the authoritative pre-launch inventory source.
 
 ## Operational detail

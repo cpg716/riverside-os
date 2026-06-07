@@ -1,23 +1,27 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import VariantSearchInput, {
   VariantSearchResult,
 } from "../ui/VariantSearchInput";
+import ConfirmationModal from "../ui/ConfirmationModal";
 import {
-  BarChart3,
-  Plus,
-  Zap,
-  Calendar,
   ArrowRight,
-  ShieldCheck,
+  BadgeDollarSign,
+  Barcode,
+  Calendar,
   CheckCircle2,
-  AlertCircle,
-  Settings2,
   Clock3,
+  PauseCircle,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Settings2,
+  ShieldCheck,
+  Trash2,
+  XCircle,
 } from "lucide-react";
-import DashboardGridCard from "../ui/DashboardGridCard";
 
 const baseUrl = getBaseUrl();
 
@@ -40,6 +44,32 @@ interface VarRow {
   product_name: string;
 }
 
+interface UsageSummaryRow {
+  event_id: string;
+  event_name: string;
+  line_count: number;
+  units_sold: number;
+  subtotal_sum: string;
+}
+
+interface UsageItemRow {
+  variant_id: string;
+  sku: string;
+  product_name: string;
+  line_count: number;
+  units_sold: number;
+  subtotal_sum: string;
+}
+
+interface UsageDetailResponse {
+  summary: UsageSummaryRow;
+  items: UsageItemRow[];
+}
+
+type PromoScope = "variants" | "category" | "vendor";
+type PromoAction = "end" | "cancel";
+type PanelMode = "manage" | "create";
+
 function jsonHeaders(base: () => HeadersInit): HeadersInit {
   const h = new Headers(base());
   h.set("Content-Type", "application/json");
@@ -53,40 +83,72 @@ function ymdLocal(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
+function money(value: string | number) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed)
+    ? parsed.toLocaleString(undefined, {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+      })
+    : "$0.00";
+}
+
+function dateShort(value: string) {
+  return new Date(value).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function statusFor(row: EventRow) {
+  const now = Date.now();
+  const starts = new Date(row.starts_at).getTime();
+  const ends = new Date(row.ends_at).getTime();
+  if (!row.is_active) return { label: "Cancelled", tone: "bg-rose-500/10 text-rose-500" };
+  if (starts > now) return { label: "Scheduled", tone: "bg-sky-500/10 text-sky-500" };
+  if (ends < now) return { label: "Ended", tone: "bg-app-surface-2 text-app-text-muted" };
+  return { label: "Active", tone: "bg-emerald-500/10 text-emerald-500" };
+}
+
+function scopeLabel(row: EventRow) {
+  if (row.scope_type === "category") return "Whole category";
+  if (row.scope_type === "vendor") return "Primary vendor";
+  return "Selected SKUs";
+}
+
 export default function DiscountEventsPanel() {
   const { toast } = useToast();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const canView = hasPermission("catalog.view");
   const canEdit = hasPermission("catalog.edit");
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   const [rows, setRows] = useState<EventRow[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [vars, setVars] = useState<VarRow[]>([]);
 
-  // Create / Edit Fields
   const [name, setName] = useState("");
   const [receiptLabel, setReceiptLabel] = useState("");
   const [starts, setStarts] = useState("");
   const [ends, setEnds] = useState("");
   const [pct, setPct] = useState("25");
-  const [scopeType, setScopeType] = useState<
-    "variants" | "category" | "vendor"
-  >("variants");
+  const [scopeType, setScopeType] = useState<PromoScope>("variants");
   const [scopeCategoryId, setScopeCategoryId] = useState("");
   const [scopeVendorId, setScopeVendorId] = useState("");
 
-  const [categories, setCategories] = useState<{ id: string; name: string }[]>(
-    [],
-  );
-  const [promoVendors, setPromoVendors] = useState<
-    { id: string; name: string }[]
-  >([]);
-
-  const [editScopeType, setEditScopeType] = useState<
-    "variants" | "category" | "vendor"
-  >("variants");
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [promoVendors, setPromoVendors] = useState<{ id: string; name: string }[]>([]);
+  const [editScopeType, setEditScopeType] = useState<PromoScope>("variants");
   const [editCategoryId, setEditCategoryId] = useState("");
   const [editVendorId, setEditVendorId] = useState("");
+
+  const [scanSku, setScanSku] = useState("");
+  const [busyScan, setBusyScan] = useState(false);
+  const [busyAction, setBusyAction] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<PromoAction | null>(null);
+  const [panelMode, setPanelMode] = useState<PanelMode>("manage");
 
   const [usageFrom, setUsageFrom] = useState(() => {
     const d = new Date();
@@ -94,15 +156,28 @@ export default function DiscountEventsPanel() {
     return ymdLocal(d);
   });
   const [usageTo, setUsageTo] = useState(() => ymdLocal(new Date()));
-  const [usageRows, setUsageRows] = useState<
-    {
-      event_id: string;
-      event_name: string;
-      line_count: number;
-      units_sold: number;
-      subtotal_sum: string;
-    }[]
-  >([]);
+  const [usageRows, setUsageRows] = useState<UsageSummaryRow[]>([]);
+  const [usageDetail, setUsageDetail] = useState<UsageDetailResponse | null>(null);
+
+  const selected = useMemo(() => rows.find((row) => row.id === sel) ?? null, [rows, sel]);
+  const usageByEvent = useMemo(() => {
+    const map = new Map<string, UsageSummaryRow>();
+    usageRows.forEach((row) => map.set(row.event_id, row));
+    return map;
+  }, [usageRows]);
+
+  const counts = useMemo(() => {
+    return rows.reduce(
+      (acc, row) => {
+        const status = statusFor(row).label;
+        if (status === "Active") acc.active += 1;
+        else if (status === "Scheduled") acc.scheduled += 1;
+        else acc.closed += 1;
+        return acc;
+      },
+      { active: 0, scheduled: 0, closed: 0 },
+    );
+  }, [rows]);
 
   const load = useCallback(async () => {
     if (!canView) return;
@@ -113,7 +188,9 @@ export default function DiscountEventsPanel() {
       setRows([]);
       return;
     }
-    setRows((await res.json()) as EventRow[]);
+    const nextRows = (await res.json()) as EventRow[];
+    setRows(nextRows);
+    setSel((current) => current ?? nextRows[0]?.id ?? null);
   }, [backofficeHeaders, canView]);
 
   useEffect(() => {
@@ -139,16 +216,12 @@ export default function DiscountEventsPanel() {
   }, [canView, backofficeHeaders]);
 
   useEffect(() => {
-    const r = rows.find((x) => x.id === sel);
-    if (!r) return;
-    const st = (r.scope_type ?? "variants") as
-      | "variants"
-      | "category"
-      | "vendor";
+    if (!selected) return;
+    const st = (selected.scope_type ?? "variants") as PromoScope;
     setEditScopeType(st);
-    setEditCategoryId(r.scope_category_id ?? "");
-    setEditVendorId(r.scope_vendor_id ?? "");
-  }, [sel, rows]);
+    setEditCategoryId(selected.scope_category_id ?? "");
+    setEditVendorId(selected.scope_vendor_id ?? "");
+  }, [selected]);
 
   const loadUsageReport = useCallback(async () => {
     if (!canView) return;
@@ -164,20 +237,35 @@ export default function DiscountEventsPanel() {
       toast("We couldn't load promotion results right now. Please try again.", "error");
       return;
     }
-    setUsageRows(
-      (await res.json()) as {
-        event_id: string;
-        event_name: string;
-        line_count: number;
-        units_sold: number;
-        subtotal_sum: string;
-      }[],
-    );
+    setUsageRows((await res.json()) as UsageSummaryRow[]);
   }, [backofficeHeaders, canView, usageFrom, usageTo, toast]);
+
+  const loadUsageDetail = useCallback(async () => {
+    if (!canView || !sel) {
+      setUsageDetail(null);
+      return;
+    }
+    const p = new URLSearchParams();
+    if (usageFrom.trim()) p.set("from", usageFrom.trim());
+    if (usageTo.trim()) p.set("to", usageTo.trim());
+    const res = await fetch(
+      `${baseUrl}/api/discount-events/${sel}/usage-report?${p.toString()}`,
+      { headers: backofficeHeaders() },
+    );
+    if (!res.ok) {
+      setUsageDetail(null);
+      return;
+    }
+    setUsageDetail((await res.json()) as UsageDetailResponse);
+  }, [backofficeHeaders, canView, sel, usageFrom, usageTo]);
 
   useEffect(() => {
     void loadUsageReport();
   }, [loadUsageReport]);
+
+  useEffect(() => {
+    void loadUsageDetail();
+  }, [loadUsageDetail]);
 
   const loadVars = useCallback(
     async (id: string) => {
@@ -200,6 +288,12 @@ export default function DiscountEventsPanel() {
     }
     void loadVars(sel);
   }, [sel, loadVars]);
+
+  useEffect(() => {
+    if (selected?.scope_type === "variants") {
+      scanInputRef.current?.focus();
+    }
+  }, [selected?.id, selected?.scope_type]);
 
   const createEvent = async () => {
     if (!canEdit) return;
@@ -241,14 +335,25 @@ export default function DiscountEventsPanel() {
       toast(b.error ?? "We couldn't save this promotion. Please review the details and try again.", "error");
       return;
     }
+    const created = (await res.json()) as EventRow;
     toast("Promotion saved and turned on.", "success");
     setName("");
     setReceiptLabel("");
-    void load();
+    setSel(created.id);
+    setPanelMode("manage");
+    await load();
   };
 
   const patchSelectedScope = async () => {
     if (!canEdit || !sel) return;
+    if (editScopeType === "category" && !editCategoryId) {
+      toast("Select a category for this promotion.", "error");
+      return;
+    }
+    if (editScopeType === "vendor" && !editVendorId) {
+      toast("Select a vendor for this promotion.", "error");
+      return;
+    }
     const body: Record<string, unknown> = { scope_type: editScopeType };
     if (editScopeType === "category") body.scope_category_id = editCategoryId;
     if (editScopeType === "vendor") body.scope_vendor_id = editVendorId;
@@ -262,9 +367,9 @@ export default function DiscountEventsPanel() {
       toast("We couldn't update where this promotion applies. Please try again.", "error");
       return;
     }
-    toast("Promotion area updated.", "success");
-    void load();
-    void loadVars(sel);
+    toast("Promotion scope updated.", "success");
+    await load();
+    await loadVars(sel);
   };
 
   const addVariant = async (v: VariantSearchResult) => {
@@ -278,429 +383,549 @@ export default function DiscountEventsPanel() {
       toast("We couldn't add that SKU to this promotion. Please try again.", "error");
       return;
     }
-    void loadVars(sel);
+    toast(`${v.sku} added to promotion.`, "success");
+    await loadVars(sel);
   };
 
-  if (!canView)
-    return (
-      <p className="p-8 text-app-text-muted">
-        Security clearance insufficient.
-      </p>
-    );
+  const removeVariant = async (variantId: string) => {
+    if (!canEdit || !sel) return;
+    const res = await fetch(`${baseUrl}/api/discount-events/${sel}/variants/${variantId}`, {
+      method: "DELETE",
+      headers: backofficeHeaders(),
+    });
+    if (!res.ok) {
+      toast("We couldn't remove that SKU from this promotion.", "error");
+      return;
+    }
+    await loadVars(sel);
+  };
+
+  const lookupVariantByCode = useCallback(
+    async (code: string): Promise<VariantSearchResult | null> => {
+      const trimmed = code.trim();
+      if (trimmed.length < 2) return null;
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/products/control-board?search=${encodeURIComponent(trimmed)}&limit=8`,
+          { headers: backofficeHeaders() },
+        );
+        if (!res.ok) return null;
+        const data = (await res.json()) as { rows?: VariantSearchResult[] };
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        return (
+          rows.find((row) => row.sku.toLowerCase() === trimmed.toLowerCase()) ??
+          rows[0] ??
+          null
+        );
+      } catch {
+        return null;
+      }
+    },
+    [backofficeHeaders],
+  );
+
+  const addScannedSku = async () => {
+    if (!canEdit || !sel || busyScan) return;
+    const code = scanSku.trim();
+    if (!code) return;
+    setBusyScan(true);
+    try {
+      const variant = await lookupVariantByCode(code);
+      if (!variant) {
+        toast(`SKU ${code} was not found.`, "error");
+        return;
+      }
+      await addVariant(variant);
+      setScanSku("");
+      scanInputRef.current?.focus();
+    } finally {
+      setBusyScan(false);
+    }
+  };
+
+  const applyPromoAction = async () => {
+    if (!canEdit || !sel || !confirmAction) return;
+    setBusyAction(true);
+    try {
+      const endpoint = confirmAction === "end" ? "end-now" : "cancel";
+      const res = await fetch(`${baseUrl}/api/discount-events/${sel}/${endpoint}`, {
+        method: "POST",
+        headers: backofficeHeaders(),
+      });
+      if (!res.ok) {
+        toast("We couldn't update this promotion status.", "error");
+        return;
+      }
+      toast(confirmAction === "end" ? "Promotion ended now." : "Promotion cancelled.", "success");
+      setConfirmAction(null);
+      await load();
+    } finally {
+      setBusyAction(false);
+    }
+  };
+
+  if (!canView) {
+    return <p className="p-8 text-app-text-muted">Security clearance insufficient.</p>;
+  }
 
   return (
-    <div className="flex h-full flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
-      <div className="flex items-center justify-between px-2">
+    <div className="flex h-full flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <div className="flex flex-wrap items-end justify-between gap-4 px-2">
         <div>
-          <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Promotions</h3>
-          <h2 className="text-2xl font-black tracking-tight text-app-text">Promotions</h2>
+          <h3 className="mb-1 text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-60">
+            Promotions
+          </h3>
+          <h2 className="text-2xl font-black tracking-tight text-app-text">Promotion Management</h2>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setPanelMode("create")}
+            className="ui-btn-primary min-h-12 px-5"
+          >
+            <Plus size={16} />
+            New Promotion
+          </button>
+          <div className="grid grid-cols-3 gap-2 text-right">
+            <div className="rounded-xl border border-app-border bg-app-surface px-4 py-2">
+              <div className="text-lg font-black text-emerald-500">{counts.active}</div>
+              <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Active</div>
+            </div>
+            <div className="rounded-xl border border-app-border bg-app-surface px-4 py-2">
+              <div className="text-lg font-black text-sky-500">{counts.scheduled}</div>
+              <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Scheduled</div>
+            </div>
+            <div className="rounded-xl border border-app-border bg-app-surface px-4 py-2">
+              <div className="text-lg font-black text-app-text-muted">{counts.closed}</div>
+              <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Closed</div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <main className="grid min-h-0 flex-1 gap-8 lg:grid-cols-[1fr_400px]">
-        <div className="flex flex-col gap-8 overflow-y-auto no-scrollbar pb-20 px-2">
-          {/* ANALYTICS SNAPSHOT */}
-          <DashboardGridCard
-            title="Promotion Performance"
-            subtitle="Historical Audit"
-            icon={BarChart3}
-          >
-            <div className="inline-flex items-center gap-3 mb-6 bg-app-surface/40 p-3 rounded-2xl border border-app-border/40 self-start">
-              <input
-                type="date"
-                value={usageFrom}
-                onChange={(e) => setUsageFrom(e.target.value)}
-                className="h-9 w-32 rounded-xl bg-app-surface/60 border border-app-border px-3 text-[10px] font-black uppercase tracking-widest focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
-              />
-              <ArrowRight size={14} className="text-app-text-muted opacity-40" />
-              <input
-                type="date"
-                value={usageTo}
-                onChange={(e) => setUsageTo(e.target.value)}
-                className="h-9 w-32 rounded-xl bg-app-surface/60 border border-app-border px-3 text-[10px] font-black uppercase tracking-widest focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
-              />
-            </div>
-
-            <div className="overflow-hidden rounded-2xl border border-app-border/40 bg-app-bg/10 backdrop-blur-md">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-app-surface/40 border-b border-app-border/40">
-                    <tr>
-	                      <th className="px-6 py-4 font-black uppercase tracking-widest text-app-text-muted opacity-60">Promotion</th>
-	                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Lines</th>
-	                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Units</th>
-	                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Sales</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border/40">
-                    {usageRows.map((u) => (
-                      <tr key={u.event_id} className="hover:bg-app-surface/20 transition-colors group">
-                        <td className="px-6 py-4 font-black uppercase italic tracking-tight text-app-text group-hover:text-app-accent transition-colors">{u.event_name}</td>
-	                        <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">{u.line_count}</td>
-                        <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">{u.units_sold}</td>
-                        <td className="px-6 py-4 text-right font-mono font-black text-emerald-500">${u.subtotal_sum}</td>
-                      </tr>
-                    ))}
-                    {usageRows.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-12 text-center text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-20">No historical data in window</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </DashboardGridCard>
-
-          {/* ACTIVE PROMOTIONS LIST */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between ml-2">
-              <div className="flex items-center gap-3 text-app-text-muted">
-                <Clock3 size={18} />
-                <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">
-                  Promotion Registry
-                </h4>
-              </div>
-              <span className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">
-                {rows.length} Events Logged
-              </span>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              {rows.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => setSel(r.id)}
-                  className={`group relative flex flex-col p-6 rounded-[2rem] border transition-all text-left ${
-                    sel === r.id
-                      ? "border-app-accent bg-app-accent/5 ring-4 ring-app-accent/10 shadow-xl"
-                      : "border-app-border bg-app-surface hover:border-app-accent/40"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div
-                      className={`h-10 w-10 flex items-center justify-center rounded-2xl ${r.is_active ? "bg-emerald-500 text-white" : "bg-app-surface-2 text-app-text-muted"}`}
-                    >
-                      <Zap
-                        size={20}
-                        className={r.is_active ? "animate-pulse" : ""}
-                      />
-                    </div>
-                    <span className="font-mono text-2xl font-black italic tracking-tighter text-app-text">
-                      -{Number(r.percent_off)}%
-                    </span>
-                  </div>
-                  <h5 className="text-sm font-black uppercase tracking-tight text-app-text italic">
-                    {r.name}
-                  </h5>
-                  <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest mt-1 opacity-60">
-                    {r.receipt_label}
+      <main className="grid min-h-0 flex-1 gap-6 xl:grid-cols-[minmax(0,1fr)_520px]">
+        <div className="min-h-0 overflow-y-auto no-scrollbar px-2 pb-20">
+          <section className="rounded-2xl border border-app-border bg-app-surface shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-app-border px-5 py-4">
+              <div className="flex items-center gap-3">
+                <Clock3 size={18} className="text-app-accent" />
+                <div>
+                  <h4 className="text-sm font-black text-app-text">Promotion Registry</h4>
+                  <p className="text-xs font-semibold text-app-text-muted">
+                    Select a promotion to manage scope, status, and performance.
                   </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-bg/40 p-2">
+                <input
+                  type="date"
+                  value={usageFrom}
+                  onChange={(e) => setUsageFrom(e.target.value)}
+                  className="h-9 rounded-lg border border-app-border bg-app-surface px-3 text-xs font-bold text-app-text"
+                />
+                <ArrowRight size={14} className="text-app-text-muted" />
+                <input
+                  type="date"
+                  value={usageTo}
+                  onChange={(e) => setUsageTo(e.target.value)}
+                  className="h-9 rounded-lg border border-app-border bg-app-surface px-3 text-xs font-bold text-app-text"
+                />
+              </div>
+            </div>
 
-                  <div className="mt-6 flex items-center gap-4 text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-50">
-                    <div className="flex items-center gap-1">
-                      <Calendar size={12} />
-                      {new Date(r.starts_at).toLocaleDateString()} —{" "}
-                      {new Date(r.ends_at).toLocaleDateString()}
+            <div className="space-y-3 p-4">
+              {rows.map((row) => {
+                const status = statusFor(row);
+                const usage = usageByEvent.get(row.id);
+                const isSelected = row.id === sel && panelMode === "manage";
+                return (
+                  <button
+                    type="button"
+                    key={row.id}
+                    onClick={() => {
+                      setSel(row.id);
+                      setPanelMode("manage");
+                    }}
+                    className={`w-full rounded-2xl border p-4 text-left transition-all hover:border-app-accent/50 hover:bg-app-accent/5 ${
+                      isSelected
+                        ? "border-app-accent bg-app-accent/10 shadow-lg shadow-app-accent/10"
+                        : "border-app-border bg-app-bg/30"
+                    }`}
+                  >
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_auto]">
+                      <div className="min-w-0">
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${status.tone}`}>
+                            {status.label}
+                          </span>
+                          {isSelected && (
+                            <span className="rounded-full bg-app-accent/15 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent">
+                              Open
+                            </span>
+                          )}
+                          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            -{Number(row.percent_off)}%
+                          </span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            {scopeLabel(row)}
+                          </span>
+                        </div>
+                        <div className="truncate text-lg font-black text-app-text">{row.name}</div>
+                        <div className="truncate text-xs font-bold uppercase tracking-widest text-app-text-muted">
+                          {row.receipt_label}
+                        </div>
+                        <div className="mt-3 flex items-center gap-2 text-xs font-bold text-app-text-muted">
+                          <Calendar size={14} />
+                          {dateShort(row.starts_at)} - {dateShort(row.ends_at)}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 xl:min-w-[290px]">
+                        <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                          <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">No-tax</div>
+                          <div className="mt-1 font-mono text-sm font-black text-app-text">{money(usage?.subtotal_sum ?? 0)}</div>
+                        </div>
+                        <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                          <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Units</div>
+                          <div className="mt-1 font-mono text-sm font-black text-app-text">{usage?.units_sold ?? 0}</div>
+                        </div>
+                        <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                          <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Lines</div>
+                          <div className="mt-1 font-mono text-sm font-black text-app-text">{usage?.line_count ?? 0}</div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 border-l border-app-border pl-4 uppercase italic">
-                      {r.scope_type} Scope
-                    </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
+              {rows.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-app-border p-10 text-center">
+                  <p className="text-sm font-bold text-app-text-muted">No promotions have been created yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => setPanelMode("create")}
+                    className="ui-btn-primary mt-4"
+                  >
+                    <Plus size={16} />
+                    Create First Promotion
+                  </button>
+                </div>
+              )}
             </div>
           </section>
         </div>
 
-        {/* SIDEBAR: CREATION & SCOPE */}
-        <aside className="no-scrollbar overflow-y-auto pb-20 space-y-8">
-          {/* NEW PROMOTION FORM */}
-          <section className="rounded-[2.5rem] border border-app-border bg-app-surface p-8 shadow-sm">
-            <div className="flex items-center gap-3 text-app-accent mb-6">
-              <Plus size={20} />
-              <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">
-	                Create Promotion
-              </h4>
-            </div>
-
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-	                  Promotion Name
-                </label>
-                <input
-                  className="ui-input h-12 text-xs font-bold"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-	                  Receipt Label
-                </label>
-                <input
-                  className="ui-input h-12 text-xs font-bold"
-                  value={receiptLabel}
-                  onChange={(e) => setReceiptLabel(e.target.value)}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-	                    Starts
-                  </label>
-                  <input
-                    className="ui-input h-10 text-[10px] font-black uppercase"
-                    type="datetime-local"
-                    value={starts}
-                    onChange={(e) => setStarts(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-	                    Ends
-                  </label>
-                  <input
-                    className="ui-input h-10 text-[10px] font-black uppercase"
-                    type="datetime-local"
-                    value={ends}
-                    onChange={(e) => setEnds(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-	                  Discount %
-                </label>
-                <div className="relative">
-                  <input
-                    className="ui-input h-14 pl-10 text-xl font-black tabular-nums tracking-tighter"
-                    value={pct}
-                    onChange={(e) => setPct(e.target.value)}
-                  />
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted">
-                    <Zap size={18} />
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                  Applies To
-                </label>
-                <select
-                  className="ui-input h-12 text-xs font-bold"
-                  value={scopeType}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (
-                      value === "variants" ||
-                      value === "category" ||
-                      value === "vendor"
-                    ) {
-                      setScopeType(value);
-                    }
-                  }}
-	                >
-	                  <option value="variants">Selected SKUs</option>
-	                  <option value="category">Whole Category</option>
-	                  <option value="vendor">Primary Vendor</option>
-	                </select>
-	              </div>
-	              {scopeType === "category" && (
-	                <div className="space-y-1.5">
-	                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-	                    Category
-	                  </label>
-	                  <select
-	                    className="ui-input h-12 text-xs font-bold"
-	                    value={scopeCategoryId}
-	                    onChange={(e) => setScopeCategoryId(e.target.value)}
-	                  >
-	                    <option value="">Select category...</option>
-	                    {categories.map((c) => (
-	                      <option key={c.id} value={c.id}>
-	                        {c.name}
-	                      </option>
-	                    ))}
-	                  </select>
-	                </div>
-	              )}
-	              {scopeType === "vendor" && (
-	                <div className="space-y-1.5">
-	                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-	                    Vendor
-	                  </label>
-	                  <select
-	                    className="ui-input h-12 text-xs font-bold"
-	                    value={scopeVendorId}
-	                    onChange={(e) => setScopeVendorId(e.target.value)}
-	                  >
-	                    <option value="">Select vendor...</option>
-	                    {promoVendors.map((v) => (
-	                      <option key={v.id} value={v.id}>
-	                        {v.name}
-	                      </option>
-	                    ))}
-	                  </select>
-	                </div>
-	              )}
-
-	              <button
-                onClick={createEvent}
-                className="w-full h-14 rounded-2xl bg-app-accent text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-app-accent/20 hover:brightness-110 active:scale-95 transition-all mt-4"
+        <aside className="min-h-0 overflow-y-auto no-scrollbar px-2 pb-20">
+          <section className="mb-4 rounded-2xl border border-app-border bg-app-surface p-2 shadow-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setPanelMode("create")}
+                className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  panelMode === "create"
+                    ? "bg-app-accent text-white shadow-lg shadow-app-accent/20"
+                    : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                }`}
               >
-                Create Promotion
+                <Plus size={16} />
+                New Promotion
+              </button>
+              <button
+                type="button"
+                onClick={() => setPanelMode("manage")}
+                disabled={!selected}
+                className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-40 ${
+                  panelMode === "manage"
+                    ? "bg-app-surface-2 text-app-text"
+                    : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                }`}
+              >
+                <SlidersHorizontal size={16} />
+                Selected Promo
               </button>
             </div>
           </section>
 
-          {/* EDIT SCOPE (Only if selected) */}
-          {sel && (
-            <section className="rounded-[2.5rem] border border-app-border bg-violet-600 p-8 shadow-xl shadow-violet-600/20 text-white animate-in slide-in-from-right-4 duration-300">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3 opacity-90">
-                  <Settings2 size={20} />
-                  <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">
-                    Promotion Scope
-                  </h4>
+          {panelMode === "create" ? (
+            <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm">
+              <div className="mb-5">
+                <div className="mb-1 flex items-center gap-3 text-app-accent">
+                  <Plus size={18} />
+                  <h4 className="text-sm font-black text-app-text">Create Promotion</h4>
                 </div>
-                <button onClick={() => setSel(null)}>
-                  <CheckCircle2
-                    size={18}
-                    className="opacity-60 hover:opacity-100"
-                  />
-                </button>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  Define the promo, then add SKUs after it is created.
+                </p>
               </div>
 
               <div className="space-y-4">
-                <select
-                  className="w-full h-12 bg-app-surface/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
-                  value={editScopeType}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (
-                      value === "variants" ||
-                      value === "category" ||
-                      value === "vendor"
-                    ) {
-                      setEditScopeType(value);
-                    }
-                  }}
-                >
-                  <option className="text-app-text" value="variants">
-                    Selected SKUs
-                  </option>
-                  <option className="text-app-text" value="category">
-                    Whole Category
-                  </option>
-                  <option className="text-app-text" value="vendor">
-                    Primary Vendor
-                  </option>
-                </select>
-
-                {editScopeType === "category" && (
-                  <select
-                    className="w-full h-12 bg-app-surface/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
-                    value={editCategoryId}
-                    onChange={(e) => setEditCategoryId(e.target.value)}
-                  >
-                    <option className="text-app-text" value="">
-                      Select Category...
-                    </option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-
-                {editScopeType === "vendor" && (
-                  <select
-                    className="w-full h-12 bg-app-surface/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
-                    value={editVendorId}
-                    onChange={(e) => setEditVendorId(e.target.value)}
-                  >
-                    <option className="text-app-text" value="">
-                      Select Vendor...
-                    </option>
-                    {promoVendors.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-
-                {editScopeType === "variants" && (
-                  <div className="space-y-4">
-                    <VariantSearchInput
-                      onSelect={addVariant}
-                      className="ui-input-dark h-12 w-full"
-                      placeholder="Add SKU to markdown list..."
-                    />
-                    <div className="max-h-48 overflow-y-auto no-scrollbar space-y-2">
-                      {vars.map((v) => (
-                        <div
-                          key={v.variant_id}
-                          className="flex items-center justify-between p-3 rounded-xl bg-app-surface/5 border border-white/10 group"
-                        >
-                          <div className="flex flex-col">
-                            <span className="text-[10px] font-black uppercase tracking-tight">
-                              {v.product_name}
-                            </span>
-                            <span className="text-[8px] font-bold opacity-60 font-mono">
-                              {v.sku}
-                            </span>
-                          </div>
-                          <button
-                            onClick={async () => {
-                              await fetch(
-                                `${baseUrl}/api/discount-events/${sel}/variants/${v.variant_id}`,
-                                {
-                                  method: "DELETE",
-                                  headers: backofficeHeaders() as Record<string, string>,
-                                },
-                              );
-                              void loadVars(sel!);
-                            }}
-                            className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-500 rounded-lg transition-all"
-                          >
-                            <AlertCircle size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input className="ui-input h-12 text-sm font-bold" value={name} onChange={(e) => setName(e.target.value)} placeholder="Promotion name" />
+                  <input className="ui-input h-12 text-sm font-bold" value={receiptLabel} onChange={(e) => setReceiptLabel(e.target.value)} placeholder="Receipt label" />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      <Calendar size={12} />
+                      Starts
+                    </label>
+                    <input className="ui-input h-11 text-xs font-bold" type="datetime-local" value={starts} onChange={(e) => setStarts(e.target.value)} />
                   </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">Ends</label>
+                    <input className="ui-input h-11 text-xs font-bold" type="datetime-local" value={ends} onChange={(e) => setEnds(e.target.value)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-[120px_1fr] gap-3">
+                  <input className="ui-input h-12 text-sm font-black" value={pct} onChange={(e) => setPct(e.target.value)} placeholder="25" />
+                  <select className="ui-input h-12 text-sm font-bold" value={scopeType} onChange={(e) => setScopeType(e.target.value as PromoScope)}>
+                    <option value="variants">Selected SKUs</option>
+                    <option value="category">Whole Category</option>
+                    <option value="vendor">Primary Vendor</option>
+                  </select>
+                </div>
+                {scopeType === "category" && (
+                  <select className="ui-input h-12 text-sm font-bold" value={scopeCategoryId} onChange={(e) => setScopeCategoryId(e.target.value)}>
+                    <option value="">Select category...</option>
+                    {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
                 )}
-
-                <button
-                  onClick={patchSelectedScope}
-                  className="w-full h-14 bg-app-surface text-violet-600 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:brightness-110 active:scale-95 transition-all"
-                >
-                  Save Area
+                {scopeType === "vendor" && (
+                  <select className="ui-input h-12 text-sm font-bold" value={scopeVendorId} onChange={(e) => setScopeVendorId(e.target.value)}>
+                    <option value="">Select vendor...</option>
+                    {promoVendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                )}
+                <button type="button" onClick={createEvent} disabled={!canEdit} className="ui-btn-primary w-full disabled:opacity-50">
+                  <Plus size={16} />
+                  Create Promotion
                 </button>
               </div>
             </section>
+          ) : selected ? (
+            <div className="space-y-4">
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm">
+                <div className="mb-5 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${statusFor(selected).tone}`}>
+                        {statusFor(selected).label}
+                      </span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        -{Number(selected.percent_off)}%
+                      </span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        {scopeLabel(selected)}
+                      </span>
+                    </div>
+                    <h3 className="truncate text-xl font-black text-app-text">{selected.name}</h3>
+                    <p className="truncate text-xs font-bold uppercase tracking-widest text-app-text-muted">{selected.receipt_label}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      disabled={!canEdit || statusFor(selected).label === "Ended" || statusFor(selected).label === "Cancelled"}
+                      onClick={() => setConfirmAction("end")}
+                      className="ui-btn-secondary min-h-10 px-3 text-[10px] disabled:opacity-40"
+                    >
+                      <PauseCircle size={16} />
+                      End
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canEdit || !selected.is_active}
+                      onClick={() => setConfirmAction("cancel")}
+                      className="ui-btn-danger min-h-10 px-3 text-[10px] disabled:opacity-40"
+                    >
+                      <XCircle size={16} />
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-xl border border-app-border bg-app-bg/40 p-3">
+                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      <BadgeDollarSign size={14} />
+                      No-tax
+                    </div>
+                    <div className="mt-2 text-lg font-black text-app-text">
+                      {money(usageDetail?.summary.subtotal_sum ?? 0)}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-app-border bg-app-bg/40 p-3">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Units</div>
+                    <div className="mt-2 text-lg font-black text-app-text">{usageDetail?.summary.units_sold ?? 0}</div>
+                  </div>
+                  <div className="rounded-xl border border-app-border bg-app-bg/40 p-3">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Lines</div>
+                    <div className="mt-2 text-lg font-black text-app-text">{usageDetail?.summary.line_count ?? 0}</div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm">
+                <div className="mb-4 flex items-center gap-3">
+                  <Settings2 size={18} className="text-app-accent" />
+                  <h4 className="text-sm font-black text-app-text">Promotion Scope</h4>
+                </div>
+                <div className="space-y-3">
+                  <select
+                    className="ui-input h-11 text-sm font-bold"
+                    value={editScopeType}
+                    onChange={(e) => setEditScopeType(e.target.value as PromoScope)}
+                  >
+                    <option value="variants">Selected SKUs</option>
+                    <option value="category">Whole Category</option>
+                    <option value="vendor">Primary Vendor</option>
+                  </select>
+
+                  {editScopeType === "category" && (
+                    <select
+                      className="ui-input h-11 text-sm font-bold"
+                      value={editCategoryId}
+                      onChange={(e) => setEditCategoryId(e.target.value)}
+                    >
+                      <option value="">Select category...</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {editScopeType === "vendor" && (
+                    <select
+                      className="ui-input h-11 text-sm font-bold"
+                      value={editVendorId}
+                      onChange={(e) => setEditVendorId(e.target.value)}
+                    >
+                      <option value="">Select vendor...</option>
+                      {promoVendors.map((v) => (
+                        <option key={v.id} value={v.id}>{v.name}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  {editScopeType === "variants" && (
+                    <div className="space-y-3 rounded-xl border border-app-border bg-app-bg/30 p-3">
+                      <div className="relative">
+                        <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted" size={18} />
+                        <input
+                          ref={scanInputRef}
+                          value={scanSku}
+                          onChange={(e) => setScanSku(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void addScannedSku();
+                            }
+                          }}
+                          placeholder="Scan or enter SKU, then Enter"
+                          className="ui-input h-12 pl-10 pr-3 text-sm font-black"
+                        />
+                      </div>
+                      <VariantSearchInput
+                        onSelect={addVariant}
+                        className="w-full"
+                        placeholder="Search item name or SKU..."
+                      />
+                      <div className="max-h-56 space-y-2 overflow-y-auto no-scrollbar">
+                        {vars.map((v) => (
+                          <div key={v.variant_id} className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                            <div>
+                              <div className="text-xs font-black text-app-text">{v.product_name}</div>
+                              <div className="font-mono text-[10px] font-bold text-app-text-muted">{v.sku}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void removeVariant(v.variant_id)}
+                              className="ui-touch-target rounded-lg text-app-text-muted hover:bg-rose-500/10 hover:text-rose-500"
+                              aria-label={`Remove ${v.sku} from promotion`}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        ))}
+                        {vars.length === 0 && (
+                          <div className="rounded-xl border border-dashed border-app-border p-4 text-center text-xs font-bold text-app-text-muted">
+                            Scan SKUs to build this promotion.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={patchSelectedScope}
+                    disabled={!canEdit}
+                    className="ui-btn-primary w-full disabled:opacity-50"
+                  >
+                    <CheckCircle2 size={16} />
+                    Save Scope
+                  </button>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm">
+                <div className="mb-4 flex items-center gap-3">
+                  <Search size={18} className="text-app-accent" />
+                  <h4 className="text-sm font-black text-app-text">Performance Detail</h4>
+                </div>
+                <div className="space-y-2">
+                  {(usageDetail?.items ?? []).map((item) => (
+                    <div key={item.variant_id} className="grid grid-cols-[1fr_auto] gap-3 rounded-xl border border-app-border bg-app-bg/30 p-3">
+                      <div>
+                        <div className="text-xs font-black text-app-text">{item.product_name}</div>
+                        <div className="font-mono text-[10px] font-bold text-app-text-muted">{item.sku}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-mono text-sm font-black text-app-text">{money(item.subtotal_sum)}</div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                          {item.units_sold} units · {item.line_count} lines
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {(usageDetail?.items ?? []).length === 0 && (
+                    <div className="rounded-xl border border-dashed border-app-border p-5 text-center text-xs font-bold text-app-text-muted">
+                      No sales have used this promotion in the selected window.
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+          ) : (
+            <section className="rounded-2xl border border-app-border bg-app-surface p-5 text-sm font-bold text-app-text-muted">
+              Select a promotion from the registry, or create a new one.
+            </section>
           )}
 
-          <section className="rounded-[2rem] border border-app-border bg-app-surface p-8 shadow-sm">
-            <div className="flex items-center gap-3 text-app-text-muted mb-4">
+          <section className="mt-4 rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm">
+            <div className="mb-2 flex items-center gap-3 text-app-text-muted">
               <ShieldCheck size={18} />
-              <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">
-                Promotion Rules
-              </h4>
+              <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Promotion Rules</h4>
             </div>
-            <p className="text-[10px] font-bold text-app-text-muted leading-relaxed">
-              Promotion events are automatically applied at POS based on the
-              checkout timestamp. Category and vendor areas are helpful for
-              broad promotions, but review overlapping promotions before the
-              sale starts.
+            <p className="text-xs font-semibold leading-relaxed text-app-text-muted">
+              POS applies active promotions by checkout timestamp. The sales totals shown here use line subtotal before tax.
             </p>
           </section>
         </aside>
       </main>
+
+      <ConfirmationModal
+        isOpen={confirmAction !== null}
+        onClose={() => !busyAction && setConfirmAction(null)}
+        onConfirm={() => void applyPromoAction()}
+        title={confirmAction === "end" ? "End Promotion" : "Cancel Promotion"}
+        message={
+          confirmAction === "end"
+            ? "This stops the promotion immediately and keeps historical sales reporting attached to the promo."
+            : "This disables the promotion so POS will no longer apply it. Historical sales reporting stays attached to the promo."
+        }
+        confirmLabel={confirmAction === "end" ? "End Now" : "Cancel Promo"}
+        variant="danger"
+        loading={busyAction}
+      />
     </div>
   );
 }
