@@ -1390,12 +1390,13 @@ function AppShell({
   insightsMode,
   setInsightsMode,
 }: AppShellProps) {
-  const { staffCode, permissionsLoaded, permissions } = useBackofficeAuth();
+  const { staffCode, staffDisplayName, permissionsLoaded, permissions } = useBackofficeAuth();
   const [helpDrawerMode, setHelpDrawerMode] =
     useState<HelpCenterDrawerMode>("browse");
   const [helpDrawerInitialTarget, setHelpDrawerInitialTarget] =
     useState<HelpCenterInitialTarget | null>(null);
   const isAuthenticated = !!(staffCode.trim() && permissionsLoaded && permissions.length > 0);
+  const weddingActorName = staffDisplayName.trim() || cashierName?.trim() || null;
 
   // Origin Tracking Effect
   useEffect(() => {
@@ -1576,7 +1577,7 @@ function AppShell({
           />
         ) : weddingMode ? (
           <WeddingShell
-            actorLabel={cashierName}
+            actorLabel={weddingActorName}
             initialPartyId={pendingWmPartyId}
             onInitialPartyConsumed={onClearPendingWmPartyId}
             returnLabel={weddingReturnTarget === "pos" ? "Return to POS" : "Back to Back Office"}
@@ -1959,7 +1960,8 @@ function AppMainColumn({
   bugReportsDeepLinkId,
   setBugReportsDeepLinkId,
 }: AppMainColumnProps) {
-  const { hasPermission, permissionsLoaded } = useBackofficeAuth();
+  const { hasPermission, permissionsLoaded, staffDisplayName } = useBackofficeAuth();
+  const weddingActorName = staffDisplayName.trim() || cashierName?.trim() || null;
   const shellDepth = useShellBackdropDepth();
   const canvasRecessed = shellDepth > 0;
 
@@ -2170,7 +2172,7 @@ function AppMainColumn({
                 if (activeTab === "weddings")
                   return (
                     <WeddingManagerApp
-                      rosActorName={cashierName}
+                      rosActorName={weddingActorName}
                       initialPartyId={pendingWmPartyId}
                       onInitialPartyConsumed={onClearPendingWmPartyId}
                     />

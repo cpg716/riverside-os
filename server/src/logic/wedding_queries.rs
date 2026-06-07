@@ -493,6 +493,7 @@ pub async fn query_wedding_actions(
         WHERE status = 'Scheduled'
           AND starts_at >= NOW()
           AND starts_at <= NOW() + INTERVAL '14 days'
+          AND (wedding_party_id IS NOT NULL OR wedding_member_id IS NOT NULL)
         ORDER BY starts_at ASC
         LIMIT 50
         "#,
@@ -508,6 +509,7 @@ pub async fn query_wedding_actions(
         FROM wedding_appointments
         WHERE status = 'Scheduled'
           AND starts_at < NOW() - INTERVAL '15 minutes'
+          AND (wedding_party_id IS NOT NULL OR wedding_member_id IS NOT NULL)
         ORDER BY starts_at DESC
         LIMIT 30
         "#,

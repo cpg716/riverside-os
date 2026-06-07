@@ -188,7 +188,13 @@ export default function PosShell({
   const [posMessagingFocusHubTab, setPosMessagingFocusHubTab] = useState<
     string | null
   >(null);
-  const { hasPermission, permissionsLoaded, setStaffCredentials } = useBackofficeAuth();
+  const {
+    hasPermission,
+    permissionsLoaded,
+    setStaffCredentials,
+    staffDisplayName,
+  } = useBackofficeAuth();
+  const weddingActorName = staffDisplayName.trim() || cashierName?.trim() || null;
   const [shiftHandoffOpen, setShiftHandoffOpen] = useState(false);
   useEffect(() => {
     if (!isRegisterOpen || !sessionId) return;
@@ -524,7 +530,7 @@ export default function PosShell({
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Wedding Hub...</div>}>
                 <WeddingManagerApp
-                  rosActorName={cashierName}
+                  rosActorName={weddingActorName}
                   initialPartyId={pendingWmPartyId}
                   onInitialPartyConsumed={onClearPendingWmPartyId}
                 />

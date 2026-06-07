@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from './Icon';
-import { api, type WmParty, type WmReadinessDashboard, type WmReadinessSummary, type WmReadinessStatus } from '../lib/api';
+import StaffMiniSelector from '../../ui/StaffMiniSelector';
+import {
+    api,
+    type WmParty,
+    type WmReadinessDashboard,
+    type WmReadinessSummary,
+    type WmReadinessStatus,
+    type WmStaffSelectorRow,
+} from '../lib/api';
 
 interface WeddingReadinessDashboardProps {
     onPartyClick?: (party: WmParty) => void;
@@ -24,7 +32,7 @@ const WINDOW_OPTIONS = [
 
 const WeddingHealthHeatmap: React.FC<WeddingReadinessDashboardProps> = ({ onPartyClick }) => {
     const [dashboard, setDashboard] = useState<WmReadinessDashboard | null>(null);
-    const [salespeople, setSalespeople] = useState<string[]>([]);
+    const [salespeople, setSalespeople] = useState<WmStaffSelectorRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [openingPartyId, setOpeningPartyId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -44,7 +52,7 @@ const WeddingHealthHeatmap: React.FC<WeddingReadinessDashboardProps> = ({ onPart
     }, [windowDays]);
 
     useEffect(() => {
-        void api.getSalespeople().then(setSalespeople).catch(() => setSalespeople([]));
+        void api.getSalespeopleRows().then(setSalespeople).catch(() => setSalespeople([]));
     }, []);
 
     const fetchReadiness = async () => {
@@ -111,6 +119,7 @@ const WeddingHealthHeatmap: React.FC<WeddingReadinessDashboardProps> = ({ onPart
                 .includes(query);
         });
     }, [searchTerm, stats.parties]);
+    const selectedSalespersonId = salespeople.find((sp) => sp.full_name === salesperson)?.id || '';
 
     return (
         <div className="space-y-6 pb-20" data-testid="wedding-readiness-dashboard">
@@ -166,15 +175,23 @@ const WeddingHealthHeatmap: React.FC<WeddingReadinessDashboardProps> = ({ onPart
                         onChange={(value) => setWindowDays(Number(value))}
                         options={WINDOW_OPTIONS.map((option) => ({ ...option, value: String(option.value) }))}
                     />
-                    <SelectField
-                        label="Salesperson"
-                        value={salesperson}
-                        onChange={setSalesperson}
-                        options={[
-                            { value: '', label: 'All salespeople' },
-                            ...salespeople.map((name) => ({ value: name, label: name })),
-                        ]}
-                    />
+                    <label className="min-w-[13rem] flex-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Salesperson
+                        <div className="mt-2">
+                            <StaffMiniSelector
+                                staff={salespeople}
+                                selectedId={selectedSalespersonId}
+                                onSelect={(id) => {
+                                    const picked = salespeople.find((sp) => sp.id === id);
+                                    setSalesperson(picked?.full_name || '');
+                                }}
+                                placeholder="All salespeople"
+                                displayLabel={salesperson || 'All salespeople'}
+                                size="md"
+                                fullWidth
+                            />
+                        </div>
+                    </label>
                 </div>
                 <p className="mt-3 text-xs font-bold text-app-text-muted">
                     Showing {filteredParties.length} of {stats.parties.length} party readiness record(s).

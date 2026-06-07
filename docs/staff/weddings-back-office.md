@@ -25,6 +25,10 @@ Use **Weddings** to manage **groups**, **money**, and **dates** for formalwear p
 
 **Party detail:** When marking **Measured** or **Fitting** complete, ROS may warn if a **scheduled appointment** is still open; appointment checks use a **date window** around the party (not the entire calendar) so the screen stays responsive.
 
+When you create, edit, delete, or mark wedding appointments attended from ROS, the system records the authenticated staff member automatically. You should not need to choose a separate "recording staff" identity.
+
+Where Wedding Manager asks you to assign or filter by a salesperson, use the ROS staff mini selector with avatars. The list comes from active ROS staff records, not a separate Wedding Manager staff list.
+
 **Tip:** If the board feels empty, widen **event date** or clear filters.
 
 ## Readiness
@@ -33,7 +37,7 @@ Use **Weddings** to manage **groups**, **money**, and **dates** for formalwear p
 
 1. **Weddings** → **Readiness**.
 2. Review parties sorted with **Critical** and **At risk** first.
-3. Use filters for event window, salesperson, and readiness status.
+3. Use filters for event window, salesperson, and readiness status. The salesperson filter uses the ROS staff mini selector.
 4. Open a party card to view the party-level readiness panel.
 5. Resolve blockers in the source workflow: vendor ordering in **Orders / PO receiving**, payment in the **Transaction Record**, and release in the guarded **Pickup** workflow.
 
@@ -57,7 +61,7 @@ Common readiness labels:
 
 1. **Weddings** → **Parties**.
 2. **Search** by name, event date, or ID.
-3. **Create party** → add **event date**, **location**, **notes**.
+3. **Create party** → add **event date**, **location**, **notes**, and assign the salesperson with the ROS staff mini selector.
 4. **Add members** (groom, groomsmen, etc.) with **roles** and **outfit** types.
 5. **Link order lines** when sales exist; balances flow from **Transaction Records**, not manual typing.
 
@@ -144,4 +148,4 @@ The detailed Register behavior is documented in [../POS_WEDDING_REGISTER_WORKFLO
 - [appointments.md](appointments.md)
 - [../WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md)
 
-**Last reviewed:** 2026-06-04
+**Last reviewed:** 2026-06-07

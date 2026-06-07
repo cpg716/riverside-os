@@ -24,6 +24,7 @@ import {
   Loader2,
   Package,
   Plus,
+  Printer,
   Save,
   ScanLine,
   Search,
@@ -48,6 +49,7 @@ import ManagerApprovalModal from "../pos/ManagerApprovalModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import VariantSearchInput from "../ui/VariantSearchInput";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { printTextReport } from "../../lib/printerBridge";
 
 const BASE_URL = getBaseUrl();
 
@@ -176,6 +178,13 @@ type WorkspaceReportTab = "variance_rows" | "scan_rows" | "discovered_rows" | "a
 const COUNT_FEED_LIMIT = 500;
 const REVIEW_ROW_LIMIT = 500;
 const OFFLINE_SCAN_QUEUE_KEY = "ros.physical_inventory.offline_scans.v1";
+const PHYSICAL_REPORT_TABS: { id: WorkspaceReportTab; label: string }[] = [
+  { id: "variance_rows", label: "Variance" },
+  { id: "scan_rows", label: "Scan Stream" },
+  { id: "discovered_rows", label: "Discovered" },
+  { id: "accounting_rows", label: "Accounting" },
+  { id: "approvals", label: "Signoff" },
+];
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -236,6 +245,39 @@ function formatReportCell(value: unknown, key: string): string {
     if (!Number.isNaN(parsed.getTime())) return parsed.toLocaleString();
   }
   return text.replace(/_/g, " ");
+}
+
+function reportRowsText(rows: Record<string, unknown>[]): string {
+  const columns = rows.length > 0 ? Object.keys(rows[0]).filter((key) => key !== "variance_summary") : [];
+  if (rows.length === 0 || columns.length === 0) {
+    return "No rows.\n";
+  }
+  const header = columns.map(titleizeKey).join("\t");
+  const body = rows
+    .map((row) => columns.map((key) => formatReportCell(row[key], key).replace(/\s+/g, " ").trim()).join("\t"))
+    .join("\n");
+  return `${header}\n${body}\n`;
+}
+
+function buildPhysicalInventoryPrintText(report: PhysicalInventoryReport): string {
+  const startedAt = report.session.started_at ? fmt(report.session.started_at) : "";
+  const sections = PHYSICAL_REPORT_TABS.map(
+    (tab) => `${tab.label.toUpperCase()}\n${"-".repeat(tab.label.length)}\n${reportRowsText(report[tab.id] ?? [])}`,
+  ).join("\n");
+
+  return [
+    "Riverside Men's Shop",
+    "Physical Inventory Reports",
+    `Session: ${report.session.session_number}`,
+    `Status: ${report.session.status}`,
+    `Area: ${report.session.scope}`,
+    startedAt ? `Started: ${startedAt}` : "",
+    `Printed: ${fmt(new Date().toISOString())}`,
+    "",
+    sections,
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
 }
 
 function ReportTable({
@@ -489,6 +531,19 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     if (!workspaceReport) return [];
     return workspaceReport[reportTab] ?? [];
   }, [reportTab, workspaceReport]);
+  const handlePrintWorkspaceReport = useCallback(async () => {
+    if (!workspaceReport) {
+      toast("Choose a physical inventory session before printing reports.", "error");
+      return;
+    }
+    try {
+      await printTextReport(buildPhysicalInventoryPrintText(workspaceReport));
+      toast("Physical Inventory reports sent to the Reports printer.", "success");
+    } catch (error) {
+      console.error("Physical Inventory report print failed", error);
+      toast(error instanceof Error ? error.message : "Physical Inventory report print failed.", "error");
+    }
+  }, [toast, workspaceReport]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Feedback flash
@@ -1004,13 +1059,6 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     : 0;
 
   const root = document.getElementById("drawer-root");
-  const reportTabs: { id: WorkspaceReportTab; label: string }[] = [
-    { id: "variance_rows", label: "Variance" },
-    { id: "scan_rows", label: "Scan Stream" },
-    { id: "discovered_rows", label: "Discovered" },
-    { id: "accounting_rows", label: "Accounting" },
-    { id: "approvals", label: "Signoff" },
-  ];
   const workspaceReportPanel = (
     <DashboardGridCard
       title="Physical Inventory Reports"
@@ -1028,7 +1076,16 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {reportTabs.map((tab) => (
+            <button
+              type="button"
+              disabled={!workspaceReport}
+              onClick={handlePrintWorkspaceReport}
+              className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-2 disabled:opacity-40"
+            >
+              <Printer size={13} />
+              Print All
+            </button>
+            {PHYSICAL_REPORT_TABS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"

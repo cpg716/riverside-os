@@ -18,6 +18,7 @@ interface StaffMiniSelectorProps {
   displayLabel?: string;
   placeholderAvatarId?: string;
   placeholderAvatarName?: string;
+  fullWidth?: boolean;
 }
 
 const baseUrl = getBaseUrl();
@@ -70,6 +71,7 @@ export default function StaffMiniSelector({
   displayLabel,
   placeholderAvatarId,
   placeholderAvatarName,
+  fullWidth = false,
 }: StaffMiniSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -86,8 +88,8 @@ export default function StaffMiniSelector({
   }, []);
 
   const avatarSize = size === "sm" ? "h-5 w-5" : size === "lg" ? "h-10 w-10" : "h-6 w-6";
-  const dropdownWidth = size === "lg" ? "w-96" : size === "sm" ? "w-44" : "w-56";
-  const containerWidth = size === "lg" ? "w-96" : size === "sm" ? "w-44" : "w-56";
+  const dropdownWidth = fullWidth ? "w-full min-w-72" : size === "lg" ? "w-96" : size === "sm" ? "w-44" : "w-56";
+  const containerWidth = fullWidth ? "w-full" : size === "lg" ? "w-96" : size === "sm" ? "w-44" : "w-56";
   const iconSize = size === "sm" ? 12 : size === "lg" ? 20 : 14;
   const buttonPadding = size === "lg" ? "px-6 py-3" : size === "sm" ? "px-2 py-1" : "px-4 py-2";
   const buttonText = size === "lg" ? "text-base" : size === "sm" ? "text-[10px]" : "text-sm";

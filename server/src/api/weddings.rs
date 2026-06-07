@@ -1211,84 +1211,92 @@ async fn update_party(
     let mut has_updates = false;
 
     if let Some(v) = &body.party_name {
-        sep.push("party_name = ").push_bind(v.clone());
+        sep.push("party_name = ").push_bind_unseparated(v.clone());
         has_updates = true;
     }
     if let Some(v) = &body.groom_name {
         let t = v.trim();
         if !t.is_empty() {
-            sep.push("groom_name = ").push_bind(t.to_string());
+            sep.push("groom_name = ")
+                .push_bind_unseparated(t.to_string());
             has_updates = true;
         }
     }
     if let Some(v) = body.event_date {
-        sep.push("event_date = ").push_bind(v);
+        sep.push("event_date = ").push_bind_unseparated(v);
         has_updates = true;
     }
     if body.venue.is_some() {
-        sep.push("venue = ").push_bind(body.venue.clone());
+        sep.push("venue = ")
+            .push_bind_unseparated(body.venue.clone());
         has_updates = true;
     }
     if body.notes.is_some() {
-        sep.push("notes = ").push_bind(body.notes.clone());
+        sep.push("notes = ")
+            .push_bind_unseparated(body.notes.clone());
         has_updates = true;
     }
     if let Some(v) = &body.party_type {
-        sep.push("party_type = ").push_bind(v.clone());
+        sep.push("party_type = ").push_bind_unseparated(v.clone());
         has_updates = true;
     }
     if body.sign_up_date.is_some() {
-        sep.push("sign_up_date = ").push_bind(body.sign_up_date);
+        sep.push("sign_up_date = ")
+            .push_bind_unseparated(body.sign_up_date);
         has_updates = true;
     }
     if body.salesperson.is_some() {
         sep.push("salesperson = ")
-            .push_bind(body.salesperson.clone());
+            .push_bind_unseparated(body.salesperson.clone());
         has_updates = true;
     }
     if body.style_info.is_some() {
-        sep.push("style_info = ").push_bind(body.style_info.clone());
+        sep.push("style_info = ")
+            .push_bind_unseparated(body.style_info.clone());
         has_updates = true;
     }
     if body.price_info.is_some() {
-        sep.push("price_info = ").push_bind(body.price_info.clone());
+        sep.push("price_info = ")
+            .push_bind_unseparated(body.price_info.clone());
         has_updates = true;
     }
     if body.groom_phone.is_some() {
         let gp = body.groom_phone.clone();
         let gpc = gp.as_deref().map(digits_only).filter(|s| !s.is_empty());
-        sep.push("groom_phone = ").push_bind(gp);
-        sep.push("groom_phone_clean = ").push_bind(gpc);
+        sep.push("groom_phone = ").push_bind_unseparated(gp);
+        sep.push("groom_phone_clean = ").push_bind_unseparated(gpc);
         has_updates = true;
     }
     if body.groom_email.is_some() {
         sep.push("groom_email = ")
-            .push_bind(body.groom_email.clone());
+            .push_bind_unseparated(body.groom_email.clone());
         has_updates = true;
     }
     if body.bride_name.is_some() {
-        sep.push("bride_name = ").push_bind(body.bride_name.clone());
+        sep.push("bride_name = ")
+            .push_bind_unseparated(body.bride_name.clone());
         has_updates = true;
     }
     if body.bride_phone.is_some() {
         let bp = body.bride_phone.clone();
         let bpc = bp.as_deref().map(digits_only).filter(|s| !s.is_empty());
-        sep.push("bride_phone = ").push_bind(bp);
-        sep.push("bride_phone_clean = ").push_bind(bpc);
+        sep.push("bride_phone = ").push_bind_unseparated(bp);
+        sep.push("bride_phone_clean = ").push_bind_unseparated(bpc);
         has_updates = true;
     }
     if body.bride_email.is_some() {
         sep.push("bride_email = ")
-            .push_bind(body.bride_email.clone());
+            .push_bind_unseparated(body.bride_email.clone());
         has_updates = true;
     }
     if let Some(acc) = &body.accessories {
-        sep.push("accessories = ").push_bind(acc.clone());
+        sep.push("accessories = ")
+            .push_bind_unseparated(acc.clone());
         has_updates = true;
     }
     if body.suit_variant_id.is_some() {
         sep.push("suit_variant_id = ")
-            .push_bind(body.suit_variant_id);
+            .push_bind_unseparated(body.suit_variant_id);
         has_updates = true;
     }
 
@@ -1721,7 +1729,7 @@ async fn update_member(
     macro_rules! opt {
         ($field:literal, $val:expr) => {
             if let Some(v) = $val {
-                sep.push(concat!($field, " = ")).push_bind(v);
+                sep.push(concat!($field, " = ")).push_bind_unseparated(v);
                 has_updates = true;
             }
         };
@@ -2093,15 +2101,17 @@ async fn update_appointment(
                 .fetch_optional(&state.db)
                 .await?;
         let (party_id, real_mid) = row.ok_or(WeddingError::MemberNotFound)?;
-        sep.push("wedding_party_id = ").push_bind(party_id);
-        sep.push("wedding_member_id = ").push_bind(real_mid);
+        sep.push("wedding_party_id = ")
+            .push_bind_unseparated(party_id);
+        sep.push("wedding_member_id = ")
+            .push_bind_unseparated(real_mid);
         has_updates = true;
     }
 
     macro_rules! set_opt {
         ($field:literal, $value:expr) => {
             if let Some(v) = $value {
-                sep.push(concat!($field, " = ")).push_bind(v);
+                sep.push(concat!($field, " = ")).push_bind_unseparated(v);
                 has_updates = true;
             }
         };
@@ -2392,19 +2402,19 @@ async fn update_non_inventory_item(
     let mut has_updates = false;
 
     if let Some(v) = &body.description {
-        sep.push("description = ").push_bind(v.clone());
+        sep.push("description = ").push_bind_unseparated(v.clone());
         has_updates = true;
     }
     if let Some(v) = body.quantity {
-        sep.push("quantity = ").push_bind(v);
+        sep.push("quantity = ").push_bind_unseparated(v);
         has_updates = true;
     }
     if let Some(v) = &body.status {
-        sep.push("status = ").push_bind(v.clone());
+        sep.push("status = ").push_bind_unseparated(v.clone());
         has_updates = true;
     }
     if let Some(v) = &body.notes {
-        sep.push("notes = ").push_bind(v.clone());
+        sep.push("notes = ").push_bind_unseparated(v.clone());
         has_updates = true;
     }
 

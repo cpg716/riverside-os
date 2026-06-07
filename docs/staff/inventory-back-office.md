@@ -187,6 +187,7 @@ All views should represent the same filtered SKUs. Used Counterpoint SKUs and ne
 2. **Start or resume** session; scan **location** per SOP.
 3. **Review variances** before posting adjustments — large shrink hits **financial** review.
 4. For **full store** or category counts, review also surfaces in-scope SKUs that were **not counted**. Do not treat those rows as already reviewed just because they were not scanned.
+5. Use **Reports** on a count session to keep Variance, Scan Stream, Discovered, Accounting, and Signoff reports inside the Physical Inventory workspace. **Print All** opens a printable packet titled **Riverside Men's Shop** for manager/accounting review.
 
 ## Common issues and fixes
 

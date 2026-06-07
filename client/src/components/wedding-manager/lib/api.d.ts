@@ -195,8 +195,17 @@ export interface WmCutoverPartyDetail {
   candidates: WmCutoverCandidate[];
 }
 
+export interface WmStaffSelectorRow {
+  id: string;
+  full_name: string;
+  role?: string | null;
+}
+
 export const api: {
   getSalespeople: () => Promise<string[]>;
+  getSalespeopleRows: () => Promise<WmStaffSelectorRow[]>;
+  getSalespeopleForAppointments: () => Promise<string[]>;
+  getAppointmentStaffRows: () => Promise<WmStaffSelectorRow[]>;
   getParties: (params?: WmPaginationParams) => Promise<{ data: WmParty[]; pagination: WmPagination }>;
   getParty: (id: string) => Promise<WmParty | null>;
   getWeddingHealth: (id: string) => Promise<WmHealthScore>;

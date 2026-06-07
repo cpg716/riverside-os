@@ -33,6 +33,7 @@ pub fn run() {
             hardware::print_escpos_receipt,
             hardware::print_escpos_binary_b64,
             hardware::print_raw_to_system_printer_b64,
+            hardware::print_text_to_system_printer,
             hardware::check_printer_connection,
             hardware::check_system_printer,
             hardware::list_system_printers,

@@ -3,10 +3,9 @@ import Icon from './Icon';
 import { api } from '../lib/api';
 import ManageSalespeopleModal from './ManageSalespeopleModal';
 import { useModal } from '../hooks/useModal';
+import StaffMiniSelector from '../../ui/StaffMiniSelector';
 
 const ChangeSalespersonModal = ({ isOpen, onClose, currentSalesperson, onSave }) => {
-    if (!isOpen) return null;
-
     const [salespeople, setSalespeople] = useState([]);
     const [selected, setSelected] = useState(currentSalesperson || '');
     const [isManageModalOpen, setIsManageModalOpen] = useState(false);
@@ -20,15 +19,16 @@ const ChangeSalespersonModal = ({ isOpen, onClose, currentSalesperson, onSave })
 
     const fetchSalespeople = async () => {
         try {
-            const data = await api.getSalespeople();
+            const data = await api.getSalespeopleRows();
             setSalespeople(data);
         } catch (err) {
             console.error("Failed to fetch salespeople", err);
-            setSalespeople(['ROBYN', 'JERROD', 'MARK', 'TOM']);
+            setSalespeople([]);
         }
     };
 
     const { selectSalesperson } = useModal();
+    const selectedSalespersonId = salespeople.find((sp) => sp.full_name === selected)?.id || '';
 
     const handleSave = async () => {
         if (selected === currentSalesperson) {
@@ -43,6 +43,8 @@ const ChangeSalespersonModal = ({ isOpen, onClose, currentSalesperson, onSave })
         onSave(selected, updatedBy); // Pass updatedBy as second arg
         onClose();
     };
+
+    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in">
@@ -60,16 +62,19 @@ const ChangeSalespersonModal = ({ isOpen, onClose, currentSalesperson, onSave })
                     <div>
                         <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Select Salesperson</label>
                         <div className="flex gap-2">
-                            <select
-                                className="flex-1 p-2 border border-app-border rounded focus:ring-2 focus:ring-navy-900 outline-none text-app-text bg-app-surface"
-                                value={selected}
-                                onChange={(e) => setSelected(e.target.value)}
-                            >
-                                <option value="" disabled>Select...</option>
-                                {salespeople.map(sp => (
-                                    <option key={sp} value={sp}>{sp}</option>
-                                ))}
-                            </select>
+                            <StaffMiniSelector
+                                staff={salespeople}
+                                selectedId={selectedSalespersonId}
+                                onSelect={(id) => {
+                                    const picked = salespeople.find((sp) => sp.id === id);
+                                    setSelected(picked?.full_name || '');
+                                }}
+                                placeholder="Select Salesperson"
+                                displayLabel={selected || undefined}
+                                size="md"
+                                fullWidth
+                                className="flex-1"
+                            />
                             <button type="button"
                                 onClick={() => setIsManageModalOpen(true)}
                                 className="px-3 py-2 bg-app-surface-2 text-app-text rounded hover:bg-app-border/50 transition-colors"

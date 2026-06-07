@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Calendar, AlertTriangle, Trash, CheckCircle } from 'lucide-react';
 import CustomerSearchInput from '../ui/CustomerSearchInput';
-import { weddingApi } from '../../lib/weddingApi';
+import StaffMiniSelector from '../ui/StaffMiniSelector';
+import { type AppointmentStaffRow, weddingApi } from '../../lib/weddingApi';
 import { type Appointment } from './SchedulerWorkspace';
 import { useToast } from '../ui/ToastProviderLogic';
 import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
@@ -44,7 +45,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
     status: 'Scheduled'
   });
 
-  const [salespeople, setSalespeople] = useState<string[]>([]);
+  const [salespeople, setSalespeople] = useState<AppointmentStaffRow[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   /** Offer optional wedding-member link after picking a customer who is on an active party (most ROS bookings stay general). */
   const [weddingLinkOffer, setWeddingLinkOffer] = useState<{
@@ -58,6 +59,17 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
   const [confirmStatus, setConfirmStatus] = useState<{ status: string, statusKey: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [scheduleWarning, setScheduleWarning] = useState<string | null>(null);
+  const [overrideScheduleWarning, setOverrideScheduleWarning] = useState(false);
+
+  const selectedSalespersonId = useMemo(() => {
+    const current = formData.salesperson.trim().toLowerCase();
+    if (!current) return "";
+    return salespeople.find((sp) => sp.full_name.trim().toLowerCase() === current)?.id ?? "";
+  }, [formData.salesperson, salespeople]);
+
+  useEffect(() => {
+    setOverrideScheduleWarning(false);
+  }, [formData.salesperson, formData.date, formData.time]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -94,8 +106,8 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
   useEffect(() => {
     const fetchSalespeople = async () => {
       try {
-        const data = await weddingApi.getSalespeople({ headers: wmHeaders });
-        setSalespeople(data as string[]);
+        const data = await weddingApi.getAppointmentStaff({ headers: wmHeaders });
+        setSalespeople(data);
       } catch (err) {
         console.error("Failed to fetch salespeople:", err);
       }
@@ -152,6 +164,10 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (scheduleWarning && !overrideScheduleWarning) {
+      toast("Check the schedule override box to book this salesperson outside their published schedule.", "error");
+      return;
+    }
     const datetime = `${formData.date}T${formData.time}:00`;
 
     try {
@@ -356,22 +372,31 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
                 Floor staff (salesperson or sales support) from Staff settings. Must match a scheduled
                 work day.
               </p>
-              <select
-                className="ui-input w-full cursor-pointer appearance-none px-4 py-3 pr-10 text-sm font-bold"
-                value={formData.salesperson}
-                onChange={(e) => setFormData({ ...formData, salesperson: e.target.value })}
-              >
-                <option value="">Any / Unassigned</option>
-                {salespeople.map((sp) => (
-                  <option key={sp} value={sp}>
-                    {sp}
-                  </option>
-                ))}
-              </select>
+              <StaffMiniSelector
+                staff={salespeople}
+                selectedId={selectedSalespersonId}
+                onSelect={(id) => {
+                  const selected = salespeople.find((sp) => sp.id === id);
+                  setFormData({ ...formData, salesperson: selected?.full_name ?? "" });
+                }}
+                placeholder="Any / Unassigned"
+                displayLabel={formData.salesperson || undefined}
+                size="lg"
+                fullWidth
+              />
               {scheduleWarning ? (
-                <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
-                  {scheduleWarning}
-                </p>
+                <div className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800 dark:text-amber-200">
+                  <p>{scheduleWarning}</p>
+                  <label className="mt-2 flex items-start gap-2 text-[11px] font-black uppercase tracking-widest text-amber-900 dark:text-amber-100">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-amber-500"
+                      checked={overrideScheduleWarning}
+                      onChange={(e) => setOverrideScheduleWarning(e.target.checked)}
+                    />
+                    Schedule anyway
+                  </label>
+                </div>
               ) : null}
             </div>
           </div>
@@ -406,6 +431,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
                 placeholder="Search customers…"
                 className="w-full"
                 defaultValue={searchTerm}
+                showSelectedLabel
               />
               <div className="absolute right-10 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 {(formData.memberId || formData.customerId) && (

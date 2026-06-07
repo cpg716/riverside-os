@@ -14,6 +14,7 @@ interface CustomerSearchInputProps {
   initialValue?: string;
   defaultValue?: string;
   disabled?: boolean;
+  showSelectedLabel?: boolean;
 }
 
 export default function CustomerSearchInput({
@@ -25,6 +26,7 @@ export default function CustomerSearchInput({
   initialValue = "",
   defaultValue,
   disabled,
+  showSelectedLabel = false,
 }: CustomerSearchInputProps) {
   const effectiveInitial = defaultValue ?? initialValue;
   const { backofficeHeaders } = useBackofficeAuth();
@@ -116,12 +118,16 @@ export default function CustomerSearchInput({
                 <li key={c.id}>
                   <button
                     type="button"
-                    onClick={() => {
-                      onSelect(c);
-                      setQuery("");
-                      setResults([]);
-                      setIsOpen(false);
-                    }}
+	                    onClick={() => {
+	                      onSelect(c);
+	                      setQuery(
+	                        showSelectedLabel
+	                          ? `${c.first_name} ${c.last_name}`.trim() || c.customer_code || ""
+	                          : "",
+	                      );
+	                      setResults([]);
+	                      setIsOpen(false);
+	                    }}
                     className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-app-accent/5 transition-colors"
                   >
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-app-surface-2">

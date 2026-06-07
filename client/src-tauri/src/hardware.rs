@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
 #[cfg(windows)]
-use std::{ffi::c_void, process::Command};
+use std::{ffi::c_void, fs, process::Command, time::SystemTime};
 
 #[derive(Debug, Serialize)]
 pub struct SystemPrinter {
@@ -179,6 +179,41 @@ fn print_raw_to_windows_printer(_printer_name: &str, _bytes: &[u8]) -> Result<()
     Err("Installed printer printing is available on Windows desktop stations.".to_string())
 }
 
+#[cfg(windows)]
+fn print_text_to_windows_printer(printer_name: &str, content: &str) -> Result<(), String> {
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|e| format!("Could not create report timestamp: {e}"))?
+        .as_millis();
+    let path = std::env::temp_dir().join(format!(
+        "riverside-report-{}-{timestamp}.txt",
+        std::process::id()
+    ));
+    fs::write(&path, content).map_err(|e| format!("Could not prepare report print file: {e}"))?;
+
+    let path_arg = path.to_string_lossy().to_string();
+    let status = Command::new("notepad.exe")
+        .args(["/pt", path_arg.as_str(), printer_name])
+        .status()
+        .map_err(|e| format!("Could not start Windows report print: {e}"));
+
+    let _ = fs::remove_file(&path);
+
+    let status = status?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Windows report print failed for '{printer_name}' with status {status}."
+        ))
+    }
+}
+
+#[cfg(not(windows))]
+fn print_text_to_windows_printer(_printer_name: &str, _content: &str) -> Result<(), String> {
+    Err("Direct report printing is available on Windows desktop stations.".to_string())
+}
+
 #[command]
 pub async fn list_system_printers() -> Result<Vec<SystemPrinter>, String> {
     tokio::task::spawn_blocking(list_system_printers_sync)
@@ -217,6 +252,24 @@ pub async fn print_raw_to_system_printer_b64(
         .map_err(|e| format!("Invalid base64: {e}"))?;
 
     tokio::task::spawn_blocking(move || print_raw_to_windows_printer(&target, &bytes))
+        .await
+        .map_err(|e| format!("Printer task failed: {e}"))?
+}
+
+#[command]
+pub async fn print_text_to_system_printer(
+    printer_name: String,
+    content: String,
+) -> Result<(), String> {
+    let target = printer_name.trim().to_string();
+    if target.is_empty() {
+        return Err("Choose an installed printer first.".to_string());
+    }
+    if content.trim().is_empty() {
+        return Err("Report content is empty.".to_string());
+    }
+
+    tokio::task::spawn_blocking(move || print_text_to_windows_printer(&target, &content))
         .await
         .map_err(|e| format!("Printer task failed: {e}"))?
 }

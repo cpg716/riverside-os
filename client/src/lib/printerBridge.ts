@@ -237,6 +237,21 @@ export async function printRawEscPosBase64(
   }
 }
 
+export async function printTextReport(content: string) {
+  const target = resolvePrinterTarget("report");
+  if (target.mode !== "system") {
+    throw new Error("Choose an installed Reports printer for direct report printing.");
+  }
+  if (!isTauri()) {
+    throw new Error("Direct report printing is available only in the Riverside desktop app.");
+  }
+  const printerName = requireSystemPrinterName(target);
+  await invoke("print_text_to_system_printer", {
+    printerName,
+    content,
+  });
+}
+
 export async function printEscPosReceipt(
   payload: string,
   targetOrIp: HardwarePrinterTarget | string,

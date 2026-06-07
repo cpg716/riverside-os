@@ -12,11 +12,13 @@ const ActionDashboard = ({ onMemberClick, filters, onViewOrders }) => {
     const { actionItems, loading, refresh } = useDashboardActions(filters);
 
     const handleItemClick = (item) => {
+        if (!item?.member?.id && !item?.date) return;
         onMemberClick(item.member, item.partyId, item);
     };
 
     const handleQuickAction = async (e, memberId, type) => {
         e.stopPropagation();
+        if (!memberId) return;
 
         // Prompt for attribution
         const updatedBy = await selectSalesperson();
@@ -69,7 +71,10 @@ const ActionDashboard = ({ onMemberClick, filters, onViewOrders }) => {
     };
 
     const getInitials = (name) => {
-        return name
+        const normalized = String(name || '').trim();
+        if (!normalized) return 'NA';
+
+        return normalized
             .split(' ')
             .map(n => n[0])
             .join('')
@@ -103,63 +108,72 @@ const ActionDashboard = ({ onMemberClick, filters, onViewOrders }) => {
     };
 
     // Helper for rendering standardized rows
-    const renderRow = (item, type, badgeColor, badgeText, iconName, iconColor, showQuickAction = false) => (
-        <>
-            <div className="flex-shrink-0 mr-4">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shadow-sm ${badgeColor.replace('bg-', 'bg-opacity-20 bg-').replace('text-', 'text-')}`}>
-                    {getInitials(item.member.name)}
-                </div>
-            </div>
+    const renderRow = (item, type, badgeColor, badgeText, iconName, iconColor, showQuickAction = false) => {
+        const member = item?.member || {};
+        const memberName = member.name || item?.customerName || item?.customer_display_name || 'Unassigned appointment';
+        const partyName = item?.partyName || 'No wedding party linked';
+        const memberPhone = member.phone || item?.phone || '';
+        const itemType = item?.type || type;
+        const canQuickAction = showQuickAction && Boolean(member.id);
 
-            <div className="flex-1 min-w-0 pr-4">
-                <div className="flex justify-between items-baseline mb-0.5">
-                    <h4 className="font-bold text-app-text text-sm truncate">
-                        {highlightMatch(item.member.name, searchTerm)}
-                    </h4>
-                </div>
-
-                <div className="text-xs text-app-text-muted truncate mb-1">
-                    {highlightMatch(item.partyName, searchTerm)}
-                </div>
-                {item.partyBalanceDueLabel ? (
-                    <div className="text-[10px] font-black uppercase tracking-wide text-amber-800 mb-1">
-                        Balance due {item.partyBalanceDueLabel}
+        return (
+            <>
+                <div className="flex-shrink-0 mr-4">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shadow-sm ${badgeColor.replace('bg-', 'bg-opacity-20 bg-').replace('text-', 'text-')}`}>
+                        {getInitials(memberName)}
                     </div>
-                ) : null}
-                {item.member.phone && (
-                    <div className="text-xs text-app-text font-medium mb-1">
-                        <Icon name="Phone" size={10} className="inline mr-1" />
-                        {formatPhone(item.member.phone)}
-                    </div>
-                )}
-
-                <div className="flex items-center gap-2 text-xs font-medium">
-                    <span className={`${iconColor} flex items-center gap-1`}>
-                        <Icon name={iconName} size={12} /> {item.type || type}
-                    </span>
-                    {item.date && <span className="text-app-text-muted">• {formatApptTime(item.date)}</span>}
                 </div>
-            </div>
 
-            <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded tracking-wider ${badgeColor}`}>
-                    {badgeText}
-                </span>
-                <div className="flex items-center gap-2 mt-auto">
-                    {showQuickAction && (
-                        <button type="button"
-                            onClick={(e) => handleQuickAction(e, item.member.id, item.type || type)}
-                            className="flex min-h-[36px] items-center gap-1.5 rounded-lg border-b-4 border-emerald-800 bg-emerald-600 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white shadow-md shadow-emerald-900/20 transition-all hover:brightness-110 active:translate-y-0.5 active:border-b-2"
-                            title={`Mark as ${type || item.type} Done`}
-                        >
-                            <Icon name="Check" size={14} /> Done
-                        </button>
+                <div className="flex-1 min-w-0 pr-4">
+                    <div className="flex justify-between items-baseline mb-0.5">
+                        <h4 className="font-bold text-app-text text-sm truncate">
+                            {highlightMatch(memberName, searchTerm)}
+                        </h4>
+                    </div>
+
+                    <div className="text-xs text-app-text-muted truncate mb-1">
+                        {highlightMatch(partyName, searchTerm)}
+                    </div>
+                    {item?.partyBalanceDueLabel ? (
+                        <div className="text-[10px] font-black uppercase tracking-wide text-amber-800 mb-1">
+                            Balance due {item.partyBalanceDueLabel}
+                        </div>
+                    ) : null}
+                    {memberPhone && (
+                        <div className="text-xs text-app-text font-medium mb-1">
+                            <Icon name="Phone" size={10} className="inline mr-1" />
+                            {formatPhone(memberPhone)}
+                        </div>
                     )}
-                    <Icon name="ChevronRight" size={16} className="text-app-text-muted group-hover:text-app-accent transition-colors" />
+
+                    <div className="flex items-center gap-2 text-xs font-medium">
+                        <span className={`${iconColor} flex items-center gap-1`}>
+                            <Icon name={iconName} size={12} /> {itemType}
+                        </span>
+                        {item?.date && <span className="text-app-text-muted">• {formatApptTime(item.date)}</span>}
+                    </div>
                 </div>
-            </div>
-        </>
-    );
+
+                <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                    <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded tracking-wider ${badgeColor}`}>
+                        {badgeText}
+                    </span>
+                    <div className="flex items-center gap-2 mt-auto">
+                        {canQuickAction && (
+                            <button type="button"
+                                onClick={(e) => handleQuickAction(e, member.id, itemType)}
+                                className="flex min-h-[36px] items-center gap-1.5 rounded-lg border-b-4 border-emerald-800 bg-emerald-600 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white shadow-md shadow-emerald-900/20 transition-all hover:brightness-110 active:translate-y-0.5 active:border-b-2"
+                                title={`Mark as ${itemType} Done`}
+                            >
+                                <Icon name="Check" size={14} /> Done
+                            </button>
+                        )}
+                        <Icon name="ChevronRight" size={16} className="text-app-text-muted group-hover:text-app-accent transition-colors" />
+                    </div>
+                </div>
+            </>
+        );
+    };
 
     return (
         <div className="mb-8">

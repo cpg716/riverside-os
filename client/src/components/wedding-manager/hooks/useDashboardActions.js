@@ -30,6 +30,16 @@ function daysUntilEventDate(naiveDateStr) {
     return Math.round((event.getTime() - today.getTime()) / 86400000);
 }
 
+function daysUntilAppointmentDate(value) {
+    if (!value) return null;
+    const appointment = new Date(value);
+    if (Number.isNaN(appointment.getTime())) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    appointment.setHours(0, 0, 0, 0);
+    return Math.round((appointment.getTime() - today.getTime()) / 86400000);
+}
+
 /** ROS `/weddings/actions` returns snake_case rows; UI expects member/partyId shapes. */
 function mapActionApiRow(row, defaultType) {
     const daysToWedding = daysUntilEventDate(row.event_date);
@@ -53,6 +63,31 @@ function mapActionApiRow(row, defaultType) {
     };
 }
 
+function mapAppointmentApiRow(row) {
+    const memberId = row.wedding_member_id ?? row.memberId ?? null;
+    const customerName = row.customer_display_name ?? row.customerName ?? 'Unassigned appointment';
+    const startsAt = row.starts_at ?? row.datetime ?? null;
+    const days = daysUntilAppointmentDate(startsAt);
+
+    return {
+        id: row.id,
+        partyId: row.wedding_party_id ?? row.partyId ?? null,
+        partyName: row.party_name ?? row.partyName ?? ((row.wedding_party_id || row.wedding_member_id) ? 'Wedding appointment' : 'No wedding party linked'),
+        member: {
+            id: memberId,
+            name: customerName,
+            phone: row.phone ?? '',
+        },
+        customerId: row.customer_id ?? row.customerId ?? null,
+        type: row.appointment_type ?? row.type ?? 'Appointment',
+        date: startsAt,
+        days: days ?? 0,
+        status: row.status ?? 'Scheduled',
+        salesperson: row.salesperson ?? null,
+        notes: row.notes ?? '',
+    };
+}
+
 function normalizeDashboardPayload(data) {
     if (!data || typeof data !== 'object') {
         return { ...EMPTY_ACTION_ITEMS };
@@ -69,8 +104,8 @@ function normalizeDashboardPayload(data) {
         ordering: Array.isArray(needsOrder) ? needsOrder.map((r) => mapActionApiRow(r, 'Order')) : [],
         fitting: Array.isArray(data.fitting) ? data.fitting.map((r) => mapActionApiRow(r, 'Fitting')) : [],
         pickups: Array.isArray(data.pickups) ? data.pickups.map((r) => mapActionApiRow(r, 'Pickup')) : [],
-        upcomingAppts: Array.isArray(data.upcomingAppts) ? data.upcomingAppts : [],
-        missedAppts: Array.isArray(data.missedAppts) ? data.missedAppts : [],
+        upcomingAppts: Array.isArray(data.upcomingAppts) ? data.upcomingAppts.map(mapAppointmentApiRow) : [],
+        missedAppts: Array.isArray(data.missedAppts) ? data.missedAppts.map(mapAppointmentApiRow) : [],
     };
 }
 

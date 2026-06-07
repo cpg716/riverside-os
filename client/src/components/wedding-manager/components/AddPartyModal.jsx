@@ -3,10 +3,9 @@ import Icon from './Icon';
 import { api } from '../lib/api';
 import { formatPhone } from '../lib/utils';
 import { useModal } from '../hooks/useModal';
+import StaffMiniSelector from '../../ui/StaffMiniSelector';
 
 const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
-    if (!isOpen) return null;
-
     const { showAlert, selectSalesperson } = useModal();
 
     const [formData, setFormData] = useState({
@@ -14,7 +13,7 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
         groomFirstName: '',
         date: '',
         signUpDate: new Date().toISOString().split('T')[0],
-        salesperson: 'ROBYN',
+        salesperson: '',
         styleInfo: '',
         priceInfo: '',
         brideName: '',
@@ -50,16 +49,18 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
 
     const fetchSalespeople = async () => {
         try {
-            const data = await api.getSalespeople();
+            const data = await api.getSalespeopleRows();
             setSalespeople(data);
             if (Array.isArray(data) && data.length > 0) {
-                setFormData((prev) => ({ ...prev, salesperson: prev.salesperson || data[0] }));
+                setFormData((prev) => ({ ...prev, salesperson: prev.salesperson || data[0].full_name }));
             }
         } catch (err) {
             console.error("Failed to fetch salespeople", err);
-            setSalespeople(['ROBYN', 'JERROD', 'MARK', 'TOM']);
+            setSalespeople([]);
         }
     };
+
+    const selectedSalespersonId = salespeople.find((sp) => sp.full_name === formData.salesperson)?.id || '';
 
     const handlePhoneChange = (field, value) => {
         setFormData(prev => ({
@@ -151,6 +152,8 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
 
     const isPastDate = formData.date && new Date(formData.date) < new Date(new Date().setHours(0, 0, 0, 0));
 
+    if (!isOpen) return null;
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in overflow-y-auto">
             <div className="bg-app-surface rounded-lg shadow-2xl w-full max-w-3xl overflow-hidden my-8 border border-app-border flex flex-col max-h-[95vh] transition-colors">
@@ -222,17 +225,18 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div>
                                 <label className="block text-xs font-bold text-app-text uppercase tracking-wide mb-2">Salesperson</label>
-                                <select
-                                    className="w-full rounded border border-app-border bg-app-surface px-4 py-2 text-app-text outline-none"
-                                    value={formData.salesperson}
-                                    onChange={(e) => setFormData({ ...formData, salesperson: e.target.value })}
-                                >
-                                    {salespeople.map((p) => (
-                                        <option key={p} value={p}>
-                                            {p}
-                                        </option>
-                                    ))}
-                                </select>
+                                <StaffMiniSelector
+                                    staff={salespeople}
+                                    selectedId={selectedSalespersonId}
+                                    onSelect={(id) => {
+                                        const selected = salespeople.find((sp) => sp.id === id);
+                                        setFormData({ ...formData, salesperson: selected?.full_name || '' });
+                                    }}
+                                    placeholder="Select Salesperson"
+                                    displayLabel={formData.salesperson || undefined}
+                                    size="md"
+                                    fullWidth
+                                />
                                 <p className="mt-1 text-[10px] text-app-text-muted">Managed in ROS (read-only list).</p>
                             </div>
                             <div>

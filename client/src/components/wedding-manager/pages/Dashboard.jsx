@@ -10,7 +10,8 @@ import { api, socket } from '../lib/api';
 
 import AppointmentScheduler from '../components/AppointmentScheduler';
 import CalendarView from '../components/CalendarView';
-import AppointmentModal from '../components/AppointmentModal';
+import AppointmentModal from '../../scheduler/AppointmentModal';
+import StaffMiniSelector from '../../ui/StaffMiniSelector';
 
 import ActionDashboard from '../components/ActionDashboard';
 import PartyList from '../components/PartyList';
@@ -153,10 +154,12 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
     const fetchSalespeople = async () => {
         try {
-            const data = await api.getSalespeople();
+            const data = await api.getSalespeopleRows();
             setSalespeople(data);
         } catch (err) { console.error(err); }
     };
+
+    const salespersonFilterId = salespeople.find((sp) => sp.full_name === salespersonFilter)?.id || '';
 
     const fetchParties = async () => {
         setLoading(true);
@@ -434,21 +437,19 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                     </div>
 
                                     <div className="flex items-center gap-3 w-full lg:w-auto overflow-x-auto pb-2 lg:pb-0 scrollbar-hide">
-                                        <div className="relative flex-shrink-0">
-                                            <select
-                                                className="appearance-none bg-app-surface p-3 pr-8 border border-app-border rounded-lg text-sm font-bold text-app-text outline-none focus:ring-2 focus:ring-navy-900 transition-all shadow-sm"
-                                                value={salespersonFilter}
-                                                onChange={(e) => setSalespersonFilter(e.target.value)}
-                                                style={{ minHeight: '44px' }}
-                                            >
-                                                <option value="">All Salespeople</option>
-                                                {salespeople.map(sp => (
-                                                    <option key={sp} value={sp}>{sp}</option>
-                                                ))}
-                                            </select>
-                                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-app-text-muted">
-                                                <Icon name="ChevronDown" size={14} />
-                                            </div>
+                                        <div className="min-w-[16rem] flex-shrink-0">
+                                            <StaffMiniSelector
+                                                staff={salespeople}
+                                                selectedId={salespersonFilterId}
+                                                onSelect={(id) => {
+                                                    const selected = salespeople.find((sp) => sp.id === id);
+                                                    setSalespersonFilter(selected?.full_name || '');
+                                                }}
+                                                placeholder="All Salespeople"
+                                                displayLabel={salespersonFilter || 'All Salespeople'}
+                                                size="md"
+                                                fullWidth
+                                            />
                                         </div>
 
                                         <div className="flex bg-app-surface-2 rounded-lg p-1 flex-shrink-0">
@@ -516,8 +517,8 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                             setApptInitialData({
                                                 id: item.id,
                                                 type: item.type,
-                                                customerName: item.member.name,
-                                                phone: item.member.phone,
+                                                customerName: item.member?.name || item.customerName || '',
+                                                phone: item.member?.phone || item.phone || '',
                                                 datetime: item.date,
                                                 partyId: null,
                                                 memberId: null

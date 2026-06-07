@@ -48,6 +48,12 @@ export type RosCustomerSearchHit = {
 
 export type WeddingApiFetchOpts = { headers?: HeadersInit };
 
+export type AppointmentStaffRow = {
+  id: string;
+  full_name: string;
+  role?: string | null;
+};
+
 export const weddingApi = {
   async getParties(params: { search?: string; headers?: Record<string, string> } = {}) {
     const q = new URLSearchParams();
@@ -264,6 +270,18 @@ export const weddingApi = {
       .map((r) => String(r.full_name ?? "").trim())
       .filter(Boolean);
     return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  },
+
+  async getAppointmentStaff(opts?: WeddingApiFetchOpts): Promise<AppointmentStaffRow[]> {
+    const res = await fetch(`${baseUrl}/api/staff/list-for-pos`, {
+      headers: opts?.headers,
+    });
+    if (!res.ok) return [];
+    const rows: AppointmentStaffRow[] = await res.json();
+    return rows
+      .filter((r) => r.role === "salesperson" || r.role === "sales_support")
+      .filter((r) => r.id && String(r.full_name ?? "").trim())
+      .sort((a, b) => a.full_name.localeCompare(b.full_name));
   },
 
   /** Search inventory for wedding suit products */

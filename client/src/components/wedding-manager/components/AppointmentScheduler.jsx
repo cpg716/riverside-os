@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Icon from './Icon';
 import { api, socket } from '../lib/api';
-import AppointmentModal from './AppointmentModal';
+import AppointmentModal from '../../scheduler/AppointmentModal';
 import { formatDate } from '../lib/utils';
 import { printExistingWindow } from '../../../lib/browserPrint';
 

@@ -297,28 +297,44 @@ function parseLegacyName(name = "") {
   return { first_name, last_name };
 }
 
+function normalizeStaffRows(rows, roleFilter = null) {
+  const seen = new Set();
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => {
+      const fullName = String(row?.full_name || row?.name || "").trim();
+      const role = row?.role ? String(row.role).trim().toLowerCase() : null;
+      if (!fullName) return null;
+      if (roleFilter && !roleFilter.has(role)) return null;
+      const id = String(row?.id || row?.staff_id || row?.employee_id || `legacy-${fullName}`).trim();
+      const key = `${id}::${fullName.toLowerCase()}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return { id, full_name: fullName, role };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.full_name.localeCompare(b.full_name, undefined, { sensitivity: "base" }));
+}
+
+async function getRosStaffRows(roleFilter = null) {
+  const json = await wmJson("GET", `${API_URL}/staff/list-for-pos`);
+  return normalizeStaffRows(json, roleFilter);
+}
+
+function staffRowsToNames(rows) {
+  return rows.map((row) => row.full_name);
+}
+
 export const api = {
-  // Salespeople (ROS staff) — all active names (parties, settings, etc.)
-  getSalespeople: async () => {
-    const json = await wmJson("GET", `${API_URL}/staff/list-for-pos`);
-    const rows = Array.isArray(json) ? json : [];
-    return [...new Set(rows.map((r) => String(r.full_name || "").trim()).filter(Boolean))].sort(
-      (a, b) => a.localeCompare(b),
-    );
-  },
+  // Salespeople (ROS staff) — active staff rows for avatar selectors.
+  getSalespeopleRows: async () => getRosStaffRows(),
   /** Active appointment staff dropdown choices, aligned with ROS scheduler rules. */
-  getSalespeopleForAppointments: async () => {
-    const json = await wmJson("GET", `${API_URL}/staff/list-for-pos`);
-    const rows = Array.isArray(json) ? json : [];
-    return [
-      ...new Set(
-        rows
-          .filter((r) => r.role === "salesperson" || r.role === "sales_support")
-          .map((r) => String(r.full_name || "").trim())
-          .filter(Boolean),
-      ),
-    ].sort((a, b) => a.localeCompare(b));
-  },
+  getAppointmentStaffRows: async () =>
+    getRosStaffRows(new Set(["salesperson", "sales_support"])),
+  // Salespeople (ROS staff) — all active names (parties, settings, etc.)
+  getSalespeople: async () => staffRowsToNames(await getRosStaffRows()),
+  /** Active appointment staff dropdown choices, aligned with ROS scheduler rules. */
+  getSalespeopleForAppointments: async () =>
+    staffRowsToNames(await getRosStaffRows(new Set(["salesperson", "sales_support"]))),
   addSalesperson: async () => {
     throw new Error("Salespeople are managed in ROS.");
   },

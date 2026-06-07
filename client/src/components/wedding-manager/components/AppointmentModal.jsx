@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Icon from './Icon';
 import { api } from '../lib/api';
+import StaffMiniSelector from '../../ui/StaffMiniSelector';
 
 import { useModal } from '../hooks/useModal';
 
@@ -43,10 +44,11 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
         if (!isOpen) return;
         const fetchSalespeople = async () => {
             try {
-                const data = await api.getSalespeopleForAppointments();
+                const data = await api.getAppointmentStaffRows();
                 setSalespeople(data);
             } catch (err) {
                 console.error("Failed to fetch salespeople:", err);
+                setSalespeople([]);
             }
         };
         void fetchSalespeople();
@@ -103,11 +105,11 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
     const salespersonOptions = useMemo(() => {
         const base = [...salespeople];
         const cur = (formData.salesperson || '').trim();
-        if (cur && !base.some((sp) => normSp(sp) === normSp(cur))) {
-            base.push(cur);
+        if (cur && !base.some((sp) => normSp(sp.full_name) === normSp(cur))) {
+            base.push({ id: `legacy-${cur}`, full_name: cur, role: null });
         }
         return base.sort((a, b) =>
-            a.localeCompare(b, undefined, { sensitivity: 'base' })
+            a.full_name.localeCompare(b.full_name, undefined, { sensitivity: 'base' })
         );
     }, [salespeople, formData.salesperson]);
 
@@ -115,8 +117,8 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
         const raw = formData.salesperson || '';
         const t = raw.trim();
         if (!t) return '';
-        const hit = salespersonOptions.find((sp) => normSp(sp) === normSp(t));
-        return hit ?? '';
+        const hit = salespersonOptions.find((sp) => normSp(sp.full_name) === normSp(t));
+        return hit?.id ?? '';
     }, [formData.salesperson, salespersonOptions]);
 
     // Align stored value with ROS display name when it matches (case / whitespace).
@@ -126,9 +128,9 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
         setFormData((prev) => {
             const t = (prev.salesperson || '').trim();
             if (!t) return prev;
-            const hit = salespeople.find((sp) => normSp(sp) === normSp(t));
-            if (hit && hit !== prev.salesperson) {
-                return { ...prev, salesperson: hit };
+            const hit = salespeople.find((sp) => normSp(sp.full_name) === normSp(t));
+            if (hit && hit.full_name !== prev.salesperson) {
+                return { ...prev, salesperson: hit.full_name };
             }
             return prev;
         });
@@ -454,16 +456,19 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
                                 Salesperson (ROS) {conflicts.length > 0 && '(CONFLICT)'}
                             </label>
                             <p className="text-[10px] text-app-text-muted mb-1">Staff with role Salesperson in ROS.</p>
-                            <select
-                                className={`ui-input w-full cursor-pointer appearance-none p-2.5 pr-8 text-sm font-semibold text-app-text ${conflicts.length > 0 ? 'ring-2 ring-red-500 ring-offset-0' : ''}`}
-                                value={salespersonSelectValue}
-                                onChange={(e) => setFormData({ ...formData, salesperson: e.target.value })}
-                            >
-                                <option value="">Any / Unassigned</option>
-                                {salespersonOptions.map((sp) => (
-                                    <option key={sp} value={sp}>{sp}</option>
-                                ))}
-                            </select>
+                            <StaffMiniSelector
+                                staff={salespersonOptions}
+                                selectedId={salespersonSelectValue}
+                                onSelect={(id) => {
+                                    const picked = salespersonOptions.find((sp) => sp.id === id);
+                                    setFormData({ ...formData, salesperson: picked?.full_name || '' });
+                                }}
+                                placeholder="Any / Unassigned"
+                                displayLabel={formData.salesperson || undefined}
+                                size="md"
+                                fullWidth
+                                className={conflicts.length > 0 ? 'rounded-xl ring-2 ring-red-500 ring-offset-0' : ''}
+                            />
                             {conflicts.length > 0 && (
                                 <p className="text-[10px] text-red-500 mt-1 font-bold">
                                     Already has {conflicts.length} appointment(s) at this time.
