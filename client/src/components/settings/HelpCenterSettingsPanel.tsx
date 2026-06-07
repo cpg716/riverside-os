@@ -11,7 +11,6 @@ import {
   FilePenLine,
   TerminalSquare,
   Sparkles,
-  Bot,
   Camera,
   ClipboardList,
 } from "lucide-react";
@@ -23,6 +22,7 @@ import {
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import StoreStaffPlaybookCard from "./StoreStaffPlaybookCard";
+import RosieIcon from "../common/RosieIcon";
 
 const baseUrl = getBaseUrl();
 
@@ -1034,7 +1034,7 @@ export default function HelpCenterSettingsPanel() {
               tab === "ai-authoring" ? "ring-2 ring-app-accent" : ""
             }`}
           >
-            <Bot size={14} /> AI authoring
+            <RosieIcon size={14} alt="" /> AI authoring
           </button>
           <button
             type="button"
@@ -1061,7 +1061,7 @@ export default function HelpCenterSettingsPanel() {
               tab === "rosie-readiness" ? "ring-2 ring-app-accent" : ""
             }`}
           >
-            <Bot size={14} /> ROSIE readiness
+            <RosieIcon size={14} alt="" /> ROSIE readiness
           </button>
         </div>
       </div>
@@ -1596,7 +1596,7 @@ export default function HelpCenterSettingsPanel() {
         <div className="grid gap-4 lg:grid-cols-[minmax(300px,420px)_1fr]">
           <section className="rounded-xl border border-app-border bg-app-surface p-4">
             <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-app-text">
-              <Bot size={16} /> ROSIE Help authoring
+              <RosieIcon size={16} alt="" /> ROSIE Help authoring
             </h3>
             <p className="mt-1 text-xs text-app-text-muted">
               Use ROSIE/Gemma to draft staff-readable Help Center markdown from
@@ -1635,7 +1635,7 @@ export default function HelpCenterSettingsPanel() {
                 disabled={aiBusy || !detail}
                 className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2 text-sm font-bold"
               >
-                <Bot size={16} /> {aiBusy ? "Drafting…" : "Draft with ROSIE"}
+                <RosieIcon size={16} alt="" /> {aiBusy ? "Drafting…" : "Draft with ROSIE"}
               </button>
               <button
                 type="button"
@@ -1649,7 +1649,7 @@ export default function HelpCenterSettingsPanel() {
 
             <div className="mt-5 border-t border-app-border pt-4">
               <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-app-text">
-                <Sparkles size={14} /> AIDocs coverage
+                <RosieIcon size={14} alt="" /> AIDocs coverage
               </h4>
               <p className="mt-1 text-xs text-app-text-muted">
                 AIDocs checks what app surfaces are mentioned in Help manuals.
@@ -2022,7 +2022,7 @@ export default function HelpCenterSettingsPanel() {
         <div className="grid gap-4 lg:grid-cols-[minmax(280px,360px)_1fr]">
           <section className="rounded-xl border border-app-border bg-app-surface p-4">
             <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-app-text">
-              <Bot size={16} /> ROSIE readiness
+              <RosieIcon size={16} alt="" /> ROSIE readiness
             </h3>
             <p className="mt-1 text-xs text-app-text-muted">
               Early quality gates for future local-LLM Help integration.

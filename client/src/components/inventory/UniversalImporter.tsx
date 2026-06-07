@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   ShieldCheck,
-  Sparkles,
   Table,
   Truck,
   Loader2,
@@ -14,6 +13,7 @@ import {
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import DashboardGridCard from "../ui/DashboardGridCard";
+import RosieIcon from "../common/RosieIcon";
 
 type Step = "mode" | "upload" | "map" | "review";
 
@@ -285,7 +285,7 @@ export default function UniversalImporter({
           >
             <div className="relative z-10">
               <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-[24px] bg-amber-100 text-amber-700 shadow-inner transition-all group-hover:scale-110 group-hover:bg-amber-500 group-hover:text-white group-hover:shadow-lg group-hover:shadow-amber-500/20">
-                <Sparkles size={32} />
+                <RosieIcon size={32} alt="" />
               </div>
               <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tighter text-amber-950">
                 Import PO / Invoice

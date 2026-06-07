@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { getBaseUrl } from "../../lib/apiConfig";
+import RosieIcon from "../common/RosieIcon";
 
 const baseUrl = getBaseUrl();
 
@@ -110,7 +111,10 @@ export default function ProductImageGenerator({
   return (
     <div className="rounded-2xl border border-app-border bg-app-surface-2/20 p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-black uppercase tracking-widest text-app-text">{title}</span>
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-app-text">
+          <RosieIcon size={14} alt="" />
+          {title}
+        </span>
         <span className="text-[10px] font-medium text-app-text-muted">via Fal.ai</span>
       </div>
 

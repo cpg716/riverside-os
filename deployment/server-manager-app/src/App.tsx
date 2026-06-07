@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -8,13 +8,11 @@ import {
   Download,
   FolderOpen,
   HardDrive,
-  Play,
   Power,
   RefreshCw,
   RotateCw,
   Server,
   ShieldAlert,
-  Sparkles,
   Square,
   Terminal,
   Wrench,
@@ -22,6 +20,7 @@ import {
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import RosieIcon from './RosieIcon';
 
 type StatusCheck = {
   ok: boolean;
@@ -102,7 +101,7 @@ type Action = {
   label: string;
   description: string;
   tone?: 'primary' | 'danger' | 'neutral';
-  icon: typeof Play;
+  icon: ComponentType<{ size?: number; className?: string; alt?: string }>;
 };
 
 type UpdateCheckResult = {
@@ -231,13 +230,13 @@ const MAINTENANCE_ACTIONS: Action[] = [
     id: 'install_rosie',
     label: 'Repair ROSIE',
     description: 'Install/update local AI and voice tools.',
-    icon: Sparkles,
+    icon: RosieIcon,
   },
   {
     id: 'start_rosie',
     label: 'Start ROSIE',
     description: 'Start the local LLM host.',
-    icon: Sparkles,
+    icon: RosieIcon,
   },
 ];
 
@@ -420,7 +419,7 @@ export default function App() {
               value={isOk(snapshot.rosie.health) ? 'Online' : 'Offline'}
               detail={snapshot.rosie.host}
               tone={statusTone(isOk(snapshot.rosie.health), true)}
-              icon={Sparkles}
+              icon={RosieIcon}
             />
           </section>
 
@@ -542,7 +541,7 @@ function StatusCard({
   value: string;
   detail: string;
   tone: string;
-  icon: typeof Server;
+  icon: ComponentType<{ size?: number; className?: string; alt?: string }>;
 }) {
   return (
     <article className="status-card">

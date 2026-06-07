@@ -5,7 +5,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import {
-  Bot,
   CircleHelp,
   MessagesSquare,
   Mic,
@@ -16,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
+import RosieIcon from "../common/RosieIcon";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
@@ -1292,7 +1292,7 @@ export default function HelpCenterDrawer({
                   : "border border-app-border bg-app-surface-2 text-app-text"
               }`}
             >
-              <Bot size={14} aria-hidden />
+              <RosieIcon size={14} alt="" />
               Ask ROSIE
             </button>
             <button
@@ -1476,7 +1476,7 @@ export default function HelpCenterDrawer({
                           <div className="help-center-prose text-sm text-app-text">
                             {message.streaming && !message.content ? (
                               <div className="flex items-center gap-2 font-medium">
-                                <Bot size={16} className="text-app-accent" aria-hidden />
+                                <RosieIcon size={16} alt="" />
                                 <span>Thinking{rosieThinkingDots}</span>
                               </div>
                             ) : (
@@ -1562,7 +1562,7 @@ export default function HelpCenterDrawer({
                           ROSIE
                         </p>
                         <div className="flex items-center gap-2 text-sm font-medium text-app-text">
-                          <Bot size={16} className="text-app-accent" aria-hidden />
+                          <RosieIcon size={16} alt="" />
                           <span>
                             Thinking{rosieThinkingDots}
                           </span>
@@ -1594,7 +1594,7 @@ export default function HelpCenterDrawer({
                 {rosieBusy ? (
                   <div className="mb-3 flex items-center gap-2">
                     <span className="inline-flex items-center gap-2 rounded-full border border-app-accent/30 bg-app-accent/10 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-app-accent">
-                      <Bot size={12} aria-hidden />
+                      <RosieIcon size={12} alt="" />
                       Rosie is thinking{rosieThinkingDots}
                     </span>
                   </div>
@@ -1899,7 +1899,7 @@ export function RosieTriggerButton({
       aria-label="Open ROSIE Conversation"
       title="ROSIE Conversation"
     >
-      <Bot size={18} strokeWidth={2} aria-hidden />
+      <RosieIcon size={18} alt="" />
     </button>
   );
 }

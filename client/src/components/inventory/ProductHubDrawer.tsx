@@ -23,6 +23,7 @@ import {
 } from "../../lib/rosie";
 import { getAppIcon } from "../../lib/icons";
 import { openInventoryTagsWindow } from "./labelPrint";
+import RosieIcon from "../common/RosieIcon";
 
 const VENDOR_ICON = getAppIcon("vendor");
 
@@ -1239,9 +1240,16 @@ export default function ProductHubDrawer({
                       cleanupSuggestionLoading ||
                       !normalizationReview?.rosie_review_suggested
                     }
-                    className="ui-btn-secondary rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                    className="ui-btn-secondary inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                   >
-                    {cleanupSuggestionLoading ? "Asking ROSIE…" : "Generate ROSIE suggestion"}
+                    {cleanupSuggestionLoading ? (
+                      "Asking ROSIE…"
+                    ) : (
+                      <>
+                        <RosieIcon size={14} alt="" />
+                        Generate ROSIE suggestion
+                      </>
+                    )}
                   </button>
                 </div>
 

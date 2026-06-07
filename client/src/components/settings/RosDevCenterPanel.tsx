@@ -6,7 +6,6 @@ import {
   RefreshCw,
   Terminal,
   Server,
-  Sparkles,
   ShieldCheck,
   AlertTriangle,
   CheckCircle,
@@ -15,6 +14,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import GitHubDevOpsPanel from "./GitHubDevOpsPanel";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import RosieIcon from "../common/RosieIcon";
 
 type ServerDiagnostics = {
   version: string;
@@ -602,7 +602,7 @@ export default function RosDevCenterPanel() {
       <section className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-app-accent" />
+            <RosieIcon size={20} alt="" />
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
                 ROSIE AI Log Analyzer
@@ -618,7 +618,7 @@ export default function RosDevCenterPanel() {
             onClick={() => void runAiAnalysis()}
             className="ui-btn-primary px-4 py-2 text-xs font-black uppercase tracking-widest flex items-center gap-2"
           >
-            <Sparkles className={`h-4 w-4 ${aiBusy ? "animate-pulse" : ""}`} />
+            <RosieIcon size={16} alt="" className={aiBusy ? "animate-pulse" : ""} />
             {aiBusy ? "Analyzing Logs..." : "Run AI Analysis"}
           </button>
         </div>

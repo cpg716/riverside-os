@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Save, RefreshCw } from "lucide-react";
+import { Save, RefreshCw } from "lucide-react";
 import { getBaseUrl } from "../../lib/apiConfig";
 import {
   DEFAULT_ROSIE_SETTINGS,
@@ -20,6 +20,7 @@ import {
 } from "../../lib/rosie";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
+import RosieIcon from "../common/RosieIcon";
 
 const baseUrl = getBaseUrl();
 
@@ -249,7 +250,7 @@ export default function RosieSettingsPanel() {
       <header className="mb-2">
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-app-border bg-app-surface-2 text-app-accent">
-            <Bot className="h-7 w-7" aria-hidden />
+            <RosieIcon size={32} alt="" />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
             <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link, Download, Monitor, Square, AlertTriangle, Activity, HardDrive, XCircle, Copy } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import RosieIcon from './RosieIcon';
 
 interface LogMessage {
   level: string;
@@ -905,7 +906,7 @@ export default function App() {
                   >
                     <div className="flex items-center gap-3">
                       <span className="p-2 rounded-lg bg-zinc-100 text-zinc-700 group-hover:bg-brand-100 group-hover:text-brand-700">
-                        <Cpu className="w-5 h-5" />
+                        <RosieIcon size={20} alt="" />
                       </span>
                       <div>
                         <h4 className="font-bold text-sm text-zinc-900">Force ROSIE AI Update</h4>
@@ -922,7 +923,7 @@ export default function App() {
                   >
                     <div className="flex items-center gap-3">
                       <span className="p-2 rounded-lg bg-zinc-100 text-zinc-700 group-hover:bg-brand-100 group-hover:text-brand-700">
-                        <Play className="w-5 h-5" />
+                        <RosieIcon size={20} alt="" />
                       </span>
                       <div>
                         <h4 className="font-bold text-sm text-zinc-900">Start ROSIE LLM Host</h4>

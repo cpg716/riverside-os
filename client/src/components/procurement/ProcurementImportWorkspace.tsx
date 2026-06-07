@@ -5,7 +5,6 @@ import {
   FileSearch,
   Loader2,
   Paperclip,
-  Sparkles,
   UploadCloud,
 } from "lucide-react";
 import { getBaseUrl } from "../../lib/apiConfig";
@@ -13,6 +12,7 @@ import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
+import RosieIcon from "../common/RosieIcon";
 
 type Vendor = {
   id: string;
@@ -336,7 +336,7 @@ export default function ProcurementImportWorkspace({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-app-border bg-app-surface-2 text-app-accent">
-              <Sparkles size={24} strokeWidth={2.6} />
+              <RosieIcon size={28} alt="" />
             </div>
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
@@ -470,8 +470,15 @@ export default function ProcurementImportWorkspace({
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => void runStep("extract")} disabled={busy === "extract"} className="rounded-2xl bg-app-accent px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50">
-                    {busy === "extract" ? <Loader2 className="animate-spin" size={16} /> : "Run ROSIE Extract"}
+                  <button type="button" onClick={() => void runStep("extract")} disabled={busy === "extract"} className="inline-flex items-center gap-2 rounded-2xl bg-app-accent px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50">
+                    {busy === "extract" ? (
+                      <Loader2 className="animate-spin" size={16} />
+                    ) : (
+                      <>
+                        <RosieIcon size={16} alt="" />
+                        Run ROSIE Extract
+                      </>
+                    )}
                   </button>
                   <button type="button" onClick={() => void runStep("match")} disabled={busy === "match"} className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-accent">
                     Match Lines

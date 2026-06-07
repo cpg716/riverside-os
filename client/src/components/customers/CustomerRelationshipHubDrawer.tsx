@@ -24,6 +24,7 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
+import RosieIcon from "../common/RosieIcon";
 import type { Customer } from "../pos/CustomerSelector";
 import type {
   CustomerProfile,
@@ -3097,8 +3098,9 @@ export function CustomerRelationshipHubDrawer({
               data-testid="customer-snapshot-card"
               className="rounded-2xl border border-app-border bg-app-surface-2/90 p-4"
             >
-              <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                ✨ Things to know
+              <h3 className="mb-3 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                <RosieIcon size={14} alt="" />
+                Things to know
               </h3>
               <ul className="grid gap-2 sm:grid-cols-2">
                 {hub.snapshot_items.slice(0, 7).map((item) => (
@@ -3816,7 +3818,8 @@ export function CustomerRelationshipHubDrawer({
                             disabled={!canHubEdit || !hub.phone}
                             className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
                           >
-                            ✨ Draft check-in
+                            <RosieIcon size={14} alt="" className="mr-1 inline-block" />
+                            Draft check-in
                           </button>
                           <button
                             type="button"
@@ -3824,7 +3827,8 @@ export function CustomerRelationshipHubDrawer({
                             disabled={!canHubEdit || !hub.phone}
                             className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
                           >
-                            ✨ Draft pickup
+                            <RosieIcon size={14} alt="" className="mr-1 inline-block" />
+                            Draft pickup
                           </button>
                           {activeWedding ? (
                             <button
@@ -3833,7 +3837,8 @@ export function CustomerRelationshipHubDrawer({
                               disabled={!canHubEdit || !hub.phone}
                               className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
                             >
-                              ✨ Draft wedding
+                              <RosieIcon size={14} alt="" className="mr-1 inline-block" />
+                              Draft wedding
                             </button>
                           ) : null}
                           <button
@@ -3922,7 +3927,8 @@ export function CustomerRelationshipHubDrawer({
                             disabled={!canHubEdit || !hub.email}
                             className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
                           >
-                            ✨ Draft check-in
+                            <RosieIcon size={14} alt="" className="mr-1 inline-block" />
+                            Draft check-in
                           </button>
                           <button
                             type="button"
@@ -3930,7 +3936,8 @@ export function CustomerRelationshipHubDrawer({
                             disabled={!canHubEdit || !hub.email}
                             className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
                           >
-                            ✨ Draft pickup
+                            <RosieIcon size={14} alt="" className="mr-1 inline-block" />
+                            Draft pickup
                           </button>
                           {activeWedding ? (
                             <button
@@ -3939,7 +3946,8 @@ export function CustomerRelationshipHubDrawer({
                               disabled={!canHubEdit || !hub.email}
                               className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
                             >
-                              ✨ Draft wedding
+                              <RosieIcon size={14} alt="" className="mr-1 inline-block" />
+                              Draft wedding
                             </button>
                           ) : null}
                         </div>

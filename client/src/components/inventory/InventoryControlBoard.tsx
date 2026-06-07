@@ -33,6 +33,7 @@ import { useScanner } from "../../hooks/useScanner";
 import { playScanSuccess, playScanError } from "../../lib/scanSounds";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import RosieIcon from "../common/RosieIcon";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
@@ -1862,12 +1863,13 @@ export default function InventoryControlBoard({
                 ))}
               </ul>
             ) : null}
-            <p className="mt-4 text-[10px] font-black uppercase tracking-widest text-app-accent">
-              ✨ Product cleanup review queue
+            <p className="mt-4 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
+              <RosieIcon size={14} alt="" />
+              Product cleanup review queue
             </p>
             <RosieInsightSummary
               surface="product_cleanup_review"
-              title="✨ Product Cleanup Review"
+              title="Product Cleanup Review"
               mode="explain"
               allowedActions={[
                 {

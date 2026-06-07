@@ -9,6 +9,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
 import { AlertTriangle, Clock, FileText, Truck, Plus, Printer, Mail, ArrowRight } from "lucide-react";
+import RosieIcon from "../common/RosieIcon";
 
 interface PurchaseOrder {
   id: string;
@@ -789,7 +790,8 @@ export default function PurchaseOrderPanel({
             </p>
           </div>
           <div className="rounded-2xl border border-amber-300/50 bg-amber-50 p-4 shadow-sm">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
+            <p className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
+              <RosieIcon size={14} alt="" />
               AI import prep
             </p>
             <p className="mt-2 text-sm font-bold text-amber-950">

@@ -7,6 +7,7 @@ import {
 } from "../../lib/staffAvatars";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { getBaseUrl } from "../../lib/apiConfig";
+import RosieIcon from "../common/RosieIcon";
 
 const baseUrl = getBaseUrl();
 
@@ -125,7 +126,10 @@ export default function StaffAvatarPicker({
       {staffId && staffId !== "NEW" && (
         <div className="rounded-2xl border border-app-border bg-app-surface-2/20 p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black uppercase tracking-widest text-app-text">AI Avatar Generator</span>
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-app-text">
+              <RosieIcon size={14} alt="" />
+              AI Avatar Generator
+            </span>
             <span className="text-[10px] font-medium text-app-text-muted">via Fal.ai (Flux)</span>
           </div>
           
@@ -150,7 +154,10 @@ export default function StaffAvatarPicker({
                   Generating...
                 </>
               ) : (
-                "Generate"
+                <>
+                  <RosieIcon size={14} alt="" />
+                  Generate
+                </>
               )}
             </button>
           </div>

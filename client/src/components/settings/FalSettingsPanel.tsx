@@ -6,11 +6,11 @@ import {
   History,
   AlertCircle,
   FileImage,
-  Sparkles,
   ArrowRight,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import RosieIcon from "../common/RosieIcon";
 
 interface FalSettingsPanelProps {
   baseUrl: string;
@@ -199,7 +199,7 @@ export default function FalSettingsPanel({ baseUrl }: FalSettingsPanelProps) {
       <header className="mb-2">
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex shrink-0 items-center justify-center rounded-2xl border border-app-border bg-app-surface p-2.5 text-indigo-500 shadow-sm">
-            <Sparkles className="h-9 w-9" />
+            <RosieIcon size={36} alt="" />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
             <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
@@ -474,7 +474,7 @@ export default function FalSettingsPanel({ baseUrl }: FalSettingsPanelProps) {
           {/* Quick Info & Help */}
           <section className="ui-card p-6 bg-app-accent/5 border-app-accent/20 space-y-4">
             <div className="flex items-center gap-3">
-              <Sparkles className="w-5 h-5 text-app-accent" />
+              <RosieIcon size={20} alt="" />
               <h3 className="text-xs font-black uppercase tracking-widest text-app-text">
                 Visual Sidecar Stack
               </h3>

@@ -8,6 +8,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import RosieInsightSummary from "../help/RosieInsightSummary";
+import RosieIcon from "../common/RosieIcon";
 
 const baseUrl = getBaseUrl();
 
@@ -1035,8 +1036,9 @@ export default function QboWorkspace({
       </div>
 
       <div className="ui-card bg-[color-mix(in_srgb,var(--app-warning)_10%,var(--app-surface-2))] px-5 py-4">
-        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          ✨ QBO exception explainer
+        <p className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          <RosieIcon size={14} alt="" />
+          QBO exception explainer
         </p>
         <p className="mt-2 text-sm font-semibold text-app-text">
           ROSIE can summarize the visible staging queue, but account mapping, approval, and posting

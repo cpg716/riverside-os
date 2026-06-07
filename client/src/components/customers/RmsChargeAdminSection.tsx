@@ -9,6 +9,7 @@ import type { Customer } from "../pos/CustomerSelector";
 import PromptModal from "../ui/PromptModal";
 import { ClipboardCheck, RefreshCw, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import RosieInsightSummary from "../help/RosieInsightSummary";
+import RosieIcon from "../common/RosieIcon";
 
 const baseUrl = getBaseUrl();
 const PAGE = 100;
@@ -1085,8 +1086,9 @@ export default function RmsChargeAdminSection({
                 </div>
               )}
               <div className="mt-4 rounded-xl border border-app-accent/25 bg-app-accent/5 px-3 py-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
-                  ✨ RMS review explainer
+                <p className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
+                  <RosieIcon size={14} alt="" />
+                  RMS review explainer
                 </p>
                 <p className="mt-1 text-xs font-semibold text-app-text-muted">
                   ROSIE summarizes the visible import status. Matching, R2S reporting, charges, and

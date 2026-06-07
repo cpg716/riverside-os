@@ -21,6 +21,7 @@ import OrderInfoModal from './OrderInfoModal';
 import StockStatusModal from './StockStatusModal';
 import WeddingReadinessPanel from './WeddingReadinessPanel';
 import { isLegacyIndividualParty } from '../lib/partyLegacy';
+import RosieIcon from '../../common/RosieIcon';
 
 const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onNewAppointment }) => {
     const { showAlert, showConfirm, selectSalesperson } = useModal();
@@ -1126,7 +1127,10 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                             ))}
                         </div>
                         <div className="mt-4 rounded-xl border border-app-accent/25 bg-app-surface px-4 py-3">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">✨ ROSIE readiness takeaways</p>
+                            <p className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
+                                <RosieIcon size={14} alt="" />
+                                ROSIE readiness takeaways
+                            </p>
                             <ul className="mt-2 space-y-1.5 text-xs font-semibold text-app-text-muted">
                                 {readinessTakeaways.map((item) => (
                                     <li key={item} className="flex gap-2">

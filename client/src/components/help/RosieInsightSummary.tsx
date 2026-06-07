@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Sparkles } from "lucide-react";
 import {
   requestRosieInsightSummary,
   type RosieInsightFacts,
@@ -8,6 +7,7 @@ import {
   type RosieInsightSurface,
   type RosieInsightSummaryResponse,
 } from "../../lib/rosie";
+import RosieIcon from "../common/RosieIcon";
 
 type RosieInsightSummaryProps = {
   surface: RosieInsightSurface;
@@ -108,7 +108,7 @@ export default function RosieInsightSummary({
         className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition hover:text-app-accent disabled:opacity-60"
         aria-label={`${title} ROSIE insight`}
       >
-        <Sparkles size={13} aria-hidden />
+        <RosieIcon size={13} alt="" />
         {loading ? "ROSIE thinking..." : actionLabel}
       </button>
       {visibleBullets.length > 0 ? (

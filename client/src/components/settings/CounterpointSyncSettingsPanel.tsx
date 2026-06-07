@@ -10,7 +10,6 @@ import {
   WifiOff,
   Loader2,
   Database,
-  Sparkles,
   ChevronRight,
   RotateCcw,
   Upload,
@@ -21,6 +20,7 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import RosieInsightSummary from "../help/RosieInsightSummary";
+import RosieIcon from "../common/RosieIcon";
 
 /* ── Types & Interfaces ── */
 
@@ -1897,8 +1897,9 @@ export default function CounterpointSyncSettingsPanel() {
             Imported Counterpoint ticket and open-doc rows preserve gross historical totals; imported line tax is non-authoritative and should not be treated as tax filing proof.
           </p>
         </div>
-        <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          ✨ Counterpoint exception explainer
+        <p className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          <RosieIcon size={14} alt="" />
+          Counterpoint exception explainer
         </p>
         <RosieInsightSummary
           surface="counterpoint_status"
@@ -2479,7 +2480,7 @@ export default function CounterpointSyncSettingsPanel() {
                   disabled={aiBusy}
                   className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
                 >
-                  <Sparkles className={`h-3.5 w-3.5 ${aiBusy && aiScope === "categories" ? "animate-spin" : ""}`} />
+                  <RosieIcon size={14} alt="" className={aiBusy && aiScope === "categories" ? "animate-pulse" : ""} />
                   AI Map Categories
                 </button>
               </div>
@@ -2668,7 +2669,7 @@ export default function CounterpointSyncSettingsPanel() {
                   disabled={aiBusy}
                   className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
                 >
-                  <Sparkles className={`h-3.5 w-3.5 ${aiBusy && aiScope === "names" ? "animate-spin" : ""}`} />
+                  <RosieIcon size={14} alt="" className={aiBusy && aiScope === "names" ? "animate-pulse" : ""} />
                   Scan Catalog placeholders
                 </button>
               </div>

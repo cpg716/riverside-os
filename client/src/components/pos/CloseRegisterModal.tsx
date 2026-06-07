@@ -11,6 +11,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { getCheckoutQueueSummary, type CheckoutQueueSummary } from "../../lib/offlineQueue";
 import RosieInsightSummary from "../help/RosieInsightSummary";
+import RosieIcon from "../common/RosieIcon";
 
 const MANDATORY_NOTE_OVER_USD = 5;
 
@@ -1461,8 +1462,9 @@ export default function CloseRegisterModal({
             </p>
           </div>
           <div className="rounded-2xl border border-app-accent/25 bg-app-accent/5 px-4 py-3">
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
-              ✨ Register close explainer
+            <p className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
+              <RosieIcon size={14} alt="" />
+              Register close explainer
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
               ROSIE explains the visible close facts only. Final close, cash counts, and payment

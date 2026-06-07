@@ -13,7 +13,6 @@ import {
 import {
   ChevronRight,
   BookOpen,
-  Bot,
   Code2,
   Database,
   FileText,
@@ -41,7 +40,6 @@ import {
   Tags,
   UserCircle,
   Wifi,
-  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -70,6 +68,7 @@ import ShippoSettingsPanel from "./ShippoSettingsPanel";
 import HelcimSettingsPanel from "./HelcimSettingsPanel";
 import FalSettingsPanel from "./FalSettingsPanel";
 import IntegrationBrandLogo, { type IntegrationBrand } from "../ui/IntegrationBrandLogo";
+import RosieIcon from "../common/RosieIcon";
 import DailyFinancialReportPanel from "./DailyFinancialReportPanel";
 import RemoteAccessPanel from "./RemoteAccessPanel";
 import RegisterSettings from "../pos/RegisterSettings";
@@ -253,9 +252,9 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   weather: Plug,
   insights: Plug,
   meilisearch: Plug,
-  fal: Sparkles,
+  fal: Info,
   "help-center": BookOpen,
-  rosie: Bot,
+  rosie: Info,
   "ros-operations-center": ShieldAlert,
   "ros-dev-center": Code2,
 };
@@ -649,6 +648,8 @@ export default function SettingsWorkspace({
                                         : "max-h-full max-w-full rounded-md object-contain"
                                     }
                                   />
+                                ) : link.id === "rosie" || link.id === "fal" ? (
+                                  <RosieIcon size={22} alt="" />
                                 ) : (
                                   createElement(link.icon, {
                                     size: 20,
@@ -1265,7 +1266,6 @@ export default function SettingsWorkspace({
                       label: "Fal.ai",
                       desc: "Visual diffusion pipelines",
                       color: "bg-app-surface",
-                      icon: Sparkles,
                     },
                   ] satisfies IntegrationCardItem[]).map((item) => (
                     <button
@@ -1284,6 +1284,8 @@ export default function SettingsWorkspace({
                             className="inline-flex"
                             imageClassName="max-h-10 max-w-10 rounded-md object-contain"
                           />
+                        ) : item.id === "fal" ? (
+                          <RosieIcon size={28} alt="" />
                         ) : "icon" in item && item.icon ? (
                           createElement(item.icon as LucideIcon, { size: 28 })
                         ) : null}

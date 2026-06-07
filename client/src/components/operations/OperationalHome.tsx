@@ -29,6 +29,7 @@ import CompassMemberDetailDrawer from "./CompassMemberDetailDrawer";
 import DashboardStatsCard from "../ui/DashboardStatsCard";
 import DashboardGridCard from "../ui/DashboardGridCard";
 import RosieInsightSummary from "../help/RosieInsightSummary";
+import RosieIcon from "../common/RosieIcon";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   useNotificationCenter,
@@ -2128,12 +2129,13 @@ export default function OperationalHome({
                 ))
               )}
             </div>
-            <p className="mt-4 text-[10px] font-black uppercase tracking-widest text-app-accent">
-              ✨ Daily operations brief
+            <p className="mt-4 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
+              <RosieIcon size={14} alt="" />
+              Daily operations brief
             </p>
             <RosieInsightSummary
               surface="daily_operational_briefing"
-              title="✨ Today at Riverside"
+              title="Today at Riverside"
               facts={dailyBriefingFacts}
               getHeaders={taskAuth}
             />
