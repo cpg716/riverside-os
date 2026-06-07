@@ -2,7 +2,8 @@
 set -euo pipefail
 
 PORTS=(3000 3002 5173)
-SERVER_ENV="$(cd "$(dirname "$0")/.." && pwd)/server/.env"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SERVER_ENV="$ROOT/server/.env"
 HELCIM_TUNNEL_AGENT="$HOME/Library/LaunchAgents/com.cloudflare.riverside-helcim.plist"
 HELCIM_TUNNEL_LABEL="com.cloudflare.riverside-helcim"
 
@@ -34,18 +35,14 @@ reclaim_port() {
   fi
 }
 
-database_url() {
-  if [[ -n "${DATABASE_URL:-}" ]]; then
-    printf '%s\n' "$DATABASE_URL"
-    return 0
-  fi
-
+server_env_value() {
   if [[ ! -f "$SERVER_ENV" ]]; then
     return 0
   fi
 
+  local key="$1"
   local raw
-  raw="$(grep -E "^DATABASE_URL=" "$SERVER_ENV" | tail -n 1 || true)"
+  raw="$(grep -E "^${key}=" "$SERVER_ENV" | tail -n 1 || true)"
   if [[ -z "$raw" ]]; then
     return 0
   fi
@@ -57,6 +54,33 @@ database_url() {
     value="${value:1:${#value}-2}"
   fi
   printf '%s\n' "$value"
+}
+
+database_url() {
+  if [[ -n "${DATABASE_URL:-}" ]]; then
+    printf '%s\n' "$DATABASE_URL"
+    return 0
+  fi
+
+  server_env_value "DATABASE_URL"
+}
+
+meilisearch_url() {
+  if [[ -n "${RIVERSIDE_MEILISEARCH_URL:-}" ]]; then
+    printf '%s\n' "$RIVERSIDE_MEILISEARCH_URL"
+    return 0
+  fi
+
+  server_env_value "RIVERSIDE_MEILISEARCH_URL"
+}
+
+meilisearch_api_key() {
+  if [[ -n "${RIVERSIDE_MEILISEARCH_API_KEY:-}" ]]; then
+    printf '%s\n' "$RIVERSIDE_MEILISEARCH_API_KEY"
+    return 0
+  fi
+
+  server_env_value "RIVERSIDE_MEILISEARCH_API_KEY"
 }
 
 check_database_ready() {
@@ -94,6 +118,98 @@ try {
   exit 1
 }
 
+ensure_meilisearch_ready() {
+  local url
+  url="$(meilisearch_url)"
+  if [[ -z "$url" ]]; then
+    return 0
+  fi
+
+  local endpoint
+  endpoint="$(MEILI_URL="$url" node -e '
+const raw = process.env.MEILI_URL;
+try {
+  const parsed = new URL(raw);
+  if (!["http:", "https:"].includes(parsed.protocol)) process.exit(1);
+  const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+  process.stdout.write(`${parsed.hostname} ${port}`);
+} catch {
+  process.exit(1);
+}
+' 2>/dev/null || true)"
+  if [[ -z "$endpoint" ]]; then
+    echo "[dev-preflight] RIVERSIDE_MEILISEARCH_URL is invalid: ${url}" >&2
+    exit 1
+  fi
+
+  local api_key
+  api_key="$(meilisearch_api_key)"
+  if [[ -z "$api_key" ]]; then
+    echo "[dev-preflight] RIVERSIDE_MEILISEARCH_URL is set, but RIVERSIDE_MEILISEARCH_API_KEY is missing." >&2
+    exit 1
+  fi
+
+  local host port
+  read -r host port <<< "$endpoint"
+  if ! nc -z "$host" "$port" >/dev/null 2>&1; then
+    case "$host" in
+      127.0.0.1|localhost|::1)
+        if ! command -v docker >/dev/null 2>&1; then
+          echo "[dev-preflight] Meilisearch is configured at ${url}, but Docker is not available to start it." >&2
+          exit 1
+        fi
+        echo "[dev-preflight] starting local Meilisearch sidecar..."
+        (cd "$ROOT" && MEILI_MASTER_KEY="$api_key" docker compose up -d meilisearch)
+        ;;
+      *)
+        echo "[dev-preflight] Meilisearch is not reachable at ${host}:${port} from RIVERSIDE_MEILISEARCH_URL." >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  local health_url="${url%/}/health"
+  local healthy=""
+  for _ in {1..60}; do
+    if curl -fsS "$health_url" 2>/dev/null | grep -q '"available"'; then
+      healthy="1"
+      break
+    fi
+    sleep 0.5
+  done
+
+  if [[ -z "$healthy" ]]; then
+    echo "[dev-preflight] Meilisearch did not become healthy at ${health_url}." >&2
+    exit 1
+  fi
+
+  if ! curl -fsS -H "Authorization: Bearer ${api_key}" "${url%/}/indexes?limit=1" >/dev/null 2>&1; then
+    case "$host" in
+      127.0.0.1|localhost|::1)
+        echo "[dev-preflight] local Meilisearch key mismatch; recreating sidecar with RIVERSIDE_MEILISEARCH_API_KEY..."
+        (cd "$ROOT" && MEILI_MASTER_KEY="$api_key" docker compose up -d --force-recreate meilisearch)
+
+        healthy=""
+        for _ in {1..60}; do
+          if curl -fsS "$health_url" 2>/dev/null | grep -q '"available"'; then
+            healthy="1"
+            break
+          fi
+          sleep 0.5
+        done
+        ;;
+    esac
+  fi
+
+  if ! curl -fsS -H "Authorization: Bearer ${api_key}" "${url%/}/indexes?limit=1" >/dev/null 2>&1; then
+    echo "[dev-preflight] Meilisearch rejected RIVERSIDE_MEILISEARCH_API_KEY for ${url}." >&2
+    echo "[dev-preflight] Keep server/.env RIVERSIDE_MEILISEARCH_API_KEY and docker-compose.yml MEILI_MASTER_KEY in sync." >&2
+    exit 1
+  fi
+
+  echo "[dev-preflight] Meilisearch ready at ${url}"
+}
+
 ensure_helcim_tunnel() {
   if [[ ! -f "$HELCIM_TUNNEL_AGENT" ]]; then
     return 0
@@ -127,3 +243,4 @@ done
 
 ensure_helcim_tunnel
 check_database_ready
+ensure_meilisearch_ready

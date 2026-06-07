@@ -32,14 +32,15 @@ services:
       retries: 10
       start_period: 10s
 
-  # Optional: fuzzy search sidecar for inventory, CRM, weddings, orders, and storefront PLP.
+  # Local fuzzy search sidecar for inventory, CRM, weddings, orders, and storefront PLP.
+  # npm run dev starts and verifies this service when RIVERSIDE_MEILISEARCH_URL is configured.
   # Set RIVERSIDE_MEILISEARCH_URL=http://127.0.0.1:7700 and RIVERSIDE_MEILISEARCH_API_KEY to match MEILI_MASTER_KEY.
   meilisearch:
     image: getmeili/meilisearch:v1.11
     container_name: riverside-os-meilisearch
     restart: unless-stopped
     environment:
-      MEILI_MASTER_KEY: dev_master_key_change_me
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-dev_master_key_change_me}
     ports:
       - "7700:7700"
     volumes:

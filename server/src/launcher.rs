@@ -216,6 +216,34 @@ fn ensure_rosie_upstream_from_local_llama() {
     );
 }
 
+async fn resolve_meilisearch_client(
+    strict_production: bool,
+) -> Result<Option<meilisearch_sdk::client::Client>, Box<dyn std::error::Error>> {
+    let Some(client) = crate::logic::meilisearch_client::meilisearch_from_env() else {
+        return Ok(None);
+    };
+
+    let health = crate::logic::meilisearch_client::health_check(&client).await;
+    if health.reachable {
+        return Ok(Some(client));
+    }
+
+    let msg = format!(
+        "Meilisearch is configured but unavailable after credential resolution: {}",
+        health.message
+    );
+    if strict_production {
+        return Err(msg.into());
+    }
+
+    tracing::error!(
+        message = %health.message,
+        latency_ms = health.latency_ms,
+        "Meilisearch is configured but unavailable; search will use PostgreSQL fallback"
+    );
+    Ok(None)
+}
+
 async fn launch_server_inner(
     config: LauncherConfig,
     server_log_ring: ServerLogRing,
@@ -308,7 +336,7 @@ async fn launch_server_inner(
         .build()
         .expect("reqwest client");
 
-    let meilisearch = crate::logic::meilisearch_client::meilisearch_from_env();
+    let meilisearch = resolve_meilisearch_client(config.strict_production).await?;
 
     let global_employee_markup: rust_decimal::Decimal = match sqlx::query_scalar(
         "SELECT employee_markup_percent FROM store_settings WHERE id = 1",
