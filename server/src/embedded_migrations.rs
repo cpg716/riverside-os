@@ -76,4 +76,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("073_product_secondary_vendors.sql", include_str!("../../migrations/073_product_secondary_vendors.sql")),
     ("074_discount_events_full_inventory_scope.sql", include_str!("../../migrations/074_discount_events_full_inventory_scope.sql")),
     ("075_daily_sales_weather_reporting.sql", include_str!("../../migrations/075_daily_sales_weather_reporting.sql")),
+    ("076_commission_combo_variant_targets.sql", include_str!("../../migrations/076_commission_combo_variant_targets.sql")),
 ];

@@ -1,24 +1,25 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useState, useEffect } from "react";
-import { X, Plus, Trash2 } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import { X, Trash2, Barcode } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
+import VariantSearchInput, {
+  type VariantSearchResult,
+} from "../ui/VariantSearchInput";
 
 const baseUrl = getBaseUrl();
 
 const DNA = {
-  heading: "text-[10px] font-black uppercase tracking-widest text-slate-500",
+  heading: "text-[10px] font-black uppercase tracking-widest text-app-text-muted",
 };
-
-interface CategoryOption {
-  category_id: string;
-  category_name: string;
-}
 
 interface ComboItem {
   match_type: "category" | "product" | "variant";
   match_id: string;
   qty_required: number;
+  sku?: string;
+  product_name?: string;
+  variation_label?: string | null;
 }
 
 interface Combo {
@@ -41,35 +42,104 @@ export default function ComboEditorModal({
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const [scanValue, setScanValue] = useState("");
 
   const [formData, setFormData] = useState<Combo>({
     id: combo?.id ?? undefined,
     label: combo?.label || "",
     reward_amount: combo?.reward_amount || "0",
     is_active: combo ? combo.is_active : true,
-    items: combo?.items || [
-      { match_type: "category", match_id: "", qty_required: 1 },
-    ],
+    items: combo?.items || [],
   });
 
-  useEffect(() => {
-    const loadCats = async () => {
+  const addVariant = useCallback(
+    (variant: {
+      product_id: string;
+      variant_id: string;
+      sku: string;
+      product_name: string;
+      variation_label?: string | null;
+    }) => {
+      setFormData((current) => {
+        if (current.items.some((item) => item.match_id === variant.variant_id)) {
+          toast("SKU is already in this combo.", "info");
+          return current;
+        }
+        if (current.items.length >= 4) {
+          toast("Combos support up to 4 SKUs.", "error");
+          return current;
+        }
+        return {
+          ...current,
+          items: [
+            ...current.items,
+            {
+              match_type: "variant",
+              match_id: variant.variant_id,
+              qty_required: 1,
+              sku: variant.sku,
+              product_name: variant.product_name,
+              variation_label: variant.variation_label,
+            },
+          ],
+        };
+      });
+      window.setTimeout(() => scanInputRef.current?.focus(), 0);
+    },
+    [toast],
+  );
+
+  const addSearchVariant = useCallback(
+    (variant: VariantSearchResult) => {
+      addVariant({
+        product_id: variant.product_id,
+        variant_id: variant.variant_id,
+        sku: variant.sku,
+        product_name: variant.product_name,
+        variation_label: variant.variation_label,
+      });
+    },
+    [addVariant],
+  );
+
+  const scanSku = async () => {
+    const code = scanValue.trim();
+    if (!code) return;
+    try {
       const res = await fetch(
-        `${baseUrl}/api/staff/admin/category-commissions`,
+        `${baseUrl}/api/inventory/scan/${encodeURIComponent(code)}`,
         { headers: backofficeHeaders() },
       );
-      if (res.ok) setCategories((await res.json()) as CategoryOption[]);
-    };
-    void loadCats();
-  }, [backofficeHeaders]);
+      if (!res.ok) throw new Error("SKU not found");
+      const item = (await res.json()) as {
+        product_id: string;
+        variant_id: string;
+        sku: string;
+        name: string;
+        variation_label?: string | null;
+      };
+      addVariant({
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        sku: item.sku,
+        product_name: item.name,
+        variation_label: item.variation_label,
+      });
+      setScanValue("");
+    } catch {
+      toast("No active SKU matched that scan.", "error");
+    } finally {
+      window.setTimeout(() => scanInputRef.current?.focus(), 0);
+    }
+  };
 
   const save = async () => {
     if (!formData.label.trim()) return toast("Bundle label required", "error");
     if ((Number.parseFloat(formData.reward_amount) || 0) <= 0)
       return toast("Reward amount must be greater than zero", "error");
-    if (formData.items.length === 0)
-      return toast("At least one item required", "error");
+    if (formData.items.length < 3 || formData.items.length > 4)
+      return toast("Combo rewards require 3 or 4 SKUs.", "error");
     if (formData.items.some((it) => !it.match_id))
       return toast("All items must have a target", "error");
     if (formData.items.some((it) => it.qty_required <= 0))
@@ -82,7 +152,8 @@ export default function ComboEditorModal({
         label: formData.label.trim(),
         reward_amount: Number.parseFloat(formData.reward_amount),
         items: formData.items.map((item) => ({
-          ...item,
+          match_type: item.match_type,
+          match_id: item.match_id,
           qty_required: Math.trunc(item.qty_required),
         })),
       };
@@ -105,16 +176,6 @@ export default function ComboEditorModal({
     }
   };
 
-  const addItem = () => {
-    setFormData({
-      ...formData,
-      items: [
-        ...formData.items,
-        { match_type: "category", match_id: "", qty_required: 1 },
-      ],
-    });
-  };
-
   const removeItem = (idx: number) => {
     setFormData({
       ...formData,
@@ -122,18 +183,12 @@ export default function ComboEditorModal({
     });
   };
 
-  const updateItem = (idx: number, patch: Partial<ComboItem>) => {
-    const next = [...formData.items];
-    next[idx] = { ...next[idx], ...patch };
-    setFormData({ ...formData, items: next });
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-6">
-      <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-slate-900 shadow-2xl p-8 animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-3xl border border-app-border bg-app-surface p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h3 className="text-lg font-black tracking-tight text-white uppercase line-height-tight">
+            <h3 className="text-lg font-black tracking-tight text-app-text uppercase line-height-tight">
               {combo ? "Edit Bundle" : "Configure Combo"}
             </h3>
             <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-500/60 mt-1 font-mono">
@@ -142,7 +197,8 @@ export default function ComboEditorModal({
           </div>
           <button
             onClick={onClose}
-            className="rounded-full p-2 text-slate-500 hover:bg-app-surface/5 hover:text-white transition-colors"
+            aria-label="Close"
+            className="rounded-full p-2 text-app-text-muted transition-colors hover:bg-app-surface-2 hover:text-app-text"
           >
             <X size={20} />
           </button>
@@ -152,7 +208,7 @@ export default function ComboEditorModal({
           <div className="space-y-1.5">
             <label className={DNA.heading}>Bundle Name</label>
             <input
-              className="w-full ui-input bg-slate-950/50 border-white/5 focus:border-emerald-500/40 text-sm py-3 px-4 rounded-xl text-white font-bold"
+              className="w-full ui-input rounded-xl border-app-border bg-app-surface px-4 py-3 text-sm font-bold text-app-text focus:border-emerald-500/40"
               placeholder="e.g. Full Suit + Shirt Package"
               value={formData.label}
               onChange={(e) =>
@@ -166,79 +222,89 @@ export default function ComboEditorModal({
             <div className="relative">
               <input
                 type="number"
-                className="w-full ui-input bg-slate-950/50 border-white/5 text-sm py-3 pl-8 pr-4 rounded-xl font-mono tabular-nums text-emerald-400 font-black"
+                className="w-full ui-input rounded-xl border-app-border bg-app-surface py-3 pl-8 pr-4 font-mono text-sm font-black tabular-nums text-emerald-600 dark:text-emerald-400"
                 placeholder="0.00"
                 value={formData.reward_amount}
                 onChange={(e) =>
                   setFormData({ ...formData, reward_amount: e.target.value })
                 }
               />
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 font-bold">
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted font-bold">
                 $
               </div>
             </div>
           </div>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className={DNA.heading}>Requirements</label>
-              <button
-                type="button"
-                onClick={addItem}
-                className="text-[9px] font-black uppercase tracking-widest text-emerald-500 hover:text-emerald-400"
-              >
-                <Plus size={10} className="inline mr-1" /> Add Requirement
-              </button>
+            <div className="space-y-3">
+              <label htmlFor="combo-sku-scan" className={DNA.heading}>
+                Combo SKUs
+              </label>
+              <div className="relative">
+                <Barcode
+                  size={16}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted"
+                />
+                <input
+                  ref={scanInputRef}
+                  id="combo-sku-scan"
+                  className="w-full rounded-xl border-app-border bg-app-surface py-3 pl-11 pr-4 text-sm font-bold text-app-text ui-input focus:border-emerald-500/40"
+                  placeholder="Scan SKU, then Enter"
+                  value={scanValue}
+                  onChange={(e) => setScanValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void scanSku();
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
+              <VariantSearchInput
+                onSelect={addSearchVariant}
+                placeholder="Search item name or SKU..."
+              />
+              <p className="text-[10px] font-bold text-app-text-muted">
+                Add 3 or 4 SKUs. Wedding transactions are excluded from combo
+                rewards.
+              </p>
             </div>
 
-            {formData.items.map((item, idx) => (
+            <div className="space-y-2 rounded-xl border border-app-border bg-app-surface-2 p-2">
+            {formData.items.length === 0 ? (
+              <div className="px-3 py-4 text-center text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                No SKUs added
+              </div>
+            ) : formData.items.map((item, idx) => (
               <div
                 key={idx}
-                className="flex gap-3 items-end p-3 rounded-xl bg-slate-950/30 border border-white/5"
+                className="flex items-center justify-between rounded-lg border border-app-border bg-app-surface px-3 py-2"
               >
-                <div className="flex-1 space-y-1.5">
-                  <select
-                    className="w-full ui-input bg-slate-900 border-white/5 text-[10px] py-2 px-3 rounded-lg text-white font-bold appearance-none"
-                    value={item.match_id}
-                    onChange={(e) =>
-                      updateItem(idx, { match_id: e.target.value })
-                    }
-                  >
-                    <option value="">Select Category...</option>
-                    {categories.map((c) => (
-                      <option key={c.category_id} value={c.category_id}>
-                        {c.category_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="w-20 space-y-1.5">
-                  <input
-                    type="number"
-                    min="1"
-                    className="w-full ui-input bg-app-bg/50 border-white/5 text-[10px] py-2 px-3 rounded-lg text-center font-mono text-white"
-                    value={item.qty_required}
-                    onChange={(e) =>
-                      updateItem(idx, {
-                        qty_required: parseInt(e.target.value) || 1,
-                      })
-                    }
-                  />
+                <div>
+                  <div className="text-xs font-black text-app-text">
+                    {item.product_name || "Existing SKU requirement"}
+                  </div>
+                  <div className="font-mono text-[10px] text-app-text-muted">
+                    {item.sku || item.match_id.slice(0, 8)}
+                    {item.variation_label ? ` - ${item.variation_label}` : ""}
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => removeItem(idx)}
-                  disabled={formData.items.length === 1}
-                  className="p-2 text-slate-600 hover:text-red-500 disabled:opacity-0"
+                  className="p-2 text-app-text-muted hover:text-red-500"
+                  aria-label="Remove combo SKU"
                 >
                   <Trash2 size={14} />
                 </button>
               </div>
             ))}
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 pt-8 border-t border-white/5 mt-8">
+        <div className="flex items-center gap-3 pt-8 border-t border-app-border mt-8">
           <button
             type="button"
             disabled={loading}
@@ -254,7 +320,7 @@ export default function ComboEditorModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-6 bg-slate-800 text-slate-400 font-black uppercase tracking-widest text-[10px] py-4 rounded-2xl hover:text-white transition-colors"
+            className="px-6 bg-app-surface-2 text-app-text-muted font-black uppercase tracking-widest text-[10px] py-4 rounded-2xl hover:text-app-text transition-colors"
           >
             Exit
           </button>

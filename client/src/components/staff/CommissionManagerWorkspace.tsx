@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Percent,
   Receipt,
@@ -9,12 +9,16 @@ import {
   Trash2,
   Layers,
   X,
+  Barcode,
 } from "lucide-react";
 import CommissionPayoutsPanel from "./CommissionPayoutsPanel";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import ComboEditorModal from "./ComboEditorModal";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import VariantSearchInput, {
+  type VariantSearchResult,
+} from "../ui/VariantSearchInput";
 
 const baseUrl = getBaseUrl();
 
@@ -55,18 +59,19 @@ interface ComboRule {
   items: ComboItem[];
 }
 
-interface CategoryOption {
-  category_id: string;
-  category_name: string;
-}
-
 interface RuleDraft {
   id: string | null;
   label: string;
-  match_type: MatchType;
-  match_id: string;
   fixed_spiff_amount: string;
   is_active: boolean;
+}
+
+interface SpiffVariantTarget {
+  product_id: string;
+  variant_id: string;
+  sku: string;
+  product_name: string;
+  variation_label?: string | null;
 }
 
 export default function CommissionManagerWorkspace() {
@@ -475,35 +480,91 @@ function RuleEditorModal({
   const { backofficeHeaders } = useBackofficeAuth();
 
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const [scanValue, setScanValue] = useState("");
+  const [targets, setTargets] = useState<SpiffVariantTarget[]>(
+    rule?.match_type === "variant"
+      ? [
+          {
+            product_id: "",
+            variant_id: rule.match_id,
+            sku: rule.match_id.slice(0, 8),
+            product_name: rule.label || "Existing SKU target",
+          },
+        ]
+      : [],
+  );
 
   const [formData, setFormData] = useState<RuleDraft>({
     id: rule?.id || null,
     label: rule?.label || "",
-    match_type: rule?.match_type || "category",
-    match_id: rule?.match_id || "",
     fixed_spiff_amount: rule?.fixed_spiff_amount
       ? parseFloat(rule.fixed_spiff_amount).toString()
       : "0",
     is_active: rule ? rule.is_active : true,
   });
 
-  useEffect(() => {
-    const loadCats = async () => {
+  const addTarget = useCallback(
+    (variant: SpiffVariantTarget) => {
+      setTargets((current) => {
+        if (current.some((item) => item.variant_id === variant.variant_id)) {
+          toast("SKU is already in this SPIFF.", "info");
+          return current;
+        }
+        return [...current, variant];
+      });
+      window.setTimeout(() => scanInputRef.current?.focus(), 0);
+    },
+    [toast],
+  );
+
+  const addSearchTarget = useCallback(
+    (variant: VariantSearchResult) => {
+      addTarget({
+        product_id: variant.product_id,
+        variant_id: variant.variant_id,
+        sku: variant.sku,
+        product_name: variant.product_name,
+        variation_label: variant.variation_label,
+      });
+    },
+    [addTarget],
+  );
+
+  const scanSku = async () => {
+    const code = scanValue.trim();
+    if (!code) return;
+    try {
       const res = await fetch(
-        `${baseUrl}/api/staff/admin/category-commissions`,
-        {
-          headers: backofficeHeaders(),
-        },
+        `${baseUrl}/api/inventory/scan/${encodeURIComponent(code)}`,
+        { headers: backofficeHeaders() },
       );
-      if (res.ok) setCategories((await res.json()) as CategoryOption[]);
-    };
-    void loadCats();
-  }, [backofficeHeaders]);
+      if (!res.ok) throw new Error("SKU not found");
+      const item = (await res.json()) as {
+        product_id: string;
+        variant_id: string;
+        sku: string;
+        name: string;
+        variation_label?: string | null;
+      };
+      addTarget({
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        sku: item.sku,
+        product_name: item.name,
+        variation_label: item.variation_label,
+      });
+      setScanValue("");
+    } catch {
+      toast("No active SKU matched that scan.", "error");
+    } finally {
+      window.setTimeout(() => scanInputRef.current?.focus(), 0);
+    }
+  };
 
   const save = async () => {
-    if (!formData.match_id) {
-      toast("Select a target category/product", "error");
+    if (targets.length === 0) {
+      toast("Scan or select at least one SKU for this SPIFF.", "error");
       return;
     }
     if (!formData.label) {
@@ -517,22 +578,28 @@ function RuleEditorModal({
 
     setLoading(true);
     try {
-      const body = {
-        ...formData,
-        override_rate: null,
-        fixed_spiff_amount: parseFloat(formData.fixed_spiff_amount) || 0,
-      };
+      for (const target of targets) {
+        const body = {
+          id: targets.length === 1 ? formData.id : null,
+          label: formData.label.trim(),
+          match_type: "variant",
+          match_id: target.variant_id,
+          override_rate: null,
+          fixed_spiff_amount: parseFloat(formData.fixed_spiff_amount) || 0,
+          is_active: formData.is_active,
+        };
 
-      const res = await fetch(`${baseUrl}/api/staff/commissions/rules`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...backofficeHeaders(),
-        },
-        body: JSON.stringify(body),
-      });
+        const res = await fetch(`${baseUrl}/api/staff/commissions/rules`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...backofficeHeaders(),
+          },
+          body: JSON.stringify(body),
+        });
 
-      if (!res.ok) throw new Error("Save failed");
+        if (!res.ok) throw new Error("Save failed");
+      }
       toast("SPIFF saved", "success");
       onSaved();
     } catch {
@@ -580,62 +647,71 @@ function RuleEditorModal({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label htmlFor="rule-match-type" className={DNA.heading}>
-                Target type
-              </label>
-              <select
-                id="rule-match-type"
-                name="match_type"
-                className="w-full rounded-xl border-app-border bg-app-surface px-4 py-3 text-sm font-bold text-app-text ui-input appearance-none"
-                value={formData.match_type}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  if (
-                    next === "category" ||
-                    next === "product" ||
-                    next === "variant"
-                  ) {
-                    setFormData({
-                      ...formData,
-                      match_type: next,
-                      match_id: "",
-                    });
+          <div className="space-y-3">
+            <label htmlFor="rule-sku-scan" className={DNA.heading}>
+              SPIFF SKUs
+            </label>
+            <div className="relative">
+              <Barcode
+                size={16}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted"
+              />
+              <input
+                ref={scanInputRef}
+                id="rule-sku-scan"
+                className="w-full rounded-xl border-app-border bg-app-surface py-3 pl-11 pr-4 text-sm font-bold text-app-text ui-input focus:border-emerald-500/40"
+                placeholder="Scan SKU, then Enter"
+                value={scanValue}
+                onChange={(e) => setScanValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void scanSku();
                   }
                 }}
-              >
-                <option value="category">Category</option>
-                <option value="product" disabled>Product (Phase 2)</option>
-                <option value="variant" disabled>Variant (Phase 2)</option>
-              </select>
+                autoFocus
+              />
             </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="rule-match-id" className={DNA.heading}>
-                Target {formData.match_type}
-              </label>
-              {formData.match_type === "category" ? (
-                <select
-                  id="rule-match-id"
-                  name="match_id"
-                  className="w-full rounded-xl border-app-border bg-app-surface px-4 py-3 text-sm font-bold text-app-text ui-input appearance-none"
-                  value={formData.match_id}
-                  onChange={(e) =>
-                    setFormData({ ...formData, match_id: e.target.value })
-                  }
-                >
-                  <option value="">Select Category...</option>
-                  {categories.map((c) => (
-                    <option key={c.category_id} value={c.category_id}>
-                      {c.category_name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="ui-input flex h-[46px] items-center rounded-xl border-app-border bg-app-surface px-4 py-3 text-[10px] italic text-app-text-muted">
-                  Picker disabled
+            <VariantSearchInput
+              onSelect={addSearchTarget}
+              placeholder="Search item name or SKU..."
+            />
+            <div className="max-h-36 space-y-2 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-2">
+              {targets.length === 0 ? (
+                <div className="px-3 py-4 text-center text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                  No SKUs added
                 </div>
+              ) : (
+                targets.map((target) => (
+                  <div
+                    key={target.variant_id}
+                    className="flex items-center justify-between rounded-lg border border-app-border bg-app-surface px-3 py-2"
+                  >
+                    <div>
+                      <div className="text-xs font-black text-app-text">
+                        {target.product_name}
+                      </div>
+                      <div className="font-mono text-[10px] text-app-text-muted">
+                        {target.sku}
+                        {target.variation_label ? ` - ${target.variation_label}` : ""}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTargets((current) =>
+                          current.filter(
+                            (item) => item.variant_id !== target.variant_id,
+                          ),
+                        )
+                      }
+                      className="rounded p-1.5 text-app-text-muted hover:bg-red-500/10 hover:text-red-500"
+                      aria-label={`Remove ${target.sku}`}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
               )}
             </div>
           </div>

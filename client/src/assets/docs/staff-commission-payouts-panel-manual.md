@@ -37,7 +37,7 @@ The screen supports all-staff reporting, individual staff drilldown, and printab
 1. Open **Staff → Commissions** and stay on **Reports**.
 2. Choose a date window. Use **Prior month payroll** when reviewing the previous calendar month for the first payday of the new month.
 3. Optional: pick a **Staff** member to run an individual report.
-4. Review each staff row: **Rate**, **Rate since**, **Sales**, **By rate**, **SPIFF $**, and the final **Earned commission** amount.
+4. Review each staff row: **Rate**, **Rate since**, **Sales**, **By rate**, **SPIFF / Combo $**, and the final **Earned commission** amount.
 5. Use **Print report** for payroll review.
 6. Expand a staff row to review line-level detail.
 7. Use **Trace** on a line when you need the calculation explainer.
@@ -47,7 +47,7 @@ The screen supports all-staff reporting, individual staff drilldown, and printab
 - The commission report is earned-only. Booked-but-unfulfilled pipeline is intentionally excluded from the report totals.
 - **Earned commission** is the payroll-facing total for the selected recognition window.
 - **By rate** is the earned amount from the staff member's base commission rate.
-- **SPIFF $** is fixed SPIFF and combo incentive money earned during the period.
+- **SPIFF / Combo $** is fixed SPIFF and combo incentive money earned during the period.
 - The bottom row, **Total commissions paid for period**, is the report total to review for payroll.
 - Returns and exchanges affect the period in which they occur through immutable adjustment events.
 - Manual add/subtract adjustments require notes and audit tracking.

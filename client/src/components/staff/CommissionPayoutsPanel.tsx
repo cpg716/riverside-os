@@ -310,7 +310,7 @@ export default function CommissionPayoutsPanel() {
                 <th>Rate since</th>
                 <th class="num">Sales</th>
                 <th class="num">By rate</th>
-                <th class="num">SPIFF</th>
+                <th class="num">SPIFF / Combo</th>
                 <th class="num">Earned commission</th>
               </tr>
             </thead>
@@ -564,7 +564,7 @@ export default function CommissionPayoutsPanel() {
               <th className="px-4 py-3">Rate since</th>
               <th className="px-4 py-3 text-right">Sales</th>
               <th className="px-4 py-3 text-right">By rate</th>
-              <th className="px-4 py-3 text-right">SPIFF $</th>
+              <th className="px-4 py-3 text-right">SPIFF / Combo $</th>
               <th className="px-4 py-3 text-right text-emerald-900/80">
                 Earned commission
               </th>

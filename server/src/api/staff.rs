@@ -2038,7 +2038,7 @@ pub struct UpsertCommissionComboBody {
 
 #[derive(Debug, Deserialize)]
 pub struct ComboItemInput {
-    pub match_type: String, // 'category', 'product'
+    pub match_type: String, // 'category', 'product', 'variant'
     pub match_id: Uuid,
     pub qty_required: i32,
 }
@@ -2099,16 +2099,16 @@ async fn upsert_commission_combo(
             "combo reward amount must be greater than zero".to_string(),
         ));
     }
-    if body.items.is_empty() {
+    if !(3..=4).contains(&body.items.len()) {
         return Err(StaffApiError::InvalidPayload(
-            "combo requires at least one item requirement".to_string(),
+            "combo rewards require 3 or 4 item requirements".to_string(),
         ));
     }
     for item in &body.items {
         let match_type = item.match_type.trim().to_ascii_lowercase();
-        if !matches!(match_type.as_str(), "category" | "product") {
+        if !matches!(match_type.as_str(), "category" | "product" | "variant") {
             return Err(StaffApiError::InvalidPayload(
-                "combo requirement target must be category or product".to_string(),
+                "combo requirement target must be category, product, or variant".to_string(),
             ));
         }
         if item.qty_required <= 0 {
@@ -2121,6 +2121,9 @@ async fn upsert_commission_combo(
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1)")
             }
             "product" => sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)"),
+            "variant" => {
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM product_variants WHERE id = $1)")
+            }
             _ => unreachable!(),
         }
         .bind(item.match_id)

@@ -3481,6 +3481,9 @@ pub async fn execute_checkout(
             if is_alteration_service_item(item) {
                 continue;
             }
+            if payload.wedding_member_id.is_some() {
+                continue;
+            }
             if let Some(sid) = item.salesperson_id.or(primary_for_lines) {
                 salesperson_items.entry(sid).or_default().push(item);
             }
@@ -4392,11 +4395,13 @@ pub async fn evaluate_combo_incentives(
     // 2) Map item counts for current salesperson
     let mut cat_counts: HashMap<Uuid, i32> = HashMap::new();
     let mut prod_counts: HashMap<Uuid, i32> = HashMap::new();
+    let mut variant_counts: HashMap<Uuid, i32> = HashMap::new();
     // Cache categories to avoid re-querying in inner loops
     let mut item_cat_map: HashMap<Uuid, Uuid> = HashMap::new();
 
     for item in items {
         *prod_counts.entry(item.product_id).or_default() += item.quantity;
+        *variant_counts.entry(item.variant_id).or_default() += item.quantity;
         if let Some(cid) =
             sqlx::query_scalar::<_, Option<Uuid>>("SELECT category_id FROM products WHERE id = $1")
                 .bind(item.product_id)
@@ -4431,9 +4436,9 @@ pub async fn evaluate_combo_incentives(
                 let mut satisfied = true;
                 for req in reqs {
                     let m_type = req["match_type"].as_str().unwrap_or("");
-                    if !matches!(m_type, "category" | "product") {
+                    if !matches!(m_type, "category" | "product" | "variant") {
                         return Err(CheckoutError::InvalidPayload(
-                            "combo incentive requirement target must be category or product"
+                            "combo incentive requirement target must be category, product, or variant"
                                 .to_string(),
                         ));
                     }
@@ -4451,10 +4456,10 @@ pub async fn evaluate_combo_incentives(
                         ));
                     }
 
-                    let available = if m_type == "product" {
-                        prod_counts.get(&m_id).copied().unwrap_or(0)
-                    } else {
-                        cat_counts.get(&m_id).copied().unwrap_or(0)
+                    let available = match m_type {
+                        "product" => prod_counts.get(&m_id).copied().unwrap_or(0),
+                        "variant" => variant_counts.get(&m_id).copied().unwrap_or(0),
+                        _ => cat_counts.get(&m_id).copied().unwrap_or(0),
                     };
 
                     if available < qty_req {
@@ -4473,16 +4478,19 @@ pub async fn evaluate_combo_incentives(
                                 Ok(id) => id,
                                 Err(_) => return None,
                             };
-                            if m_type == "product" {
-                                items
+                            match m_type {
+                                "product" => items
                                     .iter()
                                     .find(|item| item.product_id == m_id)
-                                    .map(|item| (item.product_id, item.variant_id))
-                            } else {
-                                items
+                                    .map(|item| (item.product_id, item.variant_id)),
+                                "variant" => items
+                                    .iter()
+                                    .find(|item| item.variant_id == m_id)
+                                    .map(|item| (item.product_id, item.variant_id)),
+                                _ => items
                                     .iter()
                                     .find(|item| item_cat_map.get(&item.product_id) == Some(&m_id))
-                                    .map(|item| (item.product_id, item.variant_id))
+                                    .map(|item| (item.product_id, item.variant_id)),
                             }
                         })
                         .or_else(|| items.first().map(|item| (item.product_id, item.variant_id)));
@@ -4498,11 +4506,11 @@ pub async fn evaluate_combo_incentives(
                             })?;
                         let qty_req = req["qty_required"].as_i64().unwrap_or(1) as i32;
 
-                        if m_type == "product" {
-                            prod_counts.entry(m_id).and_modify(|q| *q -= qty_req);
-                        } else {
-                            cat_counts.entry(m_id).and_modify(|q| *q -= qty_req);
-                        }
+                        match m_type {
+                            "product" => prod_counts.entry(m_id).and_modify(|q| *q -= qty_req),
+                            "variant" => variant_counts.entry(m_id).and_modify(|q| *q -= qty_req),
+                            _ => cat_counts.entry(m_id).and_modify(|q| *q -= qty_req),
+                        };
                     }
 
                     if let Some((product_id, variant_id)) = reward_context {
