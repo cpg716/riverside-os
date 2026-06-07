@@ -1,11 +1,8 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useRef, useState } from "react";
-import { X, Trash2, Barcode } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { X, Trash2, Search, Plus } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
-import VariantSearchInput, {
-  type VariantSearchResult,
-} from "../ui/VariantSearchInput";
 
 const baseUrl = getBaseUrl();
 
@@ -17,8 +14,9 @@ interface ComboItem {
   match_type: "category" | "product" | "variant";
   match_id: string;
   qty_required: number;
-  sku?: string;
-  product_name?: string;
+  sku?: string | null;
+  product_name?: string | null;
+  category_name?: string | null;
   variation_label?: string | null;
 }
 
@@ -28,6 +26,16 @@ interface Combo {
   reward_amount: string;
   is_active: boolean;
   items: ComboItem[];
+}
+
+interface CategoryOption {
+  id: string;
+  name: string;
+}
+
+interface ProductSearchRow {
+  product_id: string;
+  product_name: string;
 }
 
 export default function ComboEditorModal({
@@ -42,8 +50,11 @@ export default function ComboEditorModal({
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
   const [loading, setLoading] = useState(false);
-  const scanInputRef = useRef<HTMLInputElement | null>(null);
-  const [scanValue, setScanValue] = useState("");
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState("");
+  const [productQuery, setProductQuery] = useState("");
+  const [productResults, setProductResults] = useState<ProductSearchRow[]>([]);
+  const [productSearchLoading, setProductSearchLoading] = useState(false);
 
   const [formData, setFormData] = useState<Combo>({
     id: combo?.id ?? undefined,
@@ -53,85 +64,122 @@ export default function ComboEditorModal({
     items: combo?.items || [],
   });
 
-  const addVariant = useCallback(
-    (variant: {
-      product_id: string;
-      variant_id: string;
-      sku: string;
-      product_name: string;
-      variation_label?: string | null;
-    }) => {
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${baseUrl}/api/categories`, { headers: backofficeHeaders() })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((rows: CategoryOption[]) => {
+        if (!cancelled) setCategories(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {
+        if (!cancelled) toast("Unable to load categories for combo setup.", "error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backofficeHeaders, toast]);
+
+  useEffect(() => {
+    const query = productQuery.trim();
+    if (query.length < 2) {
+      setProductResults([]);
+      return;
+    }
+    const controller = new AbortController();
+    setProductSearchLoading(true);
+    fetch(`${baseUrl}/api/products/control-board?search=${encodeURIComponent(query)}&limit=20`, {
+      headers: backofficeHeaders(),
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: { rows?: ProductSearchRow[] }) => {
+        const seen = new Set<string>();
+        const products = (Array.isArray(data.rows) ? data.rows : []).filter((row) => {
+          if (!row.product_id || seen.has(row.product_id)) return false;
+          seen.add(row.product_id);
+          return true;
+        });
+        setProductResults(products);
+      })
+      .catch((err) => {
+        if ((err as { name?: string }).name !== "AbortError") setProductResults([]);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setProductSearchLoading(false);
+      });
+    return () => controller.abort();
+  }, [backofficeHeaders, productQuery]);
+
+  const addRequirement = useCallback(
+    (item: ComboItem) => {
       setFormData((current) => {
-        if (current.items.some((item) => item.match_id === variant.variant_id)) {
-          toast("SKU is already in this combo.", "info");
+        if (
+          current.items.some(
+            (existing) =>
+              existing.match_type === item.match_type && existing.match_id === item.match_id,
+          )
+        ) {
+          toast("That requirement is already in this combo.", "info");
           return current;
         }
         if (current.items.length >= 4) {
-          toast("Combos support up to 4 SKUs.", "error");
+          toast("Combos support up to 4 requirements.", "error");
           return current;
         }
         return {
           ...current,
-          items: [
-            ...current.items,
-            {
-              match_type: "variant",
-              match_id: variant.variant_id,
-              qty_required: 1,
-              sku: variant.sku,
-              product_name: variant.product_name,
-              variation_label: variant.variation_label,
-            },
-          ],
+          items: [...current.items, item],
         };
       });
-      window.setTimeout(() => scanInputRef.current?.focus(), 0);
     },
     [toast],
   );
 
-  const addSearchVariant = useCallback(
-    (variant: VariantSearchResult) => {
-      addVariant({
-        product_id: variant.product_id,
-        variant_id: variant.variant_id,
-        sku: variant.sku,
-        product_name: variant.product_name,
-        variation_label: variant.variation_label,
-      });
-    },
-    [addVariant],
-  );
-
-  const scanSku = async () => {
-    const code = scanValue.trim();
-    if (!code) return;
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/inventory/scan/${encodeURIComponent(code)}`,
-        { headers: backofficeHeaders() },
-      );
-      if (!res.ok) throw new Error("SKU not found");
-      const item = (await res.json()) as {
-        product_id: string;
-        variant_id: string;
-        sku: string;
-        name: string;
-        variation_label?: string | null;
-      };
-      addVariant({
-        product_id: item.product_id,
-        variant_id: item.variant_id,
-        sku: item.sku,
-        product_name: item.name,
-        variation_label: item.variation_label,
-      });
-      setScanValue("");
-    } catch {
-      toast("No active SKU matched that scan.", "error");
-    } finally {
-      window.setTimeout(() => scanInputRef.current?.focus(), 0);
+  const addSelectedCategory = () => {
+    const category = categories.find((item) => item.id === selectedCategoryId);
+    if (!category) {
+      toast("Select a category requirement first.", "error");
+      return;
     }
+    addRequirement({
+      match_type: "category",
+      match_id: category.id,
+      qty_required: 1,
+      category_name: category.name,
+    });
+    setSelectedCategoryId("");
+  };
+
+  const addProduct = (product: ProductSearchRow) => {
+    addRequirement({
+      match_type: "product",
+      match_id: product.product_id,
+      qty_required: 1,
+      product_name: product.product_name,
+    });
+    setProductQuery("");
+    setProductResults([]);
+  };
+
+  const updateItemQuantity = (idx: number, qty: number) => {
+    setFormData((current) => ({
+      ...current,
+      items: current.items.map((item, itemIdx) =>
+        itemIdx === idx ? { ...item, qty_required: Math.max(1, Math.trunc(qty || 1)) } : item,
+      ),
+    }));
+  };
+
+  const itemLabel = (item: ComboItem) => {
+    if (item.match_type === "category") return item.category_name || "Existing category requirement";
+    if (item.match_type === "product") return item.product_name || "Existing product requirement";
+    return item.product_name || "Existing item requirement";
+  };
+
+  const itemDetail = (item: ComboItem) => {
+    if (item.match_type === "category") return "Category requirement";
+    if (item.match_type === "product") return "Product requirement";
+    return item.sku ? `Item requirement ${item.sku}` : "Item requirement";
   };
 
   const save = async () => {
@@ -139,7 +187,7 @@ export default function ComboEditorModal({
     if ((Number.parseFloat(formData.reward_amount) || 0) <= 0)
       return toast("Reward amount must be greater than zero", "error");
     if (formData.items.length < 3 || formData.items.length > 4)
-      return toast("Combo rewards require 3 or 4 SKUs.", "error");
+      return toast("Combo rewards require 3 or 4 requirements.", "error");
     if (formData.items.some((it) => !it.match_id))
       return toast("All items must have a target", "error");
     if (formData.items.some((it) => it.qty_required <= 0))
@@ -236,68 +284,122 @@ export default function ComboEditorModal({
           </div>
 
           <div className="space-y-4">
-            <div className="space-y-3">
-              <label htmlFor="combo-sku-scan" className={DNA.heading}>
-                Combo SKUs
+            <div className="space-y-3 rounded-xl border border-app-border bg-app-surface-2 p-3">
+              <label htmlFor="combo-category" className={DNA.heading}>
+                Add category requirement
+              </label>
+              <div className="flex gap-2">
+                <select
+                  id="combo-category"
+                  value={selectedCategoryId}
+                  onChange={(e) => setSelectedCategoryId(e.target.value)}
+                  className="ui-input min-w-0 flex-1 rounded-xl border-app-border bg-app-surface px-3 py-3 text-sm font-bold text-app-text"
+                >
+                  <option value="">Select category...</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={addSelectedCategory}
+                  className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-slate-950 transition hover:bg-emerald-400"
+                  aria-label="Add category requirement"
+                >
+                  <Plus size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-xl border border-app-border bg-app-surface-2 p-3">
+              <label htmlFor="combo-product-search" className={DNA.heading}>
+                Add product requirement
               </label>
               <div className="relative">
-                <Barcode
+                <Search
                   size={16}
                   className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted"
                 />
                 <input
-                  ref={scanInputRef}
-                  id="combo-sku-scan"
+                  id="combo-product-search"
                   className="w-full rounded-xl border-app-border bg-app-surface py-3 pl-11 pr-4 text-sm font-bold text-app-text ui-input focus:border-emerald-500/40"
-                  placeholder="Scan SKU, then Enter"
-                  value={scanValue}
-                  onChange={(e) => setScanValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void scanSku();
-                    }
-                  }}
+                  placeholder="Search product name..."
+                  value={productQuery}
+                  onChange={(e) => setProductQuery(e.target.value)}
                   autoFocus
                 />
               </div>
-              <VariantSearchInput
-                onSelect={addSearchVariant}
-                placeholder="Search item name or SKU..."
-              />
+              {productQuery.trim().length >= 2 && (
+                <div className="max-h-44 overflow-auto rounded-xl border border-app-border bg-app-surface">
+                  {productSearchLoading ? (
+                    <div className="px-3 py-3 text-xs font-bold text-app-text-muted">
+                      Searching products...
+                    </div>
+                  ) : productResults.length === 0 ? (
+                    <div className="px-3 py-3 text-xs font-bold text-app-text-muted">
+                      No products found.
+                    </div>
+                  ) : (
+                    productResults.map((product) => (
+                      <button
+                        key={product.product_id}
+                        type="button"
+                        onClick={() => addProduct(product)}
+                        className="flex w-full items-center justify-between border-b border-app-border px-3 py-2 text-left text-sm font-bold text-app-text last:border-b-0 hover:bg-app-surface-2"
+                      >
+                        <span>{product.product_name}</span>
+                        <Plus size={16} className="text-emerald-500" />
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
               <p className="text-[10px] font-bold text-app-text-muted">
-                Add 3 or 4 SKUs. Wedding transactions are excluded from combo
-                rewards.
+                Build combos from category or product requirements. Wedding transactions are excluded from combo rewards.
               </p>
             </div>
 
             <div className="space-y-2 rounded-xl border border-app-border bg-app-surface-2 p-2">
             {formData.items.length === 0 ? (
               <div className="px-3 py-4 text-center text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                No SKUs added
+                No requirements added
               </div>
             ) : formData.items.map((item, idx) => (
               <div
                 key={idx}
-                className="flex items-center justify-between rounded-lg border border-app-border bg-app-surface px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-lg border border-app-border bg-app-surface px-3 py-2"
               >
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs font-black text-app-text">
-                    {item.product_name || "Existing SKU requirement"}
+                    {itemLabel(item)}
                   </div>
                   <div className="font-mono text-[10px] text-app-text-muted">
-                    {item.sku || item.match_id.slice(0, 8)}
-                    {item.variation_label ? ` - ${item.variation_label}` : ""}
+                    {itemDetail(item)}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => removeItem(idx)}
-                  className="p-2 text-app-text-muted hover:text-red-500"
-                  aria-label="Remove combo SKU"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <label className="sr-only" htmlFor={`combo-qty-${idx}`}>
+                    Quantity required
+                  </label>
+                  <input
+                    id={`combo-qty-${idx}`}
+                    type="number"
+                    min={1}
+                    value={item.qty_required}
+                    onChange={(e) => updateItemQuantity(idx, Number(e.target.value))}
+                    className="ui-input h-9 w-16 rounded-lg border-app-border bg-app-surface px-2 text-center text-xs font-black text-app-text"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeItem(idx)}
+                    className="p-2 text-app-text-muted hover:text-red-500"
+                    aria-label="Remove combo requirement"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             ))}
             </div>

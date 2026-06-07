@@ -49,6 +49,10 @@ interface ComboItem {
   match_type: MatchType;
   match_id: string;
   qty_required: number;
+  category_name?: string | null;
+  product_name?: string | null;
+  sku?: string | null;
+  variation_label?: string | null;
 }
 
 interface ComboRule {
@@ -148,6 +152,18 @@ export default function CommissionManagerWorkspace() {
       </main>
     </div>
   );
+}
+
+function comboRequirementLabel(item: ComboItem): string {
+  if (item.match_type === "category") return item.category_name || "Category requirement";
+  if (item.match_type === "product") return item.product_name || "Product requirement";
+  return item.product_name || item.sku || "Item requirement";
+}
+
+function comboRequirementKind(item: ComboItem): string {
+  if (item.match_type === "category") return "Category";
+  if (item.match_type === "product") return "Product";
+  return "Item";
 }
 
 function TabButton({
@@ -391,15 +407,18 @@ function PromoManagerSection() {
                 {combo.items?.map((it, idx) => (
                   <div
                     key={idx}
-                    className="flex items-center justify-between text-[10px] text-slate-400"
+                    className="flex items-center justify-between gap-3 text-[10px] text-slate-400"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <div className="h-1 w-1 rounded-full bg-app-border" />
-                      <span className="font-bold capitalize text-app-text-muted">
-                        {it.match_type}:
+                      <span className="shrink-0 font-bold text-app-text-muted">
+                        {comboRequirementKind(it)}:
+                      </span>
+                      <span className="truncate font-bold text-app-text">
+                        {comboRequirementLabel(it)}
                       </span>
                     </div>
-                    <span className="font-mono font-black text-app-text">
+                    <span className="shrink-0 font-mono font-black text-app-text">
                       x{it.qty_required}
                     </span>
                   </div>

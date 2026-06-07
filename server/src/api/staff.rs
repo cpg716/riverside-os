@@ -2038,7 +2038,7 @@ pub struct UpsertCommissionComboBody {
 
 #[derive(Debug, Deserialize)]
 pub struct ComboItemInput {
-    pub match_type: String, // 'category', 'product', 'variant'
+    pub match_type: String, // 'category' or 'product'
     pub match_id: Uuid,
     pub qty_required: i32,
 }
@@ -2063,9 +2063,17 @@ async fn list_commission_combos(
                 SELECT json_agg(json_build_object(
                     'match_type', ri.match_type,
                     'match_id', ri.match_id,
-                    'qty_required', ri.qty_required
+                    'qty_required', ri.qty_required,
+                    'category_name', c.name,
+                    'product_name', COALESCE(p.name, pv_product.name),
+                    'sku', pv.sku,
+                    'variation_label', pv.variation_label
                 ))
                 FROM commission_combo_rule_items ri
+                LEFT JOIN categories c ON ri.match_type = 'category' AND c.id = ri.match_id
+                LEFT JOIN products p ON ri.match_type = 'product' AND p.id = ri.match_id
+                LEFT JOIN product_variants pv ON ri.match_type = 'variant' AND pv.id = ri.match_id
+                LEFT JOIN products pv_product ON pv_product.id = pv.product_id
                 WHERE ri.rule_id = r.id
             )
         )
@@ -2106,9 +2114,9 @@ async fn upsert_commission_combo(
     }
     for item in &body.items {
         let match_type = item.match_type.trim().to_ascii_lowercase();
-        if !matches!(match_type.as_str(), "category" | "product" | "variant") {
+        if !matches!(match_type.as_str(), "category" | "product") {
             return Err(StaffApiError::InvalidPayload(
-                "combo requirement target must be category, product, or variant".to_string(),
+                "combo requirement target must be category or product".to_string(),
             ));
         }
         if item.qty_required <= 0 {
@@ -2121,9 +2129,6 @@ async fn upsert_commission_combo(
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1)")
             }
             "product" => sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)"),
-            "variant" => {
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM product_variants WHERE id = $1)")
-            }
             _ => unreachable!(),
         }
         .bind(item.match_id)

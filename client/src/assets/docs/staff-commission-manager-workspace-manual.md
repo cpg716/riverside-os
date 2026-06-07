@@ -40,7 +40,7 @@ Category commission rate overrides and percentage override rules are retired fro
 ## Tabs
 
 1. **Reports**: review earned commission for a selected period. Each staff row has one payroll total that includes base commission plus SPIFF and combo incentive dollars.
-2. **SPIFFs & Combos**: manage fixed-dollar SKU SPIFFs and 3- or 4-SKU combo rewards.
+2. **SPIFFs & Combos**: manage fixed-dollar SKU SPIFFs and 3- or 4-requirement combo rewards.
 
 ## Operational detail
 
@@ -52,7 +52,8 @@ Commission review depends on recognized fulfillment activity and audited adjustm
 - Rate changes start on the selected effective date.
 - SPIFFs and combos add to the staff base commission; they do not replace the base rate.
 - SPIFF setup is SKU-focused: scan or search each SKU that should earn the fixed add-on.
-- Combo rewards require 3 or 4 SKU requirements. Wedding transactions are excluded from combo rewards.
+- Combo rewards are category or product based. Add 3 or 4 requirements, set the quantity needed for each one, and avoid SKU-specific combo setup.
+- Wedding transactions are excluded from combo rewards.
 - Manual add/subtract adjustments are audited.
 - Returns and exchanges affect the period in which they happen through immutable adjustment events.
 
