@@ -99,6 +99,14 @@ function binaryStringToBase64(value: string) {
   return btoa(binary);
 }
 
+function transactionDisplayFallback(transactionId: unknown): string {
+  const normalized =
+    typeof transactionId === "string" || typeof transactionId === "number"
+      ? String(transactionId).trim()
+      : "";
+  return normalized ? normalized.split("-")[0] : "";
+}
+
 export default function ReceiptSummaryModal({
   transactionId,
   onClose,
@@ -836,7 +844,7 @@ export default function ReceiptSummaryModal({
                 Sale complete
               </h2>
               <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                Transaction #{transactionDetail?.transaction_display_id ?? transactionId?.split("-")[0]}
+                Transaction #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
               </p>
             </div>
           </div>
@@ -1305,7 +1313,7 @@ export default function ReceiptSummaryModal({
                   Receipt preview
                 </p>
                 <h3 id="receipt-preview-dialog-title" className="text-lg font-black tracking-tight">
-                  Transaction #{transactionDetail?.transaction_display_id ?? transactionId?.split("-")[0]}
+                  Transaction #{transactionDetail?.transaction_display_id ?? transactionDisplayFallback(transactionId)}
                 </h3>
               </div>
               <button

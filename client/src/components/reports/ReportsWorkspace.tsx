@@ -833,7 +833,7 @@ export default function ReportsWorkspace({
       <div className="grid gap-3 rounded-3xl border border-app-border bg-app-surface-2/60 p-4 shadow-sm md:grid-cols-2">
         <button
           type="button"
-          onClick={onNavigateRegisterReports}
+          onClick={() => onNavigateRegisterReports()}
           className="group flex min-h-16 items-center gap-3 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-left transition hover:-translate-y-0.5 hover:border-emerald-500/50 hover:shadow-sm"
         >
           <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-700">

@@ -3706,7 +3706,7 @@ async fn loyalty_velocity(
     let rows = sqlx::query_as::<_, LoyaltyVelocityRow>(
         r#"
         SELECT event_date, points_earned, points_burned, net_velocity
-        FROM view_loyalty_daily_velocity
+        FROM reporting.loyalty_daily_velocity
         WHERE event_date >= $1::date AND event_date < $2::date
         ORDER BY event_date ASC
         "#,

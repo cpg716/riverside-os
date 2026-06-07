@@ -279,8 +279,15 @@ function activityFulfillmentLabel(row: RegisterActivityItem): string | null {
   return null;
 }
 
+function normalizeActivityId(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const normalized = String(value).trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function activityTransactionId(row: RegisterActivityItem): string | null {
-  return row.transaction_id ?? row.order_id ?? null;
+  return normalizeActivityId(row.transaction_id) ?? normalizeActivityId(row.order_id);
 }
 
 function activityVoidTarget(row: RegisterActivityItem): PosVoidTransactionTarget | null {
