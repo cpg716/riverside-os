@@ -112,17 +112,16 @@ function Add-RosieVoiceModels([string]$PackageRoot) {
       "model.onnx",
       "voices.bin",
       "tokens.txt",
-      "espeak-ng-data/afrikaans_dict",
       "espeak-ng-data/en_dict",
       "espeak-ng-data/phontab",
       "espeak-ng-data/phonindex",
       "espeak-ng-data/phondata",
       "espeak-ng-data/intonations",
-      "espeak-ng-data/lang/en/en",
-      "espeak-ng-data/lang/en/en-us",
-      "espeak-ng-data/lang/es/es",
-      "espeak-ng-data/lang/fr/fr",
-      "espeak-ng-data/lang/de/de"
+      "espeak-ng-data/lang/gmw/en",
+      "espeak-ng-data/lang/gmw/en-US",
+      "espeak-ng-data/lang/roa/es",
+      "espeak-ng-data/lang/roa/fr",
+      "espeak-ng-data/lang/gmw/de"
     )
 
   Write-Host "Packaged ROSIE STT/TTS model files"
