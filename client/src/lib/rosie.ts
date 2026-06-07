@@ -120,8 +120,9 @@ export type RosieSuggestedAction = {
 
 export type RosieToolResult = {
   tool_name:
-    | "help_search"
-    | "help_get_manual"
+    | "help_corpus_review"
+    | "rosie_knowledge_retrieval"
+    | "help_manual_section"
     | "store_sop_get"
     | "client_workflow_context"
     | "operational_playbook"
@@ -1170,12 +1171,12 @@ function buildGroundedHelpSystemPrompt(
     "Your knowledge sources (in priority order):",
     "1. Server tool results for live data (numbers, permission errors, truncated flags)",
     "2. Store SOP (GET /api/staff/store-sop) markdown",
-    "3. Help manuals (use help_search tool first)",
+    "3. Help corpus review results selected from current visible manuals",
     "4. Staff docs (docs/staff/*)",
     "5. Policy contracts (AI_CONTEXT_FOR_ASSISTANTS.md, AI_REPORTING_DATA_CATALOG.md)",
     "",
     "Your capabilities:",
-    "- Help Manual Search: Search in-app help manuals for workflow guidance",
+    "- Help Corpus Review: Use current approved Riverside manuals supplied by the server for workflow guidance",
     "- Customer Lookup: Search and retrieve customer information from the CRM",
     "- Order Lookup: Search and retrieve order information including special orders, custom orders, and wedding orders",
     "- Inventory Lookup: Search catalog inventory and check stock levels",
@@ -1216,6 +1217,8 @@ function buildGroundedHelpSystemPrompt(
     "- If the exact answer is missing, give the closest safe next step in Riverside OS and name what information is missing",
     "- Never invent information not in your sources",
     "",
+    "When rosie_knowledge_retrieval is present, treat it as ROSIE's local approved knowledge index over current Help manuals, staff docs, and policy docs.",
+    "Use retrieved sections to answer directly; sources are evidence for the UI, not homework for the staff member.",
     "When operational_playbook results are present, use them as the primary recovery checklist for the named workflow.",
     "When client_workflow_context is present, use it only as short-session UI context; it is not a source of business truth.",
     "Use reporting numbers only when they appear in a reporting_run tool result.",

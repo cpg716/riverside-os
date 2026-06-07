@@ -29,7 +29,7 @@ import { formatHelpDisplayHeading, formatHelpDisplayTitle } from "../../lib/help
 import { slugifyHeading } from "../../lib/help/helpSlug";
 import { resolveHelpImageSrc } from "../../lib/help/helpImages";
 import { stripYamlFrontMatter } from "../../lib/help/helpFrontMatter";
-import { writeAndPrintDocumentWindow } from "../../lib/browserPrint";
+import { writeAndPrintDocumentWindow, writeAndPrintHtmlFrame } from "../../lib/browserPrint";
 import {
   askRosieGroundedHelpStream,
   getRosieVoiceCapabilities,
@@ -1119,15 +1119,13 @@ export default function HelpCenterDrawer({
         }),
       );
 
-      const printWindow = window.open("", "_blank", "width=1000,height=1200");
-      if (!printWindow) throw new Error("Could not open the print window.");
-      writeAndPrintDocumentWindow(printWindow, fullHelpGuideHtml(detailRows));
+      writeAndPrintHtmlFrame(fullHelpGuideHtml(detailRows), "Riverside OS Help Guide");
     } catch (error) {
-      setRosieStatus(
+      const message =
         error instanceof Error
           ? error.message
-          : "Could not build the full Help Guide for printing.",
-      );
+          : "Could not build the full Help Guide for printing.";
+      setRosieStatus(message);
     } finally {
       setFullGuideBusy(false);
     }

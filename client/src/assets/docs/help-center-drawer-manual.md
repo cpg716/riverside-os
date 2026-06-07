@@ -44,7 +44,7 @@ Type into the search box to find matching help sections. If live search is unava
 
 ## Print the Current Help Section
 
-When a manual is open, select **Print** to print only the viewed help article.
+When a manual is open, select **Print This Manual** to print only the viewed help article. Select **Print Full Guide** to build the current Help Library guide and open the system print dialog when it is ready.
 
 Printed help includes:
 
@@ -66,6 +66,8 @@ The print action uses the browser print window. It does not create a PDF inside 
 ROSIE help should return from the approved local Host stack. If the local model host is slow or unavailable, ROSIE shows an unavailable state instead of substituting another assistant path. ROSIE does not replace the manual or the current screen state.
 
 Ask ROSIE should answer the staff question directly. It should not tell staff to search, read, or check a manual as the main answer. When sources are incomplete, ROSIE should give the best available Riverside answer, explain the gap briefly, and show the sources it used.
+
+Ask ROSIE and ROSIE Chat use ROSIE's local approved knowledge index for current Help manuals, staff docs, and policy docs. The index uses exact, fuzzy, stem, and phrase matching so staff questions can still work with normal wording differences or small typos. The knowledge layer stays local and provider-neutral: it is optimized for the local Gemma E4B, Kokoro, and SenseVoice stack, while still allowing a future approved cloud LLM, TTS, or STT provider to use the same bounded Riverside context. Help Library search can use the local search index, but ROSIE answers should not depend on Help Library search results.
 
 While ROSIE is answering, the drawer shows visible thinking and then streams the answer into the same message. Sources can appear before the answer is finished so staff can see which manuals, reports, Store SOP, or operational playbooks are being used.
 

@@ -33,6 +33,7 @@ use crate::logic::help_manual_policy::{
 };
 use crate::logic::meilisearch_search::{help_search_hits, HelpSearchHit};
 use crate::logic::rosie_intelligence::{self, RosieIntelligencePack};
+use crate::logic::rosie_knowledge::{search_rosie_knowledge, RosieKnowledgeQuery};
 use crate::logic::rosie_provider_selection::{select_llm_provider, QueryType, RosieProviderConfig};
 use crate::logic::rosie_speech;
 use crate::middleware;
@@ -1220,48 +1221,48 @@ fn map_hit(h: HelpSearchHit) -> HelpSearchHitOut {
     }
 }
 
-fn rosie_help_search_query(question: &str) -> String {
-    let normalized = question.to_ascii_lowercase();
-    let mut terms = vec![question.trim().to_string()];
-
-    if normalized.contains("cash out")
-        || normalized.contains("cashout")
-        || normalized.contains("cash a sale")
-        || normalized.contains("complete sale")
-        || normalized.contains("finish sale")
-        || normalized.contains("checkout")
-    {
-        terms.push(
-            "Register POS checkout payment ledger complete sale receipt summary cash card tender"
-                .to_string(),
-        );
-    }
-
-    if normalized.contains("return")
-        || normalized.contains("refund")
-        || normalized.contains("exchange")
-        || normalized.contains("swap")
-    {
-        terms.push(
-            "POS exchange return refund transaction record completed transaction manager approval"
-                .to_string(),
-        );
-    }
-
-    if normalized.contains("z report")
-        || normalized.contains("z-report")
-        || normalized.contains("close drawer")
-        || normalized.contains("close register")
-        || normalized.contains("till")
-    {
-        terms.push("Register reports Z-Reports close drawer till reconciliation".to_string());
-    }
-
-    terms
+async fn rosie_knowledge_context_sections(
+    state: &AppState,
+    viewer: &HelpViewer,
+    question: &str,
+    client_context: Option<&RosieClientContextIn>,
+    limit: usize,
+) -> Result<crate::logic::rosie_knowledge::RosieKnowledgeSearchResult, Response> {
+    let manuals = build_visible_manual_list(&state.db, viewer.pos_only_mode, &viewer.staff_perms)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "build visible manual list for ROSIE");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "help manuals load failed" })),
+            )
+                .into_response()
+        })?;
+    let allowed_manual_ids = manuals
         .into_iter()
-        .filter(|term| !term.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
+        .map(|manual| manual.id)
+        .collect::<HashSet<_>>();
+
+    search_rosie_knowledge(
+        &state.db,
+        RosieKnowledgeQuery {
+            question: question.to_string(),
+            allowed_manual_ids: Some(allowed_manual_ids),
+            active_manual_id: client_context.and_then(|context| context.active_manual_id.clone()),
+            current_surface: client_context.and_then(|context| context.current_surface.clone()),
+            limit,
+            max_total_chars: if limit > 7 { 9_000 } else { 6_000 },
+        },
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "search ROSIE local knowledge index");
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "ROSIE knowledge retrieval failed" })),
+        )
+            .into_response()
+    })
 }
 
 fn sanitize_excerpt(text: &str, max: usize) -> String {
@@ -1930,6 +1931,9 @@ async fn rosie_intelligence_refresh(
         let generated = run_command_capture(cmd).await?;
         let generate_ok = generated.ok;
         generate_manifest = Some(generated);
+        if generate_ok {
+            crate::logic::rosie_knowledge::invalidate_rosie_knowledge_index().await;
+        }
 
         if !generate_ok {
             let status = build_rosie_intelligence_status(&state).await;
@@ -2700,101 +2704,93 @@ async fn rosie_tool_context(
         });
     }
 
-    let policies = load_all_policies(&state.db).await.map_err(|e| {
-        tracing::error!(error = %e, "load help_manual_policy for ROSIE tool context");
-        (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": "help policy load failed" })),
-        )
-            .into_response()
-    })?;
-
-    let help_limit = if conversation_mode { 5 } else { 7 };
-    let manual_detail_limit = if conversation_mode { 2 } else { 4 };
-    let help_query = rosie_help_search_query(question);
-
-    let client = state.meilisearch.as_ref().ok_or_else(|| {
-        tracing::error!("Meilisearch is unavailable for ROSIE tool context");
-        (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({ "error": "Meilisearch is unavailable." })),
-        )
-            .into_response()
-    })?;
-    let help_hits = help_search_hits(client, &help_query, help_limit)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "help_search_hits failed in ROSIE tool context");
-            (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({ "error": "Help search is unavailable." })),
-            )
-                .into_response()
-        })?
-        .into_iter()
-        .filter(|h| {
-            help_manual_policy::viewer_can_see_manual(
-                &h.manual_id,
-                policies.get(&h.manual_id),
-                viewer.pos_only_mode,
-                &viewer.staff_perms,
-            )
-        })
-        .map(map_hit)
-        .collect::<Vec<_>>();
+    let manual_context_limit = if conversation_mode { 7 } else { 9 };
+    let knowledge_result = rosie_knowledge_context_sections(
+        &state,
+        &viewer,
+        question,
+        body.client_context.as_ref(),
+        manual_context_limit,
+    )
+    .await?;
 
     tool_results.push(RosieToolResultOut {
-        tool_name: "help_search".to_string(),
-        args: serde_json::json!({ "q": help_query, "original_question": question, "limit": help_limit }),
-        result: serde_json::json!({ "hits": help_hits }),
+        tool_name: "rosie_knowledge_retrieval".to_string(),
+        args: serde_json::json!({
+            "question": question,
+            "reviewed_chunk_count": knowledge_result.reviewed_chunk_count,
+            "indexed_chunk_count": knowledge_result.indexed_chunk_count,
+            "elapsed_ms": knowledge_result.elapsed_ms,
+            "limit": manual_context_limit,
+            "source_counts": knowledge_result.source_counts.clone(),
+        }),
+        result: serde_json::json!({
+            "sections": knowledge_result.hits
+                .iter()
+                .map(|hit| serde_json::json!({
+                    "source_group": hit.chunk.source_group,
+                    "source_path": hit.chunk.source_path,
+                    "manual_id": hit.chunk.manual_id,
+                    "manual_title": hit.chunk.manual_title,
+                    "section_slug": hit.chunk.section_slug,
+                    "section_heading": hit.chunk.section_heading,
+                    "excerpt": sanitize_excerpt(&hit.chunk.body, 700),
+                    "score": hit.score,
+                    "matched_terms": hit.matched_terms,
+                }))
+                .collect::<Vec<_>>()
+        }),
     });
 
     let mut seen_manuals = HashSet::<String>::new();
-    for hit in help_hits.iter().take(if conversation_mode { 2 } else { 4 }) {
+    for hit in knowledge_result.hits.iter() {
+        let chunk = &hit.chunk;
+        let source_title = chunk
+            .manual_title
+            .as_deref()
+            .or(chunk.source_path.as_deref())
+            .unwrap_or("Riverside source");
+        let title = format!("{} — {}", source_title, chunk.section_heading);
         sources.push(RosieToolGroundingSourceOut {
-            kind: "manual".to_string(),
-            title: format!("{} — {}", hit.manual_title, hit.section_heading),
-            excerpt: hit.excerpt.clone(),
-            content: hit.excerpt.clone(),
-            manual_id: Some(hit.manual_id.clone()),
-            manual_title: Some(hit.manual_title.clone()),
-            section_slug: Some(hit.section_slug.clone()),
-            section_heading: Some(hit.section_heading.clone()),
-            anchor_id: Some(format!("help-{}-{}", hit.manual_id, hit.section_slug)),
+            kind: if chunk.manual_id.is_some() {
+                "manual".to_string()
+            } else {
+                chunk.source_group.clone()
+            },
+            title,
+            excerpt: sanitize_excerpt(&chunk.body, 260),
+            content: sanitize_excerpt(&chunk.body, source_excerpt_limit),
+            manual_id: chunk.manual_id.clone(),
+            manual_title: chunk.manual_title.clone(),
+            section_slug: Some(chunk.section_slug.clone()),
+            section_heading: Some(chunk.section_heading.clone()),
+            anchor_id: chunk
+                .manual_id
+                .as_ref()
+                .map(|manual_id| format!("help-{}-{}", manual_id, chunk.section_slug)),
             report_spec_id: None,
             report_route: None,
             route: None,
-            entity_id: None,
+            entity_id: chunk.source_path.clone(),
         });
 
-        if seen_manuals.len() < manual_detail_limit && seen_manuals.insert(hit.manual_id.clone()) {
-            let detail = build_manual_detail(
-                &state.db,
-                &hit.manual_id,
-                viewer.pos_only_mode,
-                &viewer.staff_perms,
-            )
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, manual_id = %hit.manual_id, "build_manual_detail for ROSIE");
-                (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": "help manual load failed" })),
-                )
-                    .into_response()
-            })?;
-
-            if let Some(detail) = detail {
-                tool_results.push(RosieToolResultOut {
-                    tool_name: "help_get_manual".to_string(),
-                    args: serde_json::json!({ "manual_id": hit.manual_id }),
-                    result: serde_json::json!({
-                        "manual_id": detail.id,
-                        "title": detail.title,
-                        "markdown_excerpt": sanitize_excerpt(&detail.markdown, 600),
-                    }),
-                });
+        if let Some(manual_id) = &chunk.manual_id {
+            if seen_manuals.len() >= 4 || !seen_manuals.insert(manual_id.clone()) {
+                continue;
             }
+            tool_results.push(RosieToolResultOut {
+                tool_name: "help_manual_section".to_string(),
+                args: serde_json::json!({
+                    "manual_id": manual_id,
+                    "section_slug": chunk.section_slug
+                }),
+                result: serde_json::json!({
+                    "manual_id": manual_id,
+                    "title": chunk.manual_title,
+                    "section_heading": chunk.section_heading,
+                    "markdown_excerpt": sanitize_excerpt(&chunk.body, 1000),
+                }),
+            });
         }
     }
 
@@ -3224,6 +3220,7 @@ async fn admin_put_manual(
             )
                 .into_response()
         })?;
+    crate::logic::rosie_knowledge::invalidate_rosie_knowledge_index().await;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -3247,6 +3244,9 @@ async fn admin_delete_manual(
             )
                 .into_response()
         })?;
+    if deleted {
+        crate::logic::rosie_knowledge::invalidate_rosie_knowledge_index().await;
+    }
 
     Ok(Json(serde_json::json!({ "deleted": deleted })))
 }
@@ -3351,6 +3351,9 @@ async fn admin_ops_generate_manifest(
     cmd.current_dir(repo_root());
 
     let out = run_command_capture(cmd).await?;
+    if out.ok && !body.dry_run {
+        crate::logic::rosie_knowledge::invalidate_rosie_knowledge_index().await;
+    }
     Ok(Json(serde_json::json!({
         "status": if out.ok { "ok" } else { "error" },
         "result": out
