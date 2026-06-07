@@ -16,6 +16,8 @@ The approved production Host stack is:
 
 Fallback-only paths are development/diagnostic tools only. Production ROSIE requires the Gemma, SenseVoice, and Kokoro Host stack to be healthy.
 
+On macOS development workstations, the server and Tauri voice layers prefer native sherpa binaries when present, then use the repo helper scripts through `RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH` or `~/.local/share/uv/tools/sherpa-onnx/bin/python`. That helper bridge exists so developers can test Kokoro and SenseVoice before a native macOS sherpa bundle is installed; it is not the Windows Host production path.
+
 ## Pinned local asset expectations
 
 - `RIVERSIDE_LLAMA_MODEL_PATH`

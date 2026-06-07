@@ -60,6 +60,12 @@ All runtime components are pre-compiled native binaries invoked directly by the 
 - TTS model: `kokoro-multi-lang-v1_0`
 - LLM: `bartowski/google_gemma-4-E4B-it-Q4_K_M.gguf` (SHA256-pinned)
 
+### macOS Development Speech Bridge
+
+macOS development may run the repo helper scripts through the installed sherpa Python tool when the native `sherpa-onnx-offline` and `sherpa-onnx-offline-tts` binaries are not present under the local ROSIE root. The server and Tauri runtime still prefer native binaries first, then use `RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH` or `~/.local/share/uv/tools/sherpa-onnx/bin/python` for workstation testing.
+
+This is development/diagnostic support only. Windows Host production readiness remains zero-Python and fail-closed on missing native binaries or model assets.
+
 ## Token Telemetry and Cost Monitoring
 
 ### Purpose

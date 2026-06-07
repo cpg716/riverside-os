@@ -258,6 +258,36 @@ fn command_exists(path: &Path) -> bool {
     path.exists() && path.is_file()
 }
 
+fn resolve_speech_python_path() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var("RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH")
+            .ok()
+            .map(PathBuf::from)
+            .filter(|path| !path.as_os_str().is_empty())
+            .or_else(|| {
+                home_dir().map(|home| {
+                    home.join(".local")
+                        .join("share")
+                        .join("uv")
+                        .join("tools")
+                        .join("sherpa-onnx")
+                        .join("bin")
+                        .join("python")
+                })
+            })
+            .filter(|path| command_exists(path))
+    }
+}
+
+fn resolve_sherpa_provider() -> String {
+    std::env::var("RIVERSIDE_SHERPA_PROVIDER").unwrap_or_else(|_| "cpu".to_string())
+}
+
 fn bundled_script_path(name: &str) -> Option<PathBuf> {
     let repo_script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -267,6 +297,25 @@ fn bundled_script_path(name: &str) -> Option<PathBuf> {
         return Some(repo_script);
     }
     None
+}
+
+fn resolve_sensevoice_python_script() -> Option<PathBuf> {
+    bundled_script_path("rosie_sensevoice_transcribe.py")
+}
+
+fn resolve_kokoro_python_script() -> Option<PathBuf> {
+    bundled_script_path("rosie_kokoro_tts.py")
+}
+
+fn speech_command_label(binary: &Path, script: Option<&Path>) -> String {
+    if command_exists(binary) {
+        return binary.display().to_string();
+    }
+
+    match (resolve_speech_python_path(), script) {
+        (Some(python), Some(script)) => format!("{} {}", python.display(), script.display()),
+        _ => binary.display().to_string(),
+    }
 }
 
 fn temp_voice_prefix(stem: &str, extension: &str) -> PathBuf {
@@ -418,14 +467,22 @@ pub async fn runtime_status(state: &RosieSpeechState) -> Result<RosieHostRuntime
         .unwrap_or_else(|| "8080".to_string());
 
     let asr_bin = resolve_asr_binary_path();
-    let asr_present = command_exists(&asr_bin);
+    let asr_native_present = command_exists(&asr_bin);
+    let sensevoice_python_script = resolve_sensevoice_python_script();
+    let sensevoice_python_present =
+        resolve_speech_python_path().is_some() && sensevoice_python_script.is_some();
+    let asr_present = asr_native_present || sensevoice_python_present;
     let sensevoice_model_path = resolve_sensevoice_model_path();
     let sensevoice_tokens_path = resolve_sensevoice_tokens_path();
     let sensevoice_ready =
         asr_present && sensevoice_model_path.is_some() && sensevoice_tokens_path.is_some();
 
     let tts_bin = resolve_tts_binary_path();
-    let tts_present = command_exists(&tts_bin);
+    let tts_native_present = command_exists(&tts_bin);
+    let kokoro_python_script = resolve_kokoro_python_script();
+    let kokoro_python_present =
+        resolve_speech_python_path().is_some() && kokoro_python_script.is_some();
+    let tts_present = tts_native_present || kokoro_python_present;
     let kokoro_model_path = resolve_kokoro_model_path();
     let kokoro_ready = tts_present && kokoro_model_path.is_some();
 
@@ -454,7 +511,7 @@ pub async fn runtime_status(state: &RosieSpeechState) -> Result<RosieHostRuntime
             } else {
                 "unavailable".to_string()
             },
-            cli_path: asr_bin.display().to_string(),
+            cli_path: speech_command_label(&asr_bin, sensevoice_python_script.as_deref()),
             cli_present: asr_present,
             model_name: "SenseVoice Small".to_string(),
             model_path: sensevoice_model_path
@@ -470,7 +527,7 @@ pub async fn runtime_status(state: &RosieSpeechState) -> Result<RosieHostRuntime
             } else {
                 "unavailable".to_string()
             },
-            command_path: tts_bin.display().to_string(),
+            command_path: speech_command_label(&tts_bin, kokoro_python_script.as_deref()),
             command_present: tts_present,
             model_name: "Kokoro-82M".to_string(),
             model_path: kokoro_model_path
@@ -541,7 +598,122 @@ async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String
         }
     }
 
+    if let (Some(python), Some(script), Some(model), Some(tokens)) = (
+        resolve_speech_python_path(),
+        resolve_sensevoice_python_script(),
+        model_path,
+        tokens_path,
+    ) {
+        let output = tokio::process::Command::new(&python)
+            .arg(&script)
+            .arg("--model")
+            .arg(&model)
+            .arg("--tokens")
+            .arg(&tokens)
+            .arg("--input")
+            .arg(wav_path)
+            .arg("--provider")
+            .arg(resolve_sherpa_provider())
+            .arg("--language")
+            .arg("auto")
+            .arg("--use-itn")
+            .output()
+            .await
+            .map_err(|e| format!("failed to start ROSIE SenseVoice STT helper: {e}"))?;
+
+        if output.status.success() {
+            let stdout_str = String::from_utf8_lossy(&output.stdout);
+            let transcript = stdout_str.trim().to_string();
+            if !transcript.is_empty() {
+                return Ok(transcript);
+            }
+            return Err("ROSIE STT did not detect any speech in the audio.".to_string());
+        }
+
+        let stderr_str = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("SenseVoice STT failed: {}", stderr_str.trim()));
+    }
+
     Err("ROSIE SenseVoice STT is not configured or binary is missing.".to_string())
+}
+
+async fn synthesize_kokoro_to_wav(
+    text: &str,
+    rate_multiplier: f32,
+    voice: Option<&str>,
+    temp_wav: &Path,
+) -> Result<(), String> {
+    let binary = resolve_tts_binary_path();
+    let model_dir = resolve_kokoro_model_dir()
+        .ok_or_else(|| "ROSIE Kokoro model directory is not configured.".to_string())?;
+    let model_path = model_dir.join("model.onnx");
+    let voices_path = model_dir.join("voices.bin");
+    let tokens_path = model_dir.join("tokens.txt");
+    let data_dir = model_dir.join("espeak-ng-data");
+
+    if !model_path.exists() || !voices_path.exists() || !tokens_path.exists() || !data_dir.exists()
+    {
+        return Err("ROSIE Kokoro TTS model assets are missing.".to_string());
+    }
+
+    if command_exists(&binary) {
+        let sid = voice.and_then(|v| v.parse::<i32>().ok()).unwrap_or(5);
+        let output = tokio::process::Command::new(&binary)
+            .args([
+                &format!("--kokoro-model={}", model_path.to_string_lossy()),
+                &format!("--kokoro-voices={}", voices_path.to_string_lossy()),
+                &format!("--kokoro-tokens={}", tokens_path.to_string_lossy()),
+                &format!("--kokoro-data-dir={}", data_dir.to_string_lossy()),
+                &format!("--output-filename={}", temp_wav.to_string_lossy()),
+                &format!("--sid={sid}"),
+                &format!("--speed={rate_multiplier}"),
+                text,
+            ])
+            .output()
+            .await
+            .map_err(|error| format!("failed to synthesize ROSIE speech: {error}"))?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let _ = tokio::fs::remove_file(temp_wav).await;
+        return Err(format!("ROSIE Kokoro TTS failed: {}", stderr.trim()));
+    }
+
+    if let (Some(python), Some(script)) =
+        (resolve_speech_python_path(), resolve_kokoro_python_script())
+    {
+        let output = tokio::process::Command::new(&python)
+            .arg(&script)
+            .arg("--model-dir")
+            .arg(&model_dir)
+            .arg("--voice")
+            .arg(voice.unwrap_or("adam"))
+            .arg("--speed")
+            .arg(rate_multiplier.to_string())
+            .arg("--provider")
+            .arg(resolve_sherpa_provider())
+            .arg("--text")
+            .arg(text)
+            .arg("--output")
+            .arg(temp_wav)
+            .arg("--no-play")
+            .output()
+            .await
+            .map_err(|error| format!("failed to synthesize ROSIE speech helper: {error}"))?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let _ = tokio::fs::remove_file(temp_wav).await;
+        return Err(format!("ROSIE Kokoro TTS failed: {}", stderr.trim()));
+    }
+
+    Err("ROSIE Kokoro TTS is not configured or binary is missing.".to_string())
 }
 
 pub async fn start_tts(
@@ -635,40 +807,8 @@ pub async fn start_tts(
         let _ = child.kill().await;
     }
 
-    let binary = resolve_tts_binary_path();
-    let model_dir = resolve_kokoro_model_dir().ok_or("Kokoro model dir not found")?;
-    let model_path = model_dir.join("model.onnx");
-    let voices_path = model_dir.join("voices.bin");
-    let tokens_path = model_dir.join("tokens.txt");
-    let data_dir = model_dir.join("espeak-ng-data");
-
-    if !command_exists(&binary) || !model_path.exists() {
-        return Err("ROSIE Kokoro TTS is not configured or binary is missing.".to_string());
-    }
-
     let temp_wav = temp_voice_prefix("tts-speak", "wav");
-    let sid = voice.and_then(|v| v.parse::<i32>().ok()).unwrap_or(5);
-
-    let output = tokio::process::Command::new(&binary)
-        .args([
-            &format!("--kokoro-model={}", model_path.to_string_lossy()),
-            &format!("--kokoro-voices={}", voices_path.to_string_lossy()),
-            &format!("--kokoro-tokens={}", tokens_path.to_string_lossy()),
-            &format!("--kokoro-data-dir={}", data_dir.to_string_lossy()),
-            &format!("--output-filename={}", temp_wav.to_string_lossy()),
-            &format!("--sid={sid}"),
-            &format!("--speed={rate_multiplier}"),
-            text,
-        ])
-        .output()
-        .await
-        .map_err(|error| format!("failed to synthesize ROSIE speech: {error}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let _ = tokio::fs::remove_file(&temp_wav).await;
-        return Err(format!("ROSIE Kokoro TTS failed: {}", stderr.trim()));
-    }
+    synthesize_kokoro_to_wav(text, rate_multiplier, voice, &temp_wav).await?;
 
     let mut cmd = if cfg!(windows) {
         let mut c = tokio::process::Command::new("powershell.exe");
@@ -714,43 +854,8 @@ pub async fn synthesize_tts_wav_base64(
     }
 
     let rate_multiplier = rate.unwrap_or(1.0).clamp(0.8, 1.2);
-    let binary = resolve_tts_binary_path();
-    let model_dir = resolve_kokoro_model_dir()
-        .ok_or_else(|| "ROSIE Kokoro model directory is not configured.".to_string())?;
-
-    if !command_exists(&binary) || resolve_kokoro_model_path().is_none() {
-        return Err("ROSIE Kokoro TTS is not available.".to_string());
-    }
-
-    let model_path = model_dir.join("model.onnx");
-    let voices_path = model_dir.join("voices.bin");
-    let tokens_path = model_dir.join("tokens.txt");
-    let data_dir = model_dir.join("espeak-ng-data");
-
-    let sid = voice.and_then(|v| v.parse::<i32>().ok()).unwrap_or(5);
-
     let temp_wav = temp_voice_prefix("tts-synth", "wav");
-
-    let output = tokio::process::Command::new(&binary)
-        .args([
-            &format!("--kokoro-model={}", model_path.to_string_lossy()),
-            &format!("--kokoro-voices={}", voices_path.to_string_lossy()),
-            &format!("--kokoro-tokens={}", tokens_path.to_string_lossy()),
-            &format!("--kokoro-data-dir={}", data_dir.to_string_lossy()),
-            &format!("--output-filename={}", temp_wav.to_string_lossy()),
-            &format!("--sid={}", sid),
-            &format!("--speed={}", rate_multiplier),
-            text,
-        ])
-        .output()
-        .await
-        .map_err(|error| format!("failed to synthesize ROSIE speech: {error}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let _ = tokio::fs::remove_file(&temp_wav).await;
-        return Err(format!("ROSIE Kokoro TTS failed: {}", stderr.trim()));
-    }
+    synthesize_kokoro_to_wav(text, rate_multiplier, voice, &temp_wav).await?;
 
     let audio_bytes = tokio::fs::read(&temp_wav)
         .await

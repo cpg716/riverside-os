@@ -113,28 +113,32 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Starting local Gemma Host runtime (${LLAMA_PERF_PROFILE})..."
-LLAMA_CMD=(
-  "$LLAMA_BIN"
-  -m "$LLAMA_MODEL_PATH"
-  --host "$LLAMA_HOST"
-  --port "$LLAMA_PORT"
-)
-if [[ -n "$LLAMA_EXTRA_ARGS" ]]; then
-  # shellcheck disable=SC2206
-  EXTRA_ARGS=( $LLAMA_EXTRA_ARGS )
-  LLAMA_CMD+=("${EXTRA_ARGS[@]}")
-fi
-LLAMA_CMD+=("${LLAMA_ENFORCED_ARGS[@]}")
-"${LLAMA_CMD[@]}" >"$TMP_DIR/llama.stdout.log" 2>"$TMP_DIR/llama.stderr.log" &
-LLAMA_PID="$!"
-
-for _ in {1..90}; do
-  if curl -sf "$LLAMA_URL/health" >/dev/null 2>&1; then
-    break
+if curl -sf "$LLAMA_URL/health" >/dev/null 2>&1; then
+  echo "Reusing local Gemma Host runtime at $LLAMA_URL"
+else
+  echo "Starting local Gemma Host runtime (${LLAMA_PERF_PROFILE})..."
+  LLAMA_CMD=(
+    "$LLAMA_BIN"
+    -m "$LLAMA_MODEL_PATH"
+    --host "$LLAMA_HOST"
+    --port "$LLAMA_PORT"
+  )
+  if [[ -n "$LLAMA_EXTRA_ARGS" ]]; then
+    # shellcheck disable=SC2206
+    EXTRA_ARGS=( $LLAMA_EXTRA_ARGS )
+    LLAMA_CMD+=("${EXTRA_ARGS[@]}")
   fi
-  sleep 1
-done
+  LLAMA_CMD+=("${LLAMA_ENFORCED_ARGS[@]}")
+  "${LLAMA_CMD[@]}" >"$TMP_DIR/llama.stdout.log" 2>"$TMP_DIR/llama.stderr.log" &
+  LLAMA_PID="$!"
+
+  for _ in {1..90}; do
+    if curl -sf "$LLAMA_URL/health" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+fi
 
 curl -sf "$LLAMA_URL/health" >"$TMP_DIR/llama.health.json"
 echo "Local Gemma runtime ready at $LLAMA_URL"
@@ -172,7 +176,7 @@ echo "Synthesizing a ROSIE verification prompt with Kokoro..."
   --voice "$ROSIE_SELECTED_VOICE" \
   --speed "$ROSIE_SPEECH_RATE" \
   --provider "$SHERPA_PROVIDER" \
-  --text "How do I close Register 1?" \
+  --text "What is Register POS for?" \
   --output "$TMP_DIR/question.wav" \
   --no-play
 
@@ -306,6 +310,7 @@ echo "Verifying Kokoro stop/barge-in path..."
   --voice "$ROSIE_SELECTED_VOICE" \
   --speed "$ROSIE_SPEECH_RATE" \
   --provider "$SHERPA_PROVIDER" \
+  --player "$KOKORO_PLAYER" \
   --text "This is a longer ROSIE speaking check for interruption handling." &
 TTS_PID="$!"
 sleep 1
