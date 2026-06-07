@@ -51,6 +51,18 @@ interface NtboLifecycleItem {
   risk_level: string;
 }
 
+interface ReorderSuggestion {
+  variant_id: string;
+  sku: string;
+  product_name: string;
+  variation_label?: string | null;
+  available_stock: number;
+  reorder_point: number;
+  qty_on_order: number;
+  suggested_quantity: number;
+  unit_cost: string | number;
+}
+
 interface PurchaseOrderLineDetail {
   line_id: string;
   variant_id: string;
@@ -183,6 +195,9 @@ export default function PurchaseOrderPanel({
   const [selectedNtboIds, setSelectedNtboIds] = useState<Set<string>>(() => new Set());
   const [ntboVendorId, setNtboVendorId] = useState("");
   const [ntboPoBusy, setNtboPoBusy] = useState(false);
+  const [reorderSuggestions, setReorderSuggestions] = useState<ReorderSuggestion[]>([]);
+  const [selectedReorderIds, setSelectedReorderIds] = useState<Set<string>>(() => new Set());
+  const [reorderBusy, setReorderBusy] = useState(false);
   const [viewingReceivingEventId, setViewingReceivingEventId] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<PurchaseOrderDetail | null>(null);
   const [selectedDetailLoading, setSelectedDetailLoading] = useState(false);
@@ -316,6 +331,31 @@ export default function PurchaseOrderPanel({
     if (mode !== "order") return;
     void loadNtboItems();
   }, [loadNtboItems, mode]);
+
+  const loadReorderSuggestions = useCallback(async () => {
+    if (mode !== "order" || !vendorId) {
+      setReorderSuggestions([]);
+      setSelectedReorderIds(new Set());
+      return;
+    }
+    const res = await fetch(`${baseUrl}/api/purchase-orders/reorder-suggestions?vendor_id=${encodeURIComponent(vendorId)}`, {
+      headers: backofficeHeaders() as Record<string, string>,
+    });
+    if (!res.ok) {
+      setReorderSuggestions([]);
+      return;
+    }
+    const rows = (await res.json()) as ReorderSuggestion[];
+    setReorderSuggestions(Array.isArray(rows) ? rows : []);
+    setSelectedReorderIds((prev) => {
+      const visible = new Set((Array.isArray(rows) ? rows : []).map((row) => row.variant_id));
+      return new Set([...prev].filter((id) => visible.has(id)));
+    });
+  }, [backofficeHeaders, mode, vendorId]);
+
+  useEffect(() => {
+    void loadReorderSuggestions();
+  }, [loadReorderSuggestions]);
 
   useEffect(() => {
     const id = initialPoId?.trim();
@@ -507,6 +547,78 @@ export default function PurchaseOrderPanel({
   };
 
   const selected = orders.find((o) => o.id === selectedPo);
+  const selectedDraftForReorder =
+    selected &&
+    selected.status === "draft" &&
+    selected.po_kind !== "direct_invoice" &&
+    selected.vendor_id === vendorId
+      ? selected
+      : null;
+
+  const createPoFromReorderSuggestions = useCallback(async () => {
+    if (!vendorId || selectedReorderIds.size === 0) return;
+    setReorderBusy(true);
+    try {
+      let targetPoId = selectedDraftForReorder?.id ?? "";
+      if (!targetPoId) {
+        const createRes = await fetch(apiUrl(baseUrl, "/api/purchase-orders"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+          body: JSON.stringify({ vendor_id: vendorId }),
+        });
+        if (!createRes.ok) {
+          const body = await createRes.json().catch(() => ({}));
+          throw new Error(body.error ?? "Could not create reorder PO draft.");
+        }
+        const created = (await createRes.json()) as PurchaseOrder;
+        targetPoId = created.id;
+      }
+
+      const selectedSuggestions = reorderSuggestions.filter((row) => selectedReorderIds.has(row.variant_id));
+      for (const row of selectedSuggestions) {
+        const lineRes = await fetch(`${baseUrl}/api/purchase-orders/${targetPoId}/lines`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+          body: JSON.stringify({
+            variant_id: row.variant_id,
+            quantity_ordered: row.suggested_quantity,
+            unit_cost: variantMoneyInput(row.unit_cost),
+          }),
+        });
+        if (!lineRes.ok) {
+          const body = await lineRes.json().catch(() => ({}));
+          throw new Error(body.error ?? `Could not add ${row.sku} to reorder PO.`);
+        }
+      }
+
+      toast(`Added ${selectedSuggestions.length} Min/Max item(s) to a PO draft.`, "success");
+      setSelectedReorderIds(new Set());
+      await refresh();
+      await loadReorderSuggestions();
+      if (targetPoId) openPurchaseOrderEditor(targetPoId);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not build reorder PO.", "error");
+    } finally {
+      setReorderBusy(false);
+    }
+  }, [
+    backofficeHeaders,
+    loadReorderSuggestions,
+    openPurchaseOrderEditor,
+    refresh,
+    reorderSuggestions,
+    selectedDraftForReorder,
+    selectedReorderIds,
+    toast,
+    vendorId,
+  ]);
+
   useEffect(() => {
     if (isReceiveMode) return;
     if (selected?.status === "draft" && selected.po_kind !== "direct_invoice") {
@@ -896,6 +1008,71 @@ export default function PurchaseOrderPanel({
         </div>
       )}
 
+      {!isReceiveMode && reorderSuggestions.length > 0 && (
+        <div className="rounded-2xl border border-app-border bg-app-surface shadow-sm overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-app-border/40 px-5 py-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                Min/Max reorder suggestions
+              </p>
+              <p className="mt-1 text-sm font-bold text-app-text">
+                {reorderSuggestions.length} primary-vendor item{reorderSuggestions.length === 1 ? "" : "s"} are below their reorder point.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void createPoFromReorderSuggestions()}
+              disabled={selectedReorderIds.size === 0 || reorderBusy}
+              className="h-10 rounded-xl bg-app-accent px-4 text-xs font-bold text-white shadow-md shadow-app-accent/20 disabled:opacity-40 transition-all active:scale-95"
+            >
+              {reorderBusy
+                ? "Working..."
+                : `${selectedDraftForReorder ? "Add to " + selectedDraftForReorder.po_number : "Start PO"} (${selectedReorderIds.size})`}
+            </button>
+          </div>
+          <div className="grid gap-2 px-5 py-4 sm:grid-cols-2 lg:grid-cols-3">
+            {reorderSuggestions.map((row) => {
+              const isChecked = selectedReorderIds.has(row.variant_id);
+              return (
+                <label
+                  key={row.variant_id}
+                  className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors ${
+                    isChecked
+                      ? "border-app-accent bg-app-accent/10 shadow-sm"
+                      : "border-app-border bg-app-surface-2 hover:border-app-accent/60"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(event) => {
+                      setSelectedReorderIds((prev) => {
+                        const next = new Set(prev);
+                        if (event.target.checked) next.add(row.variant_id);
+                        else next.delete(row.variant_id);
+                        return next;
+                      });
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border-app-input-border bg-app-input-bg text-app-accent focus:ring-app-accent"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-bold text-app-text">
+                      {row.suggested_quantity}x {row.product_name}
+                    </p>
+                    <p className="truncate text-[10px] text-app-text-muted">
+                      {row.variation_label ? `${row.variation_label} · ` : ""}{row.sku}
+                    </p>
+                    <p className="mt-1 text-[10px] font-bold text-app-text-muted">
+                      Available {row.available_stock} · Min {row.reorder_point} · On order {row.qty_on_order}
+                    </p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── Purchase Order List ── */}
       <div className="rounded-2xl border border-app-border bg-app-surface shadow-sm overflow-hidden">
         {ordersLoadError && (
@@ -1133,9 +1310,8 @@ export default function PurchaseOrderPanel({
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted/40">$</span>
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   value={unitCost}
                   onChange={(e) => setUnitCost(e.target.value)}
                   className="w-full h-11 bg-app-surface border border-app-border rounded-xl pl-7 pr-3 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
@@ -1147,9 +1323,8 @@ export default function PurchaseOrderPanel({
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted/40">$</span>
                 <input
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   value={retailPrice}
                   onChange={(e) => setRetailPrice(e.target.value)}
                   className="w-full h-11 bg-app-surface border border-app-border rounded-xl pl-7 pr-3 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"

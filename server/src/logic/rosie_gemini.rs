@@ -52,6 +52,10 @@ impl GeminiClient {
         Ok(Self::new(config))
     }
 
+    pub fn model_name(&self) -> &str {
+        &self.config.model
+    }
+
     /// Send a chat completion request to Gemini API
     pub async fn chat_completion(
         &self,

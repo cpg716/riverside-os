@@ -1,11 +1,12 @@
 //! Provider abstraction for ROSIE LLM, TTS, and STT.
 //!
-//! Allows switching between local Gemma 4 and Gemini API providers.
+//! Allows switching between local Gemma 4 and cloud API providers.
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::logic::rosie_gemini::GeminiClient;
+use crate::logic::rosie_openai::OpenAiClient;
 
 /// LLM provider trait
 #[async_trait]
@@ -192,6 +193,52 @@ impl RosieTTSProvider for GeminiProvider {
     }
 }
 
+/// OpenAI API provider.
+pub struct OpenAiProvider {
+    client: OpenAiClient,
+}
+
+impl OpenAiProvider {
+    pub fn new(client: OpenAiClient) -> Self {
+        Self { client }
+    }
+
+    pub fn from_env() -> Result<Self, String> {
+        let client = OpenAiClient::from_env()?;
+        Ok(Self::new(client))
+    }
+}
+
+#[async_trait]
+impl RosieLLMProvider for OpenAiProvider {
+    async fn chat_completion_payload(&self, payload: Value) -> Result<Value, String> {
+        self.client.chat_completion_payload(payload).await
+    }
+
+    async fn chat_completion(&self, messages: Vec<Value>) -> Result<Value, String> {
+        self.chat_completion_payload(json!({
+            "model": self.client.llm_model(),
+            "messages": messages,
+            "stream": false,
+        }))
+        .await
+    }
+}
+
+#[async_trait]
+impl RosieSTTProvider for OpenAiProvider {
+    async fn transcribe(&self, audio: &[u8]) -> Result<String, String> {
+        self.client.transcribe_wav(audio).await
+    }
+}
+
+#[async_trait]
+impl RosieTTSProvider for OpenAiProvider {
+    async fn synthesize(&self, text: &str, voice: &str) -> Result<Vec<u8>, String> {
+        self.client.synthesize_wav(text, Some(voice), None).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +254,13 @@ mod tests {
     fn test_gemini_provider_requires_api_key() {
         std::env::remove_var("GEMINI_API_KEY");
         let result = GeminiProvider::from_env();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_openai_provider_requires_api_key() {
+        std::env::remove_var("OPENAI_API_KEY");
+        let result = OpenAiProvider::from_env();
         assert!(result.is_err());
     }
 }

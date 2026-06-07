@@ -8,6 +8,10 @@ use tokio::process::Child;
 use tokio::sync::Mutex;
 use url::Url;
 
+use crate::logic::rosie_gemini::GeminiClient;
+use crate::logic::rosie_openai::OpenAiClient;
+use crate::logic::rosie_provider_selection::{RosieProviderConfig, RosieProviderMode};
+
 pub type RosieSpeechState = Arc<Mutex<Option<Child>>>;
 
 #[derive(Debug, Serialize)]
@@ -232,6 +236,17 @@ fn resolve_llama_provider() -> String {
     std::env::var("RIVERSIDE_LLAMA_PROVIDER").unwrap_or_else(|_| "llama.cpp".into())
 }
 
+fn active_provider_mode() -> RosieProviderMode {
+    let config = RosieProviderConfig::default();
+    if config.mode == RosieProviderMode::Auto {
+        config
+            .preferred_cloud_provider
+            .unwrap_or(RosieProviderMode::Auto)
+    } else {
+        config.mode
+    }
+}
+
 fn resolve_llama_upstream_url() -> Option<String> {
     std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
         .ok()
@@ -310,6 +325,85 @@ async fn speech_state_speaking(state: &RosieSpeechState) -> Result<bool, String>
 }
 
 pub async fn runtime_status(state: &RosieSpeechState) -> Result<RosieHostRuntimeStatus, String> {
+    if active_provider_mode() == RosieProviderMode::GeminiApi {
+        let gemini = GeminiClient::from_env()?;
+        let speaking = speech_state_speaking(state).await?;
+        return Ok(RosieHostRuntimeStatus {
+            llm: RosieHostLlmStatus {
+                runtime_name: "Gemini cloud generateContent".to_string(),
+                provider: "gemini".to_string(),
+                base_url: "https://generativelanguage.googleapis.com".to_string(),
+                host: "generativelanguage.googleapis.com".to_string(),
+                port: "443".to_string(),
+                model_name: gemini.model_name().to_string(),
+                model_path: None,
+                model_present: true,
+                sidecar_binary_present: false,
+                running: true,
+            },
+            stt: RosieHostSttStatus {
+                engine_name: "Gemini cloud speech-to-text".to_string(),
+                provider: "gemini".to_string(),
+                active_engine: "gemini".to_string(),
+                cli_path: "cloud".to_string(),
+                cli_present: false,
+                model_name: gemini.model_name().to_string(),
+                model_path: None,
+                model_present: true,
+            },
+            tts: RosieHostTtsStatus {
+                engine_name: "Gemini cloud text-to-speech".to_string(),
+                provider: "gemini".to_string(),
+                active_engine: "gemini".to_string(),
+                command_path: "cloud".to_string(),
+                command_present: false,
+                model_name: gemini.model_name().to_string(),
+                model_path: None,
+                model_present: true,
+                speaking,
+            },
+        });
+    }
+
+    if active_provider_mode() == RosieProviderMode::OpenAiApi {
+        let openai = OpenAiClient::from_env()?;
+        return Ok(RosieHostRuntimeStatus {
+            llm: RosieHostLlmStatus {
+                runtime_name: "OpenAI cloud responses".to_string(),
+                provider: "openai".to_string(),
+                base_url: "https://api.openai.com".to_string(),
+                host: "api.openai.com".to_string(),
+                port: "443".to_string(),
+                model_name: openai.llm_model().to_string(),
+                model_path: None,
+                model_present: true,
+                sidecar_binary_present: false,
+                running: true,
+            },
+            stt: RosieHostSttStatus {
+                engine_name: "OpenAI cloud speech-to-text".to_string(),
+                provider: "openai".to_string(),
+                active_engine: "openai".to_string(),
+                cli_path: "cloud".to_string(),
+                cli_present: false,
+                model_name: openai.stt_model().to_string(),
+                model_path: None,
+                model_present: true,
+            },
+            tts: RosieHostTtsStatus {
+                engine_name: "OpenAI cloud text-to-speech".to_string(),
+                provider: "openai".to_string(),
+                active_engine: openai.tts_voice().to_string(),
+                command_path: "cloud".to_string(),
+                command_present: false,
+                model_name: openai.tts_model().to_string(),
+                model_path: None,
+                model_present: true,
+                speaking: speech_state_speaking(state).await?,
+            },
+        });
+    }
+
     let upstream_url =
         resolve_llama_upstream_url().unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
     let parsed_upstream = Url::parse(&upstream_url).ok();
@@ -393,6 +487,15 @@ pub async fn transcribe_wav(audio_base64: &str) -> Result<String, String> {
         .decode(audio_base64)
         .map_err(|error| format!("invalid audio payload for ROSIE STT: {error}"))?;
 
+    if active_provider_mode() == RosieProviderMode::OpenAiApi {
+        let openai = OpenAiClient::from_env()?;
+        return openai.transcribe_wav(&audio_bytes).await;
+    }
+    if active_provider_mode() == RosieProviderMode::GeminiApi {
+        let gemini = GeminiClient::from_env()?;
+        return gemini.speech_to_text(&audio_bytes).await;
+    }
+
     let wav_path = temp_voice_prefix("voice-input", "wav");
     tokio::fs::write(&wav_path, audio_bytes)
         .await
@@ -447,6 +550,81 @@ pub async fn start_tts(
     rate: Option<f32>,
     voice: Option<&str>,
 ) -> Result<String, String> {
+    if active_provider_mode() == RosieProviderMode::OpenAiApi {
+        let audio_bytes = OpenAiClient::from_env()?
+            .synthesize_wav(text, voice, rate)
+            .await?;
+        let existing_child = {
+            let mut guard = state.lock().await;
+            guard.take()
+        };
+        if let Some(mut child) = existing_child {
+            let _ = child.kill().await;
+        }
+        let temp_wav = temp_voice_prefix("tts-openai", "wav");
+        tokio::fs::write(&temp_wav, audio_bytes)
+            .await
+            .map_err(|error| format!("failed to write OpenAI ROSIE speech: {error}"))?;
+        let mut cmd = if cfg!(windows) {
+            let mut c = tokio::process::Command::new("powershell.exe");
+            c.args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "$player = New-Object Media.SoundPlayer $args[0]; $player.PlaySync(); Remove-Item -LiteralPath $args[0] -ErrorAction SilentlyContinue",
+            ]);
+            c.arg(&temp_wav);
+            c
+        } else {
+            let mut c = tokio::process::Command::new("afplay");
+            c.arg(&temp_wav);
+            c
+        };
+        let child = cmd
+            .spawn()
+            .map_err(|error| format!("failed to spawn OpenAI ROSIE speech playback: {error}"))?;
+        *state.lock().await = Some(child);
+        return Ok("ROSIE OpenAI TTS started".to_string());
+    }
+    if active_provider_mode() == RosieProviderMode::GeminiApi {
+        let audio_bytes = GeminiClient::from_env()?
+            .text_to_speech(text, voice.unwrap_or(""))
+            .await?;
+        let existing_child = {
+            let mut guard = state.lock().await;
+            guard.take()
+        };
+        if let Some(mut child) = existing_child {
+            let _ = child.kill().await;
+        }
+        let temp_wav = temp_voice_prefix("tts-gemini", "wav");
+        tokio::fs::write(&temp_wav, audio_bytes)
+            .await
+            .map_err(|error| format!("failed to write Gemini ROSIE speech: {error}"))?;
+        let mut cmd = if cfg!(windows) {
+            let mut c = tokio::process::Command::new("powershell.exe");
+            c.args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "$player = New-Object Media.SoundPlayer $args[0]; $player.PlaySync(); Remove-Item -LiteralPath $args[0] -ErrorAction SilentlyContinue",
+            ]);
+            c.arg(&temp_wav);
+            c
+        } else {
+            let mut c = tokio::process::Command::new("afplay");
+            c.arg(&temp_wav);
+            c
+        };
+        let child = cmd
+            .spawn()
+            .map_err(|error| format!("failed to spawn Gemini ROSIE speech playback: {error}"))?;
+        *state.lock().await = Some(child);
+        return Ok("ROSIE Gemini TTS started".to_string());
+    }
+
     let rate_multiplier = rate.unwrap_or(1.0).clamp(0.8, 1.2);
 
     let existing_child = {
@@ -522,6 +700,19 @@ pub async fn synthesize_tts_wav_base64(
     rate: Option<f32>,
     voice: Option<&str>,
 ) -> Result<String, String> {
+    if active_provider_mode() == RosieProviderMode::OpenAiApi {
+        let audio_bytes = OpenAiClient::from_env()?
+            .synthesize_wav(text, voice, rate)
+            .await?;
+        return Ok(BASE64_STANDARD.encode(audio_bytes));
+    }
+    if active_provider_mode() == RosieProviderMode::GeminiApi {
+        let audio_bytes = GeminiClient::from_env()?
+            .text_to_speech(text, voice.unwrap_or(""))
+            .await?;
+        return Ok(BASE64_STANDARD.encode(audio_bytes));
+    }
+
     let rate_multiplier = rate.unwrap_or(1.0).clamp(0.8, 1.2);
     let binary = resolve_tts_binary_path();
     let model_dir = resolve_kokoro_model_dir()
@@ -585,4 +776,57 @@ pub async fn stop_tts(state: &RosieSpeechState) -> Result<String, String> {
 
 pub async fn tts_status(state: &RosieSpeechState) -> Result<bool, String> {
     speech_state_speaking(state).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn openai_transcribe_fails_on_missing_key_before_local_stt() {
+        std::env::set_var("ROSIE_PROVIDER_MODE", "openai");
+        std::env::remove_var("OPENAI_API_KEY");
+
+        let result = transcribe_wav(&BASE64_STANDARD.encode(b"not-a-real-wav")).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("OPENAI_API_KEY"));
+        std::env::remove_var("ROSIE_PROVIDER_MODE");
+    }
+
+    #[tokio::test]
+    async fn openai_tts_fails_on_missing_key_before_kokoro() {
+        std::env::set_var("ROSIE_PROVIDER_MODE", "openai");
+        std::env::remove_var("OPENAI_API_KEY");
+
+        let result = synthesize_tts_wav_base64("hello", None, None).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("OPENAI_API_KEY"));
+        std::env::remove_var("ROSIE_PROVIDER_MODE");
+    }
+
+    #[tokio::test]
+    async fn gemini_transcribe_fails_on_missing_key_before_local_stt() {
+        std::env::set_var("ROSIE_PROVIDER_MODE", "gemini");
+        std::env::remove_var("GEMINI_API_KEY");
+
+        let result = transcribe_wav(&BASE64_STANDARD.encode(b"not-a-real-wav")).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("GEMINI_API_KEY"));
+        std::env::remove_var("ROSIE_PROVIDER_MODE");
+    }
+
+    #[tokio::test]
+    async fn gemini_tts_fails_on_missing_key_before_kokoro() {
+        std::env::set_var("ROSIE_PROVIDER_MODE", "gemini");
+        std::env::remove_var("GEMINI_API_KEY");
+
+        let result = synthesize_tts_wav_base64("hello", None, None).await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("GEMINI_API_KEY"));
+        std::env::remove_var("ROSIE_PROVIDER_MODE");
+    }
 }

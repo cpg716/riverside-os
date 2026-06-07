@@ -148,6 +148,7 @@ export default function GlobalTopBar({
             }}
             className="ui-touch-target flex shrink-0 items-center justify-center rounded-xl bg-app-surface-2 text-app-text-muted hover:bg-app-surface hover:text-app-text lg:hidden"
             aria-label="Toggle menu"
+            title="Toggle menu"
           >
             <Menu size={20} />
           </button>
@@ -166,6 +167,7 @@ export default function GlobalTopBar({
                   type="button"
                   onClick={seg.onClick}
                   className="truncate rounded px-2 py-1 text-left text-app-text hover:bg-app-accent/10 hover:text-app-accent transition-colors"
+                  title={`Go to ${seg.label}`}
                 >
                   {seg.label}
                 </button>
@@ -189,6 +191,7 @@ export default function GlobalTopBar({
             type="button"
             onClick={onShellReturn}
             className="inline-flex h-10 shrink-0 touch-manipulation items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[11px] font-black uppercase tracking-widest text-app-text shadow-sm transition-colors hover:border-app-accent/40 hover:bg-app-surface"
+            title={shellReturnLabel ?? "Back to Back Office"}
           >
             <LayoutDashboard size={16} aria-hidden />
             <span className="hidden whitespace-nowrap min-[480px]:inline">
@@ -249,6 +252,7 @@ export default function GlobalTopBar({
             type="button"
             onClick={onThemeToggle}
             className="flex min-h-11 min-w-11 items-center justify-center rounded-2xl text-app-text-muted transition-all hover:bg-app-surface-2 hover:text-app-text active:scale-95"
+            aria-label={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
             title={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
           >
             {themeMode === "light" ? <Moon size={20} /> : <Sun size={20} />}
@@ -291,6 +295,8 @@ export default function GlobalTopBar({
                )}
                aria-expanded={userMenuOpen}
                aria-haspopup="true"
+               aria-label="Open staff profile menu"
+               title="Open staff profile menu"
             >
               <img
                 src={staffAvatarUrl(
@@ -316,6 +322,7 @@ export default function GlobalTopBar({
                     }
                   }}
                   className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-xs font-bold text-app-text hover:bg-app-surface-2 transition-all active:scale-95"
+                  title="My Profile"
                 >
                   <User size={16} className="text-app-accent" />
                   <span>My Profile</span>
@@ -327,6 +334,7 @@ export default function GlobalTopBar({
                     clearStaffCredentials();
                   }}
                   className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-xs font-bold text-app-text hover:bg-app-surface-2 transition-all active:scale-95"
+                  title="Change Staff Member"
                 >
                   <Users size={16} className="text-app-accent" />
                   <span>Change Staff Member</span>
@@ -338,6 +346,7 @@ export default function GlobalTopBar({
                     clearStaffCredentials();
                   }}
                   className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-xs font-bold text-rose-500 hover:bg-rose-500/5 transition-all active:scale-95"
+                  title="Logout"
                 >
                   <LogOut size={16} />
                   <span>Logout</span>

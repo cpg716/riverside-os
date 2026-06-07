@@ -26,8 +26,9 @@ Each subsection is job-based:
 
 - **Inventory List** for SKU lookup, stock review, and product hub access
 - **New Item** for creating a product and its sellable SKUs
-- **Purchase Orders** for standard POs and direct invoices
+- **Purchase Orders** for standard POs, direct invoices, customer order needs, and Min/Max reorder suggestions
 - **Receive Stock** for the same purchase-order-backed receiving workflow
+- **Reports** for historical PO, invoice, and receiving reports
 - **Import** for catalog-only CSV mapping
 - **Vendors** for supplier review and merge cleanup
 - **Physical count** for full-store or category reconciliation
@@ -38,6 +39,7 @@ Each subsection is job-based:
 2. Use **Purchase Orders** or **Receive Stock** for receiving entry points, including direct invoices.
 3. Use **Inventory List** or **Product hub** for catalog corrections, not the receiving worksheet.
 4. Use **Import** only for catalog structure. Live stock changes belong in **Receiving** or **Physical count**.
+5. Use **Reports** when you need to search, view, or reprint historical receiving paperwork by vendor, invoice, PO, item, SKU, or date.
 
 ## Workflow notes
 

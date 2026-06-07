@@ -37,6 +37,7 @@ export function BugReportTriggerButton({
       data-testid="bug-report-trigger"
       className={`relative inline-flex touch-manipulation items-center justify-center rounded-lg border border-app-border bg-app-surface-2 p-2 text-app-text shadow-sm transition-colors hover:bg-app-border/20 ${className}`.trim()}
       aria-label="Report a bug"
+      title="Report a bug"
     >
       <Bug size={18} strokeWidth={2} aria-hidden />
     </button>

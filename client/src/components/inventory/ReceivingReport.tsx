@@ -130,9 +130,11 @@ export default function ReceivingReport({
           <title>Receiving Report — ${escapeHtml(detail.po_number)}</title>
           <style>
             body { font-family: Arial, sans-serif; padding: 32px; color: #111827; }
-            h1 { margin: 0 0 2px; font-size: 22px; }
-            .meta { margin: 0 0 20px; color: #6b7280; font-size: 13px; }
-            .meta span { display: inline-block; margin-right: 20px; }
+            h1 { margin: 0 0 10px; font-size: 28px; }
+            .meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 22px; }
+            .meta-card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
+            .meta-card b { display: block; color: #6b7280; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 4px; }
+            .meta-card span { color: #111827; font-size: 16px; font-weight: 700; }
             table { width: 100%; border-collapse: collapse; margin-top: 16px; }
             th, td { border-bottom: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; font-size: 12px; }
             th { text-transform: uppercase; letter-spacing: .12em; font-size: 10px; color: #6b7280; background: #f9fafb; }
@@ -145,13 +147,13 @@ export default function ReceivingReport({
         </head>
         <body>
           <h1>Receiving Report</h1>
-          <p class="meta">
-            <span><b>${escapeHtml(detail.po_number)}</b></span>
-            <span>Vendor: ${escapeHtml(detail.vendor_name)}</span>
-            ${detail.invoice_number ? `<span>Invoice #: ${escapeHtml(detail.invoice_number)}</span>` : ""}
-            <span>Received: ${escapeHtml(formatDate(detail.received_at))}</span>
-            ${detail.received_by_name ? `<span>By: ${escapeHtml(detail.received_by_name)}</span>` : ""}
-          </p>
+          <div class="meta">
+            <div class="meta-card"><b>Document</b><span>${escapeHtml(detail.po_number)}</span></div>
+            <div class="meta-card"><b>Vendor</b><span>${escapeHtml(detail.vendor_name)}</span></div>
+            <div class="meta-card"><b>Invoice #</b><span>${escapeHtml(detail.invoice_number || "—")}</span></div>
+            <div class="meta-card"><b>Date Received</b><span>${escapeHtml(formatDate(detail.received_at))}</span></div>
+            ${detail.received_by_name ? `<div class="meta-card"><b>Received By</b><span>${escapeHtml(detail.received_by_name)}</span></div>` : ""}
+          </div>
           <table>
             <thead>
               <tr><th>Qty</th><th>SKU</th><th>Item</th><th class="r">Unit Cost</th><th class="r">Extended</th></tr>
@@ -225,47 +227,45 @@ export default function ReceivingReport({
           {detail && (
             <>
               {/* Meta row */}
-              <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs">
-                <div>
+              <div className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
                   <span className="text-[9px] font-bold uppercase text-app-text-muted">
                     Document
                   </span>
-                  <p className="font-bold text-app-text font-mono">
+                  <p className="mt-1 font-mono text-base font-black text-app-text">
                     {detail.po_number}
                   </p>
                 </div>
-                <div>
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
                   <span className="text-[9px] font-bold uppercase text-app-text-muted">
                     Vendor
                   </span>
-                  <p className="font-bold text-app-text">
+                  <p className="mt-1 text-base font-black text-app-text">
                     {detail.vendor_name}
                   </p>
                 </div>
-                {detail.invoice_number && (
-                  <div>
-                    <span className="text-[9px] font-bold uppercase text-app-text-muted">
-                      Invoice #
-                    </span>
-                    <p className="font-bold text-app-text">
-                      {detail.invoice_number}
-                    </p>
-                  </div>
-                )}
-                <div>
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
                   <span className="text-[9px] font-bold uppercase text-app-text-muted">
-                    Received
+                    Invoice #
                   </span>
-                  <p className="font-bold text-app-text">
+                  <p className="mt-1 text-base font-black text-app-text">
+                    {detail.invoice_number || "—"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
+                  <span className="text-[9px] font-bold uppercase text-app-text-muted">
+                    Date Received
+                  </span>
+                  <p className="mt-1 text-base font-black text-app-text">
                     {formatDate(detail.received_at)}
                   </p>
                 </div>
                 {detail.received_by_name && (
-                  <div>
+                  <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
                     <span className="text-[9px] font-bold uppercase text-app-text-muted">
-                      By
+                      Received By
                     </span>
-                    <p className="font-bold text-app-text">
+                    <p className="mt-1 text-base font-black text-app-text">
                       {detail.received_by_name}
                     </p>
                   </div>

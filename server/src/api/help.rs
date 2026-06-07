@@ -116,7 +116,13 @@ fn rosie_provider_label_from_completion(body: &Value) -> &'static str {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_ascii_lowercase();
-    if model.contains("gemini") {
+    if model.contains("openai")
+        || model.contains("gpt-")
+        || model.contains("o1")
+        || model.contains("o3")
+    {
+        "openai"
+    } else if model.contains("gemini") {
         "gemini"
     } else {
         "local"

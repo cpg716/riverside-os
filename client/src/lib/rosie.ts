@@ -1109,11 +1109,16 @@ export async function rosieChatCompletions(
   }
 
   if (rosieDirectTransportAllowed(settings)) {
-    await ensureRosieLocalLlmRunning();
-    return await invoke<RosieChatCompletionResponse>(
-      "rosie_llama_chat_completions",
-      { payload: rosiePayload },
-    );
+    const runtime = await getRosieLocalRuntimeStatus(options).catch(() => null);
+    if (runtime?.llm.provider === "openai" || runtime?.llm.provider === "gemini") {
+      // Cloud provider mode is server-governed so API keys never reach the desktop shell.
+    } else {
+      await ensureRosieLocalLlmRunning();
+      return await invoke<RosieChatCompletionResponse>(
+        "rosie_llama_chat_completions",
+        { payload: rosiePayload },
+      );
+    }
   }
 
   const response = await fetch(

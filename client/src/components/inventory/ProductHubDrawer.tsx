@@ -45,6 +45,7 @@ interface ProductHubProduct {
   matrix_col_axis_key: string | null;
   primary_vendor_id: string | null;
   primary_vendor_name: string | null;
+  secondary_vendors?: VendorOption[];
   track_low_stock: boolean;
   tax_category_override?: ProductTaxOverride | null;
   /** Null = use store default markup %. */
@@ -606,6 +607,15 @@ export default function ProductHubDrawer({
         setVendorMenuOpen(false);
         setVendorQuery("");
       }
+    } finally {
+      setVendorSaving(false);
+    }
+  };
+
+  const patchSecondaryVendors = async (vendorIds: string[]) => {
+    setVendorSaving(true);
+    try {
+      await patchProductModel({ secondary_vendor_ids: vendorIds });
     } finally {
       setVendorSaving(false);
     }
@@ -1188,6 +1198,51 @@ export default function ProductHubDrawer({
                       <p className="mt-1 text-[10px] text-app-text-muted">
                         Used for PO suggestions and stock-out context. Freight
                         stays on the receipt document, not in WAC.
+                      </p>
+                    </dd>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <dt className="mb-1.5 flex items-center gap-1.5 text-app-text-muted">
+                      <VENDOR_ICON size={14} className="text-app-text-muted" />
+                      Secondary vendors
+                    </dt>
+                    <dd className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                      <div className="flex flex-wrap gap-2">
+                        {vendors
+                          .filter((vendor) => vendor.id !== hub.product.primary_vendor_id)
+                          .map((vendor) => {
+                            const selectedIds = new Set(
+                              (hub.product.secondary_vendors ?? []).map((v) => v.id),
+                            );
+                            const isChecked = selectedIds.has(vendor.id);
+                            return (
+                              <label
+                                key={vendor.id}
+                                className={`inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
+                                  isChecked
+                                    ? "border-app-accent bg-app-accent/10 text-app-accent"
+                                    : "border-app-border bg-app-surface text-app-text-muted hover:border-app-accent hover:text-app-text"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  disabled={vendorSaving}
+                                  onChange={(event) => {
+                                    const next = new Set(selectedIds);
+                                    if (event.target.checked) next.add(vendor.id);
+                                    else next.delete(vendor.id);
+                                    void patchSecondaryVendors([...next]);
+                                  }}
+                                  className="h-3.5 w-3.5 rounded border-app-input-border text-app-accent focus:ring-app-accent"
+                                />
+                                {vendor.name}
+                              </label>
+                            );
+                          })}
+                      </div>
+                      <p className="mt-2 text-[10px] text-app-text-muted">
+                        Approved alternate suppliers for PO line entry and receiving. Min/Max suggestions still use the primary vendor.
                       </p>
                     </dd>
                   </div>

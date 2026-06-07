@@ -306,6 +306,19 @@ export default function RosieSettingsPanel() {
             </button>
           </div>
 
+          {localRuntimeStatus?.llm.provider === "openai" || localRuntimeStatus?.llm.provider === "gemini" ? (
+            <div className="mt-4 rounded-xl border border-app-accent/30 bg-app-accent/5 px-4 py-3 text-xs font-bold text-app-text-muted">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
+                {localRuntimeStatus.llm.provider === "openai" ? "OpenAI" : "Gemini"} Cloud Mode
+              </p>
+              <p className="mt-1">
+                ROSIE is routing chat, speech-to-text, and speech output through
+                server-side {localRuntimeStatus.llm.provider === "openai" ? "OpenAI" : "Gemini"}. Local Gemma, SenseVoice, and Kokoro are not
+                used while this provider is selected.
+              </p>
+            </div>
+          ) : null}
+
           {!localRuntimeLoaded ? (
             <p className="mt-4 text-sm font-medium text-app-text-muted">
               Checking host ROSIE runtime…

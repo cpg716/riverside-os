@@ -33,6 +33,7 @@ Use Product Hub when you need to:
 2. Review all variations in one place.
 3. Print retail price tags from the product detail view instead of the Inventory List.
 4. Check recent inventory events or incoming PO context before taking action.
+5. Review or update primary and secondary vendor assignments before ordering.
 
 ## Before you start
 
@@ -52,6 +53,13 @@ Use Product Hub when you need to:
   Incoming purchase-order units only. These are not available to sell until the receipt posts.
 
 The Product Hub panel is a visibility surface. It uses current server-computed values instead of asking staff to calculate availability themselves.
+
+## Vendor assignments
+
+- `Primary vendor`
+  The vendor Riverside uses for Min/Max reorder suggestions and stock-out ordering context.
+- `Secondary vendors`
+  Approved alternate vendors that can be used for PO line entry and receiving without changing the primary Min/Max suggestion vendor.
 
 ## How to use it
 

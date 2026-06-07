@@ -352,8 +352,11 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
     [lines, useVendorUpc],
   );
 
-  const canEditDirectInvoiceLines =
-    detail?.po_kind === "direct_invoice" && detail.status === "draft";
+  const canAddInvoiceLines =
+    !!detail &&
+    detail.status !== "closed" &&
+    detail.status !== "cancelled" &&
+    (detail.po_kind === "direct_invoice" || detail.status !== "draft");
 
   const selectEntryVariant = useCallback((variant: VariantSearchResult) => {
     setSelectedVariant(variant);
@@ -445,7 +448,7 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
 
       const idx = matchLine(sku);
       if (idx === -1) {
-        if (canEditDirectInvoiceLines) {
+        if (canAddInvoiceLines) {
           const variant = await lookupVariantByCode(sku);
           if (variant) {
             selectEntryVariant(variant);
@@ -456,7 +459,7 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
           setQuickItemSeedSku(sku);
         }
         playScanError();
-        showFeedback({ type: "error", message: canEditDirectInvoiceLines ? `SKU not found. Use Quick Add Item to create ${sku}.` : `Not on this purchase order: ${sku}` });
+        showFeedback({ type: "error", message: canAddInvoiceLines ? `SKU not found. Use Quick Add Item to create ${sku}.` : `Not on this purchase order: ${sku}` });
         return;
       }
 
@@ -478,7 +481,7 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
       playScanSuccess();
       showFeedback({ type: "success", message: `${line.product_name} · ${line.qty_receiving + 1} received` });
     },
-    [canEditDirectInvoiceLines, lines, lookupVariantByCode, matchLine, selectEntryVariant, showFeedback],
+    [canAddInvoiceLines, lines, lookupVariantByCode, matchLine, selectEntryVariant, showFeedback],
   );
 
   // ── HID scanner detection in the dedicated scan input ─────────────────────
@@ -513,7 +516,7 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
   );
 
   const addInvoiceLine = useCallback(async () => {
-    if (!selectedVariant || !canEditDirectInvoiceLines) return;
+    if (!selectedVariant || !canAddInvoiceLines) return;
     if (entryQty <= 0) {
       toast("Quantity must be greater than zero.", "error");
       return;
@@ -578,7 +581,7 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
     }
   }, [
     apiAuth,
-    canEditDirectInvoiceLines,
+    canAddInvoiceLines,
     entryCost,
     entryQty,
     entryRetail,
@@ -1032,7 +1035,7 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
         </div>
       )}
 
-      {canEditDirectInvoiceLines && (
+      {canAddInvoiceLines && (
         <div className="shrink-0 border-b border-app-border bg-app-surface px-5 py-3">
           <div className="mx-auto flex max-w-6xl flex-wrap items-end gap-3 rounded-2xl border border-app-border bg-app-surface-2 p-3">
             <div className="min-w-[280px] flex-1 space-y-1">
@@ -1067,9 +1070,8 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted/50">$</span>
                 <input
-                  type="number"
-                  min={0}
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={entryCost}
                   onChange={(e) => setEntryCost(e.target.value)}
                   className="ui-input h-10 w-full pl-7 text-sm font-bold"
@@ -1081,9 +1083,8 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted/50">$</span>
                 <input
-                  type="number"
-                  min={0}
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={entryRetail}
                   onChange={(e) => setEntryRetail(e.target.value)}
                   className="ui-input h-10 w-full pl-7 text-sm font-bold"
@@ -1140,10 +1141,10 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
                 <tr>
                   <td colSpan={6} className="px-5 py-12 text-center">
                     <p className="text-sm font-black text-app-text">
-                      {canEditDirectInvoiceLines ? "Add invoice lines above." : "No receivable lines on this paperwork."}
+                      {canAddInvoiceLines ? "Add invoice lines above." : "No receivable lines on this paperwork."}
                     </p>
                     <p className="mx-auto mt-2 max-w-xl text-xs font-semibold leading-relaxed text-app-text-muted">
-                      {canEditDirectInvoiceLines
+                      {canAddInvoiceLines
                         ? "Search or scan products, confirm quantity, cost, and retail, then add the line before posting inventory."
                         : "Close this screen and open the correct PO or direct invoice from Receive Stock."}
                     </p>
@@ -1221,9 +1222,8 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
                             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-app-text-muted/50">$</span>
                             <input
                               aria-label={`Unit cost for ${line.sku}`}
-                              type="number"
-                              min={0}
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               value={line.unit_cost.toFixed(2)}
                               disabled={rowSaving}
                               onChange={(e) => {

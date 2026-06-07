@@ -28,7 +28,7 @@ Receiving does not post stock until the final post action succeeds.
 
 1. Open Receive Stock from the correct vendor paperwork.
 2. Confirm the vendor, stage, warnings, and line items.
-3. For a direct invoice, search or scan items into the invoice, then confirm quantity, unit cost, and retail.
+3. Search or scan any extra vendor invoice items that arrived with the shipment, then confirm quantity, unit cost, and retail before adding the line.
 4. If the scanned item is not in the catalog, use **Quick Add Item** to create the vendor-linked SKU and return it to the invoice line entry.
 5. Enter received quantities, invoice number, and freight.
 6. Post receiving once the count is correct.
@@ -39,7 +39,7 @@ Open Receive Stock from a purchase order or ready vendor paperwork. Confirm the 
 
 If paperwork cannot load, the drawer shows a recovery state with a retry action. The message confirms that receiving has not posted, so staff can retry or close safely.
 
-For direct invoices, the item-entry strip appears above the receiving table. Search by product name, SKU, or scanner input, confirm the current cost and retail, then add the line. Added invoice lines stage their received quantity but still do not change live inventory until **Post Receipt** succeeds.
+The item-entry strip appears above the receiving table for open receiving documents. Search by product name, SKU, or scanner input, confirm the current cost and retail, then add the line. Use it when a vendor shipment includes extra non-PO items on the invoice. Added invoice lines stage their received quantity but still do not change live inventory until **Post Receipt** succeeds.
 
 Use **Quick Add Item** when paperwork contains a SKU that does not exist yet. Riverside OS creates the catalog item for the current vendor with zero starting stock, selects it for the invoice, and leaves stock unchanged until the receipt posts.
 
@@ -56,6 +56,8 @@ Optional ROSIE receiving insight appears below those facts and should only expla
 Enter received quantities carefully. Review warnings before posting, especially when quantities do not match the vendor paperwork.
 
 Before posting, unreceived lines can be corrected for ordered quantity and invoice unit cost. Once **Post Receipt** succeeds, those inventory and accounting records are history; use stock correction or vendor return workflows instead of editing the posted receipt.
+
+Unit cost and freight fields accept typed decimal amounts from the invoice paperwork. Enter the exact invoice cost before posting.
 
 ## Stale paperwork
 

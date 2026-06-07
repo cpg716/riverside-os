@@ -12,6 +12,7 @@ import PhysicalInventoryWorkspace from "./PhysicalInventoryWorkspace";
 import DiscountEventsPanel from "./DiscountEventsPanel";
 import { MaintenanceLedgerPanel } from "./MaintenanceLedgerPanel";
 import IntelligencePanel from "./IntelligencePanel";
+import InventoryReportsPanel from "./InventoryReportsPanel";
 import DashboardStatsCard from "../ui/DashboardStatsCard";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -39,6 +40,7 @@ type InventorySection =
   | "physical"
   | "damaged"
   | "rtv"
+  | "reports"
   | "intelligence";
 
 interface InventoryWorkspaceProps {
@@ -121,6 +123,11 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string; 
     subtitle: "Review stock sent back for vendor credits and claims.",
     toolLabel: "Vendor Return History",
   },
+  reports: {
+    title: "Inventory Reports",
+    subtitle: "Search historical PO, invoice, and receiving reports.",
+    toolLabel: "Reports",
+  },
   intelligence: {
     title: "Order Stock",
     subtitle: "Review reorder and markdown suggestions with plain-language reasons.",
@@ -171,6 +178,12 @@ const INVENTORY_JOBS: InventoryJob[] = [
     description: "Review correction history; start one-off count fixes from Find Item.",
     primarySection: "damaged",
     sections: ["damaged", "rtv"],
+  },
+  {
+    label: "Reports",
+    description: "Search and reprint historical PO, invoice, and receiving reports.",
+    primarySection: "reports",
+    sections: ["reports"],
   },
   {
     label: "Physical Inventory",
@@ -410,6 +423,7 @@ export default function InventoryWorkspace({
       "physical",
       "damaged",
       "rtv",
+      "reports",
       "intelligence",
     ];
     if (activeSection && valid.includes(activeSection as InventorySection)) {
@@ -642,6 +656,7 @@ export default function InventoryWorkspace({
              {!isPosSurface && section === "physical" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><PhysicalInventoryWorkspace /></div>}
              {!isPosSurface && section === "damaged" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><MaintenanceLedgerPanel type="damaged" /></div>}
              {!isPosSurface && section === "rtv" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><MaintenanceLedgerPanel type="return_to_vendor" /></div>}
+             {!isPosSurface && section === "reports" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><InventoryReportsPanel /></div>}
              {!isPosSurface && section === "intelligence" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><IntelligencePanel /></div>}
           </div>
         </div>

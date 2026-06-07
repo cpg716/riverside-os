@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, patch, post},
@@ -158,9 +158,13 @@ async fn load_editable_po_context(
     .await?
     .ok_or(PurchaseOrderError::NotFound)?;
 
-    if context.status != "draft" {
+    if !matches!(
+        context.status.as_str(),
+        "draft" | "submitted" | "partially_received"
+    ) {
         return Err(PurchaseOrderError::InvalidPayload(
-            "purchase order lines can only be changed while the document is in draft".to_string(),
+            "purchase order lines can only be changed before the document is closed or cancelled"
+                .to_string(),
         ));
     }
 
@@ -175,6 +179,7 @@ async fn validate_po_line_vendor_linkage(
     #[derive(Debug, FromRow)]
     struct VariantVendorRow {
         sku: String,
+        product_id: Uuid,
         primary_vendor_id: Option<Uuid>,
         primary_vendor_name: Option<String>,
     }
@@ -183,6 +188,7 @@ async fn validate_po_line_vendor_linkage(
         r#"
         SELECT
             pv.sku,
+            p.id AS product_id,
             p.primary_vendor_id,
             v.name AS primary_vendor_name
         FROM product_variants pv
@@ -197,9 +203,23 @@ async fn validate_po_line_vendor_linkage(
     .ok_or_else(|| PurchaseOrderError::InvalidPayload("variant_id not found".to_string()))?;
 
     if let Some(primary_vendor_id) = variant.primary_vendor_id {
-        if primary_vendor_id != vendor_id {
+        let is_secondary_vendor: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM product_secondary_vendors
+                WHERE product_id = $1
+                  AND vendor_id = $2
+            )
+            "#,
+        )
+        .bind(variant.product_id)
+        .bind(vendor_id)
+        .fetch_one(pool)
+        .await?;
+        if primary_vendor_id != vendor_id && !is_secondary_vendor {
             let mut message = format!(
-                "sku {} is linked to a different primary vendor",
+                "sku {} is linked to a different primary or secondary vendor",
                 variant.sku.trim()
             );
             if let Some(name) = variant
@@ -264,10 +284,30 @@ pub struct CreateDirectInvoiceRequest {
     pub vendor_id: Uuid,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ReorderSuggestionsQuery {
+    pub vendor_id: Uuid,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct ReorderSuggestion {
+    pub variant_id: Uuid,
+    pub sku: String,
+    pub product_name: String,
+    pub variation_label: Option<String>,
+    pub available_stock: i32,
+    pub reorder_point: i32,
+    pub qty_on_order: i32,
+    pub suggested_quantity: i32,
+    pub unit_cost: Decimal,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_purchase_orders).post(create_draft_po))
         .route("/direct-invoice", post(create_direct_invoice_draft))
+        .route("/reorder-suggestions", get(list_reorder_suggestions))
+        .route("/receiving-events", get(list_receiving_events))
         .route(
             "/receiving-events/{event_id}",
             get(get_receiving_event_detail),
@@ -381,6 +421,58 @@ async fn create_direct_invoice_draft(
     .await?;
 
     Ok(Json(po))
+}
+
+async fn list_reorder_suggestions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ReorderSuggestionsQuery>,
+) -> Result<Json<Vec<ReorderSuggestion>>, PurchaseOrderError> {
+    require_po(&state, &headers, PROCUREMENT_VIEW).await?;
+    ensure_active_vendor_exists(&state.db, query.vendor_id).await?;
+    let rows = sqlx::query_as::<_, ReorderSuggestion>(
+        r#"
+        WITH open_po AS (
+            SELECT
+                pol.variant_id,
+                COALESCE(SUM(pol.quantity_ordered - pol.quantity_received), 0)::int4 AS qty_on_order
+            FROM purchase_order_lines pol
+            INNER JOIN purchase_orders po ON po.id = pol.purchase_order_id
+            WHERE po.status IN ('submitted', 'partially_received')
+            GROUP BY pol.variant_id
+        )
+        SELECT
+            pv.id AS variant_id,
+            pv.sku,
+            p.name AS product_name,
+            pv.variation_label,
+            GREATEST(0, pv.stock_on_hand - pv.reserved_stock)::int4 AS available_stock,
+            pv.reorder_point,
+            COALESCE(open_po.qty_on_order, 0)::int4 AS qty_on_order,
+            GREATEST(
+                pv.reorder_point - GREATEST(0, pv.stock_on_hand - pv.reserved_stock) - COALESCE(open_po.qty_on_order, 0),
+                0
+            )::int4 AS suggested_quantity,
+            COALESCE(pv.cost_override, p.base_cost) AS unit_cost
+        FROM product_variants pv
+        INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN open_po ON open_po.variant_id = pv.id
+        WHERE p.is_active = TRUE
+          AND p.track_low_stock = TRUE
+          AND pv.track_low_stock = TRUE
+          AND p.primary_vendor_id = $1
+          AND GREATEST(
+                pv.reorder_point - GREATEST(0, pv.stock_on_hand - pv.reserved_stock) - COALESCE(open_po.qty_on_order, 0),
+                0
+              ) > 0
+        ORDER BY p.name, pv.sku
+        LIMIT 100
+        "#,
+    )
+    .bind(query.vendor_id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
 }
 
 async fn add_po_line(
@@ -678,7 +770,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_editable_po_context_rejects_non_draft_purchase_orders() {
+    async fn load_editable_po_context_rejects_cancelled_purchase_orders() {
         let pool = connect_test_db().await;
 
         let vendor_id = Uuid::new_v4();
@@ -691,7 +783,7 @@ mod tests {
             .expect("insert vendor");
 
         sqlx::query(
-            "INSERT INTO purchase_orders (id, po_number, vendor_id, status, po_kind) VALUES ($1, $2, $3, 'submitted', 'standard')",
+            "INSERT INTO purchase_orders (id, po_number, vendor_id, status, po_kind) VALUES ($1, $2, $3, 'cancelled', 'standard')",
         )
         .bind(po_id)
         .bind(format!("PO-CTX-{}", Uuid::new_v4().simple()))
@@ -703,7 +795,7 @@ mod tests {
         assert!(matches!(
             load_editable_po_context(&pool, po_id).await,
             Err(PurchaseOrderError::InvalidPayload(message))
-            if message == "purchase order lines can only be changed while the document is in draft"
+            if message == "purchase order lines can only be changed before the document is closed or cancelled"
         ));
     }
 
@@ -1506,6 +1598,81 @@ pub struct ReceivingEventSummary {
     pub received_by_name: Option<String>,
     pub total_units_received: i64,
     pub total_line_cost: Decimal,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReceivingEventsQuery {
+    pub vendor_id: Option<Uuid>,
+    pub q: Option<String>,
+    pub date_from: Option<String>,
+    pub date_to: Option<String>,
+}
+
+async fn list_receiving_events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ReceivingEventsQuery>,
+) -> Result<Json<Vec<ReceivingEventSummary>>, PurchaseOrderError> {
+    require_po(&state, &headers, PROCUREMENT_VIEW).await?;
+    let q = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let rows = sqlx::query_as::<_, ReceivingEventSummary>(
+        r#"
+        SELECT
+            re.id,
+            re.purchase_order_id,
+            po.po_number,
+            v.name AS vendor_name,
+            re.invoice_number,
+            re.freight_total,
+            re.received_at,
+            s.full_name AS received_by_name,
+            COALESCE(SUM(it.quantity_delta), 0)::bigint AS total_units_received,
+            COALESCE(SUM(it.unit_cost * it.quantity_delta), 0)::numeric(14,2) AS total_line_cost
+        FROM receiving_events re
+        INNER JOIN purchase_orders po ON po.id = re.purchase_order_id
+        INNER JOIN vendors v ON v.id = po.vendor_id
+        LEFT JOIN staff s ON s.id = re.received_by
+        LEFT JOIN inventory_transactions it
+            ON it.reference_table = 'receiving_events'
+           AND it.reference_id = re.id
+        WHERE ($1::uuid IS NULL OR po.vendor_id = $1)
+          AND ($2::timestamptz IS NULL OR re.received_at >= $2::timestamptz)
+          AND ($3::timestamptz IS NULL OR re.received_at < ($3::date + INTERVAL '1 day'))
+          AND (
+              $4::text IS NULL
+              OR po.po_number ILIKE '%' || $4 || '%'
+              OR re.invoice_number ILIKE '%' || $4 || '%'
+              OR v.name ILIKE '%' || $4 || '%'
+              OR EXISTS (
+                  SELECT 1
+                  FROM inventory_transactions it2
+                  INNER JOIN product_variants pv ON pv.id = it2.variant_id
+                  INNER JOIN products p ON p.id = pv.product_id
+                  WHERE it2.reference_table = 'receiving_events'
+                    AND it2.reference_id = re.id
+                    AND (
+                        pv.sku ILIKE '%' || $4 || '%'
+                        OR p.name ILIKE '%' || $4 || '%'
+                    )
+              )
+          )
+        GROUP BY re.id, po.po_number, po.vendor_id, v.name, s.full_name
+        ORDER BY re.received_at DESC
+        LIMIT 250
+        "#,
+    )
+    .bind(query.vendor_id)
+    .bind(query.date_from)
+    .bind(query.date_to)
+    .bind(q)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
 }
 
 async fn list_receiving_history(

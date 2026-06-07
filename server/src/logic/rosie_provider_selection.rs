@@ -7,13 +7,16 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::logic::rosie_gemini::GeminiClient;
-use crate::logic::rosie_provider::{GeminiProvider, LocalGemmaProvider, RosieLLMProvider};
+use crate::logic::rosie_provider::{
+    GeminiProvider, LocalGemmaProvider, OpenAiProvider, RosieLLMProvider,
+};
 
 /// Provider selection mode
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RosieProviderMode {
     LocalGemma,
     GeminiApi,
+    OpenAiApi,
     Auto,
 }
 
@@ -28,8 +31,20 @@ impl RosieProviderMode {
         match s.to_lowercase().as_str() {
             "local" | "local-gemma" => RosieProviderMode::LocalGemma,
             "gemini" | "gemini-api" => RosieProviderMode::GeminiApi,
+            "openai" | "openai-api" | "cloud-openai" | "cloud_openai" => {
+                RosieProviderMode::OpenAiApi
+            }
             "auto" => RosieProviderMode::Auto,
             _ => RosieProviderMode::LocalGemma,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RosieProviderMode::LocalGemma => "local",
+            RosieProviderMode::GeminiApi => "gemini",
+            RosieProviderMode::OpenAiApi => "openai",
+            RosieProviderMode::Auto => "auto",
         }
     }
 }
@@ -40,6 +55,8 @@ pub struct RosieProviderConfig {
     pub mode: RosieProviderMode,
     pub force_local_for_sensitive: bool,
     pub gemini_api_key: Option<String>,
+    pub openai_api_key: Option<String>,
+    pub preferred_cloud_provider: Option<RosieProviderMode>,
 }
 
 impl Default for RosieProviderConfig {
@@ -52,6 +69,16 @@ impl Default for RosieProviderConfig {
                 .map(|s| s.to_lowercase() == "true")
                 .unwrap_or(true),
             gemini_api_key: std::env::var("GEMINI_API_KEY").ok(),
+            openai_api_key: std::env::var("OPENAI_API_KEY").ok(),
+            preferred_cloud_provider: std::env::var("ROSIE_CLOUD_PROVIDER")
+                .ok()
+                .map(|value| RosieProviderMode::from_str(&value))
+                .filter(|mode| {
+                    matches!(
+                        mode,
+                        RosieProviderMode::GeminiApi | RosieProviderMode::OpenAiApi
+                    )
+                }),
         }
     }
 }
@@ -77,15 +104,33 @@ pub async fn select_llm_provider(
         }
         RosieProviderMode::GeminiApi => {
             tracing::info!("Using Gemini API provider (forced by configuration)");
-            GeminiProvider::from_env()
-                .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
-                .or_else(|_| {
-                    tracing::warn!("Gemini API provider unavailable, using local Gemma");
-                    LocalGemmaProvider::from_env().map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
-                })
+            GeminiProvider::from_env().map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
+        }
+        RosieProviderMode::OpenAiApi => {
+            tracing::info!("Using OpenAI API provider (forced by configuration)");
+            OpenAiProvider::from_env().map(|p| Box::new(p) as Box<dyn RosieLLMProvider>)
         }
         RosieProviderMode::Auto => {
             // Auto selection logic
+            if config.preferred_cloud_provider == Some(RosieProviderMode::OpenAiApi) {
+                if config.force_local_for_sensitive && query_type == QueryType::Sensitive {
+                    tracing::info!("Auto mode forced local provider for sensitive query");
+                } else {
+                    tracing::info!("Auto-selected OpenAI API provider from ROSIE_CLOUD_PROVIDER");
+                    return OpenAiProvider::from_env()
+                        .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>);
+                }
+            }
+            if config.preferred_cloud_provider == Some(RosieProviderMode::GeminiApi) {
+                if config.force_local_for_sensitive && query_type == QueryType::Sensitive {
+                    tracing::info!("Auto mode forced local provider for sensitive query");
+                } else {
+                    tracing::info!("Auto-selected Gemini API provider from ROSIE_CLOUD_PROVIDER");
+                    return GeminiProvider::from_env()
+                        .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>);
+                }
+            }
+
             let use_gemini = should_use_gemini(config, &query_type).await;
 
             if use_gemini {
@@ -205,6 +250,14 @@ mod tests {
             RosieProviderMode::from_str("gemini"),
             RosieProviderMode::GeminiApi
         );
+        assert_eq!(
+            RosieProviderMode::from_str("openai"),
+            RosieProviderMode::OpenAiApi
+        );
+        assert_eq!(
+            RosieProviderMode::from_str("cloud_openai"),
+            RosieProviderMode::OpenAiApi
+        );
         assert_eq!(RosieProviderMode::from_str("auto"), RosieProviderMode::Auto);
         assert_eq!(
             RosieProviderMode::from_str("unknown"),
@@ -214,8 +267,59 @@ mod tests {
 
     #[test]
     fn test_provider_config_default() {
+        std::env::remove_var("ROSIE_PROVIDER_MODE");
         let config = RosieProviderConfig::default();
         assert_eq!(config.mode, RosieProviderMode::LocalGemma);
         assert!(config.force_local_for_sensitive);
+    }
+
+    #[tokio::test]
+    async fn explicit_openai_provider_fails_without_openai_key() {
+        std::env::set_var("ROSIE_PROVIDER_MODE", "openai");
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("RIVERSIDE_LLAMA_UPSTREAM");
+
+        let config = RosieProviderConfig::default();
+        let result = select_llm_provider(&config, QueryType::Conversation).await;
+
+        match result {
+            Err(error) => assert!(error.contains("OPENAI_API_KEY")),
+            Ok(_) => panic!("OpenAI provider should fail without OPENAI_API_KEY"),
+        }
+        std::env::remove_var("ROSIE_PROVIDER_MODE");
+    }
+
+    #[tokio::test]
+    async fn explicit_gemini_provider_fails_without_gemini_key() {
+        std::env::set_var("ROSIE_PROVIDER_MODE", "gemini");
+        std::env::remove_var("GEMINI_API_KEY");
+        std::env::remove_var("RIVERSIDE_LLAMA_UPSTREAM");
+
+        let config = RosieProviderConfig::default();
+        let result = select_llm_provider(&config, QueryType::Conversation).await;
+
+        match result {
+            Err(error) => assert!(error.contains("GEMINI_API_KEY")),
+            Ok(_) => panic!("Gemini provider should fail without GEMINI_API_KEY"),
+        }
+        std::env::remove_var("ROSIE_PROVIDER_MODE");
+    }
+
+    #[tokio::test]
+    async fn auto_with_openai_preference_fails_closed_without_key() {
+        std::env::set_var("ROSIE_PROVIDER_MODE", "auto");
+        std::env::set_var("ROSIE_CLOUD_PROVIDER", "openai");
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("RIVERSIDE_LLAMA_UPSTREAM");
+
+        let config = RosieProviderConfig::default();
+        let result = select_llm_provider(&config, QueryType::Conversation).await;
+
+        match result {
+            Err(error) => assert!(error.contains("OPENAI_API_KEY")),
+            Ok(_) => panic!("OpenAI auto preference should fail without OPENAI_API_KEY"),
+        }
+        std::env::remove_var("ROSIE_PROVIDER_MODE");
+        std::env::remove_var("ROSIE_CLOUD_PROVIDER");
     }
 }

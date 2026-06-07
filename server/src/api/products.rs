@@ -582,6 +582,7 @@ pub struct PatchProductModelRequest {
     pub primary_vendor_id: Option<Uuid>,
     #[serde(default)]
     pub clear_primary_vendor_id: bool,
+    pub secondary_vendor_ids: Option<Vec<Uuid>>,
     pub audit_source: Option<String>,
     pub audit_note: Option<String>,
     pub audit_confidence: Option<f64>,
@@ -712,6 +713,8 @@ pub struct ProductHubProductRow {
     primary_vendor_id: Option<Uuid>,
     primary_vendor_name: Option<String>,
     primary_vendor_code: Option<String>,
+    #[sqlx(json)]
+    secondary_vendors: serde_json::Value,
     track_low_stock: bool,
     employee_markup_percent: Option<Decimal>,
     employee_extra_amount: Decimal,
@@ -1847,6 +1850,7 @@ async fn patch_product_model(
     let mut employee_extra_value: Option<Decimal> = None;
     let mut set_primary_vendor = false;
     let mut primary_vendor_value: Option<Uuid> = None;
+    let mut secondary_vendor_values: Option<Vec<Uuid>> = None;
     let mut set_is_bundle = false;
     let mut is_bundle_value = false;
     let mut set_track_low_stock = false;
@@ -2044,6 +2048,37 @@ async fn patch_product_model(
         n += 1;
     }
 
+    if let Some(ids) = &body.secondary_vendor_ids {
+        use std::collections::HashSet;
+        let mut seen = HashSet::new();
+        let mut normalized = Vec::new();
+        for id in ids {
+            if body.primary_vendor_id == Some(*id) {
+                return Err(ProductError::InvalidPayload(
+                    "secondary_vendor_ids cannot include the primary vendor".to_string(),
+                ));
+            }
+            if seen.insert(*id) {
+                normalized.push(*id);
+            }
+        }
+        if !normalized.is_empty() {
+            let active_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::bigint FROM vendors WHERE id = ANY($1) AND is_active = TRUE",
+            )
+            .bind(&normalized)
+            .fetch_one(&state.db)
+            .await?;
+            if active_count != normalized.len() as i64 {
+                return Err(ProductError::InvalidPayload(
+                    "one or more secondary_vendor_ids are inactive or missing".to_string(),
+                ));
+            }
+        }
+        secondary_vendor_values = Some(normalized);
+        n += 1;
+    }
+
     if let Some(ib) = body.is_bundle {
         set_is_bundle = true;
         is_bundle_value = ib;
@@ -2176,6 +2211,26 @@ async fn patch_product_model(
     .bind(product_id)
     .execute(&mut *tx)
     .await?;
+
+    if let Some(ids) = secondary_vendor_values {
+        sqlx::query("DELETE FROM product_secondary_vendors WHERE product_id = $1")
+            .bind(product_id)
+            .execute(&mut *tx)
+            .await?;
+        for vendor_id in ids {
+            sqlx::query(
+                r#"
+                INSERT INTO product_secondary_vendors (product_id, vendor_id)
+                VALUES ($1, $2)
+                ON CONFLICT DO NOTHING
+                "#,
+            )
+            .bind(product_id)
+            .bind(vendor_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
 
     #[derive(Debug, Serialize, FromRow)]
     struct PriceChangeAffectedVariant {
@@ -2855,6 +2910,19 @@ async fn fetch_product_hub(
             p.primary_vendor_id,
             v_primary.name AS primary_vendor_name,
             v_primary.vendor_code AS primary_vendor_code,
+            COALESCE(
+                (
+                    SELECT jsonb_agg(
+                        jsonb_build_object('id', v_secondary.id, 'name', v_secondary.name)
+                        ORDER BY v_secondary.name
+                    )
+                    FROM product_secondary_vendors psv
+                    INNER JOIN vendors v_secondary ON v_secondary.id = psv.vendor_id
+                    WHERE psv.product_id = p.id
+                      AND v_secondary.is_active = TRUE
+                ),
+                '[]'::jsonb
+            ) AS secondary_vendors,
             p.track_low_stock,
             p.employee_markup_percent,
             COALESCE(p.employee_extra_amount, 0::numeric) AS employee_extra_amount,

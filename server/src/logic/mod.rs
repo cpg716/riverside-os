@@ -75,6 +75,7 @@ pub mod remote_access;
 pub mod report_basis;
 pub mod rosie_gemini;
 pub mod rosie_intelligence;
+pub mod rosie_openai;
 pub mod rosie_provider;
 pub mod rosie_provider_selection;
 pub mod rosie_speech;
