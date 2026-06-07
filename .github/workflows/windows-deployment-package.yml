@@ -415,6 +415,11 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
+          name: deployment-manager-bundle
+          path: target/release/bundle/
+
+      - uses: actions/upload-artifact@v4
+        with:
           name: deployment-manager-updater-dist
           path: deployment/manager-app/updater-dist/
 
@@ -544,6 +549,11 @@ jobs:
         with:
           name: server-manager-binary
           path: target/release/ros-server-manager.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-manager-bundle
+          path: deployment/server-manager-app/src-tauri/target/release/bundle/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -747,11 +757,23 @@ jobs:
           name: deployment-manager-binary
           path: target/release
 
+      - name: Download deployment manager bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-manager-bundle
+          path: target/release/deployment-manager-bundle
+
       - name: Download server manager binary
         uses: actions/download-artifact@v4
         with:
           name: server-manager-binary
           path: target/release
+
+      - name: Download server manager bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: server-manager-bundle
+          path: target/release/server-manager-bundle
 
       - name: Download bridge GUI bundle
         uses: actions/download-artifact@v4
@@ -789,7 +811,9 @@ jobs:
             -RegisterBundlePath ".\target\release\bundle" `
             -UpdaterDistPath ".\client\updater-dist" `
             -ManagerBinaryPath ".\target\release\riverside-deployment-manager.exe" `
-            -ServerManagerBinaryPath ".\target\release\ros-server-manager.exe"
+            -ServerManagerBinaryPath ".\target\release\ros-server-manager.exe" `
+            -ManagerBundlePath ".\target\release\deployment-manager-bundle" `
+            -ServerManagerBundlePath ".\target\release\server-manager-bundle"
           Get-ChildItem dist/deployment/*.zip | ForEach-Object {
             "Deployment package: $($_.Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
           }
@@ -851,6 +875,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw "Failed to upload standalone updater assets to release $tag"
             }
+          }
+          $deploymentAppFiles = Get-ChildItem -Path "target/release/deployment-manager-bundle","target/release/server-manager-bundle" -Include "*.msi","*.exe" -Recurse -ErrorAction SilentlyContinue
+          if ($deploymentAppFiles) {
+            gh release upload $tag $deploymentAppFiles.FullName --clobber
           }
           $bridgeGuiFiles = Get-ChildItem -Path "target/release/bundle" -Include "*.msi","*.exe" -Recurse -ErrorAction SilentlyContinue
           if ($bridgeGuiFiles) {

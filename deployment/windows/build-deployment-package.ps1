@@ -8,6 +8,8 @@ param(
   [string]$UpdaterDistPath = "$PSScriptRoot\..\..\client\updater-dist",
   [string]$ManagerBinaryPath = "$PSScriptRoot\..\..\target\release\riverside-deployment-manager.exe",
   [string]$ServerManagerBinaryPath = "$PSScriptRoot\..\..\target\release\ros-server-manager.exe",
+  [string]$ManagerBundlePath = "$PSScriptRoot\..\..\target\release\deployment-manager-bundle",
+  [string]$ServerManagerBundlePath = "$PSScriptRoot\..\..\target\release\server-manager-bundle",
   [switch]$AllowMissingRegisterBundle,
   [switch]$AllowMissingManagerBinary,
   [switch]$AllowMissingServerManagerBinary
@@ -73,6 +75,57 @@ function Invoke-DownloadFile([string]$Url, [string]$OutFile, [string]$Label) {
   } finally {
     $client.Dispose()
   }
+}
+
+function Add-RosieHfFiles(
+  [string]$PackageRoot,
+  [string]$Repo,
+  [string]$TargetSubdir,
+  [string[]]$Files
+) {
+  $destRoot = Join-Path $PackageRoot $TargetSubdir
+  New-Item -ItemType Directory -Force -Path $destRoot | Out-Null
+
+  foreach ($file in $Files) {
+    $dest = Join-Path $destRoot $file
+    $destParent = Split-Path $dest -Parent
+    if (-not (Test-Path $destParent)) {
+      New-Item -ItemType Directory -Force -Path $destParent | Out-Null
+    }
+    $url = "https://huggingface.co/$Repo/resolve/main/$file"
+    Invoke-DownloadFile $url $dest $file
+  }
+}
+
+function Add-RosieVoiceModels([string]$PackageRoot) {
+  Add-RosieHfFiles `
+    -PackageRoot $PackageRoot `
+    -Repo "chris-cao/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17" `
+    -TargetSubdir "rosie\stt\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17" `
+    -Files @("model.int8.onnx", "tokens.txt")
+
+  Add-RosieHfFiles `
+    -PackageRoot $PackageRoot `
+    -Repo "csukuangfj/kokoro-multi-lang-v1_0" `
+    -TargetSubdir "rosie\tts\kokoro-multi-lang-v1_0" `
+    -Files @(
+      "model.onnx",
+      "voices.bin",
+      "tokens.txt",
+      "espeak-ng-data/afrikaans_dict",
+      "espeak-ng-data/en_dict",
+      "espeak-ng-data/phontab",
+      "espeak-ng-data/phonindex",
+      "espeak-ng-data/phondata",
+      "espeak-ng-data/intonations",
+      "espeak-ng-data/lang/en/en",
+      "espeak-ng-data/lang/en/en-us",
+      "espeak-ng-data/lang/es/es",
+      "espeak-ng-data/lang/fr/fr",
+      "espeak-ng-data/lang/de/de"
+    )
+
+  Write-Host "Packaged ROSIE STT/TTS model files"
 }
 
 function Add-RosieSherpaBinaries([string]$PackageRoot) {
@@ -163,6 +216,8 @@ New-Item -ItemType Directory -Force -Path "$packageRoot\register" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\updater" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\docs" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\release-docs" | Out-Null
+New-Item -ItemType Directory -Force -Path "$packageRoot\deployment-app" | Out-Null
+New-Item -ItemType Directory -Force -Path "$packageRoot\server-manager-app" | Out-Null
 
 Copy-Item "$PSScriptRoot\install-server.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\install-register.ps1" $packageRoot -Force
@@ -187,6 +242,8 @@ Copy-Item "$PSScriptRoot\remove-main-hub.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\remove-standalone-app.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Export-IntegrationCredentials.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Import-IntegrationCredentials.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Install-ROSDeploymentApps.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Install-ROSDeploymentApps.cmd" $packageRoot -Force
 
 # Include encrypted integration credentials if they were exported and committed
 $integrationCredsSource = Join-Path $repoRoot "integration-credentials.sql"
@@ -202,6 +259,14 @@ if (Test-Path $ManagerBinaryPath) {
 if (Test-Path $ServerManagerBinaryPath) {
   Copy-Item $ServerManagerBinaryPath "$packageRoot\ROS-ServerManager.exe" -Force
   Write-Host "Packaged ROS-ServerManager.exe"
+}
+if (Test-Path $ManagerBundlePath) {
+  Copy-Item "$ManagerBundlePath\*" "$packageRoot\deployment-app" -Recurse -Force
+  Write-Host "Packaged Deployment Manager installer bundle"
+}
+if (Test-Path $ServerManagerBundlePath) {
+  Copy-Item "$ServerManagerBundlePath\*" "$packageRoot\server-manager-app" -Recurse -Force
+  Write-Host "Packaged ROS Server Manager installer bundle"
 }
 Copy-Item "$PSScriptRoot\riverside-deployment.config.example.json" $packageRoot -Force
 Copy-Item $ServerBinaryPath "$packageRoot\server\riverside-server.exe" -Force
@@ -234,6 +299,7 @@ if (Test-Path $llamaSourceExe) {
   Write-Warning "client/src-tauri/binaries/llama-server-x86_64-pc-windows-msvc.exe not found; Install-RosieAiStack.ps1 will download the pinned llama.cpp runtime during online install."
 }
 Add-RosieSherpaBinaries $packageRoot
+Add-RosieVoiceModels $packageRoot
 
 Copy-Item "$PSScriptRoot\start-riverside-llama.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideLlama.cmd" $packageRoot -Force
@@ -287,8 +353,9 @@ if (Test-Path $UpdaterDistPath) {
 
 $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "`nPackage build: $gitShort`n" +
-  "`n1. Double-click Start-RiversideDeployment.cmd.`n" +
-  "2. Choose Main Hub, Register #1, or Back Office Workstation.`n" +
+  "`n1. Double-click Install-ROSDeploymentApps.cmd to install the Deployment Manager, ROS Server Manager, or both.`n" +
+  "2. Open Riverside OS Deployment Manager from Start, or double-click Start-RiversideDeployment.cmd as the fallback launcher.`n" +
+  "3. Choose Main Hub, Register #1, or Back Office Workstation.`n" +
   "3. Click Check, then Install, Update, Repair, or Uninstall.`n" +
   "4. Use ROS-ServerManager.exe for local server health, repairs, cleanup, and recovery when the Riverside app cannot load.`n" +
   "`nThe Deployment Manager writes riverside-deployment.config.json for you and runs`n" +

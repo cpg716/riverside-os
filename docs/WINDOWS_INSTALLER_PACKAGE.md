@@ -6,7 +6,7 @@ This package is the guided deployment path for the in-store Windows machines:
 - **Standalone App — Register #1**: Riverside desktop app, station API base, printer target, and cash drawer setting. No server or database.
 - **Standalone App — Back Office**: Riverside desktop app, station API base, and optional printer targets. No server or database.
 
-The primary entry point is **`Start-RiversideDeployment.cmd`**. It opens the Riverside OS Deployment Manager so the installer can be run by choosing the station role, checking readiness, and clicking install. The package still keeps a readable JSON config next to the installers for support fallback.
+The normal entry point is **`Install-ROSDeploymentApps.cmd`**. It installs the Riverside OS Deployment Manager, ROS Server Manager, or both as standard Windows apps so they can be launched from Start and updated through their in-app updater channels. **`Start-RiversideDeployment.cmd`** remains in the package as a support fallback launcher.
 
 ## Package layout
 
@@ -16,6 +16,8 @@ Build output:
 RiversideOS-v0.80.9-Windows-Deployment/
   Start-RiversideDeployment.cmd
   Start-RiversideDeployment.ps1
+  Install-ROSDeploymentApps.cmd
+  Install-ROSDeploymentApps.ps1
   install-server.ps1
   install-register.ps1
   remove-main-hub.ps1
@@ -29,6 +31,11 @@ RiversideOS-v0.80.9-Windows-Deployment/
   migrations/
   release-docs/
   register/
+  deployment-app/
+  server-manager-app/
+  rosie/bin/
+  rosie/stt/
+  rosie/tts/
   docs/
 ```
 
@@ -47,7 +54,7 @@ If the Tauri register bundle is coming from GitHub Actions instead of the local 
 Normal path:
 
 ```text
-Double-click Start-RiversideDeployment.cmd.
+Double-click Install-ROSDeploymentApps.cmd, install the Deployment Manager and/or ROS Server Manager, then launch Riverside OS Deployment Manager from Start.
 ```
 
 Then choose one of the three roles:
@@ -65,7 +72,7 @@ Click **Check**, then choose the action:
 
 The Deployment Manager writes `riverside-deployment.config.json` for the selected station role and runs the correct installer or removal script.
 
-The manager also writes `deployment-manager.log` next to the installer so support can review exactly what was checked or installed.
+The manager shows all command output in the full-width **Execution Output** console. Use **Copy Logs** to place the current log buffer on the clipboard for support. The release package also keeps logs under the installed `C:\RiversideOS\logs` path where applicable.
 
 ## Passwords and secrets
 
@@ -107,7 +114,7 @@ If Riverside Settings cannot open because the API is down, manage the server fro
 
 Hotfix/support actions included in v0.80.9 packages:
 
-- **`Install-RosieAiStack.cmd`** copies the precompiled ROSIE AI binaries (llama-server, sherpa-onnx) and models, verifies the Gemma GGUF model integrity, patches the server `.env` to make the local LLM reachable, and restarts the server. Use this to restore ROSIE AI features on existing Server PCs without a full reinstall.
+- **`Install-RosieAiStack.cmd`** copies the precompiled ROSIE AI binaries (llama-server, sherpa-onnx) and bundled STT/TTS model files, verifies the Gemma GGUF model integrity, patches the server `.env` to make the local LLM reachable, and restarts the server. Use this to restore ROSIE AI features on existing Server PCs without a full reinstall.
 - **`Repair-RiversideCredentialsKey.cmd`** repairs the installed server credential key, writes it to both `C:\RiversideOS\server\.env` and the Windows machine environment, and restarts the `Riverside OS Server` task. Use this when Backoffice Settings says `RIVERSIDE_CREDENTIALS_KEY` must be set before integration credentials can be saved.
 - **`Set-CounterpointBridgeToken.cmd`** prompts for the exact `COUNTERPOINT_SYNC_TOKEN` from the Counterpoint bridge `.env`, writes that same token to the Riverside server environment, and restarts the server. Use this when the Counterpoint bridge reaches Riverside but fails with `health 401`.
 
@@ -151,7 +158,7 @@ The script:
 - Copies bundled docs into `C:\RiversideOS\release\docs` for help/reindex workflows when enabled.
 - Creates/updates the PostgreSQL app role and database.
 - Applies pending migrations using `psql`.
-- Extracts precompiled ROSIE binaries (llama-server, sherpa-onnx-offline, sherpa-onnx-offline-tts) and models, and verifies the Gemma GGUF model hash (matching `MODEL_PIN.json`).
+- Extracts precompiled ROSIE binaries (llama-server, sherpa-onnx-offline, sherpa-onnx-offline-tts), copies bundled STT/TTS model files, and verifies the Gemma GGUF model hash (matching `MODEL_PIN.json`).
 - Writes `C:\RiversideOS\server\.env`.
 - Adds the inbound firewall rule for the configured server port.
 - Creates a startup scheduled task named `Riverside OS Server`.

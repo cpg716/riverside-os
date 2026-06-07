@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link, Download, Monitor, Square, AlertTriangle, Activity, HardDrive, XCircle } from 'lucide-react';
+import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link, Download, Monitor, Square, AlertTriangle, Activity, HardDrive, XCircle, Copy } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -18,6 +18,8 @@ interface PgStatus {
   psql_found: boolean;
   migration_count?: string;
   table_count?: string;
+  auth_status?: string;
+  auth_message?: string;
 }
 
 interface UpdateCheckResult {
@@ -70,6 +72,49 @@ export default function App() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
+  const logText = logs.map((log) => log.text).join('\n');
+
+  const copyLogs = async () => {
+    try {
+      await navigator.clipboard.writeText(logText);
+      setLogs(prev => [...prev, { level: 'success', text: 'Execution logs copied to clipboard.' }]);
+    } catch (e) {
+      setLogs(prev => [...prev, { level: 'error', text: `Could not copy logs: ${e}` }]);
+    }
+  };
+
+  const buildMainHubConfig = () => {
+    const newConfig = { ...config };
+    if (!newConfig.server) newConfig.server = {};
+    if (!newConfig.server.database) newConfig.server.database = {};
+    if (!newConfig.server.installRoot) newConfig.server.installRoot = 'C:\\RiversideOS';
+    if (!newConfig.server.httpBind) newConfig.server.httpBind = '0.0.0.0:3000';
+    if (!newConfig.server.firewallRuleName) newConfig.server.firewallRuleName = 'Riverside OS Server';
+    if (!newConfig.server.corsOrigins || !newConfig.server.corsOrigins.length) {
+      newConfig.server.corsOrigins = ['http://tauri.localhost', 'https://tauri.localhost'];
+    }
+    if (!newConfig.server.environment) {
+      newConfig.server.environment = {
+        RIVERSIDE_BACKUP_DIR: 'C:\\RiversideOS\\backups',
+        RIVERSIDE_REPO_ROOT: 'C:\\RiversideOS\\release',
+      };
+    }
+    newConfig.server.database.adminPassword = dbPassword;
+    if (!newConfig.server.database.host) newConfig.server.database.host = serverIp;
+    if (!newConfig.server.database.port) newConfig.server.database.port = 5432;
+    if (!newConfig.server.database.databaseName) newConfig.server.database.databaseName = 'riverside_os';
+    if (!newConfig.server.database.appUser) newConfig.server.database.appUser = 'riverside_app';
+    if (!newConfig.server.database.adminUser) newConfig.server.database.adminUser = 'postgres';
+    if (!newConfig.server.database.psqlPath) newConfig.server.database.psqlPath = '';
+    return newConfig;
+  };
+
+  const saveMainHubConfig = async () => {
+    const newConfig = buildMainHubConfig();
+    await invoke('write_deployment_config', { config: JSON.stringify(newConfig) });
+    setConfig(newConfig);
+  };
+
   const refreshPgStatus = useCallback(async () => {
     setPgLoading(true);
     try {
@@ -104,30 +149,7 @@ export default function App() {
   }, [refreshPgStatus]);
 
   const handleContinueToExec = async () => {
-    const newConfig = { ...config };
-    if (!newConfig.server) newConfig.server = {};
-    if (!newConfig.server.database) newConfig.server.database = {};
-    if (!newConfig.server.installRoot) newConfig.server.installRoot = 'C:\\RiversideOS';
-    if (!newConfig.server.httpBind) newConfig.server.httpBind = '0.0.0.0:3000';
-    if (!newConfig.server.firewallRuleName) newConfig.server.firewallRuleName = 'Riverside OS Server';
-    if (!newConfig.server.corsOrigins || !newConfig.server.corsOrigins.length) {
-      newConfig.server.corsOrigins = ['http://tauri.localhost', 'https://tauri.localhost'];
-    }
-    if (!newConfig.server.environment) {
-      newConfig.server.environment = {
-        RIVERSIDE_BACKUP_DIR: 'C:\\RiversideOS\\backups',
-        RIVERSIDE_REPO_ROOT: 'C:\\RiversideOS\\release',
-      };
-    }
-    newConfig.server.database.adminPassword = dbPassword;
-    if (!newConfig.server.database.host) newConfig.server.database.host = serverIp;
-    if (!newConfig.server.database.port) newConfig.server.database.port = 5432;
-    if (!newConfig.server.database.databaseName) newConfig.server.database.databaseName = 'riverside_os';
-    if (!newConfig.server.database.appUser) newConfig.server.database.appUser = 'riverside_app';
-    if (!newConfig.server.database.adminUser) newConfig.server.database.adminUser = 'postgres';
-    if (!newConfig.server.database.psqlPath) newConfig.server.database.psqlPath = '';
-
-    await invoke('write_deployment_config', { config: JSON.stringify(newConfig) });
+    await saveMainHubConfig();
     setStep(3);
     if (role === 'main-hub') {
       executeScript('install-server.ps1');
@@ -192,6 +214,8 @@ export default function App() {
     });
 
     try {
+      await saveMainHubConfig();
+      setLogs(prev => [...prev, { level: 'info', text: 'Saved Main Hub database settings for update.' }]);
       setLogs(prev => [...prev, { level: 'info', text: 'Executing install-server.ps1...' }]);
       await invoke('run_deployment_script', { scriptName: 'install-server.ps1', args: undefined });
       setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
@@ -441,26 +465,9 @@ export default function App() {
             )}
 
             {step === 3 && (
-              <div className="flex-1 flex flex-col">
-                <h2 className="text-xl font-bold mb-6">Installing Updates...</h2>
-                <div className="flex-1 bg-zinc-900 rounded-xl p-4 font-mono text-sm text-zinc-300 overflow-y-auto max-h-[350px]">
-                  <div className="flex items-center gap-2 mb-2 text-zinc-500">
-                    <Terminal className="w-4 h-4" /> Live Execution Logs
-                  </div>
-                  <div className="space-y-1 pb-4">
-                    {logs.map((log, i) => (
-                      <p key={i} className={`whitespace-pre-wrap ${
-                        log.level === 'error' ? 'text-red-400' :
-                        log.level === 'success' ? 'text-green-400' :
-                        'text-zinc-300'
-                      }`}>
-                        {log.text}
-                      </p>
-                    ))}
-                    {isExecuting && <p className="text-brand-400 animate-pulse">_</p>}
-                    <div ref={logsEndRef} />
-                  </div>
-                </div>
+              <div className="flex-1 flex flex-col justify-center">
+                <h2 className="text-xl font-bold mb-2">Installing Updates...</h2>
+                <p className="text-sm text-zinc-500">Follow progress in the full Execution Output console below.</p>
               </div>
             )}
 
@@ -663,6 +670,18 @@ export default function App() {
                               <span className="font-semibold">psql.exe not found — check PostgreSQL installation.</span>
                             </div>
                           )}
+                          {pgStatus.auth_message && (
+                            <div className={`col-span-2 flex items-center gap-2 py-1 ${
+                              pgStatus.auth_status === 'ok' ? 'text-green-600' : 'text-red-500'
+                            }`}>
+                              {pgStatus.auth_status === 'ok' ? (
+                                <CheckCircle className="w-4 h-4 shrink-0" />
+                              ) : (
+                                <AlertTriangle className="w-4 h-4 shrink-0" />
+                              )}
+                              <span className="font-semibold">{pgStatus.auth_message}</span>
+                            </div>
+                          )}
                         </div>
                         {/* PG Service control buttons */}
                         {pgStatus.service_name && (
@@ -703,6 +722,17 @@ export default function App() {
                   <Download className="w-5 h-5 text-brand-600" /> Updates & Setup
                 </h3>
                 <p className="text-xs text-zinc-500 mb-6">Install or update the software components running on this workstation.</p>
+                <div className="mb-4 max-w-md">
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">PostgreSQL Admin Password</label>
+                  <input
+                    type="password"
+                    value={dbPassword}
+                    onChange={(e) => setDbPassword(e.target.value)}
+                    placeholder="Required when PostgreSQL already exists"
+                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none"
+                  />
+                  <p className="mt-1 text-[11px] text-zinc-500">Saved before Main Hub update and used by status checks.</p>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                   <button
                     onClick={() => executeServerUpdate()}
@@ -1047,11 +1077,22 @@ export default function App() {
               <h3 className="font-bold text-zinc-800 text-lg flex items-center gap-2">
                 <Terminal className="w-5 h-5 text-brand-600" /> Execution Output
               </h3>
-              {isExecuting && (
-                <span className="flex items-center gap-2 text-xs font-semibold text-brand-600 bg-brand-50 px-2.5 py-1 rounded-md animate-pulse">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Running Task...
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {isExecuting && (
+                  <span className="flex items-center gap-2 text-xs font-semibold text-brand-600 bg-brand-50 px-2.5 py-1 rounded-md animate-pulse">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Running Task...
+                  </span>
+                )}
+                {logs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={copyLogs}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs bg-zinc-200 text-zinc-700 font-semibold rounded-lg hover:bg-zinc-300 transition-all"
+                  >
+                    <Copy className="w-3.5 h-3.5" /> Copy Logs
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex-1 bg-zinc-900 rounded-xl p-5 font-mono text-xs text-zinc-300 overflow-y-auto min-h-[350px] max-h-[600px] shadow-inner">
               {logs.length === 0 ? (
@@ -1075,7 +1116,7 @@ export default function App() {
               )}
             </div>
             {logs.length > 0 && !isExecuting && (
-              <div className="mt-4 flex justify-end">
+              <div className="mt-4 flex justify-end gap-2">
                 <button
                   onClick={() => setLogs([])}
                   className="px-5 py-2 text-sm bg-zinc-200 text-zinc-700 font-semibold rounded-lg hover:bg-zinc-300 transition-all"

@@ -96,9 +96,11 @@ $LLAMA_ZIP_NAME   = "llama-$LLAMA_VERSION-bin-win-cpu-x64.zip"
 $LLAMA_ZIP_URL    = "https://github.com/ggml-org/llama.cpp/releases/download/$LLAMA_VERSION/$LLAMA_ZIP_NAME"
 $LLAMA_ZIP_SHA256 = "78dde1e8805713d0a726e9603a2bb0a6c26aad77b4e667108233890652e41019"
 
-# SenseVoice Small (int8) - STT primary
+# SenseVoice Small (int8) - STT primary. The older csukuangfj 2024 repo now
+# returns 401 for unauthenticated downloads; use the public mirror with the
+# same model/tokens file shape.
 $STT_MODEL_DIR    = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-$STT_HF_REPO      = "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
+$STT_HF_REPO      = "chris-cao/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
 $STT_FILES        = @("model.int8.onnx", "tokens.txt")
 
 # Kokoro-82M multi-lang - TTS primary
@@ -146,6 +148,9 @@ function Invoke-Download([string]$Url, [string]$OutFile, [string]$Label, [int]$M
       if ($null -ne $webClient) { $webClient.Dispose() }
       $lastErr = $_.ToString()
       Write-Warning "      Download attempt $attempt/$MaxRetries failed: $lastErr"
+      if ($lastErr -match "401|Unauthorized|Invalid username or password") {
+        throw "Download failed for '$Label': Hugging Face rejected the request. Rebuild the deployment package with bundled ROSIE models, use a public model pin, or pass -HfToken/Set HF_TOKEN for authenticated models. $lastErr"
+      }
       if ($attempt -lt $MaxRetries) {
         $sleepSec = [math]::Pow(2, $attempt)  # 2s, 4s
         Write-Host "      Retrying in $sleepSec seconds..."

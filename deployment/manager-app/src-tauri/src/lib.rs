@@ -370,58 +370,80 @@ async fn open_logs() -> Result<(), String> {
 #[tauri::command]
 async fn get_postgres_status() -> Result<serde_json::Value, String> {
     let config_path = get_config_path();
-    let (db_host, db_port, db_name, db_user, db_password, psql_hint) = if config_path.exists() {
-        let raw = tokio::fs::read_to_string(&config_path)
-            .await
-            .unwrap_or_default();
-        let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
-        let db = v.get("server").and_then(|s| s.get("database"));
-        let host = db
-            .and_then(|d| d.get("host"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("127.0.0.1")
-            .to_string();
-        let port = db
-            .and_then(|d| d.get("port"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(5432);
-        let name = db
-            .and_then(|d| d.get("databaseName"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("riverside_os")
-            .to_string();
-        let user = db
-            .and_then(|d| d.get("adminUser"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("postgres")
-            .to_string();
-        let password = db
-            .and_then(|d| d.get("adminPassword"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let psql = db
-            .and_then(|d| d.get("psqlPath"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        (host, port, name, user, password, psql)
-    } else {
-        (
-            "127.0.0.1".into(),
-            5432,
-            "riverside_os".into(),
-            "postgres".into(),
-            String::new(),
-            String::new(),
-        )
-    };
+    let (db_host, db_port, db_name, db_user, db_password, app_user, app_password, psql_hint) =
+        if config_path.exists() {
+            let raw = tokio::fs::read_to_string(&config_path)
+                .await
+                .unwrap_or_default();
+            let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_default();
+            let db = v.get("server").and_then(|s| s.get("database"));
+            let host = db
+                .and_then(|d| d.get("host"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("127.0.0.1")
+                .to_string();
+            let port = db
+                .and_then(|d| d.get("port"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5432);
+            let name = db
+                .and_then(|d| d.get("databaseName"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("riverside_os")
+                .to_string();
+            let user = db
+                .and_then(|d| d.get("adminUser"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("postgres")
+                .to_string();
+            let password = db
+                .and_then(|d| d.get("adminPassword"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let app_user = db
+                .and_then(|d| d.get("appUser"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("riverside_app")
+                .to_string();
+            let app_password = db
+                .and_then(|d| d.get("appPassword"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let psql = db
+                .and_then(|d| d.get("psqlPath"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            (
+                host,
+                port,
+                name,
+                user,
+                password,
+                app_user,
+                app_password,
+                psql,
+            )
+        } else {
+            (
+                "127.0.0.1".into(),
+                5432,
+                "riverside_os".into(),
+                "postgres".into(),
+                String::new(),
+                "riverside_app".into(),
+                String::new(),
+                String::new(),
+            )
+        };
 
     // Build a single PowerShell script that outputs JSON.
     let ps_script = format!(
         r#"
 $ErrorActionPreference = 'SilentlyContinue'
-$out = @{{ service_status = 'not_found'; service_name = ''; connectable = $false; version = ''; db_exists = $false; db_size = '' }}
+$out = @{{ service_status = 'not_found'; service_name = ''; connectable = $false; version = ''; db_exists = $false; db_size = ''; auth_status = 'unknown'; auth_message = '' }}
 
 # 1. Windows service status
 $svc = Get-Service | Where-Object {{ $_.Name -like 'postgresql*' -or $_.DisplayName -like 'PostgreSQL*' }} | Sort-Object Name -Descending | Select-Object -First 1
@@ -445,36 +467,40 @@ $out['psql_found'] = [bool]($psqlPath -and (Test-Path $psqlPath))
 
 # 3. Connectivity + version
 if ($out['psql_found']) {{
+    $connectionUser = '{user}'
+    $connectionDb = 'postgres'
     $env:PGPASSWORD = '{password}'
-    $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-w' '-tAc' 'SELECT version();' 2>&1
-    if ($LASTEXITCODE -ne 0) {{
-        # Try empty/trust
-        $env:PGPASSWORD = ''
-        $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-w' '-tAc' 'SELECT version();' 2>&1
-        if ($LASTEXITCODE -ne 0) {{
-            # Try common passwords
-            foreach ($pwd in @('postgres', 'admin', 'password')) {{
-                $env:PGPASSWORD = $pwd
-                $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-w' '-tAc' 'SELECT version();' 2>&1
-                if ($LASTEXITCODE -eq 0) {{ break }}
-            }}
-        }}
+    $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' $connectionUser '-d' $connectionDb '-w' '-tAc' 'SELECT version();' 2>&1
+    if ($LASTEXITCODE -ne 0 -and -not [string]::IsNullOrWhiteSpace('{app_password}')) {{
+        $connectionUser = '{app_user}'
+        $connectionDb = '{db_name}'
+        $env:PGPASSWORD = '{app_password}'
+        $verResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' $connectionUser '-d' $connectionDb '-w' '-tAc' 'SELECT version();' 2>&1
     }}
     if ($LASTEXITCODE -eq 0 -and $verResult) {{
         $out.connectable = $true
+        $out.auth_status = 'ok'
+        $out.auth_message = 'Database credentials verified.'
         $out.version = ($verResult -join '').Trim()
+    }} else {{
+        $out.auth_status = 'failed'
+        $out.auth_message = 'PostgreSQL is running, but saved deployment credentials are missing or invalid.'
     }}
  
     # 4. DB existence + size
     if ($out.connectable) {{
-        $existsResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' 'postgres' '-w' '-tAc' "SELECT 1 FROM pg_database WHERE datname = '{db_name}';" 2>&1
-        $out.db_exists = (($existsResult -join '').Trim() -eq '1')
+        if ($connectionDb -eq '{db_name}') {{
+            $out.db_exists = $true
+        }} else {{
+            $existsResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' $connectionUser '-d' 'postgres' '-w' '-tAc' "SELECT 1 FROM pg_database WHERE datname = '{db_name}';" 2>&1
+            $out.db_exists = (($existsResult -join '').Trim() -eq '1')
+        }}
         if ($out.db_exists) {{
-            $sizeResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-w' '-tAc' "SELECT pg_size_pretty(pg_database_size(current_database()));" 2>&1
+            $sizeResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' $connectionUser '-d' '{db_name}' '-w' '-tAc' "SELECT pg_size_pretty(pg_database_size(current_database()));" 2>&1
             if ($LASTEXITCODE -eq 0) {{ $out.db_size = ($sizeResult -join '').Trim() }}
-            $migResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-w' '-tAc' "SELECT count(*) FROM _sqlx_migrations;" 2>&1
+            $migResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' $connectionUser '-d' '{db_name}' '-w' '-tAc' "SELECT count(*) FROM _sqlx_migrations;" 2>&1
             if ($LASTEXITCODE -eq 0) {{ $out['migration_count'] = ($migResult -join '').Trim() }}
-            $tableResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' '{user}' '-d' '{db_name}' '-w' '-tAc' "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>&1
+            $tableResult = & $psqlPath '-h' '{host}' '-p' '{port}' '-U' $connectionUser '-d' '{db_name}' '-w' '-tAc' "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>&1
             if ($LASTEXITCODE -eq 0) {{ $out['table_count'] = ($tableResult -join '').Trim() }}
         }}
     }}
@@ -485,6 +511,8 @@ $out | ConvertTo-Json -Compress
 "#,
         psql_hint = psql_hint.replace('\'', "''"),
         password = db_password.replace('\'', "''"),
+        app_user = app_user.replace('\'', "''"),
+        app_password = app_password.replace('\'', "''"),
         host = db_host,
         port = db_port,
         user = db_user,

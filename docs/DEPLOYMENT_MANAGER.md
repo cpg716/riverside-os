@@ -1,6 +1,6 @@
 # Riverside OS Deployment Manager Manual
 
-The **Riverside OS Deployment Manager** (`RiversideOS-Deployment-Manager.exe`) is the universal graphical hub for installing, updating, auditing, repairing, and resetting in-store Riverside OS workstations and server installations. 
+The **Riverside OS Deployment Manager** is the universal graphical hub for installing, updating, auditing, repairing, and resetting in-store Riverside OS workstations and server installations. Current Windows deployment packages include `Install-ROSDeploymentApps.cmd` so the Deployment Manager and ROS Server Manager can be installed as normal Windows apps before use.
 
 For day-to-day Server PC operations after installation, use the separate **ROS Server Manager** (`ROS-ServerManager.exe`). It runs locally, does not require the Riverside API to be online, and is focused on server health, repairs, cleanup, updates, and recovery. See [`ROS_SERVER_MANAGER.md`](ROS_SERVER_MANAGER.md).
 
@@ -25,7 +25,10 @@ Within the packaged Windows deployment ZIP, the files are structured as follows:
 ```text
 RiversideOS-v[Version]-Windows-Deployment/
   Start-RiversideDeployment.cmd          <-- Primary double-click launcher
+  Install-ROSDeploymentApps.cmd         <-- Installs Deployment Manager and/or ROS Server Manager
   RiversideOS-Deployment-Manager.exe     <-- Compiled Tauri GUI App
+  deployment-app/                        <-- Deployment Manager MSI/EXE installer bundle
+  server-manager-app/                    <-- ROS Server Manager MSI/EXE installer bundle
   Audit-System.cmd                       <-- Diagnostic double-click utility
   audit-system.ps1                       <-- Core pre-flight checking script
   install-server.ps1                     <-- Server installation logic (Main Hub)
@@ -70,7 +73,9 @@ The Deployment Manager supports **three distinct installation roles**. Choose ex
 
 To guarantee that local configuration writing, service registration, and network binding succeed, the Deployment Manager must run with administrator privileges.
 
-### Double-Click Entry Point
+### Installed-App Entry Point
+For normal use, first run **`Install-ROSDeploymentApps.cmd`** from the deployment package and install the Deployment Manager, ROS Server Manager, or both. After that, launch them from the Windows Start menu like standard applications. The legacy **`Start-RiversideDeployment.cmd`** launcher remains as a fallback when a package is being used directly from Downloads.
+
 When an operator double-clicks **`Start-RiversideDeployment.cmd`**, the script executes the following logic:
 1. Checks for the presence of **`RiversideOS-Deployment-Manager.exe`**.
 2. If found, it invokes a PowerShell script wrapper to trigger a User Account Control (UAC) prompt and run the executable elevated:
@@ -330,7 +335,7 @@ Downloads and configures the local AI copilot runtime into `C:\RiversideOS\rosie
 **Version pins** are defined at the top of the script — update the `$SHERPA_VERSION`, `$STT_MODEL_DIR`, and `$TTS_MODEL_DIR` variables to upgrade components.
 
 > [!NOTE]
-> Binaries and models are **never committed to the git repository**. The deployment ZIP may optionally pre-bundle them under `rosie\bin\`, `rosie\stt\`, and `rosie\tts\` for air-gapped installs. If absent, the installer downloads them automatically on first run.
+> Binaries and models are **never committed to the git repository**. Current deployment ZIPs pre-bundle `rosie\bin\`, `rosie\stt\`, and `rosie\tts\` so operators do not have to download voice models during install. If those package folders are missing, the installer attempts pinned downloads and fails with an explicit Hugging Face token/model-source message instead of looping through opaque 401 errors.
 
 ### Set Counterpoint Bridge Token (`set-counterpoint-bridge-token.ps1`)
 Generates or rotates the 48-character `COUNTERPOINT_SYNC_TOKEN` required to secure the bridge between Riverside OS and legacy NCR Counterpoint POS systems.
@@ -358,7 +363,7 @@ Logs are emitted asynchronously from Rust back to the Vite console using the `de
 
 ### GitHub Actions CI/CD Pipeline
 The deployment manager packaging is automated in two workflows:
-- **Windows**: `.github/workflows/windows-deployment-package.yml` — builds the full Windows deployment ZIP (server binary, client bundle, register updater, and Deployment Manager executable).
+- **Windows**: `.github/workflows/windows-deployment-package.yml` — builds the full Windows deployment ZIP (server binary, client bundle, register updater, Deployment Manager installer bundle, ROS Server Manager installer bundle, updater manifests, and bundled ROSIE voice models).
 - **macOS**: `.github/workflows/macos-ros-dev-center-release.yml` — builds a universal Apple Silicon / Intel DMG for the ROS Dev Center.
 
 Both pipelines utilize **`swatinem/rust-cache`** to cache downloaded Rust dependencies across runs. The Windows workspace builds three targets sequentially in one job:
