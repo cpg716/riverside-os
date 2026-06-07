@@ -1579,7 +1579,9 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     record_sync_status(pool, INDEX_ORDERS, true, n_orders as i64, None).await;
 
     // 7. Help
-    if let Err(e) = crate::logic::help_corpus::reindex_help_meilisearch(client).await {
+    if let Err(e) =
+        crate::logic::help_corpus::reindex_help_meilisearch_with_policies(client, pool).await
+    {
         tracing::warn!(error = %e, "Meilisearch help reindex failed (other indexes succeeded)");
         record_sync_status(pool, INDEX_HELP, false, 0, Some(&e.to_string())).await;
     } else {

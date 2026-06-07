@@ -3003,6 +3003,7 @@ async fn action_backup_trigger_local(pool: &PgPool) -> GuardedActionResult {
 
 async fn action_help_reindex_search(
     meilisearch: Option<&meilisearch_sdk::client::Client>,
+    pool: &PgPool,
 ) -> GuardedActionResult {
     let Some(client) = meilisearch else {
         return GuardedActionResult {
@@ -3012,7 +3013,7 @@ async fn action_help_reindex_search(
         };
     };
 
-    match help_corpus::reindex_help_meilisearch(client).await {
+    match help_corpus::reindex_help_meilisearch_with_policies(client, pool).await {
         Ok(_) => GuardedActionResult {
             ok: true,
             message: "Help search reindex completed".to_string(),
@@ -3165,7 +3166,7 @@ pub async fn run_guarded_action(
 ) -> GuardedActionResult {
     match action_key {
         "backup.trigger_local" => action_backup_trigger_local(pool).await,
-        "help.reindex_search" => action_help_reindex_search(meilisearch).await,
+        "help.reindex_search" => action_help_reindex_search(meilisearch, pool).await,
         "help.generate_manifest" => action_help_generate_manifest(payload).await,
         "ops.retention_cleanup" => action_ops_retention_cleanup(pool).await,
         "ops.restart_background_workers" => action_ops_restart_background_workers().await,

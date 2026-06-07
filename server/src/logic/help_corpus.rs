@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use meilisearch_sdk::client::Client;
 use meilisearch_sdk::client::SwapIndexes;
 use serde::Serialize;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::INDEX_HELP;
@@ -214,6 +215,78 @@ pub fn load_help_chunk_docs() -> Result<Vec<HelpChunkDoc>, std::io::Error> {
     Ok(all)
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct HelpManualIndexPolicyRow {
+    manual_id: String,
+    title_override: Option<String>,
+    markdown_override: Option<String>,
+}
+
+async fn load_index_policy_rows(
+    pool: &PgPool,
+) -> Result<HashMap<String, HelpManualIndexPolicyRow>, sqlx::Error> {
+    let rows: Vec<HelpManualIndexPolicyRow> = sqlx::query_as(
+        r#"
+        SELECT manual_id, title_override, markdown_override
+        FROM help_manual_policy
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.manual_id.clone(), row))
+        .collect())
+}
+
+/// Load and chunk the current staff-visible manual body source for indexing.
+///
+/// Bundled markdown remains the base source, but Help Center Settings can store
+/// manual markdown/title overrides in the database. Search and ROSIE grounding
+/// must index that same current content, otherwise staff can read a guide that
+/// ROSIE cannot find.
+pub async fn load_help_chunk_docs_with_policies(
+    pool: &PgPool,
+) -> Result<Vec<HelpChunkDoc>, Box<dyn std::error::Error + Send + Sync>> {
+    let root = repo_root();
+    let policies = load_index_policy_rows(pool).await?;
+    let mut all = Vec::new();
+
+    for (manual_id, rel) in HELP_MANUAL_FILES {
+        let path = root.join(rel);
+        let md_raw = std::fs::read_to_string(&path).map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                format!("read help manual {}: {e}", path.display()),
+            )
+        })?;
+        let policy = policies.get(*manual_id);
+        let source_markdown = policy
+            .and_then(|row| row.markdown_override.as_ref())
+            .filter(|value| !value.trim().is_empty())
+            .map(String::as_str)
+            .unwrap_or(md_raw.as_str());
+        let md = strip_yaml_front_matter(source_markdown);
+        let fallback = format!("Manual {manual_id}");
+        let mut chunks = parse_sections(&md, manual_id, &fallback);
+
+        if let Some(title) = policy
+            .and_then(|row| row.title_override.as_ref())
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            for chunk in chunks.iter_mut() {
+                chunk.manual_title = title.to_string();
+            }
+        }
+
+        all.extend(chunks);
+    }
+
+    Ok(all)
+}
+
 fn log_meili_help_err(e: &meilisearch_sdk::errors::Error) {
     tracing::warn!(error = %e, "Meilisearch help index operation failed");
 }
@@ -272,6 +345,55 @@ pub async fn reindex_help_meilisearch(
     }
 
     tracing::info!(chunks = chunks.len(), "Meilisearch help index rebuilt");
+    Ok(())
+}
+
+/// Full rebuild of `ros_help` from current Help Center content, including DB overrides.
+pub async fn reindex_help_meilisearch_with_policies(
+    client: &Client,
+    pool: &PgPool,
+) -> Result<(), meilisearch_sdk::errors::Error> {
+    use meilisearch_sdk::errors::Error as MeiliError;
+
+    let chunks = load_help_chunk_docs_with_policies(pool)
+        .await
+        .map_err(|e| MeiliError::Other(e))?;
+
+    let temp_uid = help_reindex_temp_uid();
+    let create = client.create_index(&temp_uid, Some("id")).await?;
+    crate::logic::meilisearch_client::wait_task_ok(client, create).await?;
+    crate::logic::meilisearch_client::ensure_index_settings_for_uid(client, INDEX_HELP, &temp_uid)
+        .await?;
+
+    let temp_index = client.index(&temp_uid);
+    if !chunks.is_empty() {
+        let add = temp_index.add_or_replace(&chunks, Some("id")).await?;
+        crate::logic::meilisearch_client::wait_task_ok(client, add).await?;
+    }
+
+    ensure_help_live_index_exists(client).await?;
+    let swap = SwapIndexes {
+        indexes: (INDEX_HELP.to_string(), temp_uid.clone()),
+        rename: None,
+    };
+    let swap_task = client.swap_indexes([&swap]).await?;
+    crate::logic::meilisearch_client::wait_task_ok(client, swap_task).await?;
+
+    match client.delete_index(&temp_uid).await {
+        Ok(task) => {
+            if let Err(e) = crate::logic::meilisearch_client::wait_task_ok(client, task).await {
+                log_meili_help_err(&e);
+            }
+        }
+        Err(e) => {
+            log_meili_help_err(&e);
+        }
+    }
+
+    tracing::info!(
+        chunks = chunks.len(),
+        "Meilisearch help index rebuilt from current Help Center content"
+    );
     Ok(())
 }
 

@@ -1906,7 +1906,11 @@ async fn rosie_intelligence_refresh(
                     .into_response());
             };
 
-            match crate::logic::help_corpus::reindex_help_meilisearch(client).await {
+            match crate::logic::help_corpus::reindex_help_meilisearch_with_policies(
+                client, &state.db,
+            )
+            .await
+            {
                 Ok(()) => {
                     crate::logic::meilisearch_sync::record_sync_status(
                         &state.db,
@@ -3444,7 +3448,8 @@ async fn admin_ops_reindex_search(
             .into_response());
     };
 
-    match crate::logic::help_corpus::reindex_help_meilisearch(client).await {
+    match crate::logic::help_corpus::reindex_help_meilisearch_with_policies(client, &state.db).await
+    {
         Ok(()) => {
             crate::logic::meilisearch_sync::record_sync_status(
                 &state.db,

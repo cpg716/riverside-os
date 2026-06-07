@@ -8,7 +8,7 @@ import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 interface DetailDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  title?: string | null;
+  title?: ReactNode;
   subtitle?: ReactNode;
   noPadding?: boolean;
   children: ReactNode;

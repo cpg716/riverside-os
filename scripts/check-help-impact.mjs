@@ -128,6 +128,12 @@ const helpPatterns = [
   /^docs\/staff\//,
 ];
 
+const generatedHelpPatterns = [
+  "client/src/assets/docs/help-quality-report.generated.json",
+  "client/src/lib/help/help-manifest.generated.ts",
+  "server/src/logic/help_corpus_manuals.generated.rs",
+];
+
 const impactExclusions = [
   "client/src/lib/help/help-manifest.generated.ts",
   "server/src/logic/help_corpus_manuals.generated.rs",
@@ -174,15 +180,18 @@ function manualSuggestions(impactFiles) {
 const files = changedFiles();
 const impactFiles = files.filter(isImpactFile);
 const helpFiles = files.filter((file) => matchesAny(file, helpPatterns));
+const substantiveHelpFiles = helpFiles.filter(
+  (file) => !matchesAny(file, generatedHelpPatterns),
+);
 
 if (impactFiles.length === 0) {
   console.log("Help impact check: no user-facing ROS changes detected.");
   process.exit(0);
 }
 
-if (helpFiles.length > 0) {
+if (substantiveHelpFiles.length > 0) {
   console.log(
-    `Help impact check: ${impactFiles.length} impacted file(s), ${helpFiles.length} Help/docs/ROSIE update file(s) detected.`,
+    `Help impact check: ${impactFiles.length} impacted file(s), ${substantiveHelpFiles.length} substantive Help/docs/ROSIE update file(s) detected.`,
   );
   process.exit(0);
 }
@@ -207,7 +216,7 @@ if (suggestions.length > 0) {
   for (const manual of suggestions) console.error(`- client/src/assets/docs/${manual}-manual.md`);
 }
 console.error("");
-console.error("Fix by updating relevant markdown docs, Help manuals/screenshots/generated Help artifacts, or rerun with:");
+console.error("Fix by updating relevant markdown docs, Help manuals, screenshots, or ROSIE docs, then regenerate Help artifacts when needed. Or rerun with:");
 console.error("- HELP_IMPACT_NOT_NEEDED=1 npm run check:help-impact");
 console.error("- npm run check:help-impact -- --help-not-needed");
 process.exit(1);

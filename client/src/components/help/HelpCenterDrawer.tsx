@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import {
   CircleHelp,
-  MessagesSquare,
+  BookOpen,
   Mic,
   Printer,
   SendHorizonal,
@@ -21,11 +21,10 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { HELP_MANUALS, helpManualById } from "../../lib/help/help-manifest";
 import {
-  buildLocalSearchChunks,
-  localHelpSearch,
   orderedSectionSlugs,
   parseHelpToc,
 } from "../../lib/help/helpParse";
+import { formatHelpDisplayHeading, formatHelpDisplayTitle } from "../../lib/help/helpDisplay";
 import { slugifyHeading } from "../../lib/help/helpSlug";
 import { resolveHelpImageSrc } from "../../lib/help/helpImages";
 import { stripYamlFrontMatter } from "../../lib/help/helpFrontMatter";
@@ -95,6 +94,31 @@ type RosiChatEntry = {
 type DrawerMode = "browse" | "ask" | "conversation";
 
 export type HelpCenterDrawerMode = DrawerMode;
+
+const DRAWER_MODE_COPY: Record<
+  DrawerMode,
+  {
+    title: string;
+    lead: string;
+    detail: string;
+  }
+> = {
+  browse: {
+    title: "Help Library",
+    lead: "Find staff manuals, procedures, and screen guides.",
+    detail: "Use this when staff need the official step-by-step instructions.",
+  },
+  ask: {
+    title: "Ask ROSIE",
+    lead: "Ask a focused question and get a sourced answer from Riverside help.",
+    detail: "Best for quick procedure, policy, and how-to questions. ROSIE shows sources when available.",
+  },
+  conversation: {
+    title: "ROSIE Chat",
+    lead: "Chat with ROSIE about Riverside workflows and store information.",
+    detail: "Best for broader workflow questions, follow-ups, and voice conversations. Sources appear when available.",
+  },
+};
 
 export type HelpCenterInitialTarget = {
   query: string;
@@ -214,6 +238,275 @@ function escapePrintHtml(value: string): string {
     .replace(/'/g, "&#039;");
 }
 
+function inlineHelpMarkdownToHtml(value: string): string {
+  return escapePrintHtml(value)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\(manual:([^)]+)\)/g, '<a href="#guide-$2">$1</a>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+}
+
+function helpMarkdownToPrintHtml(manualId: string, markdown: string): string {
+  const lines = cleanHelpMarkdownForDisplay(stripYamlFrontMatter(markdown)).split(/\r?\n/);
+  const html: string[] = [];
+  let paragraph: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+  let skippedH1 = false;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    html.push(`<p>${inlineHelpMarkdownToHtml(paragraph.join(" "))}</p>`);
+    paragraph = [];
+  };
+  const closeList = () => {
+    if (!listType) return;
+    html.push(`</${listType}>`);
+    listType = null;
+  };
+  const ensureList = (type: "ul" | "ol") => {
+    flushParagraph();
+    if (listType === type) return;
+    closeList();
+    listType = type;
+    html.push(`<${type}>`);
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+
+    const image = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (image) {
+      flushParagraph();
+      closeList();
+      const alt = image[1].trim();
+      const src = resolveHelpImageSrc(image[2].trim());
+      html.push(
+        `<figure><img src="${escapePrintHtml(src)}" alt="${escapePrintHtml(alt)}" />${
+          alt ? `<figcaption>${escapePrintHtml(alt)}</figcaption>` : ""
+        }</figure>`,
+      );
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      closeList();
+      if (heading[1] === "#" && !skippedH1) {
+        skippedH1 = true;
+        continue;
+      }
+      const level = heading[1].length === 3 ? 3 : 2;
+      const text = formatHelpDisplayHeading(heading[2].trim());
+      const id = `guide-${manualId}-${slugifyHeading(text)}`;
+      html.push(`<h${level} id="${escapePrintHtml(id)}">${escapePrintHtml(text)}</h${level}>`);
+      continue;
+    }
+
+    const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (ordered) {
+      ensureList("ol");
+      html.push(`<li>${inlineHelpMarkdownToHtml(ordered[1])}</li>`);
+      continue;
+    }
+
+    const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+    if (unordered) {
+      ensureList("ul");
+      html.push(`<li>${inlineHelpMarkdownToHtml(unordered[1])}</li>`);
+      continue;
+    }
+
+    paragraph.push(trimmed);
+  }
+
+  flushParagraph();
+  closeList();
+  return html.join("\n");
+}
+
+function fullHelpGuideHtml(manuals: Array<{ id: string; title: string; markdown: string }>): string {
+  const generatedAt = new Date().toLocaleString();
+  const toc = manuals
+    .map(
+      (manual) =>
+        `<li><a href="#guide-${escapePrintHtml(manual.id)}">${escapePrintHtml(
+          formatHelpDisplayTitle(manual.title),
+        )}<span class="toc-page" data-target="guide-${escapePrintHtml(manual.id)}"></span></a></li>`,
+    )
+    .join("\n");
+  const sections = manuals
+    .map((manual) => {
+      const title = formatHelpDisplayTitle(manual.title);
+      return `<section class="manual-section" id="guide-${escapePrintHtml(manual.id)}">
+        <h1>${escapePrintHtml(title)}</h1>
+        ${helpMarkdownToPrintHtml(manual.id, manual.markdown)}
+      </section>`;
+    })
+    .join("\n");
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Riverside OS Help Guide</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 0.72in;
+      @bottom-center {
+        content: "Riverside OS Help Guide - Page " counter(page) " of " counter(pages);
+        font-size: 9px;
+        color: #475569;
+      }
+    }
+    body {
+      color: #111827;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .cover {
+      break-after: page;
+      min-height: 8.4in;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      border: 2px solid #111827;
+      padding: 0.7in;
+    }
+    .cover .eyebrow {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #475569;
+    }
+    .cover h1 {
+      margin: 0.18in 0 0;
+      font-size: 42px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+    .cover p {
+      max-width: 5.8in;
+      font-size: 13px;
+      color: #475569;
+    }
+    .toc {
+      break-after: page;
+    }
+    .toc h1 {
+      font-size: 26px;
+      margin: 0 0 0.25in;
+    }
+    .toc ol {
+      columns: 2;
+      column-gap: 0.35in;
+      padding-left: 0.2in;
+    }
+    .toc li {
+      break-inside: avoid;
+      margin: 0 0 6px;
+    }
+    .toc a {
+      color: #111827;
+      text-decoration: none;
+    }
+    .toc a::after {
+      content: leader(".") target-counter(attr(href), page);
+    }
+    .toc-page {
+      float: right;
+      margin-left: 8px;
+      color: #475569;
+      font-variant-numeric: tabular-nums;
+    }
+    .manual-section {
+      break-before: page;
+    }
+    h1 {
+      margin: 0 0 0.18in;
+      font-size: 24px;
+      line-height: 1.1;
+    }
+    h2 {
+      margin: 0.22in 0 0.08in;
+      padding-top: 0.06in;
+      border-top: 1px solid #cbd5e1;
+      font-size: 15px;
+    }
+    h3 {
+      margin: 0.16in 0 0.06in;
+      font-size: 12px;
+    }
+    p, ul, ol {
+      margin: 0 0 0.1in;
+    }
+    li {
+      margin: 0 0 0.04in;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9em;
+      background: #f1f5f9;
+      padding: 1px 3px;
+    }
+    figure {
+      margin: 0.16in 0;
+      break-inside: avoid;
+    }
+    img {
+      max-width: 100%;
+      max-height: 3.9in;
+      border: 1px solid #cbd5e1;
+      object-fit: contain;
+    }
+    figcaption {
+      margin-top: 4px;
+      color: #64748b;
+      font-size: 9px;
+    }
+    a {
+      color: #0f4f9f;
+    }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div class="eyebrow">Riverside OS</div>
+    <h1>Help Guide</h1>
+    <p>Current staff Help Library manuals generated from the live Riverside OS Help Center catalog.</p>
+    <p>Generated ${escapePrintHtml(generatedAt)} - ${manuals.length} manuals</p>
+  </section>
+  <section class="toc">
+    <h1>Full Index</h1>
+    <ol>${toc}</ol>
+  </section>
+  ${sections}
+  <script>
+    (() => {
+      const pageHeight = 960;
+      let page = 3;
+      document.querySelectorAll(".manual-section").forEach((section) => {
+        document
+          .querySelectorAll('.toc-page[data-target="' + section.id + '"]')
+          .forEach((node) => {
+            node.textContent = String(page);
+          });
+        page += Math.max(1, Math.ceil(section.scrollHeight / pageHeight));
+      });
+    })();
+  </script>
+</body>
+</html>`;
+}
+
 function HelpMarkdownBody({
   manualId,
   markdown,
@@ -233,7 +526,7 @@ function HelpMarkdownBody({
         className="help-center-prose-heading help-center-prose-h1"
         {...props}
       >
-        {children}
+        {formatHelpDisplayTitle(extractText(children))}
       </h1>
     ),
     h2: ({ children, ...props }) => {
@@ -244,7 +537,7 @@ function HelpMarkdownBody({
           className="help-center-prose-heading help-center-prose-h2"
           {...props}
         >
-          {children}
+          {formatHelpDisplayHeading(extractText(children))}
         </h2>
       );
     },
@@ -256,7 +549,7 @@ function HelpMarkdownBody({
           className="help-center-prose-heading help-center-prose-h3"
           {...props}
         >
-          {children}
+          {formatHelpDisplayHeading(extractText(children))}
         </h3>
       );
     },
@@ -492,6 +785,7 @@ export default function HelpCenterDrawer({
   const [helpListSource, setHelpListSource] = useState<"api" | "static">("static");
   const [markdownById, setMarkdownById] = useState<Record<string, string>>({});
   const [detailLoading, setDetailLoading] = useState(false);
+  const [fullGuideBusy, setFullGuideBusy] = useState(false);
   const [drawerMode, setDrawerMode] = useState<DrawerMode>("browse");
   const [rosieSettings, setRosieSettings] = useState<RosieSettings>(() =>
     loadLocalRosieSettings(),
@@ -665,32 +959,11 @@ export default function HelpCenterDrawer({
     };
   }, [apiAuth]);
 
-  const allowedManualIds = useMemo(() => {
-    if (manualList?.length) return new Set(manualList.map((m) => m.id));
-    return new Set(
-      HELP_MANUALS.filter((m) => !isDraftHelpMarkdown(m.markdown)).map((m) => m.id),
-    );
-  }, [manualList]);
-
-  const localChunks = useMemo(() => {
-    const out: ReturnType<typeof buildLocalSearchChunks> = [];
-    for (const m of HELP_MANUALS) {
-      if (!allowedManualIds.has(m.id)) continue;
-      out.push(
-        ...buildLocalSearchChunks(
-          m.id,
-          m.title,
-          cleanHelpMarkdownForDisplay(stripYamlFrontMatter(m.markdown)),
-        ),
-      );
-    }
-    return out;
-  }, [allowedManualIds]);
-
   const effectiveList = manualList ?? [];
   const activeEntry = effectiveList.find((x) => x.id === activeManualId);
   const activeTitle =
     activeEntry?.title ?? helpManualById(activeManualId)?.title ?? activeManualId;
+  const activeDisplayTitle = formatHelpDisplayTitle(activeTitle);
   const displayMarkdown = useMemo(() => {
     if (helpListSource === "api") {
       const c = markdownById[activeManualId];
@@ -721,7 +994,7 @@ export default function HelpCenterDrawer({
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>${escapePrintHtml(activeTitle)}</title>
+      <title>${escapePrintHtml(activeDisplayTitle)}</title>
   <style>
     body {
       margin: 0;
@@ -795,12 +1068,54 @@ export default function HelpCenterDrawer({
 </head>
 <body>
   <main>
-    <h1>${escapePrintHtml(activeTitle)}</h1>
+    <h1>${escapePrintHtml(activeDisplayTitle)}</h1>
     ${contentHtml}
   </main>
 </body>
 </html>`);
-  }, [activeManual, activeTitle, displayMarkdown]);
+  }, [activeManual, activeDisplayTitle, displayMarkdown]);
+
+  const printFullHelpGuide = useCallback(async () => {
+    if (fullGuideBusy) return;
+    setFullGuideBusy(true);
+    try {
+      const listRes = await fetch(`${baseUrl}/api/help/manuals`, { headers: apiAuth() });
+      if (!listRes.ok) throw new Error(`Help catalog failed: HTTP ${listRes.status}`);
+      const listJson = (await listRes.json()) as { manuals?: HelpManualListEntry[] };
+      const manuals = orderHelpManuals(listJson.manuals ?? []);
+      if (manuals.length === 0) throw new Error("The live Help catalog returned no manuals.");
+
+      const detailRows = await Promise.all(
+        manuals.map(async (manual) => {
+          const detailRes = await fetch(
+            `${baseUrl}/api/help/manuals/${encodeURIComponent(manual.id)}`,
+            { headers: apiAuth() },
+          );
+          if (!detailRes.ok) {
+            throw new Error(`${formatHelpDisplayTitle(manual.title)} failed: HTTP ${detailRes.status}`);
+          }
+          const detail = (await detailRes.json()) as { title?: string; markdown?: string };
+          return {
+            id: manual.id,
+            title: detail.title ?? manual.title,
+            markdown: detail.markdown ?? "",
+          };
+        }),
+      );
+
+      const printWindow = window.open("", "_blank", "width=1000,height=1200");
+      if (!printWindow) throw new Error("Could not open the print window.");
+      writeAndPrintDocumentWindow(printWindow, fullHelpGuideHtml(detailRows));
+    } catch (error) {
+      setRosieStatus(
+        error instanceof Error
+          ? error.message
+          : "Could not build the full Help Guide for printing.",
+      );
+    } finally {
+      setFullGuideBusy(false);
+    }
+  }, [apiAuth, fullGuideBusy]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQ(searchQ.trim()), 320);
@@ -829,7 +1144,7 @@ export default function HelpCenterDrawer({
 
     const run = async () => {
       let apiHits: ApiHit[] = [];
-      let serverSearchMode: HelpSearchResponse["search_mode"] = "meilisearch";
+      let searchUnavailable = false;
       try {
         const res = await fetch(
           `${baseUrl}/api/help/search?q=${encodeURIComponent(debouncedQ)}&limit=12`,
@@ -838,32 +1153,17 @@ export default function HelpCenterDrawer({
         if (res.ok) {
           const j = (await res.json()) as HelpSearchResponse;
           apiHits = j.hits ?? [];
-          serverSearchMode = j.search_mode ?? "meilisearch";
+          searchUnavailable = j.search_mode === "unavailable";
+        } else {
+          searchUnavailable = true;
         }
       } catch {
-        serverSearchMode = "unavailable";
+        searchUnavailable = true;
       }
       if (cancelled) return;
 
-      if (apiHits.length > 0) {
-        setResultRows(apiHits.map((h) => ({ ...h, source: "api" as const })));
-        setSearchFallbackActive(false);
-        setSearchBusy(false);
-        return;
-      }
-
-      const local = localHelpSearch(debouncedQ, localChunks, 12)
-        .filter((c) => allowedManualIds.has(c.manualId))
-        .map((c) => ({
-          source: "local" as const,
-          manual_id: c.manualId,
-          manual_title: c.manualTitle,
-          section_slug: c.sectionSlug,
-          section_heading: c.sectionHeading,
-          excerpt: c.excerpt,
-        }));
-      setResultRows(local);
-      setSearchFallbackActive(serverSearchMode === "unavailable" && local.length > 0);
+      setResultRows(apiHits.map((h) => ({ ...h, source: "api" as const })));
+      setSearchFallbackActive(searchUnavailable);
       setSearchBusy(false);
     };
 
@@ -871,7 +1171,7 @@ export default function HelpCenterDrawer({
     return () => {
       cancelled = true;
     };
-  }, [debouncedQ, isOpen, apiAuth, localChunks, allowedManualIds]);
+  }, [debouncedQ, isOpen, apiAuth]);
 
   const scrollToSection = useCallback((manualId: string, sectionSlug: string) => {
     setActiveManualId(manualId);
@@ -1257,13 +1557,23 @@ export default function HelpCenterDrawer({
   }, []);
 
   const conversationModeActive = activeRosieMode === "conversation";
+  const drawerModeCopy = DRAWER_MODE_COPY[drawerMode];
+  const drawerTitle =
+    drawerMode === "browse" ? (
+      drawerModeCopy.title
+    ) : (
+      <span className="inline-flex items-center gap-3">
+        <RosieIcon size={34} alt="" />
+        <span>{drawerModeCopy.title}</span>
+      </span>
+    );
 
   return (
     <>
     <DetailDrawer
       isOpen={isOpen}
       onClose={onClose}
-      title={drawerMode === "conversation" ? "ROSIE Chat" : "Help"}
+      title={drawerTitle}
       panelMaxClassName={drawerMode === "conversation" ? "max-w-5xl" : "max-w-3xl"}
       noPadding
       contentContained
@@ -1274,13 +1584,14 @@ export default function HelpCenterDrawer({
             <button
               type="button"
               onClick={() => setDrawerMode("browse")}
-              className={`rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-colors ${
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-colors ${
                 drawerMode === "browse"
                   ? "bg-app-accent text-white"
                   : "border border-app-border bg-app-surface-2 text-app-text"
               }`}
             >
-              Browse
+              <CircleHelp size={14} aria-hidden />
+              Help Library
             </button>
             <button
               type="button"
@@ -1305,9 +1616,15 @@ export default function HelpCenterDrawer({
                   : "border border-app-border bg-app-surface-2 text-app-text"
               }`}
             >
-              <MessagesSquare size={14} aria-hidden />
-              Chat with ROSIE
+              <RosieIcon size={14} alt="" />
+              ROSIE Chat
             </button>
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-bold text-app-text">{drawerModeCopy.lead}</p>
+            <p className="text-xs font-medium leading-relaxed text-app-text-muted">
+              {drawerModeCopy.detail}
+            </p>
           </div>
           {drawerMode === "browse" ? (
             <>
@@ -1341,7 +1658,7 @@ export default function HelpCenterDrawer({
               >
                 {effectiveList.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.title}
+                    {formatHelpDisplayTitle(m.title)}
                   </option>
                 ))}
               </select>
@@ -1354,7 +1671,19 @@ export default function HelpCenterDrawer({
                 className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-border/20"
               >
                 <Printer size={14} aria-hidden />
-                Print
+                Print This Manual
+              </button>
+            ) : null}
+            {effectiveList.length > 0 ? (
+              <button
+                type="button"
+                data-testid="help-center-print-full-guide"
+                onClick={() => void printFullHelpGuide()}
+                disabled={fullGuideBusy}
+                className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-border/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <BookOpen size={14} aria-hidden />
+                {fullGuideBusy ? "Building Guide..." : "Print Full Guide"}
               </button>
             ) : null}
           </div>
@@ -1371,22 +1700,12 @@ export default function HelpCenterDrawer({
           ) : null}
           {searchFallbackActive ? (
             <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
-              Live search is unavailable, so results are coming from saved help content on this station.
+              Help search is unavailable. Meilisearch should be running on this station before staff use Help search or ROSIE grounding.
             </p>
           ) : null}
             </>
           ) : (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-app-text-muted">
-                {drawerMode === "conversation"
-                  ? "Talk with ROSIE about Riverside workflows and store information."
-                  : "Ask ROSIE for help using Riverside guides and store notes."}
-              </p>
-              <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-medium text-app-text-muted">
-                {drawerMode === "conversation"
-                  ? "Chat mode can use Riverside help, store notes, and approved store tools when available."
-                  : "Ask ROSIE uses Riverside help articles and shows sources when available."}
-              </p>
               {!rosieSettings.enabled ? (
                 <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
                   ROSIE is turned off for this station. Turn it on in Settings to use chat or help.
@@ -1424,20 +1743,22 @@ export default function HelpCenterDrawer({
                         : "rounded-2xl p-4"
                     }`}
                   >
-                    {conversationModeActive ? (
-                      <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-app-accent/30 bg-app-accent/10 text-app-accent">
-                        <MessagesSquare size={22} aria-hidden />
-                      </span>
-                    ) : null}
+                    <span
+                      className={`flex h-12 w-12 items-center justify-center rounded-2xl border border-app-border bg-app-surface ${
+                        conversationModeActive ? "mx-auto mb-4" : "mb-3"
+                      }`}
+                    >
+                      <RosieIcon size={28} alt="" />
+                    </span>
                     <p className="text-sm font-semibold text-app-text">
                       {conversationModeActive
-                        ? "Chat or speak with ROSIE."
-                        : "Ask ROSIE about Help Center procedures."}
+                        ? "Start a ROSIE Chat."
+                        : "Ask ROSIE a focused help question."}
                     </p>
                     <p className="mt-2 text-sm text-app-text-muted">
                       {conversationModeActive
-                        ? "Use ROSIE like a staff assistant for Riverside workflows and store information. Sources are shown when available."
-                        : "Ask ROSIE the way you would ask another staff member. Use sources to open the related help."}
+                        ? "Use chat for follow-up questions, voice input, and broader Riverside workflow context."
+                        : "Use Ask ROSIE for sourced answers from Help Library manuals."}
                     </p>
                   </div>
                 ) : (
@@ -1735,7 +2056,7 @@ export default function HelpCenterDrawer({
                   ) : null}
                   <label className="sr-only" htmlFor={activeRosieInputId}>
                     {activeRosieMode === "conversation"
-                      ? "Talk with ROSIE"
+                      ? "ROSIE Chat"
                       : "Ask ROSIE"}
                   </label>
                   <textarea
@@ -1802,9 +2123,11 @@ export default function HelpCenterDrawer({
                       onClick={() => scrollToSection(row.manual_id, row.section_slug)}
                       className="w-full rounded-xl border border-app-border bg-app-surface-2 p-3 text-left transition-colors hover:bg-app-border/15"
                     >
-                      <p className="text-xs font-bold text-app-text">{row.manual_title}</p>
+                      <p className="text-xs font-bold text-app-text">
+                        {formatHelpDisplayTitle(row.manual_title)}
+                      </p>
                       <p className="mt-0.5 text-sm font-semibold text-app-accent">
-                        {row.section_heading}
+                        {formatHelpDisplayHeading(row.section_heading)}
                       </p>
                       <p className="mt-1 line-clamp-3 text-xs text-app-text-muted">
                         {row.excerpt}
@@ -1818,10 +2141,10 @@ export default function HelpCenterDrawer({
             <>
               <nav
                 className="hidden w-44 shrink-0 overflow-y-auto border-r border-app-border bg-app-surface-2/40 py-3 sm:block"
-                aria-label="On this page"
+                aria-label="Guide sections"
               >
                 <p className="px-3 pb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  On this page
+                  Guide Sections
                 </p>
                 <ul className="space-y-0.5 px-2">
                   {toc.map((e, ti) => (
@@ -1833,7 +2156,7 @@ export default function HelpCenterDrawer({
                           e.level === 3 ? "pl-4 text-app-text-muted" : "font-medium text-app-text"
                         }`}
                       >
-                        {e.heading}
+                        {formatHelpDisplayHeading(e.heading)}
                       </button>
                     </li>
                   ))}
@@ -1876,8 +2199,8 @@ export function HelpCenterTriggerButton({
       onClick={onOpen}
       data-testid="help-center-trigger"
       className={`relative inline-flex touch-manipulation items-center justify-center rounded-lg border border-app-border bg-app-surface-2 p-2 text-app-text shadow-sm transition-colors hover:bg-app-border/20 ${className}`.trim()}
-      aria-label="Help"
-      title="Help Center"
+      aria-label="Open Help Library"
+      title="Help Library"
     >
       <CircleHelp size={18} strokeWidth={2} aria-hidden />
     </button>
@@ -1897,8 +2220,8 @@ export function RosieTriggerButton({
       onClick={onOpen}
       data-testid="help-center-ask-rosie-trigger"
       className={`relative inline-flex touch-manipulation items-center justify-center rounded-lg border border-app-border bg-app-surface-2 p-2 text-app-text shadow-sm transition-colors hover:bg-app-border/20 ${className}`.trim()}
-      aria-label="Open ROSIE Conversation"
-      title="ROSIE Conversation"
+      aria-label="Open ROSIE Chat"
+      title="ROSIE Chat"
     >
       <RosieIcon size={18} alt="" />
     </button>
