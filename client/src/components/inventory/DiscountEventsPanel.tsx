@@ -552,7 +552,7 @@ export default function DiscountEventsPanel() {
                         : "border-app-border bg-app-bg/30"
                     }`}
                   >
-                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_auto]">
+                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto]">
                       <div className="min-w-0">
                         <div className="mb-3 flex flex-wrap items-center gap-2">
                           <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${status.tone}`}>
@@ -579,16 +579,16 @@ export default function DiscountEventsPanel() {
                           {dateShort(row.starts_at)} - {dateShort(row.ends_at)}
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-2 xl:min-w-[290px]">
-                        <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
-                          <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">No-tax</div>
+                      <div className="grid grid-cols-3 gap-3 rounded-xl border border-app-border bg-app-surface px-4 py-3 xl:min-w-[320px]">
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Sales</div>
                           <div className="mt-1 font-mono text-sm font-black text-app-text">{money(usage?.subtotal_sum ?? 0)}</div>
                         </div>
-                        <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                        <div>
                           <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Units</div>
                           <div className="mt-1 font-mono text-sm font-black text-app-text">{usage?.units_sold ?? 0}</div>
                         </div>
-                        <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                        <div>
                           <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Lines</div>
                           <div className="mt-1 font-mono text-sm font-black text-app-text">{usage?.line_count ?? 0}</div>
                         </div>
@@ -746,7 +746,7 @@ export default function DiscountEventsPanel() {
                   <div className="rounded-xl border border-app-border bg-app-bg/40 p-3">
                     <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       <BadgeDollarSign size={14} />
-                      No-tax
+                      Sales
                     </div>
                     <div className="mt-2 text-lg font-black text-app-text">
                       {money(usageDetail?.summary.subtotal_sum ?? 0)}
