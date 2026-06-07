@@ -31,7 +31,7 @@ import type { Customer } from "../pos/CustomerSelector";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import type { SidebarTabId } from "./sidebarSections";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { ArrowLeft, ShieldCheck, ShieldAlert } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { getAppIcon, APP_ICON_SIZES } from "../../lib/icons";
 
 const REGISTER_ICON = getAppIcon("register");
@@ -148,7 +148,6 @@ export default function PosShell({
       );
     }
   }, [activeTab]);
-  const [managerMode, setManagerMode] = useState(false);
   const [pendingInventorySku, setPendingInventorySku] = useState<string | null>(null);
 
   // ─── Idle timeout ────────────────────────────────────────────────────────────
@@ -257,22 +256,7 @@ export default function PosShell({
 
     setSlotContent(
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setManagerMode(!managerMode)}
-          className={`h-10 px-3 xl:px-4 rounded-xl border-2 flex items-center gap-2 text-[9px] font-black uppercase tracking-widest italic transition-all active:scale-95 ${
-            managerMode
-              ? "border-amber-400/40 bg-amber-400/10 text-amber-500 shadow-glow-amber-xs"
-              : "border-app-border bg-app-surface-2 text-app-text-muted"
-          }`}
-        >
-          {managerMode ? <ShieldCheck size={16} strokeWidth={3} /> : <ShieldAlert size={16} />}
-          <span className="hidden xl:inline">{managerMode ? "Manager Access" : "Staff Access"}</span>
-          <span className="xl:hidden">{managerMode ? "Manager" : "Staff"}</span>
-        </button>
-
-        {managerMode &&
-          isRegisterOpen &&
+        {isRegisterOpen &&
           sessionId &&
           permissionsLoaded &&
           hasPermission("register.shift_handoff") && (
@@ -313,7 +297,6 @@ export default function PosShell({
     return () => setSlotContent(null);
   }, [
     activePosTab,
-    managerMode,
     isRegisterOpen,
     sessionId,
     permissionsLoaded,
@@ -396,7 +379,6 @@ export default function PosShell({
                   initialTransactionForPickup={pendingPosTransactionForPickup}
                   initialTransactionForRefund={pendingPosTransactionForRefund}
                   onInitialTransactionConsumed={clearPendingPosTransaction}
-                  managerMode={managerMode}
                   initialWeddingLookupOpen={false}
                   initialWeddingPosLink={pendingWeddingPosLink}
                   onInitialWeddingPosLinkConsumed={clearPendingWeddingPosLink}

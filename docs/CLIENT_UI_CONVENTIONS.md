@@ -42,7 +42,7 @@ Riverside OS utilize a persistent, touch-friendly Top Bar that remains visible a
 - **Staff Identity Prioritization (v0.2.1+)**: The UI MUST always prioritize the **Authenticated Staff Member** (`staffDisplayName`) over the register session owner (`cashierName`). The persona shown in the Top Bar and sidebar MUST reflect the person who explicitly signed in at the gate.
 - **Top Bar Branding**: Redundant logos are removed from the `GlobalTopBar`. The sidebar rail is the sole authority for visual identity.
 - **Full Identity**: The full logo-with-name (`riverside_logo.jpg`) is reserved for unauthenticated entry points like the `BackofficeSignInGate`.
-- **Access Toggles**: Standard staff session is indicated by **Staff Access** (green icon). Privileged status for overrides is indicated by **Manager Access** (crown icon).
+- **Access Controls**: Do not use passive Staff Access / Manager Access toggles in persistent chrome. Show permitted actions directly, and require explicit Manager Access approval only at the sensitive action.
 - **Universal Search**: A compact Top Bar utility trigger for cross-workspace jump navigation. Keep the persistent chrome calm; the full search experience lives in the overlay, not as a dominant always-expanded field.
 - **Shell-Aware Search Treatment**: Back Office may use a small labeled trigger with shortcut hinting, while POS should use the tighter tactical variant so the header does not collapse under operational controls.
 - **Global Actions**: Quick access to Bug Reporting, Help Center, Theme Toggle (Sun/Moon), and Notifications.

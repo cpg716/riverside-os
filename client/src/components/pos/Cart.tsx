@@ -279,7 +279,6 @@ interface CartProps {
   initialTransactionForPickup?: boolean;
   initialTransactionForRefund?: boolean;
   initialWeddingLookupOpen?: boolean;
-  managerMode?: boolean;
   /** From Wedding Manager: pre-link customer + wedding member for wedding_order checkout. */
   initialWeddingPosLink?: RosOpenRegisterFromWmDetail | null;
   onInitialWeddingPosLinkConsumed?: () => void;
@@ -309,7 +308,6 @@ export default function Cart({
   onInitialTransactionConsumed,
   initialTransactionForPickup = false,
   initialTransactionForRefund = false,
-  managerMode = false,
   // initialWeddingLookupOpen removed
   initialWeddingPosLink = null,
   onInitialWeddingPosLinkConsumed,
@@ -3080,7 +3078,7 @@ export default function Cart({
                     ) : null}
                   </>
                 )}
-                {managerMode && lines.length > 0 ? (
+                {lines.length > 0 ? (
                   <button
                     type="button"
                     onClick={() => {
