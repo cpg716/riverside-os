@@ -590,6 +590,14 @@ test.describe("commission audit contract", () => {
       label: "combo-spiff",
       unitPrice: "100.00",
     });
+    const secondProduct = await createCommissionProduct(request, operatorStaffId, {
+      label: "combo-spiff-second",
+      unitPrice: "50.00",
+    });
+    const thirdProduct = await createCommissionProduct(request, operatorStaffId, {
+      label: "combo-spiff-third",
+      unitPrice: "75.00",
+    });
 
     const comboRes = await request.post(`${apiBase()}/api/staff/commissions/combos`, {
       headers: {
@@ -604,6 +612,16 @@ test.describe("commission audit contract", () => {
           {
             match_type: "product",
             match_id: product.productId,
+            qty_required: 1,
+          },
+          {
+            match_type: "product",
+            match_id: secondProduct.productId,
+            qty_required: 1,
+          },
+          {
+            match_type: "product",
+            match_id: thirdProduct.productId,
             qty_required: 1,
           },
         ],
@@ -638,7 +656,7 @@ test.describe("commission audit contract", () => {
       sessionToken,
       operatorStaffId,
       salespersonId,
-      products: [product],
+      products: [product, secondProduct, thirdProduct],
       fulfillment: "takeaway",
     });
     const checkoutText = await checkoutRes.text();
