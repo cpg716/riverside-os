@@ -81,7 +81,7 @@ Use **Open Insights (Metabase)** on the Reports page when you need dashboards or
 - **Staff Schedule Coverage vs Sales**: Staffing coverage compared with sales volume, appointments, pickups, and register activity.
 - **Customer Follow-Up**: Customers needing action because of balances, pickups, recent quotes/orders, wedding dates, stale RMS charges, or missing recent contact.
 - **Exception & Risk**: Negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open register sessions, and unclosed tasks.
-- **Sales By Day**: Hourly sales, sales per active hour, average sale, daily totals, and prior-week or same-date prior-year comparison when history exists.
+- **Sales By Day**: One row per business day with daily sales, average sale, sales per active hour, prior-week comparison, same-date prior-year comparison when history exists, and an aggregated hourly sales chart.
 - **Sales Trend & Pace**: Daily sales pace compared with the prior week, including paid amounts and open balances.
 - **Gift Card Liability Activity**: Gift card issue/load, redemption, other decreases, and net liability movement.
 - **Layaway Aging & Deposit Risk**: Open layaway age, paid deposits, balances, promised pickup dates, and risk status.

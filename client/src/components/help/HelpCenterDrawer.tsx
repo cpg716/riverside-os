@@ -12,6 +12,7 @@ import {
   SendHorizonal,
   Square,
   Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
@@ -223,7 +224,18 @@ function markdownToSpeechText(markdown: string): string {
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
     .replace(/^[>*-]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\b(?:source|sources|suggested actions?)\s*:\s*/gi, "")
+    .replace(/[•*_~`#>]/g, " ")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/->|→/g, " then ")
+    .replace(/&/g, " and ")
     .replace(/#+\s+/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -799,6 +811,7 @@ export default function HelpCenterDrawer({
   const [rosieThinkingDots, setRosieThinkingDots] = useState(".");
   const [rosieListening, setRosieListening] = useState(false);
   const [rosieSpeaking, setRosieSpeaking] = useState(false);
+  const [rosieChatSpeechEnabled, setRosieChatSpeechEnabled] = useState(false);
   const [rosieTranscriptPreview, setRosieTranscriptPreview] = useState("");
   const [voiceCapabilities, setVoiceCapabilities] = useState<RosieVoiceCapabilities>({
     speech_to_text_supported: false,
@@ -822,6 +835,7 @@ export default function HelpCenterDrawer({
       setRosieBusy(false);
       setRosieStatus(null);
       setRosieThinkingDots(".");
+      setRosieChatSpeechEnabled(false);
       voiceCaptureRef.current?.stop();
       voiceCaptureRef.current = null;
       speechPlaybackRef.current?.stop();
@@ -931,7 +945,9 @@ export default function HelpCenterDrawer({
 
   useEffect(() => {
     if (!isOpen) return;
-    setRosieSettings(loadLocalRosieSettings());
+    const settings = loadLocalRosieSettings();
+    setRosieSettings(settings);
+    setRosieChatSpeechEnabled(Boolean(settings.voice_enabled && settings.speak_responses));
   }, [isOpen]);
 
   useEffect(() => {
@@ -1414,12 +1430,12 @@ export default function HelpCenterDrawer({
       });
       const shouldSpeakResponse =
         rosieSettings.voice_enabled &&
-        (mode === "conversation" || rosieSettings.speak_responses);
+        (mode === "conversation" ? rosieChatSpeechEnabled : rosieSettings.speak_responses);
       if (shouldSpeakResponse) {
         const speechText = markdownToSpeechText(answer);
         const spokenText =
           mode === "conversation" && speechText.length > 700
-            ? `${speechText.slice(0, 700).trim()}...`
+            ? `${speechText.slice(0, 520).trim()}...`
             : speechText;
         if (spokenText) {
           speechPlaybackRef.current = speakRosieText(spokenText, {
@@ -1467,6 +1483,7 @@ export default function HelpCenterDrawer({
     rosieConversationQuestion,
     rosieQuestion,
     rosieSettings,
+    rosieChatSpeechEnabled,
     stopRosieSpeaking,
   ]);
 
@@ -1955,9 +1972,34 @@ export default function HelpCenterDrawer({
                   </div>
                 ) : null}
                 {conversationModeActive ? (
-                  <p className="mb-2 text-[11px] font-medium text-app-text-muted">
-                    ROSIE can use approved Riverside help and will show sources when available.
-                  </p>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] font-medium text-app-text-muted">
+                      ROSIE can use approved Riverside help, store notes, and available ROS data.
+                    </p>
+                    {rosieSettings.voice_enabled && voiceCapabilities.text_to_speech_supported ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !rosieChatSpeechEnabled;
+                          if (!next) stopRosieSpeaking();
+                          setRosieChatSpeechEnabled(next);
+                        }}
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-widest transition-colors ${
+                          rosieChatSpeechEnabled
+                            ? "border-app-accent/40 bg-app-accent/10 text-app-accent"
+                            : "border-app-border bg-app-surface-2 text-app-text-muted hover:text-app-text"
+                        }`}
+                        aria-pressed={rosieChatSpeechEnabled}
+                      >
+                        {rosieChatSpeechEnabled ? (
+                          <Volume2 size={12} aria-hidden />
+                        ) : (
+                          <VolumeX size={12} aria-hidden />
+                        )}
+                        {rosieChatSpeechEnabled ? "Speech On" : "Speech Off"}
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
                 <div
                   className={`flex items-end gap-2 ${

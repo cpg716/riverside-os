@@ -23,6 +23,47 @@ const PLACEHOLDER_PNG_B64 =
 
 type Phase = "capture" | "form";
 
+const CAPTURE_COLOR_PROPERTIES = [
+  "color",
+  "backgroundColor",
+  "borderTopColor",
+  "borderRightColor",
+  "borderBottomColor",
+  "borderLeftColor",
+  "outlineColor",
+  "textDecorationColor",
+] as const;
+
+function replaceUnsupportedCaptureColor(
+  value: string,
+  fallback: string,
+) {
+  return value.includes("color(") ? fallback : value;
+}
+
+function sanitizeUnsupportedCaptureColors(clonedDocument: Document) {
+  const clonedWindow = clonedDocument.defaultView;
+  if (!clonedWindow) return;
+
+  for (const element of Array.from(clonedDocument.querySelectorAll<HTMLElement>("*"))) {
+    const computed = clonedWindow.getComputedStyle(element);
+    for (const property of CAPTURE_COLOR_PROPERTIES) {
+      const fallback =
+        property === "backgroundColor" ? "transparent" : "#111827";
+      element.style[property] = replaceUnsupportedCaptureColor(
+        computed[property],
+        fallback,
+      );
+    }
+    if (computed.boxShadow.includes("color(")) {
+      element.style.boxShadow = "none";
+    }
+    if (computed.textShadow.includes("color(")) {
+      element.style.textShadow = "none";
+    }
+  }
+}
+
 export function BugReportTriggerButton({
   onOpen,
   className = "",
@@ -119,6 +160,7 @@ export default function BugReportFlow({
             typeof document !== "undefined"
               ? document.documentElement.clientHeight
               : undefined,
+          onclone: sanitizeUnsupportedCaptureColors,
         });
         const dataUrl = canvas.toDataURL("image/png");
         const b64 = dataUrl.replace(/^data:image\/png;base64,/, "");

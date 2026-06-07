@@ -206,6 +206,63 @@ function numberFromUnknown(value: unknown): number | null {
   return null;
 }
 
+function salesByDayDailyRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const byDate = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    const businessDate = toCellString(row.business_date);
+    if (!businessDate || byDate.has(businessDate)) continue;
+    const daySalesTotal = numberFromUnknown(row.day_sales_total) ?? 0;
+    const transactionCount = numberFromUnknown(row.day_transaction_count) ?? 0;
+    const priorYearSales = numberFromUnknown(row.prior_year_day_sales_total);
+    const priorWeekSales = numberFromUnknown(row.prior_week_day_sales_total);
+    byDate.set(businessDate, {
+      business_date: row.business_date,
+      weekday: row.weekday,
+      day_sales_total: row.day_sales_total,
+      day_transaction_count: row.day_transaction_count,
+      average_sale:
+        transactionCount > 0 ? (daySalesTotal / transactionCount).toFixed(2) : "0.00",
+      active_sales_hours: row.active_sales_hours,
+      sales_per_hour: row.sales_per_hour,
+      prior_week_business_date:
+        priorWeekSales === null ? null : row.prior_week_business_date,
+      prior_week_day_sales_total: row.prior_week_day_sales_total,
+      sales_delta_vs_prior_week: row.sales_delta_vs_prior_week,
+      prior_year_business_date:
+        priorYearSales === null ? null : row.prior_year_business_date,
+      prior_year_day_sales_total: row.prior_year_day_sales_total,
+      prior_year_sales_per_hour: row.prior_year_sales_per_hour,
+      sales_delta_vs_prior_year: row.sales_delta_vs_prior_year,
+    });
+  }
+  return Array.from(byDate.values());
+}
+
+function salesByDayHourlyRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const byHour = new Map<number, { label: string; sales: number; transactions: number }>();
+  for (const row of rows) {
+    const hour = numberFromUnknown(row.hour);
+    const sales = numberFromUnknown(row.sales_total);
+    if (hour === null || sales === null) continue;
+    const existing = byHour.get(hour) ?? {
+      label: toCellString(row.hour_label),
+      sales: 0,
+      transactions: 0,
+    };
+    existing.sales += sales;
+    existing.transactions += numberFromUnknown(row.transaction_count) ?? 0;
+    byHour.set(hour, existing);
+  }
+  return Array.from(byHour.entries())
+    .map(([hour, summary]) => ({
+      hour,
+      hour_label: summary.label,
+      sales_total: summary.sales.toFixed(2),
+      transaction_count: summary.transactions,
+    }))
+    .sort((a, b) => Number(b.sales_total) - Number(a.sales_total));
+}
+
 function formatChartMetric(value: number, format: ReportChartConfig["valueFormat"]): string {
   if (format === "money") {
     return value.toLocaleString(undefined, { style: "currency", currency: "USD" });
@@ -308,8 +365,11 @@ const FIELD_LABELS: Record<string, string> = {
   appointment_type: "Appointment Type",
   appointment_count: "Appointments",
   appointment_date: "Appointment Date",
+  active_sales_hours: "Active Sales Hours",
+  average_sale: "Average Sale",
   avg_discount_percent: "Avg. Discount %",
   brand: "Brand",
+  business_date: "Business Date",
   cashier_name: "Cashier",
   category: "Category",
   completed_count: "Completed",
@@ -361,6 +421,11 @@ const FIELD_LABELS: Record<string, string> = {
   payments_total: "Payments",
   points_burned: "Points Used",
   points_earned: "Points Earned",
+  prior_week_business_date: "Prior Week Date",
+  prior_week_day_sales_total: "Prior Week Sales",
+  prior_year_business_date: "Prior Year Date",
+  prior_year_day_sales_total: "Prior Year Sales",
+  prior_year_sales_per_hour: "Prior Year Sales / Hour",
   product_name: "Product",
   quoted_amount: "Quoted Amount",
   quantity: "Quantity",
@@ -378,6 +443,9 @@ const FIELD_LABELS: Record<string, string> = {
   risk_type: "Risk Type",
   oldest_at: "Oldest Item",
   sales_count: "Sales Count",
+  sales_delta_vs_prior_week: "Prior Week Delta",
+  sales_delta_vs_prior_year: "Prior Year Delta",
+  sales_per_hour: "Sales / Hour",
   sales_subtotal_no_tax: "Sales Before Tax",
   sales_tax_total: "Sales Tax",
   sales_volume: "Sales Volume",
@@ -434,6 +502,16 @@ function rowsWithDisplayLabels(
     for (const column of columns) out[fieldLabel(column)] = formatCellValue(row[column], column);
     return out;
   });
+}
+
+function reportPrintSubtitle(report: ReportDef, ctx: ReportUrlContext): string {
+  const dateRange = `${ctx.fromYmd} to ${ctx.toYmd}`;
+  const qualifiers: string[] = [];
+  if (isAvailableReport(report) && report.usesBasis) qualifiers.push(`${ctx.basis} basis`);
+  if (isAvailableReport(report) && report.supportsGroupBy) {
+    qualifiers.push(`grouped by ${ctx.groupBy}`);
+  }
+  return qualifiers.length > 0 ? `${dateRange} (${qualifiers.join(", ")})` : dateRange;
 }
 
 async function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
@@ -761,10 +839,22 @@ export default function ReportsWorkspace({
     return [];
   }, [payload, selectedAvailable]);
 
-  const tableColumns = useMemo(() => keysFromRowsForDisplay(tableRows), [tableRows]);
+  const reportRows = useMemo(
+    () =>
+      selectedAvailable?.id === "sales_by_day"
+        ? salesByDayDailyRows(tableRows)
+        : tableRows,
+    [selectedAvailable?.id, tableRows],
+  );
+  const salesByDayHourlyChartRows = useMemo(
+    () =>
+      selectedAvailable?.id === "sales_by_day" ? salesByDayHourlyRows(tableRows) : [],
+    [selectedAvailable?.id, tableRows],
+  );
+  const tableColumns = useMemo(() => keysFromRowsForDisplay(reportRows), [reportRows]);
   const displayRows = useMemo(
-    () => rowsWithDisplayLabels(tableRows, tableColumns),
-    [tableColumns, tableRows],
+    () => rowsWithDisplayLabels(reportRows, tableColumns),
+    [reportRows, tableColumns],
   );
   const showRange = selectedAvailable?.usesGlobalDateRange ?? false;
   const showBasis = selectedAvailable?.usesBasis ?? false;
@@ -1235,7 +1325,7 @@ export default function ReportsWorkspace({
                 </div>
               ) : null}
 
-              {tableRows.length > 0 ? (
+              {reportRows.length > 0 ? (
                 selectedAvailable.chartConfigs?.length ? (
                   <div
                     data-testid="reports-detail-charts"
@@ -1245,14 +1335,19 @@ export default function ReportsWorkspace({
                       <ReportMiniChart
                         key={`${selectedAvailable.id}-${config.title}`}
                         config={config}
-                        rows={tableRows}
+                        rows={
+                          selectedAvailable.id === "sales_by_day" &&
+                          config.labelKey === "hour_label"
+                            ? salesByDayHourlyChartRows
+                            : reportRows
+                        }
                       />
                     ))}
                   </div>
                 ) : null
               ) : null}
 
-              {tableRows.length > 0 ? (
+              {reportRows.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
@@ -1267,7 +1362,7 @@ export default function ReportsWorkspace({
                     onClick={() => {
                       openProfessionalTablePrint({
                         title: selected.title,
-                        subtitle: `${from} to ${to} (${basis} basis${groupBy ? `, grouped by ${groupBy}` : ""})`,
+                        subtitle: reportPrintSubtitle(selected, ctx),
                         columns: keysFromRows(displayRows),
                         rows: displayRows
                       });
@@ -1280,10 +1375,10 @@ export default function ReportsWorkspace({
                 </div>
               ) : null}
 
-              {tableRows.length > 0 ? (
+              {reportRows.length > 0 ? (
                 isCompactLayout ? (
                   <div data-testid="reports-detail-cards" className="space-y-3">
-                    {tableRows.map((row, i) => (
+                    {reportRows.map((row, i) => (
                       <article
                         key={i}
                         className="rounded-xl border border-app-border bg-app-surface px-3 py-3"
@@ -1322,7 +1417,7 @@ export default function ReportsWorkspace({
                         </tr>
                       </thead>
                       <tbody>
-                        {tableRows.map((row, i) => (
+                        {reportRows.map((row, i) => (
                           <tr key={i} className="border-b border-app-border/70">
                             {tableColumns.map((k) => (
                               <td key={k} className="px-3 py-2 font-semibold text-app-text-muted">
@@ -1340,7 +1435,7 @@ export default function ReportsWorkspace({
               {selectedAvailable.responseKind === "row_object" ||
               selectedAvailable.responseKind === "wedding_health" ||
               selectedAvailable.responseKind === "register_day_summary" ||
-              tableRows.length > 0
+              reportRows.length > 0
                 ? null
                 : (
                   <div className="rounded-xl border border-app-border bg-app-surface px-4 py-3">

@@ -1195,10 +1195,9 @@ function buildGroundedHelpSystemPrompt(
     "- Cannot access customer payment information",
     "",
     "Response structure:",
-    "1. Direct answer (1-2 sentences)",
-    "2. Step-by-step instructions if applicable",
-    "3. Source citations (manual name, section)",
-    "4. Suggested actions (if relevant)",
+    "1. Direct answer first",
+    "2. Step-by-step instructions when the user asks how to do something",
+    "3. Short caveat only when the provided sources are genuinely incomplete",
     "",
     "If the question is ambiguous:",
     "- Ask for clarification",
@@ -1213,9 +1212,8 @@ function buildGroundedHelpSystemPrompt(
     "- Adapt responses based on user's role (staff vs admin)",
     "",
     "When you don't know an answer:",
-    "- First search help manuals using help_search tool",
-    "- If no results, say 'I couldn't find documentation for that topic'",
-    "- Suggest related topics you did find",
+    "- Use any relevant source snippets, workflow playbooks, client context, and operational tool results before saying you do not know",
+    "- If the exact answer is missing, give the closest safe next step in Riverside OS and name what information is missing",
     "- Never invent information not in your sources",
     "",
     "When operational_playbook results are present, use them as the primary recovery checklist for the named workflow.",
@@ -1226,7 +1224,7 @@ function buildGroundedHelpSystemPrompt(
     "Do not infer missing business data or recompute values that are not explicitly returned.",
     conversationMode
       ? "If the provided grounding is not enough, say what ROSIE could not access and suggest the exact kind of lookup, report, customer, order, wedding, or inventory context needed."
-      : "If the provided grounding is not enough, say that clearly and direct the user to Browse or Search in Help Center.",
+      : "If the provided grounding is thin, still answer the user's workflow question from the best available Riverside source. Do not tell the user to browse, search, read, or check a manual as the primary answer.",
     conversationMode
       ? "ROSIE should help staff with RiversideOS usage and accessible store data, while preserving every permission boundary enforced by the returned tool results."
       : "Keep the answer focused on Help Center guidance rather than acting like a broad data assistant.",
@@ -1248,11 +1246,13 @@ function buildGroundedHelpSystemPrompt(
       ? "Response style: detailed but practical."
       : "Response style: concise and practical.",
     request.settings.show_citations
-      ? "When helpful, mention the source title or section in the answer."
+      ? "Sources are shown separately by the UI. Do not write 'Source:' lines in the answer body unless the user explicitly asks."
       : "Do not add inline citation formatting in the answer.",
     conversationMode
-      ? "For normal staff chat, answer in 2-4 direct sentences unless the user explicitly asks for detail."
-      : "Keep the answer concise enough for a Help Center drawer.",
+      ? "For normal staff chat, answer naturally in 2-4 direct sentences unless the user explicitly asks for detail."
+      : "Keep the answer concise enough for a Help Center drawer, but include the actual steps when the user asks how to complete a workflow.",
+    "Never answer with 'look in the manual', 'search the help manuals', or 'please check the manual' unless the user explicitly asked where documentation lives.",
+    "Avoid markdown decoration that sounds unnatural when spoken. Prefer simple sentences over bold-heavy bullets.",
     "Do not output a thinking process, reasoning trace, or hidden analysis.",
     "Answer with the final response only.",
     "Use markdown for readability.",
@@ -1264,11 +1264,11 @@ function buildGroundedHelpUserPrompt(
   context: RosieToolContextResponse,
 ): string {
   const conversationMode = request.mode === "conversation";
-  const maxToolResults = conversationMode ? 3 : 4;
-  const maxSources = conversationMode ? 3 : 4;
+  const maxToolResults = conversationMode ? 6 : 5;
+  const maxSources = conversationMode ? 5 : 5;
   const argsChars = conversationMode ? 180 : 320;
-  const resultChars = conversationMode ? 520 : 900;
-  const excerptChars = conversationMode ? 420 : 700;
+  const resultChars = conversationMode ? 700 : 900;
+  const excerptChars = conversationMode ? 520 : 700;
   const summarizeJson = (value: unknown, maxChars: number): string => {
     try {
       const raw = JSON.stringify(value);
@@ -1424,6 +1424,8 @@ function sanitizeRosieAnswerText(raw: unknown): string {
       /^\s*(?:thinking process|analysis|reasoning|chain of thought)\s*:\s*[\s\S]*$/i,
       "",
     )
+    .replace(/^\s*source\s*:\s*.*$/gim, "")
+    .replace(/^\s*sources\s*:\s*.*$/gim, "")
     .trim();
   return text;
 }

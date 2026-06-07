@@ -7,6 +7,7 @@
     "bump": "node scripts/bump-version.mjs",
     "check:version": "node scripts/check-version-parity.mjs",
     "check:updater-release": "node scripts/verify-updater-release-assets.mjs",
+    "check:reports": "node scripts/check-reports-catalog.mjs",
     "check:help-impact": "node scripts/check-help-impact.mjs",
     "help:aidocs:check": "uvx --from aidocs aidocs check",
     "generate:help": "cd client && npm run generate:help",

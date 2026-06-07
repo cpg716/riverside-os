@@ -1220,6 +1220,50 @@ fn map_hit(h: HelpSearchHit) -> HelpSearchHitOut {
     }
 }
 
+fn rosie_help_search_query(question: &str) -> String {
+    let normalized = question.to_ascii_lowercase();
+    let mut terms = vec![question.trim().to_string()];
+
+    if normalized.contains("cash out")
+        || normalized.contains("cashout")
+        || normalized.contains("cash a sale")
+        || normalized.contains("complete sale")
+        || normalized.contains("finish sale")
+        || normalized.contains("checkout")
+    {
+        terms.push(
+            "Register POS checkout payment ledger complete sale receipt summary cash card tender"
+                .to_string(),
+        );
+    }
+
+    if normalized.contains("return")
+        || normalized.contains("refund")
+        || normalized.contains("exchange")
+        || normalized.contains("swap")
+    {
+        terms.push(
+            "POS exchange return refund transaction record completed transaction manager approval"
+                .to_string(),
+        );
+    }
+
+    if normalized.contains("z report")
+        || normalized.contains("z-report")
+        || normalized.contains("close drawer")
+        || normalized.contains("close register")
+        || normalized.contains("till")
+    {
+        terms.push("Register reports Z-Reports close drawer till reconciliation".to_string());
+    }
+
+    terms
+        .into_iter()
+        .filter(|term| !term.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn sanitize_excerpt(text: &str, max: usize) -> String {
     excerpt_from_body(text, max)
 }
@@ -2665,35 +2709,43 @@ async fn rosie_tool_context(
             .into_response()
     })?;
 
-    let help_limit = if conversation_mode { 3 } else { 6 };
-    let manual_detail_limit = if conversation_mode { 0 } else { 4 };
+    let help_limit = if conversation_mode { 5 } else { 7 };
+    let manual_detail_limit = if conversation_mode { 2 } else { 4 };
+    let help_query = rosie_help_search_query(question);
 
-    let help_hits = if let Some(client) = state.meilisearch.as_ref() {
-        match help_search_hits(client, question, help_limit).await {
-            Ok(rows) => rows
-                .into_iter()
-                .filter(|h| {
-                    help_manual_policy::viewer_can_see_manual(
-                        &h.manual_id,
-                        policies.get(&h.manual_id),
-                        viewer.pos_only_mode,
-                        &viewer.staff_perms,
-                    )
-                })
-                .map(map_hit)
-                .collect::<Vec<_>>(),
-            Err(e) => {
-                tracing::warn!(error = %e, "help_search_hits failed in ROSIE tool context");
-                Vec::new()
-            }
-        }
-    } else {
-        Vec::new()
-    };
+    let client = state.meilisearch.as_ref().ok_or_else(|| {
+        tracing::error!("Meilisearch is unavailable for ROSIE tool context");
+        (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "Meilisearch is unavailable." })),
+        )
+            .into_response()
+    })?;
+    let help_hits = help_search_hits(client, &help_query, help_limit)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "help_search_hits failed in ROSIE tool context");
+            (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "Help search is unavailable." })),
+            )
+                .into_response()
+        })?
+        .into_iter()
+        .filter(|h| {
+            help_manual_policy::viewer_can_see_manual(
+                &h.manual_id,
+                policies.get(&h.manual_id),
+                viewer.pos_only_mode,
+                &viewer.staff_perms,
+            )
+        })
+        .map(map_hit)
+        .collect::<Vec<_>>();
 
     tool_results.push(RosieToolResultOut {
         tool_name: "help_search".to_string(),
-        args: serde_json::json!({ "q": question, "limit": help_limit }),
+        args: serde_json::json!({ "q": help_query, "original_question": question, "limit": help_limit }),
         result: serde_json::json!({ "hits": help_hits }),
     });
 

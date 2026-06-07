@@ -172,7 +172,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "help-center-drawer",
     title: "Help Center Drawer",
-    summary: "Find staff manuals, print the current help section, and ask ROSIE for sourced help.",
+    summary: "Find staff manuals, print help guides, ask ROSIE for direct help, and chat with ROSIE.",
     markdown: manual_14_raw,
     tags: ["help-center-drawer","help","rosie","print"],
   },

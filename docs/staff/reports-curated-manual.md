@@ -65,7 +65,7 @@ Tiles **only appear** if you have **every** required permission for that tile (a
 |-------------------------|------------|-------------|
 | **Sales Breakdown** | Revenue, tax, units, and transactions by **Group by** dimension | **insights.view** |
 | **Daily Sales Weather** | Daily sales totals with the captured weather conditions for each store day | **insights.view** |
-| **Sales By Day** | Hourly sales, sales per active hour, average sale, daily totals, prior-week comparison, and same-date prior-year comparison when history exists | **insights.view** or **register.reports** |
+| **Sales By Day** | One row per business day with daily sales, average sale, sales per active hour, prior-week comparison, same-date prior-year comparison when history exists, and an aggregated hourly sales chart | **insights.view** or **register.reports** |
 | **Margin & Cost Breakdown** | Gross margin and cost-loaded metrics (sensitive) | **insights.view** + **Admin** role |
 | **Best Sellers** | Top products by units in range | **insights.view** |
 | **Slow Stock** | On-hand products with little or no sales in range | **insights.view** |
