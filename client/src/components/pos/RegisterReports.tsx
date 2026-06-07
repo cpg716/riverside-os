@@ -18,6 +18,7 @@ import {
   Banknote,
   User,
   Clock,
+  CloudSun,
   Search,
   ShieldAlert,
   RefreshCw,
@@ -115,8 +116,19 @@ interface RegisterDaySummary {
   net_sales: string;
   cash_collected: string;
   deposits_collected: string;
+  weather_days?: RegisterDayWeatherSummary[];
+  weather_summary?: string | null;
   activities: RegisterActivityItem[];
   amount_label?: string;
+}
+
+interface RegisterDayWeatherSummary {
+  date: string;
+  condition: string;
+  temp_high: string;
+  temp_low: string;
+  precipitation_inches: string;
+  source: string;
 }
 
 interface RegisterSessionRow {
@@ -631,6 +643,17 @@ export default function RegisterReports({
     };
   }, [openSessions, coordinationGroups]);
 
+  const weatherDays = summaryBooked?.weather_days?.length
+    ? summaryBooked.weather_days
+    : summary?.weather_days ?? [];
+  const weatherSummaryLabel =
+    summaryBooked?.weather_summary ?? summary?.weather_summary ?? null;
+
+  const formatWeatherNumber = (value: string, digits: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed.toFixed(digits) : value;
+  };
+
   const handlePrint = () => {
     const printSummary = selectedSummary;
     if (!printSummary) return;
@@ -979,6 +1002,36 @@ export default function RegisterReports({
                   <Download size={12} />CSV
                 </button>
               </div>
+
+              {weatherDays.length > 0 ? (
+                <div className="ui-panel ui-tint-info p-3">
+                  <div className="mb-2 flex items-center gap-1.5">
+                    <CloudSun className="h-3 w-3 text-app-info" />
+                    <span className="text-xs font-bold text-app-info">Weather</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
+                      {weatherDays[0]?.source}
+                    </span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {weatherDays.slice(0, 6).map((day) => (
+                      <div key={day.date} className="ui-metric-cell ui-tint-info p-2">
+                        <div className="text-xs font-bold text-app-text-muted">{day.date}</div>
+                        <p className="mt-1 text-base font-black text-app-text">{day.condition}</p>
+                        <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                          High {formatWeatherNumber(day.temp_high, 0)}° · Low {formatWeatherNumber(day.temp_low, 0)}° · Rain {formatWeatherNumber(day.precipitation_inches, 2)} in
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  {weatherDays.length > 6 ? (
+                    <p className="mt-2 text-xs font-semibold text-app-text-muted">
+                      Showing first 6 weather days. Use Back Office Reports for the full date range.
+                    </p>
+                  ) : weatherSummaryLabel ? (
+                    <p className="mt-2 text-xs font-semibold text-app-text-muted">{weatherSummaryLabel}</p>
+                  ) : null}
+                </div>
+              ) : null}
 
               {/* Booked Summary - First and Default */}
               {summaryBooked && (

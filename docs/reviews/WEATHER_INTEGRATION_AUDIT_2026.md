@@ -20,7 +20,7 @@ The Weather Integration is a strategic ROI tool that correlates store performanc
 ## 3. Data Correlation & ROI
 
 ### 3.1 Session & Order Snapshots
-- **Capture**: Weather data is snapshotted into `register_sessions.weather_snapshot` and `orders.weather_snapshot` during the "Open/Close" and "Book Order" events.
+- **Capture**: Weather data is snapshotted into `register_sessions.weather_snapshot` and `transactions.weather_snapshot` during register close and checkout.
 - **BI Integration**: These JSONB snapshots are consumable by Metabase, allowing for advanced queries like: *"Show total revenue on days where precipitation > 0.5 inches."*
 
 ### 3.2 Nightly Snapshot Finalization

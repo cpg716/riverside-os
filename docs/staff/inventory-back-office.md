@@ -87,10 +87,11 @@ When "Publish to Web" is enabled, the catalog wizard inserts a dedicated **Web L
 
 1. **Inventory** → **Promotions**.
 2. Create or edit a promotion: **Promotion Name**, **Receipt Label**, **Starts**, **Ends**, **Discount %**, and **Applies To**.
-3. For category or vendor promotions, select the matching category or primary vendor before saving.
+3. Choose the scope: **Selected SKUs**, **Full Inventory**, **Whole Category**, or **Primary Vendor**. For category or vendor promotions, select the matching category or primary vendor before saving.
 4. Attach **variants** / SKUs to selected-SKU promotions; **save** each step.
 5. **Test at POS:** add one attached SKU in a **test** cart and confirm discount behavior **before** customer-facing launch.
-6. **Usage:** aggregated usage is available to the API as **`/api/discount-events/usage-report`** (admin reporting / future NL tools — see [AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)); use it for post-mortems after big promos.
+6. **Performance:** use the promotion row's **Performance** button to view and print transaction-level usage for that promo.
+7. **Usage:** aggregated usage is available to the API as **`/api/discount-events/usage-report`** (admin reporting / future NL tools — see [AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)); use it for post-mortems after big promos.
 
 ### Vendors
 

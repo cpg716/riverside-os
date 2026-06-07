@@ -2151,6 +2151,8 @@ pub async fn execute_checkout(
               AND de.starts_at <= now()
               AND de.ends_at >= now()
               AND (
+                de.scope_type = 'all'
+                OR
                 (
                   de.scope_type = 'variants'
                   AND EXISTS (

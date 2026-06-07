@@ -122,11 +122,125 @@ pub struct RegisterDaySummary {
     pub cash_collected: String,
     /// Total payments received towards unfulfilled orders or as partial payments.
     pub deposits_collected: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub weather_days: Vec<RegisterDayWeatherSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weather_summary: Option<String>,
     pub activities: Vec<RegisterActivityItem>,
 }
 
 fn default_reporting_basis() -> String {
     "booked".to_string()
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RegisterDayWeatherSummary {
+    pub date: NaiveDate,
+    pub condition: String,
+    pub temp_high: String,
+    pub temp_low: String,
+    pub precipitation_inches: String,
+    pub source: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct WeatherRow {
+    weather_date: NaiveDate,
+    condition: Option<String>,
+    temp_high: Option<String>,
+    temp_low: Option<String>,
+    precipitation_inches: Option<String>,
+    source: Option<String>,
+}
+
+fn weather_summary_label(weather_days: &[RegisterDayWeatherSummary]) -> Option<String> {
+    weather_days.first().map(|day| {
+        format!(
+            "{}: {} (high {}°, low {}°, precip {} in)",
+            day.date, day.condition, day.temp_high, day.temp_low, day.precipitation_inches
+        )
+    })
+}
+
+async fn fetch_register_day_weather(
+    pool: &PgPool,
+    from_l: NaiveDate,
+    to_l: NaiveDate,
+    tz_name: &str,
+) -> Result<Vec<RegisterDayWeatherSummary>, RegisterDayActivityError> {
+    let weather_rows: Vec<WeatherRow> = sqlx::query_as(
+        r#"
+        WITH days AS (
+            SELECT generate_series($1::date, $2::date, '1 day'::interval)::date AS weather_date
+        )
+        SELECT
+            days.weather_date,
+            COALESCE(
+                register_weather.snapshot->0->>'condition',
+                transaction_weather.snapshot->0->>'condition'
+            ) AS condition,
+            COALESCE(
+                register_weather.snapshot->0->>'temp_high',
+                transaction_weather.snapshot->0->>'temp_high'
+            ) AS temp_high,
+            COALESCE(
+                register_weather.snapshot->0->>'temp_low',
+                transaction_weather.snapshot->0->>'temp_low'
+            ) AS temp_low,
+            COALESCE(
+                register_weather.snapshot->0->>'precipitation_inches',
+                transaction_weather.snapshot->0->>'precipitation_inches'
+            ) AS precipitation_inches,
+            CASE
+                WHEN register_weather.snapshot IS NOT NULL THEN 'Register close'
+                WHEN transaction_weather.snapshot IS NOT NULL THEN 'Checkout'
+                ELSE NULL
+            END AS source
+        FROM days
+        LEFT JOIN LATERAL (
+            SELECT rs.weather_snapshot AS snapshot
+            FROM register_sessions rs
+            WHERE rs.weather_snapshot IS NOT NULL
+              AND jsonb_typeof(rs.weather_snapshot) = 'array'
+              AND (rs.closed_at AT TIME ZONE $3)::date = days.weather_date
+            ORDER BY rs.closed_at DESC NULLS LAST
+            LIMIT 1
+        ) register_weather ON true
+        LEFT JOIN LATERAL (
+            SELECT t.weather_snapshot AS snapshot
+            FROM transactions t
+            WHERE t.weather_snapshot IS NOT NULL
+              AND jsonb_typeof(t.weather_snapshot) = 'array'
+              AND COALESCE(t.business_date, (t.booked_at AT TIME ZONE $3)::date) = days.weather_date
+            ORDER BY t.booked_at DESC
+            LIMIT 1
+        ) transaction_weather ON register_weather.snapshot IS NULL
+        ORDER BY days.weather_date DESC
+        "#,
+    )
+    .bind(from_l)
+    .bind(to_l)
+    .bind(tz_name)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(weather_rows
+        .into_iter()
+        .filter_map(|row| {
+            let condition = row.condition?.trim().to_string();
+            if condition.is_empty() {
+                return None;
+            }
+            Some(RegisterDayWeatherSummary {
+                date: row.weather_date,
+                condition,
+                temp_high: row.temp_high.unwrap_or_else(|| "0".to_string()),
+                temp_low: row.temp_low.unwrap_or_else(|| "0".to_string()),
+                precipitation_inches: row.precipitation_inches.unwrap_or_else(|| "0".to_string()),
+                source: row.source.unwrap_or_else(|| "Weather snapshot".to_string()),
+            })
+        })
+        .collect())
 }
 
 fn effective_tz(raw: Option<String>) -> Tz {
@@ -393,6 +507,11 @@ pub async fn fetch_register_day_summary(
     {
         if let Some(mut snap) = try_load_eod_snapshot(pool, from_l).await? {
             snap.preset = preset_out.clone();
+            if snap.weather_days.is_empty() {
+                snap.weather_days =
+                    fetch_register_day_weather(pool, from_l, to_l, &tz_name).await?;
+                snap.weather_summary = weather_summary_label(&snap.weather_days);
+            }
             return Ok(snap);
         }
     }
@@ -542,6 +661,9 @@ pub async fn fetch_register_day_summary(
     .fetch_one(pool)
     .await?;
     let new_wedding_parties_count = wed_row.0;
+
+    let weather_days = fetch_register_day_weather(pool, from_l, to_l, &tz_name).await?;
+    let weather_summary = weather_summary_label(&weather_days);
 
     // --- Cash and Deposits Dashboard Metrics ---
     let cash_row: (Option<Decimal>,) = sqlx::query_as(
@@ -869,6 +991,8 @@ pub async fn fetch_register_day_summary(
         net_sales: money_label(subtotal),
         cash_collected: money_label(cash_collected),
         deposits_collected: money_label(deposits_collected),
+        weather_days,
+        weather_summary,
         activities,
     })
 }

@@ -1,7 +1,9 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { printTextReport } from "../../lib/printerBridge";
 import VariantSearchInput, {
   VariantSearchResult,
 } from "../ui/VariantSearchInput";
@@ -16,9 +18,9 @@ import {
   PauseCircle,
   Plus,
   Search,
+  Printer,
   SlidersHorizontal,
   Settings2,
-  ShieldCheck,
   Trash2,
   XCircle,
 } from "lucide-react";
@@ -61,12 +63,23 @@ interface UsageItemRow {
   subtotal_sum: string;
 }
 
+interface UsageTransactionRow {
+  transaction_id: string;
+  transaction_display_id: string | null;
+  created_at: string;
+  sku: string;
+  product_name: string;
+  quantity: number;
+  line_subtotal: string;
+}
+
 interface UsageDetailResponse {
   summary: UsageSummaryRow;
   items: UsageItemRow[];
+  transactions: UsageTransactionRow[];
 }
 
-type PromoScope = "variants" | "category" | "vendor";
+type PromoScope = "variants" | "category" | "vendor" | "all";
 type PromoAction = "end" | "cancel";
 type PanelMode = "manage" | "create";
 
@@ -113,9 +126,52 @@ function statusFor(row: EventRow) {
 }
 
 function scopeLabel(row: EventRow) {
+  if (row.scope_type === "all") return "Full Inventory";
   if (row.scope_type === "category") return "Whole category";
   if (row.scope_type === "vendor") return "Primary vendor";
   return "Selected SKUs";
+}
+
+function dateTimeShort(value: string) {
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function buildPerformancePrintText(
+  row: EventRow,
+  detail: UsageDetailResponse,
+  from: string,
+  to: string,
+) {
+  const lines = [
+    "Promotion Performance",
+    "=====================",
+    `Promotion: ${row.name}`,
+    `Receipt label: ${row.receipt_label}`,
+    `Scope: ${scopeLabel(row)}`,
+    `Window: ${from || "Start"} - ${to || "Today"}`,
+    `Sales: ${money(detail.summary.subtotal_sum)}`,
+    `Units: ${detail.summary.units_sold}`,
+    `Lines: ${detail.summary.line_count}`,
+    "",
+    "Transactions",
+    "------------",
+  ];
+  if (detail.transactions.length === 0) {
+    lines.push("No transactions used this promotion in the selected window.");
+  } else {
+    detail.transactions.forEach((tx) => {
+      lines.push(
+        `${dateTimeShort(tx.created_at)} | ${tx.transaction_display_id ?? tx.transaction_id.slice(0, 8)} | ${tx.sku} | Qty ${tx.quantity} | ${money(tx.line_subtotal)} | ${tx.product_name}`,
+      );
+    });
+  }
+  return lines.join("\n");
 }
 
 export default function DiscountEventsPanel() {
@@ -158,8 +214,15 @@ export default function DiscountEventsPanel() {
   const [usageTo, setUsageTo] = useState(() => ymdLocal(new Date()));
   const [usageRows, setUsageRows] = useState<UsageSummaryRow[]>([]);
   const [usageDetail, setUsageDetail] = useState<UsageDetailResponse | null>(null);
+  const [performanceEventId, setPerformanceEventId] = useState<string | null>(null);
+  const [performanceDetail, setPerformanceDetail] = useState<UsageDetailResponse | null>(null);
+  const [performanceBusy, setPerformanceBusy] = useState(false);
 
   const selected = useMemo(() => rows.find((row) => row.id === sel) ?? null, [rows, sel]);
+  const performanceEvent = useMemo(
+    () => rows.find((row) => row.id === performanceEventId) ?? null,
+    [rows, performanceEventId],
+  );
   const usageByEvent = useMemo(() => {
     const map = new Map<string, UsageSummaryRow>();
     usageRows.forEach((row) => map.set(row.event_id, row));
@@ -259,6 +322,31 @@ export default function DiscountEventsPanel() {
     setUsageDetail((await res.json()) as UsageDetailResponse);
   }, [backofficeHeaders, canView, sel, usageFrom, usageTo]);
 
+  const loadPerformanceDetail = useCallback(
+    async (eventId: string) => {
+      if (!canView) return;
+      setPerformanceBusy(true);
+      const p = new URLSearchParams();
+      if (usageFrom.trim()) p.set("from", usageFrom.trim());
+      if (usageTo.trim()) p.set("to", usageTo.trim());
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/discount-events/${eventId}/usage-report?${p.toString()}`,
+          { headers: backofficeHeaders() },
+        );
+        if (!res.ok) {
+          setPerformanceDetail(null);
+          toast("We couldn't load promotion performance right now.", "error");
+          return;
+        }
+        setPerformanceDetail((await res.json()) as UsageDetailResponse);
+      } finally {
+        setPerformanceBusy(false);
+      }
+    },
+    [backofficeHeaders, canView, toast, usageFrom, usageTo],
+  );
+
   useEffect(() => {
     void loadUsageReport();
   }, [loadUsageReport]);
@@ -266,6 +354,11 @@ export default function DiscountEventsPanel() {
   useEffect(() => {
     void loadUsageDetail();
   }, [loadUsageDetail]);
+
+  useEffect(() => {
+    if (!performanceEventId) return;
+    void loadPerformanceDetail(performanceEventId);
+  }, [loadPerformanceDetail, performanceEventId]);
 
   const loadVars = useCallback(
     async (id: string) => {
@@ -437,9 +530,9 @@ export default function DiscountEventsPanel() {
       }
       await addVariant(variant);
       setScanSku("");
-      scanInputRef.current?.focus();
     } finally {
       setBusyScan(false);
+      scanInputRef.current?.focus();
     }
   };
 
@@ -461,6 +554,24 @@ export default function DiscountEventsPanel() {
       await load();
     } finally {
       setBusyAction(false);
+    }
+  };
+
+  const openPerformance = (eventId: string) => {
+    setPerformanceEventId(eventId);
+    setPerformanceDetail(null);
+  };
+
+  const printPerformance = async () => {
+    if (!performanceEvent || !performanceDetail) return;
+    try {
+      await printTextReport(
+        buildPerformancePrintText(performanceEvent, performanceDetail, usageFrom, usageTo),
+      );
+      toast("Promotion performance sent to the Reports printer.", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to print performance report.";
+      toast(message, "error");
     }
   };
 
@@ -539,12 +650,20 @@ export default function DiscountEventsPanel() {
                 const usage = usageByEvent.get(row.id);
                 const isSelected = row.id === sel && panelMode === "manage";
                 return (
-                  <button
-                    type="button"
+                  <div
                     key={row.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => {
                       setSel(row.id);
                       setPanelMode("manage");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSel(row.id);
+                        setPanelMode("manage");
+                      }
                     }}
                     className={`w-full rounded-2xl border p-4 text-left transition-all hover:border-app-accent/50 hover:bg-app-accent/5 ${
                       isSelected
@@ -579,7 +698,8 @@ export default function DiscountEventsPanel() {
                           {dateShort(row.starts_at)} - {dateShort(row.ends_at)}
                         </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-3 rounded-xl border border-app-border bg-app-surface px-4 py-3 xl:min-w-[320px]">
+                      <div className="grid gap-3 xl:min-w-[360px]">
+                        <div className="grid grid-cols-3 gap-3 rounded-xl border border-app-border bg-app-surface px-4 py-3">
                         <div>
                           <div className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Sales</div>
                           <div className="mt-1 font-mono text-sm font-black text-app-text">{money(usage?.subtotal_sum ?? 0)}</div>
@@ -593,8 +713,20 @@ export default function DiscountEventsPanel() {
                           <div className="mt-1 font-mono text-sm font-black text-app-text">{usage?.line_count ?? 0}</div>
                         </div>
                       </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openPerformance(row.id);
+                          }}
+                          className="ui-btn-secondary min-h-10 w-full text-[10px]"
+                        >
+                          <Search size={15} />
+                          Performance
+                        </button>
+                      </div>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
               {rows.length === 0 && (
@@ -679,6 +811,7 @@ export default function DiscountEventsPanel() {
                   <input className="ui-input h-12 text-sm font-black" value={pct} onChange={(e) => setPct(e.target.value)} placeholder="25" />
                   <select className="ui-input h-12 text-sm font-bold" value={scopeType} onChange={(e) => setScopeType(e.target.value as PromoScope)}>
                     <option value="variants">Selected SKUs</option>
+                    <option value="all">Full Inventory</option>
                     <option value="category">Whole Category</option>
                     <option value="vendor">Primary Vendor</option>
                   </select>
@@ -775,6 +908,7 @@ export default function DiscountEventsPanel() {
                     onChange={(e) => setEditScopeType(e.target.value as PromoScope)}
                   >
                     <option value="variants">Selected SKUs</option>
+                    <option value="all">Full Inventory</option>
                     <option value="category">Whole Category</option>
                     <option value="vendor">Primary Vendor</option>
                   </select>
@@ -807,10 +941,12 @@ export default function DiscountEventsPanel() {
 
                   {editScopeType === "variants" && (
                     <div className="space-y-3 rounded-xl border border-app-border bg-app-bg/30 p-3">
-                      <div className="relative">
+                      <div className="relative w-full">
                         <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted" size={18} />
                         <input
                           ref={scanInputRef}
+                          aria-label="Scan SKU"
+                          autoComplete="off"
                           value={scanSku}
                           onChange={(e) => setScanSku(e.target.value)}
                           onKeyDown={(e) => {
@@ -819,8 +955,8 @@ export default function DiscountEventsPanel() {
                               void addScannedSku();
                             }
                           }}
-                          placeholder="Scan or enter SKU, then Enter"
-                          className="ui-input h-12 pl-10 pr-3 text-sm font-black"
+                          placeholder="Scan SKU"
+                          className="ui-input h-12 w-full pl-10 pr-3 text-sm font-black"
                         />
                       </div>
                       <VariantSearchInput
@@ -865,52 +1001,126 @@ export default function DiscountEventsPanel() {
                   </button>
                 </div>
               </section>
-
-              <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm">
-                <div className="mb-4 flex items-center gap-3">
-                  <Search size={18} className="text-app-accent" />
-                  <h4 className="text-sm font-black text-app-text">Performance Detail</h4>
-                </div>
-                <div className="space-y-2">
-                  {(usageDetail?.items ?? []).map((item) => (
-                    <div key={item.variant_id} className="grid grid-cols-[1fr_auto] gap-3 rounded-xl border border-app-border bg-app-bg/30 p-3">
-                      <div>
-                        <div className="text-xs font-black text-app-text">{item.product_name}</div>
-                        <div className="font-mono text-[10px] font-bold text-app-text-muted">{item.sku}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-mono text-sm font-black text-app-text">{money(item.subtotal_sum)}</div>
-                        <div className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                          {item.units_sold} units · {item.line_count} lines
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {(usageDetail?.items ?? []).length === 0 && (
-                    <div className="rounded-xl border border-dashed border-app-border p-5 text-center text-xs font-bold text-app-text-muted">
-                      No sales have used this promotion in the selected window.
-                    </div>
-                  )}
-                </div>
-              </section>
             </div>
           ) : (
             <section className="rounded-2xl border border-app-border bg-app-surface p-5 text-sm font-bold text-app-text-muted">
               Select a promotion from the registry, or create a new one.
             </section>
           )}
-
-          <section className="mt-4 rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm">
-            <div className="mb-2 flex items-center gap-3 text-app-text-muted">
-              <ShieldCheck size={18} />
-              <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Promotion Rules</h4>
-            </div>
-            <p className="text-xs font-semibold leading-relaxed text-app-text-muted">
-              POS applies active promotions by checkout timestamp. The sales totals shown here use line subtotal before tax.
-            </p>
-          </section>
         </aside>
       </main>
+
+      {performanceEvent &&
+        createPortal(
+          <div className="ui-overlay-backdrop fixed inset-0 z-200 flex items-center justify-center bg-black/60 p-4">
+            <section className="max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-app-border px-6 py-5">
+                <div>
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest ${statusFor(performanceEvent).tone}`}>
+                      {statusFor(performanceEvent).label}
+                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      -{Number(performanceEvent.percent_off)}%
+                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      {scopeLabel(performanceEvent)}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-black text-app-text">Promotion Performance</h3>
+                  <p className="mt-1 text-sm font-bold text-app-text-muted">
+                    {performanceEvent.name} · {usageFrom || "Start"} - {usageTo || "Today"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void printPerformance()}
+                    disabled={!performanceDetail || performanceBusy}
+                    className="ui-btn-secondary min-h-10 text-[10px] disabled:opacity-50"
+                  >
+                    <Printer size={16} />
+                    Print
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPerformanceEventId(null);
+                      setPerformanceDetail(null);
+                    }}
+                    className="ui-touch-target rounded-xl text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                    aria-label="Close performance detail"
+                  >
+                    <XCircle size={20} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-[calc(88vh-112px)] overflow-y-auto p-6">
+                {performanceBusy && (
+                  <div className="rounded-xl border border-app-border bg-app-bg/40 p-6 text-center text-sm font-bold text-app-text-muted">
+                    Loading promotion performance...
+                  </div>
+                )}
+
+                {!performanceBusy && performanceDetail && (
+                  <div className="space-y-5">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl border border-app-border bg-app-bg/40 p-4">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Sales</div>
+                        <div className="mt-2 text-2xl font-black text-app-text">
+                          {money(performanceDetail.summary.subtotal_sum)}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-app-border bg-app-bg/40 p-4">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Units</div>
+                        <div className="mt-2 text-2xl font-black text-app-text">
+                          {performanceDetail.summary.units_sold}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-app-border bg-app-bg/40 p-4">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Lines</div>
+                        <div className="mt-2 text-2xl font-black text-app-text">
+                          {performanceDetail.summary.line_count}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-xl border border-app-border">
+                      <div className="grid grid-cols-[150px_130px_100px_minmax(0,1fr)_80px_110px] gap-3 border-b border-app-border bg-app-bg/50 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        <span>Date</span>
+                        <span>Transaction</span>
+                        <span>SKU</span>
+                        <span>Item</span>
+                        <span className="text-right">Qty</span>
+                        <span className="text-right">Sales</span>
+                      </div>
+                      {performanceDetail.transactions.map((tx) => (
+                        <div
+                          key={`${tx.transaction_id}-${tx.sku}-${tx.created_at}`}
+                          className="grid grid-cols-[150px_130px_100px_minmax(0,1fr)_80px_110px] gap-3 border-b border-app-border px-4 py-3 text-xs font-bold text-app-text last:border-b-0"
+                        >
+                          <span className="text-app-text-muted">{dateTimeShort(tx.created_at)}</span>
+                          <span className="font-mono">{tx.transaction_display_id ?? tx.transaction_id.slice(0, 8)}</span>
+                          <span className="font-mono text-app-text-muted">{tx.sku}</span>
+                          <span className="min-w-0 truncate">{tx.product_name}</span>
+                          <span className="text-right font-mono">{tx.quantity}</span>
+                          <span className="text-right font-mono">{money(tx.line_subtotal)}</span>
+                        </div>
+                      ))}
+                      {performanceDetail.transactions.length === 0 && (
+                        <div className="p-8 text-center text-sm font-bold text-app-text-muted">
+                          No transactions used this promotion in the selected window.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>,
+          document.getElementById("drawer-root") ?? document.body,
+        )}
 
       <ConfirmationModal
         isOpen={confirmAction !== null}

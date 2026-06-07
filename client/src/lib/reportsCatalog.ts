@@ -231,6 +231,26 @@ export const REPORTS_CATALOG: ReportDef[] = [
       `/api/insights/sales-pivot?group_by=${enc(groupBy)}&basis=${enc(basis)}&from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
   {
+    id: "daily_sales_weather",
+    title: "Daily Sales Weather",
+    description:
+      "Daily sales totals with the weather snapshot captured for each store day.",
+    category: "Sales",
+    aliases: ["daily sales with weather", "weather sales", "weather by day", "sales weather"],
+    keywords: ["sales", "weather", "daily", "temperature", "rain", "forecast", "conditions"],
+    questions: ["How did weather line up with daily sales?", "Which sales days had rain or cold weather?"],
+    audience: "Manager",
+    sensitivity: "Staff-safe",
+    adminOnly: false,
+    permissionsAll: ["insights.view"],
+    responseKind: "sales_pivot",
+    usesGlobalDateRange: true,
+    usesBasis: true,
+    supportsGroupBy: false,
+    buildPath: ({ fromYmd, toYmd, basis }) =>
+      `/api/insights/sales-pivot?group_by=date&basis=${enc(basis)}&from=${enc(fromYmd)}&to=${enc(toYmd)}`,
+  },
+  {
     id: "sales_by_day",
     title: "Sales By Day",
     description:

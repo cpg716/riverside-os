@@ -36,17 +36,17 @@ These routes are intentionally **not** staff-gated so dashboards and feeds can l
 
 ## Where weather is stored
 
-- **`orders.weather_snapshot`** — set at checkout (daily summary for that calendar day).
+- **`transactions.weather_snapshot`** — set at checkout (daily summary for that calendar day).
 - **`register_sessions.weather_snapshot`** — set when the register session is **closed** (Z-report path), using that day’s daily fetch.
 
 ## End-of-day refresh (final daily values)
 
 Migration **`47_weather_snapshot_finalize_ledger.sql`** adds **`weather_snapshot_finalize_ledger`**. If this migration is not applied, the hourly worker skips EOD finalize (logs at **debug**, no error spam). Apply **`47`** (and **`48`** for the VC pull counter) for full behavior.
 
-The hourly background worker (see `server/src/main.rs`) calls **`maybe_finalize_daily_weather_snapshots`** after **local hour ≥ 3** (default), **once per store-local calendar day**, and:
+The hourly background worker (see `server/src/launcher.rs`) calls **`maybe_finalize_daily_weather_snapshots`** after **local hour ≥ 3** (default), **once per store-local calendar day**, and:
 
 1. Fetches **seven days** of finalized daily data from Visual Crossing (`yesterday - 6` through `yesterday` in store timezone) in **one** Timeline request.
-2. Updates **`weather_snapshot`** on closed **`register_sessions`** and **`orders`** whose local **`closed_at`** / **`booked_at`** date matches each day.
+2. Updates **`weather_snapshot`** on closed **`register_sessions`** and **`transactions`** whose local **`closed_at`** / **`booked_at`** date matches each day.
 
 Requires VC enabled with a valid key; failures do not advance the ledger (retried on a later tick).
 

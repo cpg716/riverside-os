@@ -37,7 +37,7 @@ Use Reports to find sales, register, finance, customer, wedding, inventory, staf
 
 1. Open Back Office -> Reports.
 2. Use the search box: "Search reports by task, question, or keyword".
-3. Search with plain terms such as pickup, balance, tax, cash, drawer, slow stock, appointments, no-show, or open orders.
+3. Search with plain terms such as pickup, balance, tax, cash, drawer, slow stock, weather, appointments, no-show, or open orders.
 4. Review the matching category section and choose a report tile.
 5. Use From, To, Basis, and Group by when those controls appear.
 6. Use Refresh after changing filters.
@@ -55,6 +55,7 @@ Use Reports when the store needs a repeatable answer with the same filters, basi
 - Sensitivity labels describe access expectations: Staff-safe, Manager, or Admin-only.
 - Search includes report titles, descriptions, category names, category descriptions, aliases, keywords, staff questions, audience, sensitivity, and runnable status.
 - The report catalog should only show planned roadmap cards when there is no live Riverside API for that report yet.
+- **Daily Sales Weather** shows sales by store day alongside the captured weather snapshot for that day.
 
 ## What happens next
 

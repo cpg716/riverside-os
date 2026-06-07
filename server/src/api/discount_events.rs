@@ -73,7 +73,7 @@ pub struct CreateDiscountEventBody {
     pub starts_at: DateTime<Utc>,
     pub ends_at: DateTime<Utc>,
     pub percent_off: Decimal,
-    /// `variants` (pick SKUs), `category`, or `vendor` (primary vendor on product).
+    /// `variants` (pick SKUs), `all`, `category`, or `vendor` (primary vendor on product).
     #[serde(default)]
     pub scope_type: Option<String>,
     #[serde(default)]
@@ -135,10 +135,22 @@ pub struct DiscountUsageItemRow {
     pub subtotal_sum: Decimal,
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct DiscountUsageTransactionRow {
+    pub transaction_id: Uuid,
+    pub transaction_display_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub sku: String,
+    pub product_name: String,
+    pub quantity: i64,
+    pub line_subtotal: Decimal,
+}
+
 #[derive(Debug, Serialize)]
 pub struct DiscountUsageDetailResponse {
     pub summary: DiscountUsageReportRow,
     pub items: Vec<DiscountUsageItemRow>,
+    pub transactions: Vec<DiscountUsageTransactionRow>,
 }
 
 fn naive_day_start_utc(d: NaiveDate) -> DateTime<Utc> {
@@ -172,6 +184,13 @@ fn validate_discount_scope(
                 ));
             }
         }
+        "all" => {
+            if cat.is_some() || vend.is_some() {
+                return Err(DiscountEventError::InvalidPayload(
+                    "full inventory scope must not include category or vendor targets".to_string(),
+                ));
+            }
+        }
         "category" => {
             if cat.is_none() {
                 return Err(DiscountEventError::InvalidPayload(
@@ -198,7 +217,7 @@ fn validate_discount_scope(
         }
         _ => {
             return Err(DiscountEventError::InvalidPayload(
-                "scope_type must be variants, category, or vendor".to_string(),
+                "scope_type must be variants, all, category, or vendor".to_string(),
             ));
         }
     }
@@ -335,7 +354,37 @@ async fn event_usage_report(
     .bind(end)
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(DiscountUsageDetailResponse { summary, items }))
+    let transactions = sqlx::query_as::<_, DiscountUsageTransactionRow>(
+        r#"
+        SELECT
+            u.transaction_id,
+            t.display_id AS transaction_display_id,
+            t.created_at,
+            pv.sku,
+            p.name AS product_name,
+            u.quantity::bigint AS quantity,
+            u.line_subtotal
+        FROM discount_event_usage u
+        INNER JOIN transactions t ON t.id = u.transaction_id
+        INNER JOIN product_variants pv ON pv.id = u.variant_id
+        INNER JOIN products p ON p.id = pv.product_id
+        WHERE u.event_id = $1
+          AND u.created_at >= $2
+          AND u.created_at < $3
+        ORDER BY t.created_at DESC, t.display_id DESC, pv.sku ASC
+        LIMIT 500
+        "#,
+    )
+    .bind(id)
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(DiscountUsageDetailResponse {
+        summary,
+        items,
+        transactions,
+    }))
 }
 
 async fn list_active_events(
@@ -414,7 +463,7 @@ async fn create_event(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .unwrap_or("variants");
-    let (cat, vend) = if st == "variants" {
+    let (cat, vend) = if st == "variants" || st == "all" {
         (None, None)
     } else if st == "category" {
         (body.scope_category_id, None)
@@ -422,7 +471,7 @@ async fn create_event(
         (None, body.scope_vendor_id)
     } else {
         return Err(DiscountEventError::InvalidPayload(
-            "scope_type must be variants, category, or vendor".to_string(),
+            "scope_type must be variants, all, category, or vendor".to_string(),
         ));
     };
     validate_discount_scope(st, cat, vend)?;

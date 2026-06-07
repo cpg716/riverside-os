@@ -1130,18 +1130,14 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
    if (phase === "manager") {
     return (
       <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-6 duration-700">
-        <div className="px-1">
-          <h2 className="text-2xl font-black tracking-tight text-app-text">Physical Inventory</h2>
-        </div>
-
-        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-900">
-          <p className="text-[11px] font-black uppercase tracking-widest">
-            Pilot count rule
+        <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-5 py-4 text-sm text-app-text">
+          <p className="text-[11px] font-black uppercase tracking-widest text-amber-400">
+            Count session guidance
           </p>
           <p className="mt-1 font-bold leading-relaxed">
             Sales can continue during a physical inventory count. Receiving is paused store-wide until the session is published or canceled.
           </p>
-          <p className="mt-1 text-xs font-semibold">
+          <p className="mt-1 text-xs font-semibold text-app-text-muted">
             Publish only after the manager confirms count sheets, uncounted items, and any receiving hold are resolved.
           </p>
         </div>

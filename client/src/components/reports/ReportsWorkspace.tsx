@@ -86,7 +86,6 @@ const HIDDEN_REPORT_FIELDS = new Set([
   "variant_id",
   "wedding_party_id",
   "snapshot_json",
-  "weather_snapshot",
   "z_report_json",
 ]);
 
@@ -146,8 +145,26 @@ function formatDateValue(value: unknown, includeTime: boolean): string | null {
   return includeTime ? parsed.toLocaleString() : parsed.toLocaleDateString();
 }
 
+function formatWeatherSnapshot(value: unknown): string | null {
+  const firstDay = Array.isArray(value) ? value[0] : value;
+  if (!firstDay || typeof firstDay !== "object") return null;
+  const row = firstDay as Record<string, unknown>;
+  const condition = typeof row.condition === "string" ? row.condition.trim() : "";
+  const high = numberFromUnknown(row.temp_high);
+  const low = numberFromUnknown(row.temp_low);
+  const precip = numberFromUnknown(row.precipitation_inches);
+  const parts = [
+    condition,
+    high !== null ? `High ${high.toFixed(0)}°` : null,
+    low !== null ? `Low ${low.toFixed(0)}°` : null,
+    precip !== null ? `Precip ${precip.toFixed(2)} in` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 function formatCellValue(value: unknown, key: string): string {
   if (value === null || value === undefined) return "";
+  if (key === "weather_snapshot") return formatWeatherSnapshot(value) ?? "";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (Array.isArray(value)) {
     return value
@@ -397,6 +414,8 @@ const FIELD_LABELS: Record<string, string> = {
   walk_in_count: "Walk-Ins",
   wedding_linked_count: "Wedding-Linked",
   wedding_party_name: "Wedding Party",
+  weather_snapshot: "Weather",
+  weather_summary: "Weather",
 };
 
 function fieldLabel(key: string): string {
@@ -473,6 +492,7 @@ const REGISTER_DAY_SUMMARY_FIELDS = [
   "net_sales",
   "cash_collected",
   "deposits_collected",
+  "weather_summary",
   "merchant_fees_total",
   "pickup_count",
   "appointment_count",
