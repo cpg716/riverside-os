@@ -46,11 +46,24 @@ Preferred repeatable command:
 node scripts/metabase-refresh-reporting-metadata.mjs
 ```
 
+Non-destructive verification command:
+
+```bash
+node scripts/metabase-refresh-reporting-metadata.mjs --verify-only
+```
+
 This uses the local Metabase admin credentials from `server/.env`, runs the
-Metabase schema sync and field-value rescan, then reapplies the Riverside
-staff-facing field model for `reporting.order_lines` and
-`reporting.payment_ledger` so readable labels stay visible and raw IDs stay
-hidden.
+Metabase schema sync and field-value rescan, removes the default Sample
+Database, enforces the Riverside database connection as `metabase_ro` with a
+`reporting` schema inclusion filter, then reapplies the Riverside staff-facing
+field model so readable labels stay visible and raw IDs stay hidden.
+
+The same script validates the shared Metabase launch accounts used by Riverside
+Insights. By default it requires all four shared-auth values:
+`RIVERSIDE_METABASE_ADMIN_EMAIL`, `RIVERSIDE_METABASE_ADMIN_PASSWORD`,
+`RIVERSIDE_METABASE_STAFF_EMAIL`, and `RIVERSIDE_METABASE_STAFF_PASSWORD`.
+Set `RIVERSIDE_METABASE_REQUIRE_SHARED_AUTH=false` only for a one-off sandbox
+where automatic Insights launch is intentionally not being validated.
 
 In Metabase:
 
@@ -65,6 +78,7 @@ Do this after:
 - applying reporting migrations
 - adding new readable columns
 - renaming or rebuilding views
+- seeing the default Sample Database or raw `public.*` tables in Metabase
 
 ---
 

@@ -21,7 +21,7 @@
 
 ## Staff Metabase login vs admin Metabase login
 
-**Riverside** only checks **`insights.view`** to show **Insights**. **Metabase** uses its **own** username and password (or SSO if your store enabled JWT on paid Metabase).
+**Riverside** checks **`insights.view`** to show **Insights**. On configured stations, Riverside also launches Metabase with the saved **Staff** or **Admin** Metabase account based on the signed-in staff member. If automatic launch is unavailable, **Metabase** uses its **own** username and password (or SSO if your store enabled JWT on paid Metabase).
 
 **Store standard:** Maintain **two classes** of Metabase user:
 
@@ -58,10 +58,11 @@ Use **Reports** for those until the matching Metabase views are added. Merchant 
 **Purpose:** Deep analytics — questions, dashboards, and (when enabled) SQL — using **Metabase’s** interface inside Riverside.
 
 1. Select **Insights** in the left rail. The normal Back Office layout is replaced by the **Insights** shell.
-2. If Riverside shows a warning that automatic sign-in is unavailable, continue into the normal Metabase sign-in screen. This means the station fell back to standard Metabase login for this session.
-3. If Metabase asks you to **log in**, use the **Metabase username** you were assigned (**staff** or **admin** class per store policy). Riverside staff sign-in does **not** pass through to Metabase unless IT enabled optional JWT handoff.
-4. Work in Metabase as trained (filters, time ranges, collections your Metabase admins configured for **your** login).
-5. Use **Back to Back Office** in the top bar when finished.
+2. If automatic launch is configured, Metabase opens without a manual login.
+3. If Riverside shows a warning that automatic sign-in is unavailable, continue into the normal Metabase sign-in screen. This means the station fell back to standard Metabase login for this session.
+4. If Metabase asks you to **log in**, use the **Metabase username** you were assigned (**staff** or **admin** class per store policy).
+5. Work in Metabase as trained (filters, time ranges, collections your Metabase admins configured for **your** login).
+6. Use **Back to Back Office** in the top bar when finished.
 
 **Same browser:** Metabase keeps its own session. Log out of Metabase when switching between **staff** and **admin** Metabase identities on a shared PC, or use separate browser profiles per policy.
 

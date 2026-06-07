@@ -1,7 +1,7 @@
 #![allow(clippy::all)]
 //! ROS Dev Center v1 domain logic (ops health, stations, alerts, actions, bug overlays).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::time::Duration as StdDuration;
 
@@ -876,11 +876,27 @@ fn looks_placeholder(value: &str) -> bool {
         || lower.contains("example")
 }
 
-fn metabase_jwt_secret_configured() -> bool {
-    match nonempty_env("RIVERSIDE_METABASE_JWT_SECRET") {
-        Some(secret) => secret.len() >= 16,
-        None => false,
-    }
+fn saved_or_env(
+    values: &HashMap<String, String>,
+    credential_key: &str,
+    env_key: &str,
+) -> Option<String> {
+    values
+        .get(credential_key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| nonempty_env(env_key))
+}
+
+fn metabase_jwt_secret_configured(values: &HashMap<String, String>) -> bool {
+    saved_or_env(
+        values,
+        "metabase_jwt_secret",
+        "RIVERSIDE_METABASE_JWT_SECRET",
+    )
+    .map(|secret| secret.len() >= 16)
+    .unwrap_or(false)
 }
 
 pub async fn runtime_diagnostics_snapshot(
@@ -975,15 +991,37 @@ pub async fn runtime_diagnostics_snapshot(
             .fetch_one(pool)
             .await?;
     let insights = StoreInsightsConfig::from_json_value(insights_raw);
+    let metabase_credentials = integration_credentials::load_integration_credentials(
+        pool,
+        "insights",
+        &[
+            "metabase_jwt_secret",
+            "metabase_admin_email",
+            "metabase_admin_password",
+            "metabase_staff_email",
+            "metabase_staff_password",
+        ],
+    )
+    .await
+    .unwrap_or_default();
     let shared_auth_ready = [
-        "RIVERSIDE_METABASE_ADMIN_EMAIL",
-        "RIVERSIDE_METABASE_ADMIN_PASSWORD",
-        "RIVERSIDE_METABASE_STAFF_EMAIL",
-        "RIVERSIDE_METABASE_STAFF_PASSWORD",
+        ("metabase_admin_email", "RIVERSIDE_METABASE_ADMIN_EMAIL"),
+        (
+            "metabase_admin_password",
+            "RIVERSIDE_METABASE_ADMIN_PASSWORD",
+        ),
+        ("metabase_staff_email", "RIVERSIDE_METABASE_STAFF_EMAIL"),
+        (
+            "metabase_staff_password",
+            "RIVERSIDE_METABASE_STAFF_PASSWORD",
+        ),
     ]
     .iter()
-    .all(|key| nonempty_env(key).is_some());
-    let metabase_jwt_ready = insights.metabase_jwt_sso_enabled && metabase_jwt_secret_configured();
+    .all(|(credential_key, env_key)| {
+        saved_or_env(&metabase_credentials, credential_key, env_key).is_some()
+    });
+    let metabase_jwt_ready =
+        insights.metabase_jwt_sso_enabled && metabase_jwt_secret_configured(&metabase_credentials);
     let (metabase_value, metabase_detail, metabase_severity) = if metabase_jwt_ready {
         (
             "JWT SSO".to_string(),

@@ -26,10 +26,12 @@ This note ties **Back Office Insights** (Metabase in an iframe) to **data govern
   - **`daily_order_totals`** — aggregates by **`order_business_date`** (replaces UTC **`order_day_utc`**; refresh Metabase questions that used the old column).
   - **`loyalty_point_ledger`**, **`order_loyalty_accrual`**, **`loyalty_reward_issuances`** — loyalty movement, per-order earn, and reward issuance with customer geo for “sales / loyalty by area.”
 - **Metabase connection:** database **`riverside_os`**, user **`metabase_ro`**, browse schema **`reporting`** only (no **`SELECT`** on **`public.*`** by default).
+- **Metabase admin hygiene:** run **`node scripts/metabase-refresh-reporting-metadata.mjs`** after setup and after reporting-view changes. It removes the default Sample Database by default, enforces the Riverside database connection as **`metabase_ro`** with a **`reporting`** schema inclusion filter, refreshes metadata, hides raw ids, verifies both shared launch accounts, and verifies the final state. Run **`node scripts/metabase-refresh-reporting-metadata.mjs --verify-only`** for a non-destructive station check. Set **`RIVERSIDE_METABASE_REMOVE_SAMPLE_DB=false`** only for a local sandbox.
 - **Readability contract (migrations `156` + `157`):** reporting views should expose both machine keys and human labels. Standard staff-facing fields now include **`transaction_display_id`**, **`fulfillment_order_display_id`**, **`customer_display_name`**, **`operator_display_name`**, **`primary_salesperson_display_name`**, and party/customer labels on ops views like shipments, alterations, loyalty, payments, and wedding economics. Metabase should hide raw UUID fields by default and present the display/name fields first.
 - **Migration `032_transaction_status_integrity.sql`:** adds **`reporting.transaction_status_integrity`**, an exception view for Transaction status vs line fulfillment / timestamp mismatches. Model this as an Admin / IT operational exception table, not a staff KPI dashboard.
-- **Settings → Integrations → Insights (Metabase):** **`store_settings.insights_config`** via **`GET`/`PATCH /api/settings/insights`** (`settings.admin`): data-access policy note, optional **JWT SSO** toggle, synthetic email domain for JWT claims, free-text notes for collections / Metabase groups.
-- **JWT handoff:** When **`RIVERSIDE_METABASE_JWT_SECRET`** (≥16 chars) is set and Settings enable SSO, **`POST /api/insights/metabase-launch`** returns an **`iframe_src`** pointing at **`/metabase/auth/sso?jwt=…`**. Metabase must have **Authentication → JWT** configured with the **same signing string**; this capability is **only on Metabase Pro / Enterprise**. **Store policy:** remain **OSS-only** and **do not** rely on JWT SSO — see **Future plan (OSS access model)** below.
+- **Settings → Integrations → Insights (Metabase):** **`store_settings.insights_config`** via **`GET`/`PATCH /api/settings/insights`** (`settings.admin`): data-access policy note, optional **JWT SSO** toggle, synthetic email domain for JWT claims, free-text notes for collections / Metabase groups, and saved Metabase Admin/Staff shared-auth credentials.
+- **Automatic launch:** **`GET /api/insights/metabase-launch`** first uses saved Insights credentials from the encrypted credential store, with **`RIVERSIDE_METABASE_*`** environment variables as a fallback. OSS stations use the shared Staff/Admin login fallback; paid Metabase stations can enable JWT SSO.
+- **JWT handoff:** When **`RIVERSIDE_METABASE_JWT_SECRET`** (≥16 chars) or the saved **Metabase JWT secret** is set and Settings enable SSO, the launch endpoint returns an **`iframe_src`** pointing at **`/metabase/auth/sso?jwt=…`**. Metabase must have **Authentication → JWT** configured with the **same signing string**; this capability is **only on Metabase Pro / Enterprise**.
 
 **Primary exploration** for ad-hoc analytics should move to **Metabase on `reporting.*`**; **`/api/insights/*`** remains for **operational** flows — align detail in **`docs/AI_REPORTING_DATA_CATALOG.md`** as views grow.
 
@@ -65,7 +67,7 @@ Do not point Metabase staff dashboards at raw **`public.*`** tables just because
 
 ## Operational standard: Staff Metabase login vs Admin Metabase login
 
-**Riverside does not choose your Metabase user.** Anyone with **`insights.view`** can open **Back Office → Insights** and reach the Metabase iframe; **what they see afterward depends on which Metabase account they log into**. That is how you **control margin, cost columns, and other private cuts** in Metabase without relying on Riverside staff PIN alone.
+**Riverside chooses the Metabase launch identity only when automatic launch is configured.** Anyone with **`insights.view`** can open **Back Office → Insights** and reach the Metabase iframe. When shared-auth launch is configured, Riverside signs Admin staff into the saved Admin Metabase account and other staff into the saved Staff Metabase account. If automatic launch is not configured or fails, staff land on the Metabase login screen and **what they see afterward depends on the Metabase account they use**. That is how you control margin, cost columns, and other private cuts in Metabase without relying on Riverside staff PIN alone.
 
 **Recommended store policy**
 
@@ -77,7 +79,7 @@ Do not point Metabase staff dashboards at raw **`public.*`** tables just because
 
 **OSS baseline (no Metabase Enterprise)**
 
-- Use **Metabase Open Source** with **no JWT SSO** from Riverside unless you adopt paid JWT (leave **`RIVERSIDE_METABASE_JWT_SECRET`** unset when staying OSS-only).
+- Use **Metabase Open Source** with the saved shared Admin/Staff Metabase accounts unless you adopt paid JWT.
 - **Single DB connection** to Postgres: prefer **`metabase_ro`** + schema **`reporting`** only; separation is **Metabase groups + collections**, not separate DB roles for each person.
 
 **Collections and groups**

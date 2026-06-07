@@ -2,7 +2,7 @@
 
 **Status:** **Phase 1 shipped** (proxy, Compose, `InsightsShell`, Staff **Commission payouts**). **Phase 2 shipped:** migrations **`90_reporting_insights.sql`** + **`96_reporting_business_day_geo_loyalty.sql`** (`reporting.*` views including business-day totals, customer geo, staff names, loyalty views; **`metabase_ro`**), **Settings → Insights** (`insights_config`), optional **JWT handoff** (`RIVERSIDE_METABASE_JWT_SECRET` + Metabase JWT auth — usually paid). Further views + catalog sync remain incremental. This document stays the architecture + ops runbook.
 
-**Summary:** Self-hosted OSS [metabase/metabase](https://github.com/metabase/metabase) is the **only** analytics UI: the sidebar keeps the label **Insights**, but choosing it opens an **Insights shell** (same pattern as [WeddingShell](../client/src/components/layout/WeddingShell.tsx))—thin Riverside chrome and a **full-viewport iframe** pointing at **Metabase’s full app** on a **same-origin** path (e.g. `/metabase/`) via a **reverse proxy**. Default Metabase login remains a **shared store-level Metabase account** unless **Settings → Insights** enables **JWT handoff** and **`RIVERSIDE_METABASE_JWT_SECRET`** matches Metabase **JWT** auth (typically a **paid** Metabase capability). **Commission payout** finalization (ledger + finalize) lives under **Staff → Commission payouts**, separate from **Staff → Commission** (category rates). Phase 2 baseline: **`reporting.*` views** + **`metabase_ro`**, **Settings** policy fields. Staff manual: **`client/src/assets/docs/insights-manual.md`** (Help Center) and **`docs/staff/insights-back-office.md`**.
+**Summary:** Self-hosted OSS [metabase/metabase](https://github.com/metabase/metabase) is the **only** analytics UI: the sidebar keeps the label **Insights**, but choosing it opens an **Insights shell** (same pattern as [WeddingShell](../client/src/components/layout/WeddingShell.tsx))—thin Riverside chrome and a **full-viewport iframe** pointing at **Metabase’s full app** on a **same-origin** path (e.g. `/metabase/`) via a **reverse proxy**. OSS stations should use Riverside's saved shared-auth launcher: Admin staff launch with the saved Admin Metabase account and other staff launch with the saved Staff Metabase account. Paid Metabase stations can instead enable **JWT handoff** in **Settings → Insights** with a matching Metabase JWT signing string. **Commission payout** finalization (ledger + finalize) lives under **Staff → Commission payouts**, separate from **Staff → Commission** (category rates). Phase 2 baseline: **`reporting.*` views** + **`metabase_ro`**, **Settings** policy fields. Staff manual: **`client/src/assets/docs/insights-manual.md`** (Help Center) and **`docs/staff/insights-back-office.md`**.
 
 **Deprecated as primary UX:** Static JWT embedding (`GET /api/insights/metabase-embed`, `#theme=night`, single-dashboard-only) is **not** the target integration. An optional appendix below records that pattern only if a future need arises (e.g. a public kiosk dashboard).
 
@@ -32,13 +32,13 @@
 - **Metabase-only analytics:** All exploratory reporting and dashboards happen in **Metabase’s own UI** inside an iframe. The legacy Recharts **Insights** workspace has been **removed** from the client.
 - **Riverside shell:** Sidebar label **Insights**; entering Insights leaves the normal Back Office layout and shows **InsightsShell** (Wedding Manager–style): minimal top bar + full-height iframe.
 - **Same origin:** Browser origin for ROS SPA and Metabase (proxied path) is **identical** (scheme + host + port) so session cookies and framing stay simple.
-- **Metabase logins (staff vs admin):** Riverside **`insights.view`** only opens the iframe; **sensitive data in Metabase** (margin, cost, private collections) is controlled by **which Metabase user** logs in. Recommended: **staff-class** and **admin-class** Metabase accounts (or per-person accounts in those Metabase groups) — see **`docs/METABASE_REPORTING.md`** § Operational standard.
+- **Metabase logins (staff vs admin):** Riverside **`insights.view`** opens the iframe; **sensitive data in Metabase** (margin, cost, private collections) is controlled by the Metabase account used for launch. Recommended: saved **staff-class** and **admin-class** Metabase accounts for OSS, or paid JWT SSO with matching Metabase groups — see **`docs/METABASE_REPORTING.md`** § Operational standard.
 - **Commission payouts in Staff:** Payout manager lives under **Staff → Commission payouts**, not under Insights. **Staff → Commission** remains **category commission rates** (`staff.manage_commission`) — do not conflate the two.
 
 **Non-goals (Phase 1)**
 
-- **SSO** between Riverside and Metabase in the OSS baseline (no shared session unless optional JWT on paid Metabase is enabled).
-- **Automatic** mapping of every Riverside staff member to a distinct Metabase user without ops setup (Metabase **People** and **groups** remain ops-managed; **staff-class vs admin-class** logins are **required** for margin governance per **`METABASE_REPORTING.md`**).
+- **Per-person SSO** between Riverside and Metabase in the OSS baseline.
+- **Automatic** mapping of every Riverside staff member to a distinct Metabase user without ops setup (Metabase **People** and **groups** remain ops-managed; **staff-class vs admin-class** launch accounts are **required** for margin governance per **`METABASE_REPORTING.md`** unless paid JWT SSO is adopted).
 - Defining every **reporting view** in SQL (Phase 2).
 
 ---
@@ -89,11 +89,16 @@ sequenceDiagram
   ROS->>ROS: Show InsightsShell
   ROS->>Proxy: iframe GET /metabase/ same origin
   Proxy->>MB: Forward to Metabase upstream
-  MB-->>Staff: Metabase HTML login or app
-  Note over Staff,MB: After Metabase login cookie is set on site origin
+  ROS->>AX: GET /api/insights/metabase-launch
+  AX->>MB: POST /api/session with saved Staff/Admin Metabase account
+  AX-->>ROS: iframe_src on /metabase/
+  ROS->>Proxy: iframe GET /metabase/ same origin
+  Proxy->>MB: Forward to Metabase upstream with session cookie
+  MB-->>Staff: Metabase app
+  Note over Staff,MB: If launch credentials are missing or rejected, staff land on the Metabase login screen
 ```
 
-- **Entering Insights:** Gated by Riverside **`insights.view`** (staff headers / PIN as today). Metabase does **not** receive ROS credentials automatically.
+- **Entering Insights:** Gated by Riverside **`insights.view`** (staff headers / PIN as today). Riverside uses those staff headers only to choose the configured Admin vs Staff Metabase launch account.
 - **Iframe `src`:** Prefer a **relative** path (e.g. `/metabase/`) so dev and prod both stay same-origin with the SPA.
 - **No embedding secret** required for primary UX (contrast with static JWT embed).
 
@@ -121,12 +126,11 @@ sequenceDiagram
 
 ---
 
-## 5. Metabase authentication (store account)
+## 5. Metabase authentication (store accounts)
 
-- **Model:** A **single store-level Metabase user** (shared password or password + rotation procedure in ops). Not tied to Riverside `staff` rows in Phase 1.
-- **Flow:** First time in the iframe, Metabase may show its **login** page. After successful login, Metabase sets a **session cookie** on the **same site** as the SPA, so subsequent Opens of Insights reuse the session in that browser profile.
-- **Tradeoff:** Anyone who can use the shared credential can see everything that Metabase user can see. Mitigations: strong password, rotation, Metabase internal groups/collections, Phase 2 read-only DB role + views, optional future SSO or per-staff Metabase users.
-- **Riverside** does not store the Metabase password in the client bundle; ops distributes credentials through normal secure channels.
+- **Model:** Two shared Metabase users for OSS: **Admin** and **Staff**. They are stored server-side in encrypted Integration Credentials, never in the client bundle.
+- **Flow:** The Insights shell calls **`/api/insights/metabase-launch`**. The server logs into Metabase through **`/api/session`**, sets a same-origin proxied session for **`/metabase/`**, and returns the iframe URL. If saved credentials are missing or rejected, the iframe falls back to the Metabase login page.
+- **Tradeoff:** Shared Metabase users do not provide per-person auditability inside Metabase. Riverside still audits access to the Insights launch endpoint. For per-person Metabase identity, use paid JWT SSO or manually managed Metabase users/groups.
 
 ---
 

@@ -154,6 +154,12 @@ const FIELD_LABELS = {
   wedding_party_name: "Wedding Party",
 };
 
+const args = new Set(process.argv.slice(2));
+const verifyOnly =
+  args.has("--verify-only") ||
+  args.has("--check") ||
+  process.env.RIVERSIDE_METABASE_VERIFY_ONLY === "true";
+
 function titleize(value) {
   return value
     .replace(/[_-]+/g, " ")
@@ -213,12 +219,16 @@ const metabaseUrl = (
 ).replace(/\/+$/, "");
 const username = env.RIVERSIDE_METABASE_ADMIN_EMAIL;
 const password = env.RIVERSIDE_METABASE_ADMIN_PASSWORD;
+const staffUsername = env.RIVERSIDE_METABASE_STAFF_EMAIL;
+const staffPassword = env.RIVERSIDE_METABASE_STAFF_PASSWORD;
 const reportingDbHost = env.RIVERSIDE_METABASE_REPORTING_DB_HOST || "db";
 const reportingDbPort = Number(env.RIVERSIDE_METABASE_REPORTING_DB_PORT || 5432);
 const reportingDbName = env.RIVERSIDE_METABASE_REPORTING_DB_NAME || "riverside_os";
 const reportingDbUser = env.RIVERSIDE_METABASE_REPORTING_DB_USER || "metabase_ro";
 const reportingDbPassword =
   env.RIVERSIDE_METABASE_REPORTING_DB_PASSWORD || env.METABASE_REPORTING_DB_PASSWORD || "";
+const removeSampleDatabase = env.RIVERSIDE_METABASE_REMOVE_SAMPLE_DB !== "false";
+const requireSharedAuth = env.RIVERSIDE_METABASE_REQUIRE_SHARED_AUTH !== "false";
 
 if (!username || !password) {
   console.error("Missing RIVERSIDE_METABASE_ADMIN_EMAIL or RIVERSIDE_METABASE_ADMIN_PASSWORD.");
@@ -240,12 +250,36 @@ async function metabaseFetch(path, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-async function login() {
+async function loginWithCredentials(email, credential) {
   const response = await metabaseFetch("/api/session", {
     method: "POST",
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username: email, password: credential }),
   });
   return response.id;
+}
+
+async function login() {
+  return loginWithCredentials(username, password);
+}
+
+async function verifySharedAuthAccounts() {
+  if (!requireSharedAuth) {
+    return "skipped";
+  }
+  const missing = [];
+  if (!username) missing.push("RIVERSIDE_METABASE_ADMIN_EMAIL");
+  if (!password) missing.push("RIVERSIDE_METABASE_ADMIN_PASSWORD");
+  if (!staffUsername) missing.push("RIVERSIDE_METABASE_STAFF_EMAIL");
+  if (!staffPassword) missing.push("RIVERSIDE_METABASE_STAFF_PASSWORD");
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing Metabase shared-auth launch credential(s): ${missing.join(", ")}. Set them or run with RIVERSIDE_METABASE_REQUIRE_SHARED_AUTH=false.`,
+    );
+  }
+
+  await loginWithCredentials(username, password);
+  await loginWithCredentials(staffUsername, staffPassword);
+  return "ok";
 }
 
 async function findRiversideDatabase(headers) {
@@ -259,6 +293,35 @@ async function findRiversideDatabase(headers) {
     throw new Error("Could not find a Metabase database named for Riverside.");
   }
   return database;
+}
+
+async function loadDatabases(headers) {
+  const response = await metabaseFetch("/api/database", { headers });
+  return Array.isArray(response.data) ? response.data : response;
+}
+
+function isSampleDatabase(database) {
+  const name = String(database.name || "").trim().toLowerCase();
+  const engine = String(database.engine || "").trim().toLowerCase();
+  return database.is_sample === true || name === "sample database" || engine === "h2";
+}
+
+async function removeSampleDatabases(headers) {
+  if (!removeSampleDatabase) return 0;
+  const databases = await loadDatabases(headers);
+  const samples = databases.filter(isSampleDatabase);
+  if (verifyOnly && samples.length > 0) {
+    throw new Error(
+      `Verification failed: Metabase still exposes sample database(s): ${samples.map((database) => database.name).join(", ")}.`,
+    );
+  }
+  for (const database of samples) {
+    await metabaseFetch(`/api/database/${database.id}`, {
+      method: "DELETE",
+      headers,
+    });
+  }
+  return samples.length;
 }
 
 async function loadDatabase(databaseId, headers) {
@@ -276,6 +339,11 @@ async function enforceReportingOnlyConnection(database, headers) {
 
   if (alreadyReportingOnly) {
     return false;
+  }
+  if (verifyOnly) {
+    throw new Error(
+      `Verification failed: Metabase database ${current.name} is not restricted to ${reportingDbUser}@${reportingDbName} reporting schema.`,
+    );
   }
   if (!reportingDbPassword.trim()) {
     throw new Error(
@@ -310,6 +378,7 @@ async function enforceReportingOnlyConnection(database, headers) {
 }
 
 async function syncDatabase(databaseId, headers) {
+  if (verifyOnly) return;
   await metabaseFetch(`/api/database/${databaseId}/sync_schema`, {
     method: "POST",
     headers,
@@ -325,6 +394,7 @@ async function loadMetadata(databaseId, headers) {
 }
 
 async function applyFieldModel(metadata, headers) {
+  if (verifyOnly) return 0;
   let updates = 0;
   const hideRawTables = env.RIVERSIDE_METABASE_HIDE_RAW_TABLES !== "false";
 
@@ -415,9 +485,20 @@ async function verifyReportingOnlyConnection(databaseId, headers) {
   }
 }
 
+async function verifyNoSampleDatabase(headers) {
+  if (!removeSampleDatabase) return;
+  const databases = await loadDatabases(headers);
+  const sample = databases.find(isSampleDatabase);
+  if (sample) {
+    throw new Error(`Verification failed: Metabase still exposes sample database ${sample.name}.`);
+  }
+}
+
 async function main() {
+  const sharedAuthStatus = await verifySharedAuthAccounts();
   const sessionId = await login();
   const headers = { "x-metabase-session": sessionId };
+  const sampleDatabasesRemoved = await removeSampleDatabases(headers);
   const database = await findRiversideDatabase(headers);
   const connectionUpdated = await enforceReportingOnlyConnection(database, headers);
   await syncDatabase(database.id, headers);
@@ -425,8 +506,9 @@ async function main() {
   const updates = await applyFieldModel(metadata, headers);
   await verifyReportingOnlyConnection(database.id, headers);
   await verifyFieldModel(database.id, headers);
+  await verifyNoSampleDatabase(headers);
   console.log(
-    `Metabase reporting metadata refreshed for ${database.name}; connection_updated=${connectionUpdated}; field_updates=${updates}`,
+    `Metabase reporting metadata ${verifyOnly ? "verified" : "refreshed"} for ${database.name}; connection_updated=${connectionUpdated}; field_updates=${updates}; sample_databases_removed=${sampleDatabasesRemoved}; shared_auth=${sharedAuthStatus}`,
   );
 }
 

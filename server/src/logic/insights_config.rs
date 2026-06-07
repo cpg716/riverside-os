@@ -11,7 +11,7 @@ pub struct StoreInsightsConfig {
     /// Shown in Settings; optional staff-facing note for Metabase connection / collections.
     #[serde(default)]
     pub staff_note_markdown: String,
-    /// When true and `RIVERSIDE_METABASE_JWT_SECRET` is set, Insights calls `POST /api/insights/metabase-launch` to mint a JWT for Metabase (requires Metabase **JWT authentication**, typically a paid plan).
+    /// When true and the saved or env Metabase JWT secret is set, Insights calls `POST /api/insights/metabase-launch` to mint a JWT for Metabase (requires Metabase **JWT authentication**, typically a paid plan).
     #[serde(default)]
     pub metabase_jwt_sso_enabled: bool,
     /// Synthetic email domain when `staff.email` is null: `{cashier_code}@{jwt_email_domain}`.

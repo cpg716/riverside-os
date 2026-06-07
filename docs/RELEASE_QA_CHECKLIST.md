@@ -18,7 +18,7 @@
 - Run **`npm install`** from the repo root.
 - Run **`cd client && npm install`**.
 - Keep **`server/.env`** present for local parity (copy from **`server/.env.example`**). For local Docker Postgres, **`DATABASE_URL`** must use **`localhost:5433`**.
-- If you expect automatic local Metabase sign-in, **`server/.env`** must also define the local **`RIVERSIDE_METABASE_ADMIN_*`** and **`RIVERSIDE_METABASE_STAFF_*`** shared-auth values.
+- If you expect automatic local Metabase sign-in, configure the local **Metabase Admin/Staff** shared-auth values in **Settings → Integrations → Insights** or define the local **`RIVERSIDE_METABASE_ADMIN_*`** and **`RIVERSIDE_METABASE_STAFF_*`** fallback values in **`server/.env`**.
 - Expected local services and ports:
   - Postgres **5433**
   - API **3000**
@@ -73,7 +73,7 @@ npm run dev:e2e
 
 This boots Docker Postgres, reapplies any pending migrations, seeds the standard E2E staff fixtures, and starts the Rust API plus the Vite UI used by browser specs.
 
-**Local env requirement:** the API process still reads **`server/.env`** (or exported shell env). For local Docker runs, **`DATABASE_URL`** must target **`localhost:5433`**. If your RC validation expects automatic Metabase sign-in instead of a standalone Metabase login screen, ensure **`server/.env`** also carries the local **`RIVERSIDE_METABASE_ADMIN_*`** / **`RIVERSIDE_METABASE_STAFF_*`** shared-auth credentials before starting the stack.
+**Local env requirement:** the API process still reads **`server/.env`** (or exported shell env). For local Docker runs, **`DATABASE_URL`** must target **`localhost:5433`**. If your RC validation expects automatic Metabase sign-in instead of a standalone Metabase login screen, ensure **Settings → Integrations → Insights** has saved Metabase Admin/Staff shared-auth credentials or **`server/.env`** carries the local **`RIVERSIDE_METABASE_ADMIN_*`** / **`RIVERSIDE_METABASE_STAFF_*`** fallback credentials before starting the stack.
 **Root dependency requirement:** repo-root helpers such as **`npm run dev:e2e`**, **`npm run test:e2e:*`**, and **`npm run pack`** expect the root package dependencies to be installed in this worktree, not borrowed through ad hoc symlinks.
 
 ### Terminal 2: run tests from client

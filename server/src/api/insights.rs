@@ -24,6 +24,7 @@ use crate::auth::permissions::{INSIGHTS_VIEW, REGISTER_REPORTS, STAFF_MANAGE_COM
 use crate::auth::pins::log_staff_access;
 use crate::logic::commission_events::ManualCommissionAdjustment;
 use crate::logic::insights_config::StoreInsightsConfig;
+use crate::logic::integration_credentials;
 use crate::logic::inventory_velocity;
 use crate::logic::margin_pivot as margin_reporting;
 use crate::logic::metabase_staff_jwt::mint_metabase_staff_jwt;
@@ -35,6 +36,14 @@ use crate::logic::report_basis::{
 use crate::logic::tax::CLOTHING_FOOTWEAR_EXEMPTION_THRESHOLD_USD;
 use crate::middleware::{require_authenticated_staff_headers, require_staff_with_permission};
 use crate::models::DbStaffRole;
+
+const METABASE_CREDENTIAL_KEYS: &[&str] = &[
+    "metabase_jwt_secret",
+    "metabase_admin_email",
+    "metabase_admin_password",
+    "metabase_staff_email",
+    "metabase_staff_password",
+];
 
 #[derive(Debug, Error)]
 pub enum InsightsError {
@@ -3466,6 +3475,34 @@ fn default_metabase_return_to() -> String {
     "/metabase/".to_string()
 }
 
+async fn load_metabase_credentials(state: &AppState) -> HashMap<String, String> {
+    match integration_credentials::load_integration_credentials(
+        &state.db,
+        "insights",
+        METABASE_CREDENTIAL_KEYS,
+    )
+    .await
+    {
+        Ok(values) => values,
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "could not load saved Metabase credentials; falling back to environment"
+            );
+            HashMap::new()
+        }
+    }
+}
+
+fn saved_or_env(values: &HashMap<String, String>, credential_key: &str, env_key: &str) -> String {
+    values
+        .get(credential_key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| std::env::var(env_key).unwrap_or_default())
+}
+
 async fn metabase_launch_resolve(
     state: &AppState,
     headers: &HeaderMap,
@@ -3489,22 +3526,39 @@ async fn metabase_launch_resolve(
             .fetch_one(&state.db)
             .await?;
     let cfg = StoreInsightsConfig::from_json_value(cfg_raw);
+    let saved_credentials = load_metabase_credentials(state).await;
 
     // --- SHARED AUTH LOGIC (Metabase OSS Workaround) ---
     // If JWT is not enabled or available, we try the "Silent Shared Auth" via background login.
-    let admin_email = std::env::var("RIVERSIDE_METABASE_ADMIN_EMAIL").unwrap_or_default();
-    let staff_email = std::env::var("RIVERSIDE_METABASE_STAFF_EMAIL").unwrap_or_default();
+    let admin_email = saved_or_env(
+        &saved_credentials,
+        "metabase_admin_email",
+        "RIVERSIDE_METABASE_ADMIN_EMAIL",
+    );
+    let staff_email = saved_or_env(
+        &saved_credentials,
+        "metabase_staff_email",
+        "RIVERSIDE_METABASE_STAFF_EMAIL",
+    );
 
     if !cfg.metabase_jwt_sso_enabled && !admin_email.is_empty() && !staff_email.is_empty() {
         let (email, pass) = if staff.role == DbStaffRole::Admin {
             (
                 admin_email,
-                std::env::var("RIVERSIDE_METABASE_ADMIN_PASSWORD").unwrap_or_default(),
+                saved_or_env(
+                    &saved_credentials,
+                    "metabase_admin_password",
+                    "RIVERSIDE_METABASE_ADMIN_PASSWORD",
+                ),
             )
         } else {
             (
                 staff_email,
-                std::env::var("RIVERSIDE_METABASE_STAFF_PASSWORD").unwrap_or_default(),
+                saved_or_env(
+                    &saved_credentials,
+                    "metabase_staff_password",
+                    "RIVERSIDE_METABASE_STAFF_PASSWORD",
+                ),
             )
         };
 
@@ -3568,7 +3622,11 @@ async fn metabase_launch_resolve(
         }
     }
 
-    let secret = std::env::var("RIVERSIDE_METABASE_JWT_SECRET").unwrap_or_default();
+    let secret = saved_or_env(
+        &saved_credentials,
+        "metabase_jwt_secret",
+        "RIVERSIDE_METABASE_JWT_SECRET",
+    );
     let secret_trim = secret.trim();
     let secret_ok = !secret_trim.is_empty() && secret_trim.len() >= 16;
 

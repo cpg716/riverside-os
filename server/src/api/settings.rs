@@ -2537,7 +2537,26 @@ struct InsightsSettingsResponse {
     jwt_secret_configured: bool,
 }
 
-fn metabase_jwt_secret_configured() -> bool {
+async fn metabase_jwt_secret_configured(state: &AppState) -> bool {
+    if let Ok(values) = integration_credentials::load_integration_credentials(
+        &state.db,
+        "insights",
+        &["metabase_jwt_secret"],
+    )
+    .await
+    {
+        if values
+            .get("metabase_jwt_secret")
+            .map(|secret| {
+                let trimmed = secret.trim();
+                !trimmed.is_empty() && trimmed.len() >= 16
+            })
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+
     match std::env::var("RIVERSIDE_METABASE_JWT_SECRET") {
         Ok(s) => {
             let t = s.trim();
@@ -2558,7 +2577,7 @@ async fn get_insights_settings(
     let config = StoreInsightsConfig::from_json_value(raw);
     Ok(Json(InsightsSettingsResponse {
         config,
-        jwt_secret_configured: metabase_jwt_secret_configured(),
+        jwt_secret_configured: metabase_jwt_secret_configured(&state).await,
     }))
 }
 
@@ -2582,7 +2601,7 @@ async fn patch_insights_settings(
         .await?;
     Ok(Json(InsightsSettingsResponse {
         config,
-        jwt_secret_configured: metabase_jwt_secret_configured(),
+        jwt_secret_configured: metabase_jwt_secret_configured(&state).await,
     }))
 }
 

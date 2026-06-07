@@ -27,11 +27,11 @@ Use **Insights** when you need:
 - Custom management dashboards.
 - Drill-down analysis that the curated **Reports** library doesn't offer.
 
-## Sign in to Metabase
+## Metabase sign-in
 
 1. Open **Insights** in the left rail.
-2. If you see a login screen, enter your store-provided **Metabase credentials**. This is separate from your Riverside Access PIN.
-3. Once signed in, you will land on your default dashboard (usually the Store Overview).
+2. On configured stations, Riverside signs you into the correct **Metabase** access level automatically.
+3. If you see a login screen or the automatic sign-in warning, enter the store-provided **Metabase credentials** or contact an admin to check **Settings → Integrations → Insights**.
 
 ## Quick steps
 
@@ -69,9 +69,9 @@ If you **do not** see **Insights**, your role may not include **insights.view**.
 
 ## Sign in to Metabase
 
-The first time (or after a logout or browser data clear), Metabase may show its **own** login page inside the frame.
+Configured stations should open Metabase automatically. Admin staff launch with the saved Admin Metabase account; other staff launch with the saved Staff Metabase account. The first time, after a logout, or when the station is missing Metabase credentials, Metabase may show its **own** login page inside the frame.
 
-1. Use the **Metabase username** you were assigned. Stores should use **at least two classes** of Metabase login: **staff** (staff-safe dashboards only — typically **no** margin or cost) and **admin** (full reporting, including margin on **`reporting.*** views). **`insights.view`** in Riverside only opens the shell; **your Metabase login** controls private data inside Metabase.
+1. Use the **Metabase username** you were assigned if automatic launch is unavailable. Stores should use **at least two classes** of Metabase login: **staff** (staff-safe dashboards only — typically **no** margin or cost) and **admin** (full reporting, including margin on **`reporting.*** views). **`insights.view`** in Riverside only opens the shell; **the Metabase account** controls private data inside Metabase.
 2. After a successful login, Metabase keeps a **session cookie** in the **same browser** as Riverside, so returning to **Insights** usually stays signed in.
 
 **Security notes**
@@ -126,6 +126,7 @@ Fixed SPIFF and combo incentives are managed under **Staff** → **Commissions**
 | Symptom | What to try |
 |--------|----------------|
 | Blank or gray iframe | Metabase service may be down, or the store proxy is off — contact IT. |
+| Automatic sign-in warning | Ask an admin to check **Settings → Integrations → Insights**. The station needs either saved Staff/Admin shared-auth credentials or paid Metabase JWT SSO configured. |
 | Metabase login loop or broken links | **Site URL** in Metabase admin must match how staff open the store (including **`/metabase`** if you use that path). |
 | 404 or “proxy disabled” | Server ops may have turned off the Metabase upstream — see **DEVELOPER.md** (Metabase section). |
 | Cannot see **Commission reports** | You need **insights.view**. |
