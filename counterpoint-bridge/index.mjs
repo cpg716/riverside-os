@@ -190,6 +190,27 @@ const startLocalServer = () => {
                 runOnce: process.env.RUN_ONCE === "1",
                 migrationPreflight: getMigrationSnapshot(),
             }));
+        } else if (req.url === '/api/auto-config') {
+            if (req.method !== 'POST') {
+                res.writeHead(405, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: "Use POST for auto-config." }));
+                return;
+            }
+            if (!ACTIVE_POOL) {
+                res.writeHead(503, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, error: "SQL pool not initialized or connected." }));
+                return;
+            }
+            runAutoConfig(ACTIVE_POOL)
+                .then((changes) => {
+                    validateCounterpointSyncDependencyPlan();
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, changes }));
+                })
+                .catch((err) => {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: false, error: err?.message ?? String(err) }));
+                });
         } else if (req.url.startsWith('/api/test-query')) {
             const url = new URL(req.url, `http://${req.headers.host}`);
             const entity = url.searchParams.get('query');
@@ -431,7 +452,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 function loadDotEnv() {
   const p = path.join(__dirname, ".env");
   if (!fs.existsSync(p)) return;
-  const raw = fs.readFileSync(p, "utf8");
+  loadDotEnvContent(fs.readFileSync(p, "utf8"), false);
+  console.info(`[env] loaded ${p}`);
+}
+
+function loadDotEnvContent(raw, overwrite) {
   for (const line of raw.split("\n")) {
     const t = line.trim();
     if (!t || t.startsWith("#")) continue;
@@ -442,10 +467,16 @@ function loadDotEnv() {
     if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
       v = v.slice(1, -1);
     }
-    if (process.env[k] != null) continue;
+    if (!overwrite && process.env[k] != null) continue;
     process.env[k] = v;
   }
-  console.info(`[env] loaded ${p}`);
+}
+
+function reloadDotEnv() {
+  const p = path.join(__dirname, ".env");
+  if (!fs.existsSync(p)) return;
+  loadDotEnvContent(fs.readFileSync(p, "utf8"), true);
+  console.info(`[env] reloaded ${p}`);
 }
 
 loadDotEnv();
@@ -536,21 +567,34 @@ function applyCounterpointSqlCompat(sqlText) {
  * When SYNC_STORE_CREDIT_OPENING=1, append OR EXISTS(`CP_CUSTOMER_STORE_CREDIT_EXISTS`) before ORDER BY
  * so customers with store credit import even without ticket/note in-range. Fragment must correlate to `c.CUST_NO`.
  */
-/** Tail of default CP_CUSTOMERS_QUERY: close NOTE_DAT literal, close EXISTS + outer WHERE, then ORDER BY alias */
-const CP_CUSTOMERS_STORE_CREDIT_TAIL = /'\)\)\s*ORDER\s+BY\s+c\.CUST_NO\s*;?\s*$/i;
+/** Tail of supported CP_CUSTOMERS_QUERY templates before appending store-credit customer inclusion. */
+const CP_CUSTOMERS_ORDER_BY_TAIL = /\s+ORDER\s+BY\s+c\.CUST_NO\s*;?\s*$/i;
 
 function injectStoreCreditCustomerExistsClause(sqlText, storeCreditOn, existsInner) {
   const q = String(sqlText ?? "");
   const inner = String(existsInner ?? "").trim();
   if (!storeCreditOn || !q.trim() || !inner) return q;
-  if (!CP_CUSTOMERS_STORE_CREDIT_TAIL.test(q)) {
+  const orderByMatch = q.match(CP_CUSTOMERS_ORDER_BY_TAIL);
+  if (!orderByMatch || orderByMatch.index == null) {
     console.warn(
-      "[customers] SYNC_STORE_CREDIT_OPENING=1: CP_CUSTOMERS_QUERY must end with \"')) ORDER BY c.CUST_NO\" (any case; optional trailing ;) for auto-append, or add OR EXISTS(…) manually.",
+      "[customers] SYNC_STORE_CREDIT_OPENING=1: expert CP_CUSTOMERS_QUERY override must end with \"ORDER BY c.CUST_NO\" for auto-append, or add OR EXISTS(...) manually.",
     );
     return q;
   }
-  const frag = `' ) OR EXISTS (${inner})) ORDER BY c.CUST_NO`;
-  return q.replace(CP_CUSTOMERS_STORE_CREDIT_TAIL, frag);
+  const body = q.slice(0, orderByMatch.index).trimEnd();
+  const orderBy = orderByMatch[0];
+  const fromArCustWithWhere = /\bFROM\s+AR_CUST\s+c\s+WHERE\b/i;
+  if (fromArCustWithWhere.test(body)) {
+    return `${body.replace(fromArCustWithWhere, (match) => `${match} (`)} OR EXISTS (${inner}))${orderBy}`;
+  }
+  const fromArCust = /\bFROM\s+AR_CUST\s+c\b/i;
+  if (fromArCust.test(body)) {
+    return `${body} WHERE EXISTS (${inner})${orderBy}`;
+  }
+  console.warn(
+    "[customers] SYNC_STORE_CREDIT_OPENING=1: expert CP_CUSTOMERS_QUERY override must select from AR_CUST c for auto-append, or add OR EXISTS(...) manually.",
+  );
+  return q;
 }
 
 /** Read-only probe: `node index.mjs discover` — needs SQL_CONNECTION_STRING only (no ROS token). */
@@ -561,6 +605,7 @@ const ALIASES_MODE = process.argv[2] === "aliases";
 const NORMALIZATION_MODE = process.argv[2] === "normalization";
 const LIGHTSPEED_REFERENCE_MODE = process.argv[2] === "lightspeed-reference";
 const AUTOCONFIG_MODE = process.argv[2] === "auto-config";
+const SQL_SMOKE_MODE = process.argv[2] === "sql-smoke";
 const DRY_RUN_MODE = process.argv.includes("--dry-run");
 
 const ROS_BASE_URL = (process.env.ROS_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
@@ -616,70 +661,83 @@ const RUN_ONCE =
 const WAIT_AFTER_RUN_ONCE =
   process.env.WAIT_AFTER_RUN_ONCE !== "0" && String(process.env.WAIT_AFTER_RUN_ONCE ?? "").toLowerCase() !== "false";
 const BATCH = Math.max(1, Number.parseInt(process.env.BATCH_SIZE ?? "100", 10));
-const SYNC_CUSTOMERS = process.env.SYNC_CUSTOMERS === "1";
-const SYNC_INVENTORY = process.env.SYNC_INVENTORY === "1";
-const SYNC_CATALOG = process.env.SYNC_CATALOG === "1";
-const SYNC_GIFT_CARDS = process.env.SYNC_GIFT_CARDS === "1";
-const SYNC_TICKETS = process.env.SYNC_TICKETS === "1";
-const SYNC_VENDORS = process.env.SYNC_VENDORS === "1";
+
+function envFlag(name, defaultValue) {
+  const raw = process.env[name];
+  if (raw == null || String(raw).trim() === "") return defaultValue;
+  return ["1", "true", "yes", "on"].includes(String(raw).trim().toLowerCase());
+}
+
+const ALLOW_SQL_ENV_OVERRIDES = envFlag("CP_SQL_ENV_OVERRIDES", false);
+function configuredSql(name) {
+  return ALLOW_SQL_ENV_OVERRIDES ? process.env[name] ?? "" : "";
+}
+
+const SYNC_CUSTOMERS = envFlag("SYNC_CUSTOMERS", true);
+const SYNC_INVENTORY = envFlag("SYNC_INVENTORY", true);
+const SYNC_CATALOG = envFlag("SYNC_CATALOG", true);
+const SYNC_GIFT_CARDS = envFlag("SYNC_GIFT_CARDS", true);
+const SYNC_TICKETS = envFlag("SYNC_TICKETS", true);
+const SYNC_VENDORS = envFlag("SYNC_VENDORS", true);
+const SYNC_STAFF = envFlag("SYNC_STAFF", true);
 /** When not 1, vendors use a fast `PO_VEND`-only query (bulk migration). Set to 1 to run heavy filtered CP_VENDORS_QUERY (active items / ticket EXISTS). */
-const SYNC_VENDORS_FILTERED = process.env.SYNC_VENDORS_FILTERED === "1";
-const SYNC_CUSTOMER_NOTES = process.env.SYNC_CUSTOMER_NOTES === "1";
-const SYNC_CATEGORY_MASTERS = process.env.SYNC_CATEGORY_MASTERS !== "0";
+const SYNC_VENDORS_FILTERED = envFlag("SYNC_VENDORS_FILTERED", false);
+const SYNC_CUSTOMER_NOTES = envFlag("SYNC_CUSTOMER_NOTES", true);
+const SYNC_CATEGORY_MASTERS = envFlag("SYNC_CATEGORY_MASTERS", true);
 const SYNC_LOYALTY_HIST = false; // Forced false: we only need current loyalty balances, no history.
-const SYNC_VENDOR_ITEMS = process.env.SYNC_VENDOR_ITEMS === "1";
-const SYNC_STORE_CREDIT_OPENING = process.env.SYNC_STORE_CREDIT_OPENING === "1";
-const SYNC_OPEN_DOCS = process.env.SYNC_OPEN_DOCS === "1";
-const SYNC_RECEIVING_HISTORY = process.env.SYNC_RECEIVING_HISTORY === "1";
-const SYNC_TICKET_NOTES = process.env.SYNC_TICKET_NOTES === "1";
-const CP_CUSTOMER_STORE_CREDIT_EXISTS_RAW = process.env.CP_CUSTOMER_STORE_CREDIT_EXISTS ?? "";
+const SYNC_VENDOR_ITEMS = envFlag("SYNC_VENDOR_ITEMS", true);
+const SYNC_STORE_CREDIT_OPENING = envFlag("SYNC_STORE_CREDIT_OPENING", true);
+const SYNC_OPEN_DOCS = envFlag("SYNC_OPEN_DOCS", true);
+const SYNC_RECEIVING_HISTORY = envFlag("SYNC_RECEIVING_HISTORY", true);
+const SYNC_TICKET_NOTES = envFlag("SYNC_TICKET_NOTES", true);
+const CP_CUSTOMER_STORE_CREDIT_EXISTS_RAW = configuredSql("CP_CUSTOMER_STORE_CREDIT_EXISTS");
 const CP_CUSTOMERS_QUERY = injectStoreCreditCustomerExistsClause(
-  applyCounterpointSqlCompat(expandImportSince(process.env.CP_CUSTOMERS_QUERY ?? "")),
+  applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_CUSTOMERS_QUERY"))),
   SYNC_STORE_CREDIT_OPENING,
   expandImportSince(CP_CUSTOMER_STORE_CREDIT_EXISTS_RAW),
 );
 const CP_INVENTORY_QUERY = applyCounterpointSqlCompat(
-  expandImportSince(process.env.CP_INVENTORY_QUERY ?? ""),
+  expandImportSince(configuredSql("CP_INVENTORY_QUERY")),
 );
 const CP_CATALOG_QUERY = applyCounterpointSqlCompat(
-  pipeImItemVendorSql(process.env.CP_CATALOG_QUERY ?? ""),
+  pipeImItemVendorSql(configuredSql("CP_CATALOG_QUERY")),
 );
 const CP_CATALOG_CELLS_QUERY = applyCounterpointSqlCompat(
-  expandImportSince(process.env.CP_CATALOG_CELLS_QUERY ?? ""),
+  expandImportSince(configuredSql("CP_CATALOG_CELLS_QUERY")),
 );
-const CP_GIFT_CARDS_QUERY = expandImportSince(process.env.CP_GIFT_CARDS_QUERY ?? "");
+const CP_GIFT_CARDS_QUERY = expandImportSince(configuredSql("CP_GIFT_CARDS_QUERY"));
 const CP_GFC_HIST_QUERY = ""; // Forced empty: we only need current gift balances, no history.
 const CP_TICKETS_QUERY = applyCounterpointSqlCompat(
-  expandImportSince(process.env.CP_TICKETS_QUERY ?? "").replace(/ORDER\s+BY\s+.*$/i, ""),
+  expandImportSince(configuredSql("CP_TICKETS_QUERY")).replace(/ORDER\s+BY\s+.*$/i, ""),
 );
 const CP_TICKET_LINES_QUERY = applyCounterpointSqlCompat(
-  expandImportSince(process.env.CP_TICKET_LINES_QUERY ?? ""),
+  expandImportSince(configuredSql("CP_TICKET_LINES_QUERY")),
 );
 const CP_TICKET_PAYMENTS_QUERY = applyCounterpointSqlCompat(
-  expandImportSince(process.env.CP_TICKET_PAYMENTS_QUERY ?? ""),
+  expandImportSince(configuredSql("CP_TICKET_PAYMENTS_QUERY")),
 );
 const CP_TICKET_CELLS_QUERY = applyCounterpointSqlCompat(
-  expandImportSince(process.env.CP_TICKET_CELLS_QUERY ?? ""),
+  expandImportSince(configuredSql("CP_TICKET_CELLS_QUERY")),
 );
 const CP_TICKET_GIFT_QUERY = ""; // Forced empty: we only need current gift balances, no history.
 const CP_LOYALTY_HIST_QUERY = ""; // Forced empty: we only need current loyalty balances, no history.
 const CP_VEND_ITEM_QUERY = applyCounterpointSqlCompat(
-  applyImItemVendorColumn(expandImportSince(process.env.CP_VEND_ITEM_QUERY ?? "")),
+  applyImItemVendorColumn(expandImportSince(configuredSql("CP_VEND_ITEM_QUERY"))),
 );
 const CP_VENDORS_QUERY = applyCounterpointSqlCompat(
-  pipeImItemVendorSql(process.env.CP_VENDORS_QUERY ?? ""),
+  pipeImItemVendorSql(configuredSql("CP_VENDORS_QUERY")),
 );
-const CP_CUSTOMER_NOTES_QUERY = expandImportSince(process.env.CP_CUSTOMER_NOTES_QUERY ?? "");
-const CP_CATEGORY_MASTERS_QUERY = expandImportSince(process.env.CP_CATEGORY_MASTERS_QUERY ?? "");
-const CP_USERS_QUERY = expandImportSince(process.env.CP_USERS_QUERY ?? "");
-const CP_SALES_REPS_QUERY = expandImportSince(process.env.CP_SALES_REPS_QUERY ?? "");
-const CP_BUYERS_QUERY = expandImportSince(process.env.CP_BUYERS_QUERY ?? "");
-const CP_STORE_CREDIT_QUERY = expandImportSince(process.env.CP_STORE_CREDIT_QUERY ?? "");
-const CP_OPEN_DOCS_QUERY = expandImportSince(process.env.CP_OPEN_DOCS_QUERY ?? "");
-const CP_OPEN_DOC_LINES_QUERY = expandImportSince(process.env.CP_OPEN_DOC_LINES_QUERY ?? "");
-const CP_OPEN_DOC_PMT_QUERY = expandImportSince(process.env.CP_OPEN_DOC_PMT_QUERY ?? "");
-const CP_RECEIVING_HISTORY_QUERY = expandImportSince(process.env.CP_RECEIVING_HISTORY_QUERY ?? "");
-const CP_TICKET_NOTES_QUERY = expandImportSince(process.env.CP_TICKET_NOTES_QUERY ?? "");
+const CP_CUSTOMER_NOTES_QUERY = expandImportSince(configuredSql("CP_CUSTOMER_NOTES_QUERY"));
+const CP_CATEGORY_MASTERS_QUERY = expandImportSince(configuredSql("CP_CATEGORY_MASTERS_QUERY"));
+const CP_USERS_QUERY = expandImportSince(configuredSql("CP_USERS_QUERY"));
+const CP_SALES_REPS_QUERY = expandImportSince(configuredSql("CP_SALES_REPS_QUERY"));
+const CP_BUYERS_QUERY = expandImportSince(configuredSql("CP_BUYERS_QUERY"));
+const CP_STORE_CREDIT_QUERY = expandImportSince(configuredSql("CP_STORE_CREDIT_QUERY"));
+const CP_OPEN_DOCS_QUERY = expandImportSince(configuredSql("CP_OPEN_DOCS_QUERY"));
+const CP_OPEN_DOC_LINES_QUERY = expandImportSince(configuredSql("CP_OPEN_DOC_LINES_QUERY"));
+const CP_OPEN_DOC_PMT_QUERY = expandImportSince(configuredSql("CP_OPEN_DOC_PMT_QUERY"));
+const CP_RECEIVING_HISTORY_QUERY = expandImportSince(configuredSql("CP_RECEIVING_HISTORY_QUERY"));
+const CP_TICKET_NOTES_QUERY = expandImportSince(configuredSql("CP_TICKET_NOTES_QUERY"));
 const BRIDGE_VERSION = "0.7.3";
 
 if (!PREFLIGHT_MODE && !ALIASES_MODE && !NORMALIZATION_MODE && !LIGHTSPEED_REFERENCE_MODE) {
@@ -701,7 +759,7 @@ if (!PREFLIGHT_MODE && !ALIASES_MODE && !NORMALIZATION_MODE && !LIGHTSPEED_REFER
 const CP_VENDORS_QUERY_SIMPLE = `SELECT RTRIM(LTRIM(VEND_NO)) AS vend_no, RTRIM(LTRIM(NAM)) AS name, RTRIM(LTRIM(TERMS_COD)) AS payment_terms FROM PO_VEND WHERE VEND_NO IS NOT NULL ORDER BY VEND_NO`;
 
 /** When `SYNC_VENDORS_FILTERED` is not 1, optional full SQL override for the fast path (PO_VEND column drift). */
-const CP_VENDORS_FAST_QUERY = expandImportSince(process.env.CP_VENDORS_FAST_QUERY ?? "").trim();
+const CP_VENDORS_FAST_QUERY = expandImportSince(configuredSql("CP_VENDORS_FAST_QUERY")).trim();
 
 /** After SY_USR: infer `SLS_REP` codes from AR_CUST + PS_TKT_HIST when PS_SLS_REP table is not used. */
 const SYNC_SLS_REP_STUBS = SYNC_STAFF && !CP_SALES_REPS_QUERY.trim();
@@ -730,44 +788,90 @@ let effectiveSql = new Proxy(_effectiveSqlBase, {
     return val;
   }
 });
+let lastAutoConfigChanges = [];
 /** When true, POST `/api/sync/counterpoint/staging` with `{ entity, payload }` (from ROS health). */
 let rosStagingEnabled = false;
 let bridgeHostnameCached = "";
 
 function initEffectiveSqlFromConstants() {
   Object.assign(effectiveSql, {
-    customers: CP_CUSTOMERS_QUERY,
-    inventory: CP_INVENTORY_QUERY,
-    catalog: CP_CATALOG_QUERY,
-    catalog_cells: CP_CATALOG_CELLS_QUERY,
-    category_masters: CP_CATEGORY_MASTERS_QUERY,
-    tickets: CP_TICKETS_QUERY,
-    ticket_lines: CP_TICKET_LINES_QUERY,
-    ticket_payments: CP_TICKET_PAYMENTS_QUERY,
-    ticket_cells: CP_TICKET_CELLS_QUERY,
-    ticket_gift: CP_TICKET_GIFT_QUERY,
-    gift_cards: CP_GIFT_CARDS_QUERY,
-    gfc_hist: CP_GFC_HIST_QUERY,
-    loyalty: CP_LOYALTY_HIST_QUERY,
-    vend_item: CP_VEND_ITEM_QUERY,
-    vendors_filtered: CP_VENDORS_QUERY,
-    customer_notes: CP_CUSTOMER_NOTES_QUERY,
-    users: CP_USERS_QUERY,
-    sales_reps: CP_SALES_REPS_QUERY,
-    buyers: CP_BUYERS_QUERY,
-    store_credit: CP_STORE_CREDIT_QUERY,
-    open_docs: CP_OPEN_DOCS_QUERY,
-    open_doc_lines: CP_OPEN_DOC_LINES_QUERY,
-    open_doc_pmt: CP_OPEN_DOC_PMT_QUERY,
-    receiving_history: CP_RECEIVING_HISTORY_QUERY,
-    ticket_notes: CP_TICKET_NOTES_QUERY,
-    vendors_fast_simple: CP_VENDORS_FAST_QUERY || CP_VENDORS_QUERY_SIMPLE,
+    customers: injectStoreCreditCustomerExistsClause(
+      applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_CUSTOMERS_QUERY"))),
+      SYNC_STORE_CREDIT_OPENING,
+      expandImportSince(process.env.CP_CUSTOMER_STORE_CREDIT_EXISTS ?? ""),
+    ),
+    inventory: applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_INVENTORY_QUERY"))),
+    catalog: applyCounterpointSqlCompat(pipeImItemVendorSql(configuredSql("CP_CATALOG_QUERY"))),
+    catalog_cells: applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_CATALOG_CELLS_QUERY"))),
+    category_masters: expandImportSince(configuredSql("CP_CATEGORY_MASTERS_QUERY")),
+    tickets: applyCounterpointSqlCompat(
+      expandImportSince(configuredSql("CP_TICKETS_QUERY")).replace(/ORDER\s+BY\s+.*$/i, ""),
+    ),
+    ticket_lines: applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_TICKET_LINES_QUERY"))),
+    ticket_payments: applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_TICKET_PAYMENTS_QUERY"))),
+    ticket_cells: applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_TICKET_CELLS_QUERY"))),
+    ticket_gift: "",
+    gift_cards: expandImportSince(configuredSql("CP_GIFT_CARDS_QUERY")),
+    gfc_hist: "",
+    loyalty: "",
+    vend_item: applyCounterpointSqlCompat(
+      applyImItemVendorColumn(expandImportSince(configuredSql("CP_VEND_ITEM_QUERY"))),
+    ),
+    vendors_filtered: applyCounterpointSqlCompat(pipeImItemVendorSql(configuredSql("CP_VENDORS_QUERY"))),
+    customer_notes: expandImportSince(configuredSql("CP_CUSTOMER_NOTES_QUERY")),
+    users: expandImportSince(configuredSql("CP_USERS_QUERY")),
+    sales_reps: expandImportSince(configuredSql("CP_SALES_REPS_QUERY")),
+    buyers: expandImportSince(configuredSql("CP_BUYERS_QUERY")),
+    store_credit: expandImportSince(configuredSql("CP_STORE_CREDIT_QUERY")),
+    open_docs: expandImportSince(configuredSql("CP_OPEN_DOCS_QUERY")),
+    open_doc_lines: expandImportSince(configuredSql("CP_OPEN_DOC_LINES_QUERY")),
+    open_doc_pmt: expandImportSince(configuredSql("CP_OPEN_DOC_PMT_QUERY")),
+    receiving_history: expandImportSince(configuredSql("CP_RECEIVING_HISTORY_QUERY")),
+    ticket_notes: expandImportSince(configuredSql("CP_TICKET_NOTES_QUERY")),
+    vendors_fast_simple: expandImportSince(configuredSql("CP_VENDORS_FAST_QUERY")).trim() || CP_VENDORS_QUERY_SIMPLE,
   });
 }
 initEffectiveSqlFromConstants();
 
 /** Full customer list (no ticket/note filter). */
 const SQL_MAX_CUSTOMERS = `SELECT RTRIM(LTRIM(CAST(c.CUST_NO AS NVARCHAR(64)))) AS cust_no, RTRIM(LTRIM(c.FST_NAM)) AS first_name, RTRIM(LTRIM(c.LST_NAM)) AS last_name, RTRIM(LTRIM(c.NAM)) AS full_name, RTRIM(LTRIM(c.EMAIL_ADRS_1)) AS email, RTRIM(LTRIM(c.PHONE_1)) AS phone, RTRIM(LTRIM(c.ADRS_1)) AS address_line1, RTRIM(LTRIM(c.ADRS_2)) AS address_line2, RTRIM(LTRIM(c.CITY)) AS city, RTRIM(LTRIM(c.STATE)) AS state, RTRIM(LTRIM(c.ZIP_COD)) AS postal_code, RTRIM(LTRIM(c.CUST_TYP)) AS cust_typ, c.LOY_PTS_BAL AS pts_bal, RTRIM(LTRIM(c.SLS_REP)) AS sls_rep FROM AR_CUST c ORDER BY c.CUST_NO`;
+
+function buildFlexMaxCustomersSql(ptsCol, entries) {
+  const arCust = entries ? columnSet(entries, "AR_CUST") : null;
+  const textCol = (col, alias, width = 255) =>
+    arCust?.has(col)
+      ? `RTRIM(LTRIM(CAST(c.[${col}] AS NVARCHAR(${width})))) AS ${alias}`
+      : `CAST(NULL AS NVARCHAR(${width})) AS ${alias}`;
+  const moneyCol = (col, alias) =>
+    arCust?.has(col)
+      ? `CAST(ISNULL(c.[${col}], 0) AS DECIMAL(18,2)) AS ${alias}`
+      : `CAST(NULL AS DECIMAL(18,2)) AS ${alias}`;
+  const pointsExpr = arCust?.has(ptsCol)
+    ? `c.[${ptsCol}] AS pts_bal`
+    : "CAST(NULL AS INT) AS pts_bal";
+  const fields = [
+    textCol("CUST_NO", "cust_no", 64),
+    textCol("FST_NAM", "first_name"),
+    textCol("LST_NAM", "last_name"),
+    textCol("NAM", "full_name"),
+    textCol("EMAIL_ADRS_1", "email"),
+    textCol("PHONE_1", "phone"),
+    textCol("ADRS_1", "address_line1"),
+    textCol("ADRS_2", "address_line2"),
+    textCol("CITY", "city"),
+    textCol("STATE", "state", 64),
+    textCol("ZIP_COD", "postal_code", 64),
+    textCol("CUST_TYP", "cust_typ", 64),
+    pointsExpr,
+    textCol("SLS_REP", "sls_rep", 64),
+    moneyCol("BAL", "ar_balance"),
+  ];
+  const where = arCust?.has("CUST_NO")
+    ? " WHERE NULLIF(RTRIM(LTRIM(CAST(c.[CUST_NO] AS NVARCHAR(64)))), N'') IS NOT NULL"
+    : "";
+  const order = arCust?.has("CUST_NO") ? " ORDER BY c.[CUST_NO]" : "";
+  return `SELECT ${fields.join(", ")} FROM AR_CUST c${where}${order}`;
+}
 
 function sqlMaxCatalog(costCol) {
   return `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS item_no, RTRIM(LTRIM(i.DESCR)) AS descr, i.LONG_DESCR AS long_descr, RTRIM(LTRIM(i.CATEG_COD)) AS categ_cod, RTRIM(LTRIM(i.VEND_NO)) AS vend_no, CASE WHEN EXISTS (SELECT 1 FROM IM_INV_CELL g WHERE g.ITEM_NO = i.ITEM_NO) THEN 'Y' ELSE 'N' END AS is_grd, p.PRC_1 AS prc_1, p.PRC_2 AS prc_2, p.PRC_3 AS prc_3, inv.${costCol} AS lst_cost, b.BARCOD AS barcode FROM IM_ITEM i LEFT JOIN IM_PRC p ON p.ITEM_NO = i.ITEM_NO LEFT JOIN IM_INV inv ON inv.ITEM_NO = i.ITEM_NO AND inv.LOC_ID = 'MAIN' LEFT JOIN IM_BARCOD b ON b.ITEM_NO = i.ITEM_NO WHERE RTRIM(LTRIM(i.ITEM_NO)) <> N'' ORDER BY i.ITEM_NO`;
@@ -856,11 +960,264 @@ function buildFlexMaxCatalogSql(invCostCol, locId, entries) {
 function buildFlexMaxInventorySql(invCostCol, locId, entries) {
   const locEsc = escapeSqlStringLiteral(locId);
   const imInv = entries ? columnSet(entries, "IM_INV") : null;
+  const imCell = entries ? columnSet(entries, "IM_INV_CELL") : null;
   let costField = invCostCol;
   if (imInv && !imInv.has(invCostCol)) {
-    costField = imInv.has("LST_COST") ? "LST_COST" : imInv.has("AVG_COST") ? "AVG_COST" : imInv.has("LAST_COST") ? "LAST_COST" : "LST_COST";
+    costField = imInv.has("LST_COST") ? "LST_COST" : imInv.has("AVG_COST") ? "AVG_COST" : imInv.has("LAST_COST") ? "LAST_COST" : null;
   }
-  return `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS sku, CAST(i.QTY_ON_HND AS INT) AS stock_on_hand, RTRIM(LTRIM(i.ITEM_NO)) AS counterpoint_item_key, i.${costField} AS last_cost FROM IM_INV i WHERE i.ITEM_NO IS NOT NULL AND i.LOC_ID = N'${locEsc}'`;
+  const locFilter = imInv?.has("LOC_ID") ? ` AND i.LOC_ID = N'${locEsc}'` : "";
+  const cellLocFilter = imCell?.has("LOC_ID") ? ` AND c.LOC_ID = N'${locEsc}'` : "";
+  const parentCost = costField ? `i.${costField}` : "CAST(NULL AS DECIMAL(18,4))";
+  const parentSql = `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS sku, CAST(i.QTY_ON_HND AS INT) AS stock_on_hand, RTRIM(LTRIM(i.ITEM_NO)) AS counterpoint_item_key, ${parentCost} AS last_cost FROM IM_INV i WHERE i.ITEM_NO IS NOT NULL${locFilter}`;
+  if (!imCell?.has("ITEM_NO") || !imCell.has("QTY_ON_HND")) {
+    return parentSql;
+  }
+  const dim1 = pickColumn(imCell, ["DIM_1_UPR", "DIM_1_VAL", "DIM_1", "GRID_1_VAL"]);
+  const dim2 = pickColumn(imCell, ["DIM_2_UPR", "DIM_2_VAL", "DIM_2", "GRID_2_VAL"]);
+  const dim3 = pickColumn(imCell, ["DIM_3_UPR", "DIM_3_VAL", "DIM_3", "GRID_3_VAL"]);
+  const keyExpr = matrixKeySql("c", [dim1, dim2, dim3]);
+  const cellCostJoin = imInv?.has("ITEM_NO")
+    ? ` LEFT JOIN IM_INV inv ON inv.ITEM_NO = c.ITEM_NO${imInv.has("LOC_ID") && imCell.has("LOC_ID") ? " AND inv.LOC_ID = c.LOC_ID" : ""}`
+    : "";
+  const costExpr = imInv?.has(costField) ? `inv.${costField}` : "CAST(NULL AS DECIMAL(18,4))";
+  const cellSql = `SELECT ${keyExpr} AS sku, CAST(c.QTY_ON_HND AS INT) AS stock_on_hand, ${keyExpr} AS counterpoint_item_key, ${costExpr} AS last_cost FROM IM_INV_CELL c${cellCostJoin} WHERE c.ITEM_NO IS NOT NULL${cellLocFilter}`;
+  return `${parentSql} UNION ALL ${cellSql}`;
+}
+
+function pickColumn(set, candidates) {
+  return candidates.find((c) => set?.has(c)) ?? null;
+}
+
+function sqlText(alias, set, candidates, outputName, width = 64) {
+  const c = pickColumn(set, candidates);
+  return c
+    ? `RTRIM(LTRIM(CAST(${alias}.[${c}] AS NVARCHAR(${width})))) AS ${outputName}`
+    : `CAST(NULL AS NVARCHAR(${width})) AS ${outputName}`;
+}
+
+function sqlNumber(alias, set, candidates, outputName, fallback = "CAST(NULL AS DECIMAL(18,4))") {
+  const c = pickColumn(set, candidates);
+  return c ? `${alias}.[${c}] AS ${outputName}` : `${fallback} AS ${outputName}`;
+}
+
+function matrixKeySql(alias, dims) {
+  const parts = dims.map((dim) =>
+    dim
+      ? `ISNULL(RTRIM(LTRIM(CONVERT(NVARCHAR(80), ${alias}.[${dim}]))), N'')`
+      : "N''",
+  );
+  return `CONCAT(RTRIM(LTRIM(${alias}.[ITEM_NO])), N'|', ${parts[0]}, N'|', ${parts[1]}, N'|', ${parts[2]})`;
+}
+
+function matrixLabelSql(alias, dims) {
+  const [d1, d2, d3] = dims;
+  const part = (dim) => `RTRIM(LTRIM(CONVERT(NVARCHAR(80), ${alias}.[${dim}])))`;
+  if (!d1 && !d2 && !d3) return "N''";
+  return [
+    d1 ? `ISNULL(${part(d1)}, N'')` : "N''",
+    d2 ? `CASE WHEN ${alias}.[${d2}] IS NOT NULL THEN N' / ' + ${part(d2)} ELSE N'' END` : "N''",
+    d3 ? `CASE WHEN ${alias}.[${d3}] IS NOT NULL THEN N' / ' + ${part(d3)} ELSE N'' END` : "N''",
+  ].join(" + ");
+}
+
+function buildFlexCatalogCellsSql(invCostCol, locId, entries) {
+  const locEsc = escapeSqlStringLiteral(locId);
+  const imCell = columnSet(entries, "IM_INV_CELL");
+  if (!imCell?.has("ITEM_NO")) return "";
+  const imPrc = columnSet(entries, "IM_PRC");
+  const imInv = columnSet(entries, "IM_INV");
+  const dim1 = pickColumn(imCell, ["DIM_1_UPR", "DIM_1_VAL", "DIM_1", "GRID_1_VAL"]);
+  const dim2 = pickColumn(imCell, ["DIM_2_UPR", "DIM_2_VAL", "DIM_2", "GRID_2_VAL"]);
+  const dim3 = pickColumn(imCell, ["DIM_3_UPR", "DIM_3_VAL", "DIM_3", "GRID_3_VAL"]);
+  const keyExpr = matrixKeySql("c", [dim1, dim2, dim3]);
+  const labelExpr = matrixLabelSql("c", [dim1, dim2, dim3]);
+  const prcJoin = imPrc ? " LEFT JOIN IM_PRC p ON p.ITEM_NO = c.ITEM_NO" : "";
+  const invJoin = imInv
+    ? ` LEFT JOIN IM_INV inv ON inv.ITEM_NO = c.ITEM_NO${imInv.has("LOC_ID") && imCell.has("LOC_ID") ? " AND inv.LOC_ID = c.LOC_ID" : ""}`
+    : "";
+  const prc1 = imPrc?.has("PRC_1") ? "p.PRC_1" : "CAST(NULL AS DECIMAL(18,4))";
+  const prc2 = imPrc?.has("PRC_2") ? "p.PRC_2" : "CAST(NULL AS DECIMAL(18,4))";
+  const prc3 = imPrc?.has("PRC_3") ? "p.PRC_3" : "CAST(NULL AS DECIMAL(18,4))";
+  const costField = imInv?.has(invCostCol)
+    ? invCostCol
+    : pickColumn(imInv, ["LST_COST", "AVG_COST", "LAST_COST"]);
+  const unitCost = costField ? `inv.${costField}` : "CAST(NULL AS DECIMAL(18,4))";
+  const minQty = imCell.has("MIN_QTY") ? "CAST(c.MIN_QTY AS INT)" : "CAST(NULL AS INT)";
+  const qty = imCell.has("QTY_ON_HND") ? "CAST(c.QTY_ON_HND AS INT)" : "CAST(NULL AS INT)";
+  const locFilter = imCell.has("LOC_ID") ? ` AND c.LOC_ID = N'${locEsc}'` : "";
+  return `SELECT RTRIM(LTRIM(c.ITEM_NO)) AS parent_item_no, ${keyExpr} AS counterpoint_item_key, ${keyExpr} AS sku, ${labelExpr} AS variation_label, ${qty} AS stock_on_hand, ${minQty} AS min_qty, ${prc1} AS retail_price, ${prc2} AS prc_2, ${prc3} AS prc_3, ${unitCost} AS unit_cost, CAST(NULL AS NVARCHAR(50)) AS barcode FROM IM_INV_CELL c${prcJoin}${invJoin} WHERE c.ITEM_NO IS NOT NULL${locFilter}`;
+}
+
+function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
+  const sqlMap = {};
+  const changes = [];
+  const locEsc = escapeSqlStringLiteral(locId);
+  const set = (name) => columnSet(entries, name);
+
+  const syUsr = set("SY_USR");
+  if (syUsr?.has("USR_ID")) {
+    sqlMap.users = `SELECT ${sqlText("u", syUsr, ["USR_ID"], "usr_id")}, ${sqlText("u", syUsr, ["NAM", "NAME"], "nam", 255)}, ${sqlText("u", syUsr, ["EMAIL_ADRS_1", "EMAIL"], "email_adrs", 255)}, ${sqlText("u", syUsr, ["SEC_COD", "USR_GRP_ID"], "usr_grp_id", 64)}, ${sqlText("u", syUsr, ["STAT", "STATUS"], "status", 32)} FROM SY_USR u ORDER BY u.[USR_ID]`;
+    changes.push("SY_USR staff users enabled");
+  }
+
+  const salesRep = set("PS_SLS_REP");
+  if (salesRep?.has("SLS_REP")) {
+    sqlMap.sales_reps = `SELECT ${sqlText("r", salesRep, ["SLS_REP"], "sls_rep")}, ${sqlText("r", salesRep, ["NAM", "NAME"], "nam", 255)}, ${sqlNumber("r", salesRep, ["COMMIS_PCT"], "commis_pct")} FROM PS_SLS_REP r ORDER BY r.[SLS_REP]`;
+    changes.push("PS_SLS_REP sales reps enabled");
+  }
+
+  const buyers = set("PO_BUYER");
+  const buyerId = pickColumn(buyers, ["BUYER_ID", "BUYER"]);
+  if (buyers && buyerId) {
+    sqlMap.buyers = `SELECT ${sqlText("b", buyers, [buyerId], "buyer_id")}, ${sqlText("b", buyers, ["NAM", "NAME"], "nam", 255)} FROM PO_BUYER b ORDER BY b.[${buyerId}]`;
+    changes.push("PO_BUYER buyers enabled");
+  }
+
+  const poVend = set("PO_VEND");
+  if (poVend?.has("VEND_NO")) {
+    sqlMap.vendors_fast_simple = `SELECT ${sqlText("v", poVend, ["VEND_NO"], "vend_no")}, ${sqlText("v", poVend, ["NAM", "NAME", "DESCR", "VEND_NAM"], "name", 255)}, ${sqlText("v", poVend, ["TERMS_COD"], "payment_terms")}, ${sqlText("v", poVend, ["PHONE_1", "PHONE"], "phone")}, ${sqlText("v", poVend, ["EMAIL_ADRS_1", "EMAIL"], "email", 255)} FROM PO_VEND v WHERE v.[VEND_NO] IS NOT NULL ORDER BY v.[VEND_NO]`;
+    changes.push("PO_VEND vendors enabled");
+  }
+
+  const poVendItem = set("PO_VEND_ITEM");
+  if (poVendItem?.has("VEND_NO") && poVendItem.has("ITEM_NO")) {
+    const cost = pickColumn(poVendItem, ["UNIT_COST", "VEND_COST", "LST_COST", "COST", "PUR_COST"]);
+    sqlMap.vend_item = `SELECT ${sqlText("vi", poVendItem, ["VEND_NO"], "vend_no")}, ${sqlText("vi", poVendItem, ["ITEM_NO"], "item_no")}, ${sqlText("vi", poVendItem, ["VEND_ITEM_NO"], "vend_item_no", 128)}, ${cost ? `vi.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS vend_cost FROM PO_VEND_ITEM vi ORDER BY vi.[VEND_NO], vi.[ITEM_NO]`;
+    changes.push(`PO_VEND_ITEM vendor item links enabled${cost ? ` (${cost})` : ""}`);
+  }
+
+  if (set("AR_CUST")?.has("CUST_NO")) {
+    sqlMap.customers = buildFlexMaxCustomersSql(customerPts, entries);
+    changes.push(`AR_CUST customers enabled; points=${customerPts}`);
+  }
+
+  const arNotes = set("AR_CUST_NOTE");
+  const noteText = pickColumn(arNotes, ["NOTE_TXT", "NOTE", "TXT"]);
+  if (arNotes?.has("CUST_NO") && noteText) {
+    const noteId = pickColumn(arNotes, ["NOTE_ID", "SEQ_NO", "ROW_ID"]);
+    const noteDate = pickColumn(arNotes, ["NOTE_DAT", "NOTE_DT", "LST_MAINT_DT", "RS_UTC_DT"]);
+    sqlMap.customer_notes = `SELECT ${sqlText("n", arNotes, ["CUST_NO"], "cust_no")}, ${noteId ? `CAST(n.[${noteId}] AS NVARCHAR(64))` : "CONVERT(NVARCHAR(64), ROW_NUMBER() OVER (ORDER BY n.[CUST_NO]))"} AS note_id, ${noteDate ? `CONVERT(varchar, n.[${noteDate}], 126) + 'Z'` : "CAST(NULL AS NVARCHAR(32))"} AS note_date, n.[${noteText}] AS note_text, ${sqlText("n", arNotes, ["USR_ID"], "usr_id")} FROM AR_CUST_NOTE n`;
+    changes.push("AR_CUST_NOTE customer notes enabled");
+  }
+
+  const imItemForCatalog = set("IM_ITEM");
+  if (imItemForCatalog?.has("ITEM_NO") && imItemForCatalog.has("CATEG_COD")) {
+    sqlMap.category_masters = set("IM_CATEG")?.has("CATEG_COD")
+      ? "SELECT DISTINCT RTRIM(LTRIM(i.CATEG_COD)) AS cp_category, COALESCE(RTRIM(LTRIM(c.DESCR)), RTRIM(LTRIM(i.CATEG_COD))) AS display_name FROM IM_ITEM i LEFT JOIN IM_CATEG c ON c.CATEG_COD = i.CATEG_COD WHERE RTRIM(LTRIM(i.ITEM_NO)) <> N'' AND NULLIF(RTRIM(LTRIM(i.CATEG_COD)), N'') IS NOT NULL ORDER BY cp_category"
+      : "SELECT DISTINCT RTRIM(LTRIM(i.CATEG_COD)) AS cp_category, RTRIM(LTRIM(i.CATEG_COD)) AS display_name FROM IM_ITEM i WHERE RTRIM(LTRIM(i.ITEM_NO)) <> N'' AND NULLIF(RTRIM(LTRIM(i.CATEG_COD)), N'') IS NOT NULL ORDER BY cp_category";
+    changes.push("IM_ITEM category masters enabled");
+  }
+
+  if (imItemForCatalog?.has("ITEM_NO")) {
+    sqlMap.catalog = buildFlexMaxCatalogSql(invCost, locId, entries);
+    changes.push("IM_ITEM catalog enabled");
+  }
+
+  if (set("IM_INV")?.has("ITEM_NO")) {
+    sqlMap.inventory = buildFlexMaxInventorySql(invCost, locId, entries);
+    changes.push(`IM_INV inventory enabled; LOC_ID=${locId}; cost=${invCost}`);
+  }
+
+  const cellSql = buildFlexCatalogCellsSql(invCost, locId, entries);
+  if (cellSql) {
+    sqlMap.catalog_cells = cellSql;
+    changes.push("IM_INV_CELL matrix variants enabled");
+  }
+
+  const gift = set("SY_GFC") ?? set("SY_GFT_CERT");
+  const giftTable = set("SY_GFC") ? "SY_GFC" : set("SY_GFT_CERT") ? "SY_GFT_CERT" : "";
+  const giftNo = pickColumn(gift, ["GFC_NO", "GFT_CERT_NO", "CERT_NO"]);
+  const giftBal = pickColumn(gift, ["CURR_AMT", "BAL", "BAL_AMT"]);
+  if (giftTable && giftNo && giftBal) {
+    const reason = pickColumn(gift, ["REAS_COD", "REASON_COD"]);
+    sqlMap.gift_cards = `SELECT ${sqlText("g", gift, [giftNo], "gift_cert_no")}, CAST(ISNULL(g.[${giftBal}], 0) AS DECIMAL(18,2)) AS balance${reason ? `, ${sqlText("g", gift, [reason], "reason_cod")}` : ""} FROM ${giftTable} g WHERE ISNULL(g.[${giftBal}], 0) > 0`;
+    changes.push(`${giftTable} gift cards enabled`);
+  }
+
+  const storeCredit = set("SY_STC");
+  const storeCust = pickColumn(storeCredit, ["ORIG_CUST_NO", "CUST_NO"]);
+  const storeBal = pickColumn(storeCredit, ["CURR_AMT", "BAL", "AMT"]);
+  if (storeCredit && storeCust && storeBal) {
+    sqlMap.store_credit = `SELECT ${sqlText("sc", storeCredit, [storeCust], "cust_no")}, CAST(ISNULL(sc.[${storeBal}], 0) AS DECIMAL(18,2)) AS balance FROM SY_STC sc WHERE CAST(ISNULL(sc.[${storeBal}], 0) AS DECIMAL(18,2)) > 0 ORDER BY sc.[${storeCust}]`;
+    changes.push("SY_STC store credit opening balances enabled");
+  }
+
+  const tkt = set("PS_TKT_HIST");
+  const tktNo = pickColumn(tkt, ["TKT_NO", "DOC_NO"]);
+  const tktDate = pickColumn(tkt, ["TKT_DT", "BUS_DAT", "DOC_DT"]);
+  const tktJoin = pickColumn(tkt, ["DOC_ID", "TKT_NO", "DOC_NO"]);
+  if (tkt && tktNo && tktDate) {
+    const total = pickColumn(tkt, ["TOT", "TOT_EXTD_PRC", "TKT_TOT"]);
+    const due = pickColumn(tkt, ["TOT_AMT_DUE", "AMT_DUE"]);
+    const typeFilter = pickColumn(tkt, ["TKT_TYP", "DOC_TYP"]) ? ` AND h.[${pickColumn(tkt, ["TKT_TYP", "DOC_TYP"])}] = N'T'` : "";
+    sqlMap.tickets = `SELECT ${sqlText("h", tkt, [tktNo], "ticket_ref")}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter} ORDER BY h.[${tktDate}], h.[${tktNo}]`;
+    changes.push("PS_TKT_HIST tickets enabled");
+
+    const lin = set("PS_TKT_HIST_LIN");
+    const linJoin = pickColumn(lin, [tktJoin, "DOC_ID", "TKT_NO"]);
+    if (lin && linJoin) {
+      const item = pickColumn(lin, ["ITEM_NO"]);
+      const seq = pickColumn(lin, ["LIN_SEQ_NO", "SEQ_NO"]);
+      const qty = pickColumn(lin, ["QTY_SOLD", "QTY"]);
+      const price = pickColumn(lin, ["PRC", "PRICE"]);
+      const cost = pickColumn(lin, ["UNIT_COST", "COST"]);
+      const reason = pickColumn(lin, ["RET_REAS", "REAS_COD"]);
+      sqlMap.ticket_lines = `SELECT ${sqlText("h", tkt, [tktNo], "ticket_ref")}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${sqlText("l", lin, [item], "sku")}, ${sqlText("l", lin, [item], "counterpoint_item_key")}, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price ? `l.[${price}]` : "CAST(0 AS DECIMAL(18,4))"} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l INNER JOIN PS_TKT_HIST h ON h.[${tktJoin}] = l.[${linJoin}] WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      changes.push("PS_TKT_HIST_LIN ticket lines enabled");
+    }
+
+    const pmt = set("PS_TKT_HIST_PMT");
+    const pmtJoin = pickColumn(pmt, [tktJoin, "DOC_ID", "TKT_NO"]);
+    if (pmt && pmtJoin) {
+      const payCod = pickColumn(pmt, ["PAY_COD", "PMT_TYP"]);
+      const amt = pickColumn(pmt, ["AMT", "PMT_AMT"]);
+      sqlMap.ticket_payments = `SELECT ${sqlText("h", tkt, [tktNo], "ticket_ref")}, ${sqlText("p", pmt, [payCod], "pmt_typ")}, ${amt ? `p.[${amt}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_TKT_HIST_PMT p INNER JOIN PS_TKT_HIST h ON h.[${tktJoin}] = p.[${pmtJoin}] WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      changes.push("PS_TKT_HIST_PMT ticket payments enabled");
+    }
+
+    const tktNote = set("PS_TKT_HIST_NOTE");
+    const noteJoin = pickColumn(tktNote, [tktJoin, "DOC_ID", "TKT_NO"]);
+    const noteCol = pickColumn(tktNote, ["NOTE", "NOTE_TXT", "TXT"]);
+    if (tktNote && noteJoin && noteCol) {
+      sqlMap.ticket_notes = `SELECT ${sqlText("h", tkt, [tktNo], "ticket_ref")}, n.[${noteCol}] AS note FROM PS_TKT_HIST_NOTE n INNER JOIN PS_TKT_HIST h ON h.[${tktJoin}] = n.[${noteJoin}] WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      changes.push("PS_TKT_HIST_NOTE ticket notes enabled");
+    }
+  }
+
+  const psDocHdr = set("PS_DOC_HDR") ?? set("PS_DOC");
+  const psDocTable = set("PS_DOC_HDR") ? "PS_DOC_HDR" : set("PS_DOC") ? "PS_DOC" : "";
+  const psDocTot = set("PS_DOC_HDR_TOT");
+  const psDocLin = set("PS_DOC_LIN");
+  const psDocPmt = set("PS_DOC_PMT");
+  const docRef = pickColumn(psDocHdr, ["DOC_ID", "DOC_NO", "TKT_NO"]);
+  const docDate = pickColumn(psDocHdr, ["TKT_DT", "DOC_DT", "BUS_DAT"]);
+  if (psDocTable && docRef && docDate) {
+    const hasTot = psDocTot?.has(docRef) && psDocTot.has("TOT") && psDocTot.has("TOT_TND");
+    const total = pickColumn(psDocHdr, ["TOT", "TOT_EXTD_PRC"]);
+    const paid = pickColumn(psDocHdr, ["TOT_TND", "AMT_PAID", "TOT"]);
+    sqlMap.open_docs = hasTot
+      ? `SELECT ${sqlText("h", psDocHdr, [docRef], "doc_ref")}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, t.[TOT] AS total_price, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON h.[${docRef}] = t.[${docRef}] WHERE h.[${docDate}] >= '__CP_IMPORT_SINCE__'`
+      : `SELECT ${sqlText("h", psDocHdr, [docRef], "doc_ref")}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${paid ? `h.[${paid}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid FROM ${psDocTable} h WHERE h.[${docDate}] >= '__CP_IMPORT_SINCE__'`;
+    changes.push(`${psDocTable} open documents enabled`);
+    const lineDoc = pickColumn(psDocLin, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
+    if (psDocLin && lineDoc) {
+      sqlMap.open_doc_lines = `SELECT ${sqlText("l", psDocLin, [lineDoc], "doc_ref")}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "sku")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "counterpoint_item_key")}, ${sqlNumber("l", psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"], "quantity", "CAST(1 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, CAST(NULL AS NVARCHAR(255)) AS description FROM PS_DOC_LIN l`;
+    }
+    const pmtDoc = pickColumn(psDocPmt, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
+    if (psDocPmt && pmtDoc) {
+      sqlMap.open_doc_pmt = `SELECT ${sqlText("p", psDocPmt, [pmtDoc], "doc_ref")}, ${sqlText("p", psDocPmt, ["PAY_COD", "PMT_TYP"], "pmt_typ")}, ${sqlNumber("p", psDocPmt, ["AMT", "PMT_AMT"], "amount", "CAST(0 AS DECIMAL(18,2))")}, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_DOC_PMT p`;
+    }
+  }
+
+  const recv = set("PO_RECVR_HIST") ?? set("PO_RECVR_HIST_LIN");
+  const recvTable = set("PO_RECVR_HIST") ? "PO_RECVR_HIST" : set("PO_RECVR_HIST_LIN") ? "PO_RECVR_HIST_LIN" : "";
+  const recvDate = pickColumn(recv, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT"]);
+  if (recvTable && recv?.has("VEND_NO") && recv.has("ITEM_NO") && recvDate) {
+    sqlMap.receiving_history = `SELECT ${sqlText("r", recv, ["VEND_NO"], "vend_no")}, ${sqlText("r", recv, ["ITEM_NO"], "item_no")}, CONVERT(varchar, r.[${recvDate}], 126) + 'Z' AS recv_dat, ${sqlNumber("r", recv, ["COST", "UNIT_COST"], "unit_cost")}, ${sqlNumber("r", recv, ["QTY_RECVD", "QTY_RECV", "QTY"], "qty_recv")}, ${sqlText("r", recv, ["PO_NO"], "po_no")}, ${sqlText("r", recv, ["RECVR_NO", "RECV_NO"], "recv_no")} FROM ${recvTable} r WHERE r.[${recvDate}] >= '__CP_IMPORT_SINCE__' ORDER BY r.[${recvDate}]`;
+    changes.push(`${recvTable} receiving history enabled`);
+  }
+
+  return { sqlMap, changes };
 }
 
 async function loadSchemaEntries(pool) {
@@ -880,6 +1237,7 @@ async function rebuildEffectiveSql(pool) {
   const scope = (process.env.CP_IMPORT_SCOPE ?? "maximal").trim().toLowerCase();
   const autoOn = (process.env.CP_AUTO_SCHEMA ?? "1").trim() !== "0";
   let invCost = "LST_COST";
+  let customerPts = "LOY_PTS_BAL";
   let imVendCol = "";
   let forcePoVendItem = false;
   let vendorFastOverride = "";
@@ -903,6 +1261,10 @@ async function rebuildEffectiveSql(pool) {
           break;
         }
       }
+    }
+    const arCust = columnSet(entries, "AR_CUST");
+    if (arCust) {
+      customerPts = ["LOY_PTS_BAL", "PTS_BAL", "LOY_PTS"].find((c) => arCust.has(c)) ?? customerPts;
     }
     const imItem = columnSet(entries, "IM_ITEM");
     const vendCandidates = [
@@ -944,7 +1306,7 @@ async function rebuildEffectiveSql(pool) {
       }
     }
 
-    const bits = [`IM_INV cost=${invCost}`];
+    const bits = [`IM_INV cost=${invCost}`, `AR_CUST points=${customerPts}`];
     if (imVendCol) bits.push(`IM_ITEM vendor=${imVendCol}`);
     if (forcePoVendItem) bits.push("PO_VEND_ITEM vendor link");
     if (vendorFastOverride) bits.push("PO_VEND columns auto");
@@ -952,12 +1314,19 @@ async function rebuildEffectiveSql(pool) {
   }
 
   const locId = sqlLocId();
+  const generated = schemaEntries
+    ? buildSchemaGeneratedSql(schemaEntries, { invCost, customerPts, locId })
+    : { sqlMap: {}, changes: [] };
+  lastAutoConfigChanges = generated.changes;
 
   {
-    const envQ = (process.env.CP_CUSTOMERS_QUERY ?? "").trim();
+    const envQ = configuredSql("CP_CUSTOMERS_QUERY").trim();
     let src = envQ;
     if (!src && scope === "maximal") {
-      src = SQL_MAX_CUSTOMERS;
+      src = schemaEntries ? generated.sqlMap.customers : SQL_MAX_CUSTOMERS;
+      console.info(
+        "[maximal] customers SQL" + (schemaEntries ? " (schema-flex)" : " (static fallback)"),
+      );
     }
     if (src) {
       let q = applyCounterpointSqlCompat(expandImportSince(src));
@@ -971,12 +1340,10 @@ async function rebuildEffectiveSql(pool) {
   }
 
   {
-    const envQ = (process.env.CP_INVENTORY_QUERY ?? "").trim();
+    const envQ = configuredSql("CP_INVENTORY_QUERY").trim();
     let src = envQ;
     if (!src && scope === "maximal") {
-      src = schemaEntries
-        ? buildFlexMaxInventorySql(invCost, locId, schemaEntries)
-        : sqlMaxInventory("LST_COST");
+      src = schemaEntries ? generated.sqlMap.inventory : sqlMaxInventory("LST_COST");
       console.info(
         "[maximal] inventory SQL LOC_ID=" + locId + (schemaEntries ? " (schema-flex)" : " (static fallback)"),
       );
@@ -987,12 +1354,10 @@ async function rebuildEffectiveSql(pool) {
   }
 
   {
-    const envQ = (process.env.CP_CATALOG_QUERY ?? "").trim();
+    const envQ = configuredSql("CP_CATALOG_QUERY").trim();
     let src = envQ;
     if (!src && scope === "maximal") {
-      src = schemaEntries
-        ? buildFlexMaxCatalogSql(invCost, locId, schemaEntries)
-        : sqlMaxCatalog("LST_COST");
+      src = schemaEntries ? generated.sqlMap.catalog : sqlMaxCatalog("LST_COST");
       console.info(
         "[maximal] parent catalog SQL LOC_ID=" + locId + (schemaEntries ? " (schema-flex)" : " (static fallback)"),
       );
@@ -1003,20 +1368,26 @@ async function rebuildEffectiveSql(pool) {
   }
 
   {
-    const envQ = (process.env.CP_VEND_ITEM_QUERY ?? "").trim();
+    const envQ = configuredSql("CP_VEND_ITEM_QUERY").trim();
     let src = envQ;
-    if (!src && scope === "maximal") src = SQL_MAX_VEND_ITEM;
+    if (!src && scope === "maximal") src = schemaEntries ? generated.sqlMap.vend_item : SQL_MAX_VEND_ITEM;
     if (src) {
       effectiveSql.vend_item = expandImportSince(src);
     }
   }
 
   {
-    const envQ = (process.env.CP_CATEGORY_MASTERS_QUERY ?? "").trim();
+    const envQ = configuredSql("CP_CATEGORY_MASTERS_QUERY").trim();
     let src = envQ;
-    if (!src && scope === "maximal") src = SQL_MAX_CATEGORY_MASTERS;
+    if (!src && scope === "maximal") src = schemaEntries ? generated.sqlMap.category_masters : SQL_MAX_CATEGORY_MASTERS;
     if (src) {
       effectiveSql.category_masters = expandImportSince(src);
+    }
+  }
+
+  for (const [key, value] of Object.entries(generated.sqlMap)) {
+    if (!String(effectiveSql[key] ?? "").trim() && value) {
+      effectiveSql[key] = expandImportSince(value);
     }
   }
 
@@ -1047,7 +1418,7 @@ async function rebuildEffectiveSql(pool) {
     }
   }
 
-  if (vendorFastOverride && !(process.env.CP_VENDORS_FAST_QUERY ?? "").trim()) {
+  if (vendorFastOverride && !configuredSql("CP_VENDORS_FAST_QUERY").trim()) {
     effectiveSql.vendors_fast_simple = applyCounterpointSqlCompat(
       pipeImItemVendorSql(expandImportSince(vendorFastOverride)),
     );
@@ -1222,10 +1593,8 @@ function validateCounterpointSyncDependencyPlan() {
     errors.push("SYNC_LOYALTY_HIST=1 requires SYNC_CUSTOMERS=1.");
   }
 
-  if (SYNC_STORE_CREDIT_OPENING && !CP_STORE_CREDIT_QUERY.trim()) {
-    errors.push("SYNC_STORE_CREDIT_OPENING=1 requires a non-empty CP_STORE_CREDIT_QUERY.");
-  }
-  if (SYNC_STORE_CREDIT_OPENING && !CP_CUSTOMER_STORE_CREDIT_EXISTS_RAW.trim()) {
+  // Allow empty query text in schema-generated mode. Optional modules such as SY_STC simply skip when absent.
+  if (SYNC_STORE_CREDIT_OPENING && ALLOW_SQL_ENV_OVERRIDES && !CP_CUSTOMER_STORE_CREDIT_EXISTS_RAW.trim()) {
     warnings.push(
       "SYNC_STORE_CREDIT_OPENING=1: set CP_CUSTOMER_STORE_CREDIT_EXISTS (EXISTS body: SELECT 1 … matching c.CUST_NO with balance > 0) or customers with only store credit are skipped by CP_CUSTOMERS_QUERY.",
     );
@@ -1340,15 +1709,23 @@ const DISCOVER_TABLES = [
   "PS_TKT_HIST",
   "PS_TKT_HIST_LIN",
   "PS_TKT_HIST_PMT",
+  "PS_TKT_HIST_NOTE",
   "PS_TKT_HIST_CELL",
   "PS_TKT_HIST_LIN_CELL",
   "PS_TKT_HIST_GFT",
   "SY_GFC",
   "SY_GFC_HIST",
+  "SY_GFT_CERT",
+  "SY_GFT_CERT_HIST",
+  "SY_STC",
   "PS_LOY_PTS_HIST",
   "PS_DOC",
+  "PS_DOC_HDR",
+  "PS_DOC_HDR_TOT",
   "PS_DOC_LIN",
   "PS_DOC_PMT",
+  "PO_RECVR_HIST",
+  "PO_RECVR_HIST_LIN",
 ];
 
 function waitForEnterBeforeClose() {
@@ -2414,7 +2791,7 @@ async function postFidelityDiagnostics(group, rows, limit = 50) {
 
 async function syncReceivingHistory(pool) {
   if (!String(effectiveSql.receiving_history ?? "").trim()) {
-    console.warn("[receiving_history] CP_RECEIVING_HISTORY_QUERY empty; skip");
+    console.warn("[receiving_history] runtime mapping unavailable; skip");
     return;
   }
   try {
@@ -2683,7 +3060,7 @@ function mapOpenDocRow(r) {
 
 async function syncCustomers(pool) {
   if (!String(effectiveSql.customers ?? "").trim()) {
-    console.warn("[customers] CP_CUSTOMERS_QUERY empty; skip");
+    console.warn("[customers] runtime mapping unavailable; skip");
     return;
   }
   const state = readState();
@@ -2750,7 +3127,7 @@ async function syncCustomers(pool) {
 
 async function syncInventory(pool) {
   if (!String(effectiveSql.inventory ?? "").trim()) {
-    console.warn("[inventory] CP_INVENTORY_QUERY empty; skip");
+    console.warn("[inventory] runtime mapping unavailable; skip");
     return;
   }
   const state = readState();
@@ -2820,7 +3197,7 @@ function mapCategoryMasterRow(r) {
 
 async function syncCategoryMasters(pool) {
   if (!String(effectiveSql.category_masters ?? "").trim()) {
-    console.warn("[category_masters] CP_CATEGORY_MASTERS_QUERY empty; skip");
+    console.warn("[category_masters] runtime mapping unavailable; skip");
     return;
   }
   const result = await pool.request().query(effectiveSql.category_masters);
@@ -2850,7 +3227,7 @@ async function syncCategoryMasters(pool) {
 
 async function syncCatalog(pool) {
   if (!String(effectiveSql.catalog ?? "").trim()) {
-    console.warn("[catalog] CP_CATALOG_QUERY empty; skip");
+    console.warn("[catalog] runtime mapping unavailable; skip");
     return;
   }
 
@@ -2950,7 +3327,7 @@ async function syncCatalog(pool) {
       const idleMs = Date.now() - lastActivityAt;
       if (idleMs >= CATALOG_SQL_STALL_TIMEOUT_MS) {
         const err = new Error(
-          `Catalog SQL made no progress for ${Math.round(idleMs / 1000)}s. Check CP_CATALOG_QUERY or raise CATALOG_SQL_STALL_TIMEOUT_MS.`,
+          `Catalog SQL made no progress for ${Math.round(idleMs / 1000)}s. Run Auto Config or raise CATALOG_SQL_STALL_TIMEOUT_MS.`,
         );
         console.error(`[catalog] ${err.message}`);
         logToDashboard(`[catalog] failed: ${err.message}`);
@@ -3110,7 +3487,7 @@ async function syncCatalog(pool) {
 
 async function syncGiftCards(pool) {
   if (!String(effectiveSql.gift_cards ?? "").trim()) {
-    console.warn("[gift_cards] CP_GIFT_CARDS_QUERY empty; skip");
+    console.warn("[gift_cards] runtime mapping unavailable; skip");
     return;
   }
   const result = await pool.request().query(effectiveSql.gift_cards);
@@ -3194,7 +3571,7 @@ async function syncGiftCards(pool) {
 
 async function syncTickets(pool) {
   if (!String(effectiveSql.tickets ?? "").trim()) {
-    console.warn("[tickets] CP_TICKETS_QUERY empty; skip");
+    console.warn("[tickets] runtime mapping unavailable; skip");
     return;
   }
 
@@ -3218,7 +3595,7 @@ async function syncTickets(pool) {
       }
     } catch (lineErr) {
       console.error("[tickets] PS_TKT_HIST_LIN query failed (tickets will import WITHOUT line items):", lineErr?.message ?? lineErr);
-      console.warn("[tickets] Run DISCOVER_SCHEMA.cmd to see actual PS_TKT_HIST_LIN columns, then fix CP_TICKET_LINES_QUERY in .env");
+      console.warn("[tickets] Run DISCOVER_SCHEMA.cmd or Auto Config to inspect actual PS_TKT_HIST_LIN columns.");
       lineLookup = {};
     }
   }
@@ -3268,7 +3645,7 @@ async function syncTickets(pool) {
       const noteResult = await pool.request().query(effectiveSql.ticket_notes);
       for (const row of noteResult.recordset ?? []) {
         const nr = normalizeRowKeys(row);
-        // Robust fallback: your v8.2 might use DOC_ID or TKT_NO or TKT_REF
+        // Robust fallback: Counterpoint schemas may use DOC_ID, TKT_NO, or TKT_REF.
         const ref = String(nr.ticket_ref ?? nr.tkt_no ?? nr.doc_id ?? nr.doc_ref ?? "").trim();
         if (!ref) continue;
         if (!noteLookup[ref]) noteLookup[ref] = [];
@@ -3368,7 +3745,7 @@ async function syncTickets(pool) {
 
 async function syncStoreCreditOpening(pool) {
   if (!String(effectiveSql.store_credit ?? "").trim()) {
-    console.warn("[store_credit_opening] CP_STORE_CREDIT_QUERY empty; skip");
+    console.warn("[store_credit_opening] runtime mapping unavailable; skip");
     return;
   }
 
@@ -3438,7 +3815,7 @@ async function syncStoreCreditOpening(pool) {
 
 async function syncOpenDocs(pool) {
   if (!String(effectiveSql.open_docs ?? "").trim()) {
-    console.warn("[open_docs] CP_OPEN_DOCS_QUERY empty; skip");
+    console.warn("[open_docs] runtime mapping unavailable; skip");
     return;
   }
 
@@ -3546,7 +3923,7 @@ async function syncOpenDocs(pool) {
 
 async function syncLoyaltyHist(pool) {
   if (!String(effectiveSql.loyalty ?? "").trim()) {
-    console.warn("[loyalty_hist] CP_LOYALTY_HIST_QUERY empty; skip");
+    console.warn("[loyalty_hist] runtime mapping unavailable; skip");
     return;
   }
   const result = await pool.request().query(effectiveSql.loyalty);
@@ -3619,7 +3996,7 @@ async function syncLoyaltyHist(pool) {
 
 async function syncVendorItems(pool) {
   if (!String(effectiveSql.vend_item ?? "").trim()) {
-    console.warn("[vendor_items] CP_VEND_ITEM_QUERY empty; skip");
+    console.warn("[vendor_items] runtime mapping unavailable; skip");
     return;
   }
   const result = await pool.request().query(effectiveSql.vend_item);
@@ -3760,7 +4137,7 @@ async function syncVendors(pool) {
 
 async function syncCustomerNotes(pool) {
   if (!String(effectiveSql.customer_notes ?? "").trim()) {
-    console.warn("[customer_notes] CP_CUSTOMER_NOTES_QUERY empty; skip");
+    console.warn("[customer_notes] runtime mapping unavailable; skip");
     return;
   }
   const result = await pool.request().query(effectiveSql.customer_notes);
@@ -4049,7 +4426,7 @@ async function runDiscover(pool) {
     const found = costOrder.filter((c) => imInv.has(c));
     if (found.length === 0) {
       dline("IM_INV cost column", false);
-      note("No LST_COST / AVG_COST / LAST_COST — open SSMS, pick a cost column, edit CP_INVENTORY_QUERY + catalog queries.");
+      note("No LST_COST / AVG_COST / LAST_COST — runtime mappings will omit cost until a supported cost column is available.");
     } else {
       const primary = found[0];
       const tpl = "LST_COST";
@@ -4057,7 +4434,7 @@ async function runDiscover(pool) {
       if (primary === tpl) {
         note(`Template already uses ${primary} — no change needed for inventory/catalog cost.`);
       } else {
-        note(`Your DB uses ${primary}. Replace LST_COST with ${primary} in CP_INVENTORY_QUERY, CP_CATALOG_QUERY, CP_CATALOG_CELLS_QUERY (inv.LST_COST → inv.${primary}).`);
+        note(`Your DB uses ${primary}. Runtime mappings will use that column automatically.`);
       }
     }
   }
@@ -4088,7 +4465,7 @@ async function runDiscover(pool) {
       note("VEND_NO present — default template matches.");
     } else if (vcol) {
       dline("IM_ITEM vendor column", false);
-      note(`Set CP_IM_ITEM_VENDOR_COLUMN=${vcol} in .env (template uses i.VEND_NO).`);
+      note(`Runtime mappings will use ${vcol} as the IM_ITEM vendor column.`);
     } else {
       dline("IM_ITEM vendor column", false);
       if (vendLike.length > 1) {
@@ -4097,13 +4474,13 @@ async function runDiscover(pool) {
         );
       } else {
         note(
-          "No vendor column on IM_ITEM — add CP_IM_ITEM_VENDOR_SOURCE=po_vend_item to .env (uses PO_VEND_ITEM for catalog vend_no + vendor list).",
+          "No vendor column on IM_ITEM — runtime mappings will use PO_VEND_ITEM links when available.",
         );
       }
     }
     if (imItem.has("SUBCATEG_COD")) {
       dline("IM_ITEM SUBCATEG_COD", true);
-      note("Optional: add subcategory to CP_CATEGORY_MASTERS_QUERY / CP_CATALOG_QUERY (see .env.example comments).");
+      note("Optional subcategory data is visible; runtime mappings currently use CATEG_COD as the category key.");
     } else {
       dline("IM_ITEM SUBCATEG_COD", false);
       note("Absent — defaults use CATEG_COD only.");
@@ -4114,21 +4491,21 @@ async function runDiscover(pool) {
   if (poVend) {
     dline("PO_VEND VEND_NO", poVend.has("VEND_NO"));
     if (!poVend.has("VEND_NO")) {
-      note("No VEND_NO on PO_VEND — vendor sync needs a custom CP_VENDORS_FAST_QUERY / CP_VENDORS_QUERY.");
+      note("No VEND_NO on PO_VEND — vendor sync will skip unless an expert SQL override maps the vendor code.");
     }
     const nameCol = poVend.has("NAM")
       ? "NAM"
       : ["NAME", "VEND_NAM", "DESCR"].find((c) => poVend.has(c));
     dline("PO_VEND name column (NAM)", !!nameCol);
     if (!nameCol) {
-      note("No NAM/NAME-style column on PO_VEND — set CP_VENDORS_FAST_QUERY with correct AS name column.");
+      note("No NAM/NAME-style column on PO_VEND — vendor names will be unavailable unless an expert SQL override maps the name.");
     } else if (nameCol !== "NAM") {
-      note(`Use RTRIM(LTRIM(${nameCol})) AS name in CP_VENDORS_FAST_QUERY (template expects NAM).`);
+      note(`Runtime mappings will use ${nameCol} as the vendor name column.`);
     }
     dline("PO_VEND TERMS_COD", poVend.has("TERMS_COD"));
     if (!poVend.has("TERMS_COD")) {
       note(
-        "TERMS_COD absent — vendor fast query will fail until you set CP_VENDORS_FAST_QUERY (e.g. CAST(NULL AS NVARCHAR(64)) AS payment_terms) or map the real terms column.",
+        "TERMS_COD absent — runtime mappings will send NULL payment_terms.",
       );
     }
   }
@@ -4138,10 +4515,10 @@ async function runDiscover(pool) {
     const pts = ["PTS_BAL", "LOY_PTS", "LOY_PTS_BAL"].find((c) => ar.has(c));
     if (pts) {
       dline("AR_CUST points column", true);
-      note(`Found ${pts} — use "${pts} AS pts_bal" in CP_CUSTOMERS_QUERY (replace CAST(NULL AS INT) AS pts_bal).`);
+      note(`Found ${pts} — runtime mappings will use it as pts_bal.`);
     } else {
       dline("AR_CUST points column", false);
-      note("No PTS_BAL / LOY_PTS — keep CAST(NULL AS INT) AS pts_bal in CP_CUSTOMERS_QUERY.");
+      note("No PTS_BAL / LOY_PTS / LOY_PTS_BAL — runtime mappings will send NULL points.");
     }
   }
 
@@ -4149,35 +4526,35 @@ async function runDiscover(pool) {
   if (usr) {
     if (usr.has("USR_GRP_ID")) {
       dline("SY_USR USR_GRP_ID", true);
-      note('Replace "CAST(NULL AS NVARCHAR(32)) AS usr_grp_id" with RTRIM(LTRIM(USR_GRP_ID)) AS usr_grp_id in CP_USERS_QUERY.');
+      note("Runtime mappings will use USR_GRP_ID for staff group when visible.");
     } else {
       dline("SY_USR USR_GRP_ID", false);
       note("Column absent — template NULL usr_grp_id is correct.");
     }
     if (!usr.has("EMAIL_ADRS")) {
       dline("SY_USR EMAIL_ADRS", false);
-      note("Use CAST(NULL AS NVARCHAR(255)) AS email_adrs in CP_USERS_QUERY if sync fails on email column.");
+      note("No email column detected; runtime mappings will send NULL email_adrs.");
     }
   }
 
   const rep = columnSet(entries, "PS_SLS_REP");
   if (rep?.has("COMMIS_METH")) {
     dline("PS_SLS_REP COMMIS_METH", true);
-    note("Optional: RTRIM(LTRIM(COMMIS_METH)) AS commis_meth instead of NULL in CP_SALES_REPS_QUERY.");
+    note("Optional COMMIS_METH is visible; runtime mappings currently use commission percent only.");
   }
 
   const tkt = columnSet(entries, "PS_TKT_HIST");
   if (tkt) {
     if (tkt.has("TOT_AMT_DUE") && tkt.has("TOT_EXTD_PRC")) {
       dline("PS_TKT_HIST amount paid", true);
-      note("Use (TOT_EXTD_PRC - TOT_AMT_DUE) AS amount_paid in CP_TICKETS_QUERY (replace duplicate TOT_EXTD_PRC AS amount_paid).");
+      note("Runtime mappings will calculate amount_paid from total minus amount due.");
     } else if (!tkt.has("TOT_AMT_DUE")) {
       dline("PS_TKT_HIST TOT_AMT_DUE", false);
       note("Absent — keep TOT_EXTD_PRC AS amount_paid (fully-paid assumption for closed tickets).");
     }
     if (!tkt.has("TOT_EXTD_PRC") && tkt.has("TOT")) {
       dline("PS_TKT_HIST totals", false);
-      note("TOT_EXTD_PRC missing — try TOT AS total_price and TOT AS amount_paid in CP_TICKETS_QUERY.");
+      note("TOT_EXTD_PRC missing — runtime mappings will use TOT when visible.");
     }
     if (tkt.has("DOC_TYP")) {
       dline("PS_TKT_HIST DOC_TYP", true);
@@ -4197,7 +4574,7 @@ async function runDiscover(pool) {
     const v = costCandidates.find((c) => vendItem.has(c));
     if (v) {
       dline("PO_VEND_ITEM vendor cost", true);
-      note(`Use ${v} AS vend_cost in CP_VEND_ITEM_QUERY (replace CAST(NULL...) AS vend_cost).`);
+      note(`Runtime mappings will use ${v} as vendor cost.`);
     } else {
       dline("PO_VEND_ITEM vendor cost", false);
       note("No common cost column name — leave NULL or pick a column in SSMS.");
@@ -4214,14 +4591,14 @@ async function runDiscover(pool) {
   }
 
   dline("Loyalty balance snapshot (AR_CUST pts_bal)", true);
-  note("Keep SYNC_LOYALTY_HIST=0 for cutover. Import current balances through CP_CUSTOMERS_QUERY as pts_bal.");
+  note("Historical loyalty remains disabled for cutover. Runtime customer mappings import current balances as pts_bal.");
 
   if (ticketCellOk) {
     dline("Ticket matrix cells (PS_TKT_HIST_*CELL)", true);
     if (visible.has("PS_TKT_HIST_LIN_CELL") && !visible.has("PS_TKT_HIST_CELL")) {
-      note("Use PS_TKT_HIST_LIN_CELL in CP_TICKET_CELLS_QUERY (v8-style); PS_TKT_HIST_CELL is absent.");
+      note("PS_TKT_HIST_LIN_CELL is available for ticket matrix detail.");
     } else if (visible.has("PS_TKT_HIST_CELL")) {
-      note("PS_TKT_HIST_CELL present — template column names apply when CP_TICKET_CELLS_QUERY is set.");
+      note("PS_TKT_HIST_CELL is available for ticket matrix detail.");
     }
   } else {
     dline("Ticket matrix cells (PS_TKT_HIST_*CELL)", false);
@@ -4229,7 +4606,7 @@ async function runDiscover(pool) {
   }
 
   emit("");
-  emit("  Edit .env as indicated, then run START_BRIDGE.cmd");
+  emit("  Review the runtime mapping notes above, then run START_BRIDGE.cmd");
   emit("");
 
   const reportPath = discoverReportPath();
@@ -4255,123 +4632,80 @@ function updateEnvKey(content, key, value) {
 
 async function runAutoConfig(pool) {
   console.info("Probing Counterpoint SQL Server database schemas...");
-  const entries = await loadSchemaEntries(pool);
-
-  const psDocHdr = columnSet(entries, "PS_DOC_HDR");
-  const psDocHdrTot = columnSet(entries, "PS_DOC_HDR_TOT");
-  const syGfc = columnSet(entries, "SY_GFC");
-  const arCust = columnSet(entries, "AR_CUST");
-  const imInv = columnSet(entries, "IM_INV");
-
-  const envPath = path.resolve(__dirname, ".env");
-  if (!fs.existsSync(envPath)) {
-    const examplePath = fs.existsSync(path.resolve(__dirname, ".env.example"))
-      ? path.resolve(__dirname, ".env.example")
-      : path.resolve(__dirname, "env.example");
-    if (fs.existsSync(examplePath)) {
-      fs.copyFileSync(examplePath, envPath);
-      console.info("Created .env from template.");
-    } else {
-      fs.writeFileSync(envPath, "");
-      console.info("Created empty .env file.");
-    }
-  }
-
-  let envContent = fs.readFileSync(envPath, "utf8");
-  const changes = [];
-
-  // 1. Open documents DOC_ID vs DOC_NO
-  let docIdCol = "DOC_ID";
-  if (psDocHdr && !psDocHdr.has("DOC_ID") && psDocHdr.has("DOC_NO")) {
-    docIdCol = "DOC_NO";
-    changes.push("PS_DOC_HDR: DOC_ID -> DOC_NO");
-  }
-  let tktDtCol = "TKT_DT";
-  if (psDocHdr && !psDocHdr.has("TKT_DT") && psDocHdr.has("DOC_DT")) {
-    tktDtCol = "DOC_DT";
-    changes.push("PS_DOC_HDR: TKT_DT -> DOC_DT");
-  }
-  let hasTotTable = !!psDocHdrTot;
-  if (!hasTotTable) {
-    changes.push("PS_DOC_HDR: bypassed PS_DOC_HDR_TOT join (table missing)");
-  }
-
-  let openDocsQuery = "";
-  if (hasTotTable) {
-    openDocsQuery = `CP_OPEN_DOCS_QUERY=SELECT RTRIM(LTRIM(CAST(h.[${docIdCol}] AS NVARCHAR(64)))) AS doc_ref, RTRIM(LTRIM(CAST(h.[CUST_NO] AS NVARCHAR(64)))) AS cust_no, CONVERT(varchar, h.[${tktDtCol}], 126) + 'Z' AS booked_at, RTRIM(LTRIM(CAST(h.[USR_ID] AS NVARCHAR(64)))) AS usr_id, RTRIM(LTRIM(CAST(h.[SLS_REP] AS NVARCHAR(64)))) AS sls_rep, RTRIM(LTRIM(h.[DOC_TYP])) AS doc_typ, t.[TOT] AS total_price, t.[TOT_TND] AS amount_paid FROM PS_DOC_HDR h INNER JOIN PS_DOC_HDR_TOT t ON h.[${docIdCol}] = t.[${docIdCol}] WHERE h.[${tktDtCol}] >= '__CP_IMPORT_SINCE__'`;
-  } else {
-    openDocsQuery = `CP_OPEN_DOCS_QUERY=SELECT RTRIM(LTRIM(CAST(h.[${docIdCol}] AS NVARCHAR(64)))) AS doc_ref, RTRIM(LTRIM(CAST(h.[CUST_NO] AS NVARCHAR(64)))) AS cust_no, CONVERT(varchar, h.[${tktDtCol}], 126) + 'Z' AS booked_at, RTRIM(LTRIM(CAST(h.[USR_ID] AS NVARCHAR(64)))) AS usr_id, RTRIM(LTRIM(CAST(h.[SLS_REP] AS NVARCHAR(64)))) AS sls_rep, RTRIM(LTRIM(h.[DOC_TYP])) AS doc_typ, h.[TOT] AS total_price, h.[TOT_TND] AS amount_paid FROM PS_DOC_HDR h WHERE h.[${tktDtCol}] >= '__CP_IMPORT_SINCE__'`;
-  }
-  let openDocLinesQuery = `CP_OPEN_DOC_LINES_QUERY=SELECT RTRIM(LTRIM(CAST(l.${docIdCol} AS NVARCHAR(64)))) AS doc_id, RTRIM(LTRIM(ISNULL(l.BARCOD, l.ITEM_NO))) AS sku, l.QTY_SOLD AS quantity, l.PRC AS unit_price, l.UNIT_COST AS unit_cost, l.LIN_SEQ_NO AS lin_seq_no FROM PS_DOC_LIN l`;
-  let openDocPmtQuery = `CP_OPEN_DOC_PMT_QUERY=SELECT RTRIM(LTRIM(CAST(p.${docIdCol} AS NVARCHAR(64)))) AS doc_id, RTRIM(LTRIM(p.PAY_COD)) AS pmt_typ, p.AMT AS amount FROM PS_DOC_PMT p`;
-
-  envContent = updateEnvKey(envContent, "CP_OPEN_DOCS_QUERY", openDocsQuery.replace("CP_OPEN_DOCS_QUERY=", ""));
-  envContent = updateEnvKey(envContent, "CP_OPEN_DOC_LINES_QUERY", openDocLinesQuery.replace("CP_OPEN_DOC_LINES_QUERY=", ""));
-  envContent = updateEnvKey(envContent, "CP_OPEN_DOC_PMT_QUERY", openDocPmtQuery.replace("CP_OPEN_DOC_PMT_QUERY=", ""));
-
-  // 2. Gift cards
-  let reasonCol = null;
-  if (syGfc) {
-    if (syGfc.has("REAS_COD")) {
-      reasonCol = "REAS_COD";
-      changes.push("SY_GFC: reason_cod -> REAS_COD");
-    } else if (syGfc.has("REASON_COD")) {
-      reasonCol = "REASON_COD";
-      changes.push("SY_GFC: reason_cod -> REASON_COD");
-    }
-  }
-  let giftCardsQuery = "";
-  if (reasonCol) {
-    giftCardsQuery = `SELECT RTRIM(LTRIM(GFC_NO)) AS gift_cert_no, CAST(ISNULL(CURR_AMT, 0) AS DECIMAL(18,2)) AS balance, RTRIM(LTRIM(${reasonCol})) AS reason_cod FROM SY_GFC WHERE ISNULL(CURR_AMT, 0) > 0`;
-  } else {
-    giftCardsQuery = `SELECT RTRIM(LTRIM(GFC_NO)) AS gift_cert_no, CAST(ISNULL(CURR_AMT, 0) AS DECIMAL(18,2)) AS balance FROM SY_GFC WHERE ISNULL(CURR_AMT, 0) > 0`;
-  }
-  envContent = updateEnvKey(envContent, "CP_GIFT_CARDS_QUERY", giftCardsQuery);
-
-  // 3. Cost column
-  let costCol = "LST_COST";
-  if (imInv) {
-    for (const c of ["LST_COST", "AVG_COST", "LAST_COST"]) {
-      if (imInv.has(c)) {
-        costCol = c;
-        break;
-      }
-    }
-  }
-  if (costCol !== "LST_COST") {
-    changes.push(`IM_INV: cost_price -> ${costCol}`);
-  }
-  let catalogQuery = `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS item_no, RTRIM(LTRIM(i.ITEM_NO)) AS product_identity, RTRIM(LTRIM(ISNULL(b.BARCOD, i.ITEM_NO))) AS sku, RTRIM(LTRIM(i.DESCR)) AS descr, RTRIM(LTRIM(i.CATEG_COD)) AS category_name, CAST(ISNULL(i.${costCol}, 0) AS DECIMAL(18,2)) AS cost_price, RTRIM(LTRIM(i.ITEM_VEND_NO)) AS vendor_code, CAST(ISNULL(i.PRC_1, 0) AS DECIMAL(18,2)) AS retail_price, (CASE WHEN ISNULL(i.DIM_COUNT, 0) > 0 THEN 1 ELSE 0 END) AS is_grid FROM IM_ITEM i LEFT JOIN IM_BARCOD b ON i.ITEM_NO = b.ITEM_NO AND b.BARCOD_ID = 'ITEM'`;
-  envContent = updateEnvKey(envContent, "CP_CATALOG_QUERY", catalogQuery);
-
-  // 4. Points column
-  let ptsCol = "LOY_PTS_BAL";
-  if (arCust) {
-    for (const c of ["LOY_PTS_BAL", "PTS_BAL", "LOY_PTS"]) {
-      if (arCust.has(c)) {
-        ptsCol = c;
-        break;
-      }
-    }
-  }
-  if (ptsCol !== "LOY_PTS_BAL") {
-    changes.push(`AR_CUST: pts_bal -> ${ptsCol}`);
-  }
-  let customersQuery = `SELECT RTRIM(LTRIM(c.CUST_NO)) AS customer_code, RTRIM(LTRIM(c.FST_NAM)) AS first_name, RTRIM(LTRIM(c.LST_NAM)) AS last_name, RTRIM(LTRIM(c.NAM)) AS company_name, c.${ptsCol} AS pts_bal, RTRIM(LTRIM(c.EMAIL_ADRS_1)) AS email, RTRIM(LTRIM(c.PHONE_1)) AS phone, RTRIM(LTRIM(c.ADRS_1)) AS address_1, RTRIM(LTRIM(c.CITY)) AS city, RTRIM(LTRIM(c.STATE)) AS state, RTRIM(LTRIM(c.ZIP_COD)) AS zip FROM AR_CUST c ORDER BY c.CUST_NO`;
-  envContent = updateEnvKey(envContent, "CP_CUSTOMERS_QUERY", customersQuery);
-
-  fs.writeFileSync(envPath, envContent, "utf8");
+  await rebuildEffectiveSql(pool);
+  const changes = lastAutoConfigChanges;
   console.info("\n══════════════════════════════════════════════════════════════════════");
-  console.info("  Auto-config successfully updated .env file with optimal SQL queries.");
+  console.info("  Auto-config generated runtime SQL mappings from the live schema.");
   if (changes.length > 0) {
-    console.info("  Changes applied:");
+    console.info("  Runtime mappings:");
     for (const change of changes) {
       console.info(`    - ${change}`);
     }
   } else {
-    console.info("  Standard schema verified. No special fallback columns were required.");
+    console.info("  No supported Counterpoint tables were visible to this SQL login.");
   }
   console.info("══════════════════════════════════════════════════════════════════════\n");
+  return changes;
+}
+
+async function runSqlSmoke(pool) {
+  console.info("Probing Counterpoint SQL Server runtime SQL mappings...");
+  await rebuildEffectiveSql(pool);
+  validateCounterpointSyncDependencyPlan();
+
+  const checks = [
+    ["staff.users", "users"],
+    ["staff.sales_reps", "sales_reps"],
+    ["staff.buyers", "buyers"],
+    ["vendors", SYNC_VENDORS_FILTERED ? "vendors_filtered" : "vendors_fast_simple"],
+    ["customers", "customers"],
+    ["store_credit_opening", "store_credit"],
+    ["customer_notes", "customer_notes"],
+    ["category_masters", "category_masters"],
+    ["catalog", "catalog"],
+    ["catalog_cells", "catalog_cells"],
+    ["inventory", "inventory"],
+    ["vendor_items", "vend_item"],
+    ["gift_cards", "gift_cards"],
+    ["tickets", "tickets"],
+    ["ticket_lines", "ticket_lines"],
+    ["ticket_payments", "ticket_payments"],
+    ["ticket_notes", "ticket_notes"],
+    ["open_docs", "open_docs"],
+    ["open_doc_lines", "open_doc_lines"],
+    ["open_doc_payments", "open_doc_pmt"],
+    ["receiving_history", "receiving_history"],
+  ];
+
+  const failures = [];
+  for (const [label, key] of checks) {
+    const q = String(effectiveSql[key] ?? "").trim();
+    if (!q) {
+      console.info(`[sql-smoke] ${label}: skipped (runtime mapping unavailable)`);
+      continue;
+    }
+    try {
+      const result = await pool.request().query(`SET ROWCOUNT 1;\n${q};\nSET ROWCOUNT 0;`);
+      const rowCount = result.recordset?.length ?? 0;
+      const columns = result.recordset?.columns ? Object.keys(result.recordset.columns).length : 0;
+      console.info(
+        `[sql-smoke] ${label}: ok (${rowCount > 0 ? "row visible" : "empty"}, ${columns} column${columns === 1 ? "" : "s"})`,
+      );
+    } catch (e) {
+      try {
+        await pool.request().query("SET ROWCOUNT 0;");
+      } catch {
+        // Keep the original SQL error as the actionable failure.
+      }
+      failures.push({ label, message: e?.message ?? String(e) });
+      console.error(`[sql-smoke] ${label}: failed - ${e?.message ?? e}`);
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`${failures.length} runtime SQL mapping(s) failed smoke validation.`);
+  }
+  console.info("[sql-smoke] all available runtime SQL mappings compiled successfully.");
 }
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
@@ -4480,6 +4814,25 @@ async function main() {
   }
   if (LIGHTSPEED_REFERENCE_MODE) {
     await runLightspeedReferenceCommand();
+    process.exit(0);
+  }
+
+  if (SQL_SMOKE_MODE) {
+    if (!CONN.trim()) {
+      console.error("Set SQL_CONNECTION_STRING in .env");
+      process.exit(1);
+    }
+    const pool = createSqlPool();
+    pool.on("error", (err) => console.error("SQL pool error", err));
+    try {
+      await pool.connect();
+      await runSqlSmoke(pool);
+    } catch (e) {
+      console.error("[sql-smoke] failed:", e?.message ?? e);
+      process.exit(1);
+    } finally {
+      await pool.close();
+    }
     process.exit(0);
   }
 

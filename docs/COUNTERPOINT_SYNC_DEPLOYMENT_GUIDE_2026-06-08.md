@@ -2,7 +2,7 @@
 
 Verified current for Riverside OS **v0.90.0**, release build **f3c261d**, on **2026-06-08**.
 
-This guide is the current deployment runbook for moving data from the Windows PC that runs **NCR Counterpoint v8.2 / SQL Server** into the **Riverside OS Main Hub PC**. It covers both machines, the bridge setup, the import order, validation, and cutover retirement.
+This guide is the current deployment runbook for moving data from the Windows PC that runs **Counterpoint on SQL Server** into the **Riverside OS Main Hub PC**. It covers both machines, the bridge setup, the import order, validation, and cutover retirement.
 
 ## Current Verified Baseline
 
@@ -11,8 +11,7 @@ Use this guide with:
 - Riverside OS release: **v0.90.0 — latest build f3c261d**
 - GitHub release target: `f3c261d6a72b1d93f5adbe8a7ad8fc3a0d675a24`
 - Counterpoint bridge version in `counterpoint-bridge/index.mjs`: **0.7.3**
-- Bridge default historical floor: `CP_IMPORT_SINCE=2018-01-01`
-- Bridge default run posture: `RUN_ONCE=1`
+- Bridge default posture: one full import pass, then exit
 - Main Hub API port: **3000**
 - Bridge local dashboard/API port on the Counterpoint PC: **3002**
 
@@ -37,7 +36,7 @@ The sync is **one way only**: Counterpoint -> Riverside OS. Riverside OS never w
 
 ## What Gets Moved Into ROS
 
-The bridge can move the following domains. The active scope is controlled by `SYNC_*` flags in the bridge `.env`.
+The bridge can move the following domains. The active scope is generated from the live NCR Counterpoint POS v8.4 SQL schema; normal `.env` setup stays connection-only.
 
 | Domain | Counterpoint source | ROS result |
 | --- | --- | --- |
@@ -236,13 +235,9 @@ Minimum required values:
 ROS_BASE_URL=http://<MAIN_HUB_LAN_IP>:3000
 COUNTERPOINT_SYNC_TOKEN=<same-token-saved-in-ROS>
 SQL_CONNECTION_STRING=Server=<SQL_HOST>\<INSTANCE>;Database=<COUNTERPOINT_COMPANY_DB>;User Id=<read_user>;Password=<password>;Encrypt=true;TrustServerCertificate=true
-RUN_ONCE=1
-WAIT_AFTER_RUN_ONCE=1
-CP_IMPORT_SINCE=2018-01-01
-BATCH_SIZE=200
-BRIDGE_CONTROL_HOST=127.0.0.1
-BRIDGE_CONTROL_PORT=3002
 ```
+
+Normal setup keeps `.env` to these three lines. The bridge defaults to one run and builds v8.4 SQL mappings from the live Counterpoint schema.
 
 For large databases, keep or increase:
 
@@ -274,7 +269,13 @@ If discovery shows schema differences, use:
 node index.mjs auto-config
 ```
 
-Then review `.env` again before running import.
+Then run a read-only compile smoke of every available runtime mapping:
+
+```cmd
+node index.mjs sql-smoke
+```
+
+Normal setup does not write generated SQL into `.env`.
 
 ### 5. Use Dry Run Before Real Import
 
@@ -288,41 +289,29 @@ Dry Run queries Counterpoint and prints payload summaries without modifying ROS.
 
 ## Recommended `.env` Scope for Full Go-Live Import
 
-Use this general posture unless the owner explicitly approves a narrower rehearsal:
+Normal bridge setup keeps `.env` to connection settings only:
 
 ```env
-RUN_ONCE=1
-CP_IMPORT_SINCE=2018-01-01
-SYNC_STAFF=1
-SYNC_VENDORS=1
-SYNC_CUSTOMERS=1
-SYNC_STORE_CREDIT_OPENING=1
-SYNC_CUSTOMER_NOTES=1
-SYNC_CATEGORY_MASTERS=1
-SYNC_CATALOG=1
-SYNC_INVENTORY=1
-SYNC_VENDOR_ITEMS=1
-SYNC_GIFT_CARDS=1
-SYNC_TICKETS=1
-SYNC_TICKET_NOTES=1
-SYNC_OPEN_DOCS=1
-SYNC_RECEIVING_HISTORY=1
-SYNC_LOYALTY_HIST=0
+ROS_BASE_URL=http://<MAIN_HUB_LAN_IP>:3000
+COUNTERPOINT_SYNC_TOKEN=<matching ROS token>
+SQL_CONNECTION_STRING=<Counterpoint company database connection>
 ```
+
+The bridge is built for Riverside's NCR Counterpoint POS v8.4 environment and generates the extraction SQL at runtime from `INFORMATION_SCHEMA`. The default runtime posture imports the full supported go-live set when the corresponding Counterpoint tables are visible: staff/sales reps, vendors/vendor items, customers/notes/current loyalty balance, category/catalog/matrix/inventory, gift cards/store credit, closed ticket history/payments/notes, open documents, and receiving history.
 
 Important:
 
-- Keep `SYNC_LOYALTY_HIST=0` for go-live. Current balances come from customers as `pts_bal`.
-- Leave `CP_TICKET_GIFT_QUERY=` empty unless you have proven gift tenders are not already represented in ticket payments.
-- Leave historical gift card activity disabled for cutover unless specifically approved. Current card balances are the cutover source.
-- If a required table does not exist in the local Counterpoint database, set that entity flag to `0` and document the excluded domain.
+- Keep the normal `.env` connection-only. Do not paste `CP_*_QUERY` SQL into `.env` unless an expert override is explicitly approved.
+- Current loyalty balances come from `AR_CUST`; historical loyalty replay remains disabled for go-live.
+- Historical gift-card activity remains disabled for cutover. Current card balances are the cutover source.
+- If an optional module table is absent, the runtime mapper skips that entity and the cutover record should document the excluded domain.
 
 ## Fixed Import Order
 
 The bridge always runs entities in this order:
 
 1. Staff
-2. Sales rep stubs when `CP_SALES_REPS_QUERY` is empty
+2. Sales rep stubs when the live sales-rep table is absent or incomplete
 3. Vendors
 4. Customers
 5. Store credit opening
@@ -336,7 +325,7 @@ The bridge always runs entities in this order:
 13. Open docs
 14. Receiving history
 
-Do not try to reorder `.env` lines. The bridge validates unsafe combinations and exits with `[sync-plan]` errors unless `SYNC_RELAXED_DEPENDENCIES=1`. Do not use relaxed dependencies for final cutover.
+Do not try to control import behavior by reordering `.env` lines. The bridge uses a fixed, dependency-safe import order.
 
 ## Preflight Checklist
 
@@ -358,12 +347,9 @@ Complete this before each rehearsal or final run.
 - SQL Server is reachable.
 - SQL login points to the Counterpoint company database.
 - `DISCOVER_SCHEMA.cmd` has been run.
-- `.env` reflects the real Counterpoint schema.
+- GUI Auto Config or `node index.mjs auto-config` confirms runtime mappings for the real Counterpoint schema.
 - `ROS_BASE_URL` points to the Main Hub API, not PostgreSQL.
 - `COUNTERPOINT_SYNC_TOKEN` matches ROS exactly.
-- `RUN_ONCE=1`.
-- `CP_IMPORT_SINCE=2018-01-01`, unless this is a documented narrower test.
-- Enabled `SYNC_*` flags match the intended import scope.
 - Dry Run has completed without SQL/table/column errors.
 
 ## Running the Import
@@ -393,7 +379,7 @@ or:
 node index.mjs
 ```
 
-With `RUN_ONCE=1`, the bridge runs one full pass through enabled entities and stops. Run the command again only after you have reviewed the previous result.
+The bridge runs one full pass through runtime-mapped entities and stops. Run the command again only after you have reviewed the previous result.
 
 ## Monitoring During Import
 
@@ -532,7 +518,7 @@ Confirm SQL Server is reachable, the company database name is correct, and large
 
 ### `Invalid object name`
 
-The SQL login cannot see the table, the database is wrong, or the table uses a different schema/name. Run `DISCOVER_SCHEMA.cmd`, then fix the corresponding `CP_*_QUERY`.
+The SQL login cannot see the table, the database is wrong, or the table uses a different schema/name. Run `DISCOVER_SCHEMA.cmd` or the GUI Auto Config action and verify the bridge reports runtime mappings for the expected Counterpoint objects.
 
 ### `Invalid column name`
 
@@ -542,11 +528,11 @@ The local Counterpoint schema differs from the template. Use SSMS:
 SELECT TOP 1 * FROM <table>;
 ```
 
-Then update the matching `CP_*_QUERY` or run `node index.mjs auto-config`.
+Then run the GUI Auto Config action or `node index.mjs auto-config` so the bridge rebuilds runtime mappings from the live schema. Only use `CP_SQL_ENV_OVERRIDES=1` and manual `CP_*_QUERY` entries as an expert fallback.
 
 ### Inventory updates skip rows
 
-Catalog must run first. Inventory only updates variants that exist by SKU or `counterpoint_item_key`. Also confirm `CP_INVENTORY_LOC_ID` / `LOC_ID` matches the real store location.
+Catalog must run first. Inventory only updates variants that exist by SKU or `counterpoint_item_key`. Also confirm the runtime inventory location matches the real store location.
 
 ### Bridge dashboard port already in use
 
@@ -571,7 +557,7 @@ This document was checked against current repo state on **2026-06-08**:
 - `git rev-parse HEAD`: `f3c261d6a72b1d93f5adbe8a7ad8fc3a0d675a24`
 - GitHub release `v0.90.0`: targets `f3c261d6a72b1d93f5adbe8a7ad8fc3a0d675a24`, not draft, not prerelease
 - `counterpoint-bridge/index.mjs`: bridge version `0.7.3`
-- `counterpoint-bridge/.env.example`: verified current `RUN_ONCE`, `SYNC_*`, SQL template, open-doc, store-credit, gift-card, ticket, inventory, and receiving-history flags
+- `counterpoint-bridge/.env.example`: verified current three-value connection template and runtime schema-mapping posture
 - `server/src/api/counterpoint_sync.rs`: verified current machine API and Settings API route names
 - `deployment/windows/Start-RiversideDeployment.ps1`: verified deployment token generation path
 - `deployment/windows/Set-CounterpointBridgeToken.cmd` and `set-counterpoint-bridge-token.ps1`: verified token repair/update path

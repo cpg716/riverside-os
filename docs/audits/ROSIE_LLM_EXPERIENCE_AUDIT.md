@@ -41,7 +41,7 @@ Core governance, architecture, and planning:
 - `docs/PLAN_LOCAL_LLM_HELP.md`
 - `docs/PLAN_PO_INVOICE_AI_IMPORT.md`
 - `docs/ROS_AI_HELP_CORPUS.md`
-- `docs/reviews/ROSIE_AI_AUDIT_2026_05.md`
+- `docs/reviews/legacy/2026-05/ROSIE_AI_AUDIT_2026_05.md`
 - `docs/reviews/ONLINE_STORE_ROSIE_AI_AUDIT_2026.md`
 - `docs/api-audit/rosie-ai.md`
 

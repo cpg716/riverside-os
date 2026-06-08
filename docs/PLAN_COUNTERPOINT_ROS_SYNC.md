@@ -1,4 +1,4 @@
-# Counterpoint v8.2 → Riverside OS (unified data map + Settings console)
+# Counterpoint SQL Server → Riverside OS (unified data map + Settings console)
 
 **Role:** Implementation roadmap for NCR Counterpoint SQL → ROS PostgreSQL ingest, Windows bridge, and Back Office Settings monitoring.  
 **Companion:** [counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt), [counterpoint-bridge/README.md](../counterpoint-bridge/README.md).  
@@ -211,4 +211,4 @@ flowchart TB
 - Loyalty: cutover snapshot vs ongoing `PTS_BAL`; interaction with imported tickets.
 - Live `REASON_COD` values for gift certs → `gift_card_kind`.
 - Category / tax defaults for auto-created products.
-- Ticket uniqueness: `TKT_NO` vs composite with `BUS_DAT` / `STR_ID` in v8.2.
+- Ticket uniqueness: `TKT_NO` vs composite with `BUS_DAT` / `STR_ID` varies by Counterpoint schema.

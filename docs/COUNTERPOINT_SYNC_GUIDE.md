@@ -1,13 +1,13 @@
-# Counterpoint v8.2 → Riverside OS: Sync Guide
+# Counterpoint SQL Server → Riverside OS: Sync Guide
 
-End-to-end reference for setting up and operating the one-way data ingest from **NCR Counterpoint v8.2 SQL Server** into **ROS PostgreSQL**. Covers server configuration, Windows bridge installation, entity mapping, monitoring via Settings UI, and provenance tagging.
+End-to-end reference for setting up and operating the one-way data ingest from **Counterpoint SQL Server** into **ROS PostgreSQL**. Covers server configuration, Windows bridge installation, entity mapping, monitoring via Settings UI, and provenance tagging.
 
 **Companion docs:**
 - [`COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md`](COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) — **operator manual**: direct vs staging, hub, prerequisites, bridge/API updates, troubleshooting
 - [`WEDDING_COUNTERPOINT_CUTOVER_LINKING.md`](WEDDING_COUNTERPOINT_CUTOVER_LINKING.md) — how imported wedding parties are reviewed and linked to Counterpoint-synced customers, transactions, and item lifecycle states
 - [`PLAN_COUNTERPOINT_ROS_SYNC.md`](PLAN_COUNTERPOINT_ROS_SYNC.md) — implementation roadmap and schema mapping tables
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
-- [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — full `.env` reference with example SQL
+- [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — three-value connection template
 
 **Guided Migration Pipeline:**
 The Counterpoint Sync and Migration Inventory Workbench have been consolidated into a single **8-step guided pipeline** in **Settings → Integrations → Counterpoint**. This unified workflow enforces a logical sequence of data preparation, cleaning, verification, and live import:
@@ -21,7 +21,7 @@ The Counterpoint Sync and Migration Inventory Workbench have been consolidated i
 7. **Step 7: Loyalty History** - Verify and load loyalty balances
 8. **Step 8: Audit & Live Cutover** - Landing verification, checksums, final Go-Live sign-off
 
-**Optional SQL objects:** Gift and loyalty tables (Standard: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are **NCR Counterpoint** names from product/schema docs — Riverside did not invent them. However, many v8.2 installations (including yours) use custom naming: **`SY_GFC`** (Gift Cards) and **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
+**Optional SQL objects:** Gift and loyalty tables (Standard examples: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are Counterpoint-style names from product/schema docs. Local installations can use different names such as **`SY_GFC`** (Gift Cards) or **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 
 **Migrations:** 29 (base `counterpoint_item_key` + `counterpoint_sync_runs`), 84 (heartbeat, ticket idempotency, sync requests/issues, mapping tables), 85 (provenance: `customer_created_source = 'counterpoint'`, `products.data_source`), 86 (staff sync: `counterpoint_staff_map`, `staff.data_source` / `counterpoint_user_id` / `counterpoint_sls_rep`, `customers.preferred_salesperson_id`, `transactions.processed_by_staff_id`), 89 (`vendor_supplier_item` for `PO_VEND_ITEM`, idempotent `loyalty_point_ledger` index for `PS_LOY_PTS_HIST` imports), 95 (`counterpoint_staging_batch` + `store_settings.counterpoint_config` for optional **staging** ingest controlled in Back Office).
 
@@ -131,24 +131,23 @@ Key fields:
 - `COUNTERPOINT_SYNC_TOKEN` — must **exactly match** the token saved in **Settings → Integrations → Counterpoint**
 - `SQL_CONNECTION_STRING` — standard `mssql` connection string; `Database=` must be the Counterpoint **company** database (same one you connect to in SSMS)
 
-### 3c. Enable entities
+### 3c. Confirm Runtime Mappings
 
-Each data entity has a flag. Enable what you need. **Recommended enable order:** **staff** → vendors → customers → customer_notes → catalog → inventory → gift_cards → tickets (staff **must** sync first so customer/ticket attribution resolves).
+Normal setup does not add entity SQL or entity flags to `.env`. The bridge probes the NCR Counterpoint POS v8.4 company database and generates runtime mappings for the tables and columns that are actually visible.
 
-| Flag | Entity | Default | CP Table(s) |
-|------|--------|---------|-------------|
-| `SYNC_STAFF=1` | Users, sales reps, buyers → ROS staff | Disabled | `SY_USR`, `PS_SLS_REP`, `PO_BUYER` |
-| `SYNC_VENDORS=1` | Vendor/supplier profiles | Disabled | `AP_VEND` |
-| `SYNC_CUSTOMERS=1` | Customer profiles + loyalty + type + preferred rep | Enabled | `AR_CUST` |
-| `SYNC_CUSTOMER_NOTES=1` | Customer timeline memos | Disabled | `AR_CUST_NOTE` |
-| `SYNC_INVENTORY=1` | Stock quantities for existing variants | Disabled | `IM_INV` |
-| `SYNC_CATALOG=1` | Products + matrix variants (creates items in ROS) | Disabled | `IM_ITEM`, `IM_INV_CELL`, `IM_PRC`, `IM_BARCOD` |
-| `SYNC_GIFT_CARDS=1` | Gift certificate current balance snapshots | Disabled | `SY_GFT_CERT` (Standard) or `SY_GFC` (Custom) |
-| `SYNC_TICKETS=1` | Historical sales tickets → Transaction Records | Disabled | `PS_TKT_HIST`, `PS_TKT_HIST_LIN`, `PS_TKT_HIST_PMT` |
-| `SYNC_RECEIVING_HISTORY=1` | Historical cost/receiving logs (2018+) | Disabled | `PO_RECVR_HIST` |
-| `SYNC_TICKET_PAYMENTS=1` | Historical payment method details | Disabled | `PS_TKT_HIST_PMT` |
-| `SYNC_TICKET_GIFT_REDEEM=1` | Historical gift card tender visibility only; does not mutate current card balances | Disabled | `PS_TKT_HIST_GFT` |
-| `SYNC_STORE_CREDIT_OPENING=1` | Current Store Credit balances | Disabled | `SY_STC` |
+| Entity | Runtime source family |
+|--------|-----------------------|
+| Staff, sales reps, buyers | `SY_USR`, `PS_SLS_REP`, `PO_BUYER` when visible |
+| Vendor profiles and item links | `PO_VEND`, `PO_VEND_ITEM` |
+| Customers, loyalty balances, notes, store credit | `AR_CUST`, `AR_CUST_NOTE`, visible store-credit source |
+| Catalog, matrix variants, barcodes, prices, costs | `IM_ITEM`, `IM_INV`, `IM_INV_CELL`, `IM_PRC`, `IM_BARCOD` when visible |
+| Inventory quantities | `IM_INV` plus matrix cell quantity sources when visible |
+| Gift-card current balances | `SY_GFT_CERT` or supported local gift-card master |
+| Historical tickets, lines, payments, notes | `PS_TKT_HIST`, `PS_TKT_HIST_LIN`, `PS_TKT_HIST_PMT`, note tables when visible |
+| Open Counterpoint docs | `PS_DOC_*` family when visible |
+| Receiving history | `PO_RECVR_HIST` family when visible |
+
+Use the GUI Auto Config action or `node index.mjs auto-config` after `SQL_CONNECTION_STRING` is set. Legacy `CP_*_QUERY` entries are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
 
 ### 3d. Start
 
@@ -223,9 +222,9 @@ Imported staff have **no PIN** (`pin_hash = NULL`) and cannot log in to the Back
 
 **Provenance & Lifetime Value:** New customers created by this sync get `customer_created_source = 'counterpoint'`. Riverside OS does **not** use a static `lifetime_sales` column from Counterpoint. It derives spend from imported ticket history that actually lands in ROS.
 
-**Current bridge default:** the shipped bridge code and `.env.example` now default **`CP_IMPORT_SINCE`** to **`2018-01-01`**. This is the accepted historical floor for the Counterpoint migration and should remain visible in bridge preflight unless you are intentionally running a narrower rehearsal.
-**Open Documents:** Unlike historical tickets, the shipped `CP_OPEN_DOCS_QUERY`, `CP_OPEN_DOC_LINES_QUERY`, and `CP_OPEN_DOC_PMT_QUERY` remove date filters so the full active backlog (Layaways, Quotes, Special Orders) is captured regardless of creation date.
-`CP_CUSTOMERS_QUERY` in the shipped bridge now selects the full **`AR_CUST`** base, not just ticket-active customers, so ROS preserves customer identity, loyalty balances, and ownership for open documents from the same migration pass. If you intentionally narrow the customer query for rehearsal work, treat that as a scope change and verify the impact on loyalty, store credit, and open-doc customer linking before sign-off.
+**Current bridge default:** the supported bridge setup keeps `.env` to `ROS_BASE_URL`, `COUNTERPOINT_SYNC_TOKEN`, and `SQL_CONNECTION_STRING`. For Riverside's NCR Counterpoint POS v8.4 environment, the bridge probes `INFORMATION_SCHEMA` and builds runtime extraction SQL for the live company database.
+**Open Documents:** Runtime mappings for open documents pull the active backlog (Layaways, Quotes, Special Orders) when the `PS_DOC*` tables are visible.
+Customer sync maps the full **`AR_CUST`** base, not just ticket-active customers, so ROS preserves customer identity, loyalty balances, store credit ownership, and open-doc ownership from the same migration pass. If an expert override narrows the customer query for rehearsal work, treat that as a scope change and verify the impact on loyalty, store credit, and open-doc customer linking before sign-off.
 
 ### 4b-2. Customer Notes
 
@@ -244,20 +243,20 @@ Idempotent: notes with the same `[CP:NOTE_ID]` prefix for a customer are skipped
 
 ### 4b-3. Loyalty current balance and optional history
 
-**Current cutover scope:** loyalty imports as a current point-balance snapshot on `customers.loyalty_points`. Ensure `CP_CUSTOMERS_QUERY` selects the Counterpoint current points column (`PTS_BAL`, `LOY_PTS_BAL`, or the local equivalent) as `pts_bal`.
+**Current cutover scope:** loyalty imports as a current point-balance snapshot on `customers.loyalty_points`. The runtime mapper selects the live Counterpoint current points column (`LOY_PTS_BAL`, `PTS_BAL`, or `LOY_PTS`) as `pts_bal` when present.
 
-**Historical loyalty activity is not imported for cutover.** Keep `SYNC_LOYALTY_HIST=0` unless a separate historical replay is explicitly requested later.
+**Historical loyalty activity is not imported for cutover.** Keep this disabled unless a separate historical replay is explicitly requested later.
 
 **Cutover proof:** After customer sync posts `AR_CUST` rows, the bridge sends the Counterpoint source customer count and current point sum to ROS. **Landing Verification** compares those source values to Counterpoint-created ROS customer count and `customers.loyalty_points` sum and shows pass/fail.
 
 **Optional history target:** `loyalty_point_ledger` (`reason = 'cp_loy_pts_hist'`, dedupe `metadata.cp_ref`).
 
-**Order if explicitly enabled later:** Runs **after** customer sync so `customers.loyalty_points` reflects Counterpoint’s current balance (`LOY_PTS_BAL` / `PTS_BAL` on `AR_CUST`). Only history rows on or after **`CP_IMPORT_SINCE`** are sent (`CP_LOYALTY_HIST_QUERY`).
+**Order if explicitly enabled later:** Runs **after** customer sync so `customers.loyalty_points` reflects Counterpoint’s current balance (`LOY_PTS_BAL` / `PTS_BAL` on `AR_CUST`). Historical loyalty replay is not part of the normal v8.4 go-live bridge path.
 
 **Opening balance:** For a customer with **no** prior ledger rows, the first imported delta uses  
 `previous_balance = loyalty_points − Σ(earned − redeemed)` over **that batch’s** rows for the same `cust_no`, so the chain ends at the same total as `AR_CUST`. If Counterpoint data is inconsistent (sum of deltas exceeds current balance), the server clamps the opening to **0** and logs a warning.
 
-**Who gets ledger rows:** Only customers already imported by **`CP_CUSTOMERS_QUERY`** (ticket/note in-range, plus optional store-credit `EXISTS`). There is **no** loyalty-based widening of the customer list.
+**Who gets ledger rows:** Only customers already imported from **`AR_CUST`**. There is **no** loyalty-based widening of the customer list.
 
 ### 4c. Inventory (stock update only)
 
@@ -267,7 +266,7 @@ Idempotent: notes with the same `[CP:NOTE_ID]` prefix for a customer are skipped
 
 Updates `stock_on_hand` and optionally `cost_override`. This is a lightweight sync for stores that maintain Counterpoint as the stock-of-record and only need ROS to reflect current quantities.
 
-Default **`CP_INVENTORY_QUERY`** pulls **MAIN** `IM_INV` rows and MAIN `IM_INV_CELL` rows, including zero-on-hand rows when Counterpoint has an inventory row for that item or cell. Matrix stock often lives in `IM_INV_CELL`.
+Default runtime inventory mapping pulls `IM_INV` rows and `IM_INV_CELL` rows for the configured location (`MAIN` unless overridden in expert mode), including zero-on-hand rows when Counterpoint has an inventory row for that item or cell. Matrix stock often lives in `IM_INV_CELL`.
 
 ### 4c-2. Vendors
 
@@ -307,7 +306,7 @@ Default **`CP_INVENTORY_QUERY`** pulls **MAIN** `IM_INV` rows and MAIN `IM_INV_C
 
 **Provenance:** Products created by this sync get `data_source = 'counterpoint'` (migration 85). Products that already exist (matched via their variants' `counterpoint_item_key`) are updated but their `data_source` is not overwritten.
 
-**Default catalog:** **`CP_CATALOG_QUERY`** sends all nonblank `IM_ITEM` rows so zero-stock items are still available for lookup, history, vendor mapping, and reporting. **`CP_CATALOG_CELLS_QUERY`** sends MAIN matrix cells with their Counterpoint cell keys and quantity fields. If ticket lines store **child** SKUs in **`CELL_DESCR`** only, add an **`OR EXISTS`** join that ties **`PS_TKT_HIST_LIN.ITEM_NO`** to **`IM_INV_CELL.CELL_DESCR`** for the parent **`ITEM_NO`**.
+**Default catalog:** the runtime mapper sends all nonblank `IM_ITEM` rows so zero-stock items are still available for lookup, history, vendor mapping, and reporting. It also sends `IM_INV_CELL` matrix cells with their Counterpoint cell keys and quantity fields when that table is visible.
 
 **Category mapping:** The bridge sends a `category` string from `CATEG_COD`. ROS looks up `counterpoint_category_map` first (admin-configurable), then falls back to a case-insensitive name match in `categories`. Unmapped categories result in `category_id = NULL` on the product.
 
@@ -338,9 +337,9 @@ Gift-card cutover imports only cards with a current open balance. For the Rivers
 
 If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
-**Gift card history:** Historical gift card activity is not imported for cutover. Leave `CP_GFC_HIST_QUERY` empty. Leave `CP_TICKET_GIFT_QUERY` empty. If ticket gift rows are separately enabled later for tender visibility, ROS still treats gift cards as current balance snapshots and does not decrement `gift_cards.current_balance`.
+**Gift card history:** Historical gift card activity is not imported for cutover. If ticket gift rows are separately enabled later for tender visibility through an expert override, ROS still treats gift cards as current balance snapshots and does not decrement `gift_cards.current_balance`.
 
-**Cutover proof:** After `SYNC_GIFT_CARDS=1` posts card masters, the bridge sends the Counterpoint source card count and current-balance sum to ROS. **Landing Verification** compares those source values to `gift_cards` count and `gift_cards.current_balance` sum and shows pass/fail.
+**Cutover proof:** After the gift-card runtime mapping posts card masters, the bridge sends the Counterpoint source card count and current-balance sum to ROS. **Landing Verification** compares those source values to `gift_cards` count and `gift_cards.current_balance` sum and shows pass/fail.
 
 ### 4f. Ticket history (orders)
 
@@ -365,7 +364,7 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
 **Idempotency:** If a Transaction Record with the same `counterpoint_ticket_ref` already exists, the entire ticket is **skipped** (no duplicates).
 
-**Totals / paid semantics:** The shipped bridge still sources the gross historical ticket total from the header query (`PS_TKT_HIST.TOT` in the default v8.2 template). ROS now prefers the summed tender history from `PS_TKT_HIST_PMT` plus redeeming `PS_TKT_HIST_GFT` rows for `amount_paid` and `balance_due` whenever those rows are present. If those tender rows are absent, ROS falls back to the header `amount_paid` value from `CP_TICKETS_QUERY`.
+**Totals / paid semantics:** The runtime mapper sources the gross historical ticket total from the best visible `PS_TKT_HIST` total column. ROS prefers the summed tender history from `PS_TKT_HIST_PMT` for `amount_paid` and `balance_due` whenever those rows are present. If tender rows are absent, ROS falls back to the header `amount_paid` value.
 
 **Historical sales posture:** Closed ticket rows are imported for customer history, item history, and reporting comparison. They are not active fulfillment obligations. ROS links historical lines to exact variants when the payload has enough SKU/cell detail; unresolved historical lines use the historical Counterpoint fallback item instead of blocking the import. Open documents remain strict because they are current obligations.
 
@@ -447,7 +446,7 @@ To handle mixed Counterpoint ID formats (legacy integers vs. newer `C-` prefixed
 | `IM_HST_TRX` | Deferred | Inventory audit trail (historical reference) |
 | `IM_ADJ_HIST` | Deferred | Stock adjustment reasons (historical reference) |
 | `IM_PRC_HIST` | Deferred | Price change audit (historical reference) |
-| `PS_DOC` / `PS_DOC_LIN` / `PS_DOC_PMT` | Shipped (bridge opt-in) | `SYNC_OPEN_DOCS=1`, migration **91**, `POST /api/sync/counterpoint/open-docs` — **`docs/COUNTERPOINT_ONE_TIME_IMPORT.md`** |
+| `PS_DOC` / `PS_DOC_LIN` / `PS_DOC_PMT` | Shipped when visible through runtime mapping | Migration **91**, `POST /api/sync/counterpoint/open-docs` — **`docs/COUNTERPOINT_ONE_TIME_IMPORT.md`** |
 | `AP_VEND` | **Yes** | Vendor master profiles |
 | `PO_VEND_ITEM` | Deferred | Vendor SKU cross-reference |
 | `PO_RECV_*` | Deferred | Historical receiving (ROS has own PO system) |
@@ -499,7 +498,7 @@ When an entity fails, its local bridge cursor does not advance for that failed w
 The ticket gift-application lookup path is also hardened so gift rows initialize their per-ticket bucket before appending rows.
 
 ### Matrix Mapping Duplicate Squelcher
-For stores with heavy matrix use (v8.2 Matrix Mapping Loops), the bridge includes a built-in filter to discard redundant variation rows:
+For stores with heavy matrix use, the bridge includes a built-in filter to discard redundant variation rows:
 1. **Parent Tracking:** Ensures each Matrix Parent is only processed once per catalog pass.
 2. **Dummy Filtering:** variations with blank/NULL SKUs or Item Numbers are discarded before transmission to minimize stream clutter.
 
@@ -669,7 +668,7 @@ Unmapped reason codes default to `purchased`.
 
 ## 9. Date-range filtering (recommended)
 
-You do **not** have to import the full Counterpoint history. The `.env.example` uses **`CP_IMPORT_SINCE`** (default **2018-01-01**) expanded as **`__CP_IMPORT_SINCE__`** in historical ticket and note templates. Current master-data snapshots are not date-scoped.
+You do **not** have to import the full Counterpoint history. The current bridge defaults to the approved historical floor used for cutover rehearsals, while current master-data snapshots are not date-scoped.
 
 ### What to filter vs. keep full
 
@@ -687,32 +686,22 @@ You do **not** have to import the full Counterpoint history. The `.env.example` 
 
 ### How to change the cutoff
 
-Edit the date literal in the bridge `.env` queries. For example, to import from July 2023 instead:
-
-```sql
--- Change '2024-01-01' to '2023-07-01' in all three ticket queries:
-... WHERE DOC_TYP = 'T' AND BUS_DAT >= '2023-07-01' ORDER BY ...
-```
-
-To import **everything**, simply remove the `AND BUS_DAT >= ...` clause.
+Do not edit generated SQL in `.env`. If a rehearsal needs a narrower or wider date range, treat that as a controlled bridge setting/change and rerun Auto Config before the accepted import.
 
 > **Tip:** If you later decide you need older data, just widen the date filter and re-run. Tickets are idempotent on `counterpoint_ticket_ref` — already-imported tickets are skipped, and only the newly-qualifying ones are added.
 
 ---
 
-## 10. SQL query customization
+## 10. Runtime schema mapping
 
-Each entity sync uses a configurable SQL query in the bridge `.env` file. Counterpoint databases vary by version and customer configuration — always verify column names in SSMS first.
+Normal operation does not require entity SQL in `.env`. The bridge uses the three connection settings, probes the NCR Counterpoint POS v8.4 company database through `INFORMATION_SCHEMA`, and builds runtime SQL mappings. Manual `CP_*_QUERY` entries are an expert fallback only when `CP_SQL_ENV_OVERRIDES=1` is explicitly set.
 
 **Tips:**
 - Use `SELECT TOP 5 * FROM dbo.<table>` in SSMS to confirm available columns
 - Always `RTRIM(LTRIM(...))` string columns — Counterpoint uses fixed-width `CHAR` fields
-- Use column **aliases** that match the expected payload keys (see `.env.example`)
-- The `ORDER BY` clause determines cursor position for incremental syncs
-- **Mandatory for `CP_CUSTOMERS_QUERY`**: If `SYNC_STORE_CREDIT_OPENING=1` is enabled, the bridge validator enforces a strict structure:
-    - You MUST include a `WHERE` clause (e.g., `WHERE c.CUST_NO IS NOT NULL`).
-    - You MUST end the query with `ORDER BY c.CUST_NO` (the bridge appends an `OR EXISTS` filter immediately before the order clause during store credit discovery).
-- `WHERE STAT = 'A'` filters to active items in `IM_ITEM`
+- Use column aliases that match the expected payload keys only when running the expert SQL override path.
+- Keep the normal bridge `.env` connection-only; stale query text in `.env` is ignored unless `CP_SQL_ENV_OVERRIDES=1`.
+- Use the GUI Auto Config action or `node index.mjs auto-config` to confirm runtime mappings before the accepted import.
 
 ---
 
@@ -727,8 +716,8 @@ Each entity sync uses a configurable SQL query in the bridge `.env` file. Counte
 5. Verify health endpoint from the bridge host
 6. Install Node.js on the Counterpoint Windows host
 7. Copy `counterpoint-bridge/` folder, run `npm install`, configure `.env`
-8. Start with `SYNC_STAFF=1` to bring in users and sales reps, then `SYNC_CUSTOMERS=1` and verify data appears in ROS
-9. Enable additional entities one at a time: vendors → catalog → gift cards → tickets
+8. Run GUI Auto Config or `node index.mjs auto-config` to confirm runtime mappings for staff, customers, catalog, inventory, gift cards, tickets, and related data.
+9. Run the bridge once, then verify data appears in ROS Landing Verification before any accepted import.
 10. Monitor progress in **Settings → Integrations → Counterpoint bridge**
 
 ### Ongoing monitoring
@@ -767,8 +756,8 @@ Each entity sync uses a configurable SQL query in the bridge `.env` file. Counte
 | Mode | Trigger | Behavior |
 |------|---------|----------|
 | **Manual (Default)** | Dashboard trigger / Sync Request | One-off targeted entity or full pass. |
-| **Continuous** | Dashboard Toggle | Syncs every 15 minutes (configurable via `POLL_INTERVAL_MS`). |
-| **Run Once** | `RUN_ONCE=1` / `import` | Executes a single pass for that bridge launch, then exits. Use repeated launches for validation if needed; do not leave it as a live ongoing bridge after cutover. |
+| **Continuous** | Dashboard Toggle | Syncs on the configured interval. |
+| **Run Once** | `import` | Executes a single pass for that bridge launch, then exits. Use repeated launches for validation if needed; do not leave it as a live ongoing bridge after cutover. |
 
 To switch a running bridge to Continuous sync, visit `http://localhost:3002` and flip the toggle in the "Operation Mode" card.
 

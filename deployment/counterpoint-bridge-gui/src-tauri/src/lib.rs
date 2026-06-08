@@ -445,52 +445,15 @@ fn save_settings(
     let bridge_dir = find_bridge_directory(&app)?;
 
     let env_path = bridge_dir.join(".env");
-    let mut content = if env_path.exists() {
-        std::fs::read_to_string(&env_path).map_err(|e| e.to_string())?
-    } else {
-        let example_path = bridge_dir.join("env.example");
-        let dot_example_path = bridge_dir.join(".env.example");
-        if example_path.exists() {
-            std::fs::read_to_string(&example_path).unwrap_or_default()
-        } else if dot_example_path.exists() {
-            std::fs::read_to_string(&dot_example_path).unwrap_or_default()
-        } else {
-            String::new()
-        }
-    };
-
-    let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-
-    // Update or insert keys
-    let keys = vec![
-        ("SQL_CONNECTION_STRING", &sql_conn),
-        ("ROS_BASE_URL", &ros_url),
-        ("COUNTERPOINT_SYNC_TOKEN", &sync_token),
-    ];
-
-    for (k, v) in keys {
-        let mut found = false;
-        for line in &mut lines {
-            let trimmed = line.trim();
-            if trimmed.starts_with(k) && trimmed.contains('=') {
-                if let Some(pos) = trimmed.find('=') {
-                    if trimmed[..pos].trim() == k {
-                        *line = format!("{k}={v}");
-                        found = true;
-                        break;
-                    }
-                }
-            }
-        }
-        if !found {
-            lines.push(format!("{k}={v}"));
-        }
-    }
-
-    content = lines.join("\n");
+    let content = [
+        format!("ROS_BASE_URL={ros_url}"),
+        format!("COUNTERPOINT_SYNC_TOKEN={sync_token}"),
+        format!("SQL_CONNECTION_STRING={sql_conn}"),
+    ]
+    .join("\n");
     std::fs::write(env_path, content).map_err(|e| e.to_string())?;
 
-    Ok("Settings successfully saved to .env file.".into())
+    Ok("Bridge connection settings saved.".into())
 }
 
 #[tauri::command]

@@ -1,13 +1,13 @@
 # Counterpoint → Riverside one-time import bridge
 
-Node.js utility for **Windows** (or any OS with Node 18+) on or next to **Counterpoint SQL Server**. It runs SQL you configure in `.env` and POSTs batches to Riverside OS at `/api/sync/counterpoint/*`.
+Node.js utility for **Windows** (or any OS with Node 18+) on or next to **Counterpoint SQL Server**. For Riverside's NCR Counterpoint POS v8.4 environment, it probes the live company database schema and builds runtime extraction SQL before POSTing batches to Riverside OS at `/api/sync/counterpoint/*`.
 
 Use this bridge for a **controlled one-time migration** into ROS. It is **not** meant to remain as a permanent live POS integration after cutover.
 
 ### Performance notes (v0.7.3+)
 Since v0.7.3, the bridge uses a high-concurrency parallel engine:
 - **Concurrent batches:** each entity syncs using multiple parallel HTTP requests (default 5) to reduce wall-clock import time.
-- **Matrix duplicate squelcher:** filters duplicate v8.2 matrix parent rows during the catalog pass.
+- **Matrix duplicate squelcher:** filters duplicate matrix parent rows during the catalog pass.
 - **Self-cleaning pool:** tuned for large historical imports.
 
 
@@ -18,19 +18,17 @@ Since v0.7.3, the bridge uses a high-concurrency parallel engine:
 | `SQL_CONNECTION_STRING` | Company database (not `master`); same DB you use in SSMS |
 | `ROS_BASE_URL` | Riverside API, e.g. `http://10.64.70.154:3000` |
 | `COUNTERPOINT_SYNC_TOKEN` | Must match `COUNTERPOINT_SYNC_TOKEN` on the ROS server |
-| `RUN_ONCE` | `1` = one full pass through all enabled entities for that launch, then stop. Use this for validation and final cutover runs. `0` = repeat every `POLL_INTERVAL_MS` + heartbeat and should usually be avoided for migration work. |
-| `SYNC_*` | `1` / `0` per entity (staff, vendors, customers, notes, catalog, inventory, gift cards, tickets, open docs, receiving history) |
-| `CP_*_QUERY` | SQL text; only change if your Counterpoint columns/tables differ |
+Normal setup keeps `.env` to these three values only. The bridge derives the entity SQL at runtime from `INFORMATION_SCHEMA`.
 
-Run order is **fixed in code** each pass: **staff → (optional sales-rep stubs when `CP_SALES_REPS_QUERY` is empty) → vendors → customers → (optional store credit) → notes → catalog → inventory → vendor_items → gift_cards → tickets → (optional open docs) → receiving history**. Current loyalty balances are imported through customers as `pts_bal`; loyalty history stays disabled for go-live. Startup **fails** on bad flag combos unless **`SYNC_RELAXED_DEPENDENCIES=1`** (expert incremental refresh only).
+Run order is **fixed in code** each pass: **staff -> optional sales-rep stubs -> vendors -> customers -> optional store credit -> notes -> catalog -> inventory -> vendor_items -> gift cards -> tickets -> optional open docs -> receiving history**. Current loyalty balances are imported through customers as `pts_bal`; loyalty history stays disabled for go-live. Legacy `CP_*_QUERY` overrides are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
 
 ## One-time migration posture
 
-- Prefer **`RUN_ONCE=1`**. This means a single pass per launch, not “you may only ever run the migration once.”
-- Treat the bridge `.env` as the authoritative definition of import scope.
-- Gift cards and loyalty are cutover snapshots. Use `SYNC_GIFT_CARDS=1` only for current issued card balances, leave `CP_GFC_HIST_QUERY` and `CP_TICKET_GIFT_QUERY` empty, keep `SYNC_LOYALTY_HIST=0`, and make sure `CP_CUSTOMERS_QUERY` aliases the current Counterpoint loyalty balance as `pts_bal`.
+- Prefer the default single-pass mode. This means a single pass per launch, not “you may only ever run the migration once.”
+- Treat the bridge runtime schema probe as the authoritative definition of import scope.
+- Gift cards and loyalty are cutover snapshots. The runtime mapper uses current issued card balances where gift-card tables are present and imports current loyalty points through the customer balance column detected in `AR_CUST`.
 - After customer and gift-card syncs, the bridge posts source count/sum proof to ROS. In **Settings → Counterpoint → Status → Landing Verification**, gift-card current balances and loyalty current points should show **Pass** before cutover sign-off.
-- The migration floor is expected to stay at **`CP_IMPORT_SINCE=2018-01-01`** unless you are deliberately running a narrower test cut. The bridge status feed now warns when the live process is using a different date.
+- The migration floor is expected to stay at the approved cutover date unless you are deliberately running a narrower test cut.
 - Review the ROS **Settings → Counterpoint → Status** panel before running. It now shows the active import floor, enabled entities, landing mode, and rerun warnings based on the bridge process that is actually running.
 - If **`receiving_history`** is enabled, assume that entity is **not safe to rerun blindly**. Gift-card current balance snapshots upsert, but historical gift-card activity should stay disabled for cutover.
 - After a successful migration, stop the bridge and retire it from the Counterpoint host.
@@ -55,6 +53,9 @@ cd counterpoint-bridge
 cp .env.example .env
 # edit .env
 npm install
+npm run discover
+node index.mjs auto-config
+node index.mjs sql-smoke
 npm start
 ```
 

@@ -6,7 +6,7 @@ Target: Hybrid Tauri Host retail deployment.
 
 - [x] Target source release version is **`v0.90.0`** across root, client, server, Tauri, standalone apps, ROS Dev Center, and Windows deployment metadata.
 - [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
-- [x] Source-side local review evidence is recorded in [`docs/reviews/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md`](reviews/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md).
+- [x] Source-side local review evidence is recorded in [`docs/reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md`](reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md).
 - [x] v0.90.0 release notes and certification evidence are recorded in [`docs/releases/v0.90.0-release-notes.md`](releases/v0.90.0-release-notes.md) and [`docs/releases/v0.90.0-certification.md`](releases/v0.90.0-certification.md).
 - [x] GitHub release **`v0.90.0`** is published as Latest.
 - [x] Release workflows published fresh v0.90.0 Windows updater, Windows deployment package, Counterpoint Bridge GUI, Server Manager, Deployment Manager, and macOS ROS Dev Center assets.

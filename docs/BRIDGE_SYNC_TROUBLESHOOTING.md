@@ -41,7 +41,7 @@ To prevent your browser console from filling with "Connection Refused" errors wh
 If a specific entity (e.g., `inventory` or `tickets`) gets stuck:
 
 1. **Check the Dashboard**: Open `http://localhost:3002` on the shop PC.
-2. **Review Logs**: Look for "slow statement" warnings. High-volume migrations (v8.2 Counterpoint) can take several minutes per entity.
+2. **Review Logs**: Look for "slow statement" warnings. High-volume Counterpoint migrations can take several minutes per entity.
 3. **Manual Trigger**: Use the **Trigger Sync** buttons on the dashboard to restart a specific entity pass.
 
 ---

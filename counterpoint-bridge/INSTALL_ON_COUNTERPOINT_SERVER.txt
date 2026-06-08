@@ -17,9 +17,9 @@ First full Counterpoint load (avoid “nothing imported” days)
     Staging ON queues every batch until you Apply each one in the Inbound tab — fine for spot checks, wrong for bulk.
   • Apply ROS DB migrations through at least 95 (staging/GUI) on the Postgres that the API uses.
   • server/.env: COUNTERPOINT_SYNC_TOKEN must match bridge .env; restart the API after setting it.
-  • Bridge: RUN_ONCE=1 for one full pass; ROS_BASE_URL = LAN IP:3000 of the API PC.
-  • Optional zero-config wide queries: CP_IMPORT_SCOPE=maximal with empty CP_CUSTOMERS_QUERY / CP_CATALOG_QUERY / etc.
-    (see .env.example); bridge 0.7+ probes schema after SQL connect (CP_AUTO_SCHEMA, default on).
+  • Bridge: ROS_BASE_URL = LAN IP:3000 of the API PC.
+  • Runtime schema mapping: keep .env to ROS_BASE_URL, COUNTERPOINT_SYNC_TOKEN, and
+    SQL_CONNECTION_STRING; the v8.4 bridge probes schema after SQL connect.
 
 First-time setup
   0. (Recommended) After you set SQL_CONNECTION_STRING in .env, double-click DISCOVER_SCHEMA.cmd.
@@ -37,12 +37,10 @@ First-time setup
        ROS_BASE_URL=http://IP:3000 (IP of the PC running Riverside OS)
        COUNTERPOINT_SYNC_TOKEN=... (must match COUNTERPOINT_SYNC_TOKEN on ROS)
 
-     Leave the long CP_*_QUERY lines as-is unless SQL reports “invalid object name”. Those lines
-     use Counterpoint table names only (no dbo.). Then whoever manages SQL Server fixes how the
-     login sees those tables. See the note at the top of .env.
+     Do not add legacy CP_*_QUERY lines for normal setup. Run DISCOVER_SCHEMA.cmd or GUI Auto Config
+     if SQL reports a table/column problem.
 
-  3. Double-click START_BRIDGE.cmd again. The template sets RUN_ONCE=1 (one full import pass, then the
-     window closes). For continuous polling + heartbeat, set RUN_ONCE=0 and adjust POLL_INTERVAL_MS.
+  3. Double-click START_BRIDGE.cmd again. The bridge defaults to one full import pass, then exits.
 
 Same network
   Use the ROS computer's LAN IP, e.g. ROS_BASE_URL=http://192.168.1.100:3000
@@ -56,41 +54,31 @@ Docker (this Riverside OS repo)
   + :3000, not the Postgres port). DATABASE_URL on the server uses localhost:5433 when
   Postgres is the Compose db.
 
-Optional (behavior)
-  - RUN_ONCE=1         → One full import pass then exit (default in .env.example)
-  - RUN_ONCE=0         → Keep running; repeat every POLL_INTERVAL_MS (heartbeat + catch-up)
-  - POLL_INTERVAL_MS   → Only used when RUN_ONCE=0
+Runtime mapping scope
+  - Staff/users, sales reps, buyers
+  - Vendor profiles and vendor item links
+  - Customers, loyalty point balances, customer notes, and store-credit balances when visible
+  - Catalog products, matrix variants, barcodes, prices, costs, and categories
+  - Inventory quantities
+  - Gift-card current balances when visible
+  - Historical tickets, lines, payments, and notes
+  - Open PS_DOC orders when visible
+  - Receiving history when visible
 
-Optional (enable entities in .env)
-  - SYNC_STAFF=1       → Users + Sales Reps + Buyers from SY_USR / PS_SLS_REP / PO_BUYER. If PS_SLS_REP is empty in .env, the bridge
-    sends distinct SLS_REP from AR_CUST + PS_TKT_HIST to ROS (/sales-rep-stubs) right after SY_USR.
-  - SYNC_VENDORS=1     → Vendor profiles from PO_VEND
-  - SYNC_CUSTOMERS=1   → Customer profiles (ticket/note since cutover; store credit OR EXISTS when SYNC_STORE_CREDIT_OPENING + CP_CUSTOMER_STORE_CREDIT_EXISTS — see .env)
-  - SYNC_CUSTOMER_NOTES=1 → Customer timeline memos from AR_CUST_NOTE
-  - SYNC_INVENTORY=1   → Stock from IM_INV; default template only includes SKUs that sold on/after CP_IMPORT_SINCE or have non-zero on-hand (see .env comment; override query for all SKUs).
-  - SYNC_CATALOG=1     → Products + matrix variants from IM_ITEM / IM_INV_CELL
-  - SYNC_GIFT_CARDS=1  → Gift certificates from SY_GFT_CERT + SY_GFT_CERT_HIST (template default is 0 — enable only if that table exists)
-  - SYNC_LOYALTY_HIST=0 by default → set 1 only if discover shows PS_LOY_PTS_HIST (NCR CP name: LOY = loyalty)
-  - SYNC_VENDOR_ITEMS=1 → PO_VEND_ITEM vendor SKU map (template may use NULL vend_cost if your column name differs)
-  - SYNC_TICKETS=1     → Historical tickets from PS_TKT_HIST → orders
-  - CP_IMPORT_SINCE    → Date floor for ticket/note/loyalty templates (default 2018-01-01; use __CP_IMPORT_SINCE__ in SQL in .env)
-  - SYNC_STORE_CREDIT_OPENING=1 + CP_STORE_CREDIT_QUERY → ledger opening balances (after customers)
-  - SYNC_OPEN_DOCS=1 + CP_OPEN_DOCS_* → open PS_DOC orders (after catalog/inventory + tickets; needs ROS migration 91)
+  Import order is fixed in the bridge, not by rearranging .env: staff → vendors → customers →
+  store credit opening → notes → category_masters → catalog → inventory → vendor_items → gift_cards →
+  tickets → optional open documents → loyalty. The v8.4 bridge probes the live company database and
+  builds runtime mappings from INFORMATION_SCHEMA before each run.
 
-  Import order is fixed in the bridge (not by rearranging lines in .env): staff → vendors → customers →
-  store credit opening (template default 0 until AR_CUST credit column is confirmed; set 1 + fix queries) → notes → category_masters → catalog → inventory → vendor_items → gift_cards → tickets → optional open
-  documents → loyalty. On startup the bridge refuses conflicting flags (e.g. inventory without catalog, or
-  tickets without customers/catalog) unless you set SYNC_RELAXED_DEPENDENCIES=1 for expert incremental runs.
+  Staff runs before customers and tickets so rep/cashier attribution resolves.
 
-  Staff SHOULD run before customers and tickets so rep/cashier attribution resolves (SYNC_STAFF=0 only if you accept unset maps).
-
-  See .env.example for SQL queries per entity.
+  See .env.example for the three connection settings.
   Full guide: docs/COUNTERPOINT_SYNC_GUIDE.md in the Riverside OS repo.
 
-  Zero-config pull (optional): leave CP_CUSTOMERS_QUERY / CP_INVENTORY_QUERY / CP_CATALOG_QUERY / CP_VEND_ITEM_QUERY /
-  CP_CATEGORY_MASTERS_QUERY empty and set CP_IMPORT_SCOPE=maximal — bridge fills them with built-in “wide” SQL after
-  connect (CP_*_QUERY in .env still overrides). CP_AUTO_SCHEMA=1 (default) adjusts IM_INV cost column, vendor column
-  names, and PO_VEND fast-path SQL from your database.
+  Runtime schema mapping: keep .env to ROS_BASE_URL, COUNTERPOINT_SYNC_TOKEN, and SQL_CONNECTION_STRING.
+  The GUI Auto Config action, DISCOVER_SCHEMA.cmd, or `node index.mjs auto-config` confirms which live
+  v8.4 tables and columns the bridge will use. Legacy CP_*_QUERY entries are ignored unless
+  CP_SQL_ENV_OVERRIDES=1 is explicitly set for expert recovery work.
 
   Staging ingest: when “Counterpoint staging” is enabled in Riverside Settings → Integrations → Counterpoint, GET
   /api/sync/counterpoint/health returns counterpoint_staging_enabled=true and the bridge POSTs each entity payload to
@@ -102,35 +90,30 @@ Troubleshooting
   - Connection refused to ROS → firewall on ROS PC must allow port 3000 from this PC.
   - health 503 on ROS → set COUNTERPOINT_SYNC_TOKEN in server .env and restart the Rust server.
   - "invalid object name …" on customer sync → set Database= in SQL_CONNECTION_STRING to your
-    Counterpoint company DB (same as in SSMS). Templates use unqualified names (AR_CUST, …); your SQL
-    login must have DEFAULT SCHEMA = your CP schema, or prefix tables with that schema in .env queries.
-    Fix column names via SELECT TOP 1 * in SSMS (see .env.example).
-  - "Invalid column name 'STAT'" → not from ticket SQL; fix CP_USERS_QUERY / CP_SALES_REPS_QUERY
-    (SY_USR, PS_SLS_REP) or catalog queries on IM_ITEM. The console now shows [staff] or [catalog]
-    sync failed so you can see which query broke. See .env.example comments; omit STAT from SELECT
-    for staff if your CP build has no STAT column (ROS defaults missing status to active).
+    Counterpoint company DB (same as in SSMS). Then run GUI Auto Config or DISCOVER_SCHEMA.cmd so the
+    bridge can rebuild mappings from the live schema.
+  - "Invalid column name 'STAT'" → not from ticket SQL. Run GUI Auto Config or DISCOVER_SCHEMA.cmd; the
+    bridge should omit unavailable staff/catalog columns from its runtime SQL.
   - Other "Invalid column name" / "Invalid object name" on sync → your Counterpoint SQL schema
-    differs from the template. In SSMS run SELECT TOP 1 * FROM <schema>.<table> for the failing entity
-    (AR_CUST, IM_ITEM, PS_TKT_HIST, …) and adjust the matching CP_*_QUERY in .env, or set SYNC_*=0
-    for that entity until the query is fixed. Find tables: INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME LIKE '%pattern%'.
+    differs from the expected v8.4 shape. Run GUI Auto Config or DISCOVER_SCHEMA.cmd and review the
+    generated report. Only use CP_SQL_ENV_OVERRIDES=1 with manual CP_*_QUERY values as an expert fallback.
   - Customer notes skipped_no_customer → run customer sync successfully first (notes attach by cust_no).
   - ROS error duplicate key vendors_name_key → fixed in current ROS server: second vendor with the same CP name imports as "Name [VEND_NO]". Update/restart the API if you still see this.
   - Reading the log: [staff]/[customers] SQL errors block those imports; then notes show skipped_no_customer
-    because cust_no is not in ROS yet. Fix the failing CP_*_QUERY (wrong column/table for your CP build).
+    because cust_no is not in ROS yet. Run Auto Config/discovery for the failing entity before retrying.
   - Inventory batches show skipped=200, updated=0 or 2 → ROS only updates rows that match an existing
     variant SKU or counterpoint_item_key. Catalog must run successfully (bridge runs catalog before
-    inventory each cycle). Wrong LOC_ID in CP_INVENTORY_QUERY also causes skips.
+    inventory each cycle). Wrong location mapping can also cause skips.
   - "Invalid column name 'DOC_TYP'" (vendors, inventory, catalog subqueries, tickets) → your PS_TKT_HIST
-    may not use that column name. In .env set CP_OMIT_PS_TKT_DOC_TYP_FILTER=1 (date/activity filter only),
-    or CP_TKT_DOC_TYP_COLUMN=DOC_TYPE (or the real name from SSMS). Bridge 0.6.12+ applies this to all
-    ticket-linked SQL. Then re-run START_BRIDGE.cmd.
-  - "Invalid object name 'IM_CATEG'" → use the shipped CP_CATEGORY_MASTERS_QUERY that reads IM_ITEM only
-    (no IM_CATEG join), or set SYNC_CATEGORY_MASTERS=0.
-  - "Invalid column name 'IS_GRD'" → use the shipped CP_CATALOG_QUERY that sets is_grd from IM_INV_CELL
-    (CASE/EXISTS), not i.IS_GRD.
-  - "Invalid column name 'MERCH_CR_BAL'" → set SYNC_STORE_CREDIT_OPENING=0 until you find the store-credit
-    column in AR_CUST (e.g. STR_CR_BAL) and update CP_STORE_CREDIT_QUERY + CP_CUSTOMER_STORE_CREDIT_EXISTS.
-  - "Incorrect syntax near ORDER" on customers → often a broken WHERE after editing .env (unbalanced parens),
-    or LOY_PTS_BAL / PTS_BAL wrong column — match discover/SSMS; try CAST(0 AS INT) AS pts_bal to isolate.
+    may not use that column name. Run Auto Config/discovery so the bridge can build date/activity filters
+    against the columns that actually exist. Then re-run START_BRIDGE.cmd.
+  - "Invalid object name 'IM_CATEG'" → run Auto Config/discovery. The runtime mapper can fall back to
+    category values present on IM_ITEM.
+  - "Invalid column name 'IS_GRD'" → run Auto Config/discovery. The runtime mapper derives grid status from
+    IM_INV_CELL when the item table does not expose a grid flag.
+  - "Invalid column name 'MERCH_CR_BAL'" → run Auto Config/discovery. Store-credit opening balances only run
+    when a supported balance source is visible.
+  - "Incorrect syntax near ORDER" on customers → likely a stale expert CP_*_QUERY override. Remove the
+    manual override or rerun Auto Config/discovery.
 
 ================================================================================

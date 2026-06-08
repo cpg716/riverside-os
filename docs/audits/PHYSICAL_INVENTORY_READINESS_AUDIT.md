@@ -112,7 +112,7 @@ Frontend:
 - `docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`
 - `docs/staff/inventory-back-office.md`
 - `docs/staff/pilot-receiving-inventory-guide.md`
-- `docs/reviews/INVENTORY_RECEIVING_AUDIT_2026_05.md`
+- `docs/reviews/legacy/2026-05/INVENTORY_RECEIVING_AUDIT_2026_05.md`
 
 ## 4. Current Workflow Map
 

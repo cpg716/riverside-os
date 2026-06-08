@@ -145,7 +145,7 @@ function App() {
         setStatusMessage("Enter SQL connection, Main Hub URL, and real sync token before starting the bridge.");
         return;
       }
-      setStatusMessage("Saving configuration to .env...");
+      setStatusMessage("Saving bridge connection settings...");
       const result = await invoke<string>("save_settings", {
         sqlConn,
         rosUrl,
@@ -336,18 +336,21 @@ function App() {
 
   const runAutoConfig = useCallback(async () => {
     setIsAutoconfiguring(true);
-    setStatusMessage("Probing database schemas for configurations...");
+    setStatusMessage("Probing Counterpoint v8.4 schema and building runtime mappings...");
     try {
-      const response = await fetch(`${BRIDGE_API}/api/test-query?query=customers`, { cache: 'no-store' });
+      const response = await fetch(`${BRIDGE_API}/api/auto-config`, {
+        method: "POST",
+        cache: "no-store"
+      });
       const data = await response.json();
       if (data.success) {
-        setAutodetectedFields([
-          "Verified Open-Docs DOC_NO alias",
-          "Verified Open-Docs DOC_DT / TKT_DT alias",
-          "Verified Gift Card reason codes mapping",
-          "Generated custom SQL queries in .env config",
-        ]);
-        setStatusMessage("Auto-config loaded database details successfully.");
+        const changes = Array.isArray(data.changes) ? data.changes : [];
+        setAutodetectedFields(
+          changes.length > 0
+            ? changes
+            : ["Schema probe completed; standard Counterpoint SQL mappings are usable."]
+        );
+        setStatusMessage("Auto-config generated runtime mappings from the live Counterpoint schema.");
       } else {
         setStatusMessage(`Auto-config check encountered issues: ${data.error}`);
       }
