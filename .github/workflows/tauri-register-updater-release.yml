@@ -145,6 +145,7 @@ jobs:
           $updaterConfig = @{
             bundle = @{
               createUpdaterArtifacts = $true
+              useLocalToolsDir = $true
               resources = @("../dist", "binaries/*.dll")
             }
             plugins = @{
@@ -160,7 +161,7 @@ jobs:
           } | ConvertTo-Json -Depth 8
 
           Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value $updaterConfig -NoNewline
-          npx tauri build --config src-tauri/tauri.updater.conf.json
+          ../scripts/invoke-tauri-build-with-retry.ps1 -Arguments @("build", "--config", "src-tauri/tauri.updater.conf.json")
 
       - name: Build updater manifest bundle
         id: updater_meta

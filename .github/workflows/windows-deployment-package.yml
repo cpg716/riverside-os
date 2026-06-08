@@ -185,6 +185,7 @@ jobs:
           $updaterConfig = @{
             bundle = @{
               createUpdaterArtifacts = $true
+              useLocalToolsDir = $true
               resources = @("../dist", "binaries/*.dll")
             }
             plugins = @{
@@ -199,7 +200,7 @@ jobs:
             }
           } | ConvertTo-Json -Depth 8
           Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value $updaterConfig -NoNewline
-          npx tauri build --config src-tauri/tauri.updater.conf.json
+          ../scripts/invoke-tauri-build-with-retry.ps1 -Arguments @("build", "--config", "src-tauri/tauri.updater.conf.json")
 
       - name: Prepare updater files
         shell: pwsh
@@ -383,6 +384,7 @@ jobs:
           $updaterConfig = @{
             bundle = @{
               createUpdaterArtifacts = $true
+              useLocalToolsDir = $true
             }
             plugins = @{
               updater = @{
@@ -396,7 +398,7 @@ jobs:
             }
           } | ConvertTo-Json -Depth 8
           Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value $updaterConfig -NoNewline
-          npx tauri build --config src-tauri/tauri.updater.conf.json
+          ../../scripts/invoke-tauri-build-with-retry.ps1 -Arguments @("build", "--config", "src-tauri/tauri.updater.conf.json")
           cd ../..
           ./scripts/prepare-tauri-updater-dist.ps1 `
             -PackageJsonPath ".\deployment\manager-app\package.json" `
@@ -512,6 +514,7 @@ jobs:
           $updaterConfig = @{
             bundle = @{
               createUpdaterArtifacts = $true
+              useLocalToolsDir = $true
             }
             plugins = @{
               updater = @{
@@ -525,7 +528,7 @@ jobs:
             }
           } | ConvertTo-Json -Depth 8
           Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value $updaterConfig -NoNewline
-          npx tauri build --config src-tauri/tauri.updater.conf.json
+          ../../scripts/invoke-tauri-build-with-retry.ps1 -Arguments @("build", "--config", "src-tauri/tauri.updater.conf.json")
           $src = "src-tauri\target\release\ros-server-manager.exe"
           $dst = "..\..\target\release\ros-server-manager.exe"
           if (Test-Path $src) {
@@ -664,6 +667,7 @@ jobs:
           $updaterConfig = @{
             bundle = @{
               createUpdaterArtifacts = $true
+              useLocalToolsDir = $true
               resources = @(
                 "../../../counterpoint-bridge/index.mjs",
                 "../../../counterpoint-bridge/package.json",
@@ -693,7 +697,7 @@ jobs:
             }
           } | ConvertTo-Json -Depth 8
           Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value $updaterConfig -NoNewline
-          npx tauri build --config src-tauri/tauri.updater.conf.json
+          ../../scripts/invoke-tauri-build-with-retry.ps1 -Arguments @("build", "--config", "src-tauri/tauri.updater.conf.json")
           cd ../..
           ./scripts/prepare-tauri-updater-dist.ps1 `
             -PackageJsonPath ".\deployment\counterpoint-bridge-gui\package.json" `
