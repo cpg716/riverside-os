@@ -28,6 +28,7 @@ import ReceivingReport from "./ReceivingReport";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { openExternalUrl } from "../../lib/desktopFileBridge";
 import RosieInsightSummary from "../help/RosieInsightSummary";
 
 const BASE_URL = getBaseUrl();
@@ -1367,7 +1368,7 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
           receivingEventId={postedReceivingEventId}
           showTagPrompt={true}
           onPrintTags={(eventId) => {
-            window.open(
+            void openExternalUrl(
               `${BASE_URL}/api/purchase-orders/receiving-events/${eventId}`,
               "_blank",
             );

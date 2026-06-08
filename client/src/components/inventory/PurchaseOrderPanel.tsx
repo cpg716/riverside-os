@@ -10,6 +10,7 @@ import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
 import { AlertTriangle, Clock, FileText, Truck, Plus, Printer, Mail, ArrowRight } from "lucide-react";
 import RosieIcon from "../common/RosieIcon";
+import { openPrintableHtml } from "../../lib/browserPrint";
 
 interface PurchaseOrder {
   id: string;
@@ -723,11 +724,6 @@ export default function PurchaseOrderPanel({
     if (!selectedPo) return;
     const detail = await loadPurchaseOrderDetail(selectedPo);
     if (!detail) return;
-    const printWindow = window.open("", "_blank", "width=900,height=700");
-    if (!printWindow) {
-      toast("Could not open print window.", "error");
-      return;
-    }
     const rows = detail.lines.map((line) => `
       <tr>
         <td>${line.qty_ordered}</td>
@@ -736,7 +732,7 @@ export default function PurchaseOrderPanel({
         <td>$${line.unit_cost}</td>
       </tr>
     `).join("");
-    printWindow.document.write(`
+    await openPrintableHtml(`
       <html>
         <head>
           <title>${detail.po_number}</title>
@@ -758,10 +754,11 @@ export default function PurchaseOrderPanel({
           </table>
         </body>
       </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+    `, detail.po_number, {
+      filename: `riverside-po-${detail.po_number}.html`,
+      width: 900,
+      height: 700,
+    });
   }, [loadPurchaseOrderDetail, selectedPo, toast]);
 
   const emailSelectedPo = useCallback(async () => {

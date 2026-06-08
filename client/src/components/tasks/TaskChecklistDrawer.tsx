@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { useToast } from "../ui/ToastProviderLogic";
 import { CheckSquare, Printer, Square } from "lucide-react";
+import { openPrintableHtml } from "../../lib/browserPrint";
 
 const baseUrl = getBaseUrl();
 
@@ -159,12 +160,7 @@ export default function TaskChecklistDrawer({
         `,
       )
       .join("");
-    const win = window.open("", "_blank", "width=850,height=950");
-    if (!win) {
-      toast("Print window was blocked. Allow popups and try again.", "error");
-      return;
-    }
-    win.document.write(`<!doctype html>
+    void openPrintableHtml(`<!doctype html>
       <html>
         <head>
           <title>${esc(detail.title_snapshot)}</title>
@@ -197,10 +193,13 @@ export default function TaskChecklistDrawer({
             <div>Completed at<div class="line"></div></div>
           </div>
         </body>
-      </html>`);
-    win.document.close();
-    win.focus();
-    win.print();
+      </html>`, detail.title_snapshot, {
+      filename: `riverside-task-${detail.id}.html`,
+      width: 850,
+      height: 950,
+    }).catch((error) => {
+      toast(error instanceof Error ? error.message : "Could not open task print preview.", "error");
+    });
   };
 
   const title = detail?.title_snapshot ?? "Task";

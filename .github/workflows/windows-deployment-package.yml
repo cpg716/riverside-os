@@ -59,6 +59,9 @@ jobs:
             throw "Deployment PowerShell parse validation failed."
           }
 
+      - name: Validate deployment release gates
+        run: npm run check:deployment-release
+
   require-playwright-green:
     name: Require Playwright E2E green
     runs-on: ubuntu-latest

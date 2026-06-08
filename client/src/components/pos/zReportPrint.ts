@@ -2,6 +2,7 @@
 
 import { dispatchAppToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
+import { openDesktopTextPreview } from "../../lib/desktopFileBridge";
 
 export interface ZReportTenderRow {
   payment_method: string;
@@ -87,6 +88,40 @@ function notifyPrintDialogFailure(error: unknown): void {
   dispatchAppToast("Print dialog could not be opened. Please check your browser settings.", "error");
 }
 
+function isTauriDesktop() {
+  return typeof window !== "undefined" && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
+}
+
+function createPrintDocument(title: string, features: string) {
+  if (isTauriDesktop()) {
+    return {
+      doc: document.implementation.createHTMLDocument(title),
+      win: null as Window | null,
+    };
+  }
+  const win = window.open("", "_blank", features);
+  if (!win) return null;
+  return { doc: win.document, win };
+}
+
+function finishPrintDocument(target: { doc: Document; win: Window | null }, filename: string) {
+  target.doc.close();
+  if (target.win) {
+    target.win.focus();
+    setTimeout(() => {
+      try {
+        target.win?.print();
+      } catch (e) {
+        notifyPrintDialogFailure(e);
+      }
+    }, 500);
+    return;
+  }
+  void openDesktopTextPreview(filename, target.doc.documentElement.outerHTML).catch((error) => {
+    notifyPrintDialogFailure(error);
+  });
+}
+
 function reportLabel(value: string | null | undefined): string {
   const normalized = (value ?? "").trim().toLowerCase();
   switch (normalized) {
@@ -158,6 +193,8 @@ export function openProfessionalZReportPrint(opts: {
   expectedCents: number;
   actualCents: number;
   discrepancyCents: number;
+  cashDepositDate?: string | null;
+  cashDepositAmountCents?: number;
   closingNotes?: string | null;
   closingComments?: string | null;
   tenders: ZReportTenderRow[];
@@ -184,9 +221,8 @@ export function openProfessionalZReportPrint(opts: {
     register_lane: number;
   }[];
 }): void {
-  // Use a wider window for a more professional full-page landscape/portrait view
-  const w = window.open("", "_blank", "width=850,height=950");
-  if (!w) return;
+  const target = createPrintDocument(`${opts.title} — ${opts.sessionId}`, "width=850,height=950");
+  if (!target) return;
 
   const ord = opts.registerOrdinal != null ? ` #${opts.registerOrdinal}` : "";
   const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
@@ -341,8 +377,12 @@ export function openProfessionalZReportPrint(opts: {
   const statusColor = dc === 0 ? "#059669" : "#dc2626";
   const closingNotes = opts.closingNotes?.trim();
   const closingComments = opts.closingComments?.trim();
+  const cashDepositDate = opts.cashDepositDate?.trim()
+    ? new Date(`${opts.cashDepositDate}T00:00:00`).toLocaleDateString()
+    : "Not recorded";
+  const cashDepositAmountCents = opts.cashDepositAmountCents ?? Math.max(0, opts.actualCents - opts.openingCents);
 
-  w.document.write(`<!DOCTYPE html><html><head><title>${opts.title} — ${opts.sessionId}</title>
+  target.doc.write(`<!DOCTYPE html><html><head><title>${opts.title} — ${opts.sessionId}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
     @page { size: letter portrait; margin: 0.38in; }
@@ -447,6 +487,16 @@ export function openProfessionalZReportPrint(opts: {
           <span style="font-weight: 800; text-transform: uppercase;">Actual Counted</span>
           <span class="mono" style="font-weight: 800; font-size: 12px; color: #0f172a;">${formatReportMoney(opts.actualCents)}</span>
         </div>
+        <div style="border: 1px solid #e2e8f0; border-radius: 7px; margin-top: 7px; padding: 7px;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="font-weight: 800; text-transform: uppercase;">Daily Cash Deposit</span>
+            <span class="mono" style="font-weight: 800; font-size: 12px;">${formatReportMoney(cashDepositAmountCents)}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-top: 3px;">
+            <span class="muted">Deposit Date</span>
+            <span class="mono" style="font-weight: 700;">${escapeReportHtml(cashDepositDate)}</span>
+          </div>
+        </div>
       </div>
 
       <div class="discrepancy-box">
@@ -529,46 +579,7 @@ export function openProfessionalZReportPrint(opts: {
     </div>
   </div>
   </body></html>`);
-  w.document.close();
-  w.focus();
-
-  // Check if running in Tauri
-  const isTauriEnv = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
-
-  if (isTauriEnv) {
-    setTimeout(async () => {
-      try {
-        const { open } = await import("@tauri-apps/plugin-shell");
-        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-        const { save } = await import("@tauri-apps/plugin-dialog");
-
-        const filePath = await save({
-          defaultPath: `z-report-${opts.sessionId.slice(0, 8)}.html`,
-          filters: [{ name: "HTML", extensions: ["html"] }],
-        });
-
-        if (filePath) {
-          await writeTextFile(filePath, w.document.documentElement.outerHTML);
-          await open(filePath);
-        }
-      } catch (err) {
-        console.error("Tauri print failed:", err);
-        try {
-          w.print();
-        } catch (e) {
-          notifyPrintDialogFailure(e);
-        }
-      }
-    }, 500);
-  } else {
-    setTimeout(() => {
-      try {
-        w.print();
-      } catch (e) {
-        notifyPrintDialogFailure(e);
-      }
-    }, 500);
-  }
+  finishPrintDocument(target, `z-report-${opts.sessionId.slice(0, 8)}.html`);
 }
 
 export function openProfessionalDailySalesPrint(opts: {
@@ -613,10 +624,10 @@ export function openProfessionalDailySalesPrint(opts: {
     }[] | null;
   }[];
 }): void {
-  const w = window.open("", "_blank", "width=850,height=950");
-  if (!w) return;
+  const target = createPrintDocument("Daily Sales Report", "width=850,height=950");
+  if (!target) return;
 
-  w.document.title = "Daily Sales Report";
+  target.doc.title = "Daily Sales Report";
 
   const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
   const { summary, activities } = opts;
@@ -707,7 +718,7 @@ export function openProfessionalDailySalesPrint(opts: {
     .reduce((sum, row) => sum + (Number.parseFloat(row.sales_total || "0") || 0), 0)
     .toFixed(2);
 
-  w.document.write(`<!DOCTYPE html><html><head><title>${opts.title}</title>
+  target.doc.write(`<!DOCTYPE html><html><head><title>${opts.title}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
     body { font-family: 'Inter', system-ui, sans-serif; font-size: 12px; line-height: 1.5; color: #0f172a; padding: 40px; }
@@ -813,46 +824,7 @@ export function openProfessionalDailySalesPrint(opts: {
     <p class="muted" style="font-size: 10px;">End of Summary Audit · Riverside Men's Shop · Generated: ${new Date().toLocaleString()}</p>
   </div>
   </body></html>`);
-  w.document.close();
-  w.focus();
-
-  // Check if running in Tauri
-  const isTauriEnv = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
-
-  if (isTauriEnv) {
-    setTimeout(async () => {
-      try {
-        const { open } = await import("@tauri-apps/plugin-shell");
-        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-        const { save } = await import("@tauri-apps/plugin-dialog");
-
-        const filePath = await save({
-          defaultPath: `daily-sales-report.html`,
-          filters: [{ name: "HTML", extensions: ["html"] }],
-        });
-
-        if (filePath) {
-          await writeTextFile(filePath, w.document.documentElement.outerHTML);
-          await open(filePath);
-        }
-      } catch (err) {
-        console.error("Tauri print failed:", err);
-        try {
-          w.print();
-        } catch (e) {
-          notifyPrintDialogFailure(e);
-        }
-      }
-    }, 500);
-  } else {
-    setTimeout(() => {
-      try {
-        w.print();
-      } catch (e) {
-        notifyPrintDialogFailure(e);
-      }
-    }, 500);
-  }
+  finishPrintDocument(target, "daily-sales-report.html");
 }
 
 export function openProfessionalTablePrint(opts: {
@@ -861,10 +833,10 @@ export function openProfessionalTablePrint(opts: {
   columns: string[];
   rows: Record<string, unknown>[];
 }): boolean {
-  const w = window.open("", "_blank", "width=950,height=950");
-  if (!w) return false;
+  const target = createPrintDocument(opts.title, "width=950,height=950");
+  if (!target) return false;
 
-  w.document.title = opts.title;
+  target.doc.title = opts.title;
 
   const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
   const escapeHtml = (value: string) =>
@@ -892,7 +864,7 @@ export function openProfessionalTablePrint(opts: {
     })
     .join("");
 
-  w.document.write(`<!DOCTYPE html><html><head><title>${escapeHtml(opts.title)}</title>
+  target.doc.write(`<!DOCTYPE html><html><head><title>${escapeHtml(opts.title)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
     body { font-family: 'Inter', system-ui, sans-serif; font-size: 11px; line-height: 1.4; color: #0f172a; padding: 40px; }
@@ -925,45 +897,6 @@ export function openProfessionalTablePrint(opts: {
     <p class="muted" style="font-size: 9px;">End of Report · Riverside Men's Shop Proprietary Document</p>
   </div>
   </body></html>`);
-  w.document.close();
-  w.focus();
-
-  // Check if running in Tauri
-  const isTauriEnv = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
-
-  if (isTauriEnv) {
-    setTimeout(async () => {
-      try {
-        const { open } = await import("@tauri-apps/plugin-shell");
-        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-        const { save } = await import("@tauri-apps/plugin-dialog");
-
-        const filePath = await save({
-          defaultPath: `${opts.title.replace(/[^a-z0-9]/gi, '_')}.html`,
-          filters: [{ name: "HTML", extensions: ["html"] }],
-        });
-
-        if (filePath) {
-          await writeTextFile(filePath, w.document.documentElement.outerHTML);
-          await open(filePath);
-        }
-      } catch (err) {
-        console.error("Tauri print failed:", err);
-        try {
-          w.print();
-        } catch (e) {
-          console.error("Print failed:", e);
-        }
-      }
-    }, 500);
-  } else {
-    setTimeout(() => {
-      try {
-        w.print();
-      } catch (e) {
-        console.error("Print failed:", e);
-      }
-    }, 500);
-  }
+  finishPrintDocument(target, `${opts.title.replace(/[^a-z0-9]/gi, "_")}.html`);
   return true;
 }

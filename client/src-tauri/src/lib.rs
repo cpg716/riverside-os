@@ -1,5 +1,6 @@
 #[cfg(desktop)]
 pub mod app_updates;
+pub mod desktop_files;
 pub mod hardware;
 pub mod install_contract;
 pub mod llama_server;
@@ -17,6 +18,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -37,6 +39,7 @@ pub fn run() {
             hardware::check_printer_connection,
             hardware::check_system_printer,
             hardware::list_system_printers,
+            desktop_files::write_temp_preview_file,
             station_config::load_station_config,
             llama_server::rosie_llama_start,
             llama_server::rosie_llama_stop,

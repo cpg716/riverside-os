@@ -27,6 +27,7 @@ import {
   X as CloseIcon,
 } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
+import { downloadTextFile } from "../../lib/desktopFileBridge";
 import {
   CustomerRelationshipHubDrawer,
   type HubTab,
@@ -68,7 +69,7 @@ interface CustomerPipelineStats {
   upcoming_weddings: number;
 }
 
-function downloadLightspeedImportIssuesCsv(
+async function downloadLightspeedImportIssuesCsv(
   issues: { row_index: number; customer_code: string | null; issue: string }[],
 ) {
   const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
@@ -78,12 +79,12 @@ function downloadLightspeedImportIssuesCsv(
       [String(i.row_index), i.customer_code ?? "", i.issue].map(esc).join(","),
     ),
   ];
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `riverside-customers-import-issues-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  await downloadTextFile(
+    `riverside-customers-import-issues-${new Date().toISOString().slice(0, 10)}.csv`,
+    lines.join("\n"),
+    "text/csv;charset=utf-8",
+    [{ name: "CSV", extensions: ["csv"] }],
+  );
 }
 
 /** Must match server `browse` max clamp (1000); keep ≤ 1000. */
@@ -248,7 +249,7 @@ export default function CustomersWorkspace({
       }
       const issueList = body.issues ?? [];
       if (issueList.length > 0) {
-        downloadLightspeedImportIssuesCsv(issueList);
+        await downloadLightspeedImportIssuesCsv(issueList);
       }
       toast(
         issueList.length > 0
@@ -773,7 +774,7 @@ export default function CustomersWorkspace({
     }
   };
 
-  const exportSelectedContacts = () => {
+  const exportSelectedContacts = async () => {
     if (selectedRows.length === 0) return;
     const header = [
       "customer_code",
@@ -802,14 +803,12 @@ export default function CustomersWorkspace({
         ].join(","),
       );
     }
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/csv;charset=utf-8",
-    });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `riverside-contacts-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    await downloadTextFile(
+      `riverside-contacts-${new Date().toISOString().slice(0, 10)}.csv`,
+      lines.join("\n"),
+      "text/csv;charset=utf-8",
+      [{ name: "CSV", extensions: ["csv"] }],
+    );
   };
 
   const onTableKeyDown = (e: ReactKeyboardEvent) => {
@@ -1685,7 +1684,7 @@ export default function CustomersWorkspace({
         </button>
         <button
           type="button"
-          onClick={exportSelectedContacts}
+          onClick={() => void exportSelectedContacts()}
           className="ui-btn-secondary px-3 py-2"
         >
           Export contact list

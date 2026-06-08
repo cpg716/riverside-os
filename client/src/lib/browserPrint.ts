@@ -1,3 +1,6 @@
+import { isTauri } from "@tauri-apps/api/core";
+import { openDesktopTextPreview } from "./desktopFileBridge";
+
 export function printExistingWindow(targetWindow: Window): void {
   const runPrint = () => {
     const execute = () => {
@@ -31,6 +34,24 @@ export function writeAndPrintDocumentWindow(
   targetWindow.document.write(html);
   targetWindow.document.close();
   printExistingWindow(targetWindow);
+}
+
+export async function openPrintableHtml(
+  html: string,
+  title: string,
+  options?: { filename?: string; width?: number; height?: number },
+): Promise<"tauri-preview" | "browser-print" | "blocked"> {
+  if (isTauri()) {
+    await openDesktopTextPreview(options?.filename ?? `${title}.html`, html);
+    return "tauri-preview";
+  }
+
+  const width = options?.width ?? 900;
+  const height = options?.height ?? 900;
+  const targetWindow = window.open("", "_blank", `width=${width},height=${height}`);
+  if (!targetWindow) return "blocked";
+  writeAndPrintDocumentWindow(targetWindow, html);
+  return "browser-print";
 }
 
 export function writeAndPrintHtmlFrame(html: string, title: string): void {

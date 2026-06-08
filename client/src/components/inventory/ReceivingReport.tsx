@@ -11,6 +11,7 @@ import {
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { openPrintableHtml } from "../../lib/browserPrint";
 
 const BASE_URL = getBaseUrl();
 
@@ -122,9 +123,7 @@ export default function ReceivingReport({
       )
       .join("");
 
-    const w = window.open("", "_blank", "width=900,height=700");
-    if (!w) return;
-    w.document.write(`
+    void openPrintableHtml(`
       <html>
         <head>
           <title>Receiving Report — ${escapeHtml(detail.po_number)}</title>
@@ -171,10 +170,11 @@ export default function ReceivingReport({
           </div>
         </body>
       </html>
-    `);
-    w.document.close();
-    w.focus();
-    w.print();
+    `, `Receiving Report ${detail.po_number}`, {
+      filename: `riverside-receiving-${detail.po_number}.html`,
+      width: 900,
+      height: 700,
+    });
   }, [detail]);
 
   const root = document.getElementById("drawer-root");

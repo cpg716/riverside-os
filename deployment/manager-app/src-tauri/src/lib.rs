@@ -135,6 +135,30 @@ async fn run_deployment_script(
         ));
     }
 
+    let args_display = args
+        .as_ref()
+        .map(|values| values.join(" "))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "(none)".to_string());
+    let _ = app.emit(
+        "deployment-log",
+        LogMessage {
+            level: "info".to_string(),
+            text: format!(
+                "Launching {} from {}",
+                script_path.display(),
+                package_root.display()
+            ),
+        },
+    );
+    let _ = app.emit(
+        "deployment-log",
+        LogMessage {
+            level: "info".to_string(),
+            text: format!("Arguments: {args_display}"),
+        },
+    );
+
     let mut cmd = Command::new("powershell");
     cmd.current_dir(&package_root)
         .arg("-NoProfile")
@@ -159,6 +183,14 @@ async fn run_deployment_script(
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to spawn powershell: {e}"))?;
+
+    let _ = app.emit(
+        "deployment-log",
+        LogMessage {
+            level: "info".to_string(),
+            text: "PowerShell process started; waiting for script output...".to_string(),
+        },
+    );
 
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();

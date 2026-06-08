@@ -19,6 +19,7 @@ import { staffAvatarUrl } from "../../lib/staffAvatars";
 import { useToast } from "../ui/ToastProviderLogic";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
+import { openPrintableHtml } from "../../lib/browserPrint";
 
 const baseUrl = getBaseUrl();
 
@@ -303,12 +304,7 @@ export default function StaffTasksPanel({
         `,
       )
       .join("");
-    const win = window.open("", "_blank", "width=900,height=700");
-    if (!win) {
-      toast("Print window was blocked.", "error");
-      return;
-    }
-    win.document.write(`<!doctype html>
+    void openPrintableHtml(`<!doctype html>
       <html>
         <head>
           <title>${esc(title)}</title>
@@ -329,10 +325,13 @@ export default function StaffTasksPanel({
             <tbody>${bodyRows}</tbody>
           </table>
         </body>
-      </html>`);
-    win.document.close();
-    win.focus();
-    win.print();
+      </html>`, title, {
+      filename: "riverside-staff-tasks.html",
+      width: 900,
+      height: 700,
+    }).catch((error) => {
+      toast(error instanceof Error ? error.message : "Could not open task report.", "error");
+    });
   };
 
   const createTemplate = async () => {

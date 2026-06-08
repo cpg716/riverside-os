@@ -343,6 +343,8 @@ pub struct ManualDrawerOpenRequest {
 #[derive(Debug, Deserialize)]
 pub struct CloseSessionRequest {
     pub actual_cash: Decimal,
+    pub cash_deposit_date: Option<NaiveDate>,
+    pub cash_deposit_amount: Option<Decimal>,
     pub closing_notes: Option<String>,
     pub closing_comments: Option<String>,
 }
@@ -2202,6 +2204,23 @@ async fn close_session(
     let expected_cash = recon.expected_cash;
     let discrepancy = payload.actual_cash - expected_cash;
     let abs_disc = discrepancy.abs();
+    let default_cash_deposit_amount = {
+        let counted_less_float = payload.actual_cash - recon.opening_float;
+        if counted_less_float < dec!(0.00) {
+            dec!(0.00)
+        } else {
+            counted_less_float
+        }
+    };
+    let cash_deposit_amount = payload
+        .cash_deposit_amount
+        .unwrap_or(default_cash_deposit_amount);
+    if cash_deposit_amount < dec!(0.00) {
+        return Err(SessionError::InvalidPayload(
+            "cash deposit amount cannot be negative".to_string(),
+        ));
+    }
+    let cash_deposit_date = payload.cash_deposit_date.unwrap_or(recon.qbo_activity_date);
 
     let notes_trimmed = payload
         .closing_notes
@@ -2235,6 +2254,8 @@ async fn close_session(
         "expected_cash": expected_cash,
         "actual_cash": payload.actual_cash,
         "discrepancy": discrepancy,
+        "cash_deposit_date": cash_deposit_date,
+        "cash_deposit_amount": cash_deposit_amount,
         "tenders": recon.tenders,
         "tenders_by_lane": tenders_by_lane_val,
         "transactions": transactions_val,
@@ -2273,8 +2294,10 @@ async fn close_session(
             closing_comments = $5,
             weather_snapshot = $6,
             z_report_json = $7,
+            cash_deposit_date = $8,
+            cash_deposit_amount = $9,
             lifecycle_status = 'closed'
-        WHERE till_close_group_id = $8 AND is_open = true
+        WHERE till_close_group_id = $10 AND is_open = true
         "#,
     )
     .bind(expected_cash)
@@ -2284,6 +2307,8 @@ async fn close_session(
     .bind(payload.closing_comments.as_ref().map(|s| s.trim()))
     .bind(weather_val)
     .bind(&z_snapshot)
+    .bind(cash_deposit_date)
+    .bind(cash_deposit_amount)
     .bind(till_gid)
     .execute(&mut *tx)
     .await?;

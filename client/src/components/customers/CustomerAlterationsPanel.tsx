@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import AlterationSchedulingDrawer from "../alterations/scheduler/AlterationSchedulingDrawer";
+import { openPrintableHtml } from "../../lib/browserPrint";
 
 const baseUrl = getBaseUrl();
 
@@ -482,12 +483,7 @@ export default function CustomerAlterationsPanel({
           </tr>
         `).join("")
       : `<tr><td colspan="7">No alterations scheduled for this day.</td></tr>`;
-    const printWindow = window.open("", "_blank", "width=900,height=700");
-    if (!printWindow) {
-      toast("Could not open print window.", "error");
-      return;
-    }
-    printWindow.document.write(`
+    void openPrintableHtml(`
       <!doctype html>
       <html>
         <head>
@@ -523,10 +519,13 @@ export default function CustomerAlterationsPanel({
           </table>
         </body>
       </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+    `, `Daily Alteration Schedule ${selectedScheduleDate}`, {
+      filename: `riverside-alteration-schedule-${selectedScheduleDate}.html`,
+      width: 900,
+      height: 700,
+    }).catch((error) => {
+      toast(error instanceof Error ? error.message : "Could not open alteration schedule.", "error");
+    });
   };
 
   const getStatusColor = (status: string) => {

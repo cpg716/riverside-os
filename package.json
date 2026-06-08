@@ -6,6 +6,7 @@
   "scripts": {
     "bump": "node scripts/bump-version.mjs",
     "check:version": "node scripts/check-version-parity.mjs",
+    "check:deployment-release": "node scripts/check-deployment-release.mjs",
     "check:updater-release": "node scripts/verify-updater-release-assets.mjs",
     "check:reports": "node scripts/check-reports-catalog.mjs",
     "check:help-impact": "node scripts/check-help-impact.mjs",

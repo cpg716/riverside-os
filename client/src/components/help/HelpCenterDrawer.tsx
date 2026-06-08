@@ -29,7 +29,7 @@ import { formatHelpDisplayHeading, formatHelpDisplayTitle } from "../../lib/help
 import { slugifyHeading } from "../../lib/help/helpSlug";
 import { resolveHelpImageSrc } from "../../lib/help/helpImages";
 import { stripYamlFrontMatter } from "../../lib/help/helpFrontMatter";
-import { writeAndPrintDocumentWindow, writeAndPrintHtmlFrame } from "../../lib/browserPrint";
+import { openPrintableHtml } from "../../lib/browserPrint";
 import {
   askRosieGroundedHelpStream,
   getRosieVoiceCapabilities,
@@ -1002,11 +1002,9 @@ export default function HelpCenterDrawer({
 
   const printViewedHelp = useCallback(() => {
     if (!activeManual || !displayMarkdown || !activeManualContentRef.current) return;
-    const printWindow = window.open("", "_blank", "width=900,height=1100");
-    if (!printWindow) return;
 
     const contentHtml = activeManualContentRef.current.innerHTML;
-    writeAndPrintDocumentWindow(printWindow, `<!doctype html>
+    void openPrintableHtml(`<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
@@ -1088,7 +1086,11 @@ export default function HelpCenterDrawer({
     ${contentHtml}
   </main>
 </body>
-</html>`);
+</html>`, activeDisplayTitle, {
+      filename: `riverside-help-${activeManual.id}.html`,
+      width: 900,
+      height: 1100,
+    });
   }, [activeManual, activeDisplayTitle, displayMarkdown]);
 
   const printFullHelpGuide = useCallback(async () => {
@@ -1119,7 +1121,11 @@ export default function HelpCenterDrawer({
         }),
       );
 
-      writeAndPrintHtmlFrame(fullHelpGuideHtml(detailRows), "Riverside OS Help Guide");
+      await openPrintableHtml(fullHelpGuideHtml(detailRows), "Riverside OS Help Guide", {
+        filename: "riverside-help-guide.html",
+        width: 900,
+        height: 1100,
+      });
     } catch (error) {
       const message =
         error instanceof Error

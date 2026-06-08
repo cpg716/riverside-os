@@ -8,6 +8,7 @@ import {
   parseMoneyToCents,
 } from "../../lib/money";
 import CommissionTraceModal from "./CommissionTraceModal";
+import { openPrintableHtml } from "../../lib/browserPrint";
 
 const baseUrl = getBaseUrl();
 
@@ -326,18 +327,16 @@ export default function CommissionPayoutsPanel() {
             </tfoot>
           </table>
           <footer>Commission report: earned commission follows the recognition window for fulfilled/picked up/shipped work plus approved manual adjustments.</footer>
-          <script>window.onload=function(){window.print();}</script>
         </body>
       </html>
     `;
-    const printWindow = window.open("", "_blank", "width=1100,height=800");
-    if (!printWindow) {
-      toast("Allow pop-ups to print the commission report.", "error");
-      return;
-    }
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
+    void openPrintableHtml(html, "Commission Report", {
+      filename: "riverside-commission-report.html",
+      width: 1100,
+      height: 800,
+    }).catch((error) => {
+      toast(error instanceof Error ? error.message : "Could not open commission report.", "error");
+    });
   }, [
     filteredRows,
     reportRangeLabel,

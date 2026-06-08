@@ -2,7 +2,7 @@ import React, { useRef, useMemo } from 'react';
 import Icon from './Icon';
 import { formatDate } from '../lib/utils';
 import { parseJSON } from '../lib/dataUtils';
-import { writeAndPrintDocumentWindow } from '../../../lib/browserPrint';
+import { openPrintableHtml } from '../../../lib/browserPrint';
 
 const OrderChecklistModal = ({ isOpen, onClose, party }) => {
     const printRef = useRef();
@@ -24,9 +24,7 @@ const OrderChecklistModal = ({ isOpen, onClose, party }) => {
     const handlePrint = () => {
         const printContent = printRef.current.innerHTML;
 
-        const win = window.open('', '_blank');
-        if (!win) return;
-        writeAndPrintDocumentWindow(win, `
+        void openPrintableHtml(`
             <html>
                 <head>
                     <title>Order Checklist - ${party.name}</title>
@@ -64,7 +62,11 @@ const OrderChecklistModal = ({ isOpen, onClose, party }) => {
                     </div>
                 </body>
             </html>
-        `);
+        `, `Order Checklist - ${party.name}`, {
+            filename: `riverside-order-checklist-${String(party.name || "party").replace(/[^a-z0-9]+/gi, "-")}.html`,
+            width: 900,
+            height: 900,
+        });
     };
 
     return (

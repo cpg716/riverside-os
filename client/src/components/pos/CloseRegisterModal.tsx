@@ -223,6 +223,12 @@ const COIN_DENOMS: { key: CoinDenomKey; label: string; valueCents: number }[] = 
   { key: "coin1", label: "1c", valueCents: 1 },
 ];
 
+const todayLocalDateInput = () => {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+};
+
 const REGISTER_CLOSE_STEPS = [
   {
     id: "count",
@@ -298,6 +304,9 @@ export default function CloseRegisterModal({
 
   const [step, setStep] = useState<"count" | "checks" | "report">("count");
   const [actualCash, setActualCash] = useState("");
+  const [cashDepositDate, setCashDepositDate] = useState(todayLocalDateInput);
+  const [cashDepositAmount, setCashDepositAmount] = useState("0.00");
+  const [cashDepositEdited, setCashDepositEdited] = useState(false);
   const [notes, setNotes] = useState("");
   const [closingComments, setClosingComments] = useState("");
   const [countEditReason, setCountEditReason] = useState("");
@@ -424,6 +433,12 @@ export default function CloseRegisterModal({
   }, [coinCounts]);
 
   const denominationTotalCents = billTotalCents + coinTotalCents;
+
+  useEffect(() => {
+    if (!recon || cashDepositEdited) return;
+    const countedLessFloat = parseMoneyToCents(actualCash) - parseMoneyToCents(recon.opening_float);
+    setCashDepositAmount(centsToFixed2(Math.max(0, countedLessFloat)));
+  }, [actualCash, cashDepositEdited, recon]);
 
   const blockForOfflineQueue = useCallback(async () => {
     const summary = await refreshOfflineQueueSummary();
@@ -667,6 +682,8 @@ export default function CloseRegisterModal({
       expectedCents: currentExpectedCents,
       actualCents: currentActualCents,
       discrepancyCents: currentActualCents - currentExpectedCents,
+      cashDepositDate: cashDepositDate.trim() || null,
+      cashDepositAmountCents: parseMoneyToCents(cashDepositAmount),
       closingNotes: closingNotesForReport || null,
       closingComments: closingComments.trim() || null,
       tenders: currentRecon.tenders,
@@ -691,7 +708,7 @@ export default function CloseRegisterModal({
         register_lane: t.register_lane ?? 1,
       })),
     });
-  }, [actualCash, buildClosingNotesForReport, cashierName, closingComments, recon, registerOrdinal]);
+  }, [actualCash, buildClosingNotesForReport, cashDepositAmount, cashDepositDate, cashierName, closingComments, recon, registerOrdinal]);
 
   const handleFinalClose = async () => {
     setShowFinalConfirm(false);
@@ -701,14 +718,21 @@ export default function CloseRegisterModal({
     }
     if (await blockForOfflineQueue()) return;
     if (blockForHelcimReview()) return;
+    if (!cashDepositDate.trim()) {
+      toast("Enter the Daily Cash Deposit date before closing.", "error");
+      return;
+    }
     setLoading(true);
     const closingNotesForReport = buildClosingNotesForReport();
+    const cashDepositCentsForClose = parseMoneyToCents(cashDepositAmount);
     try {
       const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/close`, {
         method: "POST",
         headers: jsonAuthHeaders(),
         body: JSON.stringify({
           actual_cash: centsToFixed2(parseMoneyToCents(actualCash)),
+          cash_deposit_date: cashDepositDate.trim(),
+          cash_deposit_amount: centsToFixed2(cashDepositCentsForClose),
           closing_notes: closingNotesForReport || null,
           closing_comments: closingComments.trim() || null
         }),
@@ -1196,6 +1220,7 @@ export default function CloseRegisterModal({
   const netAdjCents = parseMoneyToCents(recon.net_cash_adjustments ?? "0");
   const roundingCents = parseMoneyToCents(recon.total_rounding_adjustments ?? "0");
   const cashSalesCents = expectedCents - openingCents - netAdjCents - roundingCents;
+  const cashDepositCents = parseMoneyToCents(cashDepositAmount);
   const needsNote =
     Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
   const closeBlockers = [
@@ -1203,6 +1228,7 @@ export default function CloseRegisterModal({
     helcimReviewMessage ? "Card payment review" : null,
     checkPayments.length > 0 && !checksReady ? "Check review" : null,
     needsNote && notes.trim() === "" ? "Cash discrepancy note" : null,
+    cashDepositDate.trim() === "" ? "Cash deposit date" : null,
   ].filter(Boolean);
   const closeReady = closeBlockers.length === 0;
   const closeInsightFacts = {
@@ -1210,6 +1236,7 @@ export default function CloseRegisterModal({
     metrics: [
       { id: "expected-cash", label: "Expected cash", value: `$${centsToFixed2(expectedCents)}` },
       { id: "actual-cash", label: "Actual counted", value: `$${centsToFixed2(actualCents)}` },
+      { id: "cash-deposit", label: "Daily cash deposit", value: `${cashDepositDate || "No date"} · $${centsToFixed2(cashDepositCents)}` },
       {
         id: "cash-discrepancy",
         label: "Cash over or short",
@@ -1501,6 +1528,36 @@ export default function CloseRegisterModal({
               <div className="flex justify-between text-app-text-muted font-medium"><span>Net adjustments:</span><span className="font-mono text-app-warning">{netAdjCents < 0 ? "-" : "+"}${centsToFixed2(Math.abs(netAdjCents))}</span></div>
               <div className="flex justify-between pt-3 border-t border-app-border font-black text-app-text uppercase text-xs"><span>Expected Cash:</span><span className="font-mono">${centsToFixed2(expectedCents)}</span></div>
               <div className="flex justify-between pt-1 font-black text-app-accent text-lg"><span>Actual Counted:</span><span className="font-mono">${centsToFixed2(actualCents)}</span></div>
+              <div className="flex justify-between pt-2 text-app-text font-bold"><span>Daily Cash Deposit:</span><span className="font-mono">${centsToFixed2(cashDepositCents)}</span></div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-3">
+              <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Deposit Date
+                  <input
+                    type="date"
+                    value={cashDepositDate}
+                    onChange={(event) => setCashDepositDate(event.target.value)}
+                    className="ui-input mt-1 w-full p-3 text-xs normal-case tracking-normal"
+                  />
+                </label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Deposit Amount
+                  <input
+                    value={cashDepositAmount}
+                    onChange={(event) => {
+                      setCashDepositEdited(true);
+                      setCashDepositAmount(event.target.value);
+                    }}
+                    inputMode="decimal"
+                    className="ui-input mt-1 w-full p-3 text-xs normal-case tracking-normal"
+                    placeholder="0.00"
+                  />
+                </label>
+              </div>
+              <p className="mt-2 text-[11px] font-semibold text-app-text-muted">
+                Default is actual counted cash minus opening float. Adjust only when retaining a different start bank.
+              </p>
             </div>
             <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">

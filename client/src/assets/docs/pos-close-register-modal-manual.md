@@ -31,13 +31,13 @@ Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** au
 ## The Reconciliation Flow
 1. **Cash**: Count bills and coins by denomination, or enter one drawer total.
 2. **Checks**: Confirm every check number and amount.
-3. **Z-Report**: Review totals, add required notes, then tap **Close & Print Z-Report**.
+3. **Z-Report**: Review totals, confirm the Daily Cash Deposit date and amount, add required notes, then tap **Close & Print Z-Report**.
 
 If a card terminal outcome blocks close, use **Review** in the closing workflow or **POS → Payments** to record the outcome before continuing.
 
 ## ✨ Register close explainer
 
-The Z-Report step includes a ROSIE explainer for visible close facts: expected cash, actual counted cash, cash over/short, card review blockers, check review, and checkout recovery blockers.
+The Z-Report step includes a ROSIE explainer for visible close facts: expected cash, actual counted cash, Daily Cash Deposit, cash over/short, card review blockers, check review, and checkout recovery blockers.
 
 ROSIE does not close the register, change tender totals, change counted cash, approve payment outcomes, or remove required notes. Treat the explainer as a plain-English review aid before the normal close controls.
 
@@ -45,6 +45,7 @@ ROSIE does not close the register, change tender totals, change counted cash, ap
 Upon closing, a professional, full-page **Z-Audit Report** is generated. 
 - **Audit Grade**: Replaces legacy thermal strips with high-fidelity Letter/A4 documents.
 - **Reporting Station**: The header confirms the assigned printer name for accountability.
+- **Daily Cash Deposit**: Captures the bank deposit date and cash deposit amount for deposit verification and accounting review.
 - **QBO Preview**: Shows the journal-entry breakdown staged for QuickBooks review.
 - **Inventory Activity**: Lists non-sale inventory moves for the day, including Receiving, RTV, Damaged, Physical Count, and Adjustments.
 - **Routing**: This report prints automatically to your **Report Station** (System Printer).

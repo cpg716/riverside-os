@@ -20,7 +20,7 @@ import {
   X
 } from "lucide-react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
-import { writeAndPrintDocumentWindow } from "../../lib/browserPrint";
+import { openPrintableHtml } from "../../lib/browserPrint";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   type LoyaltyEligibleCustomer,
@@ -77,9 +77,7 @@ interface LoyaltyLedgerEntry {
   activity_detail: string;
 }
 
-function printMailingLabels(customers: (LoyaltyEligibleCustomer | RewardFulfillmentRow)[]): void {
-  const w = window.open("", "_blank", "width=600,height=800");
-  if (!w) return;
+async function printMailingLabels(customers: (LoyaltyEligibleCustomer | RewardFulfillmentRow)[]): Promise<void> {
   const labels = customers
     .map(c => {
       const name = c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : (('customer_code' in c ? c.customer_code : null) || "Customer");
@@ -103,7 +101,7 @@ function printMailingLabels(customers: (LoyaltyEligibleCustomer | RewardFulfillm
         </div>`;
     })
     .join("");
-  writeAndPrintDocumentWindow(w, `<!DOCTYPE html><html><head><title>Mailing Labels</title>
+  await openPrintableHtml(`<!DOCTYPE html><html><head><title>Mailing Labels</title>
   <style>
     @page { size: letter; margin: 0.5in 0.1875in; }
     body { font-family: Arial, sans-serif; margin: 0; color: #111; }
@@ -112,7 +110,11 @@ function printMailingLabels(customers: (LoyaltyEligibleCustomer | RewardFulfillm
     .name { font-weight: 700; margin: 0 0 0.04in; }
     p { margin: 0; }
     @media screen { body { padding: 12px; background: #f4f4f5; } .sheet { background: white; width: 8.125in; min-height: 10in; padding: 0.5in 0.1875in; box-shadow: 0 8px 30px rgba(15,23,42,.18); } .label { outline: 1px dashed #ddd; } }
-  </style></head><body><div class="sheet">${labels}</div></body></html>`);
+  </style></head><body><div class="sheet">${labels}</div></body></html>`, "Mailing Labels", {
+    filename: "riverside-mailing-labels.html",
+    width: 600,
+    height: 800,
+  });
 }
 
 interface LoyaltyLetterCard {
@@ -153,14 +155,12 @@ function renderCardsTable(cards: LoyaltyLetterCard[]): string {
     .join("\n");
 }
 
-function printLoyaltyLetter(
+async function printLoyaltyLetter(
   customer: LoyaltyEligibleCustomer | RewardFulfillmentRow,
   template: string,
   rewardAmount: string,
   context: LoyaltyLetterContext = {},
-): void {
-  const w = window.open("", "_blank", "width=800,height=900");
-  if (!w) return;
+): Promise<void> {
   const fallbackIssueDate =
     "fulfillment_date" in customer && customer.fulfillment_date
       ? formatLetterDate(new Date(customer.fulfillment_date))
@@ -205,7 +205,7 @@ function printLoyaltyLetter(
     )
     .replace(/\{\{cards_table\}\}/g, renderCardsTable(cards));
 
-  writeAndPrintDocumentWindow(w, `<!DOCTYPE html><html><head><title>Loyalty Reward Letter</title>
+  await openPrintableHtml(`<!DOCTYPE html><html><head><title>Loyalty Reward Letter</title>
   <style>
     body { font-family: 'Times New Roman', serif; margin: 0; padding: 1in; line-height: 1.6; color: #333; }
     .letter-contents { max-width: 6.5in; margin: 0 auto; white-space: pre-wrap; font-size: 14pt; }
@@ -217,7 +217,11 @@ function printLoyaltyLetter(
     <div class="header"><h1>Riverside</h1></div>
     <div class="letter-contents">${content}</div>
     <div class="footer">Riverside OS Loyalty Fulfillment System</div>
-    </body></html>`);
+    </body></html>`, "Loyalty Reward Letter", {
+    filename: "riverside-loyalty-reward-letter.html",
+    width: 800,
+    height: 900,
+  });
 }
 
 function SettingsPanel({ 
@@ -694,7 +698,7 @@ function LoyaltyBatchRedeemDialog({
         0,
       ),
     );
-    printLoyaltyLetter(customer, settings.loyalty_letter_template || "", totalRewardAmount, {
+    void printLoyaltyLetter(customer, settings.loyalty_letter_template || "", totalRewardAmount, {
       cards: letterCards,
       issueDate: letterCards[0]?.issue_date,
       expirationDate: letterCards[0]?.expiration_date,
@@ -704,7 +708,7 @@ function LoyaltyBatchRedeemDialog({
 
   const printLettersForIssuedCustomers = () => {
     uniqueIssuedCustomers.forEach((customer) => {
-      printBatchLetterForCustomer(customer, issuedForCustomer(customer));
+      void printBatchLetterForCustomer(customer, issuedForCustomer(customer));
     });
   };
 
@@ -773,7 +777,7 @@ function LoyaltyBatchRedeemDialog({
       setCardCode("");
       const nextBalance = data.new_balance ?? Math.max(0, currentBalance - threshold);
       if (nextBalance < threshold) {
-        printBatchLetterForCustomer(current, cardsForLetter);
+        void printBatchLetterForCustomer(current, cardsForLetter);
         moveNext();
       } else {
         window.setTimeout(() => cardInputRef.current?.focus(), 50);
@@ -862,7 +866,7 @@ function LoyaltyBatchRedeemDialog({
                 </p>
                 <button
                   type="button"
-                  onClick={() => printMailingLabels(uniqueIssuedCustomers)}
+                  onClick={() => void printMailingLabels(uniqueIssuedCustomers)}
                   disabled={uniqueIssuedCustomers.length === 0}
                   className="ui-btn-primary mt-6 inline-flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                 >
@@ -960,7 +964,7 @@ function LoyaltyBatchRedeemDialog({
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => printBatchLetterForCustomer(current, currentIssuedRows)}
+                      onClick={() => void printBatchLetterForCustomer(current, currentIssuedRows)}
                       disabled={busy || currentIssuedRows.length === 0}
                       className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                     >
@@ -969,7 +973,7 @@ function LoyaltyBatchRedeemDialog({
                     </button>
                     <button
                       type="button"
-                      onClick={() => printMailingLabels(uniqueIssuedCustomers)}
+                      onClick={() => void printMailingLabels(uniqueIssuedCustomers)}
                       disabled={busy || uniqueIssuedCustomers.length === 0}
                       className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                     >
@@ -1131,7 +1135,7 @@ function EligibleList({
             {customers.length > 0 && (
               <button
                 type="button"
-                onClick={() => printMailingLabels(selectedCustomers.length > 0 ? selectedCustomers : customers)}
+                onClick={() => void printMailingLabels(selectedCustomers.length > 0 ? selectedCustomers : customers)}
                 className="ui-btn-secondary flex items-center gap-2 px-4 py-2 border-app-border/50 shadow-sm"
               >
                 <Printer className="h-4 w-4" />
@@ -1249,7 +1253,7 @@ function EligibleList({
                          </button>
                          <button
                            type="button"
-                           onClick={() => printMailingLabels([c])}
+                           onClick={() => void printMailingLabels([c])}
                            className="flex h-11 w-11 items-center justify-center rounded-2xl bg-app-surface border border-app-border text-app-text-muted hover:text-app-text hover:border-app-accent hover:shadow-lg transition-all active:scale-95"
                          >
                            <Printer size={18} />
@@ -1411,7 +1415,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                      {row.card_code && (
                        <button
                          type="button"
-                         onClick={() => template && printLoyaltyLetter(row, template, centsToFixed2(parseMoneyToCents(row.reward_amount)))}
+                         onClick={() => { if (template) void printLoyaltyLetter(row, template, centsToFixed2(parseMoneyToCents(row.reward_amount))); }}
                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-surface-2 border border-app-border text-purple-600 hover:border-purple-300 hover:shadow-lg transition-all"
                          title="Print Award Letter"
                        >
@@ -1420,7 +1424,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                      )}
                      <button
                        type="button"
-                       onClick={() => printMailingLabels([row])}
+                       onClick={() => void printMailingLabels([row])}
                        className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-surface-2 border border-app-border text-app-text-muted hover:text-app-text hover:border-app-accent hover:shadow-lg transition-all"
                        title="Print Label"
                      >

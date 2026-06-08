@@ -16,6 +16,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { useToast } from "../ui/ToastProviderLogic";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import { openExternalUrl } from "../../lib/desktopFileBridge";
 
 interface ConstantContactList {
   list_id: string;
@@ -166,7 +167,7 @@ export default function ConstantContactSettingsPanel() {
       });
       if (res.ok) {
         const data = (await res.json()) as { url: string };
-        window.open(data.url, "_blank", "width=600,height=700,status=no,resizable=yes");
+        await openExternalUrl(data.url, "_blank", "width=600,height=700,status=no,resizable=yes");
         startPolling();
       } else {
         const errJson = (await res.json().catch(() => ({}))) as { error?: string };

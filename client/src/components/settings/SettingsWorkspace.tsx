@@ -42,6 +42,7 @@ import {
   Wifi,
   type LucideIcon,
 } from "lucide-react";
+import { downloadBinaryFile } from "../../lib/desktopFileBridge";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { subSectionVisible } from "../../context/BackofficeAuthPermissions";
 
@@ -537,15 +538,10 @@ export default function SettingsWorkspace({
         toast("Could not download backup", "error");
         return;
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const bytes = new Uint8Array(await (await res.blob()).arrayBuffer());
+      await downloadBinaryFile(filename, bytes, "application/octet-stream", [
+        { name: "Backup", extensions: ["dump", "enc", "zip"] },
+      ]);
     } catch {
       toast("Could not download backup", "error");
     }

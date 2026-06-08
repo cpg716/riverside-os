@@ -8,6 +8,12 @@ use tokio::net::TcpStream;
 #[cfg(windows)]
 use std::{ffi::c_void, fs, process::Command, time::SystemTime};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Serialize)]
 pub struct SystemPrinter {
     pub name: String,
@@ -16,12 +22,16 @@ pub struct SystemPrinter {
 
 #[cfg(windows)]
 fn list_system_printers_sync() -> Result<Vec<SystemPrinter>, String> {
-    let output = Command::new("powershell")
+    let mut command = Command::new("powershell");
+    command
+        .creation_flags(CREATE_NO_WINDOW)
         .args([
             "-NoProfile",
+            "-NonInteractive",
             "-Command",
             "Get-CimInstance Win32_Printer | Select-Object @{Name='name';Expression={$_.Name}}, @{Name='is_default';Expression={$_.Default}} | ConvertTo-Json -Compress",
-        ])
+        ]);
+    let output = command
         .output()
         .map_err(|e| format!("Could not ask Windows for installed printers: {e}"))?;
 

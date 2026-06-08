@@ -20,6 +20,10 @@ import {
   redactDiagnosticText,
   redactDiagnosticValue,
 } from "../../lib/clientDiagnostics";
+import {
+  downloadBinaryFile,
+  downloadTextFile as saveTextDownload,
+} from "../../lib/desktopFileBridge";
 
 const baseUrl = getBaseUrl();
 
@@ -81,28 +85,16 @@ type EmailSettingsResponse = {
   credentials_configured: boolean;
 };
 
-function downloadJson(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(redactDiagnosticValue(data), null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 150);
+async function downloadJson(filename: string, data: unknown) {
+  const content = JSON.stringify(redactDiagnosticValue(data), null, 2);
+  await saveTextDownload(filename, content, "application/json", [{ name: "JSON", extensions: ["json"] }]);
 }
 
-function downloadTextFile(filename: string, text: string) {
-  const blob = new Blob([redactDiagnosticText(text)], {
-    type: "text/plain;charset=utf-8",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 150);
+async function downloadTextFile(filename: string, text: string) {
+  const content = redactDiagnosticText(text);
+  await saveTextDownload(filename, content, "text/plain;charset=utf-8", [
+    { name: "Text", extensions: ["txt", "md"] },
+  ]);
 }
 
 async function copyToClipboardOrDownload(
@@ -120,21 +112,17 @@ async function copyToClipboardOrDownload(
     // fall through to download fallback
   }
 
-  downloadTextFile(filename, payload);
+  await downloadTextFile(filename, payload);
   onCopySuccess();
 }
 
-function downloadPng(filename: string, base64: string) {
+async function downloadPng(filename: string, base64: string) {
   const bin = atob(base64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const blob = new Blob([bytes], { type: "image/png" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 150);
+  await downloadBinaryFile(filename, bytes, "image/png", [
+    { name: "PNG image", extensions: ["png"] },
+  ]);
 }
 
 function sanitizeDetail(detail: Detail): Detail {
@@ -961,7 +949,7 @@ export default function BugReportsSettingsPanel({
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
                   onClick={() =>
-                    downloadJson(`ros-bug-${detail.id}-full.json`, detail)
+                    void downloadJson(`ros-bug-${detail.id}-full.json`, detail)
                   }
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden />
@@ -971,7 +959,7 @@ export default function BugReportsSettingsPanel({
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
                   onClick={() =>
-                    downloadPng(
+                    void downloadPng(
                       `ros-bug-${detail.id}.png`,
                       detail.screenshot_png_base64,
                     )
@@ -984,7 +972,7 @@ export default function BugReportsSettingsPanel({
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
                   onClick={() =>
-                    downloadTextFile(
+                    void downloadTextFile(
                       `ros-bug-${detail.id}-server-log.txt`,
                       detail.server_log_snapshot || "",
                     )
@@ -997,7 +985,7 @@ export default function BugReportsSettingsPanel({
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
                   onClick={() =>
-                    downloadTextFile(
+                    void downloadTextFile(
                       `ros-bug-${detail.id}-client-console.txt`,
                       detail.client_console_log || "",
                     )
@@ -1199,7 +1187,7 @@ export default function BugReportsSettingsPanel({
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-app-danger"
                   onClick={() =>
-                    downloadTextFile(
+                    void downloadTextFile(
                       `ros-${isServerError(eventDetail) ? "server" : "client"}-error-${eventDetail.id}-ai-diagnostic.md`,
                       buildAiDiagnosticPackage(eventDetail),
                     )

@@ -29,6 +29,7 @@ import ProductHubDrawer from "../inventory/ProductHubDrawer";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
 import { openProfessionalDailySalesPrint, openProfessionalZReportPrint } from "./zReportPrint";
 import { useToast } from "../ui/ToastProviderLogic";
+import { downloadTextFile } from "../../lib/desktopFileBridge";
 
 const baseUrl = getBaseUrl();
 
@@ -147,6 +148,8 @@ interface RegisterSessionRow {
   expected_cash: string | null;
   actual_cash: string | null;
   discrepancy: string | null;
+  cash_deposit_date?: string | null;
+  cash_deposit_amount?: string | null;
   total_sales: string;
   closing_notes?: string | null;
   closing_comments?: string | null;
@@ -160,6 +163,8 @@ interface ZReportSnapshot {
   expected_cash?: string;
   actual_cash?: string;
   discrepancy?: string;
+  cash_deposit_date?: string | null;
+  cash_deposit_amount?: string | null;
   closing_notes?: string | null;
   closing_comments?: string | null;
   tenders?: Array<{ payment_method: string; total_amount: string; tx_count: number }>;
@@ -383,6 +388,15 @@ function qboStatusTone(status?: string | null) {
   }
 }
 
+function formatDepositDate(value?: string | null) {
+  if (!value) return "No date";
+  return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 function primaryRegisterSession(
   sessions: OpenRegisterSessionRow[],
 ): OpenRegisterSessionRow | null {
@@ -406,6 +420,10 @@ function openZReportFromSession(session: RegisterSessionRow): void {
     expectedCents: parseMoneyToCents(snapshot?.expected_cash ?? session.expected_cash ?? "0"),
     actualCents: parseMoneyToCents(snapshot?.actual_cash ?? session.actual_cash ?? "0"),
     discrepancyCents: parseMoneyToCents(snapshot?.discrepancy ?? session.discrepancy ?? "0"),
+    cashDepositDate: snapshot?.cash_deposit_date ?? session.cash_deposit_date ?? null,
+    cashDepositAmountCents: parseMoneyToCents(
+      snapshot?.cash_deposit_amount ?? session.cash_deposit_amount ?? "0",
+    ),
     closingNotes: snapshot?.closing_notes ?? session.closing_notes ?? null,
     closingComments: snapshot?.closing_comments ?? session.closing_comments ?? null,
     tenders: snapshot?.tenders ?? [],
@@ -761,45 +779,9 @@ export default function RegisterReports({
       return v.includes(",") ? `"${v}"` : v;
     }).join(",")].join("\n");
 
-    // Check if running in Tauri
-    const isTauriEnv = typeof window !== "undefined" && (window as unknown as { __TAURI__?: unknown }).__TAURI__;
-
-    if (isTauriEnv) {
-      try {
-        const { save } = await import("@tauri-apps/plugin-dialog");
-        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-        const filePath = await save({
-          defaultPath: `daily-sales-${preset}.csv`,
-          filters: [{ name: "CSV", extensions: ["csv"] }],
-        });
-        if (filePath) {
-          await writeTextFile(filePath, csv);
-        }
-      } catch (err) {
-        console.error("Tauri save failed:", err);
-        // Fallback to browser method
-        const blob = new Blob([csv], { type: "text/csv" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `daily-sales-${preset}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
-    } else {
-      // Browser/PWA: use standard download
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `daily-sales-${preset}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
+    await downloadTextFile(`daily-sales-${preset}.csv`, csv, "text/csv;charset=utf-8", [
+      { name: "CSV", extensions: ["csv"] },
+    ]);
   };
 
   const submitVoidTransaction = useCallback(
@@ -1577,7 +1559,10 @@ export default function RegisterReports({
                 </div>
               ) : (
                 <ul className="flex flex-col divide-y divide-app-border overflow-y-auto">
-                  {zLogs.map((session) => (
+                  {zLogs.map((session) => {
+                    const depositDate = session.z_report_json?.cash_deposit_date ?? session.cash_deposit_date ?? null;
+                    const depositAmount = session.z_report_json?.cash_deposit_amount ?? session.cash_deposit_amount ?? "0";
+                    return (
                     <li key={session.id} className="flex items-center gap-4 px-4 py-4 sm:px-6 hover:bg-app-surface-2/70">
                       <div className="flex-1">
                         <p className="text-xs font-bold text-app-text-muted">
@@ -1607,6 +1592,9 @@ export default function RegisterReports({
                         </p>
                         <p className="text-xl font-black tabular-nums text-app-accent">${centsToFixed2(parseMoneyToCents(session.total_sales))}</p>
                         <p className="text-xs text-app-text-muted">Exp. cash ${centsToFixed2(parseMoneyToCents(session.expected_cash ?? "0"))}</p>
+                        <p className="text-xs font-semibold text-app-text-muted">
+                          Deposit {formatDepositDate(depositDate)} · ${centsToFixed2(parseMoneyToCents(depositAmount))}
+                        </p>
                         <div className="mt-2 flex flex-col items-end gap-1">
                           <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${qboStatusTone(session.qbo_status)}`}>
                             {qboStatusLabel(session.qbo_status)}
@@ -1642,7 +1630,8 @@ export default function RegisterReports({
                         </button>
                       </div>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </div>

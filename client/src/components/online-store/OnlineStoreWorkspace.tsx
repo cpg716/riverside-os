@@ -19,6 +19,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { getBaseUrl } from "../../lib/apiConfig";
 import { apiUrl } from "../../lib/apiUrl";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { openExternalUrl } from "../../lib/desktopFileBridge";
 import type { SidebarTabId } from "../layout/sidebarSections";
 import OnlineStoreSettingsPanel from "../settings/OnlineStoreSettingsPanel";
 import OnlineStoreProductsPanel from "./OnlineStoreProductsPanel";
@@ -1113,7 +1114,7 @@ function PublishHistoryPanel({
                 type="button"
                 className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
                 onClick={() =>
-                  window.open(
+                  void openExternalUrl(
                     `/shop/${String(revision.slug)}`,
                     "_blank",
                     "noopener,noreferrer",
@@ -1559,7 +1560,7 @@ export default function OnlineStoreWorkspace({
         </div>
         <button
           type="button"
-          onClick={() => window.open("/shop", "_blank", "noopener,noreferrer")}
+          onClick={() => void openExternalUrl("/shop", "_blank", "noopener,noreferrer")}
           className="ui-btn-secondary inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest"
         >
           Open /shop

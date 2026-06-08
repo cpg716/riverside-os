@@ -25,7 +25,7 @@ import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2 } from "../../lib/money";
 import { enqueueFailedPrint } from "../../lib/printRetryQueue";
-import { writeAndPrintDocumentWindow } from "../../lib/browserPrint";
+import { openPrintableHtml } from "../../lib/browserPrint";
 import type { OrderPaymentCartLine } from "./types";
 
 export interface ReceiptSummaryModalProps {
@@ -792,12 +792,11 @@ export default function ReceiptSummaryModal({
         `;
       }
 
-      const w = window.open("", "_blank");
-      if (!w) {
-        throw new Error("Popup blocked — allow popups to print the report copy.");
-      }
-      w.opener = null;
-      writeAndPrintDocumentWindow(w, content);
+      await openPrintableHtml(content, "Receipt Copy", {
+        filename: "riverside-receipt-copy.html",
+        width: 420,
+        height: 760,
+      });
       toast("Receipt opened for the reports printer.", "success");
     } catch (e) {
       console.error("Receipt print view failed", e);

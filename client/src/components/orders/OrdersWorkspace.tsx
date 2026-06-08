@@ -32,6 +32,7 @@ import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { getAppIcon } from "../../lib/icons";
 import type { CustomOrderDetails } from "../../lib/customOrders";
+import { openPrintableHtml } from "../../lib/browserPrint";
 
 const WEDDINGS_ICON = getAppIcon("weddings");
 const ORDERS_ICON = getAppIcon("orders");
@@ -392,15 +393,12 @@ function viewPresetLabel(value: OrderViewPreset) {
   }
 }
 
-function openBespokeOrdersPrint(opts: {
+async function openBespokeOrdersPrint(opts: {
   title: string;
   subtitle: string;
   rows: TransactionRow[];
   hydratedOrderLines: Record<string, OrderLineSummary>;
-}): boolean {
-  const w = window.open("", "_blank", "width=1100,height=950");
-  if (!w) return false;
-
+}): Promise<void> {
   const reportPrinter =
     localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
   const orderCards = opts.rows
@@ -480,8 +478,7 @@ function openBespokeOrdersPrint(opts: {
     })
     .join("");
 
-  w.document
-    .write(`<!DOCTYPE html><html><head><title>${escapePrintHtml(opts.title)}</title>
+  await openPrintableHtml(`<!DOCTYPE html><html><head><title>${escapePrintHtml(opts.title)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800;900&display=swap');
     @page { size: letter portrait; margin: 0.35in; }
@@ -534,17 +531,11 @@ function openBespokeOrdersPrint(opts: {
     </header>
     <p class="subtitle">${escapePrintHtml(opts.subtitle)}</p>
     ${orderCards || `<section class="order-card muted">No records found</section>`}
-  </body></html>`);
-  w.document.close();
-  w.focus();
-  setTimeout(() => {
-    try {
-      w.print();
-    } catch (error) {
-      console.error("Orders print failed", error);
-    }
-  }, 500);
-  return true;
+  </body></html>`, opts.title, {
+    filename: `riverside-orders-${opts.title.replace(/[^a-z0-9]+/gi, "-")}.html`,
+    width: 1100,
+    height: 950,
+  });
 }
 
 type OrderViewPreset = "open" | "all" | "closed" | "cancelled";
@@ -1802,7 +1793,7 @@ export default function OrdersWorkspace({
     return !hydrated?.items.length && !hydrated?.error;
   });
 
-  const printOrdersList = useCallback(() => {
+  const printOrdersList = useCallback(async () => {
     if (hasUnresolvedOrderItems) {
       toast(
         "Order item names are still loading. Try Print again once the list finishes.",
@@ -1821,15 +1812,16 @@ export default function OrdersWorkspace({
       search.trim() ? `Search: ${search.trim()}` : null,
     ].filter(Boolean);
 
-    const started = openBespokeOrdersPrint({
-      title,
-      subtitle: `${filters.join(" · ")} · ${transactionRows.length} shown record${transactionRows.length === 1 ? "" : "s"}`,
-      rows: transactionRows,
-      hydratedOrderLines,
-    });
-    if (!started) {
+    try {
+      await openBespokeOrdersPrint({
+        title,
+        subtitle: `${filters.join(" · ")} · ${transactionRows.length} shown record${transactionRows.length === 1 ? "" : "s"}`,
+        rows: transactionRows,
+        hydratedOrderLines,
+      });
+    } catch {
       toast(
-        "Print could not open. Check pop-up permissions or printer setup.",
+        "Print could not open. Check printer setup and try again.",
         "error",
       );
     }
@@ -2049,7 +2041,7 @@ export default function OrdersWorkspace({
 
                 <button
                   type="button"
-                  onClick={printOrdersList}
+                  onClick={() => void printOrdersList()}
                   disabled={
                     transactionRows.length === 0 ||
                     transactionsLoading ||

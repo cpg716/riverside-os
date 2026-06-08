@@ -60,6 +60,7 @@ export default function App() {
   // Execution state
   const [logs, setLogs] = useState<LogMessage[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [wizardExecutionStatus, setWizardExecutionStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // PostgreSQL status
@@ -67,6 +68,13 @@ export default function App() {
   const [pgLoading, setPgLoading] = useState(false);
   const [selfUpdateCheck, setSelfUpdateCheck] = useState<UpdateCheckResult | null>(null);
   const [selfUpdateBusy, setSelfUpdateBusy] = useState(false);
+
+  const selectedInstallLabel =
+    role === 'main-hub'
+      ? 'Installing Main Hub'
+      : role === 'standalone-backoffice'
+        ? 'Installing Back Office App'
+        : 'Installing Register #1 App';
 
   // Auto-scroll logs
   useEffect(() => {
@@ -152,12 +160,16 @@ export default function App() {
   const handleContinueToExec = async () => {
     await saveMainHubConfig();
     setStep(3);
+    setWizardExecutionStatus('running');
     if (role === 'main-hub') {
-      executeScript('install-server.ps1');
+      executeScript('install-server.ps1', undefined, {
+        markWizardInstall: true,
+        runMainHubDesktopSequence: true,
+      });
     } else if (role === 'standalone-backoffice') {
-      executeScript('install-register.ps1', ['-StationMode', 'backoffice']);
+      executeScript('install-register.ps1', ['-StationMode', 'backoffice'], { markWizardInstall: true });
     } else {
-      executeScript('install-register.ps1', ['-StationMode', 'register1']);
+      executeScript('install-register.ps1', ['-StationMode', 'register1'], { markWizardInstall: true });
     }
   };
 
@@ -170,10 +182,11 @@ export default function App() {
     return false;
   };
 
-  const executeScript = async (scriptName: string, args?: string[], options?: { requireAdmin?: boolean }) => {
+  const executeScript = async (scriptName: string, args?: string[], options?: { requireAdmin?: boolean; markWizardInstall?: boolean; runMainHubDesktopSequence?: boolean }) => {
     if (isExecuting) return;
     if (options?.requireAdmin !== false && !requireElevation(`Running ${scriptName}`)) return;
     setIsExecuting(true);
+    if (options?.markWizardInstall) setWizardExecutionStatus('running');
     setLogs([{ level: 'info', text: `Executing ${scriptName}${args ? ' ' + args.join(' ') : ''}...` }]);
 
     const unlisten = await listen<LogMessage>('deployment-log', (event) => {
@@ -188,13 +201,18 @@ export default function App() {
       //   1. install-server.ps1  ← done above
       //   2. repair-bootstrap-admin.ps1
       //   3. install-register.ps1  (installs the BO desktop Tauri app on this PC)
-      if (scriptName === 'install-server.ps1' && step === 3) {
+      if (scriptName === 'install-server.ps1' && options?.runMainHubDesktopSequence) {
         setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
         await invoke('run_deployment_script', { scriptName: 'repair-bootstrap-admin.ps1', args: undefined });
         setLogs(prev => [...prev, { level: 'info', text: 'Installing Main Hub desktop app...' }]);
         await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: ['-StationMode', 'mainhub'] });
       }
+      if (options?.markWizardInstall) {
+        setWizardExecutionStatus('success');
+        setLogs(prev => [...prev, { level: 'success', text: `${selectedInstallLabel} complete.` }]);
+      }
     } catch (e) {
+      if (options?.markWizardInstall) setWizardExecutionStatus('error');
       setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
     } finally {
       setIsExecuting(false);
@@ -329,7 +347,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-zinc-900">Riverside OS Deployment</h1>
-            <p className="text-zinc-500 text-sm font-medium">Install or update this station</p>
+            <p className="text-zinc-500 text-sm font-medium">Install, repair, or update this station</p>
           </div>
         </div>
         <div className="flex bg-zinc-200 p-1 rounded-lg">
@@ -466,9 +484,39 @@ export default function App() {
             )}
 
             {step === 3 && (
-              <div className="flex-1 flex flex-col justify-center">
-                <h2 className="text-xl font-bold mb-2">Installing Updates...</h2>
-                <p className="text-sm text-zinc-500">Follow progress in the full Execution Output console below.</p>
+              <div className="flex-1 flex flex-col">
+                <h2 className="text-xl font-bold mb-2">{selectedInstallLabel}...</h2>
+                <p className="text-sm text-zinc-500 mb-4">Live installer output is shown below and mirrored in the full Execution Output console.</p>
+                {wizardExecutionStatus === 'error' && (
+                  <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                    Install failed. Review or copy the execution log before retrying. The Finish button is disabled until the install completes successfully.
+                  </div>
+                )}
+                {wizardExecutionStatus === 'success' && (
+                  <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
+                    Install completed successfully. You can finish this wizard.
+                  </div>
+                )}
+                <div className="flex-1 min-h-[280px] rounded-xl bg-zinc-900 p-4 font-mono text-xs text-zinc-300 overflow-y-auto shadow-inner">
+                  {logs.length === 0 ? (
+                    <div className="h-full min-h-[240px] flex flex-col items-center justify-center text-zinc-500 gap-2">
+                      <Terminal className="w-7 h-7 text-zinc-700" />
+                      <span>Starting installer...</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 pb-2">
+                      {logs.slice(-80).map((log, i) => (
+                        <p key={i} className={`whitespace-pre-wrap ${
+                          log.level === 'error' ? 'text-red-400' :
+                          log.level === 'success' ? 'text-green-400' :
+                          'text-zinc-300'
+                        }`}>
+                          {log.text}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -493,7 +541,7 @@ export default function App() {
                   Apply & Install <ChevronRight className="w-4 h-4" />
                 </button>
               )}
-              {step === 3 && !isExecuting && (
+              {step === 3 && !isExecuting && wizardExecutionStatus === 'success' && (
                 <button onClick={() => setStep(4)} className="px-6 py-2.5 bg-brand-600 text-white font-semibold rounded-lg hover:bg-brand-700 flex items-center gap-2 shadow-sm">
                   Finish <ChevronRight className="w-4 h-4" />
                 </button>

@@ -1,4 +1,5 @@
 import { autoRoutePrint } from "../../lib/printerBridge";
+import { openDesktopTextPreview } from "../../lib/desktopFileBridge";
 
 export interface InventoryTagItem {
   sku: string;
@@ -488,46 +489,23 @@ export async function openSingleInventoryTag(
 }
 
 /** Browser preview/system-dialog fallback for tag layouts. */
-export function openInventoryTagsPreviewWindow(
+export async function openInventoryTagsPreviewWindow(
   items: InventoryTagItem[],
   overrideConfig?: Partial<InventoryTagPrintConfig>,
-): InventoryTagPrintResult {
+): Promise<InventoryTagPrintResult> {
   if (items.length === 0) return "browser";
   const config = {
     ...getInventoryTagPrintConfig(),
     ...overrideConfig,
   };
+  const html = buildDocument(items, config);
 
   // Check if running in Tauri environment
   const isTauriEnv = typeof window !== "undefined" &&
     (window as unknown as { __TAURI__?: unknown }).__TAURI__;
 
   if (isTauriEnv) {
-    // For Tauri, write to a temporary file and open it
-    const html = buildDocument(items, config);
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-
-    // Also try to open in new window for preview with appropriate size
-    try {
-      const w = window.open(url, "_blank", "width=350,height=500");
-      if (w) {
-        w.focus();
-        // Don't auto-print in Tauri preview - let user choose
-        return "browser";
-      }
-    } catch (e) {
-      console.warn("Tauri window.open failed", e);
-    }
-
-    // Fallback: download the file
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "tag-preview.html";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-
+    await openDesktopTextPreview("riverside-tag-preview.html", html);
     return "browser";
   }
 
@@ -536,7 +514,7 @@ export function openInventoryTagsPreviewWindow(
   if (!w) {
     return "blocked";
   }
-  w.document.write(buildDocument(items, config));
+  w.document.write(html);
   w.document.close();
   w.focus();
   w.print();
@@ -559,6 +537,6 @@ export async function openInventoryTagsWindow(
     return "direct";
   } catch (error) {
     console.warn("Direct Zebra tag print failed; opening browser print fallback", error);
-    return openInventoryTagsPreviewWindow(items, config);
+    return await openInventoryTagsPreviewWindow(items, config);
   }
 }

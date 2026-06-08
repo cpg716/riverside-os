@@ -5,6 +5,7 @@ import { apiUrl } from "../../lib/apiUrl";
 import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
+import { openExternalUrl } from "../../lib/desktopFileBridge";
 
 type MerchFilter = "all" | "on-web" | "draft" | "needs-setup" | "zero-stock";
 
@@ -438,7 +439,7 @@ export default function OnlineStoreProductsPanel({
                       <button
                         type="button"
                         onClick={() =>
-                          window.open(
+                          void openExternalUrl(
                             `/shop/products/${encodeURIComponent(slug)}`,
                             "_blank",
                             "noopener,noreferrer",

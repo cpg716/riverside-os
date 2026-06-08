@@ -25,6 +25,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import RosieIcon from "../common/RosieIcon";
+import { openPrintableHtml } from "../../lib/browserPrint";
 import type { Customer } from "../pos/CustomerSelector";
 import type {
   CustomerProfile,
@@ -2096,15 +2097,16 @@ export function CustomerRelationshipHubDrawer({
   };
 
   const printMeasurements = () => {
-    const w = window.open("", "_blank");
-    if (!w || !printRef.current) return;
-    w.document.write(
+    if (!printRef.current) return;
+    void openPrintableHtml(
       `<html><head><title>Measurements — ${title}</title></head><body>${printRef.current.innerHTML}</body></html>`,
+      `Measurements ${title}`,
+      {
+        filename: `riverside-measurements-${title.replace(/[^a-z0-9]+/gi, "-")}.html`,
+        width: 900,
+        height: 900,
+      },
     );
-    w.document.close();
-    w.focus();
-    w.print();
-    w.close();
   };
 
   const tabBtn = (id: HubTab, label: string) => (

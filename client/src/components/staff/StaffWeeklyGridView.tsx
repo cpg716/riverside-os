@@ -21,6 +21,7 @@ import ExcelJS from "exceljs";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import { openPrintableHtml } from "../../lib/browserPrint";
 
 const baseUrl = getBaseUrl();
 
@@ -1000,14 +1001,6 @@ const buildStaffPrintDocument = (
     </div>
   </div>
 
-  <script>
-    window.onload = () => {
-      setTimeout(() => {
-        window.print();
-        // Optional: window.close();
-      }, 250);
-    };
-  </script>
 </body>
 </html>`;
 };
@@ -1770,13 +1763,11 @@ export default function StaffWeeklyGridView() {
 
   const handlePrint = () => {
     const doc = buildStaffPrintDocument(sortedSchedules, weekLabel, events, sundayStart(weekCursor));
-    const printWindow = window.open("", "_blank", "width=1400,height=900");
-    if (!printWindow) return;
-    printWindow.document.open();
-    printWindow.document.write(doc);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.onafterprint = () => printWindow.close();
+    void openPrintableHtml(doc, `Staff Schedule ${weekLabel}`, {
+      filename: `riverside-staff-schedule-${weekLabel.replace(/[^a-z0-9]+/gi, "-")}.html`,
+      width: 1400,
+      height: 900,
+    });
   };
 
   const statusText = hasPublished

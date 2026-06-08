@@ -23,6 +23,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import StoreStaffPlaybookCard from "./StoreStaffPlaybookCard";
 import RosieIcon from "../common/RosieIcon";
+import { downloadTextFile } from "../../lib/desktopFileBridge";
 
 const baseUrl = getBaseUrl();
 
@@ -444,17 +445,12 @@ export default function HelpCenterSettingsPanel() {
       // fall through to file download
     }
 
-    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `help-center-manager-ops-logs-${new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    await downloadTextFile(
+      `help-center-manager-ops-logs-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
+      text,
+      "application/json;charset=utf-8",
+      [{ name: "JSON", extensions: ["json"] }],
+    );
     toast("Operation logs exported as JSON", "success");
     pushLog("ops.logs.export", true, "Downloaded logs JSON");
   };
