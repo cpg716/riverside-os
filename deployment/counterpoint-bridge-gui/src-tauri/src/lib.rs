@@ -284,8 +284,7 @@ fn start_bridge(
         let mut logs = state.logs.lock().unwrap();
         logs.clear();
         logs.push(format!(
-            "[SYSTEM] Starting sync engine (dry_run: {})...",
-            dry_run
+            "[SYSTEM] Starting sync engine (dry_run: {dry_run})..."
         ));
     }
 
@@ -336,44 +335,36 @@ fn start_bridge(
             let logs_clone1 = Arc::clone(&state.logs);
             thread::spawn(move || {
                 let reader = BufReader::new(stdout);
-                for line in reader.lines() {
-                    if let Ok(line_str) = line {
-                        let mut logs = logs_clone1.lock().unwrap();
-                        if logs.len() > 1000 {
-                            logs.remove(0);
-                        }
-                        logs.push(line_str);
+                for line_str in reader.lines().map_while(Result::ok) {
+                    let mut logs = logs_clone1.lock().unwrap();
+                    if logs.len() > 1000 {
+                        logs.remove(0);
                     }
+                    logs.push(line_str);
                 }
             });
 
             let logs_clone2 = Arc::clone(&state.logs);
             thread::spawn(move || {
                 let reader = BufReader::new(stderr);
-                for line in reader.lines() {
-                    if let Ok(line_str) = line {
-                        let mut logs = logs_clone2.lock().unwrap();
-                        if logs.len() > 1000 {
-                            logs.remove(0);
-                        }
-                        logs.push(format!("[ERROR] {}", line_str));
+                for line_str in reader.lines().map_while(Result::ok) {
+                    let mut logs = logs_clone2.lock().unwrap();
+                    if logs.len() > 1000 {
+                        logs.remove(0);
                     }
+                    logs.push(format!("[ERROR] {line_str}"));
                 }
             });
 
             *child_guard = Some(child);
             Ok(format!(
-                "Started Bridge in {:?} with Node runtime {:?}",
-                bridge_dir, node_path
+                "Started Bridge in {bridge_dir:?} with Node runtime {node_path:?}"
             ))
         }
         Err(e) => {
             let mut logs = state.logs.lock().unwrap();
-            logs.push(format!(
-                "[SYSTEM ERROR] Failed to start Node process: {}",
-                e
-            ));
-            Err(format!("Failed to start Node process: {}", e))
+            logs.push(format!("[SYSTEM ERROR] Failed to start Node process: {e}"));
+            Err(format!("Failed to start Node process: {e}"))
         }
     }
 }
@@ -388,7 +379,7 @@ fn stop_bridge(state: State<'_, BridgeProcessState>) -> Result<String, String> {
                 logs.push("[SYSTEM] Stopped bridge process manually.".into());
                 Ok("Stopped bridge process".into())
             }
-            Err(e) => Err(format!("Failed to stop process: {}", e)),
+            Err(e) => Err(format!("Failed to stop process: {e}")),
         }
     } else {
         Ok("Bridge was not running".into())
@@ -484,7 +475,7 @@ fn save_settings(
             if trimmed.starts_with(k) && trimmed.contains('=') {
                 if let Some(pos) = trimmed.find('=') {
                     if trimmed[..pos].trim() == k {
-                        *line = format!("{}={}", k, v);
+                        *line = format!("{k}={v}");
                         found = true;
                         break;
                     }
@@ -492,7 +483,7 @@ fn save_settings(
             }
         }
         if !found {
-            lines.push(format!("{}={}", k, v));
+            lines.push(format!("{k}={v}"));
         }
     }
 

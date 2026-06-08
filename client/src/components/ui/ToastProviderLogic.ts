@@ -14,6 +14,22 @@ export interface ToastContextValue {
   removeToast: (id: string) => void;
 }
 
+export const APP_TOAST_EVENT = "ros-app-toast";
+
+export interface AppToastEventDetail {
+  message: string;
+  type?: ToastType;
+}
+
+export function dispatchAppToast(message: string, type: ToastType = "info") {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<AppToastEventDetail>(APP_TOAST_EVENT, {
+      detail: { message, type },
+    }),
+  );
+}
+
 export const ToastContext = createContext<ToastContextValue | undefined>(undefined);
 
 export function useToast() {

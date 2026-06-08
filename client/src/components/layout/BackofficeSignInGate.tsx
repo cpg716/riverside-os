@@ -418,13 +418,13 @@ export default function BackofficeSignInGate({
                       try {
                         const check = await checkForAppUpdate();
                         if (!check.available) {
-                          alert("No update found in the updater channel. Ask your manager to update this station manually.");
+                          toast("No update found in the updater channel. Ask your manager to update this station manually.", "error");
                           return;
                         }
                         await installAppUpdate();
                         setAppUpdateDone(true);
                       } catch (e) {
-                        alert(String(e));
+                        toast(String(e), "error");
                       } finally {
                         setAppUpdateBusy(false);
                       }

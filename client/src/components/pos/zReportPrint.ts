@@ -1,5 +1,6 @@
 /** Professional letter-style Z / X reconciliation report for audit and accounting (browser print). */
 
+import { dispatchAppToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 
 export interface ZReportTenderRow {
@@ -79,6 +80,11 @@ function formatReportMoney(value: string | number): string {
   const cents = typeof value === "number" ? value : parseMoneyToCents(String(value));
   const sign = cents < 0 ? "-" : "";
   return `${sign}$${centsToFixed2(Math.abs(cents))}`;
+}
+
+function notifyPrintDialogFailure(error: unknown): void {
+  console.error("Print failed:", error);
+  dispatchAppToast("Print dialog could not be opened. Please check your browser settings.", "error");
 }
 
 function reportLabel(value: string | null | undefined): string {
@@ -550,8 +556,7 @@ export function openProfessionalZReportPrint(opts: {
         try {
           w.print();
         } catch (e) {
-          console.error("Print failed:", e);
-          alert("Print dialog could not be opened. Please check your browser settings.");
+          notifyPrintDialogFailure(e);
         }
       }
     }, 500);
@@ -560,8 +565,7 @@ export function openProfessionalZReportPrint(opts: {
       try {
         w.print();
       } catch (e) {
-        console.error("Print failed:", e);
-        alert("Print dialog could not be opened. Please check your browser settings.");
+        notifyPrintDialogFailure(e);
       }
     }, 500);
   }
@@ -836,8 +840,7 @@ export function openProfessionalDailySalesPrint(opts: {
         try {
           w.print();
         } catch (e) {
-          console.error("Print failed:", e);
-          alert("Print dialog could not be opened. Please check your browser settings.");
+          notifyPrintDialogFailure(e);
         }
       }
     }, 500);
@@ -846,8 +849,7 @@ export function openProfessionalDailySalesPrint(opts: {
       try {
         w.print();
       } catch (e) {
-        console.error("Print failed:", e);
-        alert("Print dialog could not be opened. Please check your browser settings.");
+        notifyPrintDialogFailure(e);
       }
     }, 500);
   }

@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  BellRing,
   Building2,
   CalendarClock,
   ClipboardList,
@@ -49,6 +50,7 @@ export type AppIconName =
   | "appointments"
   | "settings"
   | "tasks"
+  | "notifications"
   | "inbox"
   | "rmsCharge"
   | "layaways"
@@ -79,6 +81,7 @@ export const APP_ICONS: Record<AppIconName, LucideIcon> = {
   appointments: CalendarClock,
   settings: Settings,
   tasks: ListChecks,
+  notifications: BellRing,
   inbox: MessageSquare,
   rmsCharge: Wallet,
   layaways: Clock3,
@@ -93,7 +96,7 @@ export const APP_NAV_ICON_NAMES = {
   register: "register",
   customers: "customers",
   "rms-charge": "rmsCharge",
-  "customer-notifications": "inbox",
+  "customer-notifications": "notifications",
   "podium-inbox": "inbox",
   alterations: "alterations",
   orders: "orders",

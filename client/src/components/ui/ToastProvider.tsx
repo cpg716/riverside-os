@@ -1,6 +1,12 @@
-import { useState, useCallback, useRef, type ReactNode } from "react";
+import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { CheckCircle2, AlertTriangle, Info, X } from "lucide-react";
-import { ToastContext, type Toast, type ToastType } from "./ToastProviderLogic";
+import {
+  APP_TOAST_EVENT,
+  ToastContext,
+  type AppToastEventDetail,
+  type Toast,
+  type ToastType,
+} from "./ToastProviderLogic";
 import { getBaseUrl } from "../../lib/apiConfig";
 import { sessionPollAuthHeaders } from "../../lib/posRegisterAuth";
 import {
@@ -135,6 +141,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
     scheduleDismiss(id);
   }, [scheduleDismiss]);
+
+  useEffect(() => {
+    const handleAppToast = (event: Event) => {
+      const detail = (event as CustomEvent<AppToastEventDetail>).detail;
+      if (!detail?.message) return;
+      const type =
+        detail.type === "success" || detail.type === "error" || detail.type === "info"
+          ? detail.type
+          : "info";
+      toast(detail.message, type);
+    };
+
+    window.addEventListener(APP_TOAST_EVENT, handleAppToast);
+    return () => window.removeEventListener(APP_TOAST_EVENT, handleAppToast);
+  }, [toast]);
 
   return (
     <ToastContext.Provider value={{ toast, removeToast }}>
