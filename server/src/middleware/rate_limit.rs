@@ -80,6 +80,14 @@ pub async fn rate_limit_handler(
     request: Request,
     next: Next,
 ) -> Response {
+    if is_authenticated_counterpoint_bridge_request(&request) {
+        let mut response = next.run(request).await;
+        response
+            .headers_mut()
+            .insert("X-RateLimit-Bypass", "counterpoint-bridge".parse().unwrap());
+        return response;
+    }
+
     let now = Instant::now();
 
     // Extract client IP
@@ -116,6 +124,34 @@ pub async fn rate_limit_handler(
     headers.insert("X-RateLimit-Remaining", "999".parse().unwrap());
 
     response
+}
+
+fn is_authenticated_counterpoint_bridge_request(request: &Request) -> bool {
+    let path = request.uri().path();
+    if path != "/api/sync/counterpoint" && !path.starts_with("/api/sync/counterpoint/") {
+        return false;
+    }
+
+    if request
+        .headers()
+        .get("x-ros-sync-token")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+    {
+        return true;
+    }
+
+    request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .is_some_and(|value| {
+            value
+                .strip_prefix("Bearer ")
+                .is_some_and(|token| !token.trim().is_empty())
+        })
 }
 
 fn extract_client_ip(request: &Request) -> String {

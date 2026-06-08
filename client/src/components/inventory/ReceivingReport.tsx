@@ -12,6 +12,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { openPrintableHtml } from "../../lib/browserPrint";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const BASE_URL = getBaseUrl();
 
@@ -81,6 +82,7 @@ export default function ReceivingReport({
   showTagPrompt = false,
 }: Props) {
   const { backofficeHeaders } = useBackofficeAuth();
+  const { toast } = useToast();
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
@@ -174,8 +176,13 @@ export default function ReceivingReport({
       filename: `riverside-receiving-${detail.po_number}.html`,
       width: 900,
       height: 700,
+    }).catch((error) => {
+      toast(
+        error instanceof Error ? error.message : "Could not open receiving report.",
+        "error",
+      );
     });
-  }, [detail]);
+  }, [detail, toast]);
 
   const root = document.getElementById("drawer-root");
   if (!root) return null;

@@ -1284,7 +1284,7 @@ pub async fn get_data_sources_health(pool: &PgPool) -> Result<DataSourcesHealth,
         JOIN lightspeed_normalization_reference_rows r ON r.batch_id = b.id
         WHERE b.status = 'active'
         GROUP BY b.source_file_name
-        ORDER BY b.imported_at DESC
+        ORDER BY MAX(b.imported_at) DESC
         LIMIT 1
         "#,
     )
@@ -1299,7 +1299,7 @@ pub async fn get_data_sources_health(pool: &PgPool) -> Result<DataSourcesHealth,
         JOIN counterpoint_csv_reference_rows r ON r.batch_id = b.id
         WHERE b.status = 'active'
         GROUP BY b.source_file_name
-        ORDER BY b.imported_at DESC
+        ORDER BY MAX(b.imported_at) DESC
         LIMIT 1
         "#,
     )

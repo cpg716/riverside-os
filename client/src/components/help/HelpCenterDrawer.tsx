@@ -1090,6 +1090,10 @@ export default function HelpCenterDrawer({
       filename: `riverside-help-${activeManual.id}.html`,
       width: 900,
       height: 1100,
+    }).catch((error) => {
+      const message =
+        error instanceof Error ? error.message : "Could not open Help print preview.";
+      setRosieStatus(`Could not open Help print preview: ${message}`);
     });
   }, [activeManual, activeDisplayTitle, displayMarkdown]);
 

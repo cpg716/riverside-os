@@ -1767,6 +1767,11 @@ export default function StaffWeeklyGridView() {
       filename: `riverside-staff-schedule-${weekLabel.replace(/[^a-z0-9]+/gi, "-")}.html`,
       width: 1400,
       height: 900,
+    }).catch((error) => {
+      toast(
+        error instanceof Error ? error.message : "Could not open staff schedule print preview.",
+        "error",
+      );
     });
   };
 

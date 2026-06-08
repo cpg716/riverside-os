@@ -20,6 +20,20 @@ fn repo_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+fn read_bundled_manual_raw(rel_path: &str) -> Result<String, std::io::Error> {
+    if let Some(markdown) = help_manual_bundled_markdown(rel_path) {
+        return Ok(markdown.to_string());
+    }
+
+    let path = repo_root().join(rel_path);
+    std::fs::read_to_string(&path).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!("read help manual {}: {e}", path.display()),
+        )
+    })
+}
+
 /// Slug rules kept in sync with `client/src/lib/help/helpSlug.ts`.
 pub fn slugify_heading(raw: &str) -> String {
     let mut out = String::new();
@@ -198,16 +212,9 @@ fn unique_slug(base: &str, counts: &mut HashMap<String, u32>) -> String {
 
 /// Load and chunk all configured manuals from disk (repo layout).
 pub fn load_help_chunk_docs() -> Result<Vec<HelpChunkDoc>, std::io::Error> {
-    let root = repo_root();
     let mut all = Vec::new();
     for (manual_id, rel) in HELP_MANUAL_FILES {
-        let path = root.join(rel);
-        let md_raw = std::fs::read_to_string(&path).map_err(|e| {
-            std::io::Error::new(
-                e.kind(),
-                format!("read help manual {}: {e}", path.display()),
-            )
-        })?;
+        let md_raw = read_bundled_manual_raw(rel)?;
         let md = strip_yaml_front_matter(&md_raw);
         let fallback = format!("Manual {manual_id}");
         all.extend(parse_sections(&md, manual_id, &fallback));
@@ -249,18 +256,11 @@ async fn load_index_policy_rows(
 pub async fn load_help_chunk_docs_with_policies(
     pool: &PgPool,
 ) -> Result<Vec<HelpChunkDoc>, Box<dyn std::error::Error + Send + Sync>> {
-    let root = repo_root();
     let policies = load_index_policy_rows(pool).await?;
     let mut all = Vec::new();
 
     for (manual_id, rel) in HELP_MANUAL_FILES {
-        let path = root.join(rel);
-        let md_raw = std::fs::read_to_string(&path).map_err(|e| {
-            std::io::Error::new(
-                e.kind(),
-                format!("read help manual {}: {e}", path.display()),
-            )
-        })?;
+        let md_raw = read_bundled_manual_raw(rel)?;
         let policy = policies.get(*manual_id);
         let source_markdown = policy
             .and_then(|row| row.markdown_override.as_ref())

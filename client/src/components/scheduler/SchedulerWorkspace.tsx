@@ -8,7 +8,8 @@ import { formatPhone } from '../../lib/utils.ts';
 import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
 import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
-import { printExistingWindow } from '../../lib/browserPrint';
+import { openPrintableHtml } from '../../lib/browserPrint';
+import { useToast } from '../ui/ToastProviderLogic';
 
 const baseUrl = getBaseUrl();
 
@@ -138,6 +139,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   onDeepLinkAppointmentConsumed,
 }) => {
   const { backofficeHeaders } = useBackofficeAuth();
+  const { toast } = useToast();
   const isCompactLayout = useMediaQuery("(max-width: 639px)");
   const wmHeaders = useMemo(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -463,42 +465,17 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
         </body>
       </html>`;
 
-    const frame = document.createElement("iframe");
-    frame.setAttribute("aria-hidden", "true");
-    frame.style.position = "absolute";
-    frame.style.left = "0";
-    frame.style.top = "0";
-    frame.style.width = "1px";
-    frame.style.height = "1px";
-    frame.style.border = "0";
-    frame.style.pointerEvents = "none";
-    frame.style.opacity = "0";
-    frame.srcdoc = doc;
-
-    const cleanup = () => {
-      if (frame.parentNode) {
-        frame.parentNode.removeChild(frame);
-      }
-    };
-
-    frame.onload = () => {
-      const frameWindow = frame.contentWindow;
-      if (!frameWindow) {
-        cleanup();
-        return;
-      }
-
-      const handleAfterPrint = () => {
-        cleanup();
-        frameWindow.removeEventListener("afterprint", handleAfterPrint);
-      };
-
-      frameWindow.addEventListener("afterprint", handleAfterPrint);
-      printExistingWindow(frameWindow);
-    };
-
-    document.body.appendChild(frame);
-  }, [printTitle, printableRows, viewMode]);
+    void openPrintableHtml(doc, `Appointment Schedule ${title}`, {
+      filename: `riverside-appointment-schedule-${title.replace(/[^a-z0-9]+/gi, "-")}.html`,
+      width: 1100,
+      height: 800,
+    }).catch((error) => {
+      toast(
+        error instanceof Error ? error.message : "Could not open appointment schedule.",
+        "error",
+      );
+    });
+  }, [printTitle, printableRows, toast, viewMode]);
 
   return (
     <div className="flex flex-1 flex-col bg-app-surface">

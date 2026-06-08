@@ -1,9 +1,11 @@
 import React from 'react';
 import { formatDate } from '../lib/utils';
 import Icon from './Icon';
-import { printExistingWindow } from '../../../lib/browserPrint';
+import { openPrintableHtml } from '../../../lib/browserPrint';
+import { useModal } from '../hooks/useModal';
 
 const PrintPartyView = ({ party, onCancel }) => {
+    const { showAlert } = useModal();
     // Calculate stats
     const total = party.members.length;
     const measuredCount = party.members.filter(m => m.measured).length;
@@ -126,6 +128,24 @@ const PrintPartyView = ({ party, onCancel }) => {
 
     const s = config[density];
 
+    const handlePrint = () => {
+        void openPrintableHtml(
+            `<!doctype html>${document.documentElement.outerHTML}`,
+            `${party.name} Wedding`,
+            {
+                filename: `riverside-wedding-party-${String(party.name || "party").replace(/[^a-z0-9]+/gi, "-")}.html`,
+                width: 1100,
+                height: 800,
+            },
+        ).catch((error) => {
+            showAlert(
+                error instanceof Error ? error.message : "Could not open wedding party print view.",
+                "Print failed",
+                { variant: 'danger' },
+            );
+        });
+    };
+
     // Compact date formatter for print
     const formatPrintDate = (dateString) => {
         if (!dateString) return '-';
@@ -206,7 +226,7 @@ const PrintPartyView = ({ party, onCancel }) => {
                         <span className="text-xs text-app-text-muted hidden sm:inline">
                             Landscape Mode Recommended • {s.label} (Score: {score.toFixed(1)})
                         </span>
-                        <button type="button" onClick={() => printExistingWindow(window)} className="flex items-center gap-2 bg-navy-900 text-white px-4 py-2 rounded font-bold hover:bg-navy-800 transition-colors shadow-md text-sm">
+                        <button type="button" onClick={handlePrint} className="flex items-center gap-2 bg-navy-900 text-white px-4 py-2 rounded font-bold hover:bg-navy-800 transition-colors shadow-md text-sm">
                             <Icon name="Printer" size={16} /> Print Now
                         </button>
                     </div>

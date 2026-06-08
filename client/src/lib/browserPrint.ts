@@ -40,7 +40,7 @@ export async function openPrintableHtml(
   html: string,
   title: string,
   options?: { filename?: string; width?: number; height?: number },
-): Promise<"tauri-preview" | "browser-print" | "blocked"> {
+): Promise<"tauri-preview" | "browser-print"> {
   if (isTauri()) {
     await openDesktopTextPreview(options?.filename ?? `${title}.html`, html);
     return "tauri-preview";
@@ -49,12 +49,21 @@ export async function openPrintableHtml(
   const width = options?.width ?? 900;
   const height = options?.height ?? 900;
   const targetWindow = window.open("", "_blank", `width=${width},height=${height}`);
-  if (!targetWindow) return "blocked";
+  if (!targetWindow) {
+    throw new Error("Print preview was blocked. Please allow popups for Riverside and try again.");
+  }
   writeAndPrintDocumentWindow(targetWindow, html);
   return "browser-print";
 }
 
 export function writeAndPrintHtmlFrame(html: string, title: string): void {
+  if (isTauri()) {
+    void openDesktopTextPreview(`${title}.html`, html).catch((error) => {
+      console.error("Desktop print preview failed", error);
+    });
+    return;
+  }
+
   const frame = document.createElement("iframe");
   frame.title = title;
   frame.setAttribute("aria-hidden", "true");

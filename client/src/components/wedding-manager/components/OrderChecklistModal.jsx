@@ -3,8 +3,10 @@ import Icon from './Icon';
 import { formatDate } from '../lib/utils';
 import { parseJSON } from '../lib/dataUtils';
 import { openPrintableHtml } from '../../../lib/browserPrint';
+import { useModal } from '../hooks/useModal';
 
 const OrderChecklistModal = ({ isOpen, onClose, party }) => {
+    const { showAlert } = useModal();
     const printRef = useRef();
 
     const members = useMemo(() => (party?.members || []).filter(m => m.role !== 'Info'), [party?.members]);
@@ -66,6 +68,13 @@ const OrderChecklistModal = ({ isOpen, onClose, party }) => {
             filename: `riverside-order-checklist-${String(party.name || "party").replace(/[^a-z0-9]+/gi, "-")}.html`,
             width: 900,
             height: 900,
+        }).catch((error) => {
+            console.error("Order checklist print failed", error);
+            showAlert(
+                error instanceof Error ? error.message : "Could not open order checklist.",
+                "Print failed",
+                { variant: 'danger' },
+            );
         });
     };
 

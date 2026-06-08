@@ -3,7 +3,7 @@ import Icon from './Icon';
 import { api, socket } from '../lib/api';
 import AppointmentModal from '../../scheduler/AppointmentModal';
 import { formatDate } from '../lib/utils';
-import { printExistingWindow } from '../../../lib/browserPrint';
+import { openPrintableHtml } from '../../../lib/browserPrint';
 
 import { useModal } from '../hooks/useModal';
 
@@ -103,6 +103,24 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
 
     const handleToday = () => {
         setSelectedDate(new Date());
+    };
+
+    const handlePrint = () => {
+        void openPrintableHtml(
+            `<!doctype html>${document.documentElement.outerHTML}`,
+            `Appointment Schedule ${formatDate(selectedDate)}`,
+            {
+                filename: `riverside-wedding-appointments-${localDateKey(selectedDate)}.html`,
+                width: 1100,
+                height: 800,
+            },
+        ).catch((error) => {
+            showAlert(
+                error instanceof Error ? error.message : "Could not open appointment schedule.",
+                "Print failed",
+                { variant: 'danger' },
+            );
+        });
     };
 
     const handleAddAppt = (timeSlot) => {
@@ -221,7 +239,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
 
                 <div className="flex gap-2">
                     <button type="button"
-                        onClick={() => printExistingWindow(window)}
+                        onClick={handlePrint}
                         className="flex items-center gap-1 px-3 py-2 bg-app-surface border border-app-border text-app-text font-bold rounded hover:bg-app-surface-2 text-sm"
                     >
                         <Icon name="Printer" size={16} /> Print

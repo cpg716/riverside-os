@@ -178,6 +178,10 @@ pub async fn load_all_policies(
 }
 
 pub fn read_bundled_manual_raw(rel_path: &str) -> Result<String, std::io::Error> {
+    if let Some(markdown) = help_manual_bundled_markdown(rel_path) {
+        return Ok(markdown.to_string());
+    }
+
     let path = repo_root().join(rel_path);
     std::fs::read_to_string(&path)
 }

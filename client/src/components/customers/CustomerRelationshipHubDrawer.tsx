@@ -2106,7 +2106,12 @@ export function CustomerRelationshipHubDrawer({
         width: 900,
         height: 900,
       },
-    );
+    ).catch((error) => {
+      toast(
+        error instanceof Error ? error.message : "Could not open measurements print preview.",
+        "error",
+      );
+    });
   };
 
   const tabBtn = (id: HubTab, label: string) => (
