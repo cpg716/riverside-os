@@ -25,18 +25,19 @@ The Orders workspace is the main place to review unfulfilled Special, Custom, an
 - Review **Open Orders** or switch to **Transaction Records** for complete sale history.
 - Filter order work by **Special Order**, **Custom**, or **Wedding**.
 - Open order work to see items, balances, and available actions.
-- Open an order to see pickup versus shipping mode, remaining work, fulfilled work, and release-blocking balance cues at a glance.
-- Edit an open order line directly in the drawer when staff need to adjust quantity, unit price, or fulfillment, or perform a Suit Component Swap when changing parts of a suit to a different product variation/SKU (recording inventory updates and QBO ledger cost/retail deltas automatically).
-- Open order work in POS when staff need to review it from the register or copy its unfulfilled lines into a new sale.
+- Open an order to see order progress, pickup readiness, balances, and release-blocking cues at a glance.
+- Edit an open order item directly in the drawer when staff need to adjust quantity, price, or pickup type, or perform a Suit Component Swap when changing parts of a suit to a different product variation/SKU (recording inventory updates and QBO ledger cost/retail deltas automatically).
+- Use **Edit Custom Order** on custom items to review or update the saved HSM or Individualized Shirts form details from the same field set used during POS custom-order booking.
+- Use **Review Pickup** from Order Detail to run the pickup release check. Use **Open in Register** only when staff need to review the order from the register or copy its unfulfilled items into a new sale.
 - After Register checkout activity, reopen the parent Transaction Record or return to Orders to see the latest authoritative data instead of a stale snapshot.
-- Use the `Order Integrity` summary at the top of the workspace to quickly see which visible orders are still waiting on booking details, still carrying balance due, or already showing action-needed / overdue follow-up counts from the existing pipeline stats feed.
+- Use the `Order Integrity` summary at the top of the workspace to quickly see which shown orders are still waiting on booking details, still carrying balance due, or already showing action-needed / overdue follow-up counts from the existing pipeline stats feed.
 - Use the search bar and filter chips above the list to narrow the table before opening a row. The desktop table separates the secondary header labels, such as date, lifecycle, cashier, and deposit, so staff can scan the main work first.
 
-## Order Lifecycle
+## Order Progress
 
-1. **Booking**: Special, Custom, and Wedding order lines are typically booked at the Register and appear here immediately.
+1. **Booking**: Special, Custom, and Wedding order items are typically booked at the Register and appear here immediately.
 2. **Tracking**: Use the order kind filter to separate standard Special Orders from Custom and Wedding work.
-3. **Payment and Pickup**: Staff can review deposit activity, amount paid, and balance due from the linked Transaction Record. A POS handoff is for review or rebuilding lines in a new sale, not for silently changing the original Transaction Record.
+3. **Payment and Pickup**: Staff can review deposit activity, amount paid, and balance due from the linked Transaction Record. A POS handoff is for review or rebuilding items in a new sale, not for silently changing the original Transaction Record.
 4. **Completion**: The lifecycle ends when the order is fulfilled or otherwise closed.
 
 ## Tips
@@ -45,10 +46,10 @@ The Orders workspace is the main place to review unfulfilled Special, Custom, an
 - **Custom** means a made-to-measure garment order.
 - **Wedding** means the order is tied to a wedding member or party workflow.
 - For Custom orders, sale price is entered at booking and actual vendor cost is entered when the garment is received.
-- Order detail now shows the main Custom booking references, such as fabric, style, model, size anchors, sleeve or cuff measurements, and vendor reference notes, without replacing the full paper form.
+- Order detail shows the main Custom booking references, such as fabric, style, model, size anchors, sleeve or cuff measurements, and vendor reference notes. Use **Edit Custom Order** when those saved details need correction.
 - Wedding order detail should show the linked party, member role, and event date so staff know to keep balances and pickup work in the wedding workflow.
 - A paid wedding balance does not automatically mean the order is ready. Confirm the linked member is actually ready for pickup before release.
-- The lifecycle panel in order detail is the quickest way to tell whether the order is still waiting on measurements, still carrying a deposit balance, fully paid, or already picked up.
+- The **Order Progress** panel in Order Detail is the quickest way to tell whether items still need details, are ready to order, have been ordered, were received, are ready for pickup, or were picked up.
 - In the list view, read each column from left to right: Transaction, Customer, Order Items, Salesperson, Status, Amounts, and Balance. Use **Register** from the row when the work needs register review.
 
 Check the order type before making changes so the right team follows up on it.

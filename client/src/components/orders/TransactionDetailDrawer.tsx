@@ -20,6 +20,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import {
   customOrderDetailEntries,
+  customOrderSubtypeForSku,
   customVendorLabel,
   type CustomOrderDetails,
 } from "../../lib/customOrders";
@@ -32,6 +33,7 @@ const WEDDINGS_ICON = getAppIcon("weddings");
 const CUSTOMERS_ICON = getAppIcon("customers");
 import DetailDrawer from "../layout/DetailDrawer";
 import ReceiptSummaryModal from "../pos/ReceiptSummaryModal";
+import CustomItemPromptModal from "../pos/CustomItemPromptModal";
 import type { FulfillmentKind } from "../pos/types";
 import VariantSearchInput from "../ui/VariantSearchInput";
 import RosieInsightSummary from "../help/RosieInsightSummary";
@@ -174,6 +176,7 @@ export interface TransactionDrawerOrderActions {
       fulfillment?: FulfillmentKind;
       variant_id?: string;
       order_lifecycle_status?: string;
+      custom_order_details?: CustomOrderDetails;
     },
   ) => Promise<void>;
   setSku?: (sku: string) => void;
@@ -253,87 +256,29 @@ function formatStatusLabel(status: string): string {
 
 type BadgeTone = "success" | "info" | "warning" | "neutral" | "rose";
 
-function describeLifecycle(detail: TransactionDrawerDetail) {
-  const paidCents = parseMoneyToCents(detail.amount_paid);
-  const dueCents = parseMoneyToCents(detail.balance_due);
-  const depositCents = parseMoneyToCents(
-    detail.financial_summary?.total_applied_deposit_amount ?? "0",
-  );
-  const isWedding = Boolean(detail.wedding_summary);
-
-  if (detail.status === "fulfilled") {
-    return isWedding
-      ? "Picked up. This wedding order is complete."
-      : "Picked up. This order is complete.";
-  }
-  if (detail.status === "pending_measurement") {
-    return isWedding
-      ? "Waiting on measurements or booking details. Keep wedding-member follow-up in place before pickup can continue."
-      : "Waiting on measurements or booking details before pickup can continue.";
-  }
-  if (dueCents <= 0) {
-    return isWedding
-      ? "Balance paid. Receiving and pickup release still stay with the linked wedding member workflow."
-      : "Balance paid. Receiving and pickup release still stay with order status.";
-  }
-  if (depositCents > 0) {
-    return isWedding
-      ? `Deposit recorded on the linked wedding member. ${fmtMoney(detail.balance_due)} is still due before pickup is complete.`
-      : `Deposit recorded. ${fmtMoney(detail.balance_due)} is still due before pickup is complete.`;
-  }
-  if (paidCents > 0) {
-    return isWedding
-      ? `Partial payment recorded for this wedding member. ${fmtMoney(detail.balance_due)} is still due before pickup is complete.`
-      : `Partial payment recorded. ${fmtMoney(detail.balance_due)} is still due before pickup is complete.`;
-  }
-  return isWedding
-    ? "No payment is recorded yet. Confirm wedding-member readiness before collecting money or promising pickup."
-    : "No payment is recorded yet. Confirm receiving and readiness before collecting money.";
-}
-
-function describeOrderRules(detail: TransactionDrawerDetail): string[] {
-  const isWedding = Boolean(detail.wedding_summary);
-  const lines = [
-    "The Transaction Record holds payment, receipt, refund, and balance details.",
-    detail.status === "fulfilled"
-      ? "Pickup is already complete for this record."
-      : "Special, Custom, and Wedding lines stay in order pickup work; Layaways stay in Layaways.",
-  ];
-
-  if (detail.status === "pending_measurement") {
-    lines.push(
-      isWedding
-        ? "Measurement and wedding-member readiness still have to clear before pickup can finish."
-        : "Measurement or booking details still have to clear before pickup can finish.",
-    );
-  } else {
-    lines.push(
-      isWedding
-        ? "A paid balance does not mean the linked wedding member is ready until receiving and pickup work are complete."
-        : "A paid balance does not automatically mean the item is ready until receiving and pickup work are complete.",
-    );
-  }
-  lines.push(
-    "Received is not customer-ready. Staff must run Mark Ready + Notify before pickup release so SMS/email and pickup notifications are queued.",
-  );
-
-  return lines;
-}
-
 function orderKindLabel(detail: TransactionDrawerDetail): string {
   if (detail.wedding_summary || detail.wedding_member_id) return "Wedding";
-  if (detail.items.some((item) => item.fulfillment === "layaway")) return "Layaway";
-  if (detail.items.some((item) => item.fulfillment === "custom")) return "Custom";
-  if (detail.items.some((item) => item.fulfillment === "special_order")) return "Special";
+  if (detail.items.some((item) => item.fulfillment === "layaway"))
+    return "Layaway";
+  if (detail.items.some((item) => item.fulfillment === "custom"))
+    return "Custom";
+  if (detail.items.some((item) => item.fulfillment === "special_order"))
+    return "Special";
   return "Transaction";
 }
 
-function lifecycleStatusLabel(value?: string | null, alterationStatus?: string | null) {
+function lifecycleStatusLabel(
+  value?: string | null,
+  alterationStatus?: string | null,
+) {
   if (value === "received" && alterationStatus) {
     if (alterationStatus === "intake") {
       return "Scheduled for Alterations";
     }
-    if (alterationStatus === "in_work" || alterationStatus === "verify_completed") {
+    if (
+      alterationStatus === "in_work" ||
+      alterationStatus === "verify_completed"
+    ) {
       return "In Alterations";
     }
   }
@@ -341,7 +286,7 @@ function lifecycleStatusLabel(value?: string | null, alterationStatus?: string |
     case "needs_measurements":
       return "Needs measurements";
     case "ntbo":
-      return "NTBO";
+      return "Ready to order";
     case "ordered":
       return "Ordered";
     case "received":
@@ -357,16 +302,43 @@ function lifecycleStatusLabel(value?: string | null, alterationStatus?: string |
 
 const ORDER_LIFECYCLE_STEPS = [
   { key: "needs_measurements", label: "Needs Details" },
-  { key: "ntbo", label: "NTBO" },
+  { key: "ntbo", label: "Ready to Order" },
   { key: "ordered", label: "Ordered" },
   { key: "received", label: "Received" },
-  { key: "ready_for_pickup", label: "Ready Pickup" },
+  { key: "ready_for_pickup", label: "Ready for Pickup" },
   { key: "picked_up", label: "Picked Up" },
 ] as const;
 
 type LifecycleStepKey = (typeof ORDER_LIFECYCLE_STEPS)[number]["key"];
 
-function isLifecycleStepKey(value: string | null | undefined): value is LifecycleStepKey {
+function countLabel(
+  count: number,
+  singular: string,
+  plural = `${singular}s`,
+): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function fulfillmentLabel(value: string): string {
+  switch (value) {
+    case "special_order":
+      return "Special order";
+    case "custom":
+      return "Custom order";
+    case "wedding_order":
+      return "Wedding order";
+    case "layaway":
+      return "Layaway";
+    case "takeaway":
+      return "Takeaway";
+    default:
+      return value.replace(/_/g, " ");
+  }
+}
+
+function isLifecycleStepKey(
+  value: string | null | undefined,
+): value is LifecycleStepKey {
   return ORDER_LIFECYCLE_STEPS.some((step) => step.key === value);
 }
 
@@ -401,7 +373,11 @@ function orderLifecycleCounts(detail: TransactionDrawerDetail) {
   detail.items
     .filter((item) => !item.is_internal && item.fulfillment !== "takeaway")
     .forEach((item) => {
-      const stepKey = item.is_fulfilled ? "picked_up" : item.order_lifecycle_status;
+      const stepKey = item.is_fulfilled
+        ? "picked_up"
+        : isLifecycleStepKey(item.order_lifecycle_status)
+          ? item.order_lifecycle_status
+          : "needs_measurements";
       if (isLifecycleStepKey(stepKey)) {
         counts[stepKey] += 1;
       }
@@ -424,14 +400,17 @@ function orderLifecycleCounts(detail: TransactionDrawerDetail) {
   };
 }
 
-function lineNextAction(item: TransactionDrawerItem, detail: TransactionDrawerDetail): string {
+function lineNextAction(
+  item: TransactionDrawerItem,
+  detail: TransactionDrawerDetail,
+): string {
   if (item.is_fulfilled || item.order_lifecycle_status === "picked_up") {
     return detail.fulfillment_method === "ship"
       ? "Completed for shipping."
       : "Pickup is complete.";
   }
   if (item.fulfillment === "takeaway") {
-    return "Takeaway line; no order lifecycle work required.";
+    return "Takeaway item; no order tracking needed.";
   }
   if (item.order_lifecycle_status === "needs_measurements") {
     return "Collect measurements/details before ordering.";
@@ -455,9 +434,9 @@ function lineNextAction(item: TransactionDrawerItem, detail: TransactionDrawerDe
   if (item.order_lifecycle_status === "ready_for_pickup") {
     return parseMoneyToCents(detail.balance_due) > 0
       ? "Ready, but balance must clear before release."
-      : "Ready for customer pickup release.";
+      : "Ready for customer pickup.";
   }
-  return "Review lifecycle step before release.";
+  return "Choose Details Needed or Ready to Order before release.";
 }
 
 function lineNotificationState(item: TransactionDrawerItem): string {
@@ -465,12 +444,12 @@ function lineNotificationState(item: TransactionDrawerItem): string {
     return "Completed.";
   }
   if (item.order_lifecycle_status === "ready_for_pickup") {
-    return "Ready notice has been queued by the workflow.";
+    return "Customer notice sent or queued.";
   }
   if (item.order_lifecycle_status === "received") {
-    return "Not queued until staff runs Mark Ready + Notify.";
+    return "Not sent until staff runs Mark Ready + Notify.";
   }
-  return "No pickup notice until item is received and marked ready.";
+  return "No customer notice yet.";
 }
 
 function deriveLifecycleOverview(
@@ -496,7 +475,7 @@ function deriveLifecycleOverview(
       label: "Closed / Picked Up",
       tone: "success",
       activeStep: "picked_up",
-      nextAction: "No open customer-visible order work remains.",
+      nextAction: "No open order work remains.",
     };
   }
   if (counts.readyNow > 0) {
@@ -504,12 +483,12 @@ function deriveLifecycleOverview(
       label: "Ready for Pickup",
       tone: "success",
       activeStep: "ready_for_pickup",
-      nextAction: "Release only after balance and readiness checks pass.",
+      nextAction: "Review balance and release ready items.",
     };
   }
   if (counts.needsReadyCheck > 0) {
     return {
-      label: "Needs Ready Check",
+      label: "Needs Staff Check",
       tone: "warning",
       activeStep: "received",
       nextAction: "Staff must run Mark Ready + Notify for received items.",
@@ -520,12 +499,12 @@ function deriveLifecycleOverview(
       label: "Ordered",
       tone: "info",
       activeStep: "ordered",
-      nextAction: "Receive vendor goods before pickup-ready work starts.",
+      nextAction: "Receive vendor goods before pickup work starts.",
     };
   }
   if (counts.ntbo > 0) {
     return {
-      label: "NTBO / Ready to Order",
+      label: "Ready to Order",
       tone: "warning",
       activeStep: "ntbo",
       nextAction: "Create or attach the vendor order before receiving.",
@@ -541,8 +520,12 @@ function deriveLifecycleOverview(
 
 function fulfillmentSummary(detail: TransactionDrawerDetail) {
   const customerVisibleItems = detail.items.filter((item) => !item.is_internal);
-  const fulfilledItems = customerVisibleItems.filter((item) => item.is_fulfilled);
-  const pendingItems = customerVisibleItems.filter((item) => !item.is_fulfilled);
+  const fulfilledItems = customerVisibleItems.filter(
+    (item) => item.is_fulfilled,
+  );
+  const pendingItems = customerVisibleItems.filter(
+    (item) => !item.is_fulfilled,
+  );
   const readyPendingItems = pendingItems.filter(
     (item) => item.order_lifecycle_status === "ready_for_pickup",
   );
@@ -557,32 +540,6 @@ function fulfillmentSummary(detail: TransactionDrawerDetail) {
     pending,
     readyPending: readyPendingItems.length,
     blockedPending: blockedPendingItems.length,
-    fulfilledUnits: fulfilledItems.reduce((sum, item) => sum + item.quantity, 0),
-    pendingUnits: pendingItems.reduce((sum, item) => sum + item.quantity, 0),
-    readyPendingUnits: readyPendingItems.reduce((sum, item) => sum + item.quantity, 0),
-    blockedPendingUnits: blockedPendingItems.reduce((sum, item) => sum + item.quantity, 0),
-    returnedUnits: customerVisibleItems.reduce(
-      (sum, item) => sum + (item.quantity_returned ?? 0),
-      0,
-    ),
-  };
-}
-
-function modeSummary(detail: TransactionDrawerDetail): {
-  modeLabel: string;
-  modeDetail: string;
-} {
-  if (detail.fulfillment_method === "ship") {
-    return {
-      modeLabel: "Shipping Work",
-      modeDetail: detail.tracking_number
-        ? "Shipping flow is active and a tracking number is on file."
-        : "Shipping flow is active. Confirm address, label, and carrier progress.",
-    };
-  }
-  return {
-    modeLabel: "Pickup Work",
-    modeDetail: "Pickup release still depends on readiness, not just payment status.",
   };
 }
 
@@ -618,16 +575,16 @@ function readinessSummary(
   let remainingWorkLabel: string;
   if (summary.pending === 0) {
     remainingWorkLabel = isShip
-      ? "No customer-visible shipping work is still open."
-      : "No customer-visible pickup work is still open.";
+      ? "No shipping work is still open."
+      : "No pickup work is still open.";
   } else if (summary.pending === 1) {
     remainingWorkLabel = isShip
-      ? "1 line still needs shipping work."
-      : "1 line still needs pickup-ready work.";
+      ? "1 item still needs shipping work."
+      : "1 item still needs pickup work.";
   } else {
     remainingWorkLabel = isShip
-      ? `${summary.pending} lines still need shipping work.`
-      : `${summary.pending} lines still need pickup-ready work.`;
+      ? `${summary.pending} items still need shipping work.`
+      : `${summary.pending} items still need pickup work.`;
   }
 
   if (dueCents > 0) {
@@ -645,17 +602,21 @@ function readinessSummary(
       readinessLabel,
       readinessTone,
       remainingWorkLabel,
-      releaseLabel: isShip ? "Balance Clear, Work Still Open" : "Balance Clear, Pickup Still Blocked",
+      releaseLabel: isShip
+        ? "Balance Clear, Work Still Open"
+        : "Balance Clear, Pickup Still Blocked",
       releaseTone: "info",
     };
   }
 
   if (summary.readyPending > 0) {
     return {
-      readinessLabel: "Ready Lines Available",
+      readinessLabel: "Ready Items Available",
       readinessTone: "success",
       remainingWorkLabel,
-      releaseLabel: isShip ? "Ready for Shipping Release" : "Ready for Pickup Release",
+      releaseLabel: isShip
+        ? "Ready for Shipping Release"
+        : "Ready for Pickup Release",
       releaseTone: "success",
     };
   }
@@ -664,7 +625,9 @@ function readinessSummary(
     readinessLabel,
     readinessTone,
     remainingWorkLabel,
-    releaseLabel: isShip ? "Ready for Shipping Release" : "Ready for Pickup Release",
+    releaseLabel: isShip
+      ? "Ready for Shipping Release"
+      : "Ready for Pickup Release",
     releaseTone: "success",
   };
 }
@@ -693,7 +656,11 @@ function formatWeddingProximity(days: number): string {
   return `Wedding is in ${days} days.`;
 }
 
-function linkedAlterationBullet(count: number, singular: string, plural: string): string {
+function linkedAlterationBullet(
+  count: number,
+  singular: string,
+  plural: string,
+): string {
   return count === 1 ? singular : plural.replace("{count}", String(count));
 }
 
@@ -725,8 +692,8 @@ function buildReadinessCheck(
     const workType = isShip ? "shipping" : "pickup";
     blockers.push(
       summary.blockedPending === 1
-        ? `1 ${workType} line is not ready.`
-        : `${summary.blockedPending} ${workType} lines are not ready.`,
+        ? `1 ${workType} item is not ready.`
+        : `${summary.blockedPending} ${workType} items are not ready.`,
     );
   }
 
@@ -805,7 +772,9 @@ function badgeClassName(kind: BadgeTone) {
   }
 }
 
-function addressLines(shipTo: Record<string, unknown> | null | undefined): string[] {
+function addressLines(
+  shipTo: Record<string, unknown> | null | undefined,
+): string[] {
   if (!shipTo) return [];
   const get = (key: string) => {
     const value = shipTo[key];
@@ -908,13 +877,19 @@ export default function TransactionDetailDrawer({
     [backofficeHeaders],
   );
 
-  const [internalDetail, setInternalDetail] = useState<TransactionDrawerDetail | null>(null);
-  const [internalAudit, setInternalAudit] = useState<TransactionDrawerAudit[]>([]);
+  const [internalDetail, setInternalDetail] =
+    useState<TransactionDrawerDetail | null>(null);
+  const [internalAudit, setInternalAudit] = useState<TransactionDrawerAudit[]>(
+    [],
+  );
   const [internalLoading, setInternalLoading] = useState(false);
-  const [internalErrorMessage, setInternalErrorMessage] = useState<string | null>(null);
+  const [internalErrorMessage, setInternalErrorMessage] = useState<
+    string | null
+  >(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
-  const [suitSwapTarget, setSuitSwapTarget] = useState<TransactionDrawerItem | null>(null);
+  const [suitSwapTarget, setSuitSwapTarget] =
+    useState<TransactionDrawerItem | null>(null);
   const [suitSwapSku, setSuitSwapSku] = useState("");
   const [suitSwapNote, setSuitSwapNote] = useState("");
   const [suitSwapBusy, setSuitSwapBusy] = useState(false);
@@ -929,7 +904,9 @@ export default function TransactionDetailDrawer({
   const [editLifecycleStatus, setEditLifecycleStatus] = useState("ntbo");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [readyTarget, setReadyTarget] = useState<TransactionDrawerItem | null>(null);
+  const [readyTarget, setReadyTarget] = useState<TransactionDrawerItem | null>(
+    null,
+  );
   const [readyChecklist, setReadyChecklist] = useState({
     received: false,
     prep: false,
@@ -942,11 +919,17 @@ export default function TransactionDetailDrawer({
   const [showPickupReleaseModal, setShowPickupReleaseModal] = useState(false);
   const [pickupOverride, setPickupOverride] = useState(false);
   const [pickupOverrideReason, setPickupOverrideReason] = useState("");
-  const [pickupTargetLineIds, setPickupTargetLineIds] = useState<string[] | null>(null);
+  const [pickupTargetLineIds, setPickupTargetLineIds] = useState<
+    string[] | null
+  >(null);
   const [pickupBusy, setPickupBusy] = useState(false);
   const [pickupError, setPickupError] = useState<string | null>(null);
+  const [customEditItem, setCustomEditItem] =
+    useState<TransactionDrawerItem | null>(null);
   const [attributionOpen, setAttributionOpen] = useState(false);
-  useShellBackdropLayer(Boolean(readyTarget) || showPickupReleaseModal);
+  useShellBackdropLayer(
+    Boolean(readyTarget) || showPickupReleaseModal || Boolean(customEditItem),
+  );
 
   const usesControlledData =
     controlledDetail !== undefined ||
@@ -954,15 +937,24 @@ export default function TransactionDetailDrawer({
     controlledLoading !== undefined ||
     controlledErrorMessage !== undefined;
 
-  const detail = usesControlledData ? controlledDetail ?? null : internalDetail;
-  const audit = usesControlledData ? controlledAudit ?? [] : internalAudit;
-  const loading = usesControlledData ? controlledLoading ?? false : internalLoading;
+  const detail = usesControlledData
+    ? (controlledDetail ?? null)
+    : internalDetail;
+  const audit = usesControlledData ? (controlledAudit ?? []) : internalAudit;
+  const loading = usesControlledData
+    ? (controlledLoading ?? false)
+    : internalLoading;
   const errorMessage = usesControlledData
-    ? controlledErrorMessage ?? null
+    ? (controlledErrorMessage ?? null)
     : internalErrorMessage;
-  const recordTitle = recordContext === "order" ? "Order Detail" : "Transaction Record";
-  const recordLoadLabel = recordContext === "order" ? "order detail" : "transaction record";
-  const drawerRoot = typeof document !== "undefined" ? document.getElementById("drawer-root") : null;
+  const recordTitle =
+    recordContext === "order" ? "Order Detail" : "Transaction Record";
+  const recordLoadLabel =
+    recordContext === "order" ? "order detail" : "transaction record";
+  const drawerRoot =
+    typeof document !== "undefined"
+      ? document.getElementById("drawer-root")
+      : null;
 
   const load = useCallback(async () => {
     if (!orderId || usesControlledData) return;
@@ -971,13 +963,17 @@ export default function TransactionDetailDrawer({
     try {
       const [detailRes, auditRes] = await Promise.all([
         fetch(`${baseUrl}/api/transactions/${orderId}`, { headers: auth() }),
-        fetch(`${baseUrl}/api/transactions/${orderId}/audit`, { headers: auth() }),
+        fetch(`${baseUrl}/api/transactions/${orderId}/audit`, {
+          headers: auth(),
+        }),
       ]);
 
       if (!detailRes.ok) {
         setInternalDetail(null);
         setInternalAudit([]);
-        setInternalErrorMessage(`We couldn't load this ${recordLoadLabel} right now.`);
+        setInternalErrorMessage(
+          `We couldn't load this ${recordLoadLabel} right now.`,
+        );
         return;
       }
 
@@ -991,7 +987,9 @@ export default function TransactionDetailDrawer({
     } catch {
       setInternalDetail(null);
       setInternalAudit([]);
-      setInternalErrorMessage(`We couldn't load this ${recordLoadLabel} right now.`);
+      setInternalErrorMessage(
+        `We couldn't load this ${recordLoadLabel} right now.`,
+      );
     } finally {
       setInternalLoading(false);
     }
@@ -1009,7 +1007,10 @@ export default function TransactionDetailDrawer({
     }
   }, [isOpen, orderId, load, usesControlledData]);
 
-  const summary = useMemo(() => (detail ? fulfillmentSummary(detail) : null), [detail]);
+  const summary = useMemo(
+    () => (detail ? fulfillmentSummary(detail) : null),
+    [detail],
+  );
   const lifecycleCounts = useMemo(
     () => (detail ? orderLifecycleCounts(detail) : null),
     [detail],
@@ -1021,8 +1022,10 @@ export default function TransactionDetailDrawer({
         : null,
     [detail, lifecycleCounts, summary],
   );
-  const shippingLines = useMemo(() => addressLines(detail?.ship_to), [detail?.ship_to]);
-  const mode = useMemo(() => (detail ? modeSummary(detail) : null), [detail]);
+  const shippingLines = useMemo(
+    () => addressLines(detail?.ship_to),
+    [detail?.ship_to],
+  );
   const readiness = useMemo(
     () => (detail && summary ? readinessSummary(detail, summary) : null),
     [detail, summary],
@@ -1034,12 +1037,17 @@ export default function TransactionDetailDrawer({
   const pickupReleaseLines = useMemo(() => {
     const openLines =
       detail?.items.filter(
-        (item) => !item.is_internal && !item.is_fulfilled && item.transaction_line_id,
+        (item) =>
+          !item.is_internal && !item.is_fulfilled && item.transaction_line_id,
       ) ?? [];
     return {
       open: openLines,
-      ready: openLines.filter((item) => item.order_lifecycle_status === "ready_for_pickup"),
-      blocked: openLines.filter((item) => item.order_lifecycle_status !== "ready_for_pickup"),
+      ready: openLines.filter(
+        (item) => item.order_lifecycle_status === "ready_for_pickup",
+      ),
+      blocked: openLines.filter(
+        (item) => item.order_lifecycle_status !== "ready_for_pickup",
+      ),
     };
   }, [detail?.items]);
   const beginLineEdit = useCallback((item: TransactionDrawerItem) => {
@@ -1092,7 +1100,9 @@ export default function TransactionDetailDrawer({
   const openPickupReleaseModal = useCallback((item?: TransactionDrawerItem) => {
     setPickupOverride(false);
     setPickupOverrideReason("");
-    setPickupTargetLineIds(item?.transaction_line_id ? [item.transaction_line_id] : null);
+    setPickupTargetLineIds(
+      item?.transaction_line_id ? [item.transaction_line_id] : null,
+    );
     setPickupError(null);
     setShowPickupReleaseModal(true);
   }, []);
@@ -1106,8 +1116,14 @@ export default function TransactionDetailDrawer({
 
   const submitReadyTransition = useCallback(async () => {
     if (!readyTarget?.transaction_line_id) return;
-    if (!readyChecklist.received || !readyChecklist.prep || !readyChecklist.customer) {
-      setReadyError("Confirm the received, prep, and customer-notification checks before marking ready.");
+    if (
+      !readyChecklist.received ||
+      !readyChecklist.prep ||
+      !readyChecklist.customer
+    ) {
+      setReadyError(
+        "Confirm the received, prep, and customer-notification checks before marking ready.",
+      );
       return;
     }
     setReadyBusy(true);
@@ -1140,7 +1156,9 @@ export default function TransactionDetailDrawer({
       );
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setReadyError(body.error ?? "Could not mark this item ready for pickup.");
+        setReadyError(
+          body.error ?? "Could not mark this item ready for pickup.",
+        );
         return;
       }
       toast("Item marked ready for pickup.", "success");
@@ -1173,41 +1191,50 @@ export default function TransactionDetailDrawer({
     }
     const candidateLines = pickupTargetLineIds
       ? pickupReleaseLines.open.filter((item) =>
-          item.transaction_line_id ? pickupTargetLineIds.includes(item.transaction_line_id) : false,
+          item.transaction_line_id
+            ? pickupTargetLineIds.includes(item.transaction_line_id)
+            : false,
         )
       : pickupReleaseLines.open;
     const targetLines = pickupOverride
       ? candidateLines
-      : candidateLines.filter((item) => item.order_lifecycle_status === "ready_for_pickup");
+      : candidateLines.filter(
+          (item) => item.order_lifecycle_status === "ready_for_pickup",
+        );
     const deliveredItemIds = targetLines
       .map((item) => item.transaction_line_id)
       .filter((id): id is string => Boolean(id));
     if (deliveredItemIds.length === 0) {
-      setPickupError("No ready pickup lines are selected for release.");
+      setPickupError("No ready pickup items are selected for release.");
       return;
     }
     const reason = pickupOverrideReason.trim();
     if (pickupOverride && reason.length < 12) {
-      setPickupError("Enter a clear readiness override reason before releasing blocked lines.");
+      setPickupError(
+        "Enter a clear readiness override reason before releasing blocked items.",
+      );
       return;
     }
     setPickupBusy(true);
     setPickupError(null);
     try {
-      const res = await fetch(`${baseUrl}/api/transactions/${detail.transaction_id}/pickup`, {
-        method: "POST",
-        headers: {
-          ...auth(),
-          "Content-Type": "application/json",
+      const res = await fetch(
+        `${baseUrl}/api/transactions/${detail.transaction_id}/pickup`,
+        {
+          method: "POST",
+          headers: {
+            ...auth(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            delivered_item_ids: deliveredItemIds,
+            actor: recordTitle,
+            override_readiness: pickupOverride,
+            override_reason: pickupOverride ? reason : undefined,
+            register_session_id: detail.register_session_id ?? undefined,
+          }),
         },
-        body: JSON.stringify({
-          delivered_item_ids: deliveredItemIds,
-          actor: recordTitle,
-          override_readiness: pickupOverride,
-          override_reason: pickupOverride ? reason : undefined,
-          register_session_id: detail.register_session_id ?? undefined,
-        }),
-      });
+      );
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         setPickupError(body.error ?? "Pickup release could not be completed.");
@@ -1216,7 +1243,7 @@ export default function TransactionDetailDrawer({
       toast(
         pickupOverride
           ? "Pickup released with readiness override recorded."
-          : "Ready pickup lines released.",
+          : "Ready pickup items released.",
         "success",
       );
       setShowPickupReleaseModal(false);
@@ -1263,7 +1290,7 @@ export default function TransactionDetailDrawer({
     try {
       const scanRes = await fetch(
         `${baseUrl}/api/inventory/scan/${encodeURIComponent(suitSwapSku.trim())}`,
-        { headers: auth() }
+        { headers: auth() },
       );
       if (!scanRes.ok) {
         throw new Error("Could not resolve replacement SKU.");
@@ -1281,7 +1308,7 @@ export default function TransactionDetailDrawer({
             in_variant_id: scanned.variant_id,
             note: suitSwapNote.trim() || null,
           }),
-        }
+        },
       );
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
@@ -1295,7 +1322,9 @@ export default function TransactionDetailDrawer({
       }
       void load();
     } catch (error) {
-      setSuitSwapError(error instanceof Error ? error.message : "Suit Swap failed");
+      setSuitSwapError(
+        error instanceof Error ? error.message : "Suit Swap failed",
+      );
     } finally {
       setSuitSwapBusy(false);
     }
@@ -1311,7 +1340,7 @@ export default function TransactionDetailDrawer({
       }
       const nextPrice = editUnitPrice.trim();
       if (!nextPrice) {
-        setEditError("Unit price is required.");
+        setEditError("Price is required.");
         return;
       }
 
@@ -1321,11 +1350,14 @@ export default function TransactionDetailDrawer({
         fulfillment?: FulfillmentKind;
         variant_id?: string;
         order_lifecycle_status?: string;
+        custom_order_details?: CustomOrderDetails;
       } = {};
       if (quantity !== item.quantity) patch.quantity = quantity;
       if (nextPrice !== String(item.unit_price)) patch.unit_price = nextPrice;
-      if (editFulfillment !== item.fulfillment) patch.fulfillment = editFulfillment;
-      if (editVariantId && editVariantId !== item.variant_id) patch.variant_id = editVariantId;
+      if (editFulfillment !== item.fulfillment)
+        patch.fulfillment = editFulfillment;
+      if (editVariantId && editVariantId !== item.variant_id)
+        patch.variant_id = editVariantId;
       if (editLifecycleStatus !== (item.order_lifecycle_status ?? "ntbo")) {
         patch.order_lifecycle_status = editLifecycleStatus;
       }
@@ -1361,7 +1393,7 @@ export default function TransactionDetailDrawer({
         setEditError(
           error instanceof Error
             ? error.message
-            : "We couldn't save that line right now.",
+            : "We couldn't save that item right now.",
         );
       } finally {
         setEditBusy(false);
@@ -1375,6 +1407,45 @@ export default function TransactionDetailDrawer({
       editVariantId,
       orderActions,
     ],
+  );
+
+  const submitCustomOrderDetails = useCallback(
+    async (data: { customOrderDetails?: CustomOrderDetails | null }) => {
+      if (!customEditItem?.transaction_line_id || !orderActions?.updateLine)
+        return false;
+      if (!data.customOrderDetails) {
+        return false;
+      }
+      setEditBusy(true);
+      try {
+        await orderActions.updateLine(
+          {
+            transaction_line_id: customEditItem.transaction_line_id,
+            sku: customEditItem.sku,
+            product_name: customEditItem.product_name,
+            quantity: customEditItem.quantity,
+            unit_price: String(customEditItem.unit_price),
+            fulfillment: customEditItem.fulfillment as FulfillmentKind,
+          },
+          {
+            custom_order_details: data.customOrderDetails,
+          },
+        );
+        setCustomEditItem(null);
+        return true;
+      } catch (error) {
+        toast(
+          error instanceof Error
+            ? error.message
+            : "Custom order details could not be saved.",
+          "error",
+        );
+        return false;
+      } finally {
+        setEditBusy(false);
+      }
+    },
+    [customEditItem, orderActions, toast],
   );
 
   const subtitle = detail ? (
@@ -1410,15 +1481,19 @@ export default function TransactionDetailDrawer({
     </div>
   ) : null;
 
-    const handleAddBySku = useCallback(async () => {
-      if (!orderActions?.addBySku) return;
-      await orderActions.addBySku();
-    }, [orderActions]);
+  const handleAddBySku = useCallback(async () => {
+    if (!orderActions?.addBySku) return;
+    await orderActions.addBySku();
+  }, [orderActions]);
 
-  const pickupBalanceDueCents = detail ? parseMoneyToCents(detail.balance_due) : 0;
+  const pickupBalanceDueCents = detail
+    ? parseMoneyToCents(detail.balance_due)
+    : 0;
   const pickupModalOpenLines = pickupTargetLineIds
     ? pickupReleaseLines.open.filter((item) =>
-        item.transaction_line_id ? pickupTargetLineIds.includes(item.transaction_line_id) : false,
+        item.transaction_line_id
+          ? pickupTargetLineIds.includes(item.transaction_line_id)
+          : false,
       )
     : pickupReleaseLines.open;
   const pickupModalReadyLines = pickupModalOpenLines.filter(
@@ -1430,7 +1505,9 @@ export default function TransactionDetailDrawer({
   const pickupCanSubmit =
     Boolean(detail) &&
     pickupBalanceDueCents <= 0 &&
-    (pickupOverride ? pickupModalOpenLines.length > 0 : pickupModalReadyLines.length > 0);
+    (pickupOverride
+      ? pickupModalOpenLines.length > 0
+      : pickupModalReadyLines.length > 0);
 
   return (
     <>
@@ -1457,18 +1534,20 @@ export default function TransactionDetailDrawer({
             !["fulfilled", "cancelled"].includes(detail.status) ? (
               <button
                 type="button"
-                onClick={() => orderActions?.onOpenInRegister?.(detail.transaction_id, true)}
+                onClick={() => openPickupReleaseModal()}
                 disabled={pickupReleaseLines.open.length === 0}
                 className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-success bg-app-success px-3 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all duration-150 hover:opacity-90 active:translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <ShieldCheck size={16} />
-                Pick Up
+                Review Pickup
               </button>
             ) : null}
             {detail && orderActions?.onOpenInRegister ? (
               <button
                 type="button"
-                onClick={() => orderActions.onOpenInRegister?.(detail.transaction_id)}
+                onClick={() =>
+                  orderActions.onOpenInRegister?.(detail.transaction_id)
+                }
                 className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all duration-150 hover:bg-emerald-500 active:translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25"
               >
                 <REGISTER_ICON size={16} />
@@ -1478,7 +1557,9 @@ export default function TransactionDetailDrawer({
             {onOpenTransactionInBackoffice && detail ? (
               <button
                 type="button"
-                onClick={() => onOpenTransactionInBackoffice(detail.transaction_id)}
+                onClick={() =>
+                  onOpenTransactionInBackoffice(detail.transaction_id)
+                }
                 className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-accent/80 bg-app-accent py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all duration-150 hover:opacity-90 active:translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/25"
               >
                 <ExternalLink size={16} />
@@ -1514,7 +1595,7 @@ export default function TransactionDetailDrawer({
                     <div className="flex items-center gap-2">
                       <ORDERS_ICON size={16} className="text-app-text-muted" />
                       <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
-                        Order Lifecycle
+                        Order Progress
                       </h3>
                     </div>
                     <p className="mt-2 text-sm font-semibold text-app-text">
@@ -1551,36 +1632,12 @@ export default function TransactionDetailDrawer({
                         >
                           {step.label}
                         </p>
-                        <p className="mt-2 text-lg font-black text-app-text">{count}</p>
+                        <p className="mt-2 text-lg font-black text-app-text">
+                          {count}
+                        </p>
                       </div>
                     );
                   })}
-                </div>
-                <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl border border-app-border/60 bg-app-surface p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Needs Ready Check
-                    </p>
-                    <p className="mt-1 text-lg font-black text-app-warning">
-                      {lifecycleCounts.needsReadyCheck}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-app-border/60 bg-app-surface p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Ready Pickup
-                    </p>
-                    <p className="mt-1 text-lg font-black text-app-success">
-                      {lifecycleCounts.readyNow}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-app-border/60 bg-app-surface p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Release Rule
-                    </p>
-                    <p className="mt-1 text-[12px] font-semibold text-app-text">
-                      Received still requires Mark Ready + Notify.
-                    </p>
-                  </div>
                 </div>
               </section>
             ) : null}
@@ -1623,7 +1680,10 @@ export default function TransactionDetailDrawer({
                       Deposit on Transaction
                     </p>
                     <p className="mt-1 text-sm font-black text-app-text">
-                      {fmtMoney(detail.financial_summary?.total_applied_deposit_amount ?? "0")}
+                      {fmtMoney(
+                        detail.financial_summary
+                          ?.total_applied_deposit_amount ?? "0",
+                      )}
                     </p>
                   </div>
                 </div>
@@ -1633,7 +1693,10 @@ export default function TransactionDetailDrawer({
                       Transaction Payments
                     </span>
                     <span className="text-right font-semibold text-app-text">
-                      {fmtMoney(detail.financial_summary?.total_allocated_payments ?? "0")}
+                      {fmtMoney(
+                        detail.financial_summary?.total_allocated_payments ??
+                          "0",
+                      )}
                     </span>
                   </div>
                   <div className="flex items-start justify-between gap-3 text-[11px]">
@@ -1646,7 +1709,10 @@ export default function TransactionDetailDrawer({
                   </div>
                   {detail.is_tax_exempt ? (
                     <div className="ui-panel ui-tint-warning p-3 text-[11px] font-semibold text-app-text">
-                      Tax exempt{detail.tax_exempt_reason ? `: ${detail.tax_exempt_reason}` : ""}
+                      Tax exempt
+                      {detail.tax_exempt_reason
+                        ? `: ${detail.tax_exempt_reason}`
+                        : ""}
                     </div>
                   ) : null}
                 </div>
@@ -1656,58 +1722,15 @@ export default function TransactionDetailDrawer({
                 <div className="flex items-center gap-2">
                   <ORDERS_ICON size={16} className="text-app-text-muted" />
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
-                    Order Status
+                    {detail.fulfillment_method === "ship"
+                      ? "Shipping Check"
+                      : "Pickup Check"}
                   </h3>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span
-                    className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName("info")}`}
-                  >
-                    {mode?.modeLabel ?? "Pickup Work"}
-                  </span>
-                  <span
-                    className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-                      lifecycleOverview?.tone ?? readiness?.readinessTone ?? "neutral",
-                    )}`}
-                  >
-                    {lifecycleOverview?.label ?? readiness?.readinessLabel ?? "Open"}
-                  </span>
-                  <span
-                    className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-                      readiness?.releaseTone ?? "neutral",
-                    )}`}
-                  >
-                    {readiness?.releaseLabel ?? "Review Release State"}
-                  </span>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Mode
-                    </p>
-                    <p className="mt-1 text-sm font-black text-app-text">
-                      {detail.fulfillment_method === "ship" ? "Ship" : "Pickup"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Visible Lines
-                    </p>
-                    <p className="mt-1 text-sm font-black text-app-text">
-                      {summary?.total ?? 0}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Fulfilled
-                    </p>
-                    <p className="mt-1 text-sm font-black text-app-success">
-                      {summary?.fulfilled ?? 0}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Still Open
+                      Open Items
                     </p>
                     <p className="mt-1 text-sm font-black text-app-warning">
                       {summary?.pending ?? 0}
@@ -1715,7 +1738,7 @@ export default function TransactionDetailDrawer({
                   </div>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Ready Pickup
+                      Ready
                     </p>
                     <p className="mt-1 text-sm font-black text-app-success">
                       {summary?.readyPending ?? 0}
@@ -1731,26 +1754,10 @@ export default function TransactionDetailDrawer({
                   </div>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Open Units
+                      Completed
                     </p>
-                    <p className="mt-1 text-sm font-black text-app-text">
-                      {summary?.pendingUnits ?? 0}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Completed Units
-                    </p>
-                    <p className="mt-1 text-sm font-black text-app-text">
-                      {summary?.fulfilledUnits ?? 0}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Returned Units
-                    </p>
-                    <p className="mt-1 text-sm font-black text-app-text">
-                      {summary?.returnedUnits ?? 0}
+                    <p className="mt-1 text-sm font-black text-app-success">
+                      {summary?.fulfilled ?? 0}
                     </p>
                   </div>
                 </div>
@@ -1759,7 +1766,7 @@ export default function TransactionDetailDrawer({
                     Next Staff Action
                   </p>
                   <p className="mt-2 text-[12px] font-semibold text-app-text">
-                    {lifecycleOverview?.nextAction ?? mode?.modeDetail}
+                    {lifecycleOverview?.nextAction}
                   </p>
                 </div>
                 <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface p-3">
@@ -1768,14 +1775,6 @@ export default function TransactionDetailDrawer({
                   </p>
                   <p className="mt-2 text-[12px] font-semibold text-app-text">
                     {readiness?.remainingWorkLabel}
-                  </p>
-                </div>
-                <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface p-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Status Note
-                  </p>
-                  <p className="mt-2 text-[12px] font-semibold text-app-text">
-                    {describeLifecycle(detail)}
                   </p>
                 </div>
               </div>
@@ -1792,8 +1791,9 @@ export default function TransactionDetailDrawer({
                       </h3>
                     </div>
                     <p className="mt-2 text-[12px] font-semibold text-app-text-muted">
-                      This Transaction Record was voided, not deleted. Refund or reversal evidence
-                      remains traceable through the refund workflow and payment rows.
+                      This Transaction Record was voided, not deleted. Refund or
+                      reversal evidence remains traceable through the refund
+                      workflow and payment rows.
                     </p>
                   </div>
                   <span
@@ -1829,7 +1829,8 @@ export default function TransactionDetailDrawer({
                       Restocked Units
                     </p>
                     <p className="mt-1 font-mono text-sm font-black text-app-text">
-                      {detail.void_record.inventory_summary?.restocked_units ?? 0}
+                      {detail.void_record.inventory_summary?.restocked_units ??
+                        0}
                     </p>
                   </div>
                 </div>
@@ -1839,7 +1840,8 @@ export default function TransactionDetailDrawer({
                       Approved By
                     </p>
                     <p className="mt-1 text-[12px] font-semibold text-app-text">
-                      {detail.void_record.manager_staff_name ?? "Manager Access"}
+                      {detail.void_record.manager_staff_name ??
+                        "Manager Access"}
                     </p>
                   </div>
                   <div>
@@ -1870,7 +1872,8 @@ export default function TransactionDetailDrawer({
                     Readiness Check
                   </h3>
                 </div>
-                {readinessCheck.blockers.length > 0 || readinessCheck.warnings.length > 0 ? (
+                {readinessCheck.blockers.length > 0 ||
+                readinessCheck.warnings.length > 0 ? (
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     {readinessCheck.blockers.length > 0 ? (
                       <div className="rounded-xl border border-app-warning/20 bg-app-warning/8 p-3">
@@ -1945,7 +1948,8 @@ export default function TransactionDetailDrawer({
                       Party
                     </p>
                     <p className="mt-1 text-sm font-bold text-app-text">
-                      {detail.wedding_summary.party_name ?? "Linked wedding party"}
+                      {detail.wedding_summary.party_name ??
+                        "Linked wedding party"}
                     </p>
                   </div>
                   <div>
@@ -1962,7 +1966,9 @@ export default function TransactionDetailDrawer({
                     </p>
                     <p className="mt-1 text-sm font-bold text-app-text">
                       {detail.wedding_summary.event_date
-                        ? new Date(detail.wedding_summary.event_date).toLocaleDateString()
+                        ? new Date(
+                            detail.wedding_summary.event_date,
+                          ).toLocaleDateString()
                         : "Not set"}
                     </p>
                   </div>
@@ -1970,7 +1976,13 @@ export default function TransactionDetailDrawer({
               </section>
             ) : null}
 
-            <section className="grid gap-4 lg:grid-cols-2">
+            <section
+              className={
+                detail.fulfillment_method === "ship"
+                  ? "grid gap-4 lg:grid-cols-2"
+                  : "grid gap-4"
+              }
+            >
               <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -2008,63 +2020,54 @@ export default function TransactionDetailDrawer({
                     ) : null}
                   </div>
                 ) : (
-                  <p className="mt-3 text-sm text-app-text-muted">No customer linked.</p>
+                  <p className="mt-3 text-sm text-app-text-muted">
+                    No customer linked.
+                  </p>
                 )}
               </div>
 
-              <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
-                <div className="flex items-center gap-2">
-                  <MapPin size={16} className="text-app-text-muted" />
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
-                    {detail.fulfillment_method === "ship" ? "Shipping" : "Pickup"}
-                  </h3>
-                </div>
-                <div className="mt-3 space-y-2 text-[12px] font-semibold text-app-text">
-                  {detail.fulfillment_method === "ship" ? (
-                    <>
+              {detail.fulfillment_method === "ship" ? (
+                <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
+                  <div className="flex items-center gap-2">
+                    <MapPin size={16} className="text-app-text-muted" />
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
+                      Shipping
+                    </h3>
+                  </div>
+                  <div className="mt-3 space-y-2 text-[12px] font-semibold text-app-text">
+                    <p>
+                      Shipping amount:{" "}
+                      <span className="font-black">
+                        {fmtMoney(detail.shipping_amount_usd ?? "0")}
+                      </span>
+                    </p>
+                    {shippingLines.length > 0 ? (
+                      <div className="rounded-xl border border-app-border/70 bg-app-surface p-3">
+                        {shippingLines.map((line) => (
+                          <p key={line}>{line}</p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-app-text-muted">
+                        No shipping address snapshot stored.
+                      </p>
+                    )}
+                    {detail.tracking_number ? (
                       <p>
-                        Shipping amount:{" "}
+                        Tracking:{" "}
                         <span className="font-black">
-                          {fmtMoney(detail.shipping_amount_usd ?? "0")}
+                          {detail.tracking_number}
                         </span>
                       </p>
-                      {shippingLines.length > 0 ? (
-                        <div className="rounded-xl border border-app-border/70 bg-app-surface p-3">
-                          {shippingLines.map((line) => (
-                            <p key={line}>{line}</p>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-app-text-muted">No shipping address snapshot stored.</p>
-                      )}
-                      {detail.tracking_number ? (
-                        <p>
-                          Tracking: <span className="font-black">{detail.tracking_number}</span>
-                        </p>
-                      ) : null}
-                      {detail.tracking_url_provider ? (
-                        <p className="text-app-text-muted">
-                          Carrier link: {detail.tracking_url_provider}
-                        </p>
-                      ) : null}
-                    </>
-                  ) : (
-                    <div className="space-y-2">
+                    ) : null}
+                    {detail.tracking_url_provider ? (
                       <p className="text-app-text-muted">
-                        Pickup release still depends on readiness, not just payment status.
+                        Carrier link: {detail.tracking_url_provider}
                       </p>
-                      <div className="rounded-xl border border-app-border/70 bg-app-surface p-3">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          Release Check
-                        </p>
-                        <p className="mt-2 text-[12px] font-semibold text-app-text">
-                          {readiness?.releaseLabel ?? "Review balance and readiness before release."}
-                        </p>
-                      </div>
-                    </div>
-                  )}
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              ) : null}
             </section>
 
             <section className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
@@ -2072,24 +2075,25 @@ export default function TransactionDetailDrawer({
                 <div className="flex items-center gap-2">
                   <ORDERS_ICON size={16} className="text-app-text-muted" />
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
-                    Items ({detail.items.filter((item) => !item.is_internal).length})
+                    Items (
+                    {detail.items.filter((item) => !item.is_internal).length})
                   </h3>
                 </div>
                 {orderActions?.canModify &&
                 detail.status !== "cancelled" &&
                 orderActions.setSku &&
                 orderActions.addBySku ? (
-                    <div className="flex min-w-[280px] items-center gap-2">
-                      <VariantSearchInput
-                        className="h-9 min-w-[220px] rounded-lg border border-app-border bg-app-surface px-3 text-[11px] font-semibold outline-none"
-                        placeholder="Search item or SKU..."
-                        onSelect={(variant) => {
-                          orderActions.setSku?.(variant.sku);
-                          void orderActions.addBySku?.(variant.sku);
-                        }}
-                      />
-                      <button
-                        type="button"
+                  <div className="flex min-w-[280px] items-center gap-2">
+                    <VariantSearchInput
+                      className="h-9 min-w-[220px] rounded-lg border border-app-border bg-app-surface px-3 text-[11px] font-semibold outline-none"
+                      placeholder="Search item or SKU..."
+                      onSelect={(variant) => {
+                        orderActions.setSku?.(variant.sku);
+                        void orderActions.addBySku?.(variant.sku);
+                      }}
+                    />
+                    <button
+                      type="button"
                       onClick={() => {
                         void handleAddBySku();
                       }}
@@ -2104,22 +2108,22 @@ export default function TransactionDetailDrawer({
                 {[
                   {
                     key: "open",
-                    title: "Open Lifecycle Work",
+                    title: "Open Order Items",
                     description:
                       detail.fulfillment_method === "ship"
-                        ? "These lines still need shipping work."
-                        : "These lines must move through lifecycle steps before pickup release.",
+                        ? "These items still need shipping work."
+                        : "These items still need details, ordering, receiving, or pickup work.",
                     items: detail.items.filter(
                       (item) => !item.is_internal && !item.is_fulfilled,
                     ),
                   },
                   {
                     key: "fulfilled",
-                    title: "Closed Lifecycle Lines",
+                    title: "Completed Items",
                     description:
                       detail.fulfillment_method === "ship"
-                        ? "These lines are already completed for shipping."
-                        : "These lines are already completed for pickup.",
+                        ? "These items are already completed for shipping."
+                        : "These items are already picked up.",
                     items: detail.items.filter(
                       (item) => !item.is_internal && item.is_fulfilled,
                     ),
@@ -2142,16 +2146,21 @@ export default function TransactionDetailDrawer({
                             group.key === "fulfilled" ? "success" : "warning",
                           )}`}
                         >
-                          {group.items.length} {group.items.length === 1 ? "line" : "lines"}
+                          {countLabel(group.items.length, "item")}
                         </span>
                       </div>
                       {group.items.map((item) => {
-                        const itemId = item.order_item_id ?? item.transaction_line_id;
+                        const itemId =
+                          item.order_item_id ?? item.transaction_line_id;
                         const returnedQty = item.quantity_returned ?? 0;
-                        const lifecycleLabel = lifecycleStatusLabel(
-                          item.order_lifecycle_status,
-                          item.alteration_status,
-                        );
+                        const lifecycleLabel =
+                          lifecycleStatusLabel(
+                            item.order_lifecycle_status,
+                            item.alteration_status,
+                          ) ??
+                          (item.fulfillment !== "takeaway"
+                            ? "Details needed"
+                            : null);
                         const lifecycleTone = lifecycleStatusTone(
                           item.order_lifecycle_status,
                           item.alteration_status,
@@ -2159,6 +2168,10 @@ export default function TransactionDetailDrawer({
                         );
                         const nextAction = lineNextAction(item, detail);
                         const notificationState = lineNotificationState(item);
+                        const canEditCustomOrderDetails = Boolean(
+                          item.custom_item_type &&
+                            customOrderSubtypeForSku(item.sku),
+                        );
                         const canMarkReady = Boolean(
                           item.order_lifecycle_status === "received" &&
                             item.transaction_line_id &&
@@ -2175,290 +2188,360 @@ export default function TransactionDetailDrawer({
                                 : "border-app-border bg-app-surface"
                             }`}
                           >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-sm font-black text-app-text">
-                                {item.product_name}
-                              </p>
-                              <span
-                                className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-                                  item.is_fulfilled ? "success" : "warning",
-                                )}`}
-                              >
-                                {item.is_fulfilled ? "Fulfilled" : "Open"}
-                              </span>
-                              <span
-                                className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-                                  item.fulfillment === "wedding_order"
-                                    ? "rose"
-                                    : item.fulfillment === "custom"
-                                      ? "info"
-                                      : "neutral",
-                                )}`}
-                              >
-                                {item.fulfillment.replace(/_/g, " ")}
-                              </span>
-                              {lifecycleLabel && item.fulfillment !== "takeaway" ? (
-                                <span
-                                  className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-                                    lifecycleTone,
-                                  )}`}
-                                >
-                                  {lifecycleLabel}
-                                </span>
-                              ) : null}
-                            </div>
-                            <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
-                              {item.sku}
-                              {item.variation_label ? ` · ${item.variation_label}` : ""}
-                              {item.salesperson_name ? ` · ${item.salesperson_name}` : ""}
-                              {item.vendor_name ? ` · ${item.vendor_name}` : ""}
-                              {item.po_number ? ` · ${item.po_number}` : ""}
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-4 text-[11px] font-semibold text-app-text">
-                              <span>Qty {item.quantity}</span>
-                              <span>Unit {fmtMoney(item.unit_price)}</span>
-                              {returnedQty > 0 ? <span>Returned {returnedQty}</span> : null}
-                            </div>
-                            <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-3">
-                              <div className="rounded-lg border border-app-border/60 bg-app-surface-2/70 p-2">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                                  Lifecycle
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-black text-app-text">
+                                    {item.product_name}
+                                  </p>
+                                  <span
+                                    className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
+                                      item.is_fulfilled ? "success" : "warning",
+                                    )}`}
+                                  >
+                                    {item.is_fulfilled ? "Fulfilled" : "Open"}
+                                  </span>
+                                  <span
+                                    className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
+                                      item.fulfillment === "wedding_order"
+                                        ? "rose"
+                                        : item.fulfillment === "custom"
+                                          ? "info"
+                                          : "neutral",
+                                    )}`}
+                                  >
+                                    {fulfillmentLabel(item.fulfillment)}
+                                  </span>
+                                  {lifecycleLabel &&
+                                  item.fulfillment !== "takeaway" ? (
+                                    <span
+                                      className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
+                                        lifecycleTone,
+                                      )}`}
+                                    >
+                                      {lifecycleLabel}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
+                                  {item.sku}
+                                  {item.variation_label
+                                    ? ` · ${item.variation_label}`
+                                    : ""}
+                                  {item.salesperson_name
+                                    ? ` · ${item.salesperson_name}`
+                                    : ""}
+                                  {item.vendor_name
+                                    ? ` · ${item.vendor_name}`
+                                    : ""}
+                                  {item.po_number ? ` · ${item.po_number}` : ""}
                                 </p>
-                                <p className="mt-1 font-black text-app-text">
-                                  {lifecycleLabel ?? "No lifecycle step"}
-                                </p>
-                              </div>
-                              <div className="rounded-lg border border-app-border/60 bg-app-surface-2/70 p-2">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                                  Next Action
-                                </p>
-                                <p className="mt-1 font-semibold text-app-text">
-                                  {nextAction}
-                                </p>
-                              </div>
-                              <div className="rounded-lg border border-app-border/60 bg-app-surface-2/70 p-2">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                                  Ready Notice
-                                </p>
-                                <p className="mt-1 font-semibold text-app-text">
-                                  {notificationState}
-                                </p>
-                              </div>
-                            </div>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              {canMarkReady ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openReadyModal(item)}
-                                  className="rounded-lg border border-emerald-500/20 bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-sm transition-colors hover:bg-emerald-700"
-                                >
-                                  Mark Ready + Notify
-                                </button>
-                              ) : null}
-                              {detail.fulfillment_method !== "ship" &&
-                              item.transaction_line_id &&
-                              !item.is_internal &&
-                              !item.is_fulfilled ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openPickupReleaseModal(item)}
-                                  className={`rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
-                                    isReadyForPickup
-                                      ? "text-app-success hover:bg-app-success/10"
-                                      : "text-app-warning hover:bg-app-warning/10"
-                                  }`}
-                                >
-                                  {isReadyForPickup ? "Pick Up" : "Release Check"}
-                                </button>
-                              ) : null}
-                            {orderActions?.canModify &&
-                             detail.status !== "cancelled" &&
-                             !item.is_fulfilled &&
-                             orderActions.updateLine &&
-                             item.transaction_line_id ? (
-                               <div className="flex items-center gap-1">
-                                 <button
-                                   type="button"
-                                   onClick={() => beginLineEdit(item)}
-                                   className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent/10"
-                                 >
-                                   Edit
-                                 </button>
-                                 <button
-                                   type="button"
-                                   onClick={() => beginSuitSwap(item)}
-                                   className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-600 transition-colors hover:bg-emerald-600/10"
-                                 >
-                                   Suit Swap
-                                 </button>
-                               </div>
-                             ) : null}
-                            {orderActions?.canModify &&
-                            detail.status !== "cancelled" &&
-                            orderActions.deleteLine &&
-                            itemId ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  orderActions.deleteLine?.({
-                                    order_item_id: itemId,
-                                    sku: item.sku,
-                                    product_name: item.product_name,
-                                    quantity: item.quantity,
-                                    fulfillment: item.fulfillment as FulfillmentKind,
-                                  })
-                                }
-                                className="rounded-lg p-2 text-app-text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-600"
-                                aria-label={`Delete ${item.product_name}`}
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                        {editingLineId === item.transaction_line_id ? (
-                          <div className="mt-4 rounded-xl border border-app-accent/20 bg-app-accent/5 p-4">
-                            <div className="grid gap-3 sm:grid-cols-3">
-                              <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                Quantity
-                                <input
-                                  type="number"
-                                  min="1"
-                                  step="1"
-                                  value={editQuantity}
-                                  onChange={(event) => setEditQuantity(event.target.value)}
-                                  disabled={editBusy}
-                                  className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
-                                />
-                              </label>
-                              <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                Unit Price
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={editUnitPrice}
-                                  onChange={(event) => setEditUnitPrice(event.target.value)}
-                                  disabled={editBusy}
-                                  className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
-                                />
-                              </label>
-                              <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                Pickup Type
-                                <select
-                                  value={editFulfillment}
-                                  onChange={(event) =>
-                                    setEditFulfillment(
-                                      event.target.value as EditableFulfillmentKind,
-                                    )
-                                  }
-                                  disabled={editBusy}
-                                  className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
-                                >
-                                  {EDITABLE_FULFILLMENT_OPTIONS.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <div className="sm:col-span-3">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                  Size / Variation
-                                </p>
-                                <p className="mt-1 text-[11px] font-semibold text-app-text">
-                                  {editVariantSku}
-                                  {editVariantLabel ? ` · ${editVariantLabel}` : ""}
-                                </p>
-                                <div className="mt-2">
-                                  <VariantSearchInput
-                                    placeholder="Search this item for the correct size or variation"
-                                    onSelect={(variant) => {
-                                      if (variant.product_id !== item.product_id) {
-                                        setEditError(
-                                          "Use Delete and Add when changing to a different item.",
-                                        );
-                                        return;
-                                      }
-                                      setEditVariantId(variant.variant_id);
-                                      setEditVariantSku(variant.sku);
-                                      setEditVariantLabel(variant.variation_label ?? null);
-                                      setEditError(null);
-                                    }}
-                                  />
+                                <div className="mt-2 flex flex-wrap gap-4 text-[11px] font-semibold text-app-text">
+                                  <span>Qty {item.quantity}</span>
+                                  <span>Price {fmtMoney(item.unit_price)}</span>
+                                  {returnedQty > 0 ? (
+                                    <span>Returned {returnedQty}</span>
+                                  ) : null}
+                                </div>
+                                <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-3">
+                                  <div className="rounded-lg border border-app-border/60 bg-app-surface-2/70 p-2">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                      Order Step
+                                    </p>
+                                    <p className="mt-1 font-black text-app-text">
+                                      {lifecycleLabel ?? "No order step"}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg border border-app-border/60 bg-app-surface-2/70 p-2">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                      Next Action
+                                    </p>
+                                    <p className="mt-1 font-semibold text-app-text">
+                                      {nextAction}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg border border-app-border/60 bg-app-surface-2/70 p-2">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                      Ready Notice
+                                    </p>
+                                    <p className="mt-1 font-semibold text-app-text">
+                                      {notificationState}
+                                    </p>
+                                  </div>
                                 </div>
                               </div>
-                              {item.order_lifecycle_status === "needs_measurements" ||
-                              item.order_lifecycle_status === "ntbo" ? (
-                                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-3">
-                                  Order Step
-                                  <select
-                                    value={editLifecycleStatus}
-                                    onChange={(event) => setEditLifecycleStatus(event.target.value)}
-                                    disabled={editBusy}
-                                    className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                              <div className="flex items-center gap-1">
+                                {canMarkReady ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openReadyModal(item)}
+                                    className="rounded-lg border border-emerald-500/20 bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-sm transition-colors hover:bg-emerald-700"
                                   >
-                                    <option value="needs_measurements">Needs Measurements</option>
-                                    <option value="ntbo">Ready to Order</option>
-                                  </select>
-                                </label>
-                              ) : null}
+                                    Mark Ready + Notify
+                                  </button>
+                                ) : null}
+                                {detail.fulfillment_method !== "ship" &&
+                                item.transaction_line_id &&
+                                !item.is_internal &&
+                                !item.is_fulfilled ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openPickupReleaseModal(item)}
+                                    className={`rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                                      isReadyForPickup
+                                        ? "text-app-success hover:bg-app-success/10"
+                                        : "text-app-warning hover:bg-app-warning/10"
+                                    }`}
+                                  >
+                                    {isReadyForPickup
+                                      ? "Pick Up"
+                                      : "Review Pickup"}
+                                  </button>
+                                ) : null}
+                                {orderActions?.canModify &&
+                                detail.status !== "cancelled" &&
+                                !item.is_fulfilled &&
+                                orderActions.updateLine &&
+                                item.transaction_line_id ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => beginLineEdit(item)}
+                                      className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent/10"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => beginSuitSwap(item)}
+                                      className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-600 transition-colors hover:bg-emerald-600/10"
+                                    >
+                                      Suit Swap
+                                    </button>
+                                  </div>
+                                ) : null}
+                                {orderActions?.canModify &&
+                                detail.status !== "cancelled" &&
+                                orderActions.deleteLine &&
+                                itemId ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      orderActions.deleteLine?.({
+                                        order_item_id: itemId,
+                                        sku: item.sku,
+                                        product_name: item.product_name,
+                                        quantity: item.quantity,
+                                        fulfillment:
+                                          item.fulfillment as FulfillmentKind,
+                                      })
+                                    }
+                                    className="rounded-lg p-2 text-app-text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-600"
+                                    aria-label={`Delete ${item.product_name}`}
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
-                            {editError ? (
-                              <p className="mt-3 text-[11px] font-semibold text-rose-700">
-                                {editError}
-                              </p>
-                            ) : (
-                              <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
-                                Save updates before leaving the drawer to keep transaction totals and item status in sync.
-                              </p>
-                            )}
-                            <div className="mt-4 flex flex-wrap justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={cancelLineEdit}
-                                disabled={editBusy}
-                                className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void submitLineEdit(item)}
-                                disabled={editBusy}
-                                className="rounded-lg border border-emerald-500/20 bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-60"
-                              >
-                                {editBusy ? "Saving…" : "Save Line"}
-                              </button>
-                            </div>
-                          </div>
-                        ) : null}
-                        {item.custom_item_type ? (
-                          <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface-2/70 p-3">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                              Custom Details
-                            </p>
-                            <p className="mt-1 text-[11px] font-black text-app-text">
-                              {item.custom_item_type}
-                            </p>
-                            {item.custom_order_details?.vendor_form_family ? (
-                              <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                                {customVendorLabel(item.custom_order_details.vendor_form_family)}
-                              </p>
+                            {editingLineId === item.transaction_line_id ? (
+                              <div className="mt-4 rounded-xl border border-app-accent/20 bg-app-accent/5 p-4">
+                                <div className="grid gap-3 sm:grid-cols-3">
+                                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                    Quantity
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      step="1"
+                                      value={editQuantity}
+                                      onChange={(event) =>
+                                        setEditQuantity(event.target.value)
+                                      }
+                                      disabled={editBusy}
+                                      className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                                    />
+                                  </label>
+                                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                    Price Each
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={editUnitPrice}
+                                      onChange={(event) =>
+                                        setEditUnitPrice(event.target.value)
+                                      }
+                                      disabled={editBusy}
+                                      className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                                    />
+                                  </label>
+                                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                    Pickup Type
+                                    <select
+                                      value={editFulfillment}
+                                      onChange={(event) =>
+                                        setEditFulfillment(
+                                          event.target
+                                            .value as EditableFulfillmentKind,
+                                        )
+                                      }
+                                      disabled={editBusy}
+                                      className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                                    >
+                                      {EDITABLE_FULFILLMENT_OPTIONS.map(
+                                        (option) => (
+                                          <option
+                                            key={option.value}
+                                            value={option.value}
+                                          >
+                                            {option.label}
+                                          </option>
+                                        ),
+                                      )}
+                                    </select>
+                                  </label>
+                                  <div className="sm:col-span-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                      Size / Variation
+                                    </p>
+                                    <p className="mt-1 text-[11px] font-semibold text-app-text">
+                                      {editVariantSku}
+                                      {editVariantLabel
+                                        ? ` · ${editVariantLabel}`
+                                        : ""}
+                                    </p>
+                                    <div className="mt-2">
+                                      <VariantSearchInput
+                                        placeholder="Search this item for the correct size or variation"
+                                        onSelect={(variant) => {
+                                          if (
+                                            variant.product_id !==
+                                            item.product_id
+                                          ) {
+                                            setEditError(
+                                              "Use Delete and Add when changing to a different item.",
+                                            );
+                                            return;
+                                          }
+                                          setEditVariantId(variant.variant_id);
+                                          setEditVariantSku(variant.sku);
+                                          setEditVariantLabel(
+                                            variant.variation_label ?? null,
+                                          );
+                                          setEditError(null);
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                  {item.order_lifecycle_status ===
+                                    "needs_measurements" ||
+                                  item.order_lifecycle_status === "ntbo" ? (
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-3">
+                                      Order Step
+                                      <select
+                                        value={editLifecycleStatus}
+                                        onChange={(event) =>
+                                          setEditLifecycleStatus(
+                                            event.target.value,
+                                          )
+                                        }
+                                        disabled={editBusy}
+                                        className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                                      >
+                                        <option value="needs_measurements">
+                                          Needs Measurements
+                                        </option>
+                                        <option value="ntbo">
+                                          Ready to Order
+                                        </option>
+                                      </select>
+                                    </label>
+                                  ) : null}
+                                </div>
+                                {editError ? (
+                                  <p className="mt-3 text-[11px] font-semibold text-rose-700">
+                                    {editError}
+                                  </p>
+                                ) : (
+                                  <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
+                                    Save to update totals and item status.
+                                  </p>
+                                )}
+                                <div className="mt-4 flex flex-wrap justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={cancelLineEdit}
+                                    disabled={editBusy}
+                                    className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void submitLineEdit(item)}
+                                    disabled={editBusy}
+                                    className="rounded-lg border border-emerald-500/20 bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-60"
+                                  >
+                                    {editBusy ? "Saving…" : "Save Item"}
+                                  </button>
+                                </div>
+                              </div>
                             ) : null}
-                            <div className="mt-2 grid gap-1 text-[11px] font-semibold text-app-text-muted sm:grid-cols-2">
-                              {customOrderDetailEntries(item.custom_order_details).map((entry) => (
-                                <p key={entry.label}>
-                                  {entry.label}: {entry.value}
-                                </p>
-                              ))}
-                            </div>
+                            {item.custom_item_type ? (
+                              <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface-2/70 p-3">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                      Custom Order Details
+                                    </p>
+                                    <p className="mt-1 text-[11px] font-black text-app-text">
+                                      {item.custom_item_type}
+                                    </p>
+                                    {item.custom_order_details
+                                      ?.vendor_form_family ? (
+                                      <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                                        {customVendorLabel(
+                                          item.custom_order_details
+                                            .vendor_form_family,
+                                        )}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                  {orderActions?.canModify &&
+                                  detail.status !== "cancelled" &&
+                                  !item.is_fulfilled &&
+                                  orderActions.updateLine &&
+                                  canEditCustomOrderDetails &&
+                                  item.transaction_line_id ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setCustomEditItem(item)}
+                                      className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-colors hover:border-app-accent/30 hover:bg-app-accent/10"
+                                    >
+                                      Edit Custom Order
+                                    </button>
+                                  ) : null}
+                                </div>
+                                <div className="mt-2 grid gap-1 text-[11px] font-semibold text-app-text-muted sm:grid-cols-2">
+                                  {customOrderDetailEntries(
+                                    item.custom_order_details,
+                                  ).map((entry) => (
+                                    <p key={entry.label}>
+                                      {entry.label}: {entry.value}
+                                    </p>
+                                  ))}
+                                  {customOrderDetailEntries(
+                                    item.custom_order_details,
+                                  ).length === 0 ? (
+                                    <p className="sm:col-span-2">
+                                      No custom measurements or vendor notes
+                                      were saved for this item.
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
-                        ) : null}
-                      </div>
-                    );
+                        );
                       })}
                     </div>
                   ))}
@@ -2469,15 +2552,10 @@ export default function TransactionDetailDrawer({
               <div className="flex items-center gap-2">
                 <ShieldCheck size={16} className="text-app-text-muted" />
                 <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
-                  Transaction and Pickup Notes
+                  Staff Details
                 </h3>
               </div>
-              <div className="mt-4 space-y-2 text-[12px] font-semibold text-app-text-muted">
-                {describeOrderRules(detail).map((line) => (
-                  <p key={line}>{line}</p>
-                ))}
-              </div>
-              <div className="mt-4 grid gap-3 border-t border-app-border/50 pt-4 sm:grid-cols-2">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                     Operator
@@ -2538,13 +2616,16 @@ export default function TransactionDetailDrawer({
               </div>
               <div className="mt-4 relative space-y-4 border-l-2 border-app-border/60 pl-4 py-1">
                 {audit.length === 0 ? (
-                  <p className="text-sm text-app-text-muted">No recorded activity yet.</p>
+                  <p className="text-sm text-app-text-muted">
+                    No recorded activity yet.
+                  </p>
                 ) : (
                   audit.map((event) => (
                     <div key={event.id} className="relative">
                       <div className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-app-surface bg-app-border" />
                       <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        {new Date(event.created_at).toLocaleString()} · {formatAuditKind(event.event_kind)}
+                        {new Date(event.created_at).toLocaleString()} ·{" "}
+                        {formatAuditKind(event.event_kind)}
                       </p>
                       <p className="mt-1 text-[12px] font-bold leading-tight text-app-text">
                         {event.summary}
@@ -2568,10 +2649,12 @@ export default function TransactionDetailDrawer({
                       Pickup Release
                     </p>
                     <h3 className="mt-1 text-xl font-black text-app-text">
-                      {detail.transaction_display_id ?? detail.transaction_id.slice(0, 8)}
+                      {detail.transaction_display_id ??
+                        detail.transaction_id.slice(0, 8)}
                     </h3>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      Recognition, inventory, commission, and reporting move when pickup is released.
+                      Recognition, inventory, commission, and reporting move
+                      when pickup is released.
                     </p>
                   </div>
                   <button
@@ -2591,7 +2674,8 @@ export default function TransactionDetailDrawer({
                         Balance Blocks Pickup
                       </p>
                       <p className="mt-2 text-sm font-bold text-app-text">
-                        {fmtMoney(detail.balance_due)} is still due. Collect the balance before release.
+                        {fmtMoney(detail.balance_due)} is still due. Collect the
+                        balance before release.
                       </p>
                     </div>
                   ) : (
@@ -2600,7 +2684,8 @@ export default function TransactionDetailDrawer({
                         Balance Clear
                       </p>
                       <p className="mt-2 text-sm font-bold text-app-text">
-                        Payment is clear. Release only lines that are ready, or record an override.
+                        Payment is clear. Release only items that are ready, or
+                        record an override.
                       </p>
                     </div>
                   )}
@@ -2608,7 +2693,7 @@ export default function TransactionDetailDrawer({
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
                       <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        Ready Lines
+                        Ready Items
                       </p>
                       <p className="mt-1 text-lg font-black text-app-success">
                         {pickupModalReadyLines.length}
@@ -2616,7 +2701,7 @@ export default function TransactionDetailDrawer({
                     </div>
                     <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
                       <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        Blocked Lines
+                        Blocked Items
                       </p>
                       <p className="mt-1 text-lg font-black text-app-warning">
                         {pickupModalBlockedLines.length}
@@ -2641,9 +2726,14 @@ export default function TransactionDetailDrawer({
                       </p>
                       <ul className="mt-2 space-y-2 text-sm font-semibold text-app-text">
                         {pickupModalReadyLines.slice(0, 5).map((item) => (
-                          <li key={item.transaction_line_id} className="flex justify-between gap-3">
+                          <li
+                            key={item.transaction_line_id}
+                            className="flex justify-between gap-3"
+                          >
                             <span>{item.product_name}</span>
-                            <span className="shrink-0 text-app-text-muted">{item.sku}</span>
+                            <span className="shrink-0 text-app-text-muted">
+                              {item.sku}
+                            </span>
                           </li>
                         ))}
                       </ul>
@@ -2657,10 +2747,16 @@ export default function TransactionDetailDrawer({
                       </p>
                       <ul className="mt-2 space-y-2 text-sm font-semibold text-app-text">
                         {pickupModalBlockedLines.slice(0, 5).map((item) => (
-                          <li key={item.transaction_line_id} className="flex justify-between gap-3">
+                          <li
+                            key={item.transaction_line_id}
+                            className="flex justify-between gap-3"
+                          >
                             <span>{item.product_name}</span>
                             <span className="shrink-0 text-app-text-muted">
-                              {lifecycleStatusLabel(item.order_lifecycle_status, item.alteration_status) ?? "Not ready"}
+                              {lifecycleStatusLabel(
+                                item.order_lifecycle_status,
+                                item.alteration_status,
+                              ) ?? "Not ready"}
                             </span>
                           </li>
                         ))}
@@ -2674,26 +2770,31 @@ export default function TransactionDetailDrawer({
                         <input
                           type="checkbox"
                           checked={pickupOverride}
-                          onChange={(event) => setPickupOverride(event.target.checked)}
+                          onChange={(event) =>
+                            setPickupOverride(event.target.checked)
+                          }
                           disabled={pickupBusy || pickupBalanceDueCents > 0}
                           className="mt-0.5 h-4 w-4"
                         />
-                        Record readiness override and release blocked lines
+                        Record readiness override and release blocked items
                       </label>
                       {pickupOverride ? (
                         <label className="mt-3 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                           Override Reason
                           <textarea
                             value={pickupOverrideReason}
-                            onChange={(event) => setPickupOverrideReason(event.target.value)}
+                            onChange={(event) =>
+                              setPickupOverrideReason(event.target.value)
+                            }
                             disabled={pickupBusy}
                             className="mt-1 min-h-24 w-full rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm font-semibold normal-case tracking-normal text-app-text outline-none"
-                            placeholder="Explain why blocked lines are being released now."
+                            placeholder="Explain why blocked items are being released now."
                           />
                         </label>
                       ) : (
                         <p className="mt-2 text-xs font-semibold text-app-text-muted">
-                          Without override, only Ready for Pickup lines will be released.
+                          Without override, only Ready for Pickup items will be
+                          released.
                         </p>
                       )}
                     </div>
@@ -2720,7 +2821,11 @@ export default function TransactionDetailDrawer({
                     disabled={pickupBusy || !pickupCanSubmit}
                     className="flex-1 rounded-xl border-b-4 border-app-success bg-app-success px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"
                   >
-                    {pickupBusy ? "Releasing..." : pickupOverride ? "Release with Override" : "Release Ready Lines"}
+                    {pickupBusy
+                      ? "Releasing..."
+                      : pickupOverride
+                        ? "Release with Override"
+                        : "Release Ready Items"}
                   </button>
                 </div>
               </div>
@@ -2744,7 +2849,8 @@ export default function TransactionDetailDrawer({
                         Swap Component: {suitSwapTarget.product_name}
                       </h3>
                       <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
-                        Current SKU: {suitSwapTarget.sku} · Qty {suitSwapTarget.quantity}
+                        Current SKU: {suitSwapTarget.sku} · Qty{" "}
+                        {suitSwapTarget.quantity}
                       </p>
                     </div>
                   </div>
@@ -2760,9 +2866,13 @@ export default function TransactionDetailDrawer({
                 </div>
                 <div className="ui-modal-body space-y-4">
                   <p className="text-xs text-app-text-muted leading-relaxed">
-                    A Suit Component Swap exchanges parts of a suit (e.g. swap pants, vests, coats). The removed item returns to floor stock inventory, and the new item is pulled from inventory. Price, cost, and NYS/Erie taxes are automatically recalculated.
+                    A Suit Component Swap exchanges parts of a suit (e.g. swap
+                    pants, vests, coats). The removed item returns to floor
+                    stock inventory, and the new item is pulled from inventory.
+                    Price, cost, and NYS/Erie taxes are automatically
+                    recalculated.
                   </p>
-                  
+
                   <div>
                     <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Replacement SKU
@@ -2790,7 +2900,9 @@ export default function TransactionDetailDrawer({
                   </div>
 
                   {suitSwapError && (
-                    <p className="text-xs font-semibold text-rose-600">{suitSwapError}</p>
+                    <p className="text-xs font-semibold text-rose-600">
+                      {suitSwapError}
+                    </p>
                   )}
                 </div>
                 <div className="ui-modal-footer flex gap-2">
@@ -2831,7 +2943,9 @@ export default function TransactionDetailDrawer({
                     </h3>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">
                       {readyTarget.sku}
-                      {readyTarget.vendor_name ? ` · ${readyTarget.vendor_name}` : ""}
+                      {readyTarget.vendor_name
+                        ? ` · ${readyTarget.vendor_name}`
+                        : ""}
                     </p>
                   </div>
                   <button
@@ -2846,11 +2960,18 @@ export default function TransactionDetailDrawer({
                 </div>
                 <div className="ui-modal-body space-y-3">
                   <p className="rounded-xl border border-app-info/20 bg-app-info/10 p-3 text-sm font-semibold text-app-text">
-                    This only marks the item operationally ready. Customer pickup still has to use the normal pickup workflow.
+                    This only marks the item operationally ready. Customer
+                    pickup still has to use the normal pickup workflow.
                   </p>
                   {[
-                    ["received", "Item is physically received and matched to the order"],
-                    ["prep", "Final prep, fitting, or alteration review is complete"],
+                    [
+                      "received",
+                      "Item is physically received and matched to the order",
+                    ],
+                    [
+                      "prep",
+                      "Final prep, fitting, or alteration review is complete",
+                    ],
                     ["customer", "Customer pickup expectations are clear"],
                   ].map(([key, label]) => (
                     <label
@@ -2859,7 +2980,9 @@ export default function TransactionDetailDrawer({
                     >
                       <input
                         type="checkbox"
-                        checked={readyChecklist[key as keyof typeof readyChecklist]}
+                        checked={
+                          readyChecklist[key as keyof typeof readyChecklist]
+                        }
                         onChange={(event) =>
                           setReadyChecklist((prev) => ({
                             ...prev,
@@ -2896,7 +3019,8 @@ export default function TransactionDetailDrawer({
                       />
                     </label>
                     <p className="sm:col-span-2 text-xs font-semibold text-app-text-muted">
-                      Use Manager Access only when your current staff access cannot perform lifecycle repair.
+                      Use Manager Access only when your current staff access
+                      cannot perform lifecycle repair.
                     </p>
                   </div>
                   {readyError ? (
@@ -2935,6 +3059,18 @@ export default function TransactionDetailDrawer({
           onClose={() => setShowReceiptModal(false)}
           baseUrl={baseUrl}
           getAuthHeaders={auth}
+        />
+      ) : null}
+
+      {customEditItem ? (
+        <CustomItemPromptModal
+          isOpen={Boolean(customEditItem)}
+          mode="editDetails"
+          sku={customEditItem.sku}
+          initialDetails={customEditItem.custom_order_details ?? null}
+          initialPrice={String(customEditItem.unit_price)}
+          onClose={() => setCustomEditItem(null)}
+          onConfirm={submitCustomOrderDetails}
         />
       ) : null}
 

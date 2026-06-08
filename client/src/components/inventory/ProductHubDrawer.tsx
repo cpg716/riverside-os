@@ -24,6 +24,7 @@ import {
 import { getAppIcon } from "../../lib/icons";
 import { openInventoryTagsWindow } from "./labelPrint";
 import RosieIcon from "../common/RosieIcon";
+import { isCustomOrderSku } from "../../lib/customOrders";
 
 const VENDOR_ICON = getAppIcon("vendor");
 
@@ -376,6 +377,11 @@ function normalizeCleanupValue(value: string | null | undefined) {
   return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function isInternalPosCategory(categoryName: string | null | undefined): boolean {
+  const normalized = normalizeCleanupValue(categoryName);
+  return normalized === "internal / pos" || normalized === "internal/pos";
+}
+
 function firstCleanupValue(suggestion: RosieCleanupSuggestionCard) {
   return (suggestion.suggested_value ?? suggestion.reference_value ?? "").trim();
 }
@@ -403,8 +409,11 @@ export default function ProductHubDrawer({
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [vendorMenuOpen, setVendorMenuOpen] = useState(false);
   const [vendorQuery, setVendorQuery] = useState("");
+  const [secondaryVendorMenuOpen, setSecondaryVendorMenuOpen] = useState(false);
+  const [secondaryVendorQuery, setSecondaryVendorQuery] = useState("");
   const [vendorSaving, setVendorSaving] = useState(false);
   const vendorPickerRef = useRef<HTMLDivElement>(null);
+  const secondaryVendorPickerRef = useRef<HTMLDivElement>(null);
   const [employeeMarkupDraft, setEmployeeMarkupDraft] = useState("");
   const [employeeExtraDraft, setEmployeeExtraDraft] = useState("");
   const [employeeSaving, setEmployeeSaving] = useState(false);
@@ -539,14 +548,17 @@ export default function ProductHubDrawer({
   }, [isOpen, productId, tab, loadTimeline]);
 
   useEffect(() => {
-    if (!vendorMenuOpen) return;
+    if (!vendorMenuOpen && !secondaryVendorMenuOpen) return;
     const onDoc = (ev: MouseEvent) => {
-      const el = vendorPickerRef.current;
-      if (el && !el.contains(ev.target as Node)) setVendorMenuOpen(false);
+      const target = ev.target as Node;
+      const primaryEl = vendorPickerRef.current;
+      const secondaryEl = secondaryVendorPickerRef.current;
+      if (primaryEl && !primaryEl.contains(target)) setVendorMenuOpen(false);
+      if (secondaryEl && !secondaryEl.contains(target)) setSecondaryVendorMenuOpen(false);
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [vendorMenuOpen]);
+  }, [vendorMenuOpen, secondaryVendorMenuOpen]);
 
   const filteredVendors = useMemo(() => {
     const q = vendorQuery.trim().toLowerCase();
@@ -556,6 +568,21 @@ export default function ProductHubDrawer({
         v.name.toLowerCase().includes(q) || v.id.toLowerCase().includes(q),
     );
   }, [vendors, vendorQuery]);
+
+  const selectedSecondaryVendorIds = useMemo(
+    () => new Set((hub?.product.secondary_vendors ?? []).map((vendor) => vendor.id)),
+    [hub?.product.secondary_vendors],
+  );
+
+  const filteredSecondaryVendors = useMemo(() => {
+    const q = secondaryVendorQuery.trim().toLowerCase();
+    return vendors.filter((vendor) => {
+      if (vendor.id === hub?.product.primary_vendor_id) return false;
+      if (selectedSecondaryVendorIds.has(vendor.id)) return false;
+      if (!q) return true;
+      return vendor.name.toLowerCase().includes(q) || vendor.id.toLowerCase().includes(q);
+    });
+  }, [vendors, hub?.product.primary_vendor_id, selectedSecondaryVendorIds, secondaryVendorQuery]);
 
   const patchProductModel = useCallback(
     async (body: Record<string, unknown>) => {
@@ -615,7 +642,11 @@ export default function ProductHubDrawer({
   const patchSecondaryVendors = async (vendorIds: string[]) => {
     setVendorSaving(true);
     try {
-      await patchProductModel({ secondary_vendor_ids: vendorIds });
+      const ok = await patchProductModel({ secondary_vendor_ids: vendorIds });
+      if (ok) {
+        setSecondaryVendorMenuOpen(false);
+        setSecondaryVendorQuery("");
+      }
     } finally {
       setVendorSaving(false);
     }
@@ -920,6 +951,11 @@ export default function ProductHubDrawer({
   );
 
   const totalStock = hub?.stats?.total_units_on_hand ?? 0;
+  const isNonStockSaleProduct = Boolean(
+    hub &&
+      (isInternalPosCategory(hub.product.category_name) ||
+        (hub.variants.length > 0 && hub.variants.every((variant) => isCustomOrderSku(variant.sku)))),
+  );
   const confidenceLabel = catalogAnalysis
     ? `${Math.round((catalogAnalysis.confidence_score ?? 0) * 100)}% confidence`
     : null;
@@ -1207,39 +1243,95 @@ export default function ProductHubDrawer({
                       Secondary vendors
                     </dt>
                     <dd className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-                      <div className="flex flex-wrap gap-2">
-                        {vendors
-                          .filter((vendor) => vendor.id !== hub.product.primary_vendor_id)
-                          .map((vendor) => {
-                            const selectedIds = new Set(
-                              (hub.product.secondary_vendors ?? []).map((v) => v.id),
-                            );
-                            const isChecked = selectedIds.has(vendor.id);
-                            return (
-                              <label
+                      <div className="space-y-3">
+                        {(hub.product.secondary_vendors ?? []).length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {(hub.product.secondary_vendors ?? []).map((vendor) => (
+                              <span
                                 key={vendor.id}
-                                className={`inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
-                                  isChecked
-                                    ? "border-app-accent bg-app-accent/10 text-app-accent"
-                                    : "border-app-border bg-app-surface text-app-text-muted hover:border-app-accent hover:text-app-text"
-                                }`}
+                                className="inline-flex items-center gap-2 rounded-xl border border-app-accent bg-app-accent/10 px-3 py-2 text-xs font-bold text-app-accent"
                               >
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  disabled={vendorSaving}
-                                  onChange={(event) => {
-                                    const next = new Set(selectedIds);
-                                    if (event.target.checked) next.add(vendor.id);
-                                    else next.delete(vendor.id);
-                                    void patchSecondaryVendors([...next]);
-                                  }}
-                                  className="h-3.5 w-3.5 rounded border-app-input-border text-app-accent focus:ring-app-accent"
-                                />
                                 {vendor.name}
-                              </label>
-                            );
-                          })}
+                                <button
+                                  type="button"
+                                  disabled={vendorSaving}
+                                  onClick={() =>
+                                    void patchSecondaryVendors(
+                                      [...selectedSecondaryVendorIds].filter((id) => id !== vendor.id),
+                                    )
+                                  }
+                                  className="rounded-full p-0.5 text-app-accent hover:bg-app-accent/15 disabled:opacity-50"
+                                  aria-label={`Remove ${vendor.name}`}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs font-semibold text-app-text-muted">
+                            No alternate vendors selected.
+                          </p>
+                        )}
+                        <div ref={secondaryVendorPickerRef} className="relative">
+                          <div className="relative">
+                            <ChevronsUpDown
+                              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted"
+                              aria-hidden
+                            />
+                            <input
+                              type="text"
+                              role="combobox"
+                              aria-expanded={secondaryVendorMenuOpen}
+                              aria-controls="secondary-vendor-hub-combo-list"
+                              disabled={vendorSaving}
+                              value={secondaryVendorQuery}
+                              placeholder="Search alternate vendors..."
+                              onChange={(event) => {
+                                setSecondaryVendorQuery(event.target.value);
+                                setSecondaryVendorMenuOpen(true);
+                              }}
+                              onFocus={() => setSecondaryVendorMenuOpen(true)}
+                              className="w-full rounded-xl border border-app-border bg-app-surface py-2.5 pl-3 pr-10 text-sm font-semibold text-app-text outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20 disabled:opacity-50"
+                            />
+                          </div>
+                          {secondaryVendorMenuOpen ? (
+                            <ul
+                              id="secondary-vendor-hub-combo-list"
+                              role="listbox"
+                              className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-app-border bg-app-surface py-1 shadow-lg"
+                            >
+                              {filteredSecondaryVendors.length === 0 ? (
+                                <li className="px-3 py-2 text-xs text-app-text-muted">
+                                  No matches.
+                                </li>
+                              ) : (
+                                filteredSecondaryVendors.slice(0, 80).map((vendor) => (
+                                  <li key={vendor.id} role="none">
+                                    <button
+                                      type="button"
+                                      role="option"
+                                      className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-app-accent/10"
+                                      onClick={() =>
+                                        void patchSecondaryVendors([
+                                          ...selectedSecondaryVendorIds,
+                                          vendor.id,
+                                        ])
+                                      }
+                                    >
+                                      <span className="font-bold text-app-text">
+                                        {vendor.name}
+                                      </span>
+                                      <span className="font-mono text-[10px] text-app-text-muted">
+                                        {vendor.id}
+                                      </span>
+                                    </button>
+                                  </li>
+                                ))
+                              )}
+                            </ul>
+                          ) : null}
+                        </div>
                       </div>
                       <p className="mt-2 text-[10px] text-app-text-muted">
                         Approved alternate suppliers for PO line entry and receiving. Min/Max suggestions still use the primary vendor.
@@ -1485,7 +1577,7 @@ export default function ProductHubDrawer({
                     Inventory snapshot
                   </h3>
                   <span className="rounded-full border border-app-accent/35 bg-app-accent/10 px-4 py-2 text-sm font-black uppercase italic tracking-tight text-app-accent shadow-app-accent/30">
-                    On hand: {totalStock} units
+                    {isNonStockSaleProduct ? "Not stock counted" : `On hand: ${totalStock} items`}
                   </span>
                 </div>
                 <div className="space-y-3">
@@ -1493,49 +1585,75 @@ export default function ProductHubDrawer({
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h4 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                          Inventory status
+                          {isNonStockSaleProduct ? "Sales item status" : "Inventory status"}
                         </h4>
                         <p className="mt-1 text-xs text-app-text-muted">
-                          This view uses current inventory values. Reserved units are already
-                          promised to open orders and are not available for walk-in sale.
+                          {isNonStockSaleProduct
+                            ? "This item is sold through POS or custom order workflows and is not counted as shelf stock."
+                            : "This view uses current inventory values. Reserved items are already promised to open orders and are not available for walk-in sale."}
                         </p>
                       </div>
-                      <div className="ui-metric-cell ui-tint-neutral px-3 py-2 text-right">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          Last physical count
-                        </p>
-                        <p className="mt-1 text-sm font-bold text-app-text">
-                          {formatDateTime(hub.stats.last_physical_count_at)}
-                        </p>
-                      </div>
+                      {!isNonStockSaleProduct ? (
+                        <div className="ui-metric-cell ui-tint-neutral px-3 py-2 text-right">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Last physical count
+                          </p>
+                          <p className="mt-1 text-sm font-bold text-app-text">
+                            {formatDateTime(hub.stats.last_physical_count_at)}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <div className="ui-metric-cell ui-tint-neutral px-4 py-3">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          On hand
-                        </p>
-                        <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                          {hub.stats.total_units_on_hand}
-                        </p>
-                      </div>
-                      <div className="ui-metric-cell ui-tint-warning px-4 py-3">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          Reserved in store
-                        </p>
-                        <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                          {hub.stats.total_reserved_units}
-                        </p>
-                      </div>
-                      <div className="ui-metric-cell ui-tint-success px-4 py-3">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          Available now
-                        </p>
-                        <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                          {hub.stats.total_available_units}
-                        </p>
-                      </div>
-                      {hub.can_view_procurement ? (
+                      {isNonStockSaleProduct ? (
+                        <>
+                          <div className="ui-metric-cell ui-tint-neutral px-4 py-3">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              Sold All Time
+                            </p>
+                            <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                              {hub.stats.units_sold_all_time}
+                            </p>
+                          </div>
+                          <div className="ui-metric-cell ui-tint-info px-4 py-3">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              Open Orders
+                            </p>
+                            <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                              {hub.stats.open_order_units}
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="ui-metric-cell ui-tint-neutral px-4 py-3">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              On hand
+                            </p>
+                            <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                              {hub.stats.total_units_on_hand}
+                            </p>
+                          </div>
+                          <div className="ui-metric-cell ui-tint-warning px-4 py-3">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              Reserved in store
+                            </p>
+                            <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                              {hub.stats.total_reserved_units}
+                            </p>
+                          </div>
+                          <div className="ui-metric-cell ui-tint-success px-4 py-3">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                              Available now
+                            </p>
+                            <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                              {hub.stats.total_available_units}
+                            </p>
+                          </div>
+                        </>
+                      )}
+                      {hub.can_view_procurement && !isNonStockSaleProduct ? (
                         <div className="ui-metric-cell ui-tint-info px-4 py-3">
                           <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                             On order
@@ -1552,17 +1670,25 @@ export default function ProductHubDrawer({
                         How inventory rules work
                       </p>
                       <div className="mt-2 space-y-1.5 text-[11px] font-medium leading-relaxed text-app-text-muted">
-                        <p>
-                          Available now means on hand minus units already reserved for open store work.
-                        </p>
-                        <p>
-                          Reserved in store covers units already committed to orders, weddings, or other promised pickup work.
-                        </p>
-                        {hub.can_view_procurement ? (
+                        {isNonStockSaleProduct ? (
                           <p>
-                            On order shows incoming purchase-order units only. They do not become sellable inventory until the receipt posts.
+                            This item is used to ring a service, payment, or custom order sale. Review sales and open orders instead of shelf quantity.
                           </p>
-                        ) : null}
+                        ) : (
+                          <>
+                            <p>
+                              Available now means on hand minus items already reserved for open store work.
+                            </p>
+                            <p>
+                              Reserved in store covers items already committed to orders, weddings, or other promised pickup work.
+                            </p>
+                            {hub.can_view_procurement ? (
+                              <p>
+                                On order shows incoming purchase-order items only. They do not become sellable inventory until the receipt posts.
+                              </p>
+                            ) : null}
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1572,13 +1698,21 @@ export default function ProductHubDrawer({
                       <tr className="border-b border-app-border text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                         <th className="px-3 py-2">SKU</th>
                         <th className="px-3 py-2">Option</th>
-                        <th className="px-3 py-2 text-right">On hand</th>
-                        <th className="px-3 py-2 text-right">Reserved</th>
-                        <th className="px-3 py-2 text-right">Available</th>
-                        {hub.can_view_procurement ? (
+                        {isNonStockSaleProduct ? (
+                          <th className="px-3 py-2">Tracking</th>
+                        ) : (
+                          <>
+                            <th className="px-3 py-2 text-right">On hand</th>
+                            <th className="px-3 py-2 text-right">Reserved</th>
+                            <th className="px-3 py-2 text-right">Available</th>
+                          </>
+                        )}
+                        {hub.can_view_procurement && !isNonStockSaleProduct ? (
                           <th className="px-3 py-2 text-right">On order</th>
                         ) : null}
-                        <th className="px-3 py-2">Last physical count</th>
+                        {!isNonStockSaleProduct ? (
+                          <th className="px-3 py-2">Last physical count</th>
+                        ) : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -1593,23 +1727,33 @@ export default function ProductHubDrawer({
                           <td className="px-3 py-3 text-app-text">
                             {variant.variation_label ?? "Standard"}
                           </td>
-                          <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
-                            {variant.stock_on_hand}
-                          </td>
-                          <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
-                            {variant.reserved_stock}
-                          </td>
-                          <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
-                            {variant.available_stock}
-                          </td>
-                          {hub.can_view_procurement ? (
+                          {isNonStockSaleProduct ? (
+                            <td className="px-3 py-3 text-xs font-semibold text-app-text-muted">
+                              Not stock counted
+                            </td>
+                          ) : (
+                            <>
+                              <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
+                                {variant.stock_on_hand}
+                              </td>
+                              <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
+                                {variant.reserved_stock}
+                              </td>
+                              <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
+                                {variant.available_stock}
+                              </td>
+                            </>
+                          )}
+                          {hub.can_view_procurement && !isNonStockSaleProduct ? (
                             <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
                               {variant.qty_on_order ?? 0}
                             </td>
                           ) : null}
-                          <td className="px-3 py-3 text-xs text-app-text-muted">
-                            {formatDateTime(variant.last_physical_count_at)}
-                          </td>
+                          {!isNonStockSaleProduct ? (
+                            <td className="px-3 py-3 text-xs text-app-text-muted">
+                              {formatDateTime(variant.last_physical_count_at)}
+                            </td>
+                          ) : null}
                         </tr>
                       ))}
                     </tbody>

@@ -26,6 +26,7 @@ use crate::auth::permissions::{
 };
 use crate::auth::pins::{self, log_staff_access};
 use crate::auth::pos_session;
+use crate::logic::custom_orders::{canonical_custom_order_details, known_custom_subtype_for_sku};
 use crate::logic::customer_notifications::{
     record_customer_notification, CustomerNotificationChannel, CustomerNotificationKind,
 };
@@ -981,6 +982,8 @@ pub struct PatchTransactionLineRequest {
     pub fulfillment: Option<DbFulfillmentType>,
     #[serde(default)]
     pub order_lifecycle_status: Option<DbOrderItemLifecycleStatus>,
+    #[serde(default)]
+    pub custom_order_details: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1849,7 +1852,7 @@ async fn mark_transaction_pickup(
             .collect::<Vec<_>>()
             .join("; ");
         return Err(TransactionError::InvalidPayload(format!(
-            "Pickup blocked: {count} line(s) are not Ready for Pickup. {examples}. Mark lines ready first, or use an explicit readiness override with a reason.",
+            "Pickup blocked: {count} item(s) are not Ready for Pickup. {examples}. Mark items ready first, or use an explicit readiness override with a reason.",
             count = unready_lines.len()
         )));
     }
@@ -1877,7 +1880,7 @@ async fn mark_transaction_pickup(
             .collect::<Vec<_>>()
             .join("; ");
         return Err(TransactionError::InvalidPayload(format!(
-            "Pickup blocked: {count} line(s) have insufficient inventory. {examples}. Receive stock through vendor invoice before pickup, or use a manager override with reason to allow negative inventory.",
+            "Pickup blocked: {count} item(s) have insufficient inventory. {examples}. Receive stock through vendor invoice before pickup, or use a manager override with reason to allow negative inventory.",
             count = insufficient_stock_lines.len()
         )));
     }
@@ -5514,22 +5517,33 @@ async fn update_transaction_line(
         None => None,
     };
 
-    let current_line: Option<(Uuid, DbOrderItemLifecycleStatus, bool, DbFulfillmentType)> =
-        sqlx::query_as(
-            r#"
-            SELECT product_id, order_lifecycle_status, is_fulfilled, fulfillment
-            FROM transaction_lines
-            WHERE id = $1
-              AND transaction_id = $2
+    let current_line: Option<(
+        Uuid,
+        DbOrderItemLifecycleStatus,
+        bool,
+        DbFulfillmentType,
+        String,
+    )> = sqlx::query_as(
+        r#"
+            SELECT oi.product_id, oi.order_lifecycle_status, oi.is_fulfilled, oi.fulfillment, pv.sku
+            FROM transaction_lines oi
+            JOIN product_variants pv ON pv.id = oi.variant_id
+            WHERE oi.id = $1
+              AND oi.transaction_id = $2
             FOR UPDATE
             "#,
-        )
-        .bind(transaction_line_id)
-        .bind(transaction_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-    let Some((current_product_id, current_lifecycle_status, is_fulfilled, current_fulfillment)) =
-        current_line
+    )
+    .bind(transaction_line_id)
+    .bind(transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((
+        current_product_id,
+        current_lifecycle_status,
+        is_fulfilled,
+        current_fulfillment,
+        current_sku,
+    )) = current_line
     else {
         return Err(TransactionError::NotFound);
     };
@@ -5558,7 +5572,7 @@ async fn update_transaction_line(
     if let Some(next_status) = body.order_lifecycle_status {
         if is_fulfilled || current_fulfillment == DbFulfillmentType::Takeaway {
             return Err(TransactionError::InvalidPayload(
-                "fulfilled lines cannot be moved back into order review.".to_string(),
+                "fulfilled items cannot be moved back into order review.".to_string(),
             ));
         }
         if !matches!(
@@ -5566,7 +5580,7 @@ async fn update_transaction_line(
             DbOrderItemLifecycleStatus::NeedsMeasurements | DbOrderItemLifecycleStatus::Ntbo
         ) {
             return Err(TransactionError::InvalidPayload(
-                "only lines waiting on measurements or vendor ordering can be changed here"
+                "only items waiting on measurements or vendor ordering can be changed here"
                     .to_string(),
             ));
         }
@@ -5575,7 +5589,7 @@ async fn update_transaction_line(
             DbOrderItemLifecycleStatus::NeedsMeasurements | DbOrderItemLifecycleStatus::Ntbo
         ) {
             return Err(TransactionError::InvalidPayload(
-                "line edit can only mark Needs Measurements or Ready to Order".to_string(),
+                "item edit can only mark Needs Measurements or Ready to Order".to_string(),
             ));
         }
     }
@@ -5598,6 +5612,22 @@ async fn update_transaction_line(
     if normalized_fulfillment.is_some() {
         touched = true;
     }
+    let canonical_custom_details = if let Some(details) = body.custom_order_details.as_ref() {
+        let subtype = known_custom_subtype_for_sku(&current_sku).ok_or_else(|| {
+            TransactionError::InvalidPayload(
+                "custom details can only be saved for a configured Custom SKU".to_string(),
+            )
+        })?;
+        Some(
+            canonical_custom_order_details(Some(subtype), Some(details)).ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "custom details were not in the expected form".to_string(),
+                )
+            })?,
+        )
+    } else {
+        None
+    };
     if touched {
         sqlx::query(
             r#"
@@ -5620,6 +5650,26 @@ async fn update_transaction_line(
         .execute(&mut *tx)
         .await?;
     }
+    if let Some(details) = canonical_custom_details.as_ref() {
+        sqlx::query(
+            r#"
+            UPDATE transaction_lines
+            SET size_specs = jsonb_set(
+                COALESCE(size_specs, '{}'::jsonb),
+                '{custom_order_details}',
+                $1::jsonb,
+                true
+            )
+            WHERE id = $2
+              AND transaction_id = $3
+            "#,
+        )
+        .bind(sqlx::types::Json(details.clone()))
+        .bind(transaction_line_id)
+        .bind(transaction_id)
+        .execute(&mut *tx)
+        .await?;
+    }
     if let Some(next_status) = body.order_lifecycle_status {
         order_lifecycle::apply_transition_tx(
             &mut tx,
@@ -5627,7 +5677,7 @@ async fn update_transaction_line(
             next_status,
             Some(staff.id),
             "transaction_line_edit",
-            Some("Order line review updated"),
+            Some("Order item review updated"),
             json!({ "transaction_line_id": transaction_line_id }),
         )
         .await?;
@@ -5647,7 +5697,7 @@ async fn update_transaction_line(
         transaction_id,
         customer_id,
         "item_updated",
-        "Order line edited",
+        "Order item edited",
         json!({
             "transaction_line_id": transaction_line_id,
             "variant_id": body.variant_id,
@@ -5655,6 +5705,7 @@ async fn update_transaction_line(
             "unit_price": body.unit_price,
             "fulfillment": normalized_fulfillment,
             "order_lifecycle_status": body.order_lifecycle_status.map(|s| s.as_str()),
+            "custom_order_details_updated": canonical_custom_details.is_some(),
         }),
     )
     .await?;
@@ -5827,7 +5878,7 @@ async fn delete_transaction_line(
         transaction_id,
         customer_id,
         "item_deleted",
-        "Order line removed",
+        "Order item removed",
         json!({ "transaction_line_id": transaction_line_id }),
     )
     .await?;

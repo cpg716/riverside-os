@@ -858,9 +858,9 @@ export function openProfessionalTablePrint(opts: {
   subtitle?: string;
   columns: string[];
   rows: Record<string, unknown>[];
-}): void {
+}): boolean {
   const w = window.open("", "_blank", "width=950,height=950");
-  if (!w) return;
+  if (!w) return false;
 
   w.document.title = opts.title;
 
@@ -951,7 +951,6 @@ export function openProfessionalTablePrint(opts: {
           w.print();
         } catch (e) {
           console.error("Print failed:", e);
-          alert("Print dialog could not be opened. Please check your browser settings.");
         }
       }
     }, 500);
@@ -961,8 +960,8 @@ export function openProfessionalTablePrint(opts: {
         w.print();
       } catch (e) {
         console.error("Print failed:", e);
-        alert("Print dialog could not be opened. Please check your browser settings.");
       }
     }, 500);
   }
+  return true;
 }

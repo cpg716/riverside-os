@@ -55,6 +55,7 @@ type TransactionDetail = {
     member_role?: string | null;
   } | null;
   items: Array<{
+    transaction_line_id?: string;
     fulfillment: string;
     sku: string;
     unit_cost: string;
@@ -599,6 +600,41 @@ test.describe("Orders custom vs special contract", () => {
     expect(customLine?.custom_order_details?.hsm_coat_size).toBe("40R");
     expect(customLine?.custom_order_details?.hsm_lapel_style).toBe("Peak");
     expect(customLine?.custom_order_details?.hsm_fabric_reservation_number).toBe("683N2448");
+
+    expect(customLine?.transaction_line_id).toBeTruthy();
+    const editRes = await request.patch(
+      `${apiBase()}/api/transactions/${customBody.transaction_id}/items/${customLine?.transaction_line_id}`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          custom_order_details: {
+            garment_description: "Navy peak-lapel suit - corrected",
+            fabric_reference: "6318N2448-EDIT",
+            style_reference: "302L0140",
+            hsm_model_code: "302L0140-EDIT",
+            hsm_coat_size: "41R",
+            custom_notes: "Updated from Order Detail custom editor",
+          },
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const editText = await editRes.text();
+    expect(editRes.status(), editText.slice(0, 1000)).toBe(200);
+    const editedDetail = JSON.parse(editText) as TransactionDetail;
+    const editedLine = editedDetail.items.find(
+      (item) => item.fulfillment === "custom" && item.sku === "100",
+    );
+    expect(editedLine?.custom_order_details?.vendor_form_family).toBe("hart_schaffner_marx");
+    expect(editedLine?.custom_order_details?.fabric_reference).toBe("6318N2448-EDIT");
+    expect(editedLine?.custom_order_details?.hsm_model_code).toBe("302L0140-EDIT");
+    expect(editedLine?.custom_order_details?.hsm_coat_size).toBe("41R");
+    expect(editedLine?.custom_order_details?.custom_notes).toBe(
+      "Updated from Order Detail custom editor",
+    );
   });
 
   test("individualized shirt details persist with measurement anchors", async ({

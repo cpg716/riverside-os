@@ -40,6 +40,7 @@ import {
   formatUsdFromCents,
   parseMoneyToCents,
 } from "../../lib/money";
+import { isCustomOrderSku } from "../../lib/customOrders";
 
 const HIGH_VALUE_MIN_USD = 500;
 
@@ -54,6 +55,11 @@ const READINESS_FILTER_LABEL: Record<ReadinessFilter, string> = {
   missing_vendor: "Vendor missing",
   missing_brand: "Optional brand blank",
 };
+
+function isInternalPosCategory(categoryName: string | null | undefined): boolean {
+  const normalized = String(categoryName ?? "").trim().toLowerCase();
+  return normalized === "internal / pos" || normalized === "internal/pos";
+}
 
 function categoryIdForQuickPick(
   categories: Category[],
@@ -146,6 +152,7 @@ interface ProductListRow {
   /** Sum of variant available_stock (walk-in + web alloc). */
   available_stock_total: number;
   web_published_count: number;
+  is_non_stock_sale_item: boolean;
 }
 
 interface CatalogQualitySummary {
@@ -700,6 +707,9 @@ export default function InventoryControlBoard({
       let extCents = 0;
       let availSum = 0;
       let webPub = 0;
+      const isNonStockSaleItem =
+        isInternalPosCategory(first.category_name) ||
+        variants.every((variant) => isCustomOrderSku(variant.sku));
       for (const v of variants) {
         stock += v.stock_on_hand;
         availSum +=
@@ -738,6 +748,7 @@ export default function InventoryControlBoard({
         variant_rows: variants,
         available_stock_total: availSum,
         web_published_count: webPub,
+        is_non_stock_sale_item: isNonStockSaleItem,
       };
     });
   }, [rows]);
@@ -1251,11 +1262,12 @@ export default function InventoryControlBoard({
     const isSelected = selected.has(row.product_id);
     const focused = tableFocus && cursor === idx;
 
+    const isNonStockSaleItem = row.is_non_stock_sale_item;
     const totalSoh = row.stock_on_hand || 0;
     const totalAvailable = row.available_stock_total ?? totalSoh;
-    const oos = totalSoh <= 0;
-    const unavailable = totalAvailable <= 0;
-    const low = totalAvailable > 0 && totalAvailable <= 2;
+    const oos = !isNonStockSaleItem && totalSoh <= 0;
+    const unavailable = !isNonStockSaleItem && totalAvailable <= 0;
+    const low = !isNonStockSaleItem && totalAvailable > 0 && totalAvailable <= 2;
     const highValue = row.cost_extended >= HIGH_VALUE_MIN_USD;
 
     const primaryVariant = row.variant_rows?.[0];
@@ -1307,17 +1319,23 @@ export default function InventoryControlBoard({
                   <Gem size={7} /> High current-cost value
                 </span>
               )}
-              <span
-                className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${
-                  unavailable
-                    ? "bg-app-danger/10 text-app-danger"
-                    : low
-                      ? "bg-app-warning/10 text-app-warning"
-                      : "bg-app-success/10 text-app-success"
-                }`}
-              >
-                {unavailable ? "Not available" : low ? "Low available" : "Available"}
-              </span>
+              {isNonStockSaleItem ? (
+                <span className="rounded-full bg-app-info/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-info">
+                  Sale item
+                </span>
+              ) : (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${
+                    unavailable
+                      ? "bg-app-danger/10 text-app-danger"
+                      : low
+                        ? "bg-app-warning/10 text-app-warning"
+                        : "bg-app-success/10 text-app-success"
+                  }`}
+                >
+                  {unavailable ? "Not available" : low ? "Low available" : "Available"}
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-mono text-[12px] font-black text-app-text-muted">
@@ -1340,24 +1358,37 @@ export default function InventoryControlBoard({
 
         {/* Inventory Velocity & SOH */}
         <div className="flex shrink-0 flex-[1.5] items-center gap-4">
-          <div className="text-center min-w-[60px]">
-             <p className={`text-xl font-black tabular-nums tracking-tighter ${oos ? 'text-app-danger' : low ? 'text-app-warning' : 'text-app-success'}`}>
-               {totalSoh}
-             </p>
-             <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-50">On hand</p>
-          </div>
-          <div className="flex-1 max-w-[80px]">
-            <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-[0.1em] text-app-text-muted mb-1 opacity-50">
-               <span>Available</span>
-               <span>{totalAvailable}</span>
+          {isNonStockSaleItem ? (
+            <div className="min-w-[150px] rounded-xl border border-app-info/15 bg-app-info/8 px-3 py-2">
+              <p className="text-[8px] font-black uppercase tracking-widest text-app-info">
+                Not stock counted
+              </p>
+              <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                Track sales history, not on-hand quantity.
+              </p>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-app-border/20">
-              <div
-                className={`h-full transition-all duration-700 ${unavailable ? 'bg-app-danger/60' : low ? 'bg-app-warning/60' : 'bg-app-success/60'}`}
-                style={{ width: `${Math.min(100, (Math.max(0, totalAvailable) / 10) * 100)}%` }}
-              />
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="text-center min-w-[60px]">
+                 <p className={`text-xl font-black tabular-nums tracking-tighter ${oos ? 'text-app-danger' : low ? 'text-app-warning' : 'text-app-success'}`}>
+                   {totalSoh}
+                 </p>
+                 <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-50">On hand</p>
+              </div>
+              <div className="flex-1 max-w-[80px]">
+                <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-[0.1em] text-app-text-muted mb-1 opacity-50">
+                   <span>Available</span>
+                   <span>{totalAvailable}</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-app-border/20">
+                  <div
+                    className={`h-full transition-all duration-700 ${unavailable ? 'bg-app-danger/60' : low ? 'bg-app-warning/60' : 'bg-app-success/60'}`}
+                    style={{ width: `${Math.min(100, (Math.max(0, totalAvailable) / 10) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Financial Context */}

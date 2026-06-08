@@ -59,17 +59,20 @@ The Product Hub panel is a visibility surface. It uses current server-computed v
 - `Primary vendor`
   The vendor Riverside uses for Min/Max reorder suggestions and stock-out ordering context.
 - `Secondary vendors`
-  Approved alternate vendors that can be used for PO line entry and receiving without changing the primary Min/Max suggestion vendor.
+  Approved alternate vendors that can be used for PO line entry and receiving without changing the primary Min/Max suggestion vendor. Use the search box to add an alternate vendor, then remove selected vendors from their chips when needed.
+
+Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Product Hub shows sales and open-order context for those items instead of on-hand and available quantities.
 
 ## How to use it
 
 1. Open the product from Inventory.
 2. Review `On hand`, `Reserved in store`, and `Available now` before promising stock.
 3. Check `On order` only as incoming pipeline, not as current sellable stock.
-4. Use `Print retail price tags` from the General section when you want to print from the product detail view.
-5. In the Variations tab, use `Print all tags` or select specific variations first and then use `Print selected tags`.
-6. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
-7. Use recent inventory events when you need to confirm why the number changed.
+4. Search vendors in `Primary vendor` or `Secondary vendors` instead of scanning a long vendor list.
+5. Use `Print retail price tags` from the General section when you want to print from the product detail view.
+6. In the Variations tab, use `Print all tags` or select specific variations first and then use `Print selected tags`.
+7. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
+8. Use recent inventory events when you need to confirm why the number changed.
 
 ## What the retail price-tag review does
 
@@ -81,6 +84,7 @@ The Product Hub panel is a visibility surface. It uses current server-computed v
 ## What to watch for
 
 - Reserved units are already promised and should not be treated as walk-in availability.
+- Sale-only Internal POS and Custom SKUs do not use on-hand counts. Review sales history and open orders for those items.
 - Available quantity follows the current server rule, not a manual floor estimate.
 - Incoming PO units only count after receiving posts the inventory movement.
 - `Print all tags` includes every variation shown in the workspace. Use selection first if you only need a smaller subset.

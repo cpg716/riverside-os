@@ -39,6 +39,7 @@ import {
 import { openProfessionalTablePrint } from "../pos/zReportPrint";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { isTauri } from "@tauri-apps/api/core";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
 
@@ -718,6 +719,7 @@ export default function ReportsWorkspace({
   onNavigateCommissionPayouts,
 }: Props) {
   const isCompactLayout = useMediaQuery("(max-width: 1023px)");
+  const { toast } = useToast();
   const { backofficeHeaders, hasPermission, permissionsLoaded, staffRole } =
     useBackofficeAuth();
   const apiAuth = useCallback(
@@ -1360,12 +1362,15 @@ export default function ReportsWorkspace({
                   <button
                     type="button"
                     onClick={() => {
-                      openProfessionalTablePrint({
+                      const started = openProfessionalTablePrint({
                         title: selected.title,
                         subtitle: reportPrintSubtitle(selected, ctx),
                         columns: keysFromRows(displayRows),
                         rows: displayRows
                       });
+                      if (!started) {
+                        toast("Print could not open. Check pop-up permissions or printer setup.", "error");
+                      }
                     }}
                     className="ui-btn-secondary inline-flex min-h-11 items-center gap-2 rounded-xl border-app-success/20 px-3 py-2 text-sm font-bold text-app-success hover:bg-app-success hover:text-white"
                   >

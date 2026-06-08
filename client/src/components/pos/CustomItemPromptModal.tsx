@@ -12,6 +12,9 @@ import {
 interface CustomItemPromptModalProps {
   isOpen: boolean;
   sku?: string | null;
+  mode?: "create" | "editDetails";
+  initialDetails?: CustomOrderDetails | null;
+  initialPrice?: string | null;
   onClose: () => void;
   onConfirm: (data: {
     itemType: string;
@@ -28,6 +31,9 @@ interface CustomItemPromptModalProps {
 export default function CustomItemPromptModal({
   isOpen,
   sku,
+  mode = "create",
+  initialDetails = null,
+  initialPrice = null,
   onClose,
   onConfirm,
 }: CustomItemPromptModalProps) {
@@ -89,47 +95,50 @@ export default function CustomItemPromptModal({
   useEffect(() => {
     if (!isOpen) return;
     setItemType(knownSubtype?.itemType ?? CUSTOM_ORDER_SUBTYPES[0].itemType);
-    setGarmentDescription("");
-    setFabricReference("");
-    setStyleReference("");
-    setReferenceNumber("");
-    setCustomNotes("");
-    setHsmGarmentType("");
-    setHsmModelCode("");
-    setHsmTrimReference("");
-    setHsmCoatSize("");
-    setHsmPantSize("");
-    setHsmVestSize("");
-    setHsmCoatLength("");
-    setHsmPantInseam("");
-    setHsmLeftSleeve("");
-    setHsmRightSleeve("");
-    setHsmLeftOut("");
-    setHsmRightOut("");
-    setHsmVentStyle("");
-    setHsmLapelStyle("");
-    setHsmButtonStance("");
-    setHsmFabricReservationNumber("");
-    setShirtFitNotes("");
-    setShirtCollarStyle("");
-    setShirtCuffStyle("");
-    setShirtPreviousOrderNumber("");
-    setShirtTryOnSize("");
-    setShirtShaping("");
-    setShirtCollarSize("");
-    setShirtTailLength("");
-    setShirtYoke("");
-    setShirtRightSleeveLength("");
-    setShirtLeftSleeveLength("");
-    setShirtRightCuffSize("");
-    setShirtLeftCuffSize("");
-    setShirtShoulderLine("");
-    setShirtFrontStyle("");
-    setShirtBackStyle("");
-    setShirtTailStyle("");
-    setShirtButtonChoice("");
-    setShirtPocketStyle("");
-  }, [isOpen, knownSubtype]);
+    setPrice(initialPrice ?? "");
+    setGarmentDescription(
+      initialDetails?.garment_description ?? initialDetails?.shirt_description ?? "",
+    );
+    setFabricReference(initialDetails?.fabric_reference ?? "");
+    setStyleReference(initialDetails?.style_reference ?? "");
+    setReferenceNumber(initialDetails?.reference_number ?? "");
+    setCustomNotes(initialDetails?.custom_notes ?? "");
+    setHsmGarmentType(initialDetails?.hsm_garment_type ?? "");
+    setHsmModelCode(initialDetails?.hsm_model_code ?? "");
+    setHsmTrimReference(initialDetails?.hsm_trim_reference ?? "");
+    setHsmCoatSize(initialDetails?.hsm_coat_size ?? "");
+    setHsmPantSize(initialDetails?.hsm_pant_size ?? "");
+    setHsmVestSize(initialDetails?.hsm_vest_size ?? "");
+    setHsmCoatLength(initialDetails?.hsm_coat_length ?? "");
+    setHsmPantInseam(initialDetails?.hsm_pant_inseam ?? "");
+    setHsmLeftSleeve(initialDetails?.hsm_left_sleeve ?? "");
+    setHsmRightSleeve(initialDetails?.hsm_right_sleeve ?? "");
+    setHsmLeftOut(initialDetails?.hsm_left_out ?? "");
+    setHsmRightOut(initialDetails?.hsm_right_out ?? "");
+    setHsmVentStyle(initialDetails?.hsm_vent_style ?? "");
+    setHsmLapelStyle(initialDetails?.hsm_lapel_style ?? "");
+    setHsmButtonStance(initialDetails?.hsm_button_stance ?? "");
+    setHsmFabricReservationNumber(initialDetails?.hsm_fabric_reservation_number ?? "");
+    setShirtFitNotes(initialDetails?.shirt_fit_notes ?? "");
+    setShirtCollarStyle(initialDetails?.shirt_collar_style ?? "");
+    setShirtCuffStyle(initialDetails?.shirt_cuff_style ?? "");
+    setShirtPreviousOrderNumber(initialDetails?.shirt_previous_order_number ?? "");
+    setShirtTryOnSize(initialDetails?.shirt_try_on_size ?? "");
+    setShirtShaping(initialDetails?.shirt_shaping ?? "");
+    setShirtCollarSize(initialDetails?.shirt_collar_size ?? "");
+    setShirtTailLength(initialDetails?.shirt_tail_length ?? "");
+    setShirtYoke(initialDetails?.shirt_yoke ?? "");
+    setShirtRightSleeveLength(initialDetails?.shirt_right_sleeve_length ?? "");
+    setShirtLeftSleeveLength(initialDetails?.shirt_left_sleeve_length ?? "");
+    setShirtRightCuffSize(initialDetails?.shirt_right_cuff_size ?? "");
+    setShirtLeftCuffSize(initialDetails?.shirt_left_cuff_size ?? "");
+    setShirtShoulderLine(initialDetails?.shirt_shoulder_line ?? "");
+    setShirtFrontStyle(initialDetails?.shirt_front_style ?? "");
+    setShirtBackStyle(initialDetails?.shirt_back_style ?? "");
+    setShirtTailStyle(initialDetails?.shirt_tail_style ?? "");
+    setShirtButtonChoice(initialDetails?.shirt_button_choice ?? "");
+    setShirtPocketStyle(initialDetails?.shirt_pocket_style ?? "");
+  }, [isOpen, knownSubtype, initialDetails, initialPrice]);
 
   // Sync tax category when item type changes. Current supported Custom lines are clothing.
   useEffect(() => {
@@ -142,7 +151,8 @@ export default function CustomItemPromptModal({
   if (!root) return null;
 
   const parsedPrice = Number.parseFloat(price);
-  const priceIsValid = Number.isFinite(parsedPrice) && parsedPrice > 0;
+  const detailsOnly = mode === "editDetails";
+  const priceIsValid = detailsOnly || (Number.isFinite(parsedPrice) && parsedPrice > 0);
 
   const handleConfirm = async () => {
     if (!priceIsValid) return;
@@ -273,10 +283,10 @@ export default function CustomItemPromptModal({
             id="custom-order-modal-title"
             className="text-lg font-black uppercase italic tracking-tighter text-app-text"
           >
-            Custom Order
+            {detailsOnly ? "Edit Custom Order" : "Custom Order"}
           </h3>
           <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-            Enter booking details
+            {detailsOnly ? "Review and update vendor form details" : "Enter booking details"}
           </p>
         </div>
 
@@ -316,7 +326,8 @@ export default function CustomItemPromptModal({
             </div>
           )}
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <div className={detailsOnly ? "grid gap-4" : "grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"}>
+            {!detailsOnly ? (
             <div className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -365,10 +376,11 @@ export default function CustomItemPromptModal({
                   type="date"
                   value={needByDate}
                   onChange={(e) => setNeedByDate(e.target.value)}
-                  className="ui-input h-12 w-full text-sm font-bold uppercase tracking-widest"
-                />
-              </div>
+                className="ui-input h-12 w-full text-sm font-bold uppercase tracking-widest"
+              />
             </div>
+            </div>
+            ) : null}
 
             <div className="min-w-0">
           {selectedSubtype.vendorFormFamily === "hart_schaffner_marx" && (
@@ -996,6 +1008,7 @@ export default function CustomItemPromptModal({
             </div>
           </div>
 
+          {!detailsOnly ? (
           <div className="grid grid-cols-2 gap-2">
             {/* Rush Order */}
             <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-3 transition-colors hover:bg-app-surface">
@@ -1045,6 +1058,7 @@ export default function CustomItemPromptModal({
               </div>
             </label>
           </div>
+          ) : null}
         </div>
 
         <div className="flex gap-2 border-t border-app-border bg-app-surface-2 p-4">
@@ -1061,7 +1075,7 @@ export default function CustomItemPromptModal({
             disabled={!priceIsValid || isSubmitting}
             className="flex-1 rounded-xl bg-app-accent py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/30 transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100"
           >
-            {isSubmitting ? "Adding..." : "Add to Cart"}
+            {isSubmitting ? "Saving..." : detailsOnly ? "Save Details" : "Add to Cart"}
           </button>
         </div>
       </div>

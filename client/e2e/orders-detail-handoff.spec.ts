@@ -34,58 +34,71 @@ async function createSpecialOrder(
   request: APIRequestContext,
   label: string,
 ): Promise<SeededOrder> {
-  const fixture = await seedRmsFixture(request, "standard_only", `Orders Detail ${label}`);
+  const fixture = await seedRmsFixture(
+    request,
+    "standard_only",
+    `Orders Detail ${label}`,
+  );
   const { sessionId, sessionToken } = await ensureSessionAuth(request);
   const operatorStaffId = await verifyStaffId(request);
   const priceCents = parseMoneyToCents(fixture.product.unit_price);
-  const { stateTax, localTax } = calculateNysErieTaxStringsForUnit("clothing", priceCents);
+  const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(
+    "clothing",
+    priceCents,
+  );
   const total = (
     Number.parseFloat(fixture.product.unit_price) +
     Number.parseFloat(stateTax) +
     Number.parseFloat(localTax)
   ).toFixed(2);
 
-  const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
-    headers: {
-      ...staffHeaders(),
-      "Content-Type": "application/json",
-      "x-riverside-pos-session-id": sessionId,
-      "x-riverside-pos-session-token": sessionToken,
+  const checkoutRes = await request.post(
+    `${apiBase()}/api/transactions/checkout`,
+    {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+      },
+      data: {
+        session_id: sessionId,
+        operator_staff_id: operatorStaffId,
+        primary_salesperson_id: operatorStaffId,
+        customer_id: fixture.customer.id,
+        wedding_member_id: null,
+        payment_method: "cash",
+        total_price: total,
+        amount_paid: "0.00",
+        checkout_client_id: crypto.randomUUID(),
+        items: [
+          {
+            product_id: fixture.product.product_id,
+            variant_id: fixture.product.variant_id,
+            fulfillment: "special_order",
+            quantity: 1,
+            unit_price: fixture.product.unit_price,
+            unit_cost: fixture.product.unit_cost,
+            state_tax: stateTax,
+            local_tax: localTax,
+          },
+        ],
+        payment_splits: [],
+      },
+      failOnStatusCode: false,
     },
-    data: {
-      session_id: sessionId,
-      operator_staff_id: operatorStaffId,
-      primary_salesperson_id: operatorStaffId,
-      customer_id: fixture.customer.id,
-      wedding_member_id: null,
-      payment_method: "cash",
-      total_price: total,
-      amount_paid: "0.00",
-      checkout_client_id: crypto.randomUUID(),
-      items: [
-        {
-          product_id: fixture.product.product_id,
-          variant_id: fixture.product.variant_id,
-          fulfillment: "special_order",
-          quantity: 1,
-          unit_price: fixture.product.unit_price,
-          unit_cost: fixture.product.unit_cost,
-          state_tax: stateTax,
-          local_tax: localTax,
-        },
-      ],
-      payment_splits: [],
-    },
-    failOnStatusCode: false,
-  });
+  );
 
   expect(checkoutRes.status()).toBe(200);
   const checkout = (await checkoutRes.json()) as CheckoutResponse;
 
-  const detailRes = await request.get(`${apiBase()}/api/transactions/${checkout.transaction_id}`, {
-    headers: staffHeaders(),
-    failOnStatusCode: false,
-  });
+  const detailRes = await request.get(
+    `${apiBase()}/api/transactions/${checkout.transaction_id}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
   expect(detailRes.status()).toBe(200);
   const detail = (await detailRes.json()) as {
     transaction_display_id?: string;
@@ -135,10 +148,13 @@ async function createLinkedOverdueAlteration(
   });
   expect(res.status()).toBe(200);
 
-  const detailRes = await request.get(`${apiBase()}/api/transactions/${order.transactionId}`, {
-    headers: staffHeaders(),
-    failOnStatusCode: false,
-  });
+  const detailRes = await request.get(
+    `${apiBase()}/api/transactions/${order.transactionId}`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
   expect(detailRes.status()).toBe(200);
   const detail = (await detailRes.json()) as {
     linked_alteration_summary?: {
@@ -156,7 +172,9 @@ async function createLinkedOverdueAlteration(
   });
 }
 
-async function openPosOrdersSection(page: Parameters<typeof signInToBackOffice>[0]) {
+async function openPosOrdersSection(
+  page: Parameters<typeof signInToBackOffice>[0],
+) {
   await openBackofficeSidebarTab(page, "register");
   await ensurePosRegisterSessionOpen(page);
   await ensurePosSaleCashierSignedIn(page);
@@ -170,10 +188,17 @@ async function expectOrderLoadedInRegister(
   page: Parameters<typeof signInToBackOffice>[0],
   order: SeededOrder,
 ) {
-  await expect(page.getByText("Customer Orders", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Customer Orders", { exact: true })).toBeVisible({
+    timeout: 20_000,
+  });
   await expect(page.getByText(order.displayId).first()).toBeVisible();
-  await page.getByRole("button", { name: /view order details|view lines/i }).first().click();
-  await expect(page.getByText(order.productName).first()).toBeVisible({ timeout: 20_000 });
+  await page
+    .getByRole("button", { name: /view order details|view lines/i })
+    .first()
+    .click();
+  await expect(page.getByText(order.productName).first()).toBeVisible({
+    timeout: 20_000,
+  });
   await page.getByRole("button", { name: /close customer orders/i }).click();
 }
 
@@ -190,17 +215,31 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await createLinkedOverdueAlteration(request, order);
     const insightRequests: Record<string, unknown>[] = [];
     await page.route("**/api/help/rosie/v1/insight-summary", async (route) => {
-      insightRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+      insightRequests.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
           status: "available",
           bullets: [
-            { text: "Balance and pickup work are both visible blockers.", source_fact_ids: ["blocker-0", "blocker-1"] },
-            { text: "Linked alteration status is already part of the readiness facts.", source_fact_ids: ["blocker-2"] },
-            { text: "Use the deterministic blocker list as the source of truth.", source_fact_ids: ["blocker-0"] },
-            { text: "This fourth model bullet should stay hidden.", source_fact_ids: ["blocker-1"] },
+            {
+              text: "Balance and pickup work are both visible blockers.",
+              source_fact_ids: ["blocker-0", "blocker-1"],
+            },
+            {
+              text: "Linked alteration status is already part of the readiness facts.",
+              source_fact_ids: ["blocker-2"],
+            },
+            {
+              text: "Use the deterministic blocker list as the source of truth.",
+              source_fact_ids: ["blocker-0"],
+            },
+            {
+              text: "This fourth model bullet should stay hidden.",
+              source_fact_ids: ["blocker-1"],
+            },
           ],
         }),
       });
@@ -209,67 +248,96 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "orders");
 
-    await expect(page.getByText("Fulfillment Follow-Up")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Fulfillment Follow-Up")).toBeVisible({
+      timeout: 20_000,
+    });
     await expect(
-      page.getByText(/Orders are Special, Custom, and Wedding fulfillment work/i),
+      page.getByText(
+        /Orders are Special, Custom, and Wedding fulfillment work/i,
+      ),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Open Orders" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "All Orders" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Open Orders" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "All Orders" }),
+    ).toBeVisible();
 
     const orderRow = page.locator("tr", { hasText: order.displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
-    await expect(orderRow.getByTestId("open-order-lifecycle-item")).toHaveCount(1);
-    await expect(orderRow.getByTestId("open-order-lifecycle-item").first()).toContainText(order.productName);
-    await expect(orderRow.getByTestId("open-order-lifecycle-item").first()).toContainText("NTBO");
+    await expect(orderRow.getByTestId("open-order-lifecycle-item")).toHaveCount(
+      1,
+    );
+    await expect(
+      orderRow.getByTestId("open-order-lifecycle-item").first(),
+    ).toContainText(order.productName);
+    await expect(
+      orderRow.getByTestId("open-order-lifecycle-item").first(),
+    ).toContainText("Ready to order");
     await orderRow.click();
 
     const drawer = page.getByRole("dialog", { name: "Order Detail" });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer).toContainText(order.displayId);
     await expect(drawer).toContainText(order.productName);
-    await expect(drawer).toContainText(
-      "The Transaction Record holds payment, receipt, refund, and balance details.",
-    );
-    await expect(drawer).toContainText(
-      "Special, Custom, and Wedding lines stay in order pickup work; Layaways stay in Layaways.",
-    );
-    await expect(drawer).toContainText("Pickup Work");
-    await expect(drawer).toContainText("Balance Due Before Release");
+    await expect(drawer).toContainText("Order Progress");
+    await expect(drawer).toContainText("Pickup Check");
+    await expect(drawer).toContainText("Staff Details");
     await expect(drawer).toContainText("Readiness Check");
     await expect(drawer).toContainText("Blocks Release");
     await expect(drawer).toContainText("Balance due before release");
-    await expect(drawer).toContainText("1 pickup line is not ready.");
+    await expect(drawer).toContainText("1 pickup item is not ready.");
     await expect(drawer).toContainText("1 linked alteration is overdue.");
-    await expect(drawer).toContainText("Still Open");
+    await expect(drawer).toContainText("Open Items");
     expect(insightRequests).toHaveLength(0);
     await drawer
       .getByTestId("rosie-insight-summary-transaction_readiness")
       .getByRole("button", { name: /rosie insight/i })
       .click();
-    await expect(drawer.getByText("Balance and pickup work are both visible blockers.")).toBeVisible();
-    await expect(drawer.getByText("Linked alteration status is already part of the readiness facts.")).toBeVisible();
-    await expect(drawer.getByText("Use the deterministic blocker list as the source of truth.")).toBeVisible();
-    await expect(drawer.getByText("This fourth model bullet should stay hidden.")).toHaveCount(0);
+    await expect(
+      drawer.getByText("Balance and pickup work are both visible blockers."),
+    ).toBeVisible();
+    await expect(
+      drawer.getByText(
+        "Linked alteration status is already part of the readiness facts.",
+      ),
+    ).toBeVisible();
+    await expect(
+      drawer.getByText(
+        "Use the deterministic blocker list as the source of truth.",
+      ),
+    ).toBeVisible();
+    await expect(
+      drawer.getByText("This fourth model bullet should stay hidden."),
+    ).toHaveCount(0);
     expect(insightRequests).toHaveLength(1);
     expect(insightRequests[0]).toMatchObject({
       surface: "transaction_readiness",
       facts: {
         title: "Readiness Check",
         bullets: expect.arrayContaining([
-          expect.objectContaining({ label: expect.stringContaining("Balance due before release") }),
-          expect.objectContaining({ label: "1 pickup line is not ready." }),
+          expect.objectContaining({
+            label: expect.stringContaining("Balance due before release"),
+          }),
+          expect.objectContaining({ label: "1 pickup item is not ready." }),
           expect.objectContaining({ label: "1 linked alteration is overdue." }),
         ]),
       },
     });
 
-    await drawer.getByRole("button", { name: "Open in Register" }).first().click();
+    await drawer
+      .getByRole("button", { name: "Open in Register" })
+      .first()
+      .click();
 
     await ensurePosSaleCashierSignedIn(page);
     await expectOrderLoadedInRegister(page, order);
   });
 
-  test("POS orders open the same detail drawer contract", async ({ page, request }) => {
+  test("POS orders open the same detail drawer contract", async ({
+    page,
+    request,
+  }) => {
     const order = await createSpecialOrder(request, "POS");
 
     await signInToBackOffice(page, { persistSession: true });
@@ -283,9 +351,11 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await expect(drawer).toContainText(order.displayId);
     await expect(drawer).toContainText(order.productName);
-    await expect(drawer).toContainText("Pickup Work");
-    await expect(drawer).toContainText("Still Open");
-    await expect(drawer.getByRole("button", { name: "Edit" }).first()).toBeVisible();
+    await expect(drawer).toContainText("Pickup Check");
+    await expect(drawer).toContainText("Open Items");
+    await expect(
+      drawer.getByRole("button", { name: "Edit" }).first(),
+    ).toBeVisible();
   });
 
   test("Back Office drawer edits a line and rerenders the saved values", async ({
@@ -307,9 +377,11 @@ test.describe("Orders detail drawer and POS handoff", () => {
 
     const quantityInput = drawer.getByLabel("Quantity").first();
     await quantityInput.fill("2");
-    await drawer.getByRole("button", { name: "Save Line" }).click();
+    await drawer.getByRole("button", { name: "Save Item" }).click();
 
-    await expect(drawer.getByText("Qty 2").first()).toBeVisible({ timeout: 20_000 });
+    await expect(drawer.getByText("Qty 2").first()).toBeVisible({
+      timeout: 20_000,
+    });
     await expect(drawer.getByText(order.productName).first()).toBeVisible();
   });
 
@@ -328,7 +400,10 @@ test.describe("Orders detail drawer and POS handoff", () => {
 
     const drawer = page.getByRole("dialog", { name: "Order Detail" });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
-    await drawer.getByRole("button", { name: "Open in Register" }).first().click();
+    await drawer
+      .getByRole("button", { name: "Open in Register" })
+      .first()
+      .click();
 
     await ensurePosSaleCashierSignedIn(page);
     await expectOrderLoadedInRegister(page, order);
@@ -349,7 +424,10 @@ test.describe("Orders detail drawer and POS handoff", () => {
 
     let drawer = page.getByRole("dialog", { name: "Order Detail" });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
-    await drawer.getByRole("button", { name: "Open in Register" }).first().click();
+    await drawer
+      .getByRole("button", { name: "Open in Register" })
+      .first()
+      .click();
 
     await ensurePosSaleCashierSignedIn(page);
     await expectOrderLoadedInRegister(page, order);
@@ -385,6 +463,8 @@ test.describe("Orders detail drawer and POS handoff", () => {
       await orderRow.click();
       await expect(drawer).toBeVisible({ timeout: 15_000 });
     }
-    await expect(drawer.getByText("Qty 2").first()).toBeVisible({ timeout: 20_000 });
+    await expect(drawer.getByText("Qty 2").first()).toBeVisible({
+      timeout: 20_000,
+    });
   });
 });
