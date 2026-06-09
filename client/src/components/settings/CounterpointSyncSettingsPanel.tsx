@@ -57,6 +57,7 @@ interface SyncStatusResponse {
   counterpoint_staging_enabled?: boolean;
   staging_pending_count?: number;
   staging_applying_count?: number;
+  staging_entity_counts?: StagingEntityCountRow[];
 }
 
 interface StagingBatchRow {
@@ -81,6 +82,17 @@ interface StagingBatchRow {
   recovered_by_staff_id: string | null;
   recovered_by_staff_name: string | null;
   recovery_reason: string | null;
+}
+
+interface StagingEntityCountRow {
+  entity: string;
+  pending_batches: number;
+  applying_batches: number;
+  applied_batches: number;
+  pending_rows: number;
+  applying_rows: number;
+  applied_rows: number;
+  latest_at: string;
 }
 
 interface BridgeLiveStatus {
@@ -530,6 +542,7 @@ export default function CounterpointSyncSettingsPanel() {
   });
   const [bridgeLive, setBridgeLive] = useState<BridgeLiveStatus | null>(null);
   const [bridgeControlsReachable, setBridgeControlsReachable] = useState<boolean | null>(null);
+  const [bridgeControlResolvedUrl, setBridgeControlResolvedUrl] = useState<string | null>(null);
   const [bridgeControlLoading, setBridgeControlLoading] = useState(false);
 
   // Workbench state (for catalog cleanup steps)
@@ -630,23 +643,33 @@ export default function CounterpointSyncSettingsPanel() {
   }, [baseUrl, headers]);
 
   const fetchBridgeControlStatus = useCallback(async () => {
-    const configured = bridgeControlUrlDraft.trim() || "http://127.0.0.1:3002";
+    const configured = bridgeControlUrlDraft.trim();
+    const candidates = Array.from(new Set([
+      configured,
+      status?.bridge_hostname ? `http://${status.bridge_hostname}:3002` : "",
+      "http://127.0.0.1:3002",
+      "http://localhost:3002",
+    ].filter(Boolean)));
     setBridgeControlLoading(true);
-    try {
-      const url = configured.endsWith("/api/status")
-        ? configured
-        : `${configured.replace(/\/$/, "")}/api/status`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("bridge status unavailable");
-      setBridgeLive((await res.json()) as BridgeLiveStatus);
-      setBridgeControlsReachable(true);
-    } catch {
-      setBridgeLive(null);
-      setBridgeControlsReachable(false);
-    } finally {
-      setBridgeControlLoading(false);
+    for (const candidate of candidates) {
+      try {
+        const url = candidate.endsWith("/api/status")
+          ? candidate
+          : `${candidate.replace(/\/$/, "")}/api/status`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("bridge status unavailable");
+        setBridgeLive((await res.json()) as BridgeLiveStatus);
+        setBridgeControlsReachable(true);
+        setBridgeControlResolvedUrl(url);
+        setBridgeControlLoading(false);
+        return;
+      } catch { /* try next candidate */ }
     }
-  }, [bridgeControlUrlDraft]);
+    setBridgeLive(null);
+    setBridgeControlsReachable(false);
+    setBridgeControlResolvedUrl(null);
+    setBridgeControlLoading(false);
+  }, [bridgeControlUrlDraft, status?.bridge_hostname]);
 
   const fetchWorkbenchState = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
@@ -1430,6 +1453,28 @@ export default function CounterpointSyncSettingsPanel() {
   const applyingN = batches.filter((b) => b.status === "applying").length;
   const visiblePendingN = Math.max(pendingN, status?.staging_pending_count ?? 0);
   const visibleApplyingN = Math.max(applyingN, status?.staging_applying_count ?? 0);
+  const stagingCountsByEntity = useMemo(() => new Map<string, StagingEntityCountRow>(
+    (status?.staging_entity_counts ?? []).map((row) => [row.entity, row]),
+  ), [status?.staging_entity_counts]);
+  const entityRunsForDisplay = useMemo(() => {
+    const rows = new Map<string, EntityRunRow>();
+    for (const run of status?.entity_runs ?? []) {
+      rows.set(run.entity, run);
+    }
+    for (const count of status?.staging_entity_counts ?? []) {
+      if (!rows.has(count.entity)) {
+        rows.set(count.entity, {
+          entity: count.entity,
+          cursor_value: null,
+          last_ok_at: count.latest_at,
+          last_error: null,
+          records_processed: 0,
+          updated_at: count.latest_at,
+        });
+      }
+    }
+    return Array.from(rows.values());
+  }, [status?.entity_runs, status?.staging_entity_counts]);
   const staleApplyingN = batches.filter(isStaleApplyingBatch).length;
   const failedBatchN = batches.filter((b) => b.status === "failed").length;
   const replaySuppressionN = batches.reduce((sum, batch) => sum + Math.max(0, batch.replay_count), 0);
@@ -1467,6 +1512,34 @@ export default function CounterpointSyncSettingsPanel() {
       : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200";
   const selectedBatch =
     selectedBatchId == null ? null : (batches.find((batch) => batch.id === selectedBatchId) ?? null);
+
+  const getEntityRunProof = (run: EntityRunRow) => {
+    const staged = stagingCountsByEntity.get(run.entity);
+    const stagedRows =
+      (staged?.pending_rows ?? 0) + (staged?.applying_rows ?? 0) + (staged?.applied_rows ?? 0);
+    const stagedBatches =
+      (staged?.pending_batches ?? 0) + (staged?.applying_batches ?? 0) + (staged?.applied_batches ?? 0);
+    const runRows = run.records_processed ?? 0;
+    const displayRows = stagingOn && stagedRows > 0 ? stagedRows : runRows;
+    const latestAt = stagingOn && staged?.latest_at ? staged.latest_at : run.last_ok_at;
+    const stagingLabel =
+      staged && staged.applying_batches > 0
+        ? "Applying staged rows"
+        : staged && staged.pending_batches > 0
+          ? "Queued in staging"
+          : staged && staged.applied_batches > 0
+            ? "Applied from staging"
+            : "Staged rows";
+    return {
+      displayRows,
+      latestAt,
+      staged,
+      stagedBatches,
+      stagingLabel,
+      isStaged: stagingOn && stagedRows > 0,
+      isZeroNoError: displayRows === 0 && !run.last_error,
+    };
+  };
   const counterpointInsightFacts = {
     title: "Counterpoint Sign-off Explanation",
     bullets: [
@@ -1551,6 +1624,11 @@ export default function CounterpointSyncSettingsPanel() {
           <p className="mt-1 text-xs font-semibold text-app-text-muted">
             Server: {(status?.windows_sync_state ?? "unknown").toUpperCase()}
           </p>
+          {bridgeControlResolvedUrl ? (
+            <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+              Controls: {bridgeControlResolvedUrl}
+            </p>
+          ) : null}
         </div>
         <button
           type="button"
@@ -1564,7 +1642,7 @@ export default function CounterpointSyncSettingsPanel() {
       </div>
       {!bridgeControlsReachable ? (
         <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs font-semibold text-amber-800 dark:text-amber-100">
-          Bridge controls are not reachable on this workstation. ROS server heartbeat is tracked separately so staff do not confuse direct controls with sign-off readiness.
+          Bridge controls are not reachable from this browser. ROS server heartbeat is tracked separately, so SQL extraction may still be online while direct Start/Stop controls are unavailable.
         </p>
       ) : null}
     </div>
@@ -2126,46 +2204,58 @@ export default function CounterpointSyncSettingsPanel() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-app-border">
-                    {status?.entity_runs.map((run) => (
-                      <tr key={run.entity}>
-                        <td className="px-3 py-2">
-                          <div className="font-bold uppercase text-[10px] tracking-wide">{run.entity.replace(/_/g, " ")}</div>
-                          {run.records_processed === 0 && !run.last_error && (
-                            <div className="text-[9px] text-amber-600 dark:text-amber-400 mt-0.5">No data returned - check SQL query</div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className={`font-mono text-[11px] font-semibold tabular-nums ${
-                            run.records_processed === 0
-                              ? "text-amber-600 dark:text-amber-400"
-                              : "text-emerald-600 dark:text-emerald-400"
-                          }`}>
-                            {fmtNum(run.records_processed)} rows
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-app-text-muted">
-                          {run.last_ok_at ? new Date(run.last_ok_at).toLocaleTimeString() : "Pending"}
-                        </td>
-                        <td className="px-3 py-2">
-                          {run.last_error ? (
-                            <span className="text-red-500 font-medium inline-flex items-center gap-1">
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                              {run.last_error}
-                            </span>
-                          ) : run.records_processed === 0 ? (
-                            <span className="text-amber-600 dark:text-amber-400 inline-flex items-center gap-1 font-medium">
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                              No Data
-                            </span>
-                          ) : (
-                            <span className="text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1 font-semibold">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Healthy
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                    {entityRunsForDisplay.map((run) => {
+                      const proof = getEntityRunProof(run);
+                      return (
+                        <tr key={run.entity}>
+                          <td className="px-3 py-2">
+                            <div className="font-bold uppercase text-[10px] tracking-wide">{run.entity.replace(/_/g, " ")}</div>
+                            {proof.isStaged ? (
+                              <div className="text-[9px] text-blue-600 dark:text-blue-300 mt-0.5">
+                                {proof.stagingLabel} across {fmtNum(proof.stagedBatches)} batch(es)
+                              </div>
+                            ) : proof.isZeroNoError ? (
+                              <div className="text-[9px] text-amber-600 dark:text-amber-400 mt-0.5">No data returned - check SQL query</div>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className={`font-mono text-[11px] font-semibold tabular-nums ${
+                              proof.displayRows === 0
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-emerald-600 dark:text-emerald-400"
+                            }`}>
+                              {fmtNum(proof.displayRows)} rows
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-app-text-muted">
+                            {proof.latestAt ? new Date(proof.latestAt).toLocaleTimeString() : "Pending"}
+                          </td>
+                          <td className="px-3 py-2">
+                            {run.last_error ? (
+                              <span className="text-red-500 font-medium inline-flex items-center gap-1">
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                {run.last_error}
+                              </span>
+                            ) : proof.isStaged ? (
+                              <span className="text-blue-600 dark:text-blue-300 inline-flex items-center gap-1 font-semibold">
+                                <Database className="h-3.5 w-3.5" />
+                                {proof.stagingLabel}
+                              </span>
+                            ) : proof.isZeroNoError ? (
+                              <span className="text-amber-600 dark:text-amber-400 inline-flex items-center gap-1 font-medium">
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                No Data
+                              </span>
+                            ) : (
+                              <span className="text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1 font-semibold">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Healthy
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2218,7 +2308,7 @@ export default function CounterpointSyncSettingsPanel() {
                 <p className="text-xs text-app-text-muted leading-relaxed">
                   Verify that all core database entities are staged. When complete, advance to step 2 to clean up the imported product catalog.
                 </p>
-                {status?.entity_runs.some(r => r.records_processed === 0 && !r.last_error) && (
+                {entityRunsForDisplay.some((run) => getEntityRunProof(run).isZeroNoError) && (
                   <div className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2">
                     <p className="text-[10px] text-amber-700 dark:text-amber-300">
                       <strong>Zero rows detected:</strong> Some entities returned no data. Auto-schema handles column detection, so this is likely due to:

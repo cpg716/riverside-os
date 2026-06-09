@@ -958,6 +958,10 @@ async fn settings_status(
                     "staging_open_count".into(),
                     json!(pending_count + applying_count),
                 );
+                let entity_counts = counterpoint_staging::list_staging_entity_counts(&state.db)
+                    .await
+                    .unwrap_or_default();
+                obj.insert("staging_entity_counts".into(), json!(entity_counts));
             }
             Ok(Json(value))
         }
@@ -1634,6 +1638,7 @@ pub fn router() -> Router<AppState> {
             .route("/request/ack", post(cp_ack_request))
             .route("/ack-request", post(cp_ack_request))
             .route("/request/complete", post(cp_complete_request))
+            .route("/complete-request", post(cp_complete_request))
             .route("/customers", post(cp_customers))
             .route("/inventory/preflight", post(cp_inventory_preflight))
             .route("/inventory", post(cp_inventory))

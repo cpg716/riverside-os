@@ -47,6 +47,18 @@ pub struct CounterpointStagingBatchRow {
     pub recovery_reason: Option<String>,
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct CounterpointStagingEntityCountRow {
+    pub entity: String,
+    pub pending_batches: i64,
+    pub applying_batches: i64,
+    pub applied_batches: i64,
+    pub pending_rows: i64,
+    pub applying_rows: i64,
+    pub applied_rows: i64,
+    pub latest_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CounterpointStagingInsertResult {
     pub id: i64,
@@ -204,6 +216,27 @@ pub async fn list_staging_batches(
         .fetch_all(pool)
         .await
     }
+}
+
+pub async fn list_staging_entity_counts(
+    pool: &PgPool,
+) -> Result<Vec<CounterpointStagingEntityCountRow>, sqlx::Error> {
+    sqlx::query_as::<_, CounterpointStagingEntityCountRow>(
+        r#"SELECT entity,
+                  COUNT(*) FILTER (WHERE status = 'pending')::bigint AS pending_batches,
+                  COUNT(*) FILTER (WHERE status = 'applying')::bigint AS applying_batches,
+                  COUNT(*) FILTER (WHERE status = 'applied')::bigint AS applied_batches,
+                  COALESCE(SUM(row_count) FILTER (WHERE status = 'pending'), 0)::bigint AS pending_rows,
+                  COALESCE(SUM(row_count) FILTER (WHERE status = 'applying'), 0)::bigint AS applying_rows,
+                  COALESCE(SUM(row_count) FILTER (WHERE status = 'applied'), 0)::bigint AS applied_rows,
+                  MAX(COALESCE(applied_at, created_at)) AS latest_at
+           FROM counterpoint_staging_batch
+           WHERE status IN ('pending', 'applying', 'applied')
+           GROUP BY entity
+           ORDER BY latest_at DESC"#,
+    )
+    .fetch_all(pool)
+    .await
 }
 
 pub async fn get_staging_payload(pool: &PgPool, id: i64) -> Result<Option<Value>, sqlx::Error> {

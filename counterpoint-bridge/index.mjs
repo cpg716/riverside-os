@@ -157,7 +157,7 @@ const ENTITY_DEPENDENCIES = {
 
 // --- Local Bridge Control Server ---
 const BRIDGE_CONTROL_PORT = Number.parseInt(process.env.BRIDGE_CONTROL_PORT ?? "3002", 10);
-const BRIDGE_CONTROL_HOST = (process.env.BRIDGE_CONTROL_HOST ?? "127.0.0.1").trim() || "127.0.0.1";
+const BRIDGE_CONTROL_HOST = (process.env.BRIDGE_CONTROL_HOST ?? "0.0.0.0").trim() || "0.0.0.0";
 
 function bridgeControlUrls() {
     const urls = [
@@ -1333,12 +1333,38 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     }
   }
 
-  const recv = set("PO_RECVR_HIST") ?? set("PO_RECVR_HIST_LIN");
-  const recvTable = set("PO_RECVR_HIST") ? "PO_RECVR_HIST" : set("PO_RECVR_HIST_LIN") ? "PO_RECVR_HIST_LIN" : "";
-  const recvDate = pickColumn(recv, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT"]);
-  if (recvTable && recv?.has("VEND_NO") && recv.has("ITEM_NO") && recvDate) {
-    sqlMap.receiving_history = `SELECT ${sqlText("r", recv, ["VEND_NO"], "vend_no")}, ${sqlText("r", recv, ["ITEM_NO"], "item_no")}, CONVERT(varchar, r.[${recvDate}], 126) + 'Z' AS recv_dat, ${sqlNumber("r", recv, ["COST", "UNIT_COST"], "unit_cost")}, ${sqlNumber("r", recv, ["QTY_RECVD", "QTY_RECV", "QTY"], "qty_recv")}, ${sqlText("r", recv, ["PO_NO"], "po_no")}, ${sqlText("r", recv, ["RECVR_NO", "RECV_NO"], "recv_no")} FROM ${recvTable} r WHERE r.[${recvDate}] >= '__CP_IMPORT_SINCE__' ORDER BY r.[${recvDate}]`;
-    changes.push(`${recvTable} receiving history enabled`);
+  const recvHeaderTable = set("PO_RECVR_HIST") ? "PO_RECVR_HIST" : set("PO_RECVR") ? "PO_RECVR" : "";
+  const recvLineTable = set("PO_RECVR_HIST_LIN") ? "PO_RECVR_HIST_LIN" : set("PO_RECVR_LIN") ? "PO_RECVR_LIN" : "";
+  const recvHeader = recvHeaderTable ? set(recvHeaderTable) : null;
+  const recvLine = recvLineTable ? set(recvLineTable) : null;
+  const recvSingleTable = !recvHeaderTable && recvLineTable ? recvLineTable : "";
+  const recvSingle = recvSingleTable ? recvLine : null;
+  const recvHeaderJoin = pickColumn(recvHeader, ["RECVR_NO", "RECV_NO", "DOC_ID", "PO_NO"]);
+  const recvLineJoin = pickColumn(recvLine, [recvHeaderJoin, "RECVR_NO", "RECV_NO", "DOC_ID", "PO_NO"].filter(Boolean));
+  const recvHeaderDate = pickColumn(recvHeader, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT", "RECVD_DAT", "POST_DAT"]);
+  const recvLineDate = pickColumn(recvLine, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT", "RECVD_DAT", "POST_DAT"]);
+
+  if (recvHeaderTable && recvLineTable && recvHeaderJoin && recvLineJoin && recvLine?.has("ITEM_NO") && (recvHeaderDate || recvLineDate)) {
+    const dateAlias = recvHeaderDate ? "h" : "l";
+    const dateCol = recvHeaderDate ?? recvLineDate;
+    const vendExpr = recvHeader?.has("VEND_NO")
+      ? sqlText("h", recvHeader, ["VEND_NO"], "vend_no")
+      : sqlText("l", recvLine, ["VEND_NO"], "vend_no");
+    const poExpr = recvHeader?.has("PO_NO")
+      ? sqlText("h", recvHeader, ["PO_NO"], "po_no")
+      : sqlText("l", recvLine, ["PO_NO"], "po_no");
+    const recvNoExpr = recvHeader?.has(recvHeaderJoin)
+      ? sqlText("h", recvHeader, [recvHeaderJoin], "recv_no")
+      : sqlText("l", recvLine, [recvLineJoin], "recv_no");
+    const costExpr = sqlNumber("l", recvLine, ["COST", "UNIT_COST", "LST_COST"], "unit_cost");
+    sqlMap.receiving_history = `SELECT ${vendExpr}, ${sqlText("l", recvLine, ["ITEM_NO"], "item_no")}, CONVERT(varchar, ${dateAlias}.[${dateCol}], 126) + 'Z' AS recv_dat, ${costExpr}, ${sqlNumber("l", recvLine, ["QTY_RECVD", "QTY_RECV", "QTY"], "qty_recv")}, ${poExpr}, ${recvNoExpr} FROM ${recvLineTable} l INNER JOIN ${recvHeaderTable} h ON h.[${recvHeaderJoin}] = l.[${recvLineJoin}] WHERE ${dateAlias}.[${dateCol}] >= '__CP_IMPORT_SINCE__' ORDER BY ${dateAlias}.[${dateCol}]`;
+    changes.push(`${recvHeaderTable}/${recvLineTable} receiving history enabled`);
+  } else if (recvSingleTable && recvSingle?.has("VEND_NO") && recvSingle.has("ITEM_NO")) {
+    const recvDate = pickColumn(recvSingle, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT", "RECVD_DAT", "POST_DAT"]);
+    if (recvDate) {
+      sqlMap.receiving_history = `SELECT ${sqlText("r", recvSingle, ["VEND_NO"], "vend_no")}, ${sqlText("r", recvSingle, ["ITEM_NO"], "item_no")}, CONVERT(varchar, r.[${recvDate}], 126) + 'Z' AS recv_dat, ${sqlNumber("r", recvSingle, ["COST", "UNIT_COST", "LST_COST"], "unit_cost")}, ${sqlNumber("r", recvSingle, ["QTY_RECVD", "QTY_RECV", "QTY"], "qty_recv")}, ${sqlText("r", recvSingle, ["PO_NO"], "po_no")}, ${sqlText("r", recvSingle, ["RECVR_NO", "RECV_NO"], "recv_no")} FROM ${recvSingleTable} r WHERE r.[${recvDate}] >= '__CP_IMPORT_SINCE__' ORDER BY r.[${recvDate}]`;
+      changes.push(`${recvSingleTable} receiving history enabled`);
+    }
   }
 
   return { sqlMap, changes };
@@ -1848,6 +1874,8 @@ const DISCOVER_TABLES = [
   "PS_DOC_HDR_TOT",
   "PS_DOC_LIN",
   "PS_DOC_PMT",
+  "PO_RECVR",
+  "PO_RECVR_LIN",
   "PO_RECVR_HIST",
   "PO_RECVR_HIST_LIN",
 ];
@@ -2917,8 +2945,9 @@ async function postFidelityDiagnostics(group, rows, limit = 50) {
 
 async function syncReceivingHistory(pool) {
   if (!String(effectiveSql.receiving_history ?? "").trim()) {
-    console.warn("[receiving_history] runtime mapping unavailable; skip");
-    return;
+    throw new Error(
+      "receiving_history runtime mapping unavailable. Run SQL smoke/auto-config against the Counterpoint DB, or set SYNC_RECEIVING_HISTORY=0 if receiving history is intentionally out of scope.",
+    );
   }
   try {
     const result = await pool.request().query(effectiveSql.receiving_history);
@@ -4807,7 +4836,13 @@ async function runSqlSmoke(pool) {
   for (const [label, key] of checks) {
     const q = String(effectiveSql[key] ?? "").trim();
     if (!q) {
-      console.info(`[sql-smoke] ${label}: skipped (runtime mapping unavailable)`);
+      const message = `${label}: runtime mapping unavailable`;
+      if (label === "receiving_history" && SYNC_RECEIVING_HISTORY) {
+        failures.push({ label, message });
+        console.error(`[sql-smoke] ${message}`);
+      } else {
+        console.info(`[sql-smoke] ${label}: skipped (runtime mapping unavailable)`);
+      }
       continue;
     }
     try {
@@ -5170,7 +5205,7 @@ async function main() {
 
       if (hasPendingRequest) {
         try {
-          await rosFetch("/api/sync/counterpoint/complete-request", {
+          await rosFetch("/api/sync/counterpoint/request/complete", {
             request_id: hbResp.pending_request_id,
           });
         } catch (e) {
@@ -5181,7 +5216,7 @@ async function main() {
       console.error("[sync] Loop failed:", err.message);
       if (hasPendingRequest) {
           try {
-            await rosFetch("/api/sync/counterpoint/complete-request", {
+            await rosFetch("/api/sync/counterpoint/request/complete", {
               request_id: hbResp.pending_request_id,
               error: err.message
             });
