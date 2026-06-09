@@ -56,7 +56,7 @@ Use this workspace when you need to:
 
 ## What happens next
 
-- Riverside sends the approved ZPL tag batch to the configured Zebra station when available, or opens print preview as a fallback.
+- Riverside sends the approved tag batch to the configured Zebra station when available, using EPL for classic LP/TLP 2844 printers and ZPL II for newer Zebra printers, or opens print preview as a fallback.
 - Printed variations are marked as shelf-labeled.
 - You remain in Product Hub so you can keep reviewing stock, pricing, or the next variation subset.
 

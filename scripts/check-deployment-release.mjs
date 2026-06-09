@@ -99,6 +99,35 @@ for (const copy of [
   assertIncludes(managerRunner, copy, "deployment runner must emit immediate launch logs");
 }
 
+const registerInstaller = "deployment/windows/install-register.ps1";
+assertIncludes(
+  registerInstaller,
+  "[switch]$Launch",
+  "desktop app launch must be opt-in for installer/update workflows",
+);
+assertIncludes(
+  registerInstaller,
+  "if ($Launch -and -not $NoLaunch)",
+  "install-register.ps1 must not auto-launch the desktop app unless explicitly requested",
+);
+assertNotIncludes(
+  registerInstaller,
+  "if (-not $NoLaunch)",
+  "install-register.ps1 must not default to auto-launching the desktop app",
+);
+assertIncludes(
+  registerInstaller,
+  '$Config.register.tagPrinter | Add-Member -NotePropertyName "language" -NotePropertyValue "auto" -Force',
+  "install-register.ps1 must preserve auto EPL/ZPL tag-printer language defaults",
+);
+
+const deploymentConfigExample = "deployment/windows/riverside-deployment.config.example.json";
+assertIncludes(
+  deploymentConfigExample,
+  '"language": "auto"',
+  "deployment config example must carry the tag-printer language default",
+);
+
 const mainHubUpdater = "client/src-tauri/src/server_updater.rs";
 assertNotIncludes(
   mainHubUpdater,

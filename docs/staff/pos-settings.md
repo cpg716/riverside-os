@@ -37,8 +37,9 @@ Automatic drawer opens happen only for **CASH** and **CHECK** sales when the dra
 
 1. POS or Back Office → **Settings** → **Printers & Scanners**.
 2. Confirm the Zebra 2844 tag station is selected as an installed printer or saved with the correct network IP.
-3. Retry the inventory tag action. Riverside sends ZPL directly to the configured tag station when available.
-4. If direct dispatch fails, use the tag preview fallback and report the workstation plus SKU to support.
+3. Leave **Printer language** on **Auto-detect LP/TLP 2844**, or force **EPL / Zebra LP 2844** when a classic LP/TLP 2844 accepts the job but no label comes out.
+4. Open **Tag Designer → Print test tag** to send a real sample label before retrying the inventory tag action.
+5. If direct dispatch fails, use the tag preview fallback and report the workstation plus SKU to support.
 
 ### Reduce beeps or haptics
 

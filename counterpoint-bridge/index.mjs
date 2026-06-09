@@ -618,6 +618,60 @@ const SQL_PROGRESS_LOG_MS = Math.max(10000, Number.parseInt(process.env.SQL_PROG
 const CATALOG_SQL_STALL_TIMEOUT_MS = Math.max(30000, Number.parseInt(process.env.CATALOG_SQL_STALL_TIMEOUT_MS ?? "180000", 10));
 /** Node fetch has no default body timeout; large vendor/customer batches to ROS need a high ceiling. */
 const ROS_FETCH_TIMEOUT_MS = Math.max(15000, Number.parseInt(process.env.ROS_FETCH_TIMEOUT_MS ?? "300000", 10));
+const ROS_FETCH_MAX_ATTEMPTS = Math.max(1, Number.parseInt(process.env.ROS_FETCH_MAX_ATTEMPTS ?? "6", 10));
+const ROS_MIN_REQUEST_INTERVAL_MS = Math.max(0, Number.parseInt(process.env.ROS_MIN_REQUEST_INTERVAL_MS ?? "75", 10));
+const ROS_RATE_LIMIT_FALLBACK_WAIT_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.ROS_RATE_LIMIT_FALLBACK_WAIT_MS ?? "65000", 10),
+);
+let nextRosRequestAt = 0;
+let rosRequestGate = Promise.resolve();
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForRosRequestSlot() {
+  if (ROS_MIN_REQUEST_INTERVAL_MS <= 0) return;
+
+  let releaseGate = () => {};
+  const previousGate = rosRequestGate;
+  rosRequestGate = new Promise((resolve) => {
+    releaseGate = resolve;
+  });
+
+  await previousGate;
+  try {
+    const waitMs = Math.max(0, nextRosRequestAt - Date.now());
+    if (waitMs > 0) {
+      await delay(waitMs);
+    }
+    nextRosRequestAt = Date.now() + ROS_MIN_REQUEST_INTERVAL_MS;
+  } finally {
+    releaseGate();
+  }
+}
+
+function retryAfterMs(res) {
+  const retryAfter = res.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number.parseFloat(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.max(1000, Math.ceil(seconds * 1000));
+    }
+    const dateMs = Date.parse(retryAfter);
+    if (Number.isFinite(dateMs)) {
+      return Math.max(1000, dateMs - Date.now());
+    }
+  }
+
+  const windowSeconds = Number.parseFloat(res.headers.get("x-ratelimit-window") ?? "");
+  if (Number.isFinite(windowSeconds) && windowSeconds > 0) {
+    return Math.max(1000, Math.ceil(windowSeconds * 1000));
+  }
+
+  return ROS_RATE_LIMIT_FALLBACK_WAIT_MS;
+}
 
 /**
  * mssql only parses timeouts when config is a merged object (server/user/…).
@@ -1763,8 +1817,9 @@ async function rosFetch(urlPath, body, method = "POST", extraHeaders = {}) {
     ...extraHeaders,
   };
   let lastErr;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < ROS_FETCH_MAX_ATTEMPTS; attempt++) {
     try {
+      await waitForRosRequestSlot();
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), ROS_FETCH_TIMEOUT_MS);
       let res;
@@ -1787,28 +1842,29 @@ async function rosFetch(urlPath, body, method = "POST", extraHeaders = {}) {
       }
       if (!res.ok) {
         lastErr = new Error(`ROS ${res.status}: ${text.slice(0, 500)}`);
+        if (res.status === 429 && attempt + 1 < ROS_FETCH_MAX_ATTEMPTS) {
+          const waitMs = retryAfterMs(res);
+          console.warn(
+            `[ros] rate limited by Main Hub (${method} ${urlPath}); waiting ${Math.ceil(waitMs / 1000)}s before retry ${attempt + 2}/${ROS_FETCH_MAX_ATTEMPTS}.`,
+          );
+          await delay(waitMs);
+          continue;
+        }
       } else {
         return json;
       }
     } catch (e) {
       lastErr = e;
     }
-    await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+    if (attempt + 1 < ROS_FETCH_MAX_ATTEMPTS) {
+      await delay(500 * 2 ** attempt);
+    }
   }
   throw lastErr;
 }
 
 async function rosGetHealth() {
-  const url = `${ROS_BASE_URL}/api/sync/counterpoint/health`;
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), Math.min(ROS_FETCH_TIMEOUT_MS, 60000));
-  try {
-    const res = await fetch(url, { headers: { "x-ros-sync-token": SYNC_TOKEN }, signal: ac.signal });
-    if (!res.ok) throw new Error(`health ${res.status}`);
-    return res.json();
-  } finally {
-    clearTimeout(timer);
-  }
+  return rosFetch("/api/sync/counterpoint/health", undefined, "GET");
 }
 
 /** Startup: fails if health unreachable. */

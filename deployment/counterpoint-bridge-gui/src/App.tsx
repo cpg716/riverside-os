@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Database,
   Settings as SettingsIcon,
@@ -123,6 +124,15 @@ function App() {
     const value = rosUrl.trim() || ROS_BASE_URL;
     return value.replace(/\/+$/, "");
   }, [rosUrl]);
+
+  const openRosSyncWorkflow = useCallback(async () => {
+    const url = `${normalizedRosUrl}/settings/integrations/counterpoint-sync`;
+    try {
+      await openUrl(url);
+    } catch (e: any) {
+      setStatusMessage(`Could not open Riverside OS Sync Workflow: ${e?.message ?? String(e)}`);
+    }
+  }, [normalizedRosUrl]);
 
   const loadEnvSettings = useCallback(async (): Promise<BridgeSettings | null> => {
     try {
@@ -529,7 +539,7 @@ function App() {
 
           <div className="mt-auto flex flex-col gap-3">
             <button
-              onClick={() => window.open(`${normalizedRosUrl}/settings/integrations/counterpoint-sync`, '_blank')}
+              onClick={() => void openRosSyncWorkflow()}
               className="flex items-center justify-center gap-2 px-4 py-3 bg-linear-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-xs font-bold uppercase rounded-xl transition-all shadow-lg shadow-orange-500/20"
             >
               <ArrowUpRight className="w-4 h-4" />

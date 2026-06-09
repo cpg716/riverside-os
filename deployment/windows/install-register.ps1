@@ -3,7 +3,8 @@ param(
   [string]$ConfigPath = "",
   [string]$StationMode = "",
   [switch]$SkipAppInstall,
-  [switch]$NoLaunch
+  [switch]$NoLaunch,
+  [switch]$Launch
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,6 +77,9 @@ function Ensure-RegisterConfigDefaults($Config) {
   }
   if ($null -eq $Config.register.tagPrinter.systemName) {
     $Config.register.tagPrinter | Add-Member -NotePropertyName "systemName" -NotePropertyValue "" -Force
+  }
+  if ($null -eq $Config.register.tagPrinter.language) {
+    $Config.register.tagPrinter | Add-Member -NotePropertyName "language" -NotePropertyValue "auto" -Force
   }
 
   if ($null -eq $Config.register.reportPrinter) {
@@ -355,12 +359,14 @@ if ($app) {
   }
 }
 
-if (-not $NoLaunch) {
+if ($Launch -and -not $NoLaunch) {
   if ($app) {
     Start-Process $app
   } else {
     Write-Warning "Could not find installed Riverside POS app to launch. Open it from Start after install."
   }
+} else {
+  Write-Host "Desktop app launch skipped. Open Riverside POS from Start when ready."
 }
 
 $summary = "Riverside OS workstation install complete.`n" +

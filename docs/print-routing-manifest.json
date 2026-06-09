@@ -1,0 +1,388 @@
+{
+  "version": 1,
+  "description": "Classifies every app print route so pre-build checks can catch unreviewed print routing drift before release assets are built.",
+  "ignoredHelpers": [
+    "client/src/lib/browserPrint.ts",
+    "client/src/lib/desktopFileBridge.ts",
+    "client/src/lib/printerBridge.ts"
+  ],
+  "routes": [
+    {
+      "id": "alteration-scheduling-card-direct-receipt",
+      "file": "client/src/components/alterations/scheduler/AlterationSchedulingDrawer.tsx",
+      "callee": "printRawEscPosBase64",
+      "occurrences": 2,
+      "kind": "alteration-card",
+      "route": "direct",
+      "printer": "receipt",
+      "proof": "Alteration card output uses the receipt station ESC/POS bridge."
+    },
+    {
+      "id": "wedding-appointment-schedule-preview",
+      "file": "client/src/components/wedding-manager/components/AppointmentScheduler.jsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "wedding-appointment-schedule",
+      "route": "preview",
+      "previewReason": "Wedding appointment schedule print action is a full-page preview document."
+    },
+    {
+      "id": "wedding-order-checklist-preview",
+      "file": "client/src/components/wedding-manager/components/OrderChecklistModal.jsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "wedding-order-checklist",
+      "route": "preview",
+      "previewReason": "Wedding order checklist print action is a full-page preview document."
+    },
+    {
+      "id": "wedding-order-registry-preview",
+      "file": "client/src/components/wedding-manager/components/OrderDashboard.jsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "wedding-order-registry",
+      "route": "preview",
+      "previewReason": "Wedding order registry print action is a full-page preview document."
+    },
+    {
+      "id": "wedding-party-preview",
+      "file": "client/src/components/wedding-manager/components/PrintPartyView.jsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "wedding-party",
+      "route": "preview",
+      "previewReason": "Wedding party print action is a full-page preview document."
+    },
+    {
+      "id": "customer-alterations-direct-receipt",
+      "file": "client/src/components/customers/CustomerAlterationsPanel.tsx",
+      "callee": "printRawEscPosBase64",
+      "occurrences": 4,
+      "kind": "alteration-receipt",
+      "route": "direct",
+      "printer": "receipt",
+      "proof": "Customer alteration pickup receipts and cards use the receipt station ESC/POS bridge."
+    },
+    {
+      "id": "customer-alterations-schedule-preview",
+      "file": "client/src/components/customers/CustomerAlterationsPanel.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "alteration-schedule",
+      "route": "preview",
+      "previewReason": "Full-page alteration schedule preview uses the desktop-safe HTML print helper."
+    },
+    {
+      "id": "customer-measurements-preview",
+      "file": "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "customer-measurements",
+      "route": "preview",
+      "previewReason": "Customer measurement sheets are full-page preview documents."
+    },
+    {
+      "id": "help-center-preview",
+      "file": "client/src/components/help/HelpCenterDrawer.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 2,
+      "kind": "help-manual",
+      "route": "preview",
+      "previewReason": "Help manual print actions are staff-facing preview documents."
+    },
+    {
+      "id": "promotion-performance-direct-report",
+      "file": "client/src/components/inventory/DiscountEventsPanel.tsx",
+      "callee": "printTextReport",
+      "occurrences": 1,
+      "kind": "promotion-performance-report",
+      "route": "direct",
+      "printer": "report",
+      "proof": "Promotion performance report uses the Reports printer text bridge."
+    },
+    {
+      "id": "inventory-control-board-tag-print",
+      "file": "client/src/components/inventory/InventoryControlBoard.tsx",
+      "callee": "openInventoryTagsWindow",
+      "occurrences": 2,
+      "kind": "inventory-tag",
+      "route": "direct",
+      "printer": "tag",
+      "proof": "Inventory Control Board tag actions use the tag station route."
+    },
+    {
+      "id": "physical-inventory-direct-report",
+      "file": "client/src/components/inventory/PhysicalInventoryWorkspace.tsx",
+      "callee": "printTextReport",
+      "occurrences": 1,
+      "kind": "physical-inventory-report",
+      "route": "direct",
+      "printer": "report",
+      "proof": "Physical Inventory reports use the Reports printer text bridge."
+    },
+    {
+      "id": "product-hub-tag-print",
+      "file": "client/src/components/inventory/ProductHubDrawer.tsx",
+      "callee": "openInventoryTagsWindow",
+      "occurrences": 1,
+      "kind": "inventory-tag",
+      "route": "direct",
+      "printer": "tag",
+      "proof": "Product Hub reprint actions use the tag station route."
+    },
+    {
+      "id": "purchase-order-preview",
+      "file": "client/src/components/inventory/PurchaseOrderPanel.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "purchase-order",
+      "route": "preview",
+      "previewReason": "Purchase orders are full-page preview documents."
+    },
+    {
+      "id": "receiving-report-preview",
+      "file": "client/src/components/inventory/ReceivingReport.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "receiving-report",
+      "route": "preview",
+      "previewReason": "Receiving reports are full-page preview documents."
+    },
+    {
+      "id": "variation-workspace-tag-print",
+      "file": "client/src/components/inventory/VariationsWorkspace.tsx",
+      "callee": "openInventoryTagsWindow",
+      "occurrences": 2,
+      "kind": "inventory-tag",
+      "route": "direct",
+      "printer": "tag",
+      "proof": "Variation workspace tag actions use the tag station route."
+    },
+    {
+      "id": "label-print-desktop-preview-helper",
+      "file": "client/src/components/inventory/labelPrint.ts",
+      "callee": "openDesktopTextPreview",
+      "occurrences": 1,
+      "kind": "inventory-tag-preview",
+      "route": "preview",
+      "previewReason": "Tauri tag preview helper writes and opens an HTML preview file."
+    },
+    {
+      "id": "label-print-single-tag-helper",
+      "file": "client/src/components/inventory/labelPrint.ts",
+      "callee": "openInventoryTagsWindow",
+      "occurrences": 1,
+      "kind": "inventory-tag",
+      "route": "direct",
+      "printer": "tag",
+      "proof": "Single-tag helper delegates to the direct tag station route."
+    },
+    {
+      "id": "label-print-preview-fallback-helper",
+      "file": "client/src/components/inventory/labelPrint.ts",
+      "callee": "openInventoryTagsPreviewWindow",
+      "occurrences": 1,
+      "kind": "inventory-tag-preview",
+      "route": "preview",
+      "previewReason": "Direct tag print failure falls back to a tag preview document."
+    },
+    {
+      "id": "label-print-direct-tag-dispatch",
+      "file": "client/src/components/inventory/labelPrint.ts",
+      "callee": "autoRoutePrint",
+      "occurrences": 1,
+      "kind": "inventory-tag",
+      "route": "direct",
+      "printer": "tag",
+      "proof": "Tag payload dispatch goes through autoRoutePrint for the saved Tag Station."
+    },
+    {
+      "id": "label-print-browser-preview-fallback",
+      "file": "client/src/components/inventory/labelPrint.ts",
+      "callee": "window.open",
+      "occurrences": 1,
+      "kind": "inventory-tag-preview",
+      "route": "preview",
+      "previewReason": "Browser/PWA fallback opens the tag preview window when Tauri is not available."
+    },
+    {
+      "id": "loyalty-print-preview",
+      "file": "client/src/components/loyalty/LoyaltyWorkspace.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 2,
+      "kind": "loyalty-mailing",
+      "route": "preview",
+      "previewReason": "Loyalty letters and mailing labels are full-page preview documents."
+    },
+    {
+      "id": "orders-workspace-preview",
+      "file": "client/src/components/orders/OrdersWorkspace.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "orders-report",
+      "route": "preview",
+      "previewReason": "Orders workspace print action produces a full-page preview document."
+    },
+    {
+      "id": "pos-print-retry-direct-receipt",
+      "file": "client/src/components/pos/Cart.tsx",
+      "callee": "printRawEscPosBase64",
+      "occurrences": 1,
+      "kind": "receipt-retry",
+      "route": "direct",
+      "printer": "receipt",
+      "proof": "POS failed-print retry uses the receipt station ESC/POS bridge."
+    },
+    {
+      "id": "receipt-summary-cash-drawer",
+      "file": "client/src/components/pos/ReceiptSummaryModal.tsx",
+      "callee": "printRawEscPosBase64",
+      "occurrences": 1,
+      "kind": "cash-drawer",
+      "route": "direct",
+      "printer": "cash-drawer",
+      "proof": "Cash/check sale drawer kick uses the receipt station ESC/POS bridge."
+    },
+    {
+      "id": "receipt-summary-direct-receipt",
+      "file": "client/src/components/pos/ReceiptSummaryModal.tsx",
+      "callee": "printRawEscPosBase64",
+      "occurrences": 1,
+      "kind": "receipt",
+      "route": "direct",
+      "printer": "receipt",
+      "proof": "Customer and gift receipts use the receipt station ESC/POS bridge."
+    },
+    {
+      "id": "receipt-summary-copy-preview",
+      "file": "client/src/components/pos/ReceiptSummaryModal.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "receipt-copy",
+      "route": "preview",
+      "previewReason": "Receipt copy view is a full-page preview document."
+    },
+    {
+      "id": "register-reports-void-drawer",
+      "file": "client/src/components/pos/RegisterReports.tsx",
+      "callee": "printRawEscPosBase64",
+      "occurrences": 1,
+      "kind": "cash-drawer",
+      "route": "direct",
+      "printer": "cash-drawer",
+      "proof": "Register void drawer pop uses the receipt station ESC/POS bridge."
+    },
+    {
+      "id": "z-report-desktop-preview",
+      "file": "client/src/components/pos/zReportPrint.ts",
+      "callee": "openDesktopTextPreview",
+      "occurrences": 1,
+      "kind": "z-report-preview",
+      "route": "preview",
+      "previewReason": "Z-report helper opens a desktop-safe HTML preview file."
+    },
+    {
+      "id": "z-report-browser-preview",
+      "file": "client/src/components/pos/zReportPrint.ts",
+      "callee": "window.open",
+      "occurrences": 1,
+      "kind": "z-report-preview",
+      "route": "preview",
+      "previewReason": "Browser/PWA fallback opens a Z-report preview window when Tauri is not available."
+    },
+    {
+      "id": "appointment-schedule-preview",
+      "file": "client/src/components/scheduler/SchedulerWorkspace.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "appointment-schedule",
+      "route": "preview",
+      "previewReason": "Appointment schedule print action is a full-page preview document."
+    },
+    {
+      "id": "printer-settings-receipt-test",
+      "file": "client/src/components/settings/PrintersAndScannersPanel.tsx",
+      "callee": "printRawEscPosBase64",
+      "occurrences": 1,
+      "kind": "receipt-test",
+      "route": "direct",
+      "printer": "receipt",
+      "proof": "Printer settings receipt test uses the receipt station ESC/POS bridge."
+    },
+    {
+      "id": "printer-settings-cash-drawer-test",
+      "file": "client/src/components/settings/PrintersAndScannersPanel.tsx",
+      "callee": "printRawEscPosBase64",
+      "occurrences": 1,
+      "kind": "cash-drawer",
+      "route": "direct",
+      "printer": "cash-drawer",
+      "proof": "Printer settings drawer test uses the receipt station ESC/POS bridge."
+    },
+    {
+      "id": "receipt-builder-test-direct-receipt",
+      "file": "client/src/components/settings/ReceiptBuilderPanel.tsx",
+      "callee": "printRawEscPosBase64",
+      "occurrences": 1,
+      "kind": "receipt-test",
+      "route": "direct",
+      "printer": "receipt",
+      "proof": "Receipt Builder test print uses the receipt station ESC/POS bridge."
+    },
+    {
+      "id": "tag-designer-direct-test-tag",
+      "file": "client/src/components/settings/TagDesignerPanel.tsx",
+      "callee": "openInventoryTagsWindow",
+      "occurrences": 1,
+      "kind": "inventory-tag-test",
+      "route": "direct",
+      "printer": "tag",
+      "proof": "Tag Designer test print uses the configured Tag Station."
+    },
+    {
+      "id": "tag-designer-preview",
+      "file": "client/src/components/settings/TagDesignerPanel.tsx",
+      "callee": "openInventoryTagsPreviewWindow",
+      "occurrences": 1,
+      "kind": "inventory-tag-preview",
+      "route": "preview",
+      "previewReason": "Tag Designer preview intentionally opens a preview document."
+    },
+    {
+      "id": "commission-report-preview",
+      "file": "client/src/components/staff/CommissionPayoutsPanel.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "commission-report",
+      "route": "preview",
+      "previewReason": "Commission report print action is a full-page preview document."
+    },
+    {
+      "id": "staff-tasks-preview",
+      "file": "client/src/components/staff/StaffTasksPanel.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "staff-tasks",
+      "route": "preview",
+      "previewReason": "Staff task list print action is a full-page preview document."
+    },
+    {
+      "id": "staff-weekly-schedule-preview",
+      "file": "client/src/components/staff/StaffWeeklyGridView.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "staff-schedule",
+      "route": "preview",
+      "previewReason": "Staff weekly schedule print action is a full-page preview document."
+    },
+    {
+      "id": "task-checklist-preview",
+      "file": "client/src/components/tasks/TaskChecklistDrawer.tsx",
+      "callee": "openPrintableHtml",
+      "occurrences": 1,
+      "kind": "task-checklist",
+      "route": "preview",
+      "previewReason": "Task checklist print action is a full-page preview document."
+    }
+  ]
+}

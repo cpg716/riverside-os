@@ -20,7 +20,7 @@ Riverside OS tracks three distinct printer stations per workstation. Each docume
 | Station Type | Modes | Storage Keys | Description |
 |--------------|-------|--------------|-------------|
 | **Receipt Station** | Installed Windows printer or ESC/POS TCP | `ros.hardware.printer.receipt.mode`, `.systemName`, `.ip`, `.port` | Primary Epson customer thermal printer. Handles sales records, gift receipts, and the attached Register #1 cash drawer. |
-| **Tag Station** | Installed Windows printer or ZPL TCP | `ros.hardware.printer.tag.mode`, `.systemName`, `.ip`, `.port` | Zebra clothing tag printer on the workstation or network. Handles SKU/inventory tags. |
+| **Tag Station** | Installed Windows printer or ZPL/EPL TCP | `ros.hardware.printer.tag.mode`, `.systemName`, `.ip`, `.port`, `.language` | Zebra clothing tag printer on the workstation or network. Handles SKU/inventory tags. |
 | **Reporting Station** | Installed Windows printer or network target | `ros.hardware.printer.report.mode`, `.systemName`, `.ip`, `.port` | Full-page document printer. Handles audit logs, shift summaries, and manifest reports. |
 
 ---
@@ -56,7 +56,7 @@ Browser/PWA network printing is allowlisted by the saved station configuration. 
 The previous HTML receipt designer is no longer exposed in the active Settings UI. Receipt view, email, and text delivery use the standard receipt renderer when no legacy saved HTML template exists.
 
 ### Item Tags
-Inventory tag actions generate Zebra-compatible ZPL for the saved **Tag Station** and dispatch it directly through `autoRoutePrint("tag", ..., "zpl")`. The production tag printer is the Zebra 2844 / LP 2844 class printer at 203 DPI. Staff can choose an installed Zebra printer from the desktop printer dropdown, or configure a network printer IP when the Zebra is reachable over TCP 9100.
+Inventory tag actions generate raw Zebra tag commands for the saved **Tag Station** and dispatch them directly through `autoRoutePrint("tag", ..., language)`. The production tag printer is the Zebra 2844 / LP 2844 class printer at 203 DPI. Auto language mode emits EPL for classic LP/TLP 2844 installed-printer names and ZPL II for newer Zebra/ZPL printers. Staff can choose an installed Zebra printer from the desktop printer dropdown, or configure a network printer IP when the Zebra is reachable over TCP 9100.
 
 If direct dispatch is not available, ROS opens the retail tag preview so staff can use the operating system print dialog as a fallback. The preview path is a recovery path; normal inventory tag printing should go directly from the app to the configured Zebra tag station.
 
@@ -65,8 +65,14 @@ The `printerBridge.ts` module includes an intelligent dispatcher that resolves t
 
 ```typescript
 await printRawEscPosBase64(escposBase64);
-await autoRoutePrint("tag", zplPayload, "zpl");
+await autoRoutePrint("tag", thermalPayload, "epl" | "zpl");
 ```
+
+### Pre-Build Print Route Gate
+
+Every app print route is classified in `docs/print-routing-manifest.json`. Run `npm run check:print-routing` before release packaging or hardware-sensitive changes. The gate fails when a new print call appears without a route classification, when a known route's source occurrence count changes, or when a direct receipt, cash drawer, tag, or report route uses the wrong bridge.
+
+This source gate proves route coverage and prevents browser-print drift. It does not replace the final real-device check for the Epson receipt printer/cash drawer, Zebra tag printer, and Reports printer on the target workstation.
 
 ---
 

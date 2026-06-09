@@ -3,6 +3,7 @@
 import { dispatchAppToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { openDesktopTextPreview } from "../../lib/desktopFileBridge";
+import { isTauri } from "@tauri-apps/api/core";
 
 export interface ZReportTenderRow {
   payment_method: string;
@@ -89,7 +90,7 @@ function notifyPrintDialogFailure(error: unknown): void {
 }
 
 function isTauriDesktop() {
-  return typeof window !== "undefined" && Boolean((window as unknown as { __TAURI__?: unknown }).__TAURI__);
+  return isTauri();
 }
 
 function createPrintDocument(title: string, features: string) {

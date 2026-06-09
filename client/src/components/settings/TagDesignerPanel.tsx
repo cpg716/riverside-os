@@ -43,6 +43,18 @@ const SAMPLE_ITEMS: InventoryTagItem[] = [
   },
 ];
 
+const TEST_PRINT_ITEMS: InventoryTagItem[] = [
+  {
+    sku: "ROS-TEST-TAG",
+    productName: "Riverside test tag",
+    variation: "Printer check",
+    brand: "RIVERSIDE",
+    price: "$1.00",
+    regularPrice: null,
+    salePrice: null,
+  },
+];
+
 function normalizeConfig(config: InventoryTagPrintConfig): InventoryTagPrintConfig {
   const widthInches = Number.isFinite(config.widthInches)
     ? Math.min(6, Math.max(2, config.widthInches))
@@ -350,14 +362,14 @@ export default function TagDesignerPanel() {
   };
   const handlePrint = async () => {
     try {
-      const result = await openInventoryTagsWindow(SAMPLE_ITEMS, normalizedDraft);
+      const result = await openInventoryTagsWindow(TEST_PRINT_ITEMS, normalizedDraft);
       if (result === "direct") {
-        toast("Tag sent to Zebra 2844 printer.", "success");
+        toast("Test tag sent to the tag station.", "success");
       } else {
         toast("Direct tag print failed; preview opened for manual printing.", "info");
       }
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Tag print failed.", "error");
+      toast(error instanceof Error ? error.message : "Test tag print failed.", "error");
     }
   };
 
@@ -379,7 +391,7 @@ export default function TagDesignerPanel() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => void handlePrint()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Printer size={16} /> Print</button>
+            <button type="button" onClick={() => void handlePrint()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Printer size={16} /> Print test tag</button>
             <button type="button" onClick={() => void handlePreview()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Eye size={16} /> Print preview</button>
             <button type="button" onClick={handleReset} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><RotateCcw size={16} /> Undo changes</button>
             <button type="button" onClick={handleSave} className="inline-flex items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-sm font-black text-white shadow-sm transition-colors hover:brightness-110"><Save size={16} /> Save layout</button>

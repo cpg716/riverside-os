@@ -238,7 +238,7 @@ Use installed-printer mode for USB printers, report/label printers that need Win
 }
 ```
 
-For **Zebra 2844 / LP 2844 tags**, set the tag printer to the installed Zebra printer name or the Zebra network IP. Inventory tag actions send ZPL directly to that tag station; a failed hardware route must be corrected before relying on tag printing.
+For **Zebra 2844 / LP 2844 tags**, set the tag printer to the installed Zebra printer name or the Zebra network IP. Inventory tag actions send EPL for classic LP/TLP 2844 printers or ZPL II for newer Zebra printers directly to that tag station; a failed hardware route must be corrected before relying on tag printing.
 
 For **iPad/PWA receipts**, Riverside does not use the browser print dialog for receipts. The PWA sends the print request to the Riverside Server API, and the server dispatches directly to the Epson IP/port. If the server cannot reach the printer, fix the printer IP, port, firewall, or network before using the lane.
 

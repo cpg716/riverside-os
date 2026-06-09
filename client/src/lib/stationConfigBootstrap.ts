@@ -5,6 +5,7 @@ type PrinterStationConfig = {
   ip?: string;
   port?: number | string;
   systemName?: string;
+  language?: string;
 };
 
 type RiversideStationConfig = {
@@ -43,6 +44,7 @@ function applyPrinter(prefix: string, printer: PrinterStationConfig | undefined)
   changed = setIfChanged(`${prefix}.mode`, mode) || changed;
   changed = setIfChanged(`${prefix}.ip`, printer.ip) || changed;
   changed = setIfChanged(`${prefix}.systemName`, printer.systemName) || changed;
+  changed = setIfChanged(`${prefix}.language`, printer.language) || changed;
   if (printer.port !== undefined && printer.port !== null) {
     changed = setIfChanged(`${prefix}.port`, String(printer.port)) || changed;
   }

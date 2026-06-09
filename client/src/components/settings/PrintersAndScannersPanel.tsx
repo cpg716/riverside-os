@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { getBaseUrl } from "../../lib/apiConfig";
 import {
+  TAG_PRINTER_LANGUAGE_KEY,
   checkReceiptPrinterConnection,
   describePrinterTarget,
   listSystemPrinters,
@@ -49,7 +50,7 @@ const PRINTERS: PrinterConfig[] = [
   {
     key: "tag",
     label: "Clothing Tag Station",
-    helper: "Zebra 2844 on the host PC for ZPL clothing tags",
+    helper: "Zebra 2844 on the host PC for clothing tags",
     ipStorageKey: "ros.hardware.printer.tag.ip",
     portStorageKey: "ros.hardware.printer.tag.port",
     modeStorageKey: "ros.hardware.printer.tag.mode",
@@ -97,8 +98,8 @@ export default function PrintersAndScannersPanel({
   const { toast } = useToast();
   const initialValues = useMemo(
     () =>
-      Object.fromEntries(
-        PRINTERS.flatMap((printer) => [
+      Object.fromEntries([
+        ...PRINTERS.flatMap((printer) => [
           [printer.modeStorageKey, getStored(printer.modeStorageKey, "network")],
           [printer.systemStorageKey, getStored(printer.systemStorageKey, "")],
           [printer.ipStorageKey, getStored(printer.ipStorageKey, printer.defaultIp)],
@@ -110,7 +111,8 @@ export default function PrintersAndScannersPanel({
             ),
           ],
         ]),
-      ) as Record<string, string>,
+        [TAG_PRINTER_LANGUAGE_KEY, getStored(TAG_PRINTER_LANGUAGE_KEY, "auto")],
+      ]) as Record<string, string>,
     [],
   );
   const [values, setValues] = useState(initialValues);
@@ -398,6 +400,23 @@ export default function PrintersAndScannersPanel({
                 )}
               </div>
 
+              {printer.key === "tag" ? (
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Printer language
+                  </span>
+                  <select
+                    value={values[TAG_PRINTER_LANGUAGE_KEY] ?? "auto"}
+                    onChange={(e) => saveValue(TAG_PRINTER_LANGUAGE_KEY, e.target.value)}
+                    className="ui-input mt-2 w-full text-sm font-bold"
+                  >
+                    <option value="auto">Auto-detect LP/TLP 2844</option>
+                    <option value="epl">EPL / Zebra LP 2844</option>
+                    <option value="zpl">ZPL II / newer Zebra</option>
+                  </select>
+                </label>
+              ) : null}
+
               {printer.key === "receipt" ? (
                 <label className="flex items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 p-4">
                   <input
@@ -556,7 +575,7 @@ export default function PrintersAndScannersPanel({
                 Receipt Path
               </h3>
               <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
-                Standard receipts target Epson ESC/POS. Clothing tags target the Zebra 2844/ZPL station on the host PC.
+                Standard receipts target Epson ESC/POS. Clothing tags target the Zebra tag station on the host PC.
               </p>
             </div>
           </div>

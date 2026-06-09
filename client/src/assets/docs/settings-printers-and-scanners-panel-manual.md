@@ -32,12 +32,13 @@ Use this panel when opening a new lane, replacing a printer, checking scanner in
 1. Open **Settings → Printers & Scanners**.
 2. For the Epson TM-m30III receipt station, choose an installed printer from the desktop printer dropdown or enter the printer IP and port for network mode.
 3. Leave **Open cash drawer on cash/check** enabled for Register #1 when the drawer is attached to the Epson receipt printer.
-4. For the Zebra 2844 clothing tag station, choose the installed Zebra printer or enter the tag printer IP for network ZPL mode.
+4. For the Zebra 2844 clothing tag station, choose the installed Zebra printer or enter the tag printer IP, then leave **Printer language** on **Auto-detect LP/TLP 2844** unless support tells you to force EPL or ZPL.
 5. Enter the reports printer target when the workstation uses a dedicated reports bridge.
-6. In POS, use **Print test** to send a short Epson test receipt.
-7. Use **Open drawer** only when you need a manual drawer open. Enter a reason and the acting staff member's **Access PIN** so the event is recorded for the Z-report.
-8. Use **Check connection** for the receipt printer. The desktop app checks the printer directly; PWA/browser mode asks the Riverside server to check the printer IP and port.
-9. Focus the scanner test field and scan a barcode to confirm HID keyboard input is reaching ROS.
+6. Open **Tag Designer → Print test tag** to send an actual sample label using the current saved tag layout and configured tag station.
+7. In POS, use **Print test** to send a short Epson test receipt.
+8. Use **Open drawer** only when you need a manual drawer open. Enter a reason and the acting staff member's **Access PIN** so the event is recorded for the Z-report.
+9. Use **Check connection** for the receipt printer. The desktop app checks the printer directly; PWA/browser mode asks the Riverside server to check the printer IP and port.
+10. Focus the scanner test field and scan a barcode to confirm HID keyboard input is reaching ROS.
 
 ## Recovery and escalation
 
@@ -50,7 +51,7 @@ If a printer test fails, do not keep retrying sale completion from the cart. Con
 - The cash drawer opens automatically only on CASH and CHECK sales from Register #1.
 - Manual drawer opens require an Access PIN, a reason, and are listed on the Z-report.
 - The POS Register Hardware view shows the active receipt address, cash drawer state, and Zebra tag target at the top of the page.
-- Item tags print directly to the configured Zebra 2844/ZPL station when the station can be reached; ROS opens tag preview only when direct dispatch is unavailable.
+- Item tags print directly to the configured Zebra station. Auto language uses EPL for classic Zebra LP/TLP 2844 names and ZPL II for newer Zebra/ZPL printers; ROS opens tag preview only when direct dispatch is unavailable.
 - Browser/PWA mode can save the same settings and can use server-side network printing when the API host can reach the printer. Receipt checks in PWA/browser mode verify the server-to-printer TCP path; installed-printer dropdowns and Windows printer checks run in the desktop app.
 - USB scanner hardware on PC and Bluetooth scanner hardware on iPad/phone should be configured as HID keyboard input with an Enter suffix.
 

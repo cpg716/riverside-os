@@ -47,7 +47,8 @@
     "tagPrinter": {
       "mode": "system",
       "ip": "",
-      "systemName": "Zebra LP 2844"
+      "systemName": "Zebra LP 2844",
+      "language": "auto"
     },
     "reportPrinter": {
       "mode": "system",

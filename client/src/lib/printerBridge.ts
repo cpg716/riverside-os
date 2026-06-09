@@ -4,6 +4,9 @@ import { getBaseUrl } from "./apiConfig";
 import { sessionPollAuthHeaders } from "./posRegisterAuth";
 
 export type PrintDocType = "receipt" | "tag" | "report";
+export type ThermalPrinterLanguage = "zpl" | "epl";
+
+export const TAG_PRINTER_LANGUAGE_KEY = "ros.hardware.printer.tag.language";
 
 export interface HardwareAddress {
   ip: string;
@@ -183,6 +186,14 @@ export async function printZplReceipt(
   }
 }
 
+export async function printRawThermal(
+  payload: string,
+  targetOrIp: HardwarePrinterTarget | string,
+  port = 9100,
+) {
+  return printZplReceipt(payload, targetOrIp, port);
+}
+
 /** Pre-built ESC/POS binary as standard base64 (init/raster/cut already included). */
 export async function printRawEscPosBase64(
   payloadB64: string,
@@ -352,7 +363,7 @@ export async function checkReceiptPrinterConnection(
  * Automatically routes a document to the correct station printer based on type.
  * Ensures the right protocol (ZPL vs ESC/POS) is used for the destination.
  */
-export async function autoRoutePrint(type: PrintDocType, payload: string, format: "zpl" | "escpos" = "zpl") {
+export async function autoRoutePrint(type: PrintDocType, payload: string, format: ThermalPrinterLanguage | "escpos" = "zpl") {
   const target = resolvePrinterTarget(type);
   if (target.mode === "system" && !target.printerName) {
     throw new Error(`No installed printer selected for ${type} documents.`);
@@ -361,8 +372,8 @@ export async function autoRoutePrint(type: PrintDocType, payload: string, format
     throw new Error(`No printer address configured for ${type} documents.`);
   }
 
-  if (format === "zpl") {
-    return printZplReceipt(payload, target);
+  if (format === "zpl" || format === "epl") {
+    return printRawThermal(payload, target);
   } else {
     return printEscPosReceipt(payload, target);
   }
@@ -379,6 +390,7 @@ function gatherPrinterSettings(): Record<string, string> {
     "ros.hardware.printer.tag.port",
     "ros.hardware.printer.tag.mode",
     "ros.hardware.printer.tag.systemName",
+    TAG_PRINTER_LANGUAGE_KEY,
     "ros.hardware.printer.report.ip",
     "ros.hardware.printer.report.port",
     "ros.hardware.printer.report.mode",

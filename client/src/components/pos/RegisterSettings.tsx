@@ -275,10 +275,10 @@ export default function RegisterSettings({
                 </button>
               </div>
 
-              {/* Tag Printer (ZPL) */}
+              {/* Tag Printer */}
               <div className="ui-card p-6 border-app-border space-y-6">
                 <div className="flex items-center justify-between border-b border-app-border pb-3">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Tag Station (ZPL)</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Tag Station</p>
                   <div className="h-2 w-2 rounded-full bg-blue-500/40" />
                 </div>
                 <label className="flex flex-col gap-2">

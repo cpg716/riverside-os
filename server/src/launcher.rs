@@ -9,7 +9,9 @@ use crate::logic::ops_dev_center::{ops_retention_config_from_env, perform_retent
 use crate::logic::wedding_push::WeddingEventBus;
 use crate::observability::ServerLogRing;
 use axum::extract::DefaultBodyLimit;
-use axum::http::{HeaderValue, Method};
+use axum::http::{header, HeaderValue, Method};
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::serve;
 use chrono::{NaiveDate, Timelike, Utc};
 use rust_decimal_macros::dec;
@@ -39,6 +41,50 @@ pub struct LauncherConfig {
 pub struct LaunchReady {
     pub bind_addr: String,
     pub frontend_dist: PathBuf,
+}
+
+fn static_cache_control_for_path(path: &str) -> Option<HeaderValue> {
+    let lower = path.to_ascii_lowercase();
+    if lower == "/api"
+        || lower.starts_with("/api/")
+        || lower == "/uploads"
+        || lower.starts_with("/uploads/")
+        || lower == "/metabase"
+        || lower.starts_with("/metabase/")
+    {
+        return None;
+    }
+
+    if lower.starts_with("/assets/") || lower.contains("/assets/") {
+        return Some(HeaderValue::from_static(
+            "public, max-age=31536000, immutable",
+        ));
+    }
+
+    let last_segment = lower.rsplit('/').next().unwrap_or("");
+    if lower == "/"
+        || lower.ends_with("/index.html")
+        || lower == "/sw.js"
+        || lower == "/registersw.js"
+        || lower == "/manifest.json"
+        || lower.ends_with(".webmanifest")
+        || !last_segment.contains('.')
+    {
+        return Some(HeaderValue::from_static(
+            "no-cache, no-store, must-revalidate",
+        ));
+    }
+
+    None
+}
+
+async fn apply_static_cache_control(request: axum::extract::Request, next: Next) -> Response {
+    let path = request.uri().path().to_string();
+    let mut response = next.run(request).await;
+    if let Some(value) = static_cache_control_for_path(&path) {
+        response.headers_mut().insert(header::CACHE_CONTROL, value);
+    }
+    response
 }
 
 fn helcim_value_looks_placeholder(value: &str) -> bool {
@@ -772,7 +818,8 @@ async fn launch_server_inner(
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
-        .fallback_service(serve_dir);
+        .fallback_service(serve_dir)
+        .layer(middleware::from_fn(apply_static_cache_control));
 
     let listener = TcpListener::bind(&config.bind_addr).await?;
     tracing::info!(addr = %config.bind_addr, "Riverside OS Unified Engine listening");
@@ -821,13 +868,59 @@ pub async fn launch_server_with_ready_signal(
 
 #[cfg(test)]
 mod tests {
-    use super::helcim_value_looks_placeholder;
+    use super::{helcim_value_looks_placeholder, static_cache_control_for_path};
 
     #[test]
     fn helcim_placeholder_detection_catches_dummy_values() {
         assert!(helcim_value_looks_placeholder(""));
         assert!(helcim_value_looks_placeholder("replace_me"));
         assert!(!helcim_value_looks_placeholder("real-token-value"));
+    }
+
+    #[test]
+    fn static_cache_headers_keep_pwa_shell_fresh() {
+        let no_cache = "no-cache, no-store, must-revalidate";
+        assert_eq!(
+            static_cache_control_for_path("/")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            no_cache
+        );
+        assert_eq!(
+            static_cache_control_for_path("/settings/integrations/counterpoint-sync")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            no_cache
+        );
+        assert_eq!(
+            static_cache_control_for_path("/sw.js")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            no_cache
+        );
+        assert_eq!(
+            static_cache_control_for_path("/manifest.json")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            no_cache
+        );
+    }
+
+    #[test]
+    fn static_cache_headers_keep_hashed_assets_immutable() {
+        assert_eq!(
+            static_cache_control_for_path("/assets/index-abc123.js")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "public, max-age=31536000, immutable"
+        );
+        assert!(static_cache_control_for_path("/api/health").is_none());
+        assert!(static_cache_control_for_path("/uploads/photo.jpg").is_none());
     }
 }
 

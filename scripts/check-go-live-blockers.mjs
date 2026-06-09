@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
 const failures = [];
@@ -119,6 +120,24 @@ function checkBrowserPrintHelper() {
   );
 }
 
+function checkNoLegacyTauriGlobalDetection() {
+  const files = walk("client/src", [".ts", ".tsx", ".js", ".jsx"]);
+  let found = false;
+  for (const file of files) {
+    const content = read(file);
+    const pattern = /__TAURI__/;
+    if (pattern.test(content)) {
+      found = true;
+      fail(
+        "Client code uses stale window.__TAURI__ desktop detection",
+        `${file}:${lineOf(content, pattern)}`,
+        "Use @tauri-apps/api/core isTauri() so desktop print/preview paths do not silently fall back to browser windows.",
+      );
+    }
+  }
+  if (!found) pass("Client desktop detection uses isTauri() instead of window.__TAURI__");
+}
+
 function checkNoComponentBrowserPrintBypass() {
   const files = walk("client/src/components", [".ts", ".tsx", ".js", ".jsx"]);
   const forbidden = [
@@ -192,10 +211,28 @@ function checkDirectPrinterRouting() {
   const labelFile = "client/src/components/inventory/labelPrint.ts";
   const labelPrint = read(labelFile);
   assert(
-    labelPrint.includes('autoRoutePrint("tag"') && labelPrint.includes("buildZplDocument"),
-    "Tag direct printer path remains wired to the tag station",
+    labelPrint.includes('autoRoutePrint("tag"') &&
+      labelPrint.includes("buildZplDocument") &&
+      labelPrint.includes("buildEplDocument") &&
+      labelPrint.includes("getInventoryTagPrinterLanguage") &&
+      labelPrint.includes("TAG_PRINTER_LANGUAGE_KEY"),
+    "Tag direct printer path remains wired to the tag station with EPL/ZPL language selection",
     labelFile,
-    "Inventory tag printing must keep routing ZPL through ros.hardware.printer.tag.*.",
+    "Inventory tag printing must keep routing through ros.hardware.printer.tag.* and support classic LP/TLP 2844 EPL as well as ZPL.",
+  );
+}
+
+function checkPrintRoutingManifest() {
+  const result = spawnSync(process.execPath, ["scripts/check-print-routing-manifest.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert(
+    result.status === 0,
+    "Print routing manifest classifies every app print route and bridge choice",
+    "docs/print-routing-manifest.json",
+    (result.stderr || result.stdout).trim() ||
+      "Run npm run check:print-routing for route-level print proof.",
   );
 }
 
@@ -373,18 +410,102 @@ function checkReleaseWorkflowPreBuildGates() {
   );
 }
 
+function checkDesktopAndPwaUpdateWiring() {
+  const updaterFile = "client/src-tauri/src/server_updater.rs";
+  const updater = read(updaterFile);
+  assert(
+    updater.includes("./install-server.ps1 -ConfigPath") &&
+      updater.includes("./repair-bootstrap-admin.ps1 -ConfigPath") &&
+      updater.includes("./install-register.ps1 -ConfigPath") &&
+      updater.includes("-StationMode mainhub") &&
+      updater.includes("Start-Transcript") &&
+      updater.includes("health_ep = contract::HEALTH_ENDPOINT"),
+    "Main Hub in-app updater runs server, bootstrap, local desktop app, transcript, and health-check steps",
+    updaterFile,
+    "Main Hub updates must cover server/API, migrations, bootstrap admin, local desktop app config, and readiness proof.",
+  );
+
+  const registerInstaller = "deployment/windows/install-register.ps1";
+  const installer = read(registerInstaller);
+  assert(
+    installer.includes("[switch]$Launch") &&
+      installer.includes("if ($Launch -and -not $NoLaunch)") &&
+      !installer.includes("if (-not $NoLaunch)"),
+    "Register/Main Hub/Back Office installer does not auto-launch unless explicitly requested",
+    registerInstaller,
+    "Update workflows should finish cleanly and let the operator relaunch intentionally.",
+  );
+
+  const appUpdates = "client/src-tauri/src/app_updates.rs";
+  const appUpdateContent = read(appUpdates);
+  assert(
+    appUpdateContent.includes("tauri_plugin_updater") &&
+      appUpdateContent.includes("version_comparator") &&
+      appUpdateContent.includes("release_build_id") &&
+      appUpdateContent.includes("download_and_install"),
+    "Desktop app updater handles signed updates and same-version build changes",
+    appUpdates,
+    "Back Office and Register #1 rely on signed Tauri updater assets and build metadata comparisons.",
+  );
+
+  const pwaPrompt = "client/src/components/layout/PwaUpdatePrompt.tsx";
+  const pwaPromptContent = read(pwaPrompt);
+  assert(
+    pwaPromptContent.includes('useRegisterSW()') &&
+      pwaPromptContent.includes("needRefresh") &&
+      pwaPromptContent.includes("updateServiceWorker(true)") &&
+      pwaPromptContent.includes("if (isTauri()) return <DesktopPwaCacheCleanup />"),
+    "PWA update prompt is registered for browser/PWA and disabled/cleaned up in Tauri",
+    pwaPrompt,
+    "Browser/iPad updates should use the service worker prompt; desktop apps should not keep PWA caches.",
+  );
+
+  const viteConfig = "client/vite.config.ts";
+  const vite = read(viteConfig);
+  assert(
+    vite.includes("VitePWA({") &&
+      vite.includes('registerType: "prompt"') &&
+      vite.includes('navigateFallback: "/index.html"') &&
+      vite.includes("cleanupOutdatedCaches: true"),
+    "PWA build produces a prompt-driven service worker with cleanup and SPA fallback",
+    viteConfig,
+    "The iPad/browser app must keep service-worker update checks and stale-cache cleanup enabled.",
+  );
+
+  const launcher = "server/src/launcher.rs";
+  const launcherContent = read(launcher);
+  assert(
+    launcherContent.includes("apply_static_cache_control") &&
+      launcherContent.includes("static_cache_control_for_path") &&
+      launcherContent.includes("no-cache, no-store, must-revalidate") &&
+      launcherContent.includes("public, max-age=31536000, immutable") &&
+      launcherContent.includes('lower == "/sw.js"') &&
+      launcherContent.includes('lower == "/manifest.json"') &&
+      launcherContent.includes('lower.ends_with("/index.html")') &&
+      launcherContent.includes("!last_segment.contains('.')") &&
+      launcherContent.includes(".fallback_service(serve_dir)") &&
+      launcherContent.includes(".layer(middleware::from_fn(apply_static_cache_control))"),
+    "Server applies update-safe cache headers for PWA shell and immutable hashed assets",
+    launcher,
+    "PWA updates need fresh index/service-worker/manifest files while hashed assets can be cached long-term.",
+  );
+}
+
 checkCurrentReleaseNotes();
 checkTauriOpenerAcl();
 checkBrowserPrintHelper();
+checkNoLegacyTauriGlobalDetection();
 checkNoComponentBrowserPrintBypass();
 checkFireAndForgetPrintsAreCaught();
 checkDirectPrinterRouting();
+checkPrintRoutingManifest();
 checkCounterpointRateLimitBypass();
 checkCounterpointWorkbenchSql();
 checkPackagedHelpManuals();
 checkGeneratedHelpManualCoverage();
 checkWindowsRosieProcessLockGuards();
 checkReleaseWorkflowPreBuildGates();
+checkDesktopAndPwaUpdateWiring();
 
 if (failures.length > 0) {
   console.error("Go-live blocker check failed.");
