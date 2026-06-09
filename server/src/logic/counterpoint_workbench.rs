@@ -220,10 +220,29 @@ async fn fetch_inventory_summary(pool: &PgPool) -> Result<InventorySummary, sqlx
     .fetch_one(pool)
     .await?;
 
-    let quarantine_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM counterpoint_ingest_quarantine WHERE severity IN ('QUARANTINE','BLOCKING')")
-            .fetch_one(pool)
-            .await?;
+    let quarantine_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM (
+            SELECT DISTINCT
+                ingest_type,
+                COALESCE(
+                    NULLIF(BTRIM(normalized_sku), ''),
+                    NULLIF(BTRIM(counterpoint_item_key), ''),
+                    NULLIF(BTRIM(family_key), ''),
+                    NULLIF(BTRIM(source_row->>'sku'), ''),
+                    NULLIF(BTRIM(source_row->>'item_no'), ''),
+                    NULLIF(BTRIM(source_row->>'counterpoint_item_key'), ''),
+                    md5(source_row::text)
+                ) AS quarantine_identity
+            FROM counterpoint_ingest_quarantine
+            WHERE severity IN ('QUARANTINE','BLOCKING')
+              AND ingest_type IN ('catalog','inventory')
+        ) deduped_quarantine
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
 
     Ok(InventorySummary {
         products,

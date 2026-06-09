@@ -224,31 +224,41 @@ const startLocalServer = () => {
                 if (!/^(SELECT|WITH)\b/i.test(testSql) || /;\s*\S/.test(testSql)) {
                     throw new Error("SQL Query Tester only allows a single read-only SELECT/WITH statement.");
                 }
-                if (/^\s*SELECT\b/i.test(testSql) && !/^\s*SELECT\s+TOP\b/i.test(testSql)) {
-                    testSql = testSql.replace(/^\s*SELECT\b/i, "SELECT TOP 10");
+                if (/^\s*SELECT\b/i.test(testSql)) {
+                    testSql = limitSqlServerSelectForTester(testSql);
                 }
                 const result = await request.query(testSql);
                 return (result.recordset || []).slice(0, 10);
             };
 
             if (entity) {
-                let querySql = effectiveSql[entity];
-                if (!querySql) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: `Unknown query entity: ${entity}. Available options: ${Object.keys(effectiveSql).join(', ')}` }));
-                    return;
-                }
-                const since = (process.env.CP_IMPORT_SINCE ?? "2018-01-01").trim();
-                querySql = querySql.replace(/__CP_IMPORT_SINCE__/g, since);
-
-                executeQuery(querySql)
-                    .then(rows => {
-                        res.writeHead(200, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ success: true, entity, rows }));
-                    })
+                let querySqlForError = "";
+                (async () => {
+                    let sqlKey = resolveQueryTesterSqlKey(entity);
+                    if (!sqlKey && ACTIVE_POOL) {
+                        await rebuildEffectiveSql(ACTIVE_POOL);
+                        sqlKey = resolveQueryTesterSqlKey(entity);
+                    }
+                    if (!sqlKey) {
+                        const known = isKnownQueryTesterEntity(entity);
+                        const options = queryTesterOptionList().join(', ');
+                        res.writeHead(400, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({
+                            error: known
+                                ? `No SQL mapping is available for query entity: ${entity}. Run Auto-config or check Counterpoint table/schema permissions. Available options: ${options}`
+                                : `Unknown query entity: ${entity}. Available options: ${options}`,
+                        }));
+                        return;
+                    }
+                    const since = (process.env.CP_IMPORT_SINCE ?? "2018-01-01").trim();
+                    querySqlForError = String(effectiveSql[sqlKey] ?? "").replace(/__CP_IMPORT_SINCE__/g, since);
+                    const rows = await executeQuery(querySqlForError);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ success: true, entity, query_key: sqlKey, rows }));
+                })()
                     .catch(err => {
                         res.writeHead(500, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ success: false, error: err.message, query: querySql }));
+                        res.end(JSON.stringify({ success: false, error: err.message, query: querySqlForError || undefined }));
                     });
             } else if (req.method === 'POST') {
                 let body = '';
@@ -886,6 +896,66 @@ function initEffectiveSqlFromConstants() {
   });
 }
 initEffectiveSqlFromConstants();
+
+const QUERY_TESTER_ENTITY_ALIASES = {
+  staff: ["users"],
+  sales_rep_stubs: ["sales_reps"],
+  vendors: ["vendors_filtered", "vendors_fast_simple"],
+  store_credit_opening: ["store_credit"],
+  vendor_items: ["vend_item"],
+  open_documents: ["open_docs"],
+  open_doc_payments: ["open_doc_pmt"],
+  loyalty_hist: ["loyalty"],
+  categories: ["category_masters"],
+  receiving: ["receiving_history"],
+  orders: ["tickets"],
+  orders_tickets: ["tickets"],
+};
+
+function normalizeQueryTesterEntity(entity) {
+  return String(entity ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function queryTesterCandidates(entity) {
+  const normalized = normalizeQueryTesterEntity(entity);
+  if (!normalized) return [];
+  const aliases = QUERY_TESTER_ENTITY_ALIASES[normalized] ?? [];
+  return [...new Set([normalized, ...aliases])];
+}
+
+function resolveQueryTesterSqlKey(entity) {
+  for (const key of queryTesterCandidates(entity)) {
+    if (String(effectiveSql[key] ?? "").trim()) {
+      return key;
+    }
+  }
+  return null;
+}
+
+function isKnownQueryTesterEntity(entity) {
+  const normalized = normalizeQueryTesterEntity(entity);
+  return (
+    queryTesterCandidates(entity).some((key) => Object.prototype.hasOwnProperty.call(_effectiveSqlBase, key)) ||
+    Object.prototype.hasOwnProperty.call(QUERY_TESTER_ENTITY_ALIASES, normalized)
+  );
+}
+
+function queryTesterOptionList() {
+  return [...new Set([...Object.keys(_effectiveSqlBase), ...Object.keys(QUERY_TESTER_ENTITY_ALIASES)])].sort();
+}
+
+function limitSqlServerSelectForTester(sqlText) {
+  if (/^\s*SELECT\s+(?:DISTINCT\s+)?TOP\b/i.test(sqlText)) {
+    return sqlText;
+  }
+  if (/^\s*SELECT\s+DISTINCT\b/i.test(sqlText)) {
+    return sqlText.replace(/^\s*SELECT\s+DISTINCT\b/i, "SELECT DISTINCT TOP 10");
+  }
+  return sqlText.replace(/^\s*SELECT\b/i, "SELECT TOP 10");
+}
 
 /** Full customer list (no ticket/note filter). */
 const SQL_MAX_CUSTOMERS = `SELECT RTRIM(LTRIM(CAST(c.CUST_NO AS NVARCHAR(64)))) AS cust_no, RTRIM(LTRIM(c.FST_NAM)) AS first_name, RTRIM(LTRIM(c.LST_NAM)) AS last_name, RTRIM(LTRIM(c.NAM)) AS full_name, RTRIM(LTRIM(c.EMAIL_ADRS_1)) AS email, RTRIM(LTRIM(c.PHONE_1)) AS phone, RTRIM(LTRIM(c.ADRS_1)) AS address_line1, RTRIM(LTRIM(c.ADRS_2)) AS address_line2, RTRIM(LTRIM(c.CITY)) AS city, RTRIM(LTRIM(c.STATE)) AS state, RTRIM(LTRIM(c.ZIP_COD)) AS postal_code, RTRIM(LTRIM(c.CUST_TYP)) AS cust_typ, c.LOY_PTS_BAL AS pts_bal, RTRIM(LTRIM(c.SLS_REP)) AS sls_rep FROM AR_CUST c ORDER BY c.CUST_NO`;

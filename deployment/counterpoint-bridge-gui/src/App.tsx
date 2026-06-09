@@ -169,14 +169,14 @@ function App() {
     }
   };
 
-  // Start the background Node bridge on mount
+  // Load saved settings on mount; starting the bridge remains an explicit operator action.
   useEffect(() => {
     let mounted = true;
     void (async () => {
       const settings = await loadEnvSettings();
       if (!mounted) return;
       if (settings && hasRequiredBridgeSettings(settings)) {
-        await handleStartBridge(dryRun, settings);
+        setStatusMessage("Bridge configuration loaded. Click Start Engine when ready.");
       } else {
         setStatusMessage("Bridge configuration is incomplete. Enter the SQL connection, Main Hub URL, and sync token, then Save Configuration.");
       }

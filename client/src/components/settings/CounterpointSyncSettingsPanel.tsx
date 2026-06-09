@@ -2275,7 +2275,7 @@ export default function CounterpointSyncSettingsPanel() {
                   )}
                   {workbenchState.inventory_summary.quarantine_count > 0 && (
                     <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-2 py-1">
-                      <span className="text-[9px] text-red-700 dark:text-red-300 font-medium">{fmtNum(workbenchState.inventory_summary.quarantine_count)} Quarantined</span>
+                      <span className="text-[9px] text-red-700 dark:text-red-300 font-medium">{fmtNum(workbenchState.inventory_summary.quarantine_count)} Unique Quarantined</span>
                     </div>
                   )}
                 </div>

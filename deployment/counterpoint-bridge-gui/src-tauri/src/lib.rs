@@ -66,6 +66,26 @@ fn bundled_bridge_directory(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
 
+fn app_data_bridge_directory(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("counterpoint-bridge"))
+}
+
+fn settings_bridge_directory(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let dev_path = Path::new(manifest_dir).join("../../../counterpoint-bridge");
+        if dev_path.join("index.mjs").exists() {
+            return Ok(dev_path);
+        }
+    }
+
+    app_data_bridge_directory(app_handle)
+}
+
 fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), String> {
     std::fs::create_dir_all(target).map_err(|e| e.to_string())?;
 
@@ -395,7 +415,7 @@ struct BridgeSettings {
 
 #[tauri::command]
 fn load_settings(app: tauri::AppHandle) -> Result<BridgeSettings, String> {
-    let bridge_dir = find_bridge_directory(&app)?;
+    let bridge_dir = settings_bridge_directory(&app)?;
 
     let env_path = bridge_dir.join(".env");
     if !env_path.exists() {
@@ -442,7 +462,8 @@ fn save_settings(
     ros_url: String,
     sync_token: String,
 ) -> Result<String, String> {
-    let bridge_dir = find_bridge_directory(&app)?;
+    let bridge_dir = settings_bridge_directory(&app)?;
+    std::fs::create_dir_all(&bridge_dir).map_err(|e| e.to_string())?;
 
     let env_path = bridge_dir.join(".env");
     let content = [
