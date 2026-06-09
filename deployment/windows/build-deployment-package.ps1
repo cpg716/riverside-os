@@ -65,15 +65,74 @@ function Assert-ClientDistMatchesSource([string]$ClientDistPath, [string]$Versio
   }
 }
 
+function Get-DownloadRetryDelaySeconds([System.Management.Automation.ErrorRecord]$ErrorRecord, [int]$Attempt) {
+  $response = $ErrorRecord.Exception.Response
+  if ($response -and $response.Headers) {
+    $retryAfter = $response.Headers["Retry-After"]
+    if ($retryAfter) {
+      $seconds = 0.0
+      if ([double]::TryParse($retryAfter, [ref]$seconds) -and $seconds -ge 0) {
+        return [Math]::Max(1, [int][Math]::Ceiling($seconds))
+      }
+
+      try {
+        $retryAt = [DateTimeOffset]::Parse($retryAfter)
+        $wait = [int][Math]::Ceiling(($retryAt - [DateTimeOffset]::UtcNow).TotalSeconds)
+        return [Math]::Max(1, $wait)
+      } catch {
+        # Fall through to the status-code fallback.
+      }
+    }
+  }
+
+  if ($response -and [int]$response.StatusCode -eq 429) {
+    return 65
+  }
+
+  return [Math]::Min(60, [int](5 * [Math]::Pow(2, [Math]::Max(0, $Attempt - 1))))
+}
+
+function Test-IsTransientDownloadError([System.Management.Automation.ErrorRecord]$ErrorRecord) {
+  $response = $ErrorRecord.Exception.Response
+  if ($response -and $response.StatusCode) {
+    $statusCode = [int]$response.StatusCode
+    return ($statusCode -eq 429 -or ($statusCode -ge 500 -and $statusCode -lt 600))
+  }
+
+  $status = $ErrorRecord.Exception.Status
+  return ($status -in @(
+    [System.Net.WebExceptionStatus]::ConnectFailure,
+    [System.Net.WebExceptionStatus]::ConnectionClosed,
+    [System.Net.WebExceptionStatus]::KeepAliveFailure,
+    [System.Net.WebExceptionStatus]::NameResolutionFailure,
+    [System.Net.WebExceptionStatus]::ReceiveFailure,
+    [System.Net.WebExceptionStatus]::SendFailure,
+    [System.Net.WebExceptionStatus]::Timeout
+  ))
+}
+
 function Invoke-DownloadFile([string]$Url, [string]$OutFile, [string]$Label) {
-  Write-Host "Downloading $Label..."
-  $client = New-Object System.Net.WebClient
-  try {
-    $client.Headers.Add("User-Agent", "RiversideOS-Deployment-Packager")
-    if (Test-Path $OutFile) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
-    $client.DownloadFile($Url, $OutFile)
-  } finally {
-    $client.Dispose()
+  $maxAttempts = 5
+  for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    Write-Host "Downloading $Label (attempt $attempt/$maxAttempts)..."
+    $client = New-Object System.Net.WebClient
+    try {
+      $client.Headers.Add("User-Agent", "RiversideOS-Deployment-Packager")
+      if (Test-Path $OutFile) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
+      $client.DownloadFile($Url, $OutFile)
+      return
+    } catch {
+      $isTransient = Test-IsTransientDownloadError $_
+      if (-not $isTransient -or $attempt -ge $maxAttempts) {
+        throw
+      }
+
+      $delaySeconds = Get-DownloadRetryDelaySeconds $_ $attempt
+      Write-Warning "Download failed for ${Label}: $($_.Exception.Message). Retrying in $delaySeconds second(s)."
+      Start-Sleep -Seconds $delaySeconds
+    } finally {
+      $client.Dispose()
+    }
   }
 }
 
