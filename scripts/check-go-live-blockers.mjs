@@ -15,6 +15,10 @@ function read(file) {
   return fs.readFileSync(path.join(root, file), "utf8");
 }
 
+function readJson(file) {
+  return JSON.parse(read(file));
+}
+
 function lineOf(content, needle) {
   const index =
     typeof needle === "string" ? content.indexOf(needle) : content.search(needle);
@@ -50,6 +54,31 @@ function walk(dir, extensions, out = []) {
     }
   }
   return out;
+}
+
+function sortedSet(values) {
+  return [...new Set(values)].sort();
+}
+
+function checkCurrentReleaseNotes() {
+  const version = readJson("package.json").version;
+  const file = `docs/releases/v${version}-release-notes.md`;
+  const exists = fs.existsSync(path.join(root, file));
+  assert(
+    exists,
+    "Release notes exist for the current package version",
+    file,
+    "Same-version rebuilds use docs/releases/<tag>-release-notes.md as the canonical GitHub Release body.",
+  );
+  if (!exists) return;
+
+  const content = read(file);
+  assert(
+    content.includes(`v${version}`) && content.trim().length > 200,
+    "Current release notes mention the current version and are not empty",
+    file,
+    "Release notes must be current before retagging or publishing same-version assets.",
+  );
 }
 
 function checkTauriOpenerAcl() {
@@ -238,6 +267,113 @@ function checkPackagedHelpManuals() {
   }
 }
 
+function checkGeneratedHelpManualCoverage() {
+  const docsDir = "client/src/assets/docs";
+  const manualFiles = sortedSet(
+    fs
+      .readdirSync(path.join(root, docsDir))
+      .filter((file) => file.endsWith("-manual.md")),
+  );
+  const manifestFile = "client/src/lib/help/help-manifest.generated.ts";
+  const serverGeneratedFile = "server/src/logic/help_corpus_manuals.generated.rs";
+  const manifest = read(manifestFile);
+  const serverGenerated = read(serverGeneratedFile);
+
+  const manifestFiles = sortedSet(
+    [...manifest.matchAll(/\.\.\/\.\.\/assets\/docs\/([^"]+-manual\.md)\?raw/g)].map(
+      (match) => match[1],
+    ),
+  );
+  const serverFiles = sortedSet(
+    [...serverGenerated.matchAll(/"client\/src\/assets\/docs\/([^"]+-manual\.md)"/g)].map(
+      (match) => match[1],
+    ),
+  );
+
+  const missingManifest = manualFiles.filter((file) => !manifestFiles.includes(file));
+  const staleManifest = manifestFiles.filter((file) => !manualFiles.includes(file));
+  const missingServer = manualFiles.filter((file) => !serverFiles.includes(file));
+  const staleServer = serverFiles.filter((file) => !manualFiles.includes(file));
+
+  assert(
+    missingManifest.length === 0 && staleManifest.length === 0,
+    "Client Help manifest covers every committed Help manual without stale manual imports",
+    manifestFile,
+    [
+      missingManifest.length > 0 ? `missing: ${missingManifest.join(", ")}` : "",
+      staleManifest.length > 0 ? `stale: ${staleManifest.join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("; ") || "Regenerate Help with npm run generate:help.",
+  );
+  assert(
+    missingServer.length === 0 && staleServer.length === 0,
+    "Server embedded Help corpus covers every committed Help manual without stale bundle entries",
+    serverGeneratedFile,
+    [
+      missingServer.length > 0 ? `missing: ${missingServer.join(", ")}` : "",
+      staleServer.length > 0 ? `stale: ${staleServer.join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("; ") || "Regenerate Help with npm run generate:help.",
+  );
+}
+
+function checkWindowsRosieProcessLockGuards() {
+  for (const file of [
+    "deployment/windows/Install-RosieAiStack.ps1",
+    "deployment/windows/install-server.ps1",
+  ]) {
+    const content = read(file);
+    assert(
+      content.includes("Stop-ScheduledTask") &&
+        content.includes("Riverside OS LLM Host") &&
+        content.includes("llama-server") &&
+        content.includes("sherpa-onnx-offline") &&
+        content.includes("sherpa-onnx-offline-tts") &&
+        content.includes("sherpa-onnx") &&
+        /Stop-Process[\s\S]*?-Force/.test(content),
+      `Windows ROSIE installer path stops running LLM/speech processes before overwriting binaries in ${file}`,
+      file,
+      "Windows installer rebuilds can fail on locked llama/sherpa DLLs if these process-lock guards are removed.",
+    );
+  }
+}
+
+function checkReleaseWorkflowPreBuildGates() {
+  const workflowFiles = [
+    ".github/workflows/windows-deployment-package.yml",
+    ".github/workflows/tauri-register-updater-release.yml",
+    ".github/workflows/macos-ros-dev-center-release.yml",
+  ];
+  for (const file of workflowFiles) {
+    const content = read(file);
+    assert(
+      content.includes("scripts/check-go-live-blockers.mjs"),
+      `Release workflow runs go-live blocker gates before expensive build work in ${file}`,
+      file,
+      "Print, Counterpoint, Help packaging, and installer-lock regressions should fail before asset packaging.",
+    );
+    assert(
+      content.includes("scripts/check-version-parity.mjs"),
+      `Release workflow runs version parity before build work in ${file}`,
+      file,
+      "Version drift in companion apps or package-lock files can publish stale assets.",
+    );
+  }
+
+  const updaterFile = ".github/workflows/tauri-register-updater-release.yml";
+  const updater = read(updaterFile);
+  assert(
+    updater.includes("require-playwright-green") &&
+      /build-updater:\s*[\s\S]*?needs:\s*require-playwright-green/.test(updater),
+    "Windows updater release waits for same-commit Playwright E2E before building assets",
+    updaterFile,
+    "The updater release must use the same Playwright gate as the deployment package and macOS release.",
+  );
+}
+
+checkCurrentReleaseNotes();
 checkTauriOpenerAcl();
 checkBrowserPrintHelper();
 checkNoComponentBrowserPrintBypass();
@@ -246,6 +382,9 @@ checkDirectPrinterRouting();
 checkCounterpointRateLimitBypass();
 checkCounterpointWorkbenchSql();
 checkPackagedHelpManuals();
+checkGeneratedHelpManualCoverage();
+checkWindowsRosieProcessLockGuards();
+checkReleaseWorkflowPreBuildGates();
 
 if (failures.length > 0) {
   console.error("Go-live blocker check failed.");

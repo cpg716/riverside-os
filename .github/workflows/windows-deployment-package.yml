@@ -62,6 +62,9 @@ jobs:
       - name: Validate deployment release gates
         run: npm run check:deployment-release
 
+      - name: Validate go-live blocker gates
+        run: node scripts/check-go-live-blockers.mjs
+
   require-playwright-green:
     name: Require Playwright E2E green
     runs-on: ubuntu-latest

@@ -22,9 +22,22 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
+  require-playwright-green:
+    name: Require Playwright E2E green
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Wait for same-commit Playwright E2E
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/require-playwright-success.mjs --sha "${{ github.sha }}"
+
   build-updater:
+    needs: require-playwright-green
     runs-on: windows-latest
     defaults:
       run:
@@ -80,6 +93,10 @@ jobs:
       - name: Check Riverside version parity
         working-directory: ${{ github.workspace }}
         run: node scripts/check-version-parity.mjs
+
+      - name: Check go-live blocker gates
+        working-directory: ${{ github.workspace }}
+        run: node scripts/check-go-live-blockers.mjs
 
       - uses: dtolnay/rust-toolchain@master
         with:
