@@ -249,6 +249,138 @@ async function mockCounterpointProofRoutes(page: Page) {
   });
 }
 
+async function mockEmptyCounterpointProofRoutes(page: Page) {
+  await page.route("**/api/settings/counterpoint-sync/landing-verification", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        generated_at: NOW,
+        disclaimer: "Landing verification checks visible migrated rows only.",
+        rows: [],
+        snapshot_reconciliation: [],
+        cutover_visibility: [],
+        fidelity_diagnostics: [],
+      }),
+    });
+  });
+
+  await page.route("**/api/settings/counterpoint-sync/transaction-reconciliation", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        generated_at: NOW,
+        disclaimer: "Imported tickets only.",
+        totals: {
+          imported_ticket_transactions: 0,
+          transaction_lines: 0,
+          imported_zero_tax_lines: 0,
+          payments: 0,
+          transaction_total_sum: "0.00",
+          payment_amount_sum: "0.00",
+          difference: "0.00",
+        },
+        by_date: [],
+        by_payment_type: [],
+      }),
+    });
+  });
+
+  await page.route("**/api/settings/counterpoint-sync/open-docs-verification", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        generated_at: NOW,
+        disclaimer: "Open document verification checks imported open docs only.",
+        imported_open_doc_transactions: 0,
+        imported_open_doc_lines: 0,
+        imported_open_doc_zero_tax_lines: 0,
+        imported_open_doc_payments: 0,
+        open_docs_with_customer_linked: 0,
+        open_docs_missing_customer: 0,
+        open_docs_with_zero_lines: 0,
+        open_docs_with_zero_payments: 0,
+        distinct_staff_attribution_count: 0,
+      }),
+    });
+  });
+
+  await page.route("**/api/settings/counterpoint-sync/inventory-catalog-verification", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        generated_at: NOW,
+        disclaimer: "Catalog verification checks imported item identity fields.",
+        counterpoint_products: 0,
+        counterpoint_variants: 0,
+        products_with_identifier_like_name: 0,
+        products_name_equals_counterpoint_key: 0,
+        variants_with_sku: 0,
+        variants_with_barcode: 0,
+        variants_with_cost: 0,
+        variants_with_price: 0,
+        variants_with_quantity_on_hand: 0,
+        variants_missing_sku: 0,
+        variants_missing_barcode: 0,
+        variants_missing_cost: 0,
+        variants_missing_price: 0,
+        variants_zero_or_negative_quantity: 0,
+        products_missing_category_mapping: 0,
+        variants_missing_vendor_supplier_item_link: 0,
+        distinct_vendors_linked_to_imported_items: 0,
+      }),
+    });
+  });
+
+  await page.route("**/api/settings/counterpoint-sync/reset-preview", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        confirmation_phrase: "RESET COUNTERPOINT IMPORT",
+        pre_go_live_only_warning: "Only before go-live.",
+        preserve_always: [],
+        reset_scope: [],
+        careful_ordering: [],
+        excluded_for_now: [],
+        bridge_local_state_note: "Reset bridge state separately.",
+      }),
+    });
+  });
+}
+
+async function mockCounterpointWorkbenchState(page: Page) {
+  await page.route("**/api/settings/counterpoint-sync/workbench/state", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        current_step: "data_sources",
+        steps: {
+          data_sources: { status: "pending", approved_at: null },
+          categories: { status: "locked", approved_at: null },
+          vendors: { status: "locked", approved_at: null },
+          catalog: { status: "locked", approved_at: null },
+          sku_gaps: { status: "locked", approved_at: null },
+          verification: { status: "locked", approved_at: null },
+        },
+        inventory_summary: {
+          products: 0,
+          variants: 0,
+          categories: 0,
+          vendors: 0,
+          variants_missing_barcode: 0,
+          quarantine_count: 0,
+        },
+        can_reset: true,
+      }),
+    });
+  });
+}
+
 function runCounterpointSql(sql: string): string {
   const dbName = process.env.E2E_DB_NAME ?? "riverside_os_e2e";
   return execFileSync(
@@ -684,6 +816,39 @@ test.describe("Counterpoint sign-off UI", () => {
     await expect(panel.getByText("Server: OFFLINE")).toBeVisible({ timeout: 15_000 });
     await expect(panel.getByText("Ready for sign-off review")).toHaveCount(0);
     await expect(panel.getByText("No automatic blockers detected")).toHaveCount(0);
+  });
+
+  test("blocks wizard advancement when bridge rows lack ROS proof", async ({ page }) => {
+    await mockBridgeStatus(page, "unavailable");
+    await mockCounterpointStatus(page, {
+      entity_runs: [
+        {
+          entity: "customers",
+          cursor_value: null,
+          last_ok_at: NOW,
+          last_error: null,
+          records_processed: 25,
+          updated_at: NOW,
+        },
+      ],
+      staging_entity_counts: [],
+      staging_pending_count: 0,
+      staging_applying_count: 0,
+    });
+    await mockEmptyCounterpointProofRoutes(page);
+    await mockCounterpointWorkbenchState(page);
+
+    const panel = await openCounterpointSettings(page, "connect");
+
+    await expect(panel.getByText("Counterpoint review advancement blocked")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      panel.getByText(
+        "Bridge runs reported 25 row(s), but no downstream review surface or landed proof is available.",
+      ),
+    ).toBeVisible();
+    await expect(panel.getByRole("button", { name: /advance to inventory mapping/i })).toBeDisabled();
   });
 
   test("keeps deterministic sign-off proof before optional ROSIE insight", async ({

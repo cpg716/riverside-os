@@ -2020,14 +2020,14 @@ export default function CounterpointSyncSettingsPanel() {
     giftCardReviewReady.ready &&
     openDocReviewReady.ready &&
     loyaltyReviewReady.ready &&
+    cutoverBlockers.length === 0 &&
     visiblePendingN === 0 &&
     visibleApplyingN === 0;
 
   // Main stepper disabled mapping (linear enforcement)
   const isStepDisabled = (stepNum: number) => {
     if (stepNum === 1) return false;
-    // Step 2 unlocks if we have run data or we manually advance
-    if (stepNum === 2) return false;
+    if (stepNum === 2) return bridgeRowsWithoutReviewSurface;
     if (stepNum === 3) return !step2Approved || !hasLandedInventory || !customerReviewReady.ready;
     if (stepNum === 4) return !step2Approved || !hasLandedInventory || !customerReviewReady.ready || !ticketReviewReady.ready;
     if (stepNum === 5) return !step2Approved || !hasLandedInventory || !customerReviewReady.ready || !ticketReviewReady.ready || !giftCardReviewReady.ready;
@@ -2043,6 +2043,9 @@ export default function CounterpointSyncSettingsPanel() {
   };
 
   const stepBlockerMessage = (stepNum: number) => {
+    if (stepNum === 2 && bridgeRowsWithoutReviewSurface) {
+      return "Bridge-reported rows must have staged, applied, or ROS landed proof before inventory mapping can begin.";
+    }
     if (!step2Approved && stepNum > 2) return "Approve the inventory catalog mapping step before advancing.";
     if (!hasLandedInventory && stepNum > 2) return "Apply the Counterpoint inventory batch before moving into downstream review.";
     if (stepNum >= 3 && !customerReviewReady.ready) return customerReviewReady.message;
@@ -3121,8 +3124,9 @@ export default function CounterpointSyncSettingsPanel() {
               </div>
               <button
                 type="button"
-                onClick={() => setActiveStep(2)}
-                className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+                onClick={() => goToStepIfReady(2)}
+                disabled={isStepDisabled(2)}
+                className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Advance to Inventory Mapping
                 <ChevronRight className="h-4 w-4" />

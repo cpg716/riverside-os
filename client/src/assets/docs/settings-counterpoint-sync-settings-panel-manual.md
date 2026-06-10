@@ -42,7 +42,7 @@ The Bridge sync token saved in this panel must match `COUNTERPOINT_SYNC_TOKEN` i
 
 Post-import verification appears before sign-off reconciliation. It shows import proof such as bridge rows sent, ROS rows landed, missing landed proof, count matches, lower ROS counts, and bridge-only entities.
 
-The migration steps are proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If a later step is locked, apply or recover the matching staging batch until the step has staged, applied, or ROS landed proof.
+The migration steps are proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If Step 1 shows Bridge-reported rows but there is no staged, applied, or ROS landed proof, **Advance to Inventory Mapping** stays blocked. Apply or recover the matching staging batch until the step has staged, applied, or ROS landed proof.
 
 ## Counterpoint Transition Review Packs
 

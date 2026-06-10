@@ -299,6 +299,8 @@ After each import pass:
 7. Review live **Inventory & Catalog Verification** and confirm the field-fidelity checksum rows pass or document the blocking mismatch.
 8. Record any approximate-domain caveats in the import sign-off notes.
 
+For a full real-data operational rehearsal, run [`docs/COUNTERPOINT_REAL_DATA_TEST_RUN_AUDIT.md`](COUNTERPOINT_REAL_DATA_TEST_RUN_AUDIT.md) after the staged register/QBO sandbox test day. The read-only probe `scripts/audit_counterpoint_real_data_test_run.sh` produces database evidence for Bridge proof, wizard gates, review packs, imported-item POS sales, register close, inventory movement, and QBO staging/sync safety.
+
 ### Limits of live inventory verification
 
 - It uses the bridge's live Counterpoint SQL payload metrics and Counterpoint-linked ROS products and variants.
