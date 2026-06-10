@@ -339,7 +339,7 @@ try {{
             $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{health_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
             if ($resp.StatusCode -eq 200) {{ $ready = $true; break }}
         }} catch {{ }}
-        Write-Host ("  Waiting... ({{0}}s)" -f ($i * 2))
+        Write-Host ('  Waiting... (' + ($i * 2).ToString() + 's)')
     }}
     if ($ready) {{
         Write-Host '  Server is ready.'

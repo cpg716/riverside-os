@@ -1,8 +1,8 @@
-/** Professional letter-style Z / X reconciliation report for audit and accounting (browser print). */
+/** Professional letter-style Z / X reconciliation report for audit and accounting. */
 
 import { dispatchAppToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
-import { openDesktopTextPreview } from "../../lib/desktopFileBridge";
+import { printTextReport } from "../../lib/printerBridge";
 import { isTauri } from "@tauri-apps/api/core";
 
 export interface ZReportTenderRow {
@@ -84,9 +84,14 @@ function formatReportMoney(value: string | number): string {
   return `${sign}$${centsToFixed2(Math.abs(cents))}`;
 }
 
+function textValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  return String(value).replace(/\s+/g, " ").trim();
+}
+
 function notifyPrintDialogFailure(error: unknown): void {
   console.error("Print failed:", error);
-  dispatchAppToast("Print dialog could not be opened. Please check your browser settings.", "error");
+  dispatchAppToast("Report could not be printed. Please check the Reports printer setup.", "error");
 }
 
 function isTauriDesktop() {
@@ -105,8 +110,22 @@ function createPrintDocument(title: string, features: string) {
   return { doc: win.document, win };
 }
 
-function finishPrintDocument(target: { doc: Document; win: Window | null }, filename: string) {
+function finishPrintDocument(
+  target: { doc: Document; win: Window | null },
+  _filename: string,
+  directReportText?: string,
+) {
   target.doc.close();
+  if (isTauriDesktop()) {
+    if (!directReportText?.trim()) {
+      notifyPrintDialogFailure(new Error("Report content is empty."));
+      return;
+    }
+    void printTextReport(directReportText).catch((error) => {
+      notifyPrintDialogFailure(error);
+    });
+    return;
+  }
   if (target.win) {
     target.win.focus();
     setTimeout(() => {
@@ -118,9 +137,6 @@ function finishPrintDocument(target: { doc: Document; win: Window | null }, file
     }, 500);
     return;
   }
-  void openDesktopTextPreview(filename, target.doc.documentElement.outerHTML).catch((error) => {
-    notifyPrintDialogFailure(error);
-  });
 }
 
 function reportLabel(value: string | null | undefined): string {
@@ -382,6 +398,152 @@ export function openProfessionalZReportPrint(opts: {
     ? new Date(`${opts.cashDepositDate}T00:00:00`).toLocaleDateString()
     : "Not recorded";
   const cashDepositAmountCents = opts.cashDepositAmountCents ?? Math.max(0, opts.actualCents - opts.openingCents);
+  const generatedAt = new Date().toLocaleString();
+  const zReportTextLines = [
+    "RIVERSIDE MEN'S SHOP",
+    "Z-Report Reconciliation Audit",
+    `Generated: ${generatedAt}`,
+    `Report ID: ${opts.sessionId}`,
+    `Register Group: ${ord ? `Register Group${ord}` : "Register Group"}`,
+    `Shift Primary Cashier: ${opts.cashierLabel || "System Admin"}`,
+    opts.openedAt ? `Shift Start: ${new Date(opts.openedAt).toLocaleString()}` : "",
+    `Assigned Reports Printer: ${reportPrinter}`,
+    "",
+    "COMBINED TENDERS",
+    ...(opts.tenders.length > 0
+      ? opts.tenders.map(
+          (t) =>
+            `${reportLabel(t.payment_method)} | Transactions: ${t.tx_count} | Total: ${formatReportMoney(
+              t.total_amount,
+            )}`,
+        )
+      : ["No payment activity recorded"]),
+    "",
+    ...(opts.tendersByLane?.length
+      ? [
+          "BREAKDOWN BY REGISTER",
+          ...opts.tendersByLane.flatMap((lane) => [
+            `Register #${lane.register_lane}`,
+            ...(lane.tenders.length > 0
+              ? lane.tenders.map(
+                  (t) =>
+                    `  ${reportLabel(t.payment_method)} | Transactions: ${t.tx_count} | Total: ${formatReportMoney(
+                      t.total_amount,
+                    )}`,
+                )
+              : ["  No payments"]),
+          ]),
+          "",
+        ]
+      : []),
+    "CASH RECONCILIATION",
+    `Opening Float: ${formatReportMoney(opts.openingCents)}`,
+    `Cash Sales (Gross): ${formatReportMoney(opts.cashSalesCents)}`,
+    opts.roundingAdjustmentsCents !== undefined
+      ? `Cash Rounding: ${formatReportMoney(opts.roundingAdjustmentsCents)}`
+      : "",
+    `Drawer Adjustments: ${formatReportMoney(opts.netAdjustmentsCents)}`,
+    `Expected Cash: ${formatReportMoney(opts.expectedCents)}`,
+    `Actual Counted: ${formatReportMoney(opts.actualCents)}`,
+    `Daily Cash Deposit: ${formatReportMoney(cashDepositAmountCents)}`,
+    `Deposit Date: ${cashDepositDate}`,
+    `Status: ${statusLabel}`,
+    `Over/Short: ${formatReportMoney(dc)}`,
+    "",
+    ...(opts.overrideSummary.length > 0
+      ? [
+          "PRICE OVERRIDE AUDIT",
+          ...opts.overrideSummary.map(
+            (row) =>
+              `${reportLabel(row.reason)} | Occurrences: ${row.line_count} | Retail Delta: ${formatReportMoney(
+                row.total_delta,
+              )}`,
+          ),
+          "",
+        ]
+      : []),
+    ...(opts.manualDrawerOpens?.length
+      ? [
+          "MANUAL DRAWER OPENS",
+          ...opts.manualDrawerOpens.map(
+            (event) =>
+              `${new Date(event.created_at).toLocaleString()} | ${textValue(event.staff_name)} | ${textValue(
+                event.reason,
+              )}`,
+          ),
+          "",
+        ]
+      : []),
+    ...(closingNotes || closingComments
+      ? [
+          "CLOSING NOTES",
+          closingNotes ? `Internal Shift Notes: ${closingNotes}` : "",
+          closingComments ? `Closing Comments: ${closingComments}` : "",
+          "",
+        ]
+      : []),
+    ...(opts.inventoryActivity?.length
+      ? [
+          "INVENTORY ACTIVITY (NON-SALE)",
+          ...opts.inventoryActivity.map(
+            (row) =>
+              `${new Date(row.created_at).toLocaleString()} | ${inventoryTxLabel(row.tx_type)} | ${textValue(
+                row.sku,
+              )} | ${textValue(row.product_name)} | Qty: ${row.quantity_delta} | Value: ${formatReportMoney(
+                row.value_delta,
+              )} | Staff: ${textValue(row.staff_name) || "System"}`,
+          ),
+          "",
+        ]
+      : []),
+    ...(opts.qboJournal?.lines?.length || opts.qboJournalError
+      ? [
+          "QBO JOURNAL ENTRY PREVIEW",
+          opts.qboJournalError ? `Error: ${opts.qboJournalError}` : "",
+          opts.qboJournal
+            ? `Activity Date: ${opts.qboActivityDate ?? opts.qboJournal.activity_date} | Debits: ${formatReportMoney(
+                opts.qboJournal.totals.debits,
+              )} | Credits: ${formatReportMoney(opts.qboJournal.totals.credits)} | ${
+                opts.qboJournal.totals.balanced ? "Balanced" : "Needs review"
+              }`
+            : "",
+          ...(opts.qboJournal?.lines ?? []).map(
+            (line) =>
+              `${textValue(line.qbo_account_name)} (${textValue(line.qbo_account_id)}) | ${textValue(
+                line.memo,
+              )} | Debit: ${line.debit ? formatReportMoney(line.debit) : ""} | Credit: ${
+                line.credit ? formatReportMoney(line.credit) : ""
+              }`,
+          ),
+          ...(opts.qboJournal?.warnings ?? []).map((warning) => `Warning: ${warning}`),
+          "",
+        ]
+      : []),
+    ...(opts.transactions?.length
+      ? [
+          "TRANSACTION LIST",
+          ...opts.transactions.flatMap((tx) => {
+            const header = `${new Date(tx.created_at).toLocaleString()} | ${reportLabel(tx.payment_method)} | ${
+              tx.customer_name || "Walk-in Customer"
+            } | Lane #${tx.register_lane} | Amount: ${formatReportMoney(tx.amount)}${
+              tx.transaction_display_id ? ` | #${tx.transaction_display_id}` : ""
+            }`;
+            const items = (tx.items ?? [])
+              .filter((item) => !item.is_internal)
+              .map(
+                (item) =>
+                  `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)} | ${fulfillmentLabel(
+                    item.fulfillment,
+                  )} | ${formatReportMoney(item.unit_price)}`,
+              );
+            return [header, ...(items.length > 0 ? items : ["  No item details recorded"])];
+          }),
+          "",
+        ]
+      : []),
+    "Manager Signature: ______________________________",
+    "Date of Verification: ___________________________",
+  ];
 
   target.doc.write(`<!DOCTYPE html><html><head><title>${opts.title} — ${opts.sessionId}</title>
   <style>
@@ -428,7 +590,7 @@ export function openProfessionalZReportPrint(opts: {
     <div>
       <h1>RIVERSIDE MEN'S SHOP</h1>
       <p style="font-weight: 700; color: #64748b; margin-top: 4px;">Z-Report Reconciliation Audit</p>
-      <p class="muted" style="font-size: 10px; margin-top: 2px;">Generated: ${new Date().toLocaleString()}</p>
+      <p class="muted" style="font-size: 10px; margin-top: 2px;">Generated: ${generatedAt}</p>
     </div>
     <div style="text-align: right;">
       <p class="stat-label">Report ID</p>
@@ -580,7 +742,7 @@ export function openProfessionalZReportPrint(opts: {
     </div>
   </div>
   </body></html>`);
-  finishPrintDocument(target, `z-report-${opts.sessionId.slice(0, 8)}.html`);
+  finishPrintDocument(target, `z-report-${opts.sessionId.slice(0, 8)}.html`, zReportTextLines.join("\n"));
 }
 
 export function openProfessionalDailySalesPrint(opts: {
@@ -718,6 +880,63 @@ export function openProfessionalDailySalesPrint(opts: {
     .flat()
     .reduce((sum, row) => sum + (Number.parseFloat(row.sales_total || "0") || 0), 0)
     .toFixed(2);
+  const generatedAt = new Date().toLocaleString();
+  const dailyReportTextLines = [
+    "RIVERSIDE MEN'S SHOP",
+    "Daily Sales & Activity Report",
+    `Generated: ${generatedAt}`,
+    `Reporting Period: ${opts.rangeLabel}`,
+    `Assigned Reports Printer: ${reportPrinter}`,
+    "",
+    "SUMMARY",
+    `Transactions: ${summary.sales_count}`,
+    `Sales (No Tax): ${formatReportMoney(summary.sales_subtotal_no_tax)}`,
+    `Tax Collected: ${formatReportMoney(summary.sales_tax_total)}`,
+    `Cash Collected: ${formatReportMoney(summary.cash_collected)}`,
+    `Deposits Taken: ${formatReportMoney(summary.deposits_collected)}`,
+    `Total Appointments: ${summary.appointment_count}`,
+    `Online Orders: ${summary.online_order_count}`,
+    `New Weddings: ${summary.new_wedding_parties_count}`,
+    `Merchant Fees: -${formatReportMoney(summary.merchant_fees_total)}`,
+    `Net Daily Shift: ${formatReportMoney(summary.net_sales)}`,
+    "",
+    "TRANSACTION LIST",
+    ...(activities.length > 0
+      ? activities.flatMap((row) => {
+          const customerInfo = [
+            row.customer_name,
+            row.customer_code ? `#${row.customer_code}` : null,
+            row.wedding_party_name,
+          ]
+            .filter(Boolean)
+            .join(" | ");
+          const header = `${new Date(row.occurred_at).toLocaleString()} | ${textValue(row.title)} | ${
+            customerInfo || "Walk-in Customer"
+          } | Sales: ${row.sales_total ? formatReportMoney(row.sales_total) : textValue(row.amount_label) || "-"}`;
+          const details = [
+            row.short_id ? `Reference: ${row.short_id}` : "",
+            row.payment_summary ? `Payment: ${row.payment_summary}` : "",
+            row.transaction_total ? `Transaction Total: ${formatReportMoney(row.transaction_total)}` : "",
+            row.deposits_paid ? `Paid: ${formatReportMoney(row.deposits_paid)}` : "",
+            row.balance_due && Number.parseFloat(row.balance_due) > 0
+              ? `Balance: ${formatReportMoney(row.balance_due)}`
+              : "",
+            row.fulfillment_label ? `Fulfillment: ${row.fulfillment_label}` : "",
+            row.channel ? `Channel: ${row.channel}` : "",
+          ].filter(Boolean);
+          const items = (row.items ?? []).map(
+            (item) =>
+              `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)} | ${
+                item.fulfillment ? fulfillmentLabel(item.fulfillment) : ""
+              } | ${formatReportMoney(item.price)}`,
+          );
+          return [header, ...details.map((detail) => `  ${detail}`), ...(items.length > 0 ? items : [])];
+        })
+      : ["No activity recorded for this period."]),
+    "",
+    `Grand Total: ${formatReportMoney(grandTotal)}`,
+    `End of Summary Audit - Riverside Men's Shop - Generated: ${generatedAt}`,
+  ];
 
   target.doc.write(`<!DOCTYPE html><html><head><title>${opts.title}</title>
   <style>
@@ -760,7 +979,7 @@ export function openProfessionalDailySalesPrint(opts: {
     <div>
       <h1>RIVERSIDE MEN'S SHOP</h1>
       <p style="font-weight: 700; color: #64748b; margin-top: 4px;">Daily Sales & Activity Report</p>
-      <p class="muted" style="font-size: 10px; margin-top: 2px;">Generated: ${new Date().toLocaleString()}</p>
+      <p class="muted" style="font-size: 10px; margin-top: 2px;">Generated: ${generatedAt}</p>
     </div>
     <div style="text-align: right;">
       <p class="stat-label">Reporting Period</p>
@@ -822,10 +1041,10 @@ export function openProfessionalDailySalesPrint(opts: {
   ` : ""}
 
   <div style="margin-top: 60px; border-top: 1px solid #e2e8f0; padding-top: 20px; text-align: center;">
-    <p class="muted" style="font-size: 10px;">End of Summary Audit · Riverside Men's Shop · Generated: ${new Date().toLocaleString()}</p>
+    <p class="muted" style="font-size: 10px;">End of Summary Audit · Riverside Men's Shop · Generated: ${generatedAt}</p>
   </div>
   </body></html>`);
-  finishPrintDocument(target, "daily-sales-report.html");
+  finishPrintDocument(target, "daily-sales-report.html", dailyReportTextLines.join("\n"));
 }
 
 export function openProfessionalTablePrint(opts: {
@@ -864,6 +1083,28 @@ export function openProfessionalTablePrint(opts: {
       return `<tr>${cells}</tr>`;
     })
     .join("");
+  const tableReportText = [
+    "RIVERSIDE OS",
+    opts.title,
+    opts.subtitle ?? "",
+    `Reporting Station: ${reportPrinter}`,
+    `Generated: ${new Date().toLocaleString()}`,
+    "",
+    opts.columns.map((column) => column.replace(/_/g, " ").toUpperCase()).join("\t"),
+    ...(opts.rows.length > 0
+      ? opts.rows.map((row) =>
+          opts.columns
+            .map((column) => {
+              const value = row[column];
+              return value === null || value === undefined ? "" : String(value).replace(/\s+/g, " ").trim();
+            })
+            .join("\t"),
+        )
+      : ["No records found"]),
+    "",
+    "End of Report - Riverside Men's Shop Proprietary Document",
+  ]
+    .join("\n");
 
   target.doc.write(`<!DOCTYPE html><html><head><title>${escapeHtml(opts.title)}</title>
   <style>
@@ -898,6 +1139,6 @@ export function openProfessionalTablePrint(opts: {
     <p class="muted" style="font-size: 9px;">End of Report · Riverside Men's Shop Proprietary Document</p>
   </div>
   </body></html>`);
-  finishPrintDocument(target, `${opts.title.replace(/[^a-z0-9]/gi, "_")}.html`);
+  finishPrintDocument(target, `${opts.title.replace(/[^a-z0-9]/gi, "_")}.html`, tableReportText);
   return true;
 }

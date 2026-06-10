@@ -62,6 +62,32 @@ function parsePowerShell(path, source) {
   }
 }
 
+function renderMainHubUpdateRunner(source) {
+  const match = source.match(/let runner_content = format!\(\s*r#"\n?([\s\S]*?)\n\s*"#,/);
+  if (!match) {
+    fail("client/src-tauri/src/server_updater.rs: unable to locate generated update-runner.ps1 template");
+    return "";
+  }
+
+  const replacements = {
+    runner_log_path:
+      "C:\\Users\\Admin\\AppData\\Local\\Temp\\riverside-update-0.90.0\\main-hub-update-transcript.txt",
+    script_dir:
+      "C:\\Users\\Admin\\AppData\\Local\\Temp\\riverside-update-0.90.0\\deployment\\windows",
+    install_root: "C:\\ProgramData\\riverside-os",
+    config_path: "C:\\ProgramData\\riverside-os\\riverside-deployment.config.json",
+    task_name: "Riverside OS Server",
+    server_port: "3000",
+    health_ep: "/api/health",
+  };
+
+  let rendered = match[1];
+  for (const [key, value] of Object.entries(replacements)) {
+    rendered = rendered.replaceAll(`{${key}}`, value);
+  }
+  return rendered.replaceAll("{{", "{").replaceAll("}}", "}");
+}
+
 const managerApp = "deployment/manager-app/src/App.tsx";
 assertNotIncludes(
   managerApp,
@@ -129,6 +155,7 @@ assertIncludes(
 );
 
 const mainHubUpdater = "client/src-tauri/src/server_updater.rs";
+const mainHubUpdaterSource = read(mainHubUpdater);
 assertNotIncludes(
   mainHubUpdater,
   "$($i * 2)s",
@@ -136,12 +163,12 @@ assertNotIncludes(
 );
 assertIncludes(
   mainHubUpdater,
-  'Write-Host ("  Waiting... ({{0}}s)" -f ($i * 2))',
+  "Write-Host ('  Waiting... (' + ($i * 2).ToString() + 's)')",
   "generated update-runner.ps1 wait output must remain parse-safe",
 );
 parsePowerShell(
-  `${mainHubUpdater}:generated-wait-line`,
-  'for ($i = 0; $i -lt 1; $i++) { Write-Host ("  Waiting... ({0}s)" -f ($i * 2)) }',
+  `${mainHubUpdater}:generated-update-runner.ps1`,
+  renderMainHubUpdateRunner(mainHubUpdaterSource),
 );
 
 for (const path of collectFiles("deployment/windows", (name) => name.endsWith(".ps1"))) {

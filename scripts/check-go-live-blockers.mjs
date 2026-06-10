@@ -222,6 +222,28 @@ function checkDirectPrinterRouting() {
   );
 }
 
+function checkRegisterReportPrinterRouting() {
+  const file = "client/src/components/pos/zReportPrint.ts";
+  const content = read(file);
+  assert(
+    content.includes('import { printTextReport } from "../../lib/printerBridge"') &&
+      content.includes("if (isTauriDesktop())") &&
+      content.includes("printTextReport(directReportText)") &&
+      !content.includes("openDesktopTextPreview"),
+    "POS register reports use the Reports printer bridge in Tauri desktop",
+    file,
+    "Register Z-reports and Daily Sales reports must not route through desktop preview files in the Tauri app.",
+  );
+  assert(
+    content.includes("zReportTextLines") &&
+      content.includes("dailyReportTextLines") &&
+      content.includes("tableReportText"),
+    "POS register report helper provides printable text payloads for native Reports printer output",
+    file,
+    "The Windows Reports printer command prints text files, so each register report path needs a non-empty text payload.",
+  );
+}
+
 function checkPrintRoutingManifest() {
   const result = spawnSync(process.execPath, ["scripts/check-print-routing-manifest.mjs"], {
     cwd: root,
@@ -233,6 +255,149 @@ function checkPrintRoutingManifest() {
     "docs/print-routing-manifest.json",
     (result.stderr || result.stdout).trim() ||
       "Run npm run check:print-routing for route-level print proof.",
+  );
+}
+
+function checkCounterpointBridgeQueryTesterEntityParity() {
+  const guiFile = "deployment/counterpoint-bridge-gui/src/App.tsx";
+  const bridgeFile = "counterpoint-bridge/index.mjs";
+  const gui = read(guiFile);
+  const bridge = read(bridgeFile);
+  const guiKeys = [
+    ...gui.matchAll(/key:\s*["']([^"']+)["']/g),
+  ].map((match) => match[1]);
+  const requiredGuiKeys = [
+    "staff",
+    "sales_rep_stubs",
+    "vendors",
+    "customers",
+    "store_credit_opening",
+    "customer_notes",
+    "category_masters",
+    "catalog",
+    "inventory",
+    "vendor_items",
+    "gift_cards",
+    "tickets",
+    "open_docs",
+    "receiving_history",
+  ];
+  const missingGuiKeys = requiredGuiKeys.filter((key) => !guiKeys.includes(key));
+  assert(
+    missingGuiKeys.length === 0 && gui.includes("value={e.key}"),
+    "Counterpoint Bridge GUI query tester posts stable entity keys, not display labels",
+    guiFile,
+    missingGuiKeys.length > 0
+      ? `Missing GUI entity keys: ${missingGuiKeys.join(", ")}`
+      : "The query tester dropdown must submit ENTITIES key values.",
+  );
+
+  const aliasRequirements = [
+    ["staff", "users"],
+    ["sales_rep_stubs", "sales_reps"],
+    ["vendors", "vendors_filtered"],
+    ["store_credit_opening", "store_credit"],
+    ["vendor_items", "vend_item"],
+  ];
+  for (const [guiKey, sqlKey] of aliasRequirements) {
+    assert(
+      new RegExp(`${guiKey}:\\s*\\[[^\\]]*["']${sqlKey}["']`).test(bridge),
+      `Counterpoint query tester maps GUI entity '${guiKey}' to SQL key '${sqlKey}'`,
+      bridgeFile,
+      "The GUI labels in the Bridge app must resolve to the SQL keys used by the extraction engine.",
+    );
+  }
+
+  const directSqlKeys = [
+    "customers",
+    "inventory",
+    "catalog",
+    "category_masters",
+    "customer_notes",
+    "gift_cards",
+    "tickets",
+    "open_docs",
+    "receiving_history",
+  ];
+  const missingSqlKeys = directSqlKeys.filter(
+    (key) => !new RegExp(`\\b${key}:\\s*`).test(bridge),
+  );
+  assert(
+    missingSqlKeys.length === 0 &&
+      bridge.includes("No SQL mapping is available for query entity") &&
+      bridge.includes("Unknown query entity"),
+    "Counterpoint query tester distinguishes known-but-unconfigured entities from unknown keys",
+    bridgeFile,
+    missingSqlKeys.length > 0
+      ? `Missing direct SQL keys: ${missingSqlKeys.join(", ")}`
+      : "Known GUI entities should not display Unknown query entity just because an optional SQL mapping is empty.",
+  );
+}
+
+function checkCounterpointSyncStagingVisibility() {
+  const panelFile = "client/src/components/settings/CounterpointSyncSettingsPanel.tsx";
+  const panel = read(panelFile);
+  assert(
+    panel.includes("staging_entity_counts?: StagingEntityCountRow[]") &&
+      panel.includes("for (const count of status?.staging_entity_counts ?? [])") &&
+      panel.includes("rows.set(count.entity") &&
+      panel.includes("Queued in staging") &&
+      panel.includes("Applied from staging") &&
+      panel.includes("No live write has happened yet."),
+    "Main Hub Counterpoint Sync screen shows staged rows even before live apply",
+    panelFile,
+    "Bridge-extracted rows must not appear as No Data just because they are still in review staging.",
+  );
+
+  const apiFile = "server/src/api/counterpoint_sync.rs";
+  const api = read(apiFile);
+  assert(
+    api.includes("list_staging_entity_counts") &&
+      api.includes('obj.insert("staging_entity_counts".into()') &&
+      api.includes("staging_pending_count") &&
+      api.includes("staging_applying_count"),
+    "Counterpoint Sync status API includes staging counts by entity for the Main Hub UI",
+    apiFile,
+    "The UI cannot reconcile Bridge rows with staged ROS rows unless the status payload includes entity-level staging counts.",
+  );
+}
+
+function checkCounterpointBridgeGuiUpdateWiring() {
+  const updatesFile = "deployment/counterpoint-bridge-gui/src-tauri/src/app_updates.rs";
+  const updates = read(updatesFile);
+  assert(
+    updates.includes("RIVERSIDE_COUNTERSYNC_UPDATER_ENDPOINT") &&
+      updates.includes("RIVERSIDE_COUNTERSYNC_UPDATER_PUBLIC_KEY") &&
+      updates.includes("version_comparator") &&
+      updates.includes("release_build_id") &&
+      updates.includes("download_and_install"),
+    "Counterpoint Bridge GUI updater uses signed same-version-aware update metadata",
+    updatesFile,
+    "The Bridge GUI must be updateable independently from the Main Hub app when release assets are rebuilt.",
+  );
+
+  const guiFile = "deployment/counterpoint-bridge-gui/src/App.tsx";
+  const gui = read(guiFile);
+  assert(
+    gui.includes('invoke<UpdateCheckResult>("check_app_update")') &&
+      gui.includes('invoke<InstallUpdateResult>("install_app_update")') &&
+      gui.includes("Bridge GUI Update"),
+    "Counterpoint Bridge GUI exposes check/install controls for its signed updater channel",
+    guiFile,
+    "Main Hub staff need a visible way to update the Bridge GUI without reinstalling by hand.",
+  );
+
+  const workflowFile = ".github/workflows/windows-deployment-package.yml";
+  const workflow = read(workflowFile);
+  assert(
+    workflow.includes("RIVERSIDE_COUNTERSYNC_UPDATER_ENDPOINT") &&
+      workflow.includes("latest-countersync-bridge-gui.json") &&
+      workflow.includes("counterpoint-bridge-gui-updater-build-manifest.json") &&
+      workflow.includes("--manifest latest-countersync-bridge-gui.json") &&
+      workflow.includes("--build-manifest counterpoint-bridge-gui-updater-build-manifest.json"),
+    "Windows deployment workflow publishes and verifies Counterpoint Bridge GUI updater assets",
+    workflowFile,
+    "The Bridge GUI updater is only useful if the release package publishes and verifies its manifest and build metadata.",
   );
 }
 
@@ -498,7 +663,11 @@ checkNoLegacyTauriGlobalDetection();
 checkNoComponentBrowserPrintBypass();
 checkFireAndForgetPrintsAreCaught();
 checkDirectPrinterRouting();
+checkRegisterReportPrinterRouting();
 checkPrintRoutingManifest();
+checkCounterpointBridgeQueryTesterEntityParity();
+checkCounterpointSyncStagingVisibility();
+checkCounterpointBridgeGuiUpdateWiring();
 checkCounterpointRateLimitBypass();
 checkCounterpointWorkbenchSql();
 checkPackagedHelpManuals();

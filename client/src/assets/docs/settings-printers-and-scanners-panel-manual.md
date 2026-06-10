@@ -57,10 +57,11 @@ If a printer test fails, do not keep retrying sale completion from the cart. Con
 
 ## What happens next
 
-The workstation immediately uses the saved local printer targets for receipt, tag, and report actions.
+The workstation immediately uses the saved local printer targets for receipt, tag, and report actions. In the desktop app, Register Reports and Z-Reports send their printable audit text to the configured Reports printer.
 
 ## Related workflows
 
 - Receipt Settings controls Epson receipt content.
 - POS sale completion uses the receipt printer target.
 - Inventory tag printing uses the tag station target.
+- Register Daily Sales and Z-Reports use the reports printer target.

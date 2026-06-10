@@ -273,13 +273,14 @@
       "proof": "Register void drawer pop uses the receipt station ESC/POS bridge."
     },
     {
-      "id": "z-report-desktop-preview",
+      "id": "z-report-direct-report-printer",
       "file": "client/src/components/pos/zReportPrint.ts",
-      "callee": "openDesktopTextPreview",
+      "callee": "printTextReport",
       "occurrences": 1,
-      "kind": "z-report-preview",
-      "route": "preview",
-      "previewReason": "Z-report helper opens a desktop-safe HTML preview file."
+      "kind": "register-report",
+      "route": "direct",
+      "printer": "report",
+      "proof": "Register Z-report, Daily Sales, and report-table helpers use the Reports printer text bridge in Tauri desktop."
     },
     {
       "id": "z-report-browser-preview",
