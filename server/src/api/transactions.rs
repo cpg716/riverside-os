@@ -579,6 +579,7 @@ impl TransactionDetailResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::Connection;
 
     fn sample_transaction_detail(items: Vec<TransactionDetailItem>) -> TransactionDetailResponse {
         TransactionDetailResponse {
@@ -794,6 +795,134 @@ mod tests {
         assert!(err
             .to_string()
             .contains("cash rounding is only allowed for cash refunds"));
+    }
+
+    #[tokio::test]
+    async fn gift_card_void_reversal_reactivates_depleted_card_and_records_event() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let transaction_id: Uuid = sqlx::query_scalar("SELECT id FROM transactions LIMIT 1")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("existing transaction");
+        let session_id: Uuid = sqlx::query_scalar("SELECT id FROM register_sessions LIMIT 1")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("existing register session");
+        let card_id = Uuid::new_v4();
+        let code = format!("gc-void-{}", Uuid::new_v4().simple());
+
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'purchased', 'depleted', 0.00, $3, TRUE, $4)
+            "#,
+        )
+        .bind(card_id)
+        .bind(&code)
+        .bind(Decimal::new(2500, 2))
+        .bind(Utc::now() + chrono::Duration::days(30))
+        .execute(&mut *tx)
+        .await
+        .expect("insert depleted gift card");
+
+        let balance_after = reverse_gift_card_void_tender_in_tx(
+            &mut tx,
+            &code.to_ascii_uppercase(),
+            Decimal::new(1250, 2),
+            transaction_id,
+            session_id,
+        )
+        .await
+        .expect("void reversal should restore tender");
+
+        assert_eq!(balance_after, Decimal::new(1250, 2));
+        let (balance, status): (Decimal, String) = sqlx::query_as(
+            "SELECT current_balance, card_status::text FROM gift_cards WHERE id = $1",
+        )
+        .bind(card_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("load restored card");
+        assert_eq!(balance, Decimal::new(1250, 2));
+        assert_eq!(status, "active");
+
+        let (event_kind, amount, event_balance): (String, Decimal, Decimal) = sqlx::query_as(
+            r#"
+            SELECT event_kind, amount, balance_after
+            FROM gift_card_events
+            WHERE gift_card_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(card_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("load void reversal event");
+        assert_eq!(event_kind, "void_reversal");
+        assert_eq!(amount, Decimal::new(1250, 2));
+        assert_eq!(event_balance, Decimal::new(1250, 2));
+
+        tx.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn store_credit_void_reversal_records_void_specific_ledger_entry() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let customer_id: Uuid = sqlx::query_scalar("SELECT id FROM customers LIMIT 1")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("existing customer");
+        let transaction_id: Uuid = sqlx::query_scalar("SELECT id FROM transactions LIMIT 1")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("existing transaction");
+
+        let balance_after = store_credit::credit_refund_in_tx(
+            &mut tx,
+            customer_id,
+            Decimal::new(875, 2),
+            transaction_id,
+            "transaction_void_reversal",
+        )
+        .await
+        .expect("store credit void reversal should credit account");
+
+        let (amount, ledger_balance, reason): (Decimal, Decimal, String) = sqlx::query_as(
+            r#"
+            SELECT l.amount, l.balance_after, l.reason
+            FROM store_credit_ledger l
+            JOIN store_credit_accounts a ON a.id = l.account_id
+            WHERE a.customer_id = $1
+            ORDER BY l.created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(customer_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("load store credit ledger");
+
+        assert_eq!(amount, Decimal::new(875, 2));
+        assert_eq!(ledger_balance, balance_after);
+        assert_eq!(reason, "transaction_void_reversal");
+
+        tx.rollback().await.expect("rollback transaction");
     }
 }
 
@@ -2251,6 +2380,95 @@ struct LinkedPaymentRow {
     metadata: Option<serde_json::Value>,
 }
 
+fn map_store_credit_void_error(error: store_credit::StoreCreditError) -> TransactionError {
+    match error {
+        store_credit::StoreCreditError::Database(d) => TransactionError::Database(d),
+        store_credit::StoreCreditError::NotFound => TransactionError::InvalidPayload(
+            "customer store credit account was not found".to_string(),
+        ),
+        store_credit::StoreCreditError::InsufficientBalance => TransactionError::InvalidPayload(
+            "store credit balance would become negative".to_string(),
+        ),
+        store_credit::StoreCreditError::ReasonRequired => {
+            TransactionError::InvalidPayload("store credit reversal reason is required".to_string())
+        }
+    }
+}
+
+async fn reverse_gift_card_void_tender_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    code: &str,
+    amount: Decimal,
+    transaction_id: Uuid,
+    session_id: Uuid,
+) -> Result<Decimal, TransactionError> {
+    if amount <= Decimal::ZERO {
+        return Err(TransactionError::InvalidPayload(
+            "gift card void reversal amount must be greater than zero".to_string(),
+        ));
+    }
+
+    let normalized_code = gift_card_ops::normalize_gift_card_code(code);
+    let row: Option<(Uuid, Decimal)> = sqlx::query_as(
+        r#"
+        SELECT id, current_balance
+        FROM gift_cards
+        WHERE UPPER(BTRIM(code::text)) = $1
+          AND card_status != 'void'::gift_card_status
+        FOR UPDATE
+        "#,
+    )
+    .bind(&normalized_code)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let Some((card_id, current_balance)) = row else {
+        return Err(TransactionError::InvalidPayload(
+            "gift card tender could not be restored because the card was not found or is void"
+                .to_string(),
+        ));
+    };
+
+    let new_balance = current_balance + amount;
+    let new_status = if new_balance > Decimal::ZERO {
+        "active"
+    } else {
+        "depleted"
+    };
+
+    sqlx::query(
+        r#"
+        UPDATE gift_cards
+        SET current_balance = $1,
+            card_status = $2::gift_card_status
+        WHERE id = $3
+        "#,
+    )
+    .bind(new_balance)
+    .bind(new_status)
+    .bind(card_id)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO gift_card_events
+            (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, notes)
+        VALUES ($1, 'void_reversal', $2, $3, $4, $5, $6)
+        "#,
+    )
+    .bind(card_id)
+    .bind(amount)
+    .bind(new_balance)
+    .bind(transaction_id)
+    .bind(session_id)
+    .bind("Same-day transaction void restored gift card tender.")
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(new_balance)
+}
+
 async fn post_transaction_void(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,
@@ -2582,28 +2800,27 @@ async fn post_transaction_void(
                 .execute(&mut *tx)
                 .await?;
             }
-        } else if payment.payment_method == "gift_card" || payment.payment_method == "store_credit"
-        {
-            if let Some(ref metadata) = payment.metadata {
-                if let Some(gc_code) = metadata
-                    .get("gift_card_code")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    sqlx::query(
-                        r#"
-                        UPDATE gift_cards
-                        SET balance = balance + $2
-                        WHERE card_code = $1
-                        "#,
+        } else if payment.payment_method == "gift_card" {
+            let gc_code = payment
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("gift_card_code"))
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    TransactionError::InvalidPayload(
+                        "gift card void reversal requires gift_card_code metadata".to_string(),
                     )
-                    .bind(gc_code)
-                    .bind(payment.amount)
-                    .execute(&mut *tx)
-                    .await?;
-                }
-            }
+                })?;
+            let balance_after = reverse_gift_card_void_tender_in_tx(
+                &mut tx,
+                gc_code,
+                payment.amount,
+                transaction_id,
+                body.register_session_id,
+            )
+            .await?;
 
             sqlx::query(
                 r#"
@@ -2618,7 +2835,42 @@ async fn post_transaction_void(
             .bind(payment.id)
             .bind(json!({
                 "voided_by_transaction_id": transaction_id,
-                "voided_at": Utc::now()
+                "voided_at": Utc::now(),
+                "gift_card_balance_after": balance_after
+            }))
+            .execute(&mut *tx)
+            .await?;
+        } else if payment.payment_method == "store_credit" {
+            let customer_id = customer_id.ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "store credit void reversal requires a customer on the transaction".to_string(),
+                )
+            })?;
+            let balance_after = store_credit::credit_refund_in_tx(
+                &mut tx,
+                customer_id,
+                payment.amount,
+                transaction_id,
+                "transaction_void_reversal",
+            )
+            .await
+            .map_err(map_store_credit_void_error)?;
+
+            sqlx::query(
+                r#"
+                UPDATE payment_transactions
+                SET status = 'canceled',
+                    amount = 0,
+                    net_amount = 0,
+                    metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+                WHERE id = $1
+                "#,
+            )
+            .bind(payment.id)
+            .bind(json!({
+                "voided_by_transaction_id": transaction_id,
+                "voided_at": Utc::now(),
+                "store_credit_balance_after": balance_after
             }))
             .execute(&mut *tx)
             .await?;

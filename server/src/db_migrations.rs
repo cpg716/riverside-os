@@ -1,8 +1,26 @@
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::embedded_migrations;
+
+fn env_truthy(key: &str) -> bool {
+    matches!(
+        std::env::var(key)
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
+}
+
+fn migration_sha256(sql_content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(sql_content.as_bytes());
+    hex::encode(hasher.finalize())
+}
 
 pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
     // 1. Check if the schema migrations ledger exists
@@ -38,13 +56,78 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
         let _ = sqlx::query(alter_column_sql).execute(pool).await;
     }
 
-    // 2. Fetch applied migration versions
-    let applied_query = "SELECT version FROM ros_schema_migrations;";
+    // 2. Fetch applied migration versions and checksums
+    let applied_query = "SELECT version, file_sha256 FROM ros_schema_migrations;";
     let rows = sqlx::query(applied_query).fetch_all(pool).await?;
-    let applied_versions: HashSet<String> = rows
+    let applied_migrations: HashMap<String, Option<String>> = rows
         .into_iter()
-        .map(|r| r.get::<String, _>("version"))
+        .map(|r| {
+            (
+                r.get::<String, _>("version"),
+                r.get::<Option<String>, _>("file_sha256"),
+            )
+        })
         .collect();
+    let applied_versions: HashSet<String> = applied_migrations.keys().cloned().collect();
+
+    let strict_production = env_truthy("RIVERSIDE_STRICT_PRODUCTION");
+    let allow_startup_apply = env_truthy("RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP");
+
+    for &(file_name, sql_content) in embedded_migrations::EMBEDDED_MIGRATIONS {
+        let Some(stored_sha) = applied_migrations.get(file_name) else {
+            continue;
+        };
+
+        let current_sha = migration_sha256(sql_content);
+        match stored_sha
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(stored_sha) if stored_sha != current_sha => {
+                return Err(anyhow::anyhow!(
+                    "Migration checksum drift detected for {file_name}. Expected ledger SHA {stored_sha}, current file SHA {current_sha}."
+                ));
+            }
+            Some(_) => {}
+            None if strict_production => {
+                return Err(anyhow::anyhow!(
+                    "Migration {file_name} is applied without file_sha256; production startup requires checksummed migration ledger rows."
+                ));
+            }
+            None => {
+                tracing::warn!(
+                    migration = file_name,
+                    "Unified Engine: Applied migration has no checksum; non-production startup allows this but diagnostics should repair the ledger intentionally"
+                );
+            }
+        }
+    }
+
+    let pending_migrations = embedded_migrations::EMBEDDED_MIGRATIONS
+        .iter()
+        .filter_map(|(file_name, _)| {
+            if applied_versions.contains(*file_name) {
+                None
+            } else {
+                Some(*file_name)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if !pending_migrations.is_empty() && strict_production {
+        return Err(anyhow::anyhow!(
+            "Pending database migrations must be applied before production startup: {}. Run deployment migration tooling before starting Riverside OS.",
+            pending_migrations.join(", ")
+        ));
+    }
+
+    if !pending_migrations.is_empty() && !allow_startup_apply {
+        return Err(anyhow::anyhow!(
+            "Pending database migrations must be applied before startup: {}. Run deployment migration tooling or set RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP=true for an explicit non-production startup apply.",
+            pending_migrations.join(", ")
+        ));
+    }
 
     // 3. Apply missing migrations in sequence
     for &(file_name, sql_content) in embedded_migrations::EMBEDDED_MIGRATIONS {
@@ -84,9 +167,7 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
         }
 
         // Calculate current file SHA256 to register in the ledger
-        let mut hasher = Sha256::new();
-        hasher.update(sql_content.as_bytes());
-        let current_sha = hex::encode(hasher.finalize());
+        let current_sha = migration_sha256(sql_content);
 
         let insert_ledger_sql = "
             INSERT INTO ros_schema_migrations (version, file_sha256)
@@ -271,7 +352,7 @@ fn is_ignored_pg_dump_statement(statement: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_ignored_pg_dump_statement, split_postgres_statements};
+    use super::{is_ignored_pg_dump_statement, migration_sha256, split_postgres_statements};
 
     #[test]
     fn split_postgres_statements_preserves_plpgsql_body() {
@@ -334,5 +415,17 @@ mod tests {
         assert_eq!(executable.len(), 1);
         assert!(executable[0].starts_with("UPDATE qbo_sync_outbox"));
         assert!(executable[0].contains("SET status = 'retired_daily_staging_only'"));
+    }
+
+    #[test]
+    fn migration_sha256_is_stable_for_exact_content() {
+        assert_eq!(
+            migration_sha256("SELECT 1;\n"),
+            migration_sha256("SELECT 1;\n")
+        );
+        assert_ne!(
+            migration_sha256("SELECT 1;\n"),
+            migration_sha256("SELECT 2;\n")
+        );
     }
 }

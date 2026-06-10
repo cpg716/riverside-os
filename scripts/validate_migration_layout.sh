@@ -65,6 +65,23 @@ expected=(
   "058_pos_station_config.sql"
   "060_rosie_token_telemetry.sql"
   "061_ops_connectivity_logs.sql"
+  "062_rename_qbo_inventory_adjustment_revenue.sql"
+  "063_notification_search_and_fatigue.sql"
+  "064_staff_schedule_admin_effective_days.sql"
+  "065_procurement_imports.sql"
+  "066_ops_readiness_signoffs.sql"
+  "067_customer_notification_center.sql"
+  "068_transaction_lines_discount_amount.sql"
+  "069_retire_qbo_transaction_outbox.sql"
+  "070_task_assignment_ownership.sql"
+  "071_physical_inventory_readiness_controls.sql"
+  "072_physical_inventory_scan_idempotency.sql"
+  "073_product_secondary_vendors.sql"
+  "074_discount_events_full_inventory_scope.sql"
+  "075_daily_sales_weather_reporting.sql"
+  "076_commission_combo_variant_targets.sql"
+  "077_register_cash_deposit.sql"
+  "078_data_integrity_hardening.sql"
 )
 
 active=()
@@ -123,4 +140,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-061."
+echo "Migration layout OK: active baseline 001-078."

@@ -2,8 +2,8 @@
 
 use crate::api::{build_router, AppState};
 use crate::logic::backups::{
-    record_cloud_backup_failure, record_cloud_backup_success, record_local_backup_failure,
-    record_local_backup_success, BackupManager, BackupSettings,
+    daily_backup_schedule_matches_time, record_cloud_backup_failure, record_cloud_backup_success,
+    record_local_backup_failure, record_local_backup_success, BackupManager, BackupSettings,
 };
 use crate::logic::ops_dev_center::{ops_retention_config_from_env, perform_retention_cleanup};
 use crate::logic::wedding_push::WeddingEventBus;
@@ -312,12 +312,12 @@ async fn launch_server_inner(
 
     crate::db_startup_diag::log_postgres_startup_context(&pool).await;
 
-    tracing::info!("Unified Engine: Running database migrations...");
+    tracing::info!("Unified Engine: Verifying database migrations...");
     if let Err(e) = crate::db_migrations::run_migrations(&pool).await {
-        tracing::error!(error = %e, "Unified Engine: Database migrations failed to apply");
+        tracing::error!(error = %e, "Unified Engine: Database migration verification failed");
         return Err(e.into());
     }
-    tracing::info!("Unified Engine: Database migrations applied successfully.");
+    tracing::info!("Unified Engine: Database migrations verified successfully.");
 
     if let Err(e) = crate::schema_bootstrap::ensure_core_schema(&pool).await {
         tracing::error!(error = %e, "Unified Engine: Schema contract validation failed");
@@ -983,50 +983,44 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
                     .unwrap_or_default();
             let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
             let now = chrono::Local::now().format("%H:%M").to_string();
-            let parts: Vec<&str> = settings.schedule_cron.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let hour = parts[1].parse::<u32>().unwrap_or(2);
-                let minute = parts[0].parse::<u32>().unwrap_or(0);
-                if now == format!("{hour:02}:{minute:02}") {
-                    let manager = BackupManager::new(st.database_url.clone());
-                    match manager.create_backup_with_settings(&settings).await {
-                        Ok(filename) => {
-                            let _ = record_local_backup_success(&st.db).await;
+            if daily_backup_schedule_matches_time(&settings.schedule_cron, &now) {
+                let manager = BackupManager::new(st.database_url.clone());
+                match manager.create_backup_with_settings(&settings).await {
+                    Ok(filename) => {
+                        let _ = record_local_backup_success(&st.db).await;
 
-                            let offsite_enabled = settings.cloud_storage_enabled
-                                || settings
-                                    .replication_targets
-                                    .iter()
-                                    .any(|target| !target.trim().is_empty());
-                            if offsite_enabled {
-                                let cloud_result =
-                                    manager.sync_to_cloud(&filename, &settings).await;
-                                let replica_result =
-                                    manager.replicate_to_targets(&filename, &settings).await;
-                                match (cloud_result, replica_result) {
-                                    (Ok(_), Ok(_)) => {
-                                        let _ = record_cloud_backup_success(&st.db).await;
-                                    }
-                                    (cloud, replica) => {
-                                        let detail = format!(
-                                            "Off-site backup failed. Cloud: {}; Replication: {}",
-                                            cloud
-                                                .err()
-                                                .map(|e| e.to_string())
-                                                .unwrap_or_else(|| "ok".to_string()),
-                                            replica
-                                                .err()
-                                                .map(|e| e.to_string())
-                                                .unwrap_or_else(|| "ok".to_string())
-                                        );
-                                        let _ = record_cloud_backup_failure(&st.db, &detail).await;
-                                    }
+                        let offsite_enabled = settings.cloud_storage_enabled
+                            || settings
+                                .replication_targets
+                                .iter()
+                                .any(|target| !target.trim().is_empty());
+                        if offsite_enabled {
+                            let cloud_result = manager.sync_to_cloud(&filename, &settings).await;
+                            let replica_result =
+                                manager.replicate_to_targets(&filename, &settings).await;
+                            match (cloud_result, replica_result) {
+                                (Ok(_), Ok(_)) => {
+                                    let _ = record_cloud_backup_success(&st.db).await;
+                                }
+                                (cloud, replica) => {
+                                    let detail = format!(
+                                        "Off-site backup failed. Cloud: {}; Replication: {}",
+                                        cloud
+                                            .err()
+                                            .map(|e| e.to_string())
+                                            .unwrap_or_else(|| "ok".to_string()),
+                                        replica
+                                            .err()
+                                            .map(|e| e.to_string())
+                                            .unwrap_or_else(|| "ok".to_string())
+                                    );
+                                    let _ = record_cloud_backup_failure(&st.db, &detail).await;
                                 }
                             }
                         }
-                        Err(e) => {
-                            let _ = record_local_backup_failure(&st.db, &e.to_string()).await;
-                        }
+                    }
+                    Err(e) => {
+                        let _ = record_local_backup_failure(&st.db, &e.to_string()).await;
                     }
                 }
             }

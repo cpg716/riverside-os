@@ -76,6 +76,8 @@ venv/
 
 # --- Runtime artifacts / backups ---
 .tmp/
+backups/*.dump
+backups/*.dump.enc
 server/backups/*.dump
 counterpoint-bridge/bridge-execution.log
 # CocoIndex Code (ccc)

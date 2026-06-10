@@ -2,7 +2,9 @@
 //!
 //! Persists receipt configuration in `store_settings.receipt_config` (JSONB).
 
-use crate::logic::backups::{BackupFile, BackupManager, BackupSettings};
+use crate::logic::backups::{
+    parse_daily_backup_schedule, BackupFile, BackupManager, BackupSettings,
+};
 use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::integration_credentials;
 use crate::logic::remote_access::RemoteAccessManager;
@@ -2617,6 +2619,21 @@ async fn patch_backup_settings(
             .await?;
 
     let mut existing: Value = existing_raw;
+    if let Value::Object(new_map) = &body {
+        if let Some(value) = new_map.get("schedule_cron") {
+            let schedule = value.as_str().ok_or_else(|| {
+                SettingsError::InvalidPayload(
+                    "backup schedule must be a daily time expression like '0 2 * * *'".to_string(),
+                )
+            })?;
+            if parse_daily_backup_schedule(schedule).is_none() {
+                return Err(SettingsError::InvalidPayload(
+                    "backup schedule must use daily minute/hour format: minute hour * * *"
+                        .to_string(),
+                ));
+            }
+        }
+    }
     if let (Value::Object(existing_map), Value::Object(new_map)) = (&mut existing, body) {
         for (k, v) in new_map {
             existing_map.insert(k, v);

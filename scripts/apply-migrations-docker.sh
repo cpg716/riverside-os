@@ -47,7 +47,7 @@ for f in $(ls "$ROOT"/migrations/[0-9][0-9]*_*.sql 2>/dev/null | sort -V); do
   if [ "$applied" = "t" ]; then
     stored_sha="$($DPSQL -tAc "SELECT COALESCE(file_sha256, '') FROM ros_schema_migrations WHERE version = '$base';" | tr -d '[:space:]')"
     if [ -z "$stored_sha" ]; then
-      $DPSQL -tAc "UPDATE ros_schema_migrations SET file_sha256 = '$current_sha' WHERE version = '$base' AND file_sha256 IS NULL;" >/dev/null
+      $DPSQL -tAc "UPDATE ros_schema_migrations SET file_sha256 = '$current_sha' WHERE version = '$base' AND (file_sha256 IS NULL OR btrim(file_sha256) = '');" >/dev/null
       echo "Skip (ledger, checksum recorded): $base"
     elif [ "$stored_sha" != "$current_sha" ]; then
       echo "⚠ DRIFT: $base has changed since it was applied! (stored=$stored_sha current=$current_sha)"
@@ -67,7 +67,7 @@ for f in $(ls "$ROOT"/migrations/[0-9][0-9]*_*.sql 2>/dev/null | sort -V); do
   fi
   ensure_checksum_column
   $DPSQL -v ON_ERROR_STOP=1 -c \
-    "INSERT INTO ros_schema_migrations (version, file_sha256) SELECT '$base', '$current_sha' WHERE NOT EXISTS (SELECT 1 FROM ros_schema_migrations WHERE version = '$base');"
+    "INSERT INTO ros_schema_migrations (version, file_sha256) VALUES ('$base', '$current_sha') ON CONFLICT (version) DO UPDATE SET file_sha256 = CASE WHEN ros_schema_migrations.file_sha256 IS NULL OR btrim(ros_schema_migrations.file_sha256) = '' THEN EXCLUDED.file_sha256 ELSE ros_schema_migrations.file_sha256 END;"
 done
 
 echo ""

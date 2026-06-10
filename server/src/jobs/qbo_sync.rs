@@ -156,7 +156,7 @@ impl QboSyncHandler {
             );
         }
 
-        let resp = self
+        let resp = match self
             .http_client
             .post(&url)
             .bearer_auth(access_token)
@@ -164,7 +164,28 @@ impl QboSyncHandler {
             .json(&je_body)
             .send()
             .await
-            .map_err(|e| format!("QBO JournalEntry request failed: {e}"))?;
+        {
+            Ok(resp) => resp,
+            Err(error) => {
+                let err_msg = format!("QBO JournalEntry request failed: {error}");
+                sqlx::query(
+                    r#"
+                    UPDATE qbo_sync_logs
+                    SET status = 'failed', error_message = $2, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $1 AND status = 'syncing'
+                    "#,
+                )
+                .bind(staging_id)
+                .bind(&err_msg)
+                .execute(&self.pool)
+                .await?;
+                let _ = crate::logic::notifications::emit_qbo_sync_failed(
+                    &self.pool, staging_id, &err_msg,
+                )
+                .await;
+                return Err(err_msg.into());
+            }
+        };
 
         let status_code = resp.status();
         let body: serde_json::Value = resp
@@ -186,7 +207,7 @@ impl QboSyncHandler {
                 r#"
                 UPDATE qbo_sync_logs
                 SET status = 'failed', error_message = $2, updated_at = CURRENT_TIMESTAMP
-                WHERE id = $1
+                WHERE id = $1 AND status = 'syncing'
                 "#,
             )
             .bind(staging_id)
@@ -214,7 +235,7 @@ impl QboSyncHandler {
                 journal_entry_id = $2,
                 updated_at = CURRENT_TIMESTAMP,
                 error_message = NULL
-            WHERE id = $1
+            WHERE id = $1 AND status = 'syncing'
             "#,
         )
         .bind(staging_id)

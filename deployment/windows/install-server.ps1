@@ -896,6 +896,11 @@ function Get-MigrationSortKey($File) {
   return "999999--$($File.Name)"
 }
 
+function Get-FileSha256([string]$Path) {
+  $hash = Get-FileHash -Path $Path -Algorithm SHA256
+  return $hash.Hash.ToLower()
+}
+
 function Get-MigrationLedgerExists($PsqlPath, $DatabaseUrl) {
   $ledgerCheck = & $PsqlPath $DatabaseUrl -w -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ros_schema_migrations');"
   if ($LASTEXITCODE -ne 0) {
@@ -910,9 +915,31 @@ function Get-MigrationApplied($PsqlPath, $DatabaseUrl, [string]$Version) {
   return (($applied -join "").Trim() -eq "t")
 }
 
-function Add-MigrationLedgerEntry($PsqlPath, $DatabaseUrl, [string]$Version) {
+function Ensure-MigrationChecksumColumn($PsqlPath, $DatabaseUrl) {
+  if (Get-MigrationLedgerExists $PsqlPath $DatabaseUrl) {
+    Invoke-Psql $PsqlPath $DatabaseUrl "ALTER TABLE ros_schema_migrations ADD COLUMN IF NOT EXISTS file_sha256 text;"
+  }
+}
+
+function Get-StoredMigrationChecksum($PsqlPath, $DatabaseUrl, [string]$Version) {
   $migrationVersion = Escape-SqlLiteral $Version
-  Invoke-Psql $PsqlPath $DatabaseUrl "INSERT INTO ros_schema_migrations (version) SELECT '$migrationVersion' WHERE NOT EXISTS (SELECT 1 FROM ros_schema_migrations WHERE version = '$migrationVersion');"
+  $stored = & $PsqlPath $DatabaseUrl -w -tAc "SELECT COALESCE(file_sha256, '') FROM ros_schema_migrations WHERE version = '$migrationVersion';"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not read migration checksum for $Version."
+  }
+  return (($stored -join "").Trim()).ToLower()
+}
+
+function Update-StoredMigrationChecksum($PsqlPath, $DatabaseUrl, [string]$Version, [string]$FileSha256) {
+  $migrationVersion = Escape-SqlLiteral $Version
+  $safeSha = Escape-SqlLiteral $FileSha256
+  Invoke-Psql $PsqlPath $DatabaseUrl "UPDATE ros_schema_migrations SET file_sha256 = '$safeSha' WHERE version = '$migrationVersion' AND (file_sha256 IS NULL OR btrim(file_sha256) = '');"
+}
+
+function Add-MigrationLedgerEntry($PsqlPath, $DatabaseUrl, [string]$Version, [string]$FileSha256) {
+  $migrationVersion = Escape-SqlLiteral $Version
+  $safeSha = Escape-SqlLiteral $FileSha256
+  Invoke-Psql $PsqlPath $DatabaseUrl "INSERT INTO ros_schema_migrations (version, file_sha256) VALUES ('$migrationVersion', '$safeSha') ON CONFLICT (version) DO UPDATE SET file_sha256 = CASE WHEN ros_schema_migrations.file_sha256 IS NULL OR btrim(ros_schema_migrations.file_sha256) = '' THEN EXCLUDED.file_sha256 ELSE ros_schema_migrations.file_sha256 END;"
 }
 
 function Test-CoreIdentityMigrationApplied($PsqlPath, $DatabaseUrl) {
@@ -926,15 +953,28 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
     Where-Object { $_.Name -match '^\d+[a-zA-Z]?_.*\.sql$' } |
     Sort-Object @{ Expression = { Get-MigrationSortKey $_ } }
 
+  if (Get-MigrationLedgerExists $PsqlPath $DatabaseUrl) {
+    Ensure-MigrationChecksumColumn $PsqlPath $DatabaseUrl
+  }
+
   foreach ($file in $files) {
+    $currentSha = Get-FileSha256 $file.FullName
     if (Get-MigrationLedgerExists $PsqlPath $DatabaseUrl) {
       if (Get-MigrationApplied $PsqlPath $DatabaseUrl $file.Name) {
-        Write-Host "Skip migration $($file.Name)"
+        $storedSha = Get-StoredMigrationChecksum $PsqlPath $DatabaseUrl $file.Name
+        if ([string]::IsNullOrWhiteSpace($storedSha)) {
+          Update-StoredMigrationChecksum $PsqlPath $DatabaseUrl $file.Name $currentSha
+          Write-Host "Skip migration $($file.Name) (checksum recorded)"
+        } elseif ($storedSha -ne $currentSha) {
+          throw "Migration checksum drift detected for $($file.Name). Stored=$storedSha Current=$currentSha. Create a new numbered migration to reconcile."
+        } else {
+          Write-Host "Skip migration $($file.Name)"
+        }
         continue
       }
       if ($file.Name -eq "001_core_identity_staff.sql" -and (Test-CoreIdentityMigrationApplied $PsqlPath $DatabaseUrl)) {
         Write-Host "Recover migration ledger for $($file.Name)"
-        Add-MigrationLedgerEntry $PsqlPath $DatabaseUrl $file.Name
+        Add-MigrationLedgerEntry $PsqlPath $DatabaseUrl $file.Name $currentSha
         continue
       }
     }
@@ -948,7 +988,8 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
     if (-not (Get-MigrationLedgerExists $PsqlPath $DatabaseUrl)) {
       throw "Migration $($file.Name) did not create public.ros_schema_migrations; cannot record ledger state."
     }
-    Add-MigrationLedgerEntry $PsqlPath $DatabaseUrl $file.Name
+    Ensure-MigrationChecksumColumn $PsqlPath $DatabaseUrl
+    Add-MigrationLedgerEntry $PsqlPath $DatabaseUrl $file.Name $currentSha
   }
 }
 

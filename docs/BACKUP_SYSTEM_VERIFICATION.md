@@ -13,9 +13,9 @@ The Riverside OS backup system has been verified to be fully functional with aut
 **Location:** `server/src/launcher.rs` - `start_backup_worker()`
 
 **Implementation:**
-- Uses `tokio-cron-scheduler` for cron-based scheduling
-- Default schedule: `0 2 * * *` (2:00 AM daily)
-- Runs every minute to check if current time matches scheduled backup time
+- Uses `tokio-cron-scheduler` for a minute-level backup checker
+- Default daily schedule expression: `0 2 * * *` (2:00 AM daily)
+- Runs every minute to check whether the configured daily HH:MM backup time matches current local time
 - Loads backup settings from `store_settings.backup_settings` JSONB field
 - Performs automatic cleanup of old backups (default 30 days retention)
 - Records success/failure to `store_backup_health` table
@@ -67,7 +67,7 @@ The Riverside OS backup system has been verified to be fully functional with aut
 - **Production Lock:** Production restores blocked unless `RIVERSIDE_ALLOW_PRODUCTION_RESTORE=true`
 - **Register Blocker:** Prevents restore if any register sessions are open
 - **Pre-Restore Backup:** Automatically creates backup before restore attempt
-- **Schema Repair:** Post-restore SQL fixes schema compatibility issues
+- **Schema Repair + Validation:** Post-restore SQL applies compatibility repairs, then `scripts/validate_schema_contract.sh` must pass
 - **Encryption Support:** Handles encrypted backup archives with key validation
 
 **Verification Status:** ✅ OPERATIONAL
@@ -125,7 +125,7 @@ The Riverside OS backup system has been verified to be fully functional with aut
    - Set `RIVERSIDE_BACKUP_OVERDUE_HOURS` for alert threshold
 
 2. **Backup Settings:**
-   - Configure `schedule_cron` for appropriate backup window
+   - Configure `schedule_cron` as `minute hour * * *`; full cron semantics are not supported by the backup checker
    - Set `auto_cleanup_days` for retention policy
    - Enable `cloud_storage_enabled` for off-site redundancy
    - Configure `replication_targets` for local filesystem copies

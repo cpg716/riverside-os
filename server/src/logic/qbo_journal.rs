@@ -5,7 +5,7 @@
 //! Returns recorded on `activity_date` add contra-revenue, tax, and (when restocked) COGS reversal
 //! so refund-day journals stay balanced. See `docs/QBO_JOURNAL_TEST_MATRIX.md`.
 
-use chrono::{NaiveDate, Utc};
+use chrono::{Datelike, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -1936,6 +1936,12 @@ pub async fn ensure_pending_daily_journal(
     pool: &PgPool,
     activity_date: NaiveDate,
 ) -> Result<Uuid, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('qbo_pending_daily_journal'), $1)")
+        .bind(activity_date.num_days_from_ce())
+        .execute(&mut *tx)
+        .await?;
+
     let existing_rows: Vec<(Uuid, String, Option<String>)> = sqlx::query_as(
         r#"
         SELECT id, status, journal_entry_id
@@ -1945,7 +1951,7 @@ pub async fn ensure_pending_daily_journal(
         "#,
     )
     .bind(activity_date)
-    .fetch_all(pool)
+    .fetch_all(&mut *tx)
     .await?;
 
     let pending_id = existing_rows
@@ -1969,7 +1975,7 @@ pub async fn ensure_pending_daily_journal(
     let payload = with_staging_metadata(payload, activity_date, &locked_rows);
 
     if let Some(existing_id) = pending_id {
-        return sqlx::query_scalar::<_, Uuid>(
+        let id = sqlx::query_scalar::<_, Uuid>(
             r#"
             UPDATE qbo_sync_logs
             SET payload = $2,
@@ -1981,11 +1987,13 @@ pub async fn ensure_pending_daily_journal(
         )
         .bind(existing_id)
         .bind(payload)
-        .fetch_one(pool)
-        .await;
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        return Ok(id);
     }
 
-    sqlx::query_scalar::<_, Uuid>(
+    let id = sqlx::query_scalar::<_, Uuid>(
         r#"
         INSERT INTO qbo_sync_logs (sync_date, status, payload)
         VALUES ($1, 'pending', $2)
@@ -1994,8 +2002,10 @@ pub async fn ensure_pending_daily_journal(
     )
     .bind(activity_date)
     .bind(payload)
-    .fetch_one(pool)
-    .await
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(id)
 }
 
 fn with_staging_metadata(

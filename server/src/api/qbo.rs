@@ -1987,15 +1987,60 @@ async fn sync_staging(
         QBO_MINOR_VERSION,
         request_id
     );
+    let locked = sqlx::query(
+        r#"
+        UPDATE qbo_sync_logs
+        SET status = 'syncing', updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND status = 'approved'
+        "#,
+    )
+    .bind(id)
+    .execute(&state.db)
+    .await?;
+    if locked.rows_affected() == 0 {
+        return Err(QboError::Conflict(
+            "staging entry is not in approved state; another sync may have claimed it".to_string(),
+        ));
+    }
+
     let http = Client::new();
-    let resp = http
+    let resp = match http
         .post(&url)
         .bearer_auth(access_token)
         .header("Accept", "application/json")
         .json(&je_body)
         .send()
         .await
-        .map_err(|e| QboError::Conflict(format!("QBO JournalEntry request failed: {e}")))?;
+    {
+        Ok(resp) => resp,
+        Err(error) => {
+            let err_msg = format!("QBO JournalEntry request failed: {error}");
+            sqlx::query(
+                r#"
+                UPDATE qbo_sync_logs
+                SET status = 'failed', error_message = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1 AND status = 'syncing'
+                "#,
+            )
+            .bind(id)
+            .bind(&err_msg)
+            .execute(&state.db)
+            .await?;
+            if let Err(e) =
+                crate::logic::notifications::emit_qbo_sync_failed(&state.db, id, &err_msg).await
+            {
+                tracing::error!(error = %e, "emit_qbo_sync_failed");
+            }
+            let _ = log_staff_access(
+                &state.db,
+                admin.id,
+                "qbo_sync_failed",
+                json!({ "staging_id": id, "request_id": request_id.clone(), "error_message": err_msg }),
+            )
+            .await;
+            return Err(QboError::Conflict(err_msg));
+        }
+    };
     let status_code = resp.status();
     let body: serde_json::Value = resp
         .json()
@@ -2015,7 +2060,7 @@ async fn sync_staging(
             r#"
             UPDATE qbo_sync_logs
             SET status = 'failed', error_message = $2, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
+            WHERE id = $1 AND status = 'syncing'
             "#,
         )
         .bind(id)
@@ -2050,7 +2095,7 @@ async fn sync_staging(
             journal_entry_id = $2,
             updated_at = CURRENT_TIMESTAMP,
             error_message = NULL
-        WHERE id = $1
+        WHERE id = $1 AND status = 'syncing'
         "#,
     )
     .bind(id)
@@ -2150,18 +2195,6 @@ async fn retry_failed(
     validate_staging_journal_balanced(&payload)?;
     validate_staging_accounts_active(&state.db, &payload).await?;
 
-    // Move back to approved so sync_staging can process it
-    sqlx::query(
-        r#"
-        UPDATE qbo_sync_logs
-        SET status = 'approved', error_message = NULL, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1 AND status = 'failed'
-        "#,
-    )
-    .bind(id)
-    .execute(&state.db)
-    .await?;
-
     let _ = log_staff_access(
         &state.db,
         admin.id,
@@ -2259,15 +2292,48 @@ async fn retry_failed(
         QBO_MINOR_VERSION,
         request_id
     );
+    let locked = sqlx::query(
+        r#"
+        UPDATE qbo_sync_logs
+        SET status = 'syncing', error_message = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1 AND status = 'failed'
+        "#,
+    )
+    .bind(id)
+    .execute(&state.db)
+    .await?;
+    if locked.rows_affected() == 0 {
+        return Err(QboError::Conflict(
+            "failed staging entry could not be claimed for retry".to_string(),
+        ));
+    }
+
     let http = Client::new();
-    let resp = http
+    let resp = match http
         .post(&url)
         .bearer_auth(access_token)
         .header("Accept", "application/json")
         .json(&je_body)
         .send()
         .await
-        .map_err(|e| QboError::Conflict(format!("QBO JournalEntry request failed: {e}")))?;
+    {
+        Ok(resp) => resp,
+        Err(error) => {
+            let err_msg = format!("QBO JournalEntry request failed: {error}");
+            sqlx::query(
+                r#"
+                UPDATE qbo_sync_logs
+                SET status = 'failed', error_message = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1 AND status = 'syncing'
+                "#,
+            )
+            .bind(id)
+            .bind(&err_msg)
+            .execute(&state.db)
+            .await?;
+            return Err(QboError::Conflict(format!("QBO retry failed: {err_msg}")));
+        }
+    };
     let status_code = resp.status();
     let body: serde_json::Value = resp
         .json()
@@ -2287,7 +2353,7 @@ async fn retry_failed(
             r#"
             UPDATE qbo_sync_logs
             SET status = 'failed', error_message = $2, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $1
+            WHERE id = $1 AND status = 'syncing'
             "#,
         )
         .bind(id)
@@ -2306,7 +2372,7 @@ async fn retry_failed(
         r#"
         UPDATE qbo_sync_logs
         SET status = 'synced', journal_entry_id = $2, error_message = NULL, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
+        WHERE id = $1 AND status = 'syncing'
         "#,
     )
     .bind(id)

@@ -518,25 +518,43 @@ async fn void_gift_card(
 
     let mut tx = state.db.begin().await?;
 
-    let affected = sqlx::query(
-        "UPDATE gift_cards SET card_status = 'void'::gift_card_status WHERE id = $1 AND card_status != 'void'::gift_card_status",
+    let previous_balance: Option<Decimal> = sqlx::query_scalar(
+        r#"
+        SELECT current_balance
+        FROM gift_cards
+        WHERE id = $1
+          AND card_status != 'void'::gift_card_status
+        FOR UPDATE
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some(previous_balance) = previous_balance else {
+        return Err(GiftCardError::NotFound);
+    };
+
+    sqlx::query(
+        r#"
+        UPDATE gift_cards
+        SET card_status = 'void'::gift_card_status,
+            current_balance = 0
+        WHERE id = $1
+        "#,
     )
     .bind(id)
     .execute(&mut *tx)
-    .await?
-    .rows_affected();
-
-    if affected == 0 {
-        return Err(GiftCardError::NotFound);
-    }
+    .await?;
 
     sqlx::query(
         r#"
         INSERT INTO gift_card_events (gift_card_id, event_kind, amount, balance_after)
-        SELECT id, 'voided', -current_balance, 0 FROM gift_cards WHERE id = $1
+        VALUES ($1, 'voided', $2, 0)
         "#,
     )
     .bind(id)
+    .bind(-previous_balance)
     .execute(&mut *tx)
     .await?;
 

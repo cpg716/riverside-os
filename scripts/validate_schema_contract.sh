@@ -82,7 +82,8 @@ expected_columns(schema_name, table_name, column_name) AS (
         ('public', 'counterpoint_staging_batch', 'payload_fingerprint'),
         ('public', 'counterpoint_staging_batch', 'recovered_at'),
         ('public', 'counterpoint_staging_batch', 'recovered_by_staff_id'),
-        ('public', 'counterpoint_staging_batch', 'recovery_reason')
+        ('public', 'counterpoint_staging_batch', 'recovery_reason'),
+        ('public', 'ros_schema_migrations', 'file_sha256')
 ),
 expected_views(schema_name, view_name) AS (
     VALUES
@@ -104,7 +105,10 @@ expected_indexes(schema_name, index_name) AS (
         ('public', 'idx_counterpoint_staging_status_created'),
         ('public', 'idx_product_variants_product_id'),
         ('public', 'idx_transactions_booked_status_id'),
-        ('public', 'idx_staff_permission_staff')
+        ('public', 'idx_staff_permission_staff'),
+        ('public', 'payment_transactions_provider_transaction_uidx'),
+        ('public', 'qbo_sync_logs_one_pending_per_date_uidx'),
+        ('public', 'store_checkout_payment_attempt_open_session_provider_uidx')
 ),
 expected_functions(schema_name, function_name) AS (
     VALUES

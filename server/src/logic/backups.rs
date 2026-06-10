@@ -252,6 +252,26 @@ impl Default for BackupSettings {
     }
 }
 
+pub fn parse_daily_backup_schedule(schedule: &str) -> Option<(u32, u32)> {
+    let mut parts = schedule.split_whitespace();
+    let minute = parts.next()?.parse::<u32>().ok()?;
+    let hour = parts.next()?.parse::<u32>().ok()?;
+    if parts.next()? != "*" || parts.next()? != "*" || parts.next()? != "*" {
+        return None;
+    }
+    if parts.next().is_some() || minute > 59 || hour > 23 {
+        return None;
+    }
+    Some((hour, minute))
+}
+
+pub fn daily_backup_schedule_matches_time(schedule: &str, time_hh_mm: &str) -> bool {
+    let Some((hour, minute)) = parse_daily_backup_schedule(schedule) else {
+        return false;
+    };
+    time_hh_mm == format!("{hour:02}:{minute:02}")
+}
+
 fn default_cloud_provider() -> String {
     "s3".to_string()
 }
@@ -1138,6 +1158,16 @@ mod tests {
         assert!(!settings.encryption_enabled);
         assert_eq!(settings.cloud_provider, "s3");
         assert!(settings.cloud_root.is_empty());
+    }
+
+    #[test]
+    fn daily_backup_schedule_accepts_only_minute_hour_daily_shape() {
+        assert_eq!(parse_daily_backup_schedule("15 3 * * *"), Some((3, 15)));
+        assert!(daily_backup_schedule_matches_time("15 3 * * *", "03:15"));
+        assert!(!daily_backup_schedule_matches_time("15 3 * * *", "03:16"));
+        assert_eq!(parse_daily_backup_schedule("0 * * * *"), None);
+        assert_eq!(parse_daily_backup_schedule("61 3 * * *"), None);
+        assert_eq!(parse_daily_backup_schedule("15 24 * * *"), None);
     }
 
     #[tokio::test]

@@ -598,14 +598,87 @@ async fn load_session_row(
     .ok_or(StoreCheckoutError::NotFound)
 }
 
+async fn load_session_row_for_update(
+    tx: &mut Transaction<'_, Postgres>,
+    session_id: Uuid,
+) -> Result<CheckoutSessionRow, StoreCheckoutError> {
+    sqlx::query_as::<_, CheckoutSessionRow>(
+        r#"
+        SELECT id, status, selected_provider, customer_id, contact, fulfillment_method, ship_to,
+               shipping_rate_quote_id, lines_snapshot, coupon_id, coupon_code,
+               coupon_snapshot, subtotal_usd, discount_usd, tax_usd,
+               shipping_usd, total_usd, finalized_transaction_id, expires_at
+        FROM store_checkout_session
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(session_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(StoreCheckoutError::NotFound)
+}
+
+async fn mark_payment_initialization_failed(
+    pool: &PgPool,
+    session_id: Uuid,
+    attempt_id: Uuid,
+    message: &str,
+) -> Result<(), StoreCheckoutError> {
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        r#"
+        UPDATE store_checkout_payment_attempt
+        SET status = 'failed',
+            error_code = 'provider_initialize_failed',
+            error_message = $2,
+            completed_at = now()
+        WHERE id = $1
+          AND status = 'pending'
+        "#,
+    )
+    .bind(attempt_id)
+    .bind(message)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE store_checkout_session
+        SET status = 'draft'
+        WHERE id = $1
+          AND status = 'payment_pending'
+          AND finalized_transaction_id IS NULL
+        "#,
+    )
+    .bind(session_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn create_payment(
     state: &AppState,
     session_id: Uuid,
     input: CreatePaymentInput,
 ) -> Result<PaymentStartResponse, StoreCheckoutError> {
     let provider = normalized_provider(&input.provider)?;
-    let row = load_session_row(&state.db, session_id).await?;
+    let provider_ready = checkout_config(&state.db)
+        .await?
+        .providers
+        .into_iter()
+        .find(|p| p.provider == provider)
+        .ok_or_else(|| StoreCheckoutError::Invalid("payment provider not found".to_string()))?;
+    if !provider_ready.enabled {
+        return Err(StoreCheckoutError::Provider(provider_ready.detail));
+    }
+
+    let mut tx = state.db.begin().await?;
+    let row = load_session_row_for_update(&mut tx, session_id).await?;
     if row.status == "paid" {
+        tx.commit().await?;
         return Ok(PaymentStartResponse {
             checkout_session_id: row.id,
             provider,
@@ -624,25 +697,92 @@ pub async fn create_payment(
     if row.expires_at < chrono::Utc::now() {
         sqlx::query("UPDATE store_checkout_session SET status = 'expired' WHERE id = $1")
             .bind(row.id)
-            .execute(&state.db)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         return Err(StoreCheckoutError::Invalid(
             "checkout session expired".to_string(),
         ));
     }
+    let amount_cents = money_to_cents(row.total_usd)?;
 
-    let provider_ready = checkout_config(&state.db)
-        .await?
-        .providers
-        .into_iter()
-        .find(|p| p.provider == provider)
-        .ok_or_else(|| StoreCheckoutError::Invalid("payment provider not found".to_string()))?;
-    if !provider_ready.enabled {
-        return Err(StoreCheckoutError::Provider(provider_ready.detail));
+    let existing_attempt: Option<(i64, Option<String>, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT amount_cents, provider_payment_id, client_secret
+        FROM store_checkout_payment_attempt
+        WHERE checkout_session_id = $1
+          AND provider = 'helcim'
+          AND status IN ('pending', 'requires_action')
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+        "#,
+    )
+    .bind(row.id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some((existing_amount_cents, provider_payment_id, client_secret)) = existing_attempt {
+        let provider_payment_id = provider_payment_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let client_secret = client_secret
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if existing_amount_cents == amount_cents {
+            if let (Some(provider_payment_id), Some(client_secret)) =
+                (provider_payment_id, client_secret)
+            {
+                tx.commit().await?;
+                return Ok(PaymentStartResponse {
+                    checkout_session_id: row.id,
+                    provider,
+                    status: "payment_pending".to_string(),
+                    amount_cents,
+                    provider_payment_id: Some(provider_payment_id.clone()),
+                    client_secret: None,
+                    checkout_token: Some(provider_payment_id),
+                    hosted_payment_url: None,
+                    message: Some("Existing payment session is still pending.".to_string()),
+                });
+            }
+        }
+
+        return Err(StoreCheckoutError::Provider(
+            "Payment initialization is already in progress. Please retry shortly.".to_string(),
+        ));
     }
 
+    let attempt_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO store_checkout_payment_attempt (
+            checkout_session_id, provider, status, amount_cents, currency,
+            provider_status, raw_audit_reference
+        )
+        VALUES ($1, 'helcim', 'pending', $2, 'usd', 'initializing', 'helcim-pay-js')
+        RETURNING id
+        "#,
+    )
+    .bind(row.id)
+    .bind(amount_cents)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE store_checkout_session
+        SET status = 'payment_pending', selected_provider = 'helcim', payment_started_at = COALESCE(payment_started_at, now())
+        WHERE id = $1
+            "#,
+    )
+    .bind(row.id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
     let config = helcim::HelcimConfig::from_env();
-    let init = helcim::initialize_helcim_pay(
+    let init = match helcim::initialize_helcim_pay(
         &state.http_client,
         &config,
         helcim::HelcimPayInitializeRequest {
@@ -659,32 +799,28 @@ pub async fn create_payment(
         },
     )
     .await
-    .map_err(StoreCheckoutError::Provider)?;
-    let amount_cents = money_to_cents(row.total_usd)?;
-    sqlx::query(
-        r#"
-            INSERT INTO store_checkout_payment_attempt (
-                checkout_session_id, provider, status, amount_cents, currency,
-                provider_payment_id, provider_status, client_secret, raw_audit_reference
-            )
-            VALUES ($1, 'helcim', 'pending', $2, 'usd', $3, 'initialized', $4, 'helcim-pay-js')
-            "#,
-    )
-    .bind(row.id)
-    .bind(amount_cents)
-    .bind(&init.checkout_token)
-    .bind(&init.secret_token)
-    .execute(&state.db)
-    .await?;
+    {
+        Ok(init) => init,
+        Err(error) => {
+            mark_payment_initialization_failed(&state.db, row.id, attempt_id, &error).await?;
+            return Err(StoreCheckoutError::Provider(error));
+        }
+    };
 
     sqlx::query(
         r#"
-        UPDATE store_checkout_session
-        SET status = 'payment_pending', selected_provider = 'helcim', payment_started_at = COALESCE(payment_started_at, now())
+        UPDATE store_checkout_payment_attempt
+        SET provider_payment_id = $2,
+            client_secret = $3,
+            provider_status = 'initialized',
+            raw_audit_reference = 'helcim-pay-js'
         WHERE id = $1
-            "#,
+          AND status = 'pending'
+        "#,
     )
-    .bind(row.id)
+    .bind(attempt_id)
+    .bind(&init.checkout_token)
+    .bind(&init.secret_token)
     .execute(&state.db)
     .await?;
 

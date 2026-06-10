@@ -911,6 +911,8 @@ async fn handle_helcim_card_transaction(
     let audit_reference = transaction
         .audit_reference()
         .unwrap_or_else(|| format!("helcim:cardTransaction:{provider_transaction_id}"));
+    let provider_status = transaction.provider_status();
+    let provider_warning = transaction.warning.clone();
     let terminal_id = helcim_webhook_device_code(value).unwrap_or_default();
 
     let mut tx = state.db.begin().await?;
@@ -941,8 +943,8 @@ async fn handle_helcim_card_transaction(
         .bind(&provider_transaction_id)
         .bind(&provider_payment_id)
         .bind(&audit_reference)
-        .bind(transaction.provider_status())
-        .bind(transaction.warning.clone())
+        .bind(provider_status.clone())
+        .bind(provider_warning.clone())
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -974,8 +976,8 @@ async fn handle_helcim_card_transaction(
             .bind(&provider_transaction_id)
             .bind(&provider_payment_id)
             .bind(&audit_reference)
-            .bind(transaction.provider_status())
-            .bind(transaction.warning)
+            .bind(provider_status.clone())
+            .bind(provider_warning.clone())
             .bind(candidate_id)
             .fetch_optional(&mut *tx)
             .await?;
@@ -1020,31 +1022,69 @@ async fn handle_helcim_card_transaction(
                 let payment_txn_id = Uuid::new_v4();
                 let payment_amount = Decimal::from(amount_cents) / Decimal::from(100);
 
-                sqlx::query(
+                let insert_result = sqlx::query(
                     r#"
                     INSERT INTO payment_transactions (
-                        id, category, payment_method, amount, status, occurred_at, merchant_fee, net_amount, metadata
+                        id, category, payment_method, amount, status, occurred_at,
+                        merchant_fee, net_amount, metadata,
+                        payment_provider, provider_payment_id, provider_transaction_id, provider_status
                     )
-                    VALUES ($1, 'retail_sale', 'card_terminal', $2, 'approved', now(), 0, $2, $3)
+                    VALUES (
+                        $1, 'retail_sale', 'card_terminal', $2, 'approved', now(),
+                        0, $2, $3,
+                        'helcim', $4, $5, $6
+                    )
                     "#
                 )
                 .bind(payment_txn_id)
                 .bind(payment_amount)
                 .bind(serde_json::json!({
-                    "helcim_transaction_id": provider_transaction_id,
-                    "helcim_payment_id": provider_payment_id,
-                    "audit_reference": audit_reference
+                    "helcim_transaction_id": provider_transaction_id.clone(),
+                    "helcim_payment_id": provider_payment_id.clone(),
+                    "audit_reference": audit_reference.clone()
                 }))
+                .bind(&provider_payment_id)
+                .bind(&provider_transaction_id)
+                .bind(provider_status.clone())
                 .execute(&mut *tx)
-                .await?;
+                .await;
+
+                let recovered_payment_txn_id = match insert_result {
+                    Ok(_) => payment_txn_id,
+                    Err(sqlx::Error::Database(db_err))
+                        if db_err.constraint()
+                            == Some("payment_transactions_provider_transaction_uidx") =>
+                    {
+                        sqlx::query_scalar(
+                            r#"
+                            SELECT id
+                            FROM payment_transactions
+                            WHERE payment_provider = 'helcim'
+                              AND provider_transaction_id = $1
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                            "#,
+                        )
+                        .bind(&provider_transaction_id)
+                        .fetch_one(&mut *tx)
+                        .await?
+                    }
+                    Err(error) => return Err(error),
+                };
 
                 sqlx::query(
                     r#"
                     INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated)
-                    VALUES ($1, $2, $3)
+                    SELECT $1, $2, $3
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM payment_allocations
+                        WHERE transaction_id = $1
+                          AND target_transaction_id = $2
+                    )
                     "#
                 )
-                .bind(payment_txn_id)
+                .bind(recovered_payment_txn_id)
                 .bind(tid)
                 .bind(payment_amount)
                 .execute(&mut *tx)
@@ -1095,7 +1135,7 @@ async fn handle_helcim_card_transaction(
                 )
                 .await;
 
-                final_payment_transaction_id = Some(payment_txn_id);
+                final_payment_transaction_id = Some(recovered_payment_txn_id);
             }
         }
     }

@@ -555,13 +555,12 @@ export default function SettingsWorkspace({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
-  // Helper to parse cron "0 2 * * *" to time "02" and "00"
-  const getCronTime = (cron: string) => {
-    const parts = cron.split(" ");
+  const getDailyBackupTime = (schedule: string) => {
+    const parts = schedule.split(" ");
     return { hour: parts[1] || "02", minute: parts[0] || "00" };
   };
 
-  const setCronTime = (hour: string, minute: string) => {
+  const setDailyBackupTime = (hour: string, minute: string) => {
     if (!backupCfg) return;
     setBackupCfg({ ...backupCfg, schedule_cron: `${minute} ${hour} * * *` });
   };
@@ -862,11 +861,11 @@ export default function SettingsWorkspace({
                             </label>
                             <label className="block">
                               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                Daily Sync Window
+                                Daily Backup Window
                               </span>
                               <div className="flex items-center gap-2 mt-2">
                                 {(() => {
-                                  const { hour, minute } = getCronTime(
+                                  const { hour, minute } = getDailyBackupTime(
                                     backupCfg.schedule_cron,
                                   );
                                   return (
@@ -877,7 +876,7 @@ export default function SettingsWorkspace({
                                         max={23}
                                         value={hour}
                                         onChange={(e) =>
-                                          setCronTime(
+                                          setDailyBackupTime(
                                             e.target.value.padStart(2, "0"),
                                             minute,
                                           )
@@ -893,7 +892,7 @@ export default function SettingsWorkspace({
                                         max={59}
                                         value={minute}
                                         onChange={(e) =>
-                                          setCronTime(
+                                          setDailyBackupTime(
                                             hour,
                                             e.target.value.padStart(2, "0"),
                                           )

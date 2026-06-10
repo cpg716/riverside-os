@@ -2858,7 +2858,7 @@ pub async fn execute_checkout(
         match txn_insert {
             Ok(id_display) => id_display,
             Err(SqlxError::Database(db_err))
-                if db_err.constraint() == Some("transactions_checkout_client_id_uidx") =>
+                if db_err.constraint() == Some("orders_checkout_client_id_uidx") =>
             {
                 let Some(cid) = payload.checkout_client_id else {
                     return Err(CheckoutError::Database(SqlxError::Database(db_err)));

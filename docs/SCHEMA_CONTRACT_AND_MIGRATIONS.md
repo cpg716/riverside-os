@@ -53,6 +53,7 @@ The only active migration files in `migrations/` are:
 | `035_backup_resilience_settings.sql` | Backup and resilience settings |
 | `036_financial_date_and_counterpoint_integrity.sql` | Financial date and Counterpoint integrity hardening |
 | `037_backfill_missing_columns.sql` | Backfill columns added to earlier files after they were applied (`store_media_asset.deleted_at/alt_text/usage_note`, `categories.variation_axis_presets`) |
+| `078_data_integrity_hardening.sql` | Provider ledger, QBO pending-row, and online checkout attempt integrity constraints |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 
@@ -94,7 +95,10 @@ Use these checks when touching migrations, seeds, schema startup validation, or 
 bash scripts/validate_migration_layout.sh
 RIVERSIDE_DB_NAME=riverside_os bash scripts/migration-status-docker.sh
 RIVERSIDE_DB_NAME=riverside_os bash scripts/validate_schema_contract.sh
+psql "$DATABASE_URL" -f scripts/audit_data_integrity_diagnostics.sql
 ```
+
+Before applying migration `078_data_integrity_hardening.sql` to production, run the diagnostics script against the production `DATABASE_URL` and confirm each probe returns zero rows. If any rows appear, pause the deployment and complete operator/accounting review before applying `078`; the migration intentionally enforces unique provider ledger keys, one pending QBO daily staging row per date, and one open online checkout payment attempt per session/provider.
 
 For equivalence checks between two databases:
 
@@ -106,7 +110,7 @@ bash scripts/schema_diff.sh <left-db-or-url> <right-db-or-url>
 
 ## Checksum Drift Detection
 
-As of migration 037, both `apply-migrations-psql.sh` and `apply-migrations-docker.sh` store a SHA-256 checksum of each migration file in the `file_sha256` column of `ros_schema_migrations`.
+As of migration 078, migration tooling stores a SHA-256 checksum of each migration file in the `file_sha256` column of `ros_schema_migrations`. Server startup verifies applied checksums, fails on drift, and refuses pending migrations unless `RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP=true` is explicitly set for a non-production startup apply.
 
 On each run the script compares the current file hash against the stored hash. If a file has been modified since it was applied, the script prints a **`⚠ DRIFT`** warning:
 

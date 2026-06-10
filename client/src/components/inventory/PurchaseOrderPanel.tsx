@@ -759,7 +759,7 @@ export default function PurchaseOrderPanel({
       width: 900,
       height: 700,
     });
-  }, [loadPurchaseOrderDetail, selectedPo, toast]);
+  }, [loadPurchaseOrderDetail, selectedPo]);
 
   const emailSelectedPo = useCallback(async () => {
     if (!selectedPo) return;
