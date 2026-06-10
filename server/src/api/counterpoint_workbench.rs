@@ -39,6 +39,10 @@ fn map_workbench_err(e: WorkbenchError) -> (StatusCode, Json<serde_json::Value>)
             StatusCode::CONFLICT,
             Json(json!({ "error": e.to_string() })),
         ),
+        WorkbenchError::PrerequisiteMissing(_) => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": e.to_string() })),
+        ),
         WorkbenchError::Database(d) => {
             tracing::error!(error = %d, "workbench database error");
             (

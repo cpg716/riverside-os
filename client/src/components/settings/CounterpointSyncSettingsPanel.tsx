@@ -13,6 +13,8 @@ import {
   ChevronRight,
   RotateCcw,
   Upload,
+  Download,
+  ClipboardCopy,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -198,6 +200,51 @@ interface DataSourcesHealth {
   lightspeed_file: string | null;
   cp_csv_rows: number;
   cp_csv_file: string | null;
+}
+
+interface ReviewPackScope {
+  scope: string;
+  label: string;
+  description: string;
+  fully_functional: boolean;
+  apply_supported: boolean;
+  allowed_actions: string[];
+}
+
+interface ReviewPackSummary {
+  id: string;
+  pack_id: string;
+  scope: string;
+  schema_version: number;
+  source_hash: string;
+  generated_by_staff_id: string | null;
+  generated_at: string;
+  row_count: number;
+  status: string;
+  metadata: Record<string, unknown>;
+}
+
+interface ReviewSuggestion {
+  id: string;
+  import_id: string;
+  pack_id: string;
+  row_id: string | null;
+  row_key: string;
+  scope: string;
+  action: string;
+  field_name: string | null;
+  current_value: unknown;
+  suggested_value: unknown;
+  confidence: number | string | null;
+  reason: string;
+  status: string;
+  validation_errors: unknown;
+  reviewed_by_staff_id: string | null;
+  reviewed_at: string | null;
+  applied_by_staff_id: string | null;
+  applied_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface CounterpointResetCountRow {
@@ -388,6 +435,33 @@ function formatEntityLabel(entity: string): string {
   return entity.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
+function reviewValueToText(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function reviewValueFromText(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function formatConfidence(value: number | string | null): string {
+  if (value == null) return "—";
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${Math.round(n * 100)}%`;
+}
+
 function stagingBatchAgeMinutes(batch: StagingBatchRow): number | null {
   if (!batch.apply_started_at) return null;
   const started = new Date(batch.apply_started_at).getTime();
@@ -574,6 +648,18 @@ export default function CounterpointSyncSettingsPanel() {
   const [aiScope, setAiScope] = useState<string>("names");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // Manual Counterpoint transition review packs
+  const [reviewScopes, setReviewScopes] = useState<ReviewPackScope[]>([]);
+  const [reviewPacks, setReviewPacks] = useState<ReviewPackSummary[]>([]);
+  const [reviewScope, setReviewScope] = useState<string>("inventory_catalog");
+  const [selectedReviewPackId, setSelectedReviewPackId] = useState<string>("");
+  const [reviewSuggestions, setReviewSuggestions] = useState<ReviewSuggestion[]>([]);
+  const [reviewBusy, setReviewBusy] = useState<string | null>(null);
+  const [reviewImportText, setReviewImportText] = useState("");
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewSuggestionEdits, setReviewSuggestionEdits] = useState<Record<string, string>>({});
+  const reviewImportFileRef = useRef<HTMLInputElement>(null);
 
   // SKU gaps
   const [skuGaps, setSkuGaps] = useState<SkuGapRow[]>([]);
@@ -775,6 +861,57 @@ export default function CounterpointSyncSettingsPanel() {
     }
   }, [baseUrl, headers, toast]);
 
+  const fetchReviewScopes = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/review-packs/scopes`, {
+        headers: headers(),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { scopes?: ReviewPackScope[] };
+        setReviewScopes(data.scopes ?? []);
+      }
+    } catch {
+      setReviewScopes([]);
+    }
+  }, [baseUrl, headers]);
+
+  const fetchReviewPacks = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/review-packs`, {
+        headers: headers(),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { packs?: ReviewPackSummary[] };
+        const packs = data.packs ?? [];
+        setReviewPacks(packs);
+        setSelectedReviewPackId((current) => current || packs[0]?.pack_id || "");
+      }
+    } catch {
+      setReviewPacks([]);
+    }
+  }, [baseUrl, headers]);
+
+  const fetchReviewSuggestions = useCallback(async (packId?: string) => {
+    const id = packId ?? selectedReviewPackId;
+    if (!id) {
+      setReviewSuggestions([]);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/review-packs/${id}/suggestions`,
+        { headers: headers() },
+      );
+      if (res.ok) {
+        const data = (await res.json()) as { suggestions?: ReviewSuggestion[] };
+        setReviewSuggestions(data.suggestions ?? []);
+        setReviewSuggestionEdits({});
+      }
+    } catch {
+      setReviewSuggestions([]);
+    }
+  }, [baseUrl, headers, selectedReviewPackId]);
+
   const fetchLandingVerification = useCallback(async () => {
     try {
       const res = await fetch(
@@ -845,6 +982,8 @@ export default function CounterpointSyncSettingsPanel() {
       fetchMaps(),
       fetchCategoriesForPicker(),
       fetchDsHealth(),
+      fetchReviewScopes(),
+      fetchReviewPacks(),
       fetchLandingVerification(),
       fetchTransactionReconciliation(),
       fetchOpenDocsVerification(),
@@ -859,6 +998,8 @@ export default function CounterpointSyncSettingsPanel() {
     fetchMaps,
     fetchCategoriesForPicker,
     fetchDsHealth,
+    fetchReviewScopes,
+    fetchReviewPacks,
     fetchLandingVerification,
     fetchTransactionReconciliation,
     fetchOpenDocsVerification,
@@ -881,6 +1022,10 @@ export default function CounterpointSyncSettingsPanel() {
     }
     void fetchSelectedBatchPayload(selectedBatchId);
   }, [fetchSelectedBatchPayload, selectedBatchId]);
+
+  useEffect(() => {
+    void fetchReviewSuggestions(selectedReviewPackId);
+  }, [fetchReviewSuggestions, selectedReviewPackId]);
 
   /* ── Event Handlers ── */
 
@@ -1320,6 +1465,160 @@ export default function CounterpointSyncSettingsPanel() {
     }
   };
 
+  const generateReviewPack = async () => {
+    setReviewBusy("generate");
+    setReviewError(null);
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/review-packs/generate`, {
+        method: "POST",
+        headers: { ...headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: reviewScope, limit: 500, issue_filter: "all" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? "Could not generate review pack");
+      }
+      const pack = data as ReviewPackSummary;
+      setSelectedReviewPackId(pack.pack_id);
+      toast(`Review pack generated: ${fmtNum(pack.row_count)} row(s).`, "success");
+      await fetchReviewPacks();
+      await fetchReviewSuggestions(pack.pack_id);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not generate review pack";
+      setReviewError(message);
+      toast(message, "error");
+    } finally {
+      setReviewBusy(null);
+    }
+  };
+
+  const downloadReviewPack = async (packId: string) => {
+    if (!packId) return;
+    setReviewBusy("download");
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/review-packs/${packId}/download.json`,
+        { headers: headers() },
+      );
+      if (!res.ok) throw new Error("Could not download review pack");
+      const blob = new Blob([await res.text()], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `counterpoint-review-pack-${packId}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast("Could not download review pack", "error");
+    } finally {
+      setReviewBusy(null);
+    }
+  };
+
+  const copyReviewPrompt = async (packId: string) => {
+    if (!packId) return;
+    setReviewBusy("prompt");
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/review-packs/${packId}/prompt.txt`,
+        { headers: headers() },
+      );
+      if (!res.ok) throw new Error("Could not load prompt");
+      const text = await res.text();
+      await navigator.clipboard.writeText(text);
+      toast("Manual ChatGPT/Codex prompt copied.", "success");
+    } catch {
+      toast("Could not copy prompt.", "error");
+    } finally {
+      setReviewBusy(null);
+    }
+  };
+
+  const importReviewResults = async () => {
+    const trimmed = reviewImportText.trim();
+    if (!trimmed) {
+      toast("Paste or upload the returned review JSON first.", "error");
+      return;
+    }
+    setReviewBusy("import");
+    setReviewError(null);
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/review-packs/import-results`, {
+        method: "POST",
+        headers: { ...headers(), "Content-Type": "application/json" },
+        body: JSON.stringify(parsed),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? "Imported review JSON did not pass validation");
+      }
+      toast(`Suggestions staged: ${fmtNum(data.stored_suggestions ?? 0)} pending.`, "success");
+      setReviewImportText("");
+      await fetchReviewPacks();
+      const sourcePackId = typeof data.source_pack_id === "string" ? data.source_pack_id : selectedReviewPackId;
+      if (sourcePackId) {
+        setSelectedReviewPackId(sourcePackId);
+        await fetchReviewSuggestions(sourcePackId);
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Imported review JSON did not pass validation";
+      setReviewError(message);
+      toast(message, "error");
+    } finally {
+      setReviewBusy(null);
+    }
+  };
+
+  const updateReviewSuggestion = async (suggestion: ReviewSuggestion, statusValue: string) => {
+    setReviewBusy(suggestion.id);
+    try {
+      const draft = reviewSuggestionEdits[suggestion.id];
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/review-packs/suggestions/${suggestion.id}`,
+        {
+          method: "PATCH",
+          headers: { ...headers(), "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: statusValue,
+            suggested_value: draft == null ? undefined : reviewValueFromText(draft),
+            reason: suggestion.reason,
+          }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not update suggestion");
+      await fetchReviewSuggestions(selectedReviewPackId);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not update suggestion", "error");
+    } finally {
+      setReviewBusy(null);
+    }
+  };
+
+  const applyApprovedReviewSuggestions = async () => {
+    if (!selectedReviewPackId) return;
+    setReviewBusy("apply");
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/review-packs/${selectedReviewPackId}/apply-approved`,
+        { method: "POST", headers: headers() },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not apply approved suggestions");
+      toast(
+        `Applied ${fmtNum(data.applied ?? 0)} suggestion(s); blocked ${fmtNum(data.blocked ?? 0)} review-only item(s).`,
+        "success",
+      );
+      await fetchReviewSuggestions(selectedReviewPackId);
+      await fetchInventoryCatalogVerification();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not apply approved suggestions", "error");
+    } finally {
+      setReviewBusy(null);
+    }
+  };
+
   /* ── SKU Gaps barcode assignment ── */
   const assignSkus = async () => {
     const assignments = Object.entries(skuAssignments)
@@ -1482,10 +1781,18 @@ export default function CounterpointSyncSettingsPanel() {
   const unresolvedIssueCount = status?.recent_issues.filter((issue) => !issue.resolved).length ?? 0;
   const directBridgeErrorCount = Object.values(bridgeLive?.entityStats ?? {}).filter((entry) => entry.error).length;
   const normalizedProofKeys = new Set(
-    landingVerification?.snapshot_reconciliation.flatMap((row) => [
-      row.key.toLowerCase(),
-      row.label.toLowerCase().replace(/\s+/g, "_"),
-    ]) ?? [],
+    [
+      ...(landingVerification?.rows ?? []),
+      ...(landingVerification?.snapshot_reconciliation ?? []),
+    ].flatMap((row) => {
+      const key = row.key.toLowerCase();
+      const label = row.label.toLowerCase().replace(/\s+/g, "_");
+      const aliases = [key, label];
+      if (key.includes("closed_ticket")) aliases.push("tickets");
+      if (key.includes("loyalty")) aliases.push("loyalty_hist");
+      if (key.includes("catalog") || key.includes("variant")) aliases.push("inventory");
+      return aliases;
+    }),
   );
   const entitiesMissingRosProof =
     status?.entity_runs.filter((run) => {
@@ -1512,6 +1819,15 @@ export default function CounterpointSyncSettingsPanel() {
       : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200";
   const selectedBatch =
     selectedBatchId == null ? null : (batches.find((batch) => batch.id === selectedBatchId) ?? null);
+  const selectedReviewPack =
+    reviewPacks.find((pack) => pack.pack_id === selectedReviewPackId) ?? reviewPacks[0] ?? null;
+  const selectedReviewScope =
+    reviewScopes.find((scope) => scope.scope === reviewScope) ?? reviewScopes.find((scope) => scope.scope === selectedReviewPack?.scope) ?? null;
+  const selectedPackScope =
+    selectedReviewPack == null
+      ? null
+      : reviewScopes.find((scope) => scope.scope === selectedReviewPack.scope) ?? null;
+  const acceptedReviewSuggestionCount = reviewSuggestions.filter((s) => s.status === "accepted").length;
 
   const getEntityRunProof = (run: EntityRunRow) => {
     const staged = stagingCountsByEntity.get(run.entity);
@@ -1576,23 +1892,174 @@ export default function CounterpointSyncSettingsPanel() {
   const openDocBatches = useMemo(() => batches.filter((b) => b.entity === "open_docs"), [batches]);
   const loyaltyBatches = useMemo(() => batches.filter((b) => b.entity === "loyalty_hist"), [batches]);
 
+  const normalizeProofKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  const bridgeRowsFor = (entities: string[]) => {
+    const keys = entities.map(normalizeProofKey);
+    return (status?.entity_runs ?? []).reduce((sum, run) => {
+      const entity = normalizeProofKey(run.entity);
+      return keys.includes(entity) ? sum + Math.max(0, run.records_processed ?? 0) : sum;
+    }, 0);
+  };
+  const stagedRowsFor = (entity: string, entityBatches: StagingBatchRow[]) => {
+    const staged = stagingCountsByEntity.get(entity);
+    const stagedRows =
+      (staged?.pending_rows ?? 0) + (staged?.applying_rows ?? 0) + (staged?.applied_rows ?? 0);
+    const batchRows = entityBatches.reduce((sum, batch) => {
+      return batch.status === "discarded" ? sum : sum + Math.max(0, batch.row_count);
+    }, 0);
+    return Math.max(stagedRows, batchRows);
+  };
+  const landedRowsFor = (terms: string[]) => {
+    const keys = terms.map(normalizeProofKey);
+    const directRows =
+      landingVerification?.rows.map((row) => ({
+        key: normalizeProofKey(row.key),
+        label: normalizeProofKey(row.label),
+        count: row.count,
+      })) ?? [];
+    const snapshotRows =
+      landingVerification?.snapshot_reconciliation.map((row) => ({
+        key: normalizeProofKey(row.key),
+        label: normalizeProofKey(row.label),
+        count: row.landed_count,
+      })) ?? [];
+    return [...directRows, ...snapshotRows].reduce((max, row) => {
+      const matches = keys.some((key) => row.key === key || row.label === key || row.key.includes(key) || row.label.includes(key));
+      return matches ? Math.max(max, row.count) : max;
+    }, 0);
+  };
+  const reviewReadinessFor = (
+    label: string,
+    entity: string,
+    entityBatches: StagingBatchRow[],
+    proofTerms: string[],
+  ) => {
+    const bridgeRows = bridgeRowsFor([entity]);
+    const stagedRows = stagedRowsFor(entity, entityBatches);
+    const landedRows = landedRowsFor(proofTerms);
+    const expected = bridgeRows > 0 || stagedRows > 0 || landedRows > 0;
+    const ready = !expected || stagedRows > 0 || landedRows > 0;
+    return {
+      label,
+      entity,
+      ready,
+      expected,
+      bridgeRows,
+      stagedRows,
+      landedRows,
+      message: `${label} has ${fmtNum(bridgeRows)} bridge row(s), but no staged/applied batch or ROS landed proof is available for review.`,
+    };
+  };
+  const inventoryProducts = workbenchState?.inventory_summary?.products ?? 0;
+  const inventoryVariants = workbenchState?.inventory_summary?.variants ?? 0;
+  const hasLandedInventory = inventoryProducts > 0 && inventoryVariants > 0;
+  const bridgeReportedCatalogRows = bridgeRowsFor(["inventory"]) + (dsHealth?.bridge_products ?? 0);
+  const customerReviewReady = reviewReadinessFor("Customer CRM", "customers", customerBatches, ["customers"]);
+  const ticketReviewReady = reviewReadinessFor("Sales history", "tickets", ticketBatches, [
+    "closed_ticket_transactions",
+    "closed_ticket_lines",
+    "closed_ticket_payments",
+  ]);
+  const giftCardReviewReady = reviewReadinessFor("Gift card liabilities", "gift_cards", giftBatches, ["gift_cards"]);
+  const openDocReviewReady = reviewReadinessFor("Open orders and layaways", "open_docs", openDocBatches, [
+    "open_doc_transactions",
+    "open_doc_lines",
+  ]);
+  const loyaltyReviewReady = reviewReadinessFor("Loyalty history", "loyalty_hist", loyaltyBatches, [
+    "loyalty_history",
+    "loyalty_hist",
+  ]);
+  const downstreamReviewBlockers = [
+    !hasLandedInventory && bridgeReportedCatalogRows > 0
+      ? `Bridge reported catalog/inventory rows, but ROS has ${fmtNum(inventoryProducts)} Counterpoint product(s) and ${fmtNum(inventoryVariants)} variant(s). Apply the inventory staging batch before approving catalog mapping.`
+      : null,
+    ...[
+      customerReviewReady,
+      ticketReviewReady,
+      giftCardReviewReady,
+      openDocReviewReady,
+      loyaltyReviewReady,
+    ].filter((review) => !review.ready).map((review) => review.message),
+  ].filter((line): line is string => Boolean(line));
+  const hasAnyCounterpointLandingProof =
+    hasLandedInventory ||
+    customerReviewReady.landedRows > 0 ||
+    ticketReviewReady.landedRows > 0 ||
+    giftCardReviewReady.landedRows > 0 ||
+    openDocReviewReady.landedRows > 0 ||
+    loyaltyReviewReady.landedRows > 0;
+  const bridgeReportedRows = (status?.entity_runs ?? []).reduce(
+    (sum, run) => sum + Math.max(0, run.records_processed ?? 0),
+    0,
+  );
+  const stagedReviewRows = [
+    customerReviewReady,
+    ticketReviewReady,
+    giftCardReviewReady,
+    openDocReviewReady,
+    loyaltyReviewReady,
+  ].reduce((sum, review) => sum + review.stagedRows, 0);
+  const bridgeRowsWithoutReviewSurface =
+    bridgeReportedRows > 0 && !hasLandedInventory && stagedReviewRows === 0 && !hasAnyCounterpointLandingProof;
+
   // Check sub-step statuses for Step 2
   const subStepStatus = (key: string) => workbenchState?.steps[key]?.status ?? "locked";
   const step2Approved = workbenchState?.steps["verification"]?.status === "complete";
+  const cutoverBlockers = [
+    ...signoffBlockers,
+    ...downstreamReviewBlockers,
+    visiblePendingN > 0 || visibleApplyingN > 0 ? "Staging batches are still pending or applying." : null,
+    staleApplyingN > 0 ? "At least one staging batch is stale in applying state." : null,
+    failedBatchN > 0 ? "At least one staging batch failed during apply." : null,
+    !hasAnyCounterpointLandingProof ? "No ROS landed Counterpoint proof is available for final cutover." : null,
+  ].filter((line): line is string => Boolean(line));
+  const canOpenFinalAudit =
+    step2Approved &&
+    customerReviewReady.ready &&
+    ticketReviewReady.ready &&
+    giftCardReviewReady.ready &&
+    openDocReviewReady.ready &&
+    loyaltyReviewReady.ready &&
+    visiblePendingN === 0 &&
+    visibleApplyingN === 0;
 
   // Main stepper disabled mapping (linear enforcement)
   const isStepDisabled = (stepNum: number) => {
     if (stepNum === 1) return false;
     // Step 2 unlocks if we have run data or we manually advance
     if (stepNum === 2) return false;
-    // Steps 3-7 unlock after Step 2 (Catalog) is approved
-    if (stepNum > 2 && stepNum < 8) return !step2Approved;
-    // Step 8 (Final Cutover) unlocks after all previous staging queues are empty/applied
-    if (stepNum === 8) {
-      const anyPending = batches.some((b) => b.status === "pending" || b.status === "applying");
-      return !step2Approved || anyPending;
+    if (stepNum === 3) return !step2Approved || !hasLandedInventory || !customerReviewReady.ready;
+    if (stepNum === 4) return !step2Approved || !hasLandedInventory || !customerReviewReady.ready || !ticketReviewReady.ready;
+    if (stepNum === 5) return !step2Approved || !hasLandedInventory || !customerReviewReady.ready || !ticketReviewReady.ready || !giftCardReviewReady.ready;
+    if (stepNum === 6) {
+      return !step2Approved || !hasLandedInventory || !customerReviewReady.ready || !ticketReviewReady.ready || !giftCardReviewReady.ready || !openDocReviewReady.ready;
     }
+    if (stepNum === 7) {
+      return !step2Approved || !hasLandedInventory || !customerReviewReady.ready || !ticketReviewReady.ready || !giftCardReviewReady.ready || !openDocReviewReady.ready || !loyaltyReviewReady.ready;
+    }
+    // Step 8 (Final Cutover) unlocks after all previous staging queues are empty/applied
+    if (stepNum === 8) return !canOpenFinalAudit;
     return false;
+  };
+
+  const stepBlockerMessage = (stepNum: number) => {
+    if (!step2Approved && stepNum > 2) return "Approve the inventory catalog mapping step before advancing.";
+    if (!hasLandedInventory && stepNum > 2) return "Apply the Counterpoint inventory batch before moving into downstream review.";
+    if (stepNum >= 3 && !customerReviewReady.ready) return customerReviewReady.message;
+    if (stepNum >= 4 && !ticketReviewReady.ready) return ticketReviewReady.message;
+    if (stepNum >= 5 && !giftCardReviewReady.ready) return giftCardReviewReady.message;
+    if (stepNum >= 6 && !openDocReviewReady.ready) return openDocReviewReady.message;
+    if (stepNum >= 7 && !loyaltyReviewReady.ready) return loyaltyReviewReady.message;
+    if (stepNum === 8 && cutoverBlockers.length > 0) return cutoverBlockers[0];
+    return "This Counterpoint review step is not ready yet.";
+  };
+
+  const goToStepIfReady = (stepNum: number) => {
+    if (isStepDisabled(stepNum)) {
+      toast(stepBlockerMessage(stepNum), "error");
+      return;
+    }
+    setActiveStep(stepNum);
   };
 
   // Pipeline Completion Percent
@@ -2058,6 +2525,308 @@ export default function CounterpointSyncSettingsPanel() {
         </div>
       </div>
 
+      <section className="ui-card p-5 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Counterpoint Transition Review Packs
+            </h4>
+            <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
+              Manual ChatGPT/Codex export and import for Counterpoint migration review. Riverside OS validates suggestions and never auto-applies AI output.
+            </p>
+          </div>
+          <span className="ui-pill bg-amber-500/15 text-[10px] text-amber-700 dark:text-amber-200">
+            Manual review only
+          </span>
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
+          <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+              <label className="block">
+                <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Pack scope
+                </span>
+                <select
+                  className="ui-input mt-1 text-xs"
+                  value={reviewScope}
+                  onChange={(e) => setReviewScope(e.target.value)}
+                >
+                  {(reviewScopes.length > 0 ? reviewScopes : [{ scope: "inventory_catalog", label: "Inventory Catalog", description: "", fully_functional: true, apply_supported: true, allowed_actions: [] }]).map((scope) => (
+                    <option key={scope.scope} value={scope.scope}>
+                      {scope.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => void generateReviewPack()}
+                disabled={reviewBusy === "generate"}
+                className="ui-btn-primary mt-4 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold disabled:opacity-50 md:mt-5"
+              >
+                {reviewBusy === "generate" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+                Generate Pack
+              </button>
+            </div>
+
+            {selectedReviewScope ? (
+              <div className="rounded-lg border border-app-border bg-app-surface-2/40 p-3 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-app-text">{selectedReviewScope.label}</span>
+                  <span className={`ui-pill text-[9px] ${selectedReviewScope.fully_functional ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200" : "bg-app-surface-2 text-app-text-muted"}`}>
+                    {selectedReviewScope.fully_functional ? "Full export" : "Summary scaffold"}
+                  </span>
+                  <span className={`ui-pill text-[9px] ${selectedReviewScope.apply_supported ? "bg-blue-500/10 text-blue-700 dark:text-blue-200" : "bg-amber-500/15 text-amber-700 dark:text-amber-200"}`}>
+                    {selectedReviewScope.apply_supported ? "Safe apply available" : "Review-only apply"}
+                  </span>
+                </div>
+                <p className="mt-2 text-app-text-muted">{selectedReviewScope.description}</p>
+              </div>
+            ) : null}
+
+            <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    Generated packs
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                    {reviewPacks.length > 0 ? `${fmtNum(reviewPacks.length)} pack(s) available` : "No review packs generated yet"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void fetchReviewPacks()}
+                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Reload Packs
+                </button>
+              </div>
+
+              <select
+                className="ui-input mt-3 text-xs"
+                value={selectedReviewPackId}
+                onChange={(e) => setSelectedReviewPackId(e.target.value)}
+                disabled={reviewPacks.length === 0}
+              >
+                {reviewPacks.length === 0 ? (
+                  <option value="">No packs generated</option>
+                ) : (
+                  reviewPacks.map((pack) => (
+                    <option key={pack.pack_id} value={pack.pack_id}>
+                      {formatEntityLabel(pack.scope)} - {fmtNum(pack.row_count)} rows - {formatDate(pack.generated_at)}
+                    </option>
+                  ))
+                )}
+              </select>
+
+              {selectedReviewPack ? (
+                <div className="mt-3 grid gap-2 text-xs md:grid-cols-3">
+                  <div className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Rows</p>
+                    <p className="mt-1 font-bold text-app-text">{fmtNum(selectedReviewPack.row_count)}</p>
+                  </div>
+                  <div className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Status</p>
+                    <p className="mt-1 font-bold text-app-text">{formatEntityLabel(selectedReviewPack.status)}</p>
+                  </div>
+                  <div className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Generated</p>
+                    <p className="mt-1 font-bold text-app-text">{formatDate(selectedReviewPack.generated_at)}</p>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void downloadReviewPack(selectedReviewPackId)}
+                  disabled={!selectedReviewPackId || reviewBusy === "download"}
+                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void copyReviewPrompt(selectedReviewPackId)}
+                  disabled={!selectedReviewPackId || reviewBusy === "prompt"}
+                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
+                >
+                  <ClipboardCopy className="h-3.5 w-3.5" />
+                  Copy Prompt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void fetchReviewSuggestions(selectedReviewPackId)}
+                  disabled={!selectedReviewPackId}
+                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Refresh Suggestions
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    Import reviewed JSON
+                  </p>
+                  <p className="mt-1 text-xs text-app-text-muted">
+                    Source hash, row keys, actions, categories, confidence, and forbidden fields are validated before staging.
+                  </p>
+                </div>
+                <input
+                  ref={reviewImportFileRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    void file.text().then(setReviewImportText);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => reviewImportFileRef.current?.click()}
+                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload JSON
+                </button>
+              </div>
+              <textarea
+                className="ui-input mt-3 min-h-[108px] resize-y text-xs font-mono"
+                value={reviewImportText}
+                onChange={(e) => setReviewImportText(e.target.value)}
+                placeholder='{"schema":"riverside_counterpoint_review_results","schema_version":1,...}'
+              />
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                {reviewError ? (
+                  <span className="text-xs font-semibold text-red-600">{reviewError}</span>
+                ) : (
+                  <span className="text-xs text-app-text-muted">Invalid imports are rejected and logged.</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void importReviewResults()}
+                  disabled={reviewBusy === "import" || !reviewImportText.trim()}
+                  className="ui-btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold disabled:opacity-50"
+                >
+                  {reviewBusy === "import" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  Import Results
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    Suggestions review
+                  </p>
+                  <p className="mt-1 text-xs text-app-text-muted">
+                    {reviewSuggestions.length > 0
+                      ? `${fmtNum(reviewSuggestions.length)} staged, ${fmtNum(acceptedReviewSuggestionCount)} accepted`
+                      : "No imported suggestions for this pack"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void applyApprovedReviewSuggestions()}
+                  disabled={!selectedPackScope?.apply_supported || acceptedReviewSuggestionCount === 0 || reviewBusy === "apply"}
+                  className="ui-btn-primary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Apply Approved
+                </button>
+              </div>
+
+              <div className="mt-3 max-h-[280px] overflow-auto rounded-lg border border-app-border">
+                <table className="w-full min-w-[760px] text-left text-xs">
+                  <thead className="sticky top-0 bg-app-surface-2">
+                    <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      <th className="px-2 py-2">Action</th>
+                      <th className="px-2 py-2">Row</th>
+                      <th className="px-2 py-2">Suggested Value</th>
+                      <th className="px-2 py-2">Confidence</th>
+                      <th className="px-2 py-2">Status</th>
+                      <th className="px-2 py-2">Decision</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-app-border">
+                    {reviewSuggestions.map((suggestion) => (
+                      <tr key={suggestion.id}>
+                        <td className="px-2 py-2">
+                          <p className="font-bold text-app-text">{formatEntityLabel(suggestion.action)}</p>
+                          <p className="text-[10px] text-app-text-muted">{suggestion.field_name ?? "flag"}</p>
+                        </td>
+                        <td className="px-2 py-2 font-mono text-[10px] text-app-text-muted">{suggestion.row_key}</td>
+                        <td className="px-2 py-2">
+                          <input
+                            className="ui-input min-w-[180px] text-[11px]"
+                            value={reviewSuggestionEdits[suggestion.id] ?? reviewValueToText(suggestion.suggested_value)}
+                            onChange={(e) =>
+                              setReviewSuggestionEdits((prev) => ({
+                                ...prev,
+                                [suggestion.id]: e.target.value,
+                              }))
+                            }
+                          />
+                          <p className="mt-1 line-clamp-2 text-[10px] text-app-text-muted">{suggestion.reason}</p>
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">{formatConfidence(suggestion.confidence)}</td>
+                        <td className="px-2 py-2">
+                          <span className={`ui-pill text-[9px] ${
+                            suggestion.status === "applied"
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                              : suggestion.status === "blocked" || suggestion.status === "rejected"
+                                ? "bg-red-500/10 text-red-600"
+                                : suggestion.status === "accepted"
+                                  ? "bg-blue-500/10 text-blue-700 dark:text-blue-200"
+                                  : "bg-app-surface-2 text-app-text-muted"
+                          }`}>
+                            {formatEntityLabel(suggestion.status)}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2">
+                          <div className="flex flex-wrap gap-1">
+                            {["accept", "reject", "edit", "block"].map((action) => (
+                              <button
+                                key={action}
+                                type="button"
+                                onClick={() => void updateReviewSuggestion(suggestion, action)}
+                                disabled={reviewBusy === suggestion.id || suggestion.status === "applied"}
+                                className="ui-btn-secondary px-2 py-1 text-[10px] font-bold disabled:opacity-50"
+                              >
+                                {formatEntityLabel(action)}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {reviewSuggestions.length === 0 ? (
+                  <div className="p-4 text-xs text-app-text-muted">
+                    Download a pack, review it manually, then import the returned JSON suggestions.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {bridgeReachabilityPanel}
 
       {/* ── Progress Indicators ── */}
@@ -2116,6 +2885,34 @@ export default function CounterpointSyncSettingsPanel() {
           </button>
         </div>
       </div>
+
+      {(bridgeRowsWithoutReviewSurface || downstreamReviewBlockers.length > 0) && (
+        <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+            <div className="space-y-2">
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-red-700 dark:text-red-300">
+                  Counterpoint review advancement blocked
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  Bridge-reported rows must have staged, applied, or ROS landed proof before later review steps or cutover can be completed.
+                </p>
+              </div>
+              <ul className="list-disc space-y-1 pl-4 text-xs font-semibold text-red-700 dark:text-red-300">
+                {bridgeRowsWithoutReviewSurface ? (
+                  <li>
+                    Bridge runs reported {fmtNum(bridgeReportedRows)} row(s), but no downstream review surface or landed proof is available.
+                  </li>
+                ) : null}
+                {downstreamReviewBlockers.slice(0, 4).map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       {workspaceView === "inbound" ? inboundQueuePanel : null}
       {workspaceView === "details" ? supportDiagnosticsPanel : null}
@@ -3080,8 +3877,8 @@ export default function CounterpointSyncSettingsPanel() {
             </span>
             <button
               type="button"
-              onClick={() => setActiveStep(3)}
-              disabled={!step2Approved}
+              onClick={() => goToStepIfReady(3)}
+              disabled={isStepDisabled(3)}
               className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
             >
               Proceed to Customer CRM Import
@@ -3115,8 +3912,9 @@ export default function CounterpointSyncSettingsPanel() {
             </span>
             <button
               type="button"
-              onClick={() => setActiveStep(4)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+              onClick={() => goToStepIfReady(4)}
+              disabled={isStepDisabled(4)}
+              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
             >
               Proceed to Sales History
               <ChevronRight className="h-4 w-4" />
@@ -3192,8 +3990,9 @@ export default function CounterpointSyncSettingsPanel() {
             </span>
             <button
               type="button"
-              onClick={() => setActiveStep(5)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+              onClick={() => goToStepIfReady(5)}
+              disabled={isStepDisabled(5)}
+              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
             >
               Proceed to Gift Cards
               <ChevronRight className="h-4 w-4" />
@@ -3267,8 +4066,9 @@ export default function CounterpointSyncSettingsPanel() {
             </span>
             <button
               type="button"
-              onClick={() => setActiveStep(6)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+              onClick={() => goToStepIfReady(6)}
+              disabled={isStepDisabled(6)}
+              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
             >
               Proceed to Open Orders (Open Docs)
               <ChevronRight className="h-4 w-4" />
@@ -3325,8 +4125,9 @@ export default function CounterpointSyncSettingsPanel() {
             </span>
             <button
               type="button"
-              onClick={() => setActiveStep(7)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+              onClick={() => goToStepIfReady(7)}
+              disabled={isStepDisabled(7)}
+              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
             >
               Proceed to Loyalty History
               <ChevronRight className="h-4 w-4" />
@@ -3359,8 +4160,9 @@ export default function CounterpointSyncSettingsPanel() {
             </span>
             <button
               type="button"
-              onClick={() => setActiveStep(8)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
+              onClick={() => goToStepIfReady(8)}
+              disabled={isStepDisabled(8)}
+              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
             >
               Proceed to Final Go-Live Audit
               <ChevronRight className="h-4 w-4" />
@@ -3436,13 +4238,31 @@ export default function CounterpointSyncSettingsPanel() {
                   <label htmlFor="check-cutoff" className="font-medium text-app-text">Confirm SQL direct bridge imports retired for day-1 live trading</label>
                 </div>
 
+                {cutoverBlockers.length > 0 ? (
+                  <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-red-700 dark:text-red-300">
+                      Cutover blocked
+                    </p>
+                    <ul className="mt-2 list-disc space-y-1 pl-4 text-[10px] font-semibold text-red-700 dark:text-red-300">
+                      {cutoverBlockers.slice(0, 5).map((blocker) => (
+                        <li key={blocker}>{blocker}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
                 <div className="border-t border-app-border pt-3 mt-3">
                   <button
                     type="button"
                     onClick={() => {
+                      if (cutoverBlockers.length > 0) {
+                        toast(cutoverBlockers[0], "error");
+                        return;
+                      }
                       toast("Guided migration cutover complete! Live trading is active.", "success");
                     }}
-                    className="ui-btn-primary w-full py-2.5 text-xs font-black uppercase tracking-widest"
+                    disabled={cutoverBlockers.length > 0}
+                    className="ui-btn-primary w-full py-2.5 text-xs font-black uppercase tracking-widest disabled:opacity-50"
                   >
                     Approve Cutover & Complete Migration
                   </button>

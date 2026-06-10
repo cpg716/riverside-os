@@ -1670,6 +1670,10 @@ pub fn router() -> Router<AppState> {
 /// Staff-gated settings routes under `/api/settings/counterpoint-sync`.
 pub fn settings_router() -> Router<AppState> {
     Router::new()
+        .nest(
+            "/review-packs",
+            crate::api::counterpoint_review_packs::router(),
+        )
         .route("/health", get(get_health))
         .route("/status", get(settings_status))
         .route(

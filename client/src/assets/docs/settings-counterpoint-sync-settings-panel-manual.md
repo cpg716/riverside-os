@@ -42,6 +42,18 @@ The Bridge sync token saved in this panel must match `COUNTERPOINT_SYNC_TOKEN` i
 
 Post-import verification appears before sign-off reconciliation. It shows import proof such as bridge rows sent, ROS rows landed, missing landed proof, count matches, lower ROS counts, and bridge-only entities.
 
+The migration steps are proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If a later step is locked, apply or recover the matching staging batch until the step has staged, applied, or ROS landed proof.
+
+## Counterpoint Transition Review Packs
+
+Use Counterpoint Transition Review Packs when staff need a manual ChatGPT/Codex review of Counterpoint migration rows.
+
+Generate a pack, download the JSON, copy the prompt, and review the file manually outside Riverside OS. Import only the returned JSON result file. Riverside OS validates the source hash, row keys, allowed actions, confidence, reason, category targets, and forbidden fields before staging suggestions.
+
+Imported suggestions never apply automatically. Staff must accept, reject, edit, or block each suggestion. **Apply Approved** is available only for safe inventory catalog name/category cleanup. Financial totals, tax, tenders, gift card balances, store credit balances, deposits, quantities, costs, dates, original Counterpoint IDs, customer merge targets, and QBO/accounting mappings remain review-only.
+
+For returns/exchanges, use the returns readiness scope to flag whether historical Counterpoint purchases resolve to current ROS items and original tender evidence. It preserves original Counterpoint ticket and line identity.
+
 ## Blockers and warnings
 
 Review blockers before warnings. Common blockers include pending staging batches, unresolved sync issues, missing ROS landed proof, and bridge entity errors.

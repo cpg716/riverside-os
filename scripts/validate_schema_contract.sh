@@ -39,6 +39,10 @@ WITH expected_tables(schema_name, table_name) AS (
         ('public', 'counterpoint_staging_batch'),
         ('public', 'counterpoint_payment_method_map'),
         ('public', 'counterpoint_gift_reason_map'),
+        ('public', 'counterpoint_review_packs'),
+        ('public', 'counterpoint_review_pack_rows'),
+        ('public', 'counterpoint_ai_review_imports'),
+        ('public', 'counterpoint_ai_review_suggestions'),
         ('public', 'shipment'),
         ('public', 'ros_schema_migrations')
 ),
@@ -108,7 +112,10 @@ expected_indexes(schema_name, index_name) AS (
         ('public', 'idx_staff_permission_staff'),
         ('public', 'payment_transactions_provider_transaction_uidx'),
         ('public', 'qbo_sync_logs_one_pending_per_date_uidx'),
-        ('public', 'store_checkout_payment_attempt_open_session_provider_uidx')
+        ('public', 'store_checkout_payment_attempt_open_session_provider_uidx'),
+        ('public', 'idx_counterpoint_review_packs_scope_status'),
+        ('public', 'idx_counterpoint_review_pack_rows_pack'),
+        ('public', 'idx_counterpoint_ai_review_suggestions_pack_status')
 ),
 expected_functions(schema_name, function_name) AS (
     VALUES

@@ -11,6 +11,7 @@ pub mod ai;
 pub mod alterations;
 pub mod bug_reports;
 pub mod categories;
+pub mod counterpoint_review_packs;
 pub mod counterpoint_sync;
 pub mod counterpoint_workbench;
 pub mod customer_notifications;

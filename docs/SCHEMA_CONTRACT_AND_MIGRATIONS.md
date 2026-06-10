@@ -54,6 +54,7 @@ The only active migration files in `migrations/` are:
 | `036_financial_date_and_counterpoint_integrity.sql` | Financial date and Counterpoint integrity hardening |
 | `037_backfill_missing_columns.sql` | Backfill columns added to earlier files after they were applied (`store_media_asset.deleted_at/alt_text/usage_note`, `categories.variation_axis_presets`) |
 | `078_data_integrity_hardening.sql` | Provider ledger, QBO pending-row, and online checkout attempt integrity constraints |
+| `079_counterpoint_transition_review_packs.sql` | Manual Counterpoint transition review-pack export/import audit tables |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 
@@ -110,7 +111,7 @@ bash scripts/schema_diff.sh <left-db-or-url> <right-db-or-url>
 
 ## Checksum Drift Detection
 
-As of migration 078, migration tooling stores a SHA-256 checksum of each migration file in the `file_sha256` column of `ros_schema_migrations`. Server startup verifies applied checksums, fails on drift, and refuses pending migrations unless `RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP=true` is explicitly set for a non-production startup apply.
+As of migration 079, migration tooling stores a SHA-256 checksum of each migration file in the `file_sha256` column of `ros_schema_migrations`. Server startup verifies applied checksums, fails on drift, and refuses pending migrations unless `RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP=true` is explicitly set for a non-production startup apply.
 
 On each run the script compares the current file hash against the stored hash. If a file has been modified since it was applied, the script prints a **`⚠ DRIFT`** warning:
 

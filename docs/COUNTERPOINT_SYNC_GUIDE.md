@@ -4,6 +4,7 @@ End-to-end reference for setting up and operating the one-way data ingest from *
 
 **Companion docs:**
 - [`COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md`](COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) — **operator manual**: direct vs staging, hub, prerequisites, bridge/API updates, troubleshooting
+- [`COUNTERPOINT_TRANSITION_REVIEW_PACKS.md`](COUNTERPOINT_TRANSITION_REVIEW_PACKS.md) — manual ChatGPT/Codex review-pack export/import workflow for transition cleanup and returns readiness
 - [`WEDDING_COUNTERPOINT_CUTOVER_LINKING.md`](WEDDING_COUNTERPOINT_CUTOVER_LINKING.md) — how imported wedding parties are reviewed and linked to Counterpoint-synced customers, transactions, and item lifecycle states
 - [`PLAN_COUNTERPOINT_ROS_SYNC.md`](PLAN_COUNTERPOINT_ROS_SYNC.md) — implementation roadmap and schema mapping tables
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
@@ -11,6 +12,8 @@ End-to-end reference for setting up and operating the one-way data ingest from *
 
 **Guided Migration Pipeline:**
 The Counterpoint Sync and Migration Inventory Workbench have been consolidated into a single **8-step guided pipeline** in **Settings → Integrations → Counterpoint**. This unified workflow enforces a logical sequence of data preparation, cleaning, verification, and live import:
+
+The same settings panel also includes **Counterpoint Transition Review Packs** for manual ChatGPT/Codex review. ROS generates JSON packs, staff upload those files manually to the external review tool, and ROS validates imported suggestions before any Staff Access review or safe apply action.
 
 1. **Step 1: SQL Bridge Sync** - Health status, sync control, progress tracking, staging table management
 2. **Step 2: Inventory & Catalog Mapping** - CSV enrichment, category maps, vendor maps, AI enrichment (ROSIE), SKU gaps, merge preview
@@ -20,6 +23,8 @@ The Counterpoint Sync and Migration Inventory Workbench have been consolidated i
 6. **Step 6: Open Orders & Layaways** - Load active orders and deposits
 7. **Step 7: Loyalty History** - Verify and load loyalty balances
 8. **Step 8: Audit & Live Cutover** - Landing verification, checksums, final Go-Live sign-off
+
+Advancement is proof-gated. Bridge-reported row counts alone do not unlock downstream review or cutover. Inventory mapping approval requires Counterpoint products and variants to be landed in ROS, and each downstream review step requires staged/applied rows or ROS landed proof when the bridge reported rows for that entity. If the bridge shows data but later review screens are empty, stop and apply or recover the staging batch before continuing.
 
 **Optional SQL objects:** Gift and loyalty tables (Standard examples: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are Counterpoint-style names from product/schema docs. Local installations can use different names such as **`SY_GFC`** (Gift Cards) or **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 

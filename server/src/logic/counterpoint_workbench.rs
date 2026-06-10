@@ -297,6 +297,8 @@ pub async fn approve_step(
         return Err(WorkbenchError::AlreadyApproved(step.to_string()));
     }
 
+    validate_step_approval_prerequisites(pool, step).await?;
+
     // Mark complete
     let sql = format!(
         "UPDATE counterpoint_workbench_state SET {status_col} = 'complete', {approved_at_col} = NOW(), {approved_by_col} = $1, updated_at = NOW() WHERE id = 1"
@@ -338,6 +340,52 @@ pub async fn approve_step(
         step: step.to_string(),
         next_step_unlocked: next_unlocked,
     })
+}
+
+async fn validate_step_approval_prerequisites(
+    pool: &PgPool,
+    step: &str,
+) -> Result<(), WorkbenchError> {
+    match step {
+        "data_sources" => {
+            let health = get_data_sources_health(pool)
+                .await
+                .map_err(WorkbenchError::Database)?;
+            let staged_inventory_rows: i64 = sqlx::query_scalar(
+                r#"
+                SELECT COALESCE(SUM(row_count), 0)::bigint
+                FROM counterpoint_staging_batch
+                WHERE entity = 'inventory'
+                  AND status IN ('pending', 'applying', 'applied')
+                "#,
+            )
+            .fetch_one(pool)
+            .await
+            .map_err(WorkbenchError::Database)?;
+            let source_rows = health.bridge_products
+                + health.lightspeed_rows
+                + health.cp_csv_rows
+                + staged_inventory_rows;
+            if source_rows <= 0 {
+                return Err(WorkbenchError::PrerequisiteMissing(
+                    "No Counterpoint, Lightspeed, CP CSV, or staged inventory source rows are available. Run the bridge sync or upload a reference CSV before locking sources.".into(),
+                ));
+            }
+            Ok(())
+        }
+        "categories" | "vendors" | "catalog" | "sku_gaps" | "verification" => {
+            let summary = fetch_inventory_summary(pool)
+                .await
+                .map_err(WorkbenchError::Database)?;
+            if summary.products <= 0 || summary.variants <= 0 {
+                return Err(WorkbenchError::PrerequisiteMissing(
+                    "Inventory mapping cannot be approved until Counterpoint products and variants have landed in ROS. Apply the staged inventory batch before advancing.".into(),
+                ));
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1346,6 +1394,8 @@ pub enum WorkbenchError {
     StepLocked(String),
     #[error("step '{0}' is already approved")]
     AlreadyApproved(String),
+    #[error("approval prerequisite missing: {0}")]
+    PrerequisiteMissing(String),
     #[error("invalid payload: {0}")]
     InvalidPayload(String),
     #[error(transparent)]
