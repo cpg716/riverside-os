@@ -72,7 +72,18 @@ for f in $(ls "$ROOT"/migrations/[0-9][0-9]*_*.sql 2>/dev/null | sort -V); do
   fi
   ensure_checksum_column
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
-    "INSERT INTO ros_schema_migrations (version, file_sha256) VALUES ('$base', '$current_sha') ON CONFLICT (version) DO UPDATE SET file_sha256 = CASE WHEN ros_schema_migrations.file_sha256 IS NULL OR btrim(ros_schema_migrations.file_sha256) = '' THEN EXCLUDED.file_sha256 ELSE ros_schema_migrations.file_sha256 END;"
+    "WITH recorded AS (
+       UPDATE ros_schema_migrations
+          SET file_sha256 = CASE
+              WHEN file_sha256 IS NULL OR btrim(file_sha256) = '' THEN '$current_sha'
+              ELSE file_sha256
+          END
+        WHERE version = '$base'
+        RETURNING 1
+     )
+     INSERT INTO ros_schema_migrations (version, file_sha256)
+     SELECT '$base', '$current_sha'
+     WHERE NOT EXISTS (SELECT 1 FROM recorded);"
 done
 
 echo ""
