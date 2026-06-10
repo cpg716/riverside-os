@@ -10,25 +10,26 @@ End-to-end reference for setting up and operating the one-way data ingest from *
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
 - [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — three-value connection template
 
-**Guided Migration Pipeline:**
-The Counterpoint Sync and Migration Inventory Workbench have been consolidated into a single **8-step guided pipeline** in **Settings → Integrations → Counterpoint**. This unified workflow enforces a logical sequence of data preparation, cleaning, verification, and live import:
+**Import-First Migration Command Center:**
+The Counterpoint Sync and Migration Inventory Workbench now defaults to a single **Command center** in **Settings → Integrations → Counterpoint**. The operator workflow is source-count preflight, optional reset baseline, full import, import results, exceptions, AI cleanup, and go-live readiness:
 
 The same settings panel also includes **Counterpoint Transition Review Packs** for manual ChatGPT/Codex review. ROS generates JSON packs, staff upload those files manually to the external review tool, and ROS validates imported suggestions before any Staff Access review or safe apply action.
 
-1. **Step 1: SQL Bridge Sync** - Health status, sync control, progress tracking, staging table management
-2. **Step 2: Inventory & Catalog Mapping** - CSV enrichment, category maps, vendor maps, AI enrichment (ROSIE), SKU gaps, merge preview
-3. **Step 3: Customers & CRM** - Review and load staged customer profiles
-4. **Step 4: Sales & Ticket History** - Review and load closed tickets
-5. **Step 5: Gift Cards & Liabilities** - Verify active liabilities
-6. **Step 6: Open Orders & Layaways** - Load active orders and deposits
-7. **Step 7: Loyalty History** - Verify and load loyalty balances
-8. **Step 8: Audit & Live Cutover** - Landing verification, checksums, final Go-Live sign-off
+1. **Connect & Source Counts** - Bridge reachability, token/base URL check, `CP_IMPORT_SINCE=2018-01-01`, and source-count probes
+2. **Reset/Rehearsal Controls** - guarded reset to a clean rehearsal baseline when needed
+3. **Run Full Import** - import supported Counterpoint rows directly into ROS after preflight passes
+4. **Import Results** - expected source rows, Bridge-sent rows, ROS landed rows, failed rows, fallback-landed rows
+5. **Exceptions** - failed, quarantined, or fallback-landed source records requiring review
+6. **AI Cleanup** - post-import catalog/customer cleanup suggestions only
+7. **Go-Live Readiness** - deterministic proof and final recommendation
 
-Advancement is proof-gated. Bridge-reported row counts alone do not unlock downstream review or cutover. Inventory mapping approval requires Counterpoint products and variants to be landed in ROS, and each downstream review step requires staged/applied rows or ROS landed proof when the bridge reported rows for that entity. If the bridge shows data but later review screens are empty, stop and apply or recover the staging batch before continuing.
+Advancement is proof-gated. Bridge-reported row counts alone do not unlock import or cutover. If the Bridge reports suspiciously low ticket/open-doc counts, a wrong ROS base URL, `401 invalid or missing sync token`, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import.
+
+When preflight passes, the Bridge starts a ROS import run before sending entity batches. Each batch writes through the normal Counterpoint ingest path, then ROS records raw source rows and provenance links to the landed ROS rows. The command center's latest import-run status is the operator proof surface; a run that never starts, fails, or has zero landed proof is not complete.
 
 **Optional SQL objects:** Gift and loyalty tables (Standard examples: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are Counterpoint-style names from product/schema docs. Local installations can use different names such as **`SY_GFC`** (Gift Cards) or **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 
-**Migrations:** 29 (base `counterpoint_item_key` + `counterpoint_sync_runs`), 84 (heartbeat, ticket idempotency, sync requests/issues, mapping tables), 85 (provenance: `customer_created_source = 'counterpoint'`, `products.data_source`), 86 (staff sync: `counterpoint_staff_map`, `staff.data_source` / `counterpoint_user_id` / `counterpoint_sls_rep`, `customers.preferred_salesperson_id`, `transactions.processed_by_staff_id`), 89 (`vendor_supplier_item` for `PO_VEND_ITEM`, idempotent `loyalty_point_ledger` index for `PS_LOY_PTS_HIST` imports), 95 (`counterpoint_staging_batch` + `store_settings.counterpoint_config` for optional **staging** ingest controlled in Back Office).
+**Migrations:** active baseline migration `081_counterpoint_import_first_proof.sql` adds `counterpoint_import_runs`, `counterpoint_import_source_counts`, `counterpoint_import_raw_records`, `counterpoint_import_provenance`, and `counterpoint_import_exceptions` for import-first proof. Earlier Counterpoint migrations add item keys, sync runs/issues, mapping tables, staff/customer/catalog provenance, vendor supplier items, optional staging, transition review packs, and payment-method aliases.
 
 ---
 
@@ -72,10 +73,10 @@ From the repo root (Postgres must be running via `docker compose up -d`):
 ./scripts/apply-migrations-docker.sh
 ```
 
-Migrations **84** and **85** create the required tables and columns. Verify:
+The active migration layout currently runs through **081**. Migration **081** creates the import-first run, source-count, raw-record, provenance, and exception proof tables. Verify:
 
 ```bash
-./scripts/migration-status-docker.sh | grep -E "84_|85_"
+./scripts/migration-status-docker.sh | grep "081_counterpoint_import_first_proof"
 ```
 
 ### 2b. Set sync token
@@ -386,11 +387,14 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | `CASH` | `cash` |
 | `CHECK` | `check` |
 | `CREDIT CARD` | `credit_card` |
+| `CREDITCARD` | `credit_card` |
 | `DEBIT` | `credit_card` |
 | `GIFT CERT` | `gift_card` |
 | `ON ACCOUNT` | `on_account` |
 
 ROS ships common Counterpoint tender mappings, and admins can review or change them in **Settings → Counterpoint → Payments**. Unknown tender codes no longer silently fall back to cash; they import as `counterpoint_unmapped`, preserve the original Counterpoint tender code in payment metadata, and create an unresolved sync issue that must be reviewed before sign-off.
+
+Historical tickets and open documents are not dropped solely because Counterpoint omitted line detail or provided only an ambiguous parent item key. When a financial record has payment/header value but no exact ROS variant can be selected, ROS imports it against the `HIST-CP-FALLBACK` item, preserves the original Counterpoint key in `transaction_lines.vendor_reference`, and raises a review warning for operator cleanup.
 
 ### 4f-2. Customer ID Matching & Prefix Logic (v0.8.0+)
 To handle mixed Counterpoint ID formats (legacy integers vs. newer `C-` prefixed strings), the ROS sync service employs a bidirectional resolution strategy during ticket and open-doc imports:
@@ -572,7 +576,7 @@ The Fresh baseline reset preserves reviewed Counterpoint mapping configuration s
 
 Do not use `scripts/ros-wipe-business-data-keep-bootstrap-admin.sql` as the normal Counterpoint rehearsal reset. That script is a broad operational/business-data wipe; it may clear more operational setup and does not preserve the same Counterpoint rehearsal state.
 
-The server reset does not touch bridge-local cursor files. Delete or reset `.counterpoint-bridge-state.json` on the Counterpoint PC before the next run if you need a true full replay instead of continuing from saved bridge cursors.
+The server reset also clears the active ROS import-run pointer and import-first proof rows. It does not touch bridge-local cursor files. Delete or reset `.counterpoint-bridge-state.json` on the Counterpoint PC before the next run if you need a true full replay instead of continuing from saved bridge cursors.
 
 ### API endpoints (staff-gated, `settings.admin`)
 

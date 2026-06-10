@@ -222,6 +222,35 @@ function checkDirectPrinterRouting() {
   );
 }
 
+function checkTagDesignerPrintPreviewTruthfulness() {
+  const file = "client/src/components/inventory/labelPrint.ts";
+  const content = read(file);
+  assert(
+    content.includes("Tag print preview was blocked") &&
+      !/return\s+["']blocked["']/.test(content) &&
+      !/\|\s*["']blocked["']/.test(content),
+    "Tag Designer preview throws instead of reporting success when the preview is blocked",
+    file,
+    "Blocked tag previews must surface as errors so staff do not see a false print/preview success.",
+  );
+  assert(
+    content.includes("resolveDesktopTagPrintTarget") &&
+      content.includes("listSystemPrinters") &&
+      content.includes('mode: "system"') &&
+      content.includes('autoRoutePrint("tag", payload, language, target)'),
+    "Desktop tag test print can use an installed Zebra when the tag station is still on default loopback",
+    file,
+    "A Windows-installed Zebra 2844 should not silently fall through to 127.0.0.1:9100 when that default was never replaced.",
+  );
+  assert(
+    content.includes("Print preview also failed") &&
+      content.includes("window['print']()"),
+    "Tag print fallback reports preview failures and opens the generated tag print dialog",
+    file,
+    "If direct tag dispatch fails, the fallback must either open a real printable preview or throw a visible error.",
+  );
+}
+
 function checkRegisterReportPrinterRouting() {
   const file = "client/src/components/pos/zReportPrint.ts";
   const content = read(file);
@@ -687,6 +716,7 @@ checkNoLegacyTauriGlobalDetection();
 checkNoComponentBrowserPrintBypass();
 checkFireAndForgetPrintsAreCaught();
 checkDirectPrinterRouting();
+checkTagDesignerPrintPreviewTruthfulness();
 checkRegisterReportPrinterRouting();
 checkCuratedReportsPrintVisibility();
 checkPrintRoutingManifest();

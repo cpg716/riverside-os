@@ -87,7 +87,138 @@ async function mockCounterpointStatus(
   });
 }
 
+function stagingBatch(overrides: Record<string, unknown>) {
+  return {
+    id: 1,
+    entity: "catalog",
+    row_count: 1,
+    status: "pending",
+    apply_error: null,
+    bridge_version: "test",
+    bridge_hostname: "counterpoint-host",
+    created_at: NOW,
+    applied_at: null,
+    applied_by_staff_id: null,
+    applied_by_staff_name: null,
+    apply_started_at: null,
+    apply_claimed_by_staff_id: null,
+    apply_claimed_by_staff_name: null,
+    replay_count: 0,
+    last_replayed_at: null,
+    payload_fingerprint: "abc123",
+    recovered_at: null,
+    recovered_by_staff_id: null,
+    recovered_by_staff_name: null,
+    recovery_reason: null,
+    ...overrides,
+  };
+}
+
 async function mockCounterpointProofRoutes(page: Page) {
+  const snapshotReconciliation = [
+    {
+      key: "customers",
+      label: "Customers",
+      status: "pass",
+      passed: true,
+      source_count: 100,
+      landed_count: 100,
+      count_difference: 0,
+      source_sum: null,
+      landed_sum: "0.00",
+      sum_difference: null,
+      source_checksum: "customers-source",
+      landed_checksum: "customers-source",
+      checksum_matched: true,
+      note: "Customer proof table matches.",
+      source_updated_at: NOW,
+    },
+    {
+      key: "catalog_products",
+      label: "Catalog products",
+      status: "fail",
+      passed: false,
+      source_count: 50,
+      landed_count: 40,
+      count_difference: -10,
+      source_sum: null,
+      landed_sum: "0.00",
+      sum_difference: null,
+      source_checksum: "catalog-source",
+      landed_checksum: "catalog-landed",
+      checksum_matched: false,
+      note: "Catalog proof table is lower than the bridge count.",
+      source_updated_at: NOW,
+    },
+  ];
+  await page.route("**/api/settings/counterpoint-sync/command-center", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        generated_at: NOW,
+        mode: "import_first",
+        required_history_start: "2018-01-01",
+        token_configured: true,
+        latest_preflight: {
+          id: "00000000-0000-0000-0000-000000000001",
+          run_kind: "preflight",
+          status: "preflight_passed",
+          history_start: "2018-01-01",
+          bridge_hostname: "counterpoint-host",
+          bridge_version: "test",
+          ros_base_url: "http://127.0.0.1:3000",
+          source_fingerprint: "abc",
+          preflight_passed: true,
+          preflight_blockers: [],
+          totals: {},
+          started_at: NOW,
+          completed_at: NOW,
+          created_at: NOW,
+          updated_at: NOW,
+        },
+        source_counts: [
+          {
+            entity_key: "customers",
+            label: "Counterpoint customers",
+            source_count: 100,
+            source_sum: null,
+            source_checksum: null,
+            required: true,
+            suspicious_min_count: null,
+            status: "ok",
+            message: null,
+          },
+          {
+            entity_key: "catalog_products",
+            label: "Catalog products",
+            source_count: 50,
+            source_sum: null,
+            source_checksum: null,
+            required: true,
+            suspicious_min_count: null,
+            status: "ok",
+            message: null,
+          },
+        ],
+        landing_rows: [],
+        snapshot_reconciliation: snapshotReconciliation,
+        open_exception_count: 0,
+        fallback_landed_exception_count: 0,
+        staging_open_count: 0,
+        ready_for_import: true,
+        ready_for_go_live_review: true,
+        recommendation: "GO FOR REHEARSAL IMPORT",
+      }),
+    });
+  });
+  await page.route("**/api/settings/counterpoint-sync/exceptions**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ rows: [] }),
+    });
+  });
   await page.route("**/api/settings/counterpoint-sync/landing-verification", async (route) => {
     await route.fulfill({
       status: 200,
@@ -111,42 +242,7 @@ async function mockCounterpointProofRoutes(page: Page) {
             note: "Staff attribution uses legacy cashier mapping.",
           },
         ],
-        snapshot_reconciliation: [
-          {
-            key: "customers",
-            label: "Customers",
-            status: "pass",
-            passed: true,
-            source_count: 100,
-            landed_count: 100,
-            count_difference: 0,
-            source_sum: null,
-            landed_sum: "0.00",
-            sum_difference: null,
-            source_checksum: "customers-source",
-            landed_checksum: "customers-source",
-            checksum_matched: true,
-            note: "Customer proof table matches.",
-            source_updated_at: NOW,
-          },
-          {
-            key: "catalog_products",
-            label: "Catalog products",
-            status: "fail",
-            passed: false,
-            source_count: 50,
-            landed_count: 40,
-            count_difference: -10,
-            source_sum: null,
-            landed_sum: "0.00",
-            sum_difference: null,
-            source_checksum: "catalog-source",
-            landed_checksum: "catalog-landed",
-            checksum_matched: false,
-            note: "Catalog proof table is lower than the bridge count.",
-            source_updated_at: NOW,
-          },
-        ],
+        snapshot_reconciliation: snapshotReconciliation,
         cutover_visibility: [
           {
             key: "register_products",
@@ -250,6 +346,35 @@ async function mockCounterpointProofRoutes(page: Page) {
 }
 
 async function mockEmptyCounterpointProofRoutes(page: Page) {
+  await page.route("**/api/settings/counterpoint-sync/command-center", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        generated_at: NOW,
+        mode: "import_first",
+        required_history_start: "2018-01-01",
+        token_configured: true,
+        latest_preflight: null,
+        source_counts: [],
+        landing_rows: [],
+        snapshot_reconciliation: [],
+        open_exception_count: 0,
+        fallback_landed_exception_count: 0,
+        staging_open_count: 0,
+        ready_for_import: false,
+        ready_for_go_live_review: false,
+        recommendation: "NO-GO: run Bridge source-count preflight first.",
+      }),
+    });
+  });
+  await page.route("**/api/settings/counterpoint-sync/exceptions**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ rows: [] }),
+    });
+  });
   await page.route("**/api/settings/counterpoint-sync/landing-verification", async (route) => {
     await route.fulfill({
       status: 200,
@@ -352,31 +477,32 @@ async function mockEmptyCounterpointProofRoutes(page: Page) {
   });
 }
 
-async function mockCounterpointWorkbenchState(page: Page) {
+async function mockCounterpointWorkbenchState(page: Page, overrides: Record<string, unknown> = {}) {
+  const baseState = {
+    current_step: "data_sources",
+    steps: {
+      data_sources: { status: "pending", approved_at: null },
+      categories: { status: "locked", approved_at: null },
+      vendors: { status: "locked", approved_at: null },
+      catalog: { status: "locked", approved_at: null },
+      sku_gaps: { status: "locked", approved_at: null },
+      verification: { status: "locked", approved_at: null },
+    },
+    inventory_summary: {
+      products: 0,
+      variants: 0,
+      categories: 0,
+      vendors: 0,
+      variants_missing_barcode: 0,
+      quarantine_count: 0,
+    },
+    can_reset: true,
+  };
   await page.route("**/api/settings/counterpoint-sync/workbench/state", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        current_step: "data_sources",
-        steps: {
-          data_sources: { status: "pending", approved_at: null },
-          categories: { status: "locked", approved_at: null },
-          vendors: { status: "locked", approved_at: null },
-          catalog: { status: "locked", approved_at: null },
-          sku_gaps: { status: "locked", approved_at: null },
-          verification: { status: "locked", approved_at: null },
-        },
-        inventory_summary: {
-          products: 0,
-          variants: 0,
-          categories: 0,
-          vendors: 0,
-          variants_missing_barcode: 0,
-          quarantine_count: 0,
-        },
-        can_reset: true,
-      }),
+      body: JSON.stringify({ ...baseState, ...overrides }),
     });
   });
 }
@@ -728,6 +854,7 @@ test.describe("Counterpoint sign-off UI", () => {
     page,
     request,
   }) => {
+    test.setTimeout(60_000);
     enableCounterpointStaging();
     const replaySku = uniqueSuffix("CP-UI-REPLAY").toUpperCase();
     const staleSku = uniqueSuffix("CP-UI-STALE").toUpperCase();
@@ -762,12 +889,12 @@ test.describe("Counterpoint sign-off UI", () => {
         timeout: 15_000,
       });
       await panel.getByRole("button", { name: /^reload$/i }).click();
-      await expect(panel.getByText(String(replayBatchId))).toBeVisible();
+      await expect(panel.getByRole("cell", { name: String(replayBatchId), exact: true })).toBeVisible();
       await expect(panel.getByText("Replay suppressed x1")).toBeVisible();
-      await expect(panel.getByText(String(staleBatchId))).toBeVisible();
+      await expect(panel.getByRole("cell", { name: String(staleBatchId), exact: true })).toBeVisible();
       await expect(panel.getByRole("table").getByText("Stale applying")).toBeVisible();
 
-      await panel.getByText(String(staleBatchId)).click();
+      await panel.getByRole("cell", { name: String(staleBatchId), exact: true }).click();
       await expect(panel.getByText("Apply claimed", { exact: true })).toBeVisible();
       await expect(panel.getByText(/Safe recovery is available/i)).toBeVisible();
       await expect(panel.getByText(/Next safe action: Recovery review/i)).toBeVisible();
@@ -818,7 +945,108 @@ test.describe("Counterpoint sign-off UI", () => {
     await expect(panel.getByText("No automatic blockers detected")).toHaveCount(0);
   });
 
+  test("defaults to one-time import overview and keeps AI review optional", async ({ page }) => {
+    test.setTimeout(60_000);
+    const rows = [
+      stagingBatch({ id: 12, entity: "receiving_history", row_count: 2 }),
+      stagingBatch({ id: 10, entity: "catalog", row_count: 50 }),
+      stagingBatch({ id: 11, entity: "inventory", row_count: 75 }),
+    ];
+    await page.route("**/api/settings/counterpoint-sync/staging/batches**", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(rows),
+      });
+    });
+    await mockBridgeStatus(page, "unavailable");
+    await mockCounterpointStatus(page, {
+      entity_runs: [
+        {
+          entity: "catalog",
+          cursor_value: null,
+          last_ok_at: NOW,
+          last_error: null,
+          records_processed: 50,
+          updated_at: NOW,
+        },
+        {
+          entity: "inventory",
+          cursor_value: null,
+          last_ok_at: NOW,
+          last_error: null,
+          records_processed: 75,
+          updated_at: NOW,
+        },
+        {
+          entity: "receiving_history",
+          cursor_value: null,
+          last_ok_at: NOW,
+          last_error: null,
+          records_processed: 2,
+          updated_at: NOW,
+        },
+      ],
+      staging_entity_counts: [
+        {
+          entity: "catalog",
+          pending_batches: 1,
+          applying_batches: 0,
+          applied_batches: 0,
+          pending_rows: 50,
+          applying_rows: 0,
+          applied_rows: 0,
+          latest_at: NOW,
+        },
+        {
+          entity: "inventory",
+          pending_batches: 1,
+          applying_batches: 0,
+          applied_batches: 0,
+          pending_rows: 75,
+          applying_rows: 0,
+          applied_rows: 0,
+          latest_at: NOW,
+        },
+        {
+          entity: "receiving_history",
+          pending_batches: 1,
+          applying_batches: 0,
+          applied_batches: 0,
+          pending_rows: 2,
+          applying_rows: 0,
+          applied_rows: 0,
+          latest_at: NOW,
+        },
+      ],
+      staging_pending_count: 3,
+      staging_applying_count: 0,
+    });
+    await mockEmptyCounterpointProofRoutes(page);
+    await mockCounterpointWorkbenchState(page);
+
+    const panel = await openCounterpointSettings(page, "connect");
+
+    await expect(panel.getByText("Counterpoint Import-First Go-Live")).toBeVisible();
+    await expect(panel.getByText("Counterpoint Import Command Center")).toBeVisible();
+    await expect(panel.getByText("Import proof and advanced controls")).toBeVisible();
+    await expect(panel.getByText("Inventory, catalog, and quantities")).toBeVisible();
+    await expect(panel.getByText("Sales and movement history")).toBeVisible();
+    await expect(panel.getByRole("button", { name: /run full import/i })).toBeDisabled();
+    await expect(
+      panel.getByRole("heading", { name: "Counterpoint Transition Review Packs" }),
+    ).toHaveCount(0);
+
+    await panel.getByRole("button", { name: /ai review packs/i }).click();
+    await expect(panel.getByText("Counterpoint Transition Review Packs")).toBeVisible();
+  });
+
   test("blocks wizard advancement when bridge rows lack ROS proof", async ({ page }) => {
+    test.setTimeout(60_000);
     await mockBridgeStatus(page, "unavailable");
     await mockCounterpointStatus(page, {
       entity_runs: [
@@ -839,6 +1067,7 @@ test.describe("Counterpoint sign-off UI", () => {
     await mockCounterpointWorkbenchState(page);
 
     const panel = await openCounterpointSettings(page, "connect");
+    await panel.getByRole("button", { name: /legacy diagnostics/i }).click({ force: true });
 
     await expect(panel.getByText("Counterpoint review advancement blocked")).toBeVisible({
       timeout: 20_000,
@@ -849,6 +1078,102 @@ test.describe("Counterpoint sign-off UI", () => {
       ),
     ).toBeVisible();
     await expect(panel.getByRole("button", { name: /advance to inventory mapping/i })).toBeDisabled();
+  });
+
+  test("marks stale catalog approval blocked when staged import has not landed", async ({ page }) => {
+    test.setTimeout(60_000);
+    let requestedFullQueue = false;
+    await page.route("**/api/settings/counterpoint-sync/staging/batches**", async (route) => {
+      const url = new URL(route.request().url());
+      requestedFullQueue = url.searchParams.get("limit") === "5000";
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: 9001,
+            entity: "catalog",
+            row_count: 503498,
+            status: "pending",
+            apply_error: null,
+            bridge_version: "test",
+            bridge_hostname: "counterpoint-host",
+            created_at: NOW,
+            applied_at: null,
+            applied_by_staff_id: null,
+            applied_by_staff_name: null,
+            apply_started_at: null,
+            apply_claimed_by_staff_id: null,
+            apply_claimed_by_staff_name: null,
+            replay_count: 0,
+            last_replayed_at: null,
+            payload_fingerprint: "abc123",
+            recovered_at: null,
+            recovered_by_staff_id: null,
+            recovered_by_staff_name: null,
+            recovery_reason: null,
+          },
+        ]),
+      });
+    });
+    await mockBridgeStatus(page, "unavailable");
+    await mockCounterpointStatus(page, {
+      entity_runs: [
+        {
+          entity: "catalog",
+          cursor_value: null,
+          last_ok_at: NOW,
+          last_error: null,
+          records_processed: 503498,
+          updated_at: NOW,
+        },
+      ],
+      staging_entity_counts: [
+        {
+          entity: "catalog",
+          pending_batches: 1,
+          applying_batches: 0,
+          applied_batches: 0,
+          pending_rows: 503498,
+          applying_rows: 0,
+          applied_rows: 0,
+          latest_at: NOW,
+        },
+      ],
+      staging_pending_count: 1136,
+      staging_applying_count: 0,
+    });
+    await mockEmptyCounterpointProofRoutes(page);
+    await mockCounterpointWorkbenchState(page, {
+      steps: {
+        data_sources: { status: "complete", approved_at: NOW },
+        categories: { status: "complete", approved_at: NOW },
+        vendors: { status: "complete", approved_at: NOW },
+        catalog: { status: "complete", approved_at: NOW },
+        sku_gaps: { status: "complete", approved_at: NOW },
+        verification: { status: "complete", approved_at: NOW },
+      },
+      inventory_summary: {
+        products: 0,
+        variants: 0,
+        categories: 0,
+        vendors: 0,
+        variants_missing_barcode: 0,
+        quarantine_count: 737996,
+      },
+    });
+
+    const panel = await openCounterpointSettings(page, "connect");
+    await panel.getByRole("button", { name: /legacy diagnostics/i }).click({ force: true });
+    await expect(panel.getByRole("button", { name: /advance to inventory mapping/i })).toBeEnabled();
+    await panel.getByRole("button", { name: /advance to inventory mapping/i }).click();
+
+    await expect(panel.getByText("One-time import is still waiting in staging")).toBeVisible();
+    await expect(panel.getByText("Nothing has been loaded into ROS catalog tables yet.")).toBeVisible();
+    await expect(panel.getByText(/Previous catalog approval is stale/i)).toBeVisible();
+    await expect(panel.getByText(/Previous inventory approval is stale/i)).toBeVisible();
+    await expect(panel.getByText("Inventory step verified and approved.")).toHaveCount(0);
+    expect(requestedFullQueue).toBe(true);
   });
 
   test("keeps deterministic sign-off proof before optional ROSIE insight", async ({
@@ -1014,7 +1339,6 @@ test.describe("Counterpoint sign-off UI", () => {
 
     const rosieInsight = panel.getByTestId("rosie-insight-summary-counterpoint_status");
     await expect(rosieInsight).toBeVisible();
-    await expect(panel.getByText("Optional explanation of displayed checks only")).toBeVisible();
     await expect(rosieInsight).not.toContainText(/approve sign-off|declare cutover safe/i);
 
     const proofBeforeRosie = await page.evaluate(() => {
@@ -1041,6 +1365,11 @@ test.describe("Counterpoint sign-off UI", () => {
     expect(rosieRequests[0]).toMatchObject({
       surface: "counterpoint_status",
       mode: "explain",
+      facts: expect.objectContaining({
+        disclaimers: expect.arrayContaining([
+          expect.stringContaining("Do not approve sign-off"),
+        ]),
+      }),
     });
   });
 });

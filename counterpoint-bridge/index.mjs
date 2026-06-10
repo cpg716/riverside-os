@@ -368,20 +368,32 @@ const startLocalServer = () => {
                     BRIDGE_STATE.abortRequested = false;
                     pushEvent('start', null, 'Full sync started (manual)');
                     logToDashboard("[sync] Starting full sync sequence...");
+                    const preflightSummary = await runImportFirstSourcePreflight(pool);
+                    await startImportFirstRun(preflightSummary);
                     const steps = getOrderedSyncSteps();
-                    for (const step of steps) {
-                        if (!step.on) continue;
-                        if (BRIDGE_STATE.abortRequested) {
-                            logToDashboard('[sync] Aborted by user');
-                            pushEvent('abort', step.label, 'Sync aborted before this entity');
-                            break;
+                    try {
+                        for (const step of steps) {
+                            if (!step.on) continue;
+                            if (BRIDGE_STATE.abortRequested) {
+                                logToDashboard('[sync] Aborted by user');
+                                pushEvent('abort', step.label, 'Sync aborted before this entity');
+                                break;
+                            }
+                            BRIDGE_STATE.currentEntity = step.label;
+                            logToDashboard(`[${step.label}] starting sync...`);
+                            await sendHeartbeat("syncing", step.hb);
+                            await runSyncEntity(step.label, step.run);
+                            BRIDGE_STATE.syncSummary[step.label] = new Date().toISOString();
+                            logToDashboard(`[${step.label}] ok`);
                         }
-                        BRIDGE_STATE.currentEntity = step.label;
-                        logToDashboard(`[${step.label}] starting sync...`);
-                        await sendHeartbeat("syncing", step.hb);
-                        await runSyncEntity(step.label, step.run);
-                        BRIDGE_STATE.syncSummary[step.label] = new Date().toISOString();
-                        logToDashboard(`[${step.label}] ok`);
+                        await completeImportFirstRun({
+                            failed: BRIDGE_STATE.abortRequested,
+                            errorMessage: BRIDGE_STATE.abortRequested ? "Manual sync aborted by user." : null,
+                            totals: { sync_summary: BRIDGE_STATE.syncSummary },
+                        });
+                    } catch (err) {
+                        await completeImportFirstRun({ failed: true, errorMessage: err.message });
+                        throw err;
                     }
                     BRIDGE_STATE.isSyncing = false;
                     BRIDGE_STATE.currentEntity = null;
@@ -406,21 +418,33 @@ const startLocalServer = () => {
             (async () => {
                 BRIDGE_STATE.isSyncing = true;
                 BRIDGE_STATE.abortRequested = false;
+                const preflightSummary = await runImportFirstSourcePreflight(pool);
+                await startImportFirstRun(preflightSummary);
                 const steps = getOrderedSyncSteps();
-                for (const target of toRun) {
-                    if (BRIDGE_STATE.abortRequested) {
-                        logToDashboard('[sync] Aborted by user');
-                        break;
+                try {
+                    for (const target of toRun) {
+                        if (BRIDGE_STATE.abortRequested) {
+                            logToDashboard('[sync] Aborted by user');
+                            break;
+                        }
+                        const step = steps.find(s => s.label === target);
+                        if (step) {
+                            BRIDGE_STATE.currentEntity = step.label;
+                            logToDashboard(`[${target}] starting targeted sync...`);
+                            await sendHeartbeat("syncing", step.hb);
+                            await runSyncEntity(step.label, step.run);
+                            BRIDGE_STATE.syncSummary[target] = new Date().toISOString();
+                            logToDashboard(`[${target}] ok`);
+                        }
                     }
-                    const step = steps.find(s => s.label === target);
-                    if (step) {
-                        BRIDGE_STATE.currentEntity = step.label;
-                        logToDashboard(`[${target}] starting targeted sync...`);
-                        await sendHeartbeat("syncing", step.hb);
-                        await runSyncEntity(step.label, step.run);
-                        BRIDGE_STATE.syncSummary[target] = new Date().toISOString();
-                        logToDashboard(`[${target}] ok`);
-                    }
+                    await completeImportFirstRun({
+                        failed: BRIDGE_STATE.abortRequested,
+                        errorMessage: BRIDGE_STATE.abortRequested ? "Manual targeted sync aborted by user." : null,
+                        totals: { sync_summary: BRIDGE_STATE.syncSummary, targeted_entity: entity },
+                    });
+                } catch (err) {
+                    await completeImportFirstRun({ failed: true, errorMessage: err.message });
+                    throw err;
                 }
                 BRIDGE_STATE.isSyncing = false;
                 BRIDGE_STATE.currentEntity = null;
@@ -733,6 +757,8 @@ function envFlag(name, defaultValue) {
 }
 
 const ALLOW_SQL_ENV_OVERRIDES = envFlag("CP_SQL_ENV_OVERRIDES", false);
+const IMPORT_FIRST_MODE = envFlag("CP_IMPORT_FIRST_MODE", true);
+const ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS = envFlag("CP_ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS", false);
 function configuredSql(name) {
   return ALLOW_SQL_ENV_OVERRIDES ? process.env[name] ?? "" : "";
 }
@@ -856,6 +882,7 @@ let lastAutoConfigChanges = [];
 /** When true, POST `/api/sync/counterpoint/staging` with `{ entity, payload }` (from ROS health). */
 let rosStagingEnabled = false;
 let bridgeHostnameCached = "";
+let activeImportRunId = null;
 
 function initEffectiveSqlFromConstants() {
   Object.assign(effectiveSql, {
@@ -1319,17 +1346,36 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const hasTot = psDocTot?.has(docRef) && psDocTot.has("TOT") && psDocTot.has("TOT_TND");
     const total = pickColumn(psDocHdr, ["TOT", "TOT_EXTD_PRC"]);
     const paid = pickColumn(psDocHdr, ["TOT_TND", "AMT_PAID", "TOT"]);
+    const docStatus = pickColumn(psDocHdr, ["DOC_STAT", "DOC_STATUS", "STA_COD", "STATUS", "STAT"]);
+    const docVoid = pickColumn(psDocHdr, ["VOID_FLG", "VOIDED", "VOID_FLAG", "IS_VOID"]);
+    const docClosedAt = pickColumn(psDocHdr, ["CLOSE_DAT", "CLSD_DAT", "CLOSED_DAT", "CLOSED_AT", "FULFILL_DAT"]);
+    const activeDocPredicates = [];
+    if (docStatus) {
+      activeDocPredicates.push(
+        `(h.[${docStatus}] IS NULL OR UPPER(RTRIM(LTRIM(CONVERT(NVARCHAR(32), h.[${docStatus}])))) NOT IN ('C','CL','CLS','CLOSED','COMPLETE','COMPLETED','V','VOID','VOIDED'))`,
+      );
+    }
+    if (docVoid) {
+      activeDocPredicates.push(
+        `(h.[${docVoid}] IS NULL OR UPPER(RTRIM(LTRIM(CONVERT(NVARCHAR(32), h.[${docVoid}])))) NOT IN ('1','Y','YES','T','TRUE'))`,
+      );
+    }
+    if (docClosedAt) {
+      activeDocPredicates.push(`h.[${docClosedAt}] IS NULL`);
+    }
+    const activeDocWhere = activeDocPredicates.length > 0 ? activeDocPredicates.join(" AND ") : "1=1";
+    const docTotJoinForChildren = hasTot ? ` LEFT JOIN PS_DOC_HDR_TOT t ON h.[${docRef}] = t.[${docRef}]` : "";
     sqlMap.open_docs = hasTot
-      ? `SELECT ${sqlText("h", psDocHdr, [docRef], "doc_ref")}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, t.[TOT] AS total_price, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON h.[${docRef}] = t.[${docRef}] WHERE h.[${docDate}] >= '__CP_IMPORT_SINCE__'`
-      : `SELECT ${sqlText("h", psDocHdr, [docRef], "doc_ref")}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${paid ? `h.[${paid}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid FROM ${psDocTable} h WHERE h.[${docDate}] >= '__CP_IMPORT_SINCE__'`;
+      ? `SELECT ${sqlText("h", psDocHdr, [docRef], "doc_ref")}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, t.[TOT] AS total_price, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON h.[${docRef}] = t.[${docRef}] WHERE ${activeDocWhere}`
+      : `SELECT ${sqlText("h", psDocHdr, [docRef], "doc_ref")}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${paid ? `h.[${paid}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid FROM ${psDocTable} h WHERE ${activeDocWhere}`;
     changes.push(`${psDocTable} open documents enabled`);
     const lineDoc = pickColumn(psDocLin, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
     if (psDocLin && lineDoc) {
-      sqlMap.open_doc_lines = `SELECT ${sqlText("l", psDocLin, [lineDoc], "doc_ref")}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "sku")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "counterpoint_item_key")}, ${sqlNumber("l", psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"], "quantity", "CAST(1 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, CAST(NULL AS NVARCHAR(255)) AS description FROM PS_DOC_LIN l`;
+      sqlMap.open_doc_lines = `SELECT ${sqlText("l", psDocLin, [lineDoc], "doc_ref")}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "sku")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "counterpoint_item_key")}, ${sqlNumber("l", psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"], "quantity", "CAST(1 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, CAST(NULL AS NVARCHAR(255)) AS description FROM PS_DOC_LIN l INNER JOIN ${psDocTable} h ON h.[${docRef}] = l.[${lineDoc}]${docTotJoinForChildren} WHERE ${activeDocWhere}`;
     }
     const pmtDoc = pickColumn(psDocPmt, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
     if (psDocPmt && pmtDoc) {
-      sqlMap.open_doc_pmt = `SELECT ${sqlText("p", psDocPmt, [pmtDoc], "doc_ref")}, ${sqlText("p", psDocPmt, ["PAY_COD", "PMT_TYP"], "pmt_typ")}, ${sqlNumber("p", psDocPmt, ["AMT", "PMT_AMT"], "amount", "CAST(0 AS DECIMAL(18,2))")}, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_DOC_PMT p`;
+      sqlMap.open_doc_pmt = `SELECT ${sqlText("p", psDocPmt, [pmtDoc], "doc_ref")}, ${sqlText("p", psDocPmt, ["PAY_COD", "PMT_TYP"], "pmt_typ")}, ${sqlNumber("p", psDocPmt, ["AMT", "PMT_AMT"], "amount", "CAST(0 AS DECIMAL(18,2))")}, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_DOC_PMT p INNER JOIN ${psDocTable} h ON h.[${docRef}] = p.[${pmtDoc}]${docTotJoinForChildren} WHERE ${activeDocWhere}`;
     }
   }
 
@@ -1939,7 +1985,14 @@ async function rosFetch(urlPath, body, method = "POST", extraHeaders = {}) {
         json = { raw: text };
       }
       if (!res.ok) {
-        lastErr = new Error(`ROS ${res.status}: ${text.slice(0, 500)}`);
+        if (res.status === 401) {
+          const rosMessage = String(json?.error ?? text ?? "").slice(0, 300);
+          lastErr = new Error(
+            `ROS 401: invalid or missing Counterpoint sync token for ${ROS_BASE_URL}. Confirm the bridge COUNTERPOINT_SYNC_TOKEN exactly matches Settings > Integrations > Counterpoint, and that ROS_BASE_URL points at the correct Main Hub. ROS said: ${rosMessage}`,
+          );
+        } else {
+          lastErr = new Error(`ROS ${res.status}: ${text.slice(0, 500)}`);
+        }
         if (res.status === 429 && attempt + 1 < ROS_FETCH_MAX_ATTEMPTS) {
           const waitMs = retryAfterMs(res);
           console.warn(
@@ -1968,14 +2021,14 @@ async function rosGetHealth() {
 /** Startup: fails if health unreachable. */
 async function refreshRosStagingFromHealth() {
   const h = await rosGetHealth();
-  rosStagingEnabled = h.counterpoint_staging_enabled === true;
+  rosStagingEnabled = IMPORT_FIRST_MODE ? false : h.counterpoint_staging_enabled === true;
   return h;
 }
 
 async function refreshRosStagingFromHealthSilent() {
   try {
     const h = await rosGetHealth();
-    rosStagingEnabled = h.counterpoint_staging_enabled === true;
+    rosStagingEnabled = IMPORT_FIRST_MODE ? false : h.counterpoint_staging_enabled === true;
   } catch {
     rosStagingEnabled = false;
   }
@@ -2039,6 +2092,11 @@ async function rosPost(entityKey, body) {
   }
   const hdr = bridgeIngestHeaders();
   const directUrl = `/api/sync/counterpoint/${pathSeg}`;
+  const importBatchBody = {
+    entity: entityKey,
+    payload: body,
+    import_run_id: activeImportRunId,
+  };
   if (rosStagingEnabled) {
     try {
       return await rosFetch(
@@ -2053,12 +2111,235 @@ async function rosPost(entityKey, body) {
           "[ingest] ROS staging was disabled in Back Office (or health was stale). Retrying this batch via direct import.",
         );
         rosStagingEnabled = false;
-        return await rosFetch(directUrl, body, "POST", hdr);
+        return IMPORT_FIRST_MODE
+          ? await rosFetch("/api/sync/counterpoint/import-batch", importBatchBody, "POST", hdr)
+          : await rosFetch(directUrl, body, "POST", hdr);
       }
       throw e;
     }
   }
-  return await rosFetch(directUrl, body, "POST", hdr);
+  return IMPORT_FIRST_MODE
+    ? await rosFetch("/api/sync/counterpoint/import-batch", importBatchBody, "POST", hdr)
+    : await rosFetch(directUrl, body, "POST", hdr);
+}
+
+function stripTrailingOrderBy(sqlText) {
+  return String(sqlText ?? "")
+    .trim()
+    .replace(/;\s*$/u, "")
+    .replace(/\s+ORDER\s+BY\s+[\s\S]*$/iu, "");
+}
+
+function sourceCountSql(sqlText) {
+  const body = stripTrailingOrderBy(sqlText);
+  if (!body) return "";
+  return `SELECT COUNT_BIG(1) AS source_count FROM (${body}) AS cp_source_count`;
+}
+
+async function countCounterpointSourceRows(pool, probe) {
+  const queryKey = probe.queryKey;
+  const sqlText = String(effectiveSql[queryKey] ?? "").trim();
+  if (!sqlText) {
+    return {
+      entity_key: probe.entityKey,
+      label: probe.label,
+      source_count: 0,
+      query_key: queryKey,
+      required: probe.required === true,
+      suspicious_min_count: probe.suspiciousMinCount,
+      status: "missing_mapping",
+      message: `Bridge did not generate a SQL mapping for ${probe.label}.`,
+    };
+  }
+  try {
+    const result = await pool.request().query(sourceCountSql(sqlText));
+    const first = normalizeRowKeys((result.recordset ?? [])[0] ?? {});
+    const sourceCount = Number(first.source_count ?? first[""] ?? 0);
+    return {
+      entity_key: probe.entityKey,
+      label: probe.label,
+      source_count: Number.isFinite(sourceCount) ? sourceCount : 0,
+      query_key: queryKey,
+      required: probe.required === true,
+      suspicious_min_count: probe.suspiciousMinCount,
+      status: "ok",
+    };
+  } catch (err) {
+    return {
+      entity_key: probe.entityKey,
+      label: probe.label,
+      source_count: 0,
+      query_key: queryKey,
+      required: probe.required === true,
+      suspicious_min_count: probe.suspiciousMinCount,
+      status: probe.required === true ? "blocked" : "warning",
+      message: `Source-count query failed for ${probe.label}: ${err?.message ?? err}`,
+    };
+  }
+}
+
+function importFirstProbePlan() {
+  return [
+    { entityKey: "customers", label: "Counterpoint customers", queryKey: "customers", required: true },
+    { entityKey: "catalog_products", label: "Catalog products", queryKey: "catalog", required: true },
+    {
+      entityKey: "catalog_variants",
+      label: "Catalog variants/SKUs",
+      queryKey: String(effectiveSql.catalog_cells ?? "").trim() ? "catalog_cells" : "catalog",
+      required: true,
+    },
+    { entityKey: "inventory_quantity_rows", label: "Inventory quantity rows", queryKey: "inventory", required: true },
+    {
+      entityKey: "tickets",
+      label: "Closed ticket history",
+      queryKey: "tickets",
+      required: true,
+      suspiciousMinCount: 1000,
+    },
+    { entityKey: "ticket_lines", label: "Closed ticket lines", queryKey: "ticket_lines", required: true },
+    { entityKey: "ticket_payments", label: "Closed ticket payments", queryKey: "ticket_payments", required: false },
+    { entityKey: "receiving_history", label: "Receiving/movement history", queryKey: "receiving_history", required: true },
+    {
+      entityKey: "open_docs",
+      label: "Open docs/unfulfilled obligations",
+      queryKey: "open_docs",
+      required: true,
+      suspiciousMinCount: 100,
+    },
+    { entityKey: "open_doc_lines", label: "Open-doc lines", queryKey: "open_doc_lines", required: true },
+    { entityKey: "open_doc_payments", label: "Open-doc deposits/payments", queryKey: "open_doc_pmt", required: false },
+    { entityKey: "gift_cards", label: "Gift card current balances", queryKey: "gift_cards", required: true },
+    { entityKey: "loyalty_points", label: "Customer loyalty balances", queryKey: "customers", required: true },
+    { entityKey: "store_credit_opening", label: "Store credit opening balances", queryKey: "store_credit", required: false },
+  ];
+}
+
+function bridgeStartupIssuesForImportFirst() {
+  const issues = [];
+  if (CP_IMPORT_SINCE !== REQUIRED_CP_IMPORT_SINCE) {
+    issues.push(`CP_IMPORT_SINCE must be ${REQUIRED_CP_IMPORT_SINCE}; received ${CP_IMPORT_SINCE}.`);
+  }
+  if (!IMPORT_FIRST_MODE) {
+    issues.push("CP_IMPORT_FIRST_MODE is disabled.");
+  }
+  if (!SYNC_CUSTOMERS) issues.push("SYNC_CUSTOMERS is disabled.");
+  if (!SYNC_CATALOG) issues.push("SYNC_CATALOG is disabled.");
+  if (!SYNC_INVENTORY) issues.push("SYNC_INVENTORY is disabled.");
+  if (!SYNC_TICKETS) issues.push("SYNC_TICKETS is disabled.");
+  if (!SYNC_OPEN_DOCS) issues.push("SYNC_OPEN_DOCS is disabled.");
+  if (!SYNC_GIFT_CARDS) issues.push("SYNC_GIFT_CARDS is disabled.");
+  if (!SYNC_RECEIVING_HISTORY) issues.push("SYNC_RECEIVING_HISTORY is disabled.");
+  return issues;
+}
+
+async function runImportFirstSourcePreflight(pool) {
+  if (!IMPORT_FIRST_MODE) return null;
+  if (DRY_RUN_MODE) {
+    console.info("[preflight] Dry run mode: source-count SQL can run, but ROS import preflight post is skipped.");
+    return null;
+  }
+
+  console.info("[preflight] Import-first source-count preflight starting...");
+  const counts = [];
+  for (const probe of importFirstProbePlan()) {
+    const row = await countCounterpointSourceRows(pool, probe);
+    counts.push(row);
+    console.info(
+      `[preflight] ${row.entity_key}: ${row.source_count} (${row.status}${row.message ? ` - ${row.message}` : ""})`,
+    );
+  }
+
+  const sourceFingerprint = crypto
+    .createHash("sha256")
+    .update(
+      counts
+        .map((row) => `${row.entity_key}:${row.source_count}:${row.status}:${row.query_key ?? ""}`)
+        .join("|"),
+    )
+    .digest("hex");
+
+  const summary = await rosFetch(
+    "/api/sync/counterpoint/preflight",
+    {
+      history_start: CP_IMPORT_SINCE,
+      bridge_hostname: bridgeHostnameCached || os.hostname(),
+      bridge_version: BRIDGE_VERSION,
+      ros_base_url: ROS_BASE_URL,
+      source_fingerprint: sourceFingerprint,
+      import_first: IMPORT_FIRST_MODE,
+      staging_enabled: rosStagingEnabled,
+      dry_run: DRY_RUN_MODE,
+      startup_issues: bridgeStartupIssuesForImportFirst(),
+      counts,
+      metadata: {
+        required_history_start: REQUIRED_CP_IMPORT_SINCE,
+        allow_import_with_preflight_blockers: ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS,
+      },
+    },
+    "POST",
+    bridgeIngestHeaders(),
+  );
+
+  if (summary?.preflight_passed !== true) {
+    const blockers = Array.isArray(summary?.blockers) ? summary.blockers : [];
+    const blockerText = blockers
+      .slice(0, 8)
+      .map((b) => `${b.entity_key ? `${b.entity_key}: ` : ""}${b.message ?? b.reason_code ?? "blocked"}`)
+      .join(" | ");
+    const message = blockerText || "Bridge source-count preflight failed.";
+    if (!ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS) {
+      throw new Error(`[preflight] Import blocked: ${message}`);
+    }
+    console.warn(`[preflight] Import blockers ignored by CP_ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS=1: ${message}`);
+  } else {
+    console.info(`[preflight] Import-first source-count preflight passed (${summary.import_run_id}).`);
+  }
+
+  return summary;
+}
+
+async function startImportFirstRun(preflightSummary) {
+  if (!IMPORT_FIRST_MODE || DRY_RUN_MODE) return null;
+  const summary = await rosFetch(
+    "/api/sync/counterpoint/import-run/start",
+    {
+      preflight_import_run_id: preflightSummary?.import_run_id ?? null,
+      run_kind: process.env.CP_IMPORT_RUN_KIND || "rehearsal",
+      bridge_hostname: bridgeHostnameCached || os.hostname(),
+      bridge_version: BRIDGE_VERSION,
+      ros_base_url: ROS_BASE_URL,
+      source_fingerprint: preflightSummary?.source_fingerprint ?? null,
+    },
+    "POST",
+    bridgeIngestHeaders(),
+  );
+  activeImportRunId = summary?.import_run_id ?? null;
+  if (!activeImportRunId) {
+    throw new Error("[import-run] ROS did not return an import_run_id.");
+  }
+  console.info(`[import-run] Started ${summary.run_kind ?? "rehearsal"} import run ${activeImportRunId}.`);
+  return summary;
+}
+
+async function completeImportFirstRun({ failed = false, errorMessage = null, totals = {} } = {}) {
+  if (!activeImportRunId || DRY_RUN_MODE) return null;
+  try {
+    const summary = await rosFetch(
+      "/api/sync/counterpoint/import-run/complete",
+      {
+        import_run_id: activeImportRunId,
+        failed,
+        error_message: errorMessage,
+        totals,
+      },
+      "POST",
+      bridgeIngestHeaders(),
+    );
+    console.info(`[import-run] ${failed ? "Failed" : "Completed"} import run ${activeImportRunId}.`);
+    return summary;
+  } finally {
+    activeImportRunId = null;
+  }
 }
 
 function parseCsvLine(line) {
@@ -3002,6 +3283,7 @@ async function syncReceivingHistory(pool) {
     }
     await Promise.all(pendingRequests);
     throwIfBatchFailures("receiving_history", failures, postedRows, rows.length);
+    await postSnapshotReconciliation("receiving_history", rows.length);
     return postedRows;
   } catch (err) {
     console.error("[receiving_history] sync failed:", err?.message ?? err);
@@ -3852,6 +4134,13 @@ async function syncTickets(pool) {
 
   logToDashboard(`[tickets] SQL returned ${mapped.length} ticket(s)`);
   const recordCount = mapped.length;
+  const sourceLineCount = mapped.reduce((sum, ticket) => sum + (ticket.lines?.length ?? 0), 0);
+  const sourcePaymentCount = mapped.reduce((sum, ticket) => sum + (ticket.payments?.length ?? 0), 0);
+  const sourcePaymentSum = mapped.reduce(
+    (sum, ticket) =>
+      sum + (ticket.payments ?? []).reduce((inner, payment) => inner + decimalToScaledInt(payment.amount, 2), 0n),
+    0n,
+  );
   const TICKET_BATCH = Math.max(1, Number.parseInt(process.env.TICKET_BATCH_SIZE ?? "200", 10));
   const TICKET_CONCURRENCY = Math.max(1, Number.parseInt(process.env.TICKET_CONCURRENCY ?? "4", 10));
 
@@ -3895,6 +4184,13 @@ async function syncTickets(pool) {
     state.tickets_cursor = lastSuccessfulCursor;
     writeState(state);
   }
+  await postSnapshotReconciliation("tickets", recordCount);
+  await postSnapshotReconciliation("ticket_lines", sourceLineCount);
+  await postSnapshotReconciliation(
+    "ticket_payments",
+    sourcePaymentCount,
+    scaledIntToDecimalString(sourcePaymentSum, 2),
+  );
   return postedRows;
 }
 
@@ -3965,6 +4261,12 @@ async function syncStoreCreditOpening(pool) {
     state.store_credit_opening_cursor = lastSuccessfulCursor;
     writeState(state);
   }
+  const storeCreditSum = mapped.reduce((sum, row) => sum + decimalToScaledInt(row.balance, 2), 0n);
+  await postSnapshotReconciliation(
+    "store_credit_opening",
+    mapped.length,
+    scaledIntToDecimalString(storeCreditSum, 2),
+  );
   return postedRows;
 }
 
@@ -4029,6 +4331,12 @@ async function syncOpenDocs(pool) {
 
   const recordCount = mapped.length;
   const sourceLineCount = mapped.reduce((sum, doc) => sum + (doc.lines?.length ?? 0), 0);
+  const sourcePaymentCount = mapped.reduce((sum, doc) => sum + (doc.payments?.length ?? 0), 0);
+  const sourcePaymentSum = mapped.reduce(
+    (sum, doc) =>
+      sum + (doc.payments ?? []).reduce((inner, payment) => inner + decimalToScaledInt(payment.amount, 2), 0n),
+    0n,
+  );
   logToDashboard(`[open_docs] SQL returned ${recordCount} doc(s)`);
   console.info("[open_docs] Sending items (parallel-concurrency=5)...");
   const state = readState();
@@ -4073,6 +4381,11 @@ async function syncOpenDocs(pool) {
   }
   await postSnapshotReconciliation("open_docs", recordCount);
   await postSnapshotReconciliation("open_doc_lines", sourceLineCount);
+  await postSnapshotReconciliation(
+    "open_doc_payments",
+    sourcePaymentCount,
+    scaledIntToDecimalString(sourcePaymentSum, 2),
+  );
   return postedRows;
 }
 
@@ -5105,12 +5418,13 @@ async function main() {
 
   await rebuildEffectiveSql(pool);
   validateCounterpointSyncDependencyPlan();
+  await runImportFirstSourcePreflight(pool);
 
   console.info(
     `[ingest] Mode: ${
       rosStagingEnabled
-        ? "staging — batches queue in ROS until staff Apply (Inbound tab)"
-        : "direct — each batch writes to live tables (use for bulk / first import)"
+        ? "legacy staging — batches queue in ROS until staff Apply (advanced diagnostics only)"
+        : "import-first direct — each supported batch lands in ROS with proof and exception tracking"
     }`,
   );
 
@@ -5168,6 +5482,23 @@ async function main() {
       lastAutoRunTime = now;
     }
 
+    let preflightSummary = null;
+    try {
+      preflightSummary = await runImportFirstSourcePreflight(pool);
+    } catch (err) {
+      console.error("[preflight] sync blocked:", err.message);
+      if (hasPendingRequest) {
+        try {
+          await rosFetch("/api/sync/counterpoint/request/complete", {
+            request_id: hbResp.pending_request_id,
+            error: err.message,
+          });
+        } catch { /* ignore secondary error */ }
+      }
+      isTickRunning = false;
+      return;
+    }
+
     BRIDGE_STATE.isSyncing = true;
     BRIDGE_STATE.abortRequested = false;
     BRIDGE_STATE.totalRecordsLastRun = 0;
@@ -5178,6 +5509,7 @@ async function main() {
       : null;
 
     try {
+      await startImportFirstRun(preflightSummary);
       for (const step of orderedSyncSteps) {
         if (!step.on) continue;
         if (BRIDGE_STATE.abortRequested) {
@@ -5202,6 +5534,15 @@ async function main() {
       BRIDGE_STATE.lastRunDurationMs = cycleDur;
       BRIDGE_STATE.lastRun = new Date().toISOString();
       pushEvent('complete', null, 'Auto-sync cycle complete', { durationMs: cycleDur });
+      await completeImportFirstRun({
+        failed: BRIDGE_STATE.abortRequested,
+        errorMessage: BRIDGE_STATE.abortRequested ? "Sync aborted by user." : null,
+        totals: {
+          sync_summary: BRIDGE_STATE.syncSummary,
+          duration_ms: cycleDur,
+          requested_entity: hbResp?.pending_request_entity ?? null,
+        },
+      });
 
       if (hasPendingRequest) {
         try {
@@ -5214,6 +5555,7 @@ async function main() {
       }
     } catch (err) {
       console.error("[sync] Loop failed:", err.message);
+      await completeImportFirstRun({ failed: true, errorMessage: err.message }).catch(() => null);
       if (hasPendingRequest) {
           try {
             await rosFetch("/api/sync/counterpoint/request/complete", {

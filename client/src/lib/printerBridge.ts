@@ -363,8 +363,13 @@ export async function checkReceiptPrinterConnection(
  * Automatically routes a document to the correct station printer based on type.
  * Ensures the right protocol (ZPL vs ESC/POS) is used for the destination.
  */
-export async function autoRoutePrint(type: PrintDocType, payload: string, format: ThermalPrinterLanguage | "escpos" = "zpl") {
-  const target = resolvePrinterTarget(type);
+export async function autoRoutePrint(
+  type: PrintDocType,
+  payload: string,
+  format: ThermalPrinterLanguage | "escpos" = "zpl",
+  targetOverride?: HardwarePrinterTarget,
+) {
+  const target = targetOverride ?? resolvePrinterTarget(type);
   if (target.mode === "system" && !target.printerName) {
     throw new Error(`No installed printer selected for ${type} documents.`);
   }

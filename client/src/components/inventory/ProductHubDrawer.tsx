@@ -2351,19 +2351,12 @@ export default function ProductHubDrawer({
                 );
                 return;
               }
-              if (printResult === "blocked") {
-                toast(
-                  "Browser print fallback was blocked. Please allow popups for Riverside and try again.",
-                  "error",
-                );
-              } else {
-                toast(
-                  printResult === "direct"
-                    ? `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} sent to the Zebra tag station.`
-                    : `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} opened in browser print fallback.`,
-                  "success",
-                );
-              }
+              toast(
+                printResult === "direct"
+                  ? `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} sent to the Zebra tag station.`
+                  : `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} opened in browser print fallback.`,
+                "success",
+              );
               void loadHub();
               onHubMutated?.();
             } catch {

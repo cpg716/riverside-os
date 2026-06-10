@@ -5,36 +5,43 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, patch, post};
 use axum::{extract::State, Json, Router};
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
 use crate::logic::counterpoint_staging;
 use crate::logic::counterpoint_sync::{
-    self, build_counterpoint_inventory_catalog_verification_snapshot,
+    self, build_counterpoint_import_command_center,
+    build_counterpoint_inventory_catalog_verification_snapshot,
     build_counterpoint_inventory_verification_report,
     build_counterpoint_landing_verification_summary,
     build_counterpoint_open_docs_verification_snapshot,
-    build_counterpoint_transaction_reconciliation_snapshot, execute_counterpoint_catalog_batch,
-    execute_counterpoint_category_masters_batch, execute_counterpoint_customer_batch,
-    execute_counterpoint_customer_notes_batch, execute_counterpoint_gift_card_batch,
-    execute_counterpoint_inventory_batch, execute_counterpoint_loyalty_hist_batch,
-    execute_counterpoint_open_doc_batch, execute_counterpoint_sls_rep_stub_batch,
-    execute_counterpoint_staff_batch, execute_counterpoint_store_credit_opening_batch,
-    execute_counterpoint_ticket_batch, execute_counterpoint_vendor_batch,
-    execute_counterpoint_vendor_item_batch, get_counterpoint_barcode_alias_health_summary,
-    get_counterpoint_ingest_quarantine_summary, get_counterpoint_registry_health_summary,
-    get_lightspeed_normalization_reference_health, import_lightspeed_normalization_reference,
+    build_counterpoint_transaction_reconciliation_snapshot, complete_counterpoint_import_run,
+    execute_counterpoint_catalog_batch, execute_counterpoint_category_masters_batch,
+    execute_counterpoint_customer_batch, execute_counterpoint_customer_notes_batch,
+    execute_counterpoint_gift_card_batch, execute_counterpoint_inventory_batch,
+    execute_counterpoint_loyalty_hist_batch, execute_counterpoint_open_doc_batch,
+    execute_counterpoint_sls_rep_stub_batch, execute_counterpoint_staff_batch,
+    execute_counterpoint_store_credit_opening_batch, execute_counterpoint_ticket_batch,
+    execute_counterpoint_vendor_batch, execute_counterpoint_vendor_item_batch,
+    get_counterpoint_barcode_alias_health_summary, get_counterpoint_ingest_quarantine_summary,
+    get_counterpoint_registry_health_summary, get_lightspeed_normalization_reference_health,
+    import_lightspeed_normalization_reference, list_counterpoint_import_exceptions,
     list_counterpoint_ingest_quarantine_rows, persist_counterpoint_barcode_aliases,
     preflight_counterpoint_barcode_aliases,
     preview_counterpoint_lightspeed_normalization_candidates,
+    record_counterpoint_import_batch_failure, record_counterpoint_import_batch_success,
+    record_counterpoint_import_preflight, require_counterpoint_import_run_for_batch,
+    resolve_counterpoint_import_exception, start_counterpoint_import_run,
     validate_counterpoint_catalog_identity_preflight,
     validate_counterpoint_inventory_identity_preflight, CounterpointBarcodeAliasPersistPayload,
     CounterpointBarcodeAliasPreflightPayload, CounterpointCatalogPayload,
     CounterpointCategoryMastersPayload, CounterpointCustomerNotesPayload,
     CounterpointCustomersPayload, CounterpointFidelityDiagnosticPayload,
-    CounterpointGiftCardsPayload, CounterpointInventoryPayload, CounterpointLoyaltyHistPayload,
+    CounterpointGiftCardsPayload, CounterpointImportPreflightPayload,
+    CounterpointImportRunCompletePayload, CounterpointImportRunStartPayload,
+    CounterpointInventoryPayload, CounterpointLoyaltyHistPayload,
     CounterpointNormalizationPreviewPayload, CounterpointOpenDocsPayload,
     CounterpointSlsRepStubPayload, CounterpointSnapshotSourceMetricsPayload,
     CounterpointStaffPayload, CounterpointStoreCreditOpeningPayload, CounterpointSyncError,
@@ -108,7 +115,9 @@ async fn cp_health(
     Ok(Json(json!({
         "ok": true,
         "service": "counterpoint_sync",
-        "counterpoint_staging_enabled": counterpoint_staging_enabled
+        "counterpoint_staging_enabled": counterpoint_staging_enabled,
+        "import_first_default": true,
+        "required_history_start": "2018-01-01"
     })))
 }
 
@@ -255,6 +264,126 @@ async fn cp_snapshot_reconciliation(
         .await
         .map_err(cp_err)?;
     Ok(Json(json!({ "ok": true })))
+}
+
+async fn cp_import_preflight(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CounterpointImportPreflightPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    let summary = record_counterpoint_import_preflight(&state.db, payload)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(serde_json::to_value(summary).unwrap_or_default()))
+}
+
+async fn cp_import_run_start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CounterpointImportRunStartPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    let summary = start_counterpoint_import_run(&state.db, payload)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(serde_json::to_value(summary).unwrap_or_default()))
+}
+
+async fn cp_import_run_complete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CounterpointImportRunCompletePayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    let run = complete_counterpoint_import_run(&state.db, payload)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(serde_json::to_value(run).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+struct CounterpointImportBatchBody {
+    entity: String,
+    payload: Value,
+    #[serde(default)]
+    import_run_id: Option<Uuid>,
+}
+
+fn import_run_id_from_headers(headers: &HeaderMap) -> Option<Uuid> {
+    headers
+        .get("x-counterpoint-import-run-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| Uuid::parse_str(value.trim()).ok())
+}
+
+async fn cp_import_batch(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CounterpointImportBatchBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    let entity = body.entity.trim().to_string();
+    if entity.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "entity required" })),
+        ));
+    }
+    let requested_run_id = body
+        .import_run_id
+        .or_else(|| import_run_id_from_headers(&headers));
+    let import_run_id = require_counterpoint_import_run_for_batch(&state.db, requested_run_id)
+        .await
+        .map_err(cp_err)?;
+
+    let payload = body.payload;
+    let summary = match counterpoint_staging::execute_counterpoint_payload(
+        &state.db,
+        &entity,
+        payload.clone(),
+    )
+    .await
+    {
+        Ok(summary) => summary,
+        Err(error) => {
+            let msg = error.to_string();
+            let _ = record_counterpoint_import_batch_failure(
+                &state.db,
+                Some(import_run_id),
+                &entity,
+                &payload,
+                &msg,
+            )
+            .await;
+            return Err(cp_err(error));
+        }
+    };
+
+    let proof = record_counterpoint_import_batch_success(
+        &state.db,
+        import_run_id,
+        &entity,
+        &payload,
+        &summary,
+    )
+    .await
+    .map_err(cp_err)?;
+
+    tracing::info!(
+        entity = %entity,
+        import_run_id = %import_run_id,
+        raw_records = proof.raw_records,
+        landed_records = proof.landed_records,
+        provenance_records = proof.provenance_records,
+        "counterpoint import-first batch applied with proof"
+    );
+
+    Ok(Json(json!({
+        "summary": summary,
+        "proof": proof,
+        "import_run_id": import_run_id,
+    })))
 }
 
 async fn cp_fidelity_diagnostics(
@@ -972,6 +1101,82 @@ async fn settings_status(
     }
 }
 
+fn counterpoint_token_configured(state: &AppState) -> bool {
+    state.counterpoint_sync_token.is_some()
+        || std::env::var("COUNTERPOINT_SYNC_TOKEN")
+            .ok()
+            .map(|token| !token.trim().is_empty())
+            .unwrap_or(false)
+}
+
+async fn settings_command_center(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    match build_counterpoint_import_command_center(&state.db, counterpoint_token_configured(&state))
+        .await
+    {
+        Ok(summary) => Ok(Json(serde_json::to_value(summary).unwrap_or_default())),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )),
+    }
+}
+
+#[derive(Deserialize)]
+struct ImportExceptionRowsQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn settings_import_exceptions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<ImportExceptionRowsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    match list_counterpoint_import_exceptions(
+        &state.db,
+        q.limit.unwrap_or(100),
+        q.offset.unwrap_or(0),
+    )
+    .await
+    {
+        Ok(rows) => Ok(Json(json!({ "rows": rows }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )),
+    }
+}
+
+async fn settings_resolve_import_exception(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path(exception_id): axum::extract::Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    match resolve_counterpoint_import_exception(&state.db, exception_id, Some(staff.id)).await {
+        Ok(true) => Ok(Json(json!({ "resolved": true }))),
+        Ok(false) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "exception not found or already resolved" })),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )),
+    }
+}
+
 async fn settings_request_run(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1175,14 +1380,14 @@ async fn settings_staging_discard(
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i64>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
         .await
         .map_err(map_perm)?;
-    match counterpoint_staging::discard_staging_batch(&state.db, id).await {
+    match counterpoint_staging::discard_staging_batch(&state.db, id, staff.id).await {
         Ok(true) => Ok(Json(json!({ "discarded": true }))),
         Ok(false) => Err((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "batch not pending" })),
+            Json(json!({ "error": "batch is not pending or failed" })),
         )),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1633,6 +1838,10 @@ pub fn router() -> Router<AppState> {
             .route("/health", get(cp_health))
             .route("/heartbeat", post(cp_heartbeat))
             .route("/run-start", post(cp_run_start))
+            .route("/preflight", post(cp_import_preflight))
+            .route("/import-run/start", post(cp_import_run_start))
+            .route("/import-run/complete", post(cp_import_run_complete))
+            .route("/import-batch", post(cp_import_batch))
             .route("/snapshot-reconciliation", post(cp_snapshot_reconciliation))
             .route("/fidelity-diagnostics", post(cp_fidelity_diagnostics))
             .route("/request/ack", post(cp_ack_request))
@@ -1676,6 +1885,12 @@ pub fn settings_router() -> Router<AppState> {
         )
         .route("/health", get(get_health))
         .route("/status", get(settings_status))
+        .route("/command-center", get(settings_command_center))
+        .route("/exceptions", get(settings_import_exceptions))
+        .route(
+            "/exceptions/{id}/resolve",
+            patch(settings_resolve_import_exception),
+        )
         .route(
             "/inventory-verification",
             get(settings_inventory_verification),

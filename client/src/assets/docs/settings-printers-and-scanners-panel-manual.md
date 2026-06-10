@@ -51,7 +51,8 @@ If a printer test fails, do not keep retrying sale completion from the cart. Con
 - The cash drawer opens automatically only on CASH and CHECK sales from Register #1.
 - Manual drawer opens require an Access PIN, a reason, and are listed on the Z-report.
 - The POS Register Hardware view shows the active receipt address, cash drawer state, and Zebra tag target at the top of the page.
-- Item tags print directly to the configured Zebra station. Auto language uses EPL for classic Zebra LP/TLP 2844 names and ZPL II for newer Zebra/ZPL printers; ROS opens tag preview only when direct dispatch is unavailable.
+- Item tags print directly to the configured Zebra station. Auto language uses EPL for classic Zebra LP/TLP 2844 names and ZPL II for newer Zebra/ZPL printers; if the desktop app still has the default tag address but sees an installed Zebra/2844 printer, it uses that installed printer before trying the network fallback.
+- Tag Designer print preview opens a printable preview document and surfaces an error if the preview cannot be opened.
 - Browser/PWA mode can save the same settings and can use server-side network printing when the API host can reach the printer. Receipt checks in PWA/browser mode verify the server-to-printer TCP path; installed-printer dropdowns and Windows printer checks run in the desktop app.
 - USB scanner hardware on PC and Bluetooth scanner hardware on iPad/phone should be configured as HID keyboard input with an Enter suffix.
 

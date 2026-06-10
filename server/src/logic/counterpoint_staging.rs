@@ -11,12 +11,13 @@ use super::counterpoint_sync::{
     execute_counterpoint_customer_batch, execute_counterpoint_customer_notes_batch,
     execute_counterpoint_gift_card_batch, execute_counterpoint_inventory_batch,
     execute_counterpoint_loyalty_hist_batch, execute_counterpoint_open_doc_batch,
-    execute_counterpoint_sls_rep_stub_batch, execute_counterpoint_staff_batch,
-    execute_counterpoint_store_credit_opening_batch, execute_counterpoint_ticket_batch,
-    execute_counterpoint_vendor_batch, execute_counterpoint_vendor_item_batch,
-    CounterpointCatalogPayload, CounterpointCategoryMastersPayload,
-    CounterpointCustomerNotesPayload, CounterpointCustomersPayload, CounterpointGiftCardsPayload,
-    CounterpointInventoryPayload, CounterpointLoyaltyHistPayload, CounterpointOpenDocsPayload,
+    execute_counterpoint_receiving_batch, execute_counterpoint_sls_rep_stub_batch,
+    execute_counterpoint_staff_batch, execute_counterpoint_store_credit_opening_batch,
+    execute_counterpoint_ticket_batch, execute_counterpoint_vendor_batch,
+    execute_counterpoint_vendor_item_batch, CounterpointCatalogPayload,
+    CounterpointCategoryMastersPayload, CounterpointCustomerNotesPayload,
+    CounterpointCustomersPayload, CounterpointGiftCardsPayload, CounterpointInventoryPayload,
+    CounterpointLoyaltyHistPayload, CounterpointOpenDocsPayload, CounterpointReceivingPayload,
     CounterpointSlsRepStubPayload, CounterpointStaffPayload, CounterpointStoreCreditOpeningPayload,
     CounterpointSyncError, CounterpointTicketsPayload, CounterpointVendorItemsPayload,
     CounterpointVendorsPayload,
@@ -170,7 +171,7 @@ pub async fn list_staging_batches(
     limit: i64,
     status_filter: Option<&str>,
 ) -> Result<Vec<CounterpointStagingBatchRow>, sqlx::Error> {
-    let limit = limit.clamp(1, 500);
+    let limit = limit.clamp(1, 5000);
     if let Some(st) = status_filter {
         sqlx::query_as::<_, CounterpointStagingBatchRow>(
             r#"SELECT b.id, b.entity, b.row_count, b.status, b.apply_error,
@@ -246,16 +247,119 @@ pub async fn get_staging_payload(pool: &PgPool, id: i64) -> Result<Option<Value>
         .await
 }
 
-pub async fn discard_staging_batch(pool: &PgPool, id: i64) -> Result<bool, sqlx::Error> {
+pub async fn discard_staging_batch(
+    pool: &PgPool,
+    id: i64,
+    staff_id: Uuid,
+) -> Result<bool, sqlx::Error> {
     let r = sqlx::query(
         r#"UPDATE counterpoint_staging_batch
-           SET status = 'discarded', applied_at = NOW()
-           WHERE id = $1 AND status = 'pending'"#,
+           SET status = 'discarded',
+               applied_at = NOW(),
+               recovered_at = CASE WHEN status = 'failed' THEN NOW() ELSE recovered_at END,
+               recovered_by_staff_id = CASE WHEN status = 'failed' THEN $2 ELSE recovered_by_staff_id END,
+               recovery_reason = CASE
+                 WHEN status = 'failed' THEN 'Failed staging batch discarded by operator after reviewed replay/recovery'
+                 ELSE recovery_reason
+               END
+           WHERE id = $1 AND status IN ('pending', 'failed')"#,
     )
     .bind(id)
+    .bind(staff_id)
     .execute(pool)
     .await?;
     Ok(r.rows_affected() > 0)
+}
+
+pub async fn execute_counterpoint_payload(
+    pool: &PgPool,
+    entity: &str,
+    payload: Value,
+) -> Result<Value, CounterpointSyncError> {
+    let summary = match entity {
+        "customers" => {
+            let p: CounterpointCustomersPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_customer_batch(pool, p).await?)
+        }
+        "inventory" => {
+            let p: CounterpointInventoryPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_inventory_batch(pool, p).await?)
+        }
+        "category_masters" => {
+            let p: CounterpointCategoryMastersPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_category_masters_batch(pool, p).await?)
+        }
+        "catalog" => {
+            let p: CounterpointCatalogPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_catalog_batch(pool, p).await?)
+        }
+        "gift_cards" => {
+            let p: CounterpointGiftCardsPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_gift_card_batch(pool, p).await?)
+        }
+        "tickets" => {
+            let p: CounterpointTicketsPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_ticket_batch(pool, p).await?)
+        }
+        "vendors" => {
+            let p: CounterpointVendorsPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_vendor_batch(pool, p).await?)
+        }
+        "vendor_items" => {
+            let p: CounterpointVendorItemsPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_vendor_item_batch(pool, p).await?)
+        }
+        "customer_notes" => {
+            let p: CounterpointCustomerNotesPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_customer_notes_batch(pool, p).await?)
+        }
+        "loyalty_hist" => {
+            let p: CounterpointLoyaltyHistPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_loyalty_hist_batch(pool, p).await?)
+        }
+        "staff" => {
+            let p: CounterpointStaffPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_staff_batch(pool, p).await?)
+        }
+        "sales_rep_stubs" => {
+            let p: CounterpointSlsRepStubPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_sls_rep_stub_batch(pool, p).await?)
+        }
+        "store_credit_opening" => {
+            let p: CounterpointStoreCreditOpeningPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_store_credit_opening_batch(pool, p).await?)
+        }
+        "open_docs" => {
+            let p: CounterpointOpenDocsPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_open_doc_batch(pool, p).await?)
+        }
+        "receiving_history" => {
+            let p: CounterpointReceivingPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(execute_counterpoint_receiving_batch(pool, p).await?)
+        }
+        _ => {
+            return Err(CounterpointSyncError::InvalidPayload(format!(
+                "unknown entity: {entity}"
+            )))
+        }
+    }
+    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+    Ok(summary)
 }
 
 pub async fn apply_staging_batch(
@@ -296,87 +400,9 @@ pub async fn apply_staging_batch(
         )));
     };
 
-    let apply_res: Result<(), CounterpointSyncError> = async {
-        match entity.as_str() {
-            "customers" => {
-                let p: CounterpointCustomersPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_customer_batch(pool, p).await?;
-            }
-            "inventory" => {
-                let p: CounterpointInventoryPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_inventory_batch(pool, p).await?;
-            }
-            "category_masters" => {
-                let p: CounterpointCategoryMastersPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_category_masters_batch(pool, p).await?;
-            }
-            "catalog" => {
-                let p: CounterpointCatalogPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_catalog_batch(pool, p).await?;
-            }
-            "gift_cards" => {
-                let p: CounterpointGiftCardsPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_gift_card_batch(pool, p).await?;
-            }
-            "tickets" => {
-                let p: CounterpointTicketsPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_ticket_batch(pool, p).await?;
-            }
-            "vendors" => {
-                let p: CounterpointVendorsPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_vendor_batch(pool, p).await?;
-            }
-            "vendor_items" => {
-                let p: CounterpointVendorItemsPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_vendor_item_batch(pool, p).await?;
-            }
-            "customer_notes" => {
-                let p: CounterpointCustomerNotesPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_customer_notes_batch(pool, p).await?;
-            }
-            "loyalty_hist" => {
-                let p: CounterpointLoyaltyHistPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_loyalty_hist_batch(pool, p).await?;
-            }
-            "staff" => {
-                let p: CounterpointStaffPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_staff_batch(pool, p).await?;
-            }
-            "sales_rep_stubs" => {
-                let p: CounterpointSlsRepStubPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_sls_rep_stub_batch(pool, p).await?;
-            }
-            "store_credit_opening" => {
-                let p: CounterpointStoreCreditOpeningPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_store_credit_opening_batch(pool, p).await?;
-            }
-            "open_docs" => {
-                let p: CounterpointOpenDocsPayload = serde_json::from_value(payload)
-                    .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
-                execute_counterpoint_open_doc_batch(pool, p).await?;
-            }
-            _ => {
-                return Err(CounterpointSyncError::InvalidPayload(format!(
-                    "unknown entity: {entity}"
-                )));
-            }
-        }
-        Ok(())
-    }
-    .await;
+    let apply_res = execute_counterpoint_payload(pool, &entity, payload)
+        .await
+        .map(|_| ());
 
     match apply_res {
         Ok(()) => {

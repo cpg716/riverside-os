@@ -366,7 +366,7 @@ export default function TagDesignerPanel() {
       if (result === "direct") {
         toast("Test tag sent to the tag station.", "success");
       } else {
-        toast("Direct tag print failed; preview opened for manual printing.", "info");
+        toast("Direct tag print was unavailable; print preview opened for manual printing.", "info");
       }
     } catch (error) {
       toast(error instanceof Error ? error.message : "Test tag print failed.", "error");

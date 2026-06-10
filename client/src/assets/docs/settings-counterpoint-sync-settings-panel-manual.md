@@ -21,16 +21,23 @@ status: approved
 
 ## What this is
 
-Counterpoint Sync Settings monitors the Counterpoint bridge, staged imports, reconciliation proof, and migration sign-off evidence.
+Counterpoint Sync Settings runs the one-time Counterpoint import-first migration, monitors Bridge source-count proof, and shows landed proof for sign-off.
 
 Use this panel to verify facts. ROSIE can explain displayed facts only; it does not approve cutover or sign off reconciliation.
 
 ## How to use it
 
-1. Confirm the bridge status and workstation reachability.
-2. Review post-import verification proof before sign-off reconciliation.
-3. Clear blockers before reviewing warnings and caveats.
-4. Use imported tax semantics to explain historical rows without changing current tax or QBO math.
+1. Confirm the Bridge status and workstation reachability.
+2. Use **Command center** to confirm source-count preflight passed for inventory/catalog, customers, sales and movement history, open orders, gift cards/store credit, and loyalty balances.
+3. Use **Reset Baseline** for a clean rehearsal database when needed.
+4. Click **Run Full Import** only after preflight passes.
+5. Review landed proof, open exceptions, and fallback-landed rows before sign-off reconciliation.
+6. Use **Legacy diagnostics** only when mapping, quarantine, or review blockers need manual resolution.
+7. Use imported tax semantics to explain historical rows without changing current tax or QBO math.
+
+If a failed staging batch has been reviewed and successfully replayed into a newer applied batch, use **Discard** to remove the stale failed row from active blockers while preserving the original audit record.
+
+Some historical tickets or open documents may land with **Historical Counterpoint Sale (Item Unresolved)** when Counterpoint provides payment/header value but no exact item variant. Review those rows in **Import exceptions** after import; ROS preserves the original Counterpoint item key on the line so staff can correct the product when the exact size or source line is known.
 
 ## Bridge status
 
@@ -38,15 +45,23 @@ The bridge status shows whether the Counterpoint workstation bridge is reachable
 
 The Bridge sync token saved in this panel must match `COUNTERPOINT_SYNC_TOKEN` in `C:\counterpoint-bridge\.env` on the Counterpoint host. If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If the bridge console shows `health 401`, run `Set-CounterpointBridgeToken.cmd` on the server PC and paste the exact bridge `.env` token. If it shows `health 503`, Riverside Server does not have a Counterpoint token configured yet.
 
-## Post-import verification
+## Command center and post-import verification
 
-Post-import verification appears before sign-off reconciliation. It shows import proof such as bridge rows sent, ROS rows landed, missing landed proof, count matches, lower ROS counts, and bridge-only entities.
+The command center appears before sign-off reconciliation. It shows expected Counterpoint rows, Bridge-sent rows, ROS rows landed, missing landed proof, open exceptions, fallback-landed rows, and readiness.
 
-The migration steps are proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If Step 1 shows Bridge-reported rows but there is no staged, applied, or ROS landed proof, **Advance to Inventory Mapping** stays blocked. Apply or recover the matching staging batch until the step has staged, applied, or ROS landed proof.
+The default **Command center** is the primary one-time migration surface. Do not treat the import as successful while required domains still show zero landed proof, blocked source-count rows, open exceptions, or fallback rows that have not been reviewed.
+
+The import is proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If source counts are suspiciously low, such as too few tickets or open docs, preflight blocks the run before ROS can show a completed import.
+
+After preflight passes, the Bridge starts a ROS import run before sending batches. The latest import run tile must show a running, completed, or failed run; blank run proof means the Bridge has not begun the real import path. Each successful batch records raw Counterpoint rows and provenance for landed ROS rows, and failed batches create Import exceptions for review.
+
+Use **Reset Baseline** before a rehearsal when you need to start over from a clean migrated/seeded ROS database. Reset clears imported Counterpoint rows, import-run proof, exceptions, staging state, and the active ROS import-run pointer while keeping staff access, store settings, register/printer configuration, and reviewed mappings.
+
+Legacy step approval is valid only when Counterpoint catalog products and variants have landed in ROS. Stale approval badges from an earlier rehearsal do not count.
 
 ## Counterpoint Transition Review Packs
 
-Use Counterpoint Transition Review Packs when staff need a manual ChatGPT/Codex review of Counterpoint migration rows.
+Use **AI review packs** only when staff need a manual ChatGPT/Codex review of Counterpoint migration rows. They are optional and are not the primary import path.
 
 Generate a pack, download the JSON, copy the prompt, and review the file manually outside Riverside OS. Import only the returned JSON result file. Riverside OS validates the source hash, row keys, allowed actions, confidence, reason, category targets, and forbidden fields before staging suggestions.
 
@@ -56,7 +71,7 @@ For returns/exchanges, use the returns readiness scope to flag whether historica
 
 ## Blockers and warnings
 
-Review blockers before warnings. Common blockers include pending staging batches, unresolved sync issues, missing ROS landed proof, and bridge entity errors.
+Review blockers before warnings. Common blockers include failed source-count preflight, unresolved sync issues, missing ROS landed proof, open import exceptions, and Bridge entity errors.
 
 Do not proceed with sign-off while blockers remain.
 

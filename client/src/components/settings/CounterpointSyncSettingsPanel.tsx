@@ -328,6 +328,70 @@ interface CounterpointLandingVerificationSummary {
   fidelity_diagnostics: CounterpointFidelityDiagnosticReport[];
 }
 
+interface CounterpointImportRunSnapshot {
+  id: string;
+  run_kind: string;
+  status: string;
+  history_start: string;
+  bridge_hostname: string | null;
+  bridge_version: string | null;
+  ros_base_url: string | null;
+  source_fingerprint: string | null;
+  preflight_passed: boolean;
+  preflight_blockers: unknown;
+  totals: unknown;
+  started_at: string;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CounterpointImportPreflightRow {
+  entity_key: string;
+  label: string;
+  source_count: number;
+  source_sum: string | null;
+  source_checksum: string | null;
+  required: boolean;
+  suspicious_min_count: number | null;
+  status: string;
+  message: string | null;
+}
+
+interface CounterpointImportCommandCenterSummary {
+  generated_at: string;
+  mode: string;
+  required_history_start: string;
+  token_configured: boolean;
+  latest_preflight: CounterpointImportRunSnapshot | null;
+  latest_import_run: CounterpointImportRunSnapshot | null;
+  source_counts: CounterpointImportPreflightRow[];
+  landing_rows: CounterpointLandingVerificationRow[];
+  snapshot_reconciliation: CounterpointSnapshotReconciliationRow[];
+  open_exception_count: number;
+  fallback_landed_exception_count: number;
+  staging_open_count: number;
+  ready_for_import: boolean;
+  ready_for_go_live_review: boolean;
+  recommendation: string;
+}
+
+interface CounterpointImportExceptionRow {
+  id: string;
+  entity_key: string;
+  source_key: string | null;
+  severity: string;
+  reason_code: string;
+  message: string;
+  suggested_fix: string | null;
+  fallback_landed: boolean;
+  ros_table: string | null;
+  ros_id: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // interface CounterpointTransactionReconciliationTotals {
 //   imported_ticket_transactions: number;
 //   transaction_lines: number;
@@ -417,6 +481,87 @@ const STAGE_STEPS = [
   { step: 6, label: "Open Orders & Layaways", desc: "Load active orders & deposits" },
   { step: 7, label: "Loyalty History", desc: "Verify & load loyalty balances" },
   { step: 8, label: "Audit & Live Cutover", desc: "Landing audit & final Go-Live sign-off" },
+];
+
+const ONE_TIME_APPLY_ORDER = [
+  "staff",
+  "sales_rep_stubs",
+  "vendors",
+  "customers",
+  "store_credit_opening",
+  "customer_notes",
+  "category_masters",
+  "catalog",
+  "inventory",
+  "vendor_items",
+  "gift_cards",
+  "tickets",
+  "open_docs",
+  "receiving_history",
+  "loyalty_hist",
+];
+
+const ONE_TIME_APPLY_ENTITY_SET = new Set<string>(ONE_TIME_APPLY_ORDER);
+const ONE_TIME_APPLY_ORDER_INDEX = new Map<string, number>(
+  ONE_TIME_APPLY_ORDER.map((entity, index) => [entity, index]),
+);
+
+const ONE_TIME_IMPORT_DOMAINS = [
+  {
+    key: "inventory_catalog",
+    label: "Inventory, catalog, and quantities",
+    desc: "Products, variants, categories, vendors, SKU/vendor links, stock, cost, and price.",
+    entities: ["category_masters", "vendors", "catalog", "vendor_items", "inventory"],
+    proofTerms: [
+      "catalog_products",
+      "catalog_variants",
+      "inventory_quantity_rows_matched",
+      "inventory_quantity_cost_fields",
+      "products",
+      "variants",
+    ],
+  },
+  {
+    key: "customers",
+    label: "Customers and CRM",
+    desc: "Customer profiles, notes, and staff/sales-rep attribution needed for daily use.",
+    entities: ["staff", "sales_rep_stubs", "customers", "customer_notes"],
+    proofTerms: ["customers", "staff_records"],
+  },
+  {
+    key: "history",
+    label: "Sales and movement history",
+    desc: "Closed tickets, payments, lines, receiving history, and inventory movement proof.",
+    entities: ["tickets", "receiving_history"],
+    proofTerms: [
+      "closed_ticket_transactions",
+      "closed_ticket_lines",
+      "closed_ticket_payments",
+      "receiving_history",
+      "inventory_movement",
+    ],
+  },
+  {
+    key: "open_orders",
+    label: "Open orders and layaways",
+    desc: "Open documents, line items, deposits, and remaining open balances.",
+    entities: ["open_docs"],
+    proofTerms: ["open_doc_transactions", "open_doc_lines", "open_docs"],
+  },
+  {
+    key: "gift_cards",
+    label: "Gift cards and store credit",
+    desc: "Active gift-card balances and opening store-credit liabilities.",
+    entities: ["gift_cards", "store_credit_opening"],
+    proofTerms: ["gift_cards", "store_credit"],
+  },
+  {
+    key: "loyalty",
+    label: "Loyalty balances",
+    desc: "Current customer loyalty balance proof; history is optional for go-live.",
+    entities: ["loyalty_hist"],
+    proofTerms: ["loyalty_history", "loyalty_hist", "loyalty"],
+  },
 ];
 
 function fmtNum(n: number | null | undefined): string {
@@ -601,11 +746,19 @@ export default function CounterpointSyncSettingsPanel() {
   const [confirmRecoverStale, setConfirmRecoverStale] = useState<number | null>(null);
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [selectedPayload, setSelectedPayload] = useState<unknown>(null);
-  const [workspaceView, setWorkspaceView] = useState<"pipeline" | "inbound" | "details">(() => {
-    if (typeof window === "undefined") return "pipeline";
-    return window.localStorage.getItem("counterpoint.statusSection") === "details"
-      ? "details"
-      : "pipeline";
+  const [bulkApplyBusy, setBulkApplyBusy] = useState(false);
+  const [bulkApplyProgress, setBulkApplyProgress] = useState<{
+    index: number;
+    total: number;
+    entity: string;
+    id: number;
+  } | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<"overview" | "pipeline" | "inbound" | "details" | "ai_review">(() => {
+    if (typeof window === "undefined") return "overview";
+    const saved = window.localStorage.getItem("counterpoint.statusSection");
+    return saved === "details" || saved === "inbound" || saved === "ai_review" || saved === "pipeline"
+      ? saved
+      : "overview";
   });
 
   // Connection settings
@@ -673,6 +826,8 @@ export default function CounterpointSyncSettingsPanel() {
 
   // Audit / Reconciliation Reports (Step 8)
   const [landingVerification, setLandingVerification] = useState<CounterpointLandingVerificationSummary | null>(null);
+  const [commandCenter, setCommandCenter] = useState<CounterpointImportCommandCenterSummary | null>(null);
+  const [importExceptions, setImportExceptions] = useState<CounterpointImportExceptionRow[]>([]);
   const [openDocsVerification, setOpenDocsVerification] = useState<CounterpointOpenDocsVerificationSnapshot | null>(null);
   // const [transactionReconciliation, setTransactionReconciliation] = useState<CounterpointTransactionReconciliationSnapshot | null>(null);
   // const [inventoryCatalogVerification, setInventoryCatalogVerification] = useState<CounterpointInventoryCatalogVerificationSnapshot | null>(null);
@@ -699,11 +854,40 @@ export default function CounterpointSyncSettingsPanel() {
     } catch { /* silent */ }
   }, [baseUrl, headers, hasPermission]);
 
+  const fetchCommandCenter = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/command-center`, {
+        headers: headers(),
+      });
+      if (res.ok) {
+        setCommandCenter((await res.json()) as CounterpointImportCommandCenterSummary);
+      }
+    } catch {
+      setCommandCenter(null);
+    }
+  }, [baseUrl, headers, hasPermission]);
+
+  const fetchImportExceptions = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/exceptions?limit=200`, {
+        headers: headers(),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { rows?: CounterpointImportExceptionRow[] };
+        setImportExceptions(data.rows ?? []);
+      }
+    } catch {
+      setImportExceptions([]);
+    }
+  }, [baseUrl, headers, hasPermission]);
+
   const fetchBatches = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
     try {
       const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/staging/batches?limit=200`,
+        `${baseUrl}/api/settings/counterpoint-sync/staging/batches?limit=5000`,
         { headers: headers() },
       );
       if (res.ok) {
@@ -977,6 +1161,8 @@ export default function CounterpointSyncSettingsPanel() {
     setLoading(true);
     await Promise.all([
       fetchStatus(),
+      fetchCommandCenter(),
+      fetchImportExceptions(),
       fetchBatches(),
       fetchWorkbenchState(),
       fetchMaps(),
@@ -993,6 +1179,8 @@ export default function CounterpointSyncSettingsPanel() {
     setLoading(false);
   }, [
     fetchStatus,
+    fetchCommandCenter,
+    fetchImportExceptions,
     fetchBatches,
     fetchWorkbenchState,
     fetchMaps,
@@ -1048,13 +1236,36 @@ export default function CounterpointSyncSettingsPanel() {
         "success",
       );
       setTimeout(() => void fetchStatus(), 1000);
+      setTimeout(() => void fetchCommandCenter(), 1200);
+      setTimeout(() => void fetchImportExceptions(), 1200);
       setTimeout(() => void fetchBatches(), 1500);
     } catch {
       toast("Could not contact Windows Bridge.", "error");
     } finally {
       setRunRequestBusy(false);
     }
-  }, [baseUrl, headers, toast, fetchStatus, fetchBatches]);
+  }, [baseUrl, headers, toast, fetchStatus, fetchCommandCenter, fetchImportExceptions, fetchBatches]);
+
+  const resolveImportException = useCallback(async (exceptionId: string) => {
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/exceptions/${exceptionId}/resolve`,
+        {
+          method: "PATCH",
+          headers: headers(),
+        },
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Could not resolve import exception");
+      }
+      toast("Import exception marked resolved.", "success");
+      void fetchImportExceptions();
+      void fetchCommandCenter();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not resolve import exception", "error");
+    }
+  }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
 
   const stopBridgeSync = useCallback(async () => {
     // Attempt stop on local endpoints
@@ -1127,6 +1338,61 @@ export default function CounterpointSyncSettingsPanel() {
     } catch {
       toast("Could not apply staging batch", "error");
     } finally {
+      setApplyBusy(false);
+    }
+  };
+
+  const applyOneTimeImportBatches = async () => {
+    const queue = batches
+      .filter((batch) => batch.status === "pending" && ONE_TIME_APPLY_ENTITY_SET.has(batch.entity))
+      .sort((a, b) => {
+        const orderDiff =
+          (ONE_TIME_APPLY_ORDER_INDEX.get(a.entity) ?? Number.MAX_SAFE_INTEGER) -
+          (ONE_TIME_APPLY_ORDER_INDEX.get(b.entity) ?? Number.MAX_SAFE_INTEGER);
+        return orderDiff !== 0 ? orderDiff : a.id - b.id;
+      });
+
+    if (queue.length === 0) {
+      toast("No supported Counterpoint staging batches are waiting to apply.", "info");
+      return;
+    }
+
+    setApplyBusy(true);
+    setBulkApplyBusy(true);
+    try {
+      for (let index = 0; index < queue.length; index += 1) {
+        const batch = queue[index];
+        setBulkApplyProgress({
+          index: index + 1,
+          total: queue.length,
+          entity: batch.entity,
+          id: batch.id,
+        });
+        const res = await fetch(
+          `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${batch.id}/apply`,
+          {
+            method: "POST",
+            headers: headers(),
+          },
+        );
+        if (!res.ok) {
+          const j = await res.json().catch(() => null) as { error?: unknown } | null;
+          const message =
+            typeof j?.error === "string" && j.error.trim()
+              ? j.error
+              : "Apply failed";
+          throw new Error(`${formatEntityLabel(batch.entity)} batch ${batch.id}: ${message}`);
+        }
+      }
+      toast(`Applied ${fmtNum(queue.length)} Counterpoint staging batch(es) into ROS.`, "success");
+      await fetchAllData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not apply Counterpoint import batches", "error");
+      await fetchBatches();
+      await fetchStatus();
+    } finally {
+      setBulkApplyProgress(null);
+      setBulkApplyBusy(false);
       setApplyBusy(false);
     }
   };
@@ -1886,6 +2152,8 @@ export default function CounterpointSyncSettingsPanel() {
   };
 
   // Filter staging batches for step rendering
+  const catalogBatches = useMemo(() => batches.filter((b) => b.entity === "catalog"), [batches]);
+  const inventoryBatches = useMemo(() => batches.filter((b) => b.entity === "inventory"), [batches]);
   const customerBatches = useMemo(() => batches.filter((b) => b.entity === "customers"), [batches]);
   const ticketBatches = useMemo(() => batches.filter((b) => b.entity === "tickets"), [batches]);
   const giftBatches = useMemo(() => batches.filter((b) => b.entity === "gift_cards"), [batches]);
@@ -1953,7 +2221,9 @@ export default function CounterpointSyncSettingsPanel() {
   const inventoryProducts = workbenchState?.inventory_summary?.products ?? 0;
   const inventoryVariants = workbenchState?.inventory_summary?.variants ?? 0;
   const hasLandedInventory = inventoryProducts > 0 && inventoryVariants > 0;
-  const bridgeReportedCatalogRows = bridgeRowsFor(["inventory"]) + (dsHealth?.bridge_products ?? 0);
+  const catalogStagedRows = stagedRowsFor("catalog", catalogBatches);
+  const inventoryStagedRows = stagedRowsFor("inventory", inventoryBatches);
+  const bridgeReportedCatalogRows = bridgeRowsFor(["catalog", "inventory"]) + (dsHealth?.bridge_products ?? 0);
   const customerReviewReady = reviewReadinessFor("Customer CRM", "customers", customerBatches, ["customers"]);
   const ticketReviewReady = reviewReadinessFor("Sales history", "tickets", ticketBatches, [
     "closed_ticket_transactions",
@@ -1969,6 +2239,103 @@ export default function CounterpointSyncSettingsPanel() {
     "loyalty_history",
     "loyalty_hist",
   ]);
+  const stagingTotalsForEntities = (entities: string[]) => {
+    return entities.reduce(
+      (totals, entity) => {
+        const staged = stagingCountsByEntity.get(entity);
+        const batchRows = batches.filter((batch) => batch.entity === entity);
+        totals.pendingRows += Math.max(
+          staged?.pending_rows ?? 0,
+          batchRows
+            .filter((batch) => batch.status === "pending")
+            .reduce((sum, batch) => sum + Math.max(0, batch.row_count), 0),
+        );
+        totals.applyingRows += Math.max(
+          staged?.applying_rows ?? 0,
+          batchRows
+            .filter((batch) => batch.status === "applying")
+            .reduce((sum, batch) => sum + Math.max(0, batch.row_count), 0),
+        );
+        totals.appliedRows += Math.max(
+          staged?.applied_rows ?? 0,
+          batchRows
+            .filter((batch) => batch.status === "applied")
+            .reduce((sum, batch) => sum + Math.max(0, batch.row_count), 0),
+        );
+        totals.pendingBatches += Math.max(
+          staged?.pending_batches ?? 0,
+          batchRows.filter((batch) => batch.status === "pending").length,
+        );
+        totals.applyingBatches += Math.max(
+          staged?.applying_batches ?? 0,
+          batchRows.filter((batch) => batch.status === "applying").length,
+        );
+        totals.appliedBatches += Math.max(
+          staged?.applied_batches ?? 0,
+          batchRows.filter((batch) => batch.status === "applied").length,
+        );
+        return totals;
+      },
+      {
+        pendingRows: 0,
+        applyingRows: 0,
+        appliedRows: 0,
+        pendingBatches: 0,
+        applyingBatches: 0,
+        appliedBatches: 0,
+      },
+    );
+  };
+  const oneTimePendingSupportedBatches = batches
+    .filter((batch) => batch.status === "pending" && ONE_TIME_APPLY_ENTITY_SET.has(batch.entity))
+    .sort((a, b) => {
+      const orderDiff =
+        (ONE_TIME_APPLY_ORDER_INDEX.get(a.entity) ?? Number.MAX_SAFE_INTEGER) -
+        (ONE_TIME_APPLY_ORDER_INDEX.get(b.entity) ?? Number.MAX_SAFE_INTEGER);
+      return orderDiff !== 0 ? orderDiff : a.id - b.id;
+    });
+  const oneTimeUnsupportedPendingBatches = batches.filter(
+    (batch) => batch.status === "pending" && !ONE_TIME_APPLY_ENTITY_SET.has(batch.entity),
+  );
+  const oneTimePendingSupportedRows = oneTimePendingSupportedBatches.reduce(
+    (sum, batch) => sum + Math.max(0, batch.row_count),
+    0,
+  );
+  const oneTimeImportRows = ONE_TIME_IMPORT_DOMAINS.map((domain) => {
+    const totals = stagingTotalsForEntities(domain.entities);
+    const bridgeRows = bridgeRowsFor(domain.entities);
+    const landedRows = landedRowsFor(domain.proofTerms);
+    const statusLabel =
+      totals.applyingBatches > 0
+        ? "Applying"
+        : totals.pendingBatches > 0
+          ? "Queued"
+          : landedRows > 0
+            ? "Landed"
+            : totals.appliedBatches > 0
+              ? "Applied"
+              : bridgeRows > 0
+                ? "Needs proof"
+                : "Waiting";
+    const tone =
+      statusLabel === "Landed"
+        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+        : statusLabel === "Applied"
+          ? "bg-blue-500/10 text-blue-700 dark:text-blue-200"
+          : statusLabel === "Queued" || statusLabel === "Applying"
+            ? "bg-amber-500/15 text-amber-700 dark:text-amber-200"
+            : statusLabel === "Needs proof"
+              ? "bg-red-500/10 text-red-600"
+              : "bg-app-surface-2 text-app-text-muted";
+    return {
+      ...domain,
+      ...totals,
+      bridgeRows,
+      landedRows,
+      statusLabel,
+      tone,
+    };
+  });
   const downstreamReviewBlockers = [
     !hasLandedInventory && bridgeReportedCatalogRows > 0
       ? `Bridge reported catalog/inventory rows, but ROS has ${fmtNum(inventoryProducts)} Counterpoint product(s) and ${fmtNum(inventoryVariants)} variant(s). Apply the inventory staging batch before approving catalog mapping.`
@@ -1999,12 +2366,18 @@ export default function CounterpointSyncSettingsPanel() {
     openDocReviewReady,
     loyaltyReviewReady,
   ].reduce((sum, review) => sum + review.stagedRows, 0);
+  const stagedImportRows = stagedReviewRows + catalogStagedRows + inventoryStagedRows;
   const bridgeRowsWithoutReviewSurface =
-    bridgeReportedRows > 0 && !hasLandedInventory && stagedReviewRows === 0 && !hasAnyCounterpointLandingProof;
+    bridgeReportedRows > 0 && !hasLandedInventory && stagedImportRows === 0 && !hasAnyCounterpointLandingProof;
 
   // Check sub-step statuses for Step 2
   const subStepStatus = (key: string) => workbenchState?.steps[key]?.status ?? "locked";
-  const step2Approved = workbenchState?.steps["verification"]?.status === "complete";
+  const savedStep2Approved = workbenchState?.steps["verification"]?.status === "complete";
+  const step2ApprovalStale = savedStep2Approved && !hasLandedInventory;
+  const step2Approved = savedStep2Approved && hasLandedInventory;
+  const inventoryLandingRequired =
+    !hasLandedInventory &&
+    (catalogStagedRows > 0 || inventoryStagedRows > 0 || bridgeReportedCatalogRows > 0 || step2ApprovalStale);
   const cutoverBlockers = [
     ...signoffBlockers,
     ...downstreamReviewBlockers,
@@ -2078,6 +2451,352 @@ export default function CounterpointSyncSettingsPanel() {
     if (landingVerification?.snapshot_reconciliation.every((r) => r.passed)) completed += 1;
     return Math.round((completed / 8) * 100);
   }, [status, step2Approved, customerBatches, ticketBatches, giftBatches, openDocBatches, loyaltyBatches, landingVerification]);
+
+  const commandReconciliationByKey = useMemo(() => new Map(
+    (commandCenter?.snapshot_reconciliation ?? []).map((row) => [row.key, row]),
+  ), [commandCenter?.snapshot_reconciliation]);
+  const importExceptionsByEntity = useMemo(() => {
+    const map = new Map<string, { open: number; fallback: number }>();
+    for (const row of importExceptions) {
+      const current = map.get(row.entity_key) ?? { open: 0, fallback: 0 };
+      if (row.status === "open") current.open += 1;
+      if (row.status === "open" && row.fallback_landed) current.fallback += 1;
+      map.set(row.entity_key, current);
+    }
+    return map;
+  }, [importExceptions]);
+  const commandCenterRows = useMemo(() => {
+    const rows = commandCenter?.source_counts ?? [];
+    return rows.map((source) => {
+      const landed = commandReconciliationByKey.get(source.entity_key);
+      const exceptions = importExceptionsByEntity.get(source.entity_key) ?? { open: 0, fallback: 0 };
+      const sentByBridge = landed?.source_count ?? source.source_count;
+      const ready =
+        source.status === "ok" &&
+        (landed?.passed ?? false) &&
+        exceptions.open === 0;
+      return {
+        ...source,
+        sentByBridge,
+        landedCount: landed?.landed_count ?? 0,
+        gap: landed?.count_difference ?? null,
+        landedStatus: landed?.status ?? "waiting",
+        failedCount: exceptions.open,
+        fallbackCount: exceptions.fallback,
+        ready,
+      };
+    });
+  }, [commandCenter?.source_counts, commandReconciliationByKey, importExceptionsByEntity]);
+  const commandExpectedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.source_count), 0);
+  const commandSentTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.sentByBridge ?? 0), 0);
+  const commandLandedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.landedCount), 0);
+  const commandBlockedRows = commandCenterRows.filter((row) => row.status === "blocked" || row.landedStatus === "Lower").length;
+
+  const importFirstCommandCenterPanel = (
+    <section className="ui-card p-5 space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
+            Counterpoint Import Command Center
+          </h4>
+          <p className="mt-1 max-w-4xl text-xs text-app-text-muted">
+            Source counts are proved first, then supported data lands in ROS. Only failures, fallback rows, and cleanup suggestions need review after import.
+          </p>
+        </div>
+        <span className={`ui-pill text-[10px] ${
+          commandCenter?.ready_for_import
+            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+            : "bg-red-500/10 text-red-600"
+        }`}>
+          {commandCenter?.ready_for_import ? "Preflight passed" : "Preflight blocked"}
+        </span>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {[
+          { label: "Expected from Counterpoint", value: fmtNum(commandExpectedTotal) },
+          { label: "Sent by Bridge", value: fmtNum(commandSentTotal) },
+          { label: "Landed in ROS", value: fmtNum(commandLandedTotal) },
+          { label: "Open exceptions", value: fmtNum(commandCenter?.open_exception_count ?? importExceptions.length) },
+          { label: "Fallback landed", value: fmtNum(commandCenter?.fallback_landed_exception_count ?? 0) },
+          { label: "Ready", value: commandCenter?.ready_for_import ? "Yes" : "No" },
+        ].map((stat) => (
+          <div key={stat.label} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{stat.label}</p>
+            <p className="mt-1 text-lg font-black text-app-text tabular-nums">{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-lg border border-app-border bg-app-surface-2/30 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Preflight and import readiness
+            </p>
+            <p className="mt-1 text-xs font-semibold text-app-text-muted">
+              {commandCenter?.recommendation ?? "Run the Bridge source-count preflight before importing."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void fetchAllData()}
+              disabled={loading}
+              className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              Refresh Proof
+            </button>
+            <button
+              type="button"
+              onClick={() => void triggerBridgeSync()}
+              disabled={runRequestBusy || commandCenter?.ready_for_import !== true}
+              className="ui-btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold disabled:opacity-50"
+            >
+              {runRequestBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              Run Full Import
+            </button>
+            <button
+              type="button"
+              onClick={() => setResetPromptOpen(true)}
+              className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reset Baseline
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-2 text-xs md:grid-cols-5">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">History floor</p>
+            <p className="mt-1 font-bold text-app-text">{commandCenter?.required_history_start ?? "2018-01-01"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Latest preflight</p>
+            <p className="mt-1 font-bold text-app-text">
+              {commandCenter?.latest_preflight ? formatDate(commandCenter.latest_preflight.created_at) : "Not run"}
+            </p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Bridge host</p>
+            <p className="mt-1 font-bold text-app-text">{commandCenter?.latest_preflight?.bridge_hostname ?? status?.bridge_hostname ?? "Unknown"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Latest import run</p>
+            <p className="mt-1 font-bold text-app-text">
+              {commandCenter?.latest_import_run
+                ? `${commandCenter.latest_import_run.status} (${formatDate(commandCenter.latest_import_run.updated_at)})`
+                : "Not run"}
+            </p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Blocked rows</p>
+            <p className="mt-1 font-bold text-app-text">{fmtNum(commandBlockedRows)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-auto rounded-lg border border-app-border">
+        <table className="w-full min-w-[920px] text-left text-xs">
+          <thead className="bg-app-surface-2">
+            <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              <th className="px-3 py-2">Entity</th>
+              <th className="px-3 py-2 text-right">Expected</th>
+              <th className="px-3 py-2 text-right">Sent</th>
+              <th className="px-3 py-2 text-right">Landed</th>
+              <th className="px-3 py-2 text-right">Gap</th>
+              <th className="px-3 py-2 text-right">Failed</th>
+              <th className="px-3 py-2 text-right">Fallback</th>
+              <th className="px-3 py-2">Ready</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-app-border">
+            {commandCenterRows.map((row) => (
+              <tr key={row.entity_key}>
+                <td className="px-3 py-2">
+                  <p className="font-bold text-app-text">{row.label}</p>
+                  {row.message ? <p className="mt-1 text-[10px] text-red-600">{row.message}</p> : null}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.source_count)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.sentByBridge ?? 0)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.landedCount)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{row.gap == null ? "Pending" : fmtNum(row.gap)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.failedCount)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.fallbackCount)}</td>
+                <td className="px-3 py-2">
+                  <span className={`ui-pill text-[9px] ${
+                    row.ready
+                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                      : row.status === "blocked"
+                        ? "bg-red-500/10 text-red-600"
+                        : "bg-amber-500/15 text-amber-700 dark:text-amber-200"
+                  }`}>
+                    {row.ready ? "Ready" : row.status === "blocked" ? "Blocked" : formatEntityLabel(row.landedStatus)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {commandCenterRows.length === 0 ? (
+          <div className="p-4 text-xs font-semibold text-app-text-muted">
+            Start the Counterpoint Bridge to run source-count preflight. Import cannot run until ROS receives count proof.
+          </div>
+        ) : null}
+      </div>
+
+      {importExceptions.length > 0 ? (
+        <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-200">
+            Import exceptions
+          </p>
+          <div className="mt-2 grid gap-2 md:grid-cols-2">
+            {importExceptions.slice(0, 6).map((row) => (
+              <div key={row.id} className="rounded-md border border-app-border bg-app-bg/60 p-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-bold text-app-text">
+                    {formatEntityLabel(row.entity_key)} {row.source_key ? `#${row.source_key}` : ""}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void resolveImportException(row.id)}
+                    className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                  >
+                    Resolve
+                  </button>
+                </div>
+                <p className="mt-1 text-app-text-muted">{row.message}</p>
+                {row.suggested_fix ? <p className="mt-1 font-semibold text-amber-700 dark:text-amber-200">{row.suggested_fix}</p> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+
+  const oneTimeImportPanel = (
+    <section className="ui-card p-5 space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
+            Import proof and advanced controls
+          </h4>
+          <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
+            Use this area for Bridge controls, reset rehearsal checks, and legacy staging diagnostics after the command center source-count gate passes.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void applyOneTimeImportBatches()}
+          disabled={bulkApplyBusy || oneTimePendingSupportedBatches.length === 0}
+          className="ui-btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold disabled:opacity-50"
+        >
+          {bulkApplyBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+          Apply Required Staged Data
+        </button>
+      </div>
+
+      <div className="grid gap-2 text-xs md:grid-cols-4">
+        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Ready to apply</p>
+          <p className="mt-1 font-bold tabular-nums text-app-text">
+            {fmtNum(oneTimePendingSupportedBatches.length)} batch(es)
+          </p>
+          <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+            {fmtNum(oneTimePendingSupportedRows)} row(s)
+          </p>
+        </div>
+        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Applying now</p>
+          <p className="mt-1 font-bold tabular-nums text-app-text">{fmtNum(visibleApplyingN)} batch(es)</p>
+          <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+            Stale: {fmtNum(staleApplyingN)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Landed proof</p>
+          <p className="mt-1 font-bold tabular-nums text-app-text">
+            {fmtNum(oneTimeImportRows.filter((row) => row.landedRows > 0).length)} domain(s)
+          </p>
+          <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+            Required domains: {fmtNum(oneTimeImportRows.length)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Unsupported pending</p>
+          <p className="mt-1 font-bold tabular-nums text-app-text">
+            {fmtNum(oneTimeUnsupportedPendingBatches.length)} batch(es)
+          </p>
+          <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+            Should be zero before sign-off
+          </p>
+        </div>
+      </div>
+
+      {bulkApplyProgress ? (
+        <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-xs font-semibold text-blue-700 dark:text-blue-200">
+          Applying {formatEntityLabel(bulkApplyProgress.entity)} batch {bulkApplyProgress.id}{" "}
+          ({fmtNum(bulkApplyProgress.index)} of {fmtNum(bulkApplyProgress.total)})
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-xl border border-app-border">
+        <table className="w-full min-w-[920px] text-left text-xs">
+          <thead className="bg-app-surface-2">
+            <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              <th className="px-3 py-2">Required data</th>
+              <th className="px-3 py-2">Bridge rows</th>
+              <th className="px-3 py-2">Queued</th>
+              <th className="px-3 py-2">Applied</th>
+              <th className="px-3 py-2">ROS landed proof</th>
+              <th className="px-3 py-2">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-app-border">
+            {oneTimeImportRows.map((row) => (
+              <tr key={row.key}>
+                <td className="px-3 py-2">
+                  <p className="font-bold text-app-text">{row.label}</p>
+                  <p className="mt-0.5 text-[10px] text-app-text-muted">{row.desc}</p>
+                  <p className="mt-1 font-mono text-[9px] text-app-text-muted">
+                    {row.entities.join(", ")}
+                  </p>
+                </td>
+                <td className="px-3 py-2 font-semibold tabular-nums text-app-text">
+                  {fmtNum(row.bridgeRows)}
+                </td>
+                <td className="px-3 py-2">
+                  <p className="font-semibold tabular-nums text-app-text">{fmtNum(row.pendingRows)}</p>
+                  <p className="text-[10px] text-app-text-muted">{fmtNum(row.pendingBatches)} batch(es)</p>
+                </td>
+                <td className="px-3 py-2">
+                  <p className="font-semibold tabular-nums text-app-text">{fmtNum(row.appliedRows)}</p>
+                  <p className="text-[10px] text-app-text-muted">{fmtNum(row.appliedBatches)} batch(es)</p>
+                </td>
+                <td className="px-3 py-2 font-semibold tabular-nums text-app-text">
+                  {fmtNum(row.landedRows)}
+                </td>
+                <td className="px-3 py-2">
+                  <span className={`ui-pill text-[9px] ${row.tone}`}>{row.statusLabel}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {oneTimeUnsupportedPendingBatches.length > 0 ? (
+        <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-xs font-semibold text-red-700 dark:text-red-300">
+          Unsupported pending Counterpoint staging entity:{" "}
+          {Array.from(new Set(oneTimeUnsupportedPendingBatches.map((batch) => batch.entity)))
+            .map(formatEntityLabel)
+            .join(", ")}
+        </div>
+      ) : null}
+    </section>
+  );
 
   const bridgeReachabilityPanel = (
     <div className="ui-card p-4">
@@ -2468,14 +3187,22 @@ export default function CounterpointSyncSettingsPanel() {
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-app-border pb-4">
         <div>
           <h3 className="text-2xl font-black italic tracking-tighter uppercase text-app-text">
-            Counterpoint Sync & Guided Migration Pipeline
+            Counterpoint Import-First Go-Live
           </h3>
           <p className="mt-1 text-xs text-app-text-muted max-w-3xl">
-            Clean, verify, map, and import your legacy Counterpoint retail data step-by-step.
-            Work is safely isolated in the Staging Area. You only write data to live ROS databases when you click Apply in each step.
+            Prove NCR Counterpoint source counts, reset rehearsal data when needed, import supported rows into ROS, then review only exceptions and cleanup suggestions.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setWorkspaceView("overview")}
+            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
+              workspaceView === "overview" ? "ring-2 ring-app-accent/30" : ""
+            }`}
+          >
+            Command center
+          </button>
           <button
             type="button"
             onClick={() => setWorkspaceView("pipeline")}
@@ -2483,7 +3210,7 @@ export default function CounterpointSyncSettingsPanel() {
               workspaceView === "pipeline" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
-            Guided Pipeline
+            Legacy diagnostics
           </button>
           <button
             type="button"
@@ -2498,6 +3225,15 @@ export default function CounterpointSyncSettingsPanel() {
                 {visiblePendingN}
               </span>
             ) : null}
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceView("ai_review")}
+            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
+              workspaceView === "ai_review" ? "ring-2 ring-app-accent/30" : ""
+            }`}
+          >
+            AI review packs
           </button>
           <button
             type="button"
@@ -2528,6 +3264,11 @@ export default function CounterpointSyncSettingsPanel() {
         </div>
       </div>
 
+      {importFirstCommandCenterPanel}
+
+      {workspaceView === "overview" ? oneTimeImportPanel : null}
+
+      {workspaceView === "ai_review" ? (
       <section className="ui-card p-5 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -2829,13 +3570,14 @@ export default function CounterpointSyncSettingsPanel() {
           </div>
         </div>
       </section>
+      ) : null}
 
       {bridgeReachabilityPanel}
 
       {/* ── Progress Indicators ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="ui-card p-4 space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Pipeline Completion</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Legacy pipeline diagnostics</p>
           <div className="flex items-center gap-3">
             <div className="flex-1 bg-app-surface-2 rounded-full h-3.5 overflow-hidden border border-app-border">
               <div
@@ -2871,8 +3613,8 @@ export default function CounterpointSyncSettingsPanel() {
 
         <div className="ui-card p-4 flex items-center justify-between">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Safe Staging Safeguard</p>
-            <p className="mt-1 text-[10px] text-app-text-muted">Holds incoming data in review queue before writing live.</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Import-first mode</p>
+            <p className="mt-1 text-[10px] text-app-text-muted">Direct ROS landing after source-count preflight; staging is legacy diagnostics.</p>
           </div>
           <button
             type="button"
@@ -2884,7 +3626,7 @@ export default function CounterpointSyncSettingsPanel() {
                 : "bg-amber-500/15 text-amber-700 dark:text-amber-200 border-amber-500/30"
             }`}
           >
-            {stagingOn ? "STAGING ON (RECOMMENDED)" : "DIRECT LIVE WRITE"}
+            {stagingOn ? "LEGACY STAGING ON" : "IMPORT-FIRST DIRECT"}
           </button>
         </div>
       </div>
@@ -2920,6 +3662,8 @@ export default function CounterpointSyncSettingsPanel() {
       {workspaceView === "inbound" ? inboundQueuePanel : null}
       {workspaceView === "details" ? supportDiagnosticsPanel : null}
 
+      {workspaceView === "pipeline" ? (
+      <>
       {/* ── Main Stepper Rail ── */}
       <div className="flex flex-wrap gap-2 border-b border-app-border pb-4">
         {STAGE_STEPS.map((s) => {
@@ -3193,6 +3937,61 @@ export default function CounterpointSyncSettingsPanel() {
             </div>
           </div>
 
+          {inventoryLandingRequired ? (
+            <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="max-w-3xl space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-red-700 dark:text-red-300">
+                    One-time import is still waiting in staging
+                  </p>
+                  <p className="text-sm font-bold text-app-text">
+                    Nothing has been loaded into ROS catalog tables yet.
+                  </p>
+                  <p className="text-xs font-semibold text-app-text-muted">
+                    ROS currently has {fmtNum(inventoryProducts)} Counterpoint product(s) and {fmtNum(inventoryVariants)} variant(s), while the bridge/staging queue still has catalog or inventory data waiting to be applied. Apply the staged catalog and inventory batches before mapping, ROSIE review, customer import, or final sign-off.
+                  </p>
+                  <div className="grid gap-2 text-xs sm:grid-cols-3">
+                    <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Catalog rows in staging</p>
+                      <p className="mt-1 font-bold tabular-nums text-app-text">{fmtNum(catalogStagedRows)}</p>
+                    </div>
+                    <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Inventory rows in staging</p>
+                      <p className="mt-1 font-bold tabular-nums text-app-text">{fmtNum(inventoryStagedRows)}</p>
+                    </div>
+                    <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Pending batches</p>
+                      <p className="mt-1 font-bold tabular-nums text-app-text">{fmtNum(visiblePendingN)}</p>
+                    </div>
+                  </div>
+                  {step2ApprovalStale ? (
+                    <p className="rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-xs font-semibold text-red-700 dark:text-red-300">
+                      Previous catalog approval is stale because this database no longer has landed Counterpoint products and variants.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setWorkspaceView("inbound")}
+                    className="ui-btn-primary px-4 py-2 text-xs font-bold"
+                  >
+                    Open Staging Queue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmWorkbenchReset(true)}
+                    className="ui-btn-secondary px-4 py-2 text-xs font-bold text-red-600 border-red-500/10"
+                  >
+                    Reset Stale Approvals
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {!inventoryLandingRequired ? (
+            <>
           {/* Stepper Inside Step 2 */}
           <div className="flex gap-2 bg-app-surface-2/40 p-2 rounded-xl border border-app-border overflow-x-auto">
             {[
@@ -3867,10 +4666,17 @@ export default function CounterpointSyncSettingsPanel() {
               </div>
             </div>
           )}
+            </>
+          ) : null}
 
           <div className="border-t border-app-border pt-4 flex justify-between items-center">
             <span className="text-xs text-app-text-muted">
-              {step2Approved ? (
+              {step2ApprovalStale ? (
+                <span className="text-red-600 dark:text-red-300 font-bold inline-flex items-center gap-1">
+                  <AlertTriangle className="h-4 w-4" />
+                  Previous inventory approval is stale. Apply staged catalog/inventory batches first.
+                </span>
+              ) : step2Approved ? (
                 <span className="text-emerald-600 dark:text-emerald-400 font-bold inline-flex items-center gap-1">
                   <CheckCircle2 className="h-4 w-4" />
                   Inventory step verified and approved.
@@ -4277,6 +5083,9 @@ export default function CounterpointSyncSettingsPanel() {
         </section>
       )}
 
+      </>
+      ) : null}
+
       {/* ── Modals ── */}
       <ConfirmationModal
         isOpen={confirmApply != null}
@@ -4363,7 +5172,7 @@ function StagingBatchCard({
     return (
       <div className="rounded-xl border border-dashed border-app-border p-6 text-center text-app-text-muted">
         <Database className="mx-auto h-8 w-8 text-app-text-muted/40 mb-2" />
-        <p className="text-xs font-bold">No staged staging batches found for {entityName.replace(/_/g, " ")}.</p>
+        <p className="text-xs font-bold">No staged batches found for {entityName.replace(/_/g, " ")}.</p>
         <p className="text-[10px] text-app-text-muted/75 mt-1">
           Rerun the Counterpoint SQL bridge sync in Step 1 to pull data into staging tables.
         </p>

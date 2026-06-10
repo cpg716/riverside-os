@@ -251,9 +251,9 @@ For complete pre-release validation (service boot order, lint/build gates, and E
 
 ## Schema Contract, Migrations, And Seeds
 
-Fresh installs use the schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through **`migrations/079_counterpoint_transition_review_packs.sql`**. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
+Fresh installs use the schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through **`migrations/081_counterpoint_import_first_proof.sql`**. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
 
-Apply active migrations with **`./scripts/apply-migrations-docker.sh`** or **`./scripts/apply-migrations-psql.sh`**. The ledger is the table **`public.ros_schema_migrations`** and should contain the 78 active baseline filenames after a fresh baseline build. Runtime startup verifies the ledger and refuses pending migrations unless `RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP=true` is set intentionally for a non-production startup apply.
+Apply active migrations with **`./scripts/apply-migrations-docker.sh`** or **`./scripts/apply-migrations-psql.sh`**. The ledger is the table **`public.ros_schema_migrations`** and should contain the 81 active baseline filenames after a fresh baseline build. Runtime startup verifies the ledger and refuses pending migrations unless `RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP=true` is set intentionally for a non-production startup apply.
 
 Seed data is separate from schema:
 

@@ -239,7 +239,11 @@ INSERT INTO public.weather_snapshot_finalize_ledger (id, last_completed_store_da
 -- Name: counterpoint_payment_method_map_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.counterpoint_payment_method_map_id_seq', 6, true);
+SELECT pg_catalog.setval(
+  'public.counterpoint_payment_method_map_id_seq',
+  COALESCE((SELECT MAX(id) FROM public.counterpoint_payment_method_map), 1),
+  (SELECT COUNT(*) > 0 FROM public.counterpoint_payment_method_map)
+);
 
 
 --

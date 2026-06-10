@@ -55,6 +55,8 @@ The only active migration files in `migrations/` are:
 | `037_backfill_missing_columns.sql` | Backfill columns added to earlier files after they were applied (`store_media_asset.deleted_at/alt_text/usage_note`, `categories.variation_axis_presets`) |
 | `078_data_integrity_hardening.sql` | Provider ledger, QBO pending-row, and online checkout attempt integrity constraints |
 | `079_counterpoint_transition_review_packs.sql` | Manual Counterpoint transition review-pack export/import audit tables |
+| `080_counterpoint_payment_method_aliases.sql` | Counterpoint tender alias seeds observed during real-data import rehearsals |
+| `081_counterpoint_import_first_proof.sql` | Counterpoint import-first run, source-count, raw-record, provenance, and exception proof tables |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 

@@ -1,8 +1,10 @@
 import { isTauri } from "@tauri-apps/api/core";
 import {
   autoRoutePrint,
+  listSystemPrinters,
   resolvePrinterTarget,
   TAG_PRINTER_LANGUAGE_KEY,
+  type HardwarePrinterTarget,
   type ThermalPrinterLanguage,
 } from "../../lib/printerBridge";
 import { openDesktopTextPreview } from "../../lib/desktopFileBridge";
@@ -642,10 +644,14 @@ body{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px
   body{padding:0;gap:0;}
   .tag-page{width:${config.widthInches}in;height:${hIn}in;page-break-after:always;}
 }
-</style></head><body>${pages}${config.showBarcode ? generateBarcodeSvgScript() : ""}</body></html>`;
+</style></head><body>${pages}${config.showBarcode ? generateBarcodeSvgScript() : ""}<script>
+window.addEventListener('load',function(){
+  window.setTimeout(function(){ window.focus(); window['print'](); },250);
+});
+</script></body></html>`;
 }
 
-export type InventoryTagPrintResult = "direct" | "browser" | "blocked";
+export type InventoryTagPrintResult = "direct" | "browser";
 
 /** Single inventory tag routed to the configured tag station. */
 export async function openSingleInventoryTag(
@@ -674,13 +680,44 @@ export async function openInventoryTagsPreviewWindow(
   // Browser/PWA: use window.open approach with appropriate size
   const w = window.open("", "_blank", "width=350,height=500");
   if (!w) {
-    return "blocked";
+    throw new Error("Tag print preview was blocked. Please allow popups for Riverside and try again.");
   }
   w.document.write(html);
   w.document.close();
   w.focus();
   w.print();
   return "browser";
+}
+
+function isDefaultLoopbackTagTarget(target: HardwarePrinterTarget): boolean {
+  if (target.mode !== "network") return false;
+  const storedMode = window.localStorage.getItem("ros.hardware.printer.tag.mode");
+  const storedIp = window.localStorage.getItem("ros.hardware.printer.tag.ip")?.trim();
+  if (storedMode === "system") return false;
+  if (storedIp && !["127.0.0.1", "localhost", "::1", "[::1]"].includes(storedIp)) {
+    return false;
+  }
+  return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(target.ip);
+}
+
+async function resolveDesktopTagPrintTarget(): Promise<HardwarePrinterTarget> {
+  const target = resolvePrinterTarget("tag");
+  if (!isTauri() || !isDefaultLoopbackTagTarget(target)) {
+    return target;
+  }
+
+  const printers = await listSystemPrinters().catch(() => []);
+  const zebraPrinter = printers.find((printer) =>
+    /\b(?:zebra|lp\s*2844|tlp\s*2844|2844)\b/i.test(printer.name),
+  );
+  if (!zebraPrinter) {
+    return target;
+  }
+
+  return {
+    mode: "system",
+    printerName: zebraPrinter.name,
+  };
 }
 
 /** Multi-label Zebra/ZPL dispatch using the configured Tag Station. */
@@ -699,10 +736,17 @@ export async function openInventoryTagsWindow(
     const payload = language === "epl"
       ? buildEplDocument(items, config)
       : buildZplDocument(items, config);
-    await autoRoutePrint("tag", payload, language);
+    const target = await resolveDesktopTagPrintTarget();
+    await autoRoutePrint("tag", payload, language, target);
     return "direct";
-  } catch (error) {
-    console.warn("Direct Zebra tag print failed; opening browser print fallback", error);
-    return await openInventoryTagsPreviewWindow(items, config);
+  } catch (directError) {
+    console.warn("Direct Zebra tag print failed; opening browser print fallback", directError);
+    try {
+      return await openInventoryTagsPreviewWindow(items, config);
+    } catch (previewError) {
+      const directMessage = directError instanceof Error ? directError.message : String(directError);
+      const previewMessage = previewError instanceof Error ? previewError.message : String(previewError);
+      throw new Error(`Tag print failed: ${directMessage}. Print preview also failed: ${previewMessage}`);
+    }
   }
 }

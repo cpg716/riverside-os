@@ -396,19 +396,12 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           },
         );
         if (!res.ok) throw new Error("Tag print status update failed");
-        if (printResult === "blocked") {
-          toast(
-            "Browser print fallback was blocked. Please allow popups for Riverside and try again.",
-            "error",
-          );
-        } else {
-          toast(
-            printResult === "direct"
-              ? `${successLabel} Zebra tag station confirmed.`
-              : `${successLabel} Browser print fallback opened.`,
-            "success",
-          );
-        }
+        toast(
+          printResult === "direct"
+            ? `${successLabel} Zebra tag station confirmed.`
+            : `${successLabel} Browser print fallback opened.`,
+          "success",
+        );
         onVariantUpdated();
       } catch {
         toast("Tags opened for printing, but Riverside could not mark them as printed.", "error");
@@ -1065,19 +1058,12 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 );
                 return;
               }
-              if (printResult === "blocked") {
-                toast(
-                  "Browser print fallback was blocked. Please allow popups for Riverside and try again.",
-                  "error",
-                );
-              } else {
-                toast(
-                  printResult === "direct"
-                    ? `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} sent to the Zebra tag station.`
-                    : `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} opened in browser print fallback.`,
-                  "success",
-                );
-              }
+              toast(
+                printResult === "direct"
+                  ? `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} sent to the Zebra tag station.`
+                  : `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} opened in browser print fallback.`,
+                "success",
+              );
               onVariantUpdated();
             } catch {
               toast("Price tags could not be printed. Please try again.", "error");

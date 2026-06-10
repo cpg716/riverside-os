@@ -1034,11 +1034,6 @@ export default function InventoryControlBoard({
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
       toast(err.error ?? "We couldn't mark those tags as printed. Please try again.", "error");
-    } else if (printResult === "blocked") {
-      toast(
-        "Browser print fallback was blocked. Please allow popups for Riverside and try again.",
-        "error",
-      );
     } else {
       toast(
         printResult === "direct"
@@ -1087,13 +1082,6 @@ export default function InventoryControlBoard({
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
         toast(err.error ?? "We couldn't mark those tags as printed. Please try again.", "error");
-        return;
-      }
-      if (printResult === "blocked") {
-        toast(
-          "Browser print fallback was blocked. Please allow popups for Riverside and try again.",
-          "error",
-        );
         return;
       }
       toast(

@@ -4,22 +4,45 @@ Directed migration from Counterpoint (SQL Server + Windows bridge) into ROS Post
 
 This path is intended for a **single controlled import and validation cycle**. After cutover, **Riverside OS becomes the system of record** and the Counterpoint bridge should be retired.
 
-**Note:** The Counterpoint Sync and Migration Inventory Workbench have been consolidated into a single **8-step guided pipeline** in **Settings → Integrations → Counterpoint**. Use the guided pipeline for all migration work instead of the previous separate workbench.
+**Note:** Settings → Integrations → Counterpoint is command-center first. Use **Command center** for the actual one-time import and proof check. Use **Legacy diagnostics**, **Inbound queue**, **AI review packs**, and **Support diagnostics** only when the command center shows a blocker that needs deeper review.
 
-## Guided Migration Pipeline Overview
+## One-Time Import Overview
 
-The unified 8-step pipeline enforces a logical sequence of data preparation, cleaning, verification, and live import:
+The default command center proves the required go-live datasets before import and then shows expected Counterpoint rows, Bridge-sent rows, ROS landed rows, open exceptions, fallback-landed rows, and readiness:
 
-1. **Step 1: SQL Bridge Sync** - Sync raw staging rows from Counterpoint
-2. **Step 2: Inventory & Catalog Mapping** - Map codes, run ROSIE AI, & fix barcodes
-3. **Step 3: Customers & CRM** - Review & load staged customer profiles
-4. **Step 4: Sales & Ticket History** - Review & load closed tickets
-5. **Step 5: Gift Cards & Liabilities** - Verify active liabilities
-6. **Step 6: Open Orders & Layaways** - Load active orders & deposits
-7. **Step 7: Loyalty History** - Verify & load loyalty balances
-8. **Step 8: Audit & Live Cutover** - Landing audit & final Go-Live sign-off
+1. **Inventory, catalog, and quantities** - products, variants, categories, vendors, SKU/vendor links, stock, cost, and price
+2. **Customers and CRM** - customer profiles, notes, staff attribution, and sales-rep attribution
+3. **Sales and movement history** - closed tickets, payments, lines, receiving history, and movement proof
+4. **Open orders and layaways** - open documents, line items, deposits, and remaining open balances
+5. **Gift cards and store credit** - active gift-card balances and opening store-credit liabilities
+6. **Loyalty balances** - current customer loyalty balance proof; loyalty history is optional for go-live
 
-Each step includes progress tracking, approval gates, and clear instructions. Work is safely isolated in the Staging Area until you click Apply in each step.
+The Windows Bridge now defaults to **import-first direct landing** after preflight. Do not treat the import as successful while required domains show zero landed proof, open exceptions, or a blocked source-count preflight.
+
+Import-first still uses internal batching, but batching is not the operator workflow. The operator workflow is:
+
+1. ROS receives Bridge source-count preflight and records it as an import preflight run.
+2. If and only if preflight passes, the Bridge starts a rehearsal or go-live import run.
+3. Every entity batch lands through the existing ROS Counterpoint ingest path.
+4. ROS records raw source rows and provenance links to landed ROS rows for the active import run.
+5. The command center reports run status, entity totals, landed proof, exceptions, and readiness.
+
+A run that sends Bridge rows but never creates an active import run, never records raw rows, or never links landed ROS rows is incomplete and must be rerun after the blocker is fixed.
+
+## Advanced Steps Overview
+
+The former 8-step guided pipeline remains available under **Legacy diagnostics** for mapping, quarantine, and exception review. It is not the operator success path:
+
+1. **SQL Bridge Sync** - sync raw staging rows from Counterpoint
+2. **Inventory & Catalog Mapping** - map codes, run ROSIE AI only if needed, and fix barcodes
+3. **Customers & CRM** - review staged customer profile proof
+4. **Sales & Ticket History** - review closed ticket proof
+5. **Gift Cards & Liabilities** - verify active liabilities
+6. **Open Orders & Layaways** - verify active orders and deposits
+7. **Loyalty History** - verify loyalty balances
+8. **Audit & Live Cutover** - landing audit and final go-live sign-off
+
+Advanced step approvals never replace the command center source-count and landed-row proof.
 
 ## Bridge import order and guards
 
@@ -34,7 +57,7 @@ When **`PS_SLS_REP`** is not visible and `CP_SALES_REPS_QUERY` is empty, the bri
 
 ## Preconditions
 
-1. **Apply migrations** through `91_counterpoint_open_docs.sql` (includes `orders.counterpoint_doc_ref` and a partial unique index).
+1. **Apply migrations** through `081_counterpoint_import_first_proof.sql` (adds import runs, source counts, raw records, provenance, and exceptions).
 2. Save **`COUNTERPOINT_SYNC_TOKEN`** in **Settings → Integrations → Counterpoint** and put the same value in the bridge `.env` as `COUNTERPOINT_SYNC_TOKEN`.
 3. Prefer **`RUN_ONCE=1`** on the bridge for a single pass per launch. Re-launching for validation/cutover rehearsal is fine; leaving the bridge in repeated polling mode is usually not.
 
@@ -44,11 +67,12 @@ Review **Settings → Counterpoint → Status** while the bridge is running on t
 
 - **`CP_IMPORT_SINCE`** currently in effect
 - whether the bridge is in **single-pass-per-launch** or **repeat-capable** mode
-- whether ROS will land batches **directly** or into the **staging queue**
+- whether ROS will land batches through **import-first direct mode** or the legacy **staging queue**
 - the exact enabled **`SYNC_*`** entities in the fixed import order
 - explicit rerun warnings when known non-idempotent entities are enabled
+- source-count proof for customers, catalog, variants, inventory, tickets, ticket lines/payments, receiving history, open docs, open-doc lines/payments, gift cards, store credit, and loyalty balances
 
-Treat those values as the real import scope for the migration record.
+Treat those values as the real import scope for the migration record. A preflight that returns suspiciously low ticket or open-doc counts is a **NO-GO** until the SQL mapping or Bridge configuration is corrected.
 
 ### Source file roles for inventory and catalog identity
 
@@ -87,17 +111,19 @@ Use this order for the guarded authoritative import before launch:
    ```bash
    RIVERSIDE_DB_NAME=riverside_os bash scripts/validate_schema_contract.sh
    ```
-3. Run inventory/SKU preflight from the flattened Counterpoint CSV:
+3. Start the Counterpoint Bridge with `CP_IMPORT_FIRST_MODE=1`, `CP_IMPORT_SINCE=2018-01-01`, and the same `COUNTERPOINT_SYNC_TOKEN` saved in ROS settings.
+4. Confirm **Settings → Integrations → Counterpoint → Command center** shows **Preflight passed**. The Bridge posts `/api/sync/counterpoint/preflight` before any import run.
+5. Run inventory/SKU preflight from the flattened Counterpoint CSV when barcode or SKU cleanup is needed:
    ```bash
    node counterpoint-bridge/index.mjs preflight inventory --csv export2026-05-07.csv
    ```
-4. Review preflight severity output before ingest:
+6. Review preflight severity output before ingest:
    - **INFO**: context-only rows such as parent/catalog identities.
    - **WARNING**: rows that are not trusted as sellable variant inventory, such as generated/service/non-B rows.
    - **QUARANTINE**: unsafe rows skipped from writes but safe for the rest of the batch to continue.
    - **BLOCKING**: identity collisions, such as duplicate B-SKU groups or conflicting variant identity, that must not write.
-5. Review `counterpoint_ingest_quarantine` after any guarded ingest attempt. Quarantine rows are review-only records and do not drive live inventory writes.
-6. Ingest catalog first from authoritative Counterpoint catalog/cell data, then ingest inventory quantities after variants exist.
+7. Review `counterpoint_ingest_quarantine` and **Import exceptions** after any guarded ingest attempt. Quarantine rows are review-only records and do not drive live inventory writes.
+8. Run **Run Full Import** from the command center only after preflight passes. The Bridge starts a ROS import run first, then imports catalog before inventory so variants exist before quantity, ticket, and open-doc lines resolve.
 
 Expected behavior:
 
@@ -105,6 +131,8 @@ Expected behavior:
 - Unsafe rows persist to `counterpoint_ingest_quarantine` for review.
 - Clean rows continue through the existing ingest path.
 - Counterpoint remains authoritative for inventory ownership.
+- Raw source rows and landed-row provenance are recorded under the active import run.
+- Historical tickets/open docs with unresolved but financially coherent lines land with the Counterpoint Import Item fallback and an open import exception.
 - Lightspeed exports remain normalization-only references and must not be used for quantities, costs, accounting, or product identity.
 
 Current known `export2026-05-07.csv` inventory preflight findings:
@@ -125,10 +153,11 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 - Run `RIVERSIDE_DB_NAME=riverside_os bash scripts/validate_schema_contract.sh` and `RIVERSIDE_DB_NAME=riverside_os bash scripts/migration-status-docker.sh`. Do not start final import if the active database is missing Counterpoint staging columns or has unapplied active migrations.
 - Confirm the Counterpoint bridge `.env` points at the correct Counterpoint company database and ROS server.
 - Confirm `COUNTERPOINT_SYNC_TOKEN`, `CP_IMPORT_SINCE`, `RUN_ONCE`, staging mode, and enabled `SYNC_*` entities in the bridge runtime snapshot.
-- Confirm the enabled entities follow the required order: staff / sales-rep stubs, vendors, customers, store credit opening, customer notes, catalog, inventory, vendor items, gift cards if used, tickets, open docs. Keep loyalty history disabled for the current-balance snapshot cutover.
+- Confirm the enabled entities follow the required order: staff / sales-rep stubs, vendors, customers, store credit opening, customer notes, category masters, catalog, inventory, vendor items, gift cards if used, tickets, open docs, receiving history if used, and loyalty history only if deliberately enabled. Keep loyalty history disabled for the current-balance snapshot cutover.
 - Confirm gift cards and loyalty are configured as snapshots: leave `CP_GFC_HIST_QUERY` empty, leave `CP_TICKET_GIFT_QUERY` empty, keep `SYNC_LOYALTY_HIST=0`, and ensure `CP_CUSTOMERS_QUERY` selects the current Counterpoint points balance as `pts_bal`.
 - Review **Settings → Counterpoint → Payments** and confirm every active Counterpoint tender code is mapped before importing tickets/open docs. ROS ships common defaults, but unknown tenders import as `counterpoint_unmapped` and create an unresolved sync issue rather than silently reporting as cash.
 - Decide whether to run **Settings → Counterpoint → Status → Fresh baseline reset** before this pass. Use it when you need a clean ROS import baseline while preserving reviewed Counterpoint mapping configuration.
+- Confirm the command center shows no active stale import run. Fresh baseline reset clears ROS import-run proof and active-run state.
 - Decide whether to clear the bridge-local `.counterpoint-bridge-state.json` file before launch. Clear it only when the next run must replay from the beginning instead of continuing from saved bridge cursors.
 
 ### Run checklist
@@ -139,6 +168,7 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 - Watch bridge status, current entity, batch counts, and errors in the bridge dashboard.
 - Watch ROS **Settings → Counterpoint → Status** for heartbeat state, staging queue movement, server sync history, and open sync issues.
 - If staging is enabled, apply only the intended staged batches and keep the inbound queue under review.
+- Do not treat Step 2 as complete until ROS shows landed Counterpoint catalog products and variants. If the workbench says **One-time import is still waiting in staging**, open the staging queue and apply the catalog/inventory batches before mapping, ROSIE review, customer import, or sign-off.
 
 ### Post-run verification
 
