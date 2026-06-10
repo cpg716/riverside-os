@@ -26,6 +26,7 @@ impl Default for OpenAiConfig {
                 .trim_end_matches('/')
                 .to_string(),
             llm_model: std::env::var("ROSIE_OPENAI_LLM_MODEL")
+                .or_else(|_| std::env::var("ROSIE_OPENAI_MODEL"))
                 .unwrap_or_else(|_| "gpt-4.1-mini".to_string()),
             stt_model: std::env::var("ROSIE_OPENAI_STT_MODEL")
                 .unwrap_or_else(|_| "gpt-4o-mini-transcribe".to_string()),
@@ -228,6 +229,7 @@ impl OpenAiClient {
         let voice = voice
             .map(str::trim)
             .filter(|value| !value.is_empty())
+            .filter(|value| !value.chars().all(|ch| ch.is_ascii_digit()))
             .unwrap_or(&self.config.tts_voice);
         let url = format!("{}/v1/audio/speech", self.config.base_url);
         let body = json!({

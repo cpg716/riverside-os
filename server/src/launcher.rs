@@ -240,11 +240,30 @@ fn database_pool_max_connections() -> u32 {
         .unwrap_or(20)
 }
 
+fn rosie_provider_uses_local_llama_upstream() -> bool {
+    let provider = std::env::var("ROSIE_PROVIDER")
+        .or_else(|_| std::env::var("ROSIE_PROVIDER_MODE"))
+        .or_else(|_| std::env::var("RIVERSIDE_LLAMA_PROVIDER"))
+        .unwrap_or_else(|_| "local_llm".to_string())
+        .trim()
+        .to_ascii_lowercase();
+    matches!(
+        provider.as_str(),
+        "local" | "local-gemma" | "local_gemma" | "local-llm" | "local_llm" | "llama.cpp" | "auto"
+    )
+}
+
 /// If `RIVERSIDE_LLAMA_UPSTREAM` is not already set, derive it from the local llama-server
 /// address so the Axum ROSIE proxy can reach the Tauri-managed sidecar without any manual
 /// configuration. Uses `RIVERSIDE_LLAMA_HOST` (default `127.0.0.1`) and
 /// `RIVERSIDE_LLAMA_PORT` (default `8080`) — the same defaults as the Tauri llama_server module.
 fn ensure_rosie_upstream_from_local_llama() {
+    if !rosie_provider_uses_local_llama_upstream() {
+        tracing::info!(
+            "RIVERSIDE_LLAMA_UPSTREAM not auto-derived because ROSIE provider is not local"
+        );
+        return;
+    }
     if std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
         .map(|v| !v.trim().is_empty())
         .unwrap_or(false)

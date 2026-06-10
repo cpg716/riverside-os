@@ -24,6 +24,41 @@ import RosieIcon from "../common/RosieIcon";
 
 const baseUrl = getBaseUrl();
 
+const ROSIE_LLM_PROVIDER_OPTIONS = [
+  {
+    id: "local_llm",
+    label: "Local Gemma",
+    description: "Bundled llama.cpp host stack",
+  },
+  {
+    id: "remote_lmstudio",
+    label: "Remote LM Studio",
+    description: "Private OpenAI-compatible work hub",
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    description: "Server-side cloud API",
+  },
+  {
+    id: "gemini",
+    label: "Gemini",
+    description: "Server-side Google API",
+  },
+] as const;
+
+function runtimeProviderMatches(provider: string | undefined, id: string): boolean {
+  const normalized = provider?.trim().toLowerCase();
+  if (!normalized) return false;
+  if (id === "local_llm") {
+    return ["local", "local_llm", "local-gemma", "local_gemma", "llama.cpp"].includes(normalized);
+  }
+  if (id === "remote_lmstudio") {
+    return ["remote_lmstudio", "remote-lmstudio", "lmstudio"].includes(normalized);
+  }
+  return normalized === id;
+}
+
 export default function RosieSettingsPanel() {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
@@ -51,7 +86,16 @@ export default function RosieSettingsPanel() {
     [localSettings, storeDefaults],
   );
   const activeTtsEngine = localRuntimeStatus?.tts.active_engine ?? "unavailable";
-  const kokoroVoiceControlsAvailable = activeTtsEngine === "kokoro";
+  const llmAvailable =
+    localRuntimeStatus?.llm.available ??
+    Boolean(localRuntimeStatus?.llm.model_present && localRuntimeStatus?.llm.running);
+  const sttAvailable =
+    localRuntimeStatus?.stt.available ??
+    (localRuntimeStatus?.stt.active_engine !== "unavailable" && localRuntimeStatus != null);
+  const ttsAvailable =
+    localRuntimeStatus?.tts.available ??
+    (localRuntimeStatus?.tts.active_engine !== "unavailable" && localRuntimeStatus != null);
+  const kokoroVoiceControlsAvailable = activeTtsEngine === "kokoro" && ttsAvailable;
 
   useEffect(() => {
     saveLocalRosieSettings(localSettings);
@@ -306,15 +350,52 @@ export default function RosieSettingsPanel() {
             </button>
           </div>
 
+          {localRuntimeStatus ? (
+            <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-4">
+              {ROSIE_LLM_PROVIDER_OPTIONS.map((option) => {
+                const active = runtimeProviderMatches(localRuntimeStatus.llm.provider, option.id);
+                return (
+                  <div
+                    key={option.id}
+                    className={`rounded-xl border px-4 py-3 ${
+                      active
+                        ? "border-app-accent bg-app-accent/10"
+                        : "border-app-border bg-app-surface-2"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text">
+                        {option.label}
+                      </p>
+                      <div className={`h-2 w-2 rounded-full ${active ? "bg-app-accent" : "bg-app-border"}`} />
+                    </div>
+                    <p className="mt-2 text-xs font-medium leading-relaxed text-app-text-muted">
+                      {option.description}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+
           {localRuntimeStatus?.llm.provider === "openai" || localRuntimeStatus?.llm.provider === "gemini" ? (
             <div className="mt-4 rounded-xl border border-app-accent/30 bg-app-accent/5 px-4 py-3 text-xs font-bold text-app-text-muted">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-accent">
                 {localRuntimeStatus.llm.provider === "openai" ? "OpenAI" : "Gemini"} Cloud Mode
               </p>
               <p className="mt-1">
-                ROSIE is routing chat, speech-to-text, and speech output through
-                server-side {localRuntimeStatus.llm.provider === "openai" ? "OpenAI" : "Gemini"}. Local Gemma, SenseVoice, and Kokoro are not
-                used while this provider is selected.
+                ROSIE chat is routed through server-side {localRuntimeStatus.llm.provider === "openai" ? "OpenAI" : "Gemini"}. API keys stay on the Riverside server.
+              </p>
+            </div>
+          ) : null}
+
+          {localRuntimeStatus?.llm.provider === "remote_lmstudio" ? (
+            <div className="mt-4 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-xs font-bold text-app-text-muted">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text">
+                Private Remote Mode
+              </p>
+              <p className="mt-1">
+                ROSIE chat is using the configured LM Studio OpenAI-compatible endpoint. Riverside OS does not start or supervise LM Studio.
               </p>
             </div>
           ) : null}
@@ -332,44 +413,58 @@ export default function RosieSettingsPanel() {
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-black uppercase tracking-widest text-app-text">LLM</p>
-                  <div className={`h-2 w-2 rounded-full ${localRuntimeStatus.llm.model_present && localRuntimeStatus.llm.running ? "bg-green-500" : "bg-red-500"}`} />
+                  <div className={`h-2 w-2 rounded-full ${llmAvailable ? "bg-green-500" : "bg-red-500"}`} />
                 </div>
                 <p className="mt-3 text-sm font-bold text-app-text">{localRuntimeStatus.llm.model_name}</p>
-                <p className="mt-1 text-xs text-app-text-muted">{localRuntimeStatus.llm.runtime_name}</p>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  {localRuntimeStatus.llm.runtime_name}
+                </p>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  {localRuntimeStatus.llm.deployment_kind ?? "local"} · {localRuntimeStatus.llm.base_url}
+                </p>
                 <div className="mt-3 flex items-center gap-2 text-xs">
                   <span className="text-app-text-muted">Status:</span>
-                  <span className={`font-medium ${localRuntimeStatus.llm.model_present && localRuntimeStatus.llm.running ? "text-green-600" : "text-red-600"}`}>
-                    {localRuntimeStatus.llm.model_present ? (localRuntimeStatus.llm.running ? "Running" : "Stopped") : "Missing"}
+                  <span className={`font-medium ${llmAvailable ? "text-green-600" : "text-red-600"}`}>
+                    {llmAvailable ? "Available" : localRuntimeStatus.llm.unavailable_reason ?? "Unavailable"}
                   </span>
                 </div>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-black uppercase tracking-widest text-app-text">Speech To Text</p>
-                  <div className={`h-2 w-2 rounded-full ${localRuntimeStatus.stt.model_present ? "bg-green-500" : "bg-red-500"}`} />
+                  <div className={`h-2 w-2 rounded-full ${sttAvailable ? "bg-green-500" : "bg-red-500"}`} />
                 </div>
                 <p className="mt-3 text-sm font-bold text-app-text">{localRuntimeStatus.stt.engine_name}</p>
-                <p className="mt-1 text-xs text-app-text-muted">Active: {localRuntimeStatus.stt.active_engine}</p>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  {localRuntimeStatus.stt.provider} · {localRuntimeStatus.stt.deployment_kind ?? "local"}
+                </p>
                 <div className="mt-3 flex items-center gap-2 text-xs">
                   <span className="text-app-text-muted">Status:</span>
-                  <span className={`font-medium ${localRuntimeStatus.stt.model_present ? "text-green-600" : "text-red-600"}`}>
-                    {localRuntimeStatus.stt.model_present ? "Ready" : "Missing Model"}
+                  <span className={`font-medium ${sttAvailable ? "text-green-600" : "text-red-600"}`}>
+                    {sttAvailable ? "Ready" : localRuntimeStatus.stt.unavailable_reason ?? "Unavailable"}
                   </span>
                 </div>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-black uppercase tracking-widest text-app-text">Speech Output</p>
-                  <div className={`h-2 w-2 rounded-full ${localRuntimeStatus.tts.model_present ? "bg-green-500" : "bg-red-500"}`} />
+                  <div className={`h-2 w-2 rounded-full ${ttsAvailable ? "bg-green-500" : "bg-red-500"}`} />
                 </div>
                 <p className="mt-3 text-sm font-bold text-app-text">{localRuntimeStatus.tts.engine_name}</p>
-                <p className="mt-1 text-xs text-app-text-muted">Active: {localRuntimeStatus.tts.active_engine}</p>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  {localRuntimeStatus.tts.provider} · {localRuntimeStatus.tts.deployment_kind ?? "local"}
+                </p>
                 <div className="mt-3 flex items-center gap-2 text-xs">
                   <span className="text-app-text-muted">State:</span>
                   <span className={`font-medium ${localRuntimeStatus.tts.speaking ? "text-blue-600" : "text-gray-600"}`}>
                     {localRuntimeStatus.tts.speaking ? "Speaking" : "Idle"}
                   </span>
                 </div>
+                {!ttsAvailable ? (
+                  <p className="mt-2 text-xs font-medium text-red-600">
+                    {localRuntimeStatus.tts.unavailable_reason ?? "Unavailable"}
+                  </p>
+                ) : null}
               </div>
             </div>
           )}
@@ -476,7 +571,11 @@ export default function RosieSettingsPanel() {
                 <div className={`h-2 w-2 rounded-full ${kokoroVoiceControlsAvailable ? "bg-green-500" : "bg-yellow-500"}`} />
               </div>
               <p className="mt-1 text-xs text-app-text-muted">
-                {kokoroVoiceControlsAvailable ? "Kokoro voices available" : "TTS unavailable"}
+                {kokoroVoiceControlsAvailable
+                  ? "Kokoro voices available"
+                  : ttsAvailable
+                    ? `${localRuntimeStatus?.tts.provider ?? "Configured"} voice output active`
+                    : "TTS unavailable"}
               </p>
             </div>
             <select
@@ -501,8 +600,8 @@ export default function RosieSettingsPanel() {
                 onClick={testSelectedVoice}
                 disabled={
                   !localSettings.voice_enabled ||
-                  !kokoroVoiceControlsAvailable ||
-                  localRuntimeStatus?.tts.model_present === false
+                  !ttsAvailable ||
+                  localRuntimeStatus?.tts.available === false
                 }
                 className="ui-btn-secondary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
               >

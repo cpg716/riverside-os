@@ -170,29 +170,102 @@ pub async fn get_token_metrics(pool: &PgPool) -> Result<RosieTokenMetrics, sqlx:
 
 pub async fn health_check(http: &reqwest::Client) -> RosieUpstreamHealth {
     let start = std::time::Instant::now();
-    let upstream = match std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
-        .ok()
-        .map(|v| v.trim().trim_end_matches('/').to_string())
-        .filter(|v| !v.is_empty())
-    {
-        Some(u) => u,
-        None => {
-            return RosieUpstreamHealth {
-                configured: false,
-                reachable: false,
-                latency_ms: 0,
-                message: "ROSIE upstream not configured (RIVERSIDE_LLAMA_UPSTREAM unset)"
-                    .to_string(),
+    let provider = std::env::var("ROSIE_PROVIDER")
+        .or_else(|_| std::env::var("ROSIE_PROVIDER_MODE"))
+        .or_else(|_| std::env::var("RIVERSIDE_LLAMA_PROVIDER"))
+        .unwrap_or_else(|_| "local_llm".to_string())
+        .trim()
+        .to_ascii_lowercase();
+
+    let (url, auth_bearer, missing_message) = match provider.as_str() {
+        "remote-lmstudio" | "remote_lmstudio" | "lmstudio" | "lmstudio-remote"
+        | "lmstudio_remote" => {
+            let base = std::env::var("ROSIE_REMOTE_LMSTUDIO_BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:1234/v1".to_string())
+                .trim_end_matches('/')
+                .to_string();
+            let models_url = if base.ends_with("/v1") {
+                format!("{base}/models")
+            } else {
+                format!("{base}/v1/models")
             };
+            (models_url, None, None)
+        }
+        "openai" | "openai-api" | "cloud-openai" | "cloud_openai" => {
+            let api_key = std::env::var("OPENAI_API_KEY")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+            let base = std::env::var("OPENAI_BASE_URL")
+                .unwrap_or_else(|_| "https://api.openai.com".to_string())
+                .trim_end_matches('/')
+                .to_string();
+            (
+                format!("{base}/v1/models"),
+                api_key,
+                Some("OpenAI API key is not configured (OPENAI_API_KEY unset)"),
+            )
+        }
+        "gemini" | "gemini-api" | "gemini_api" => {
+            let api_key = match std::env::var("GEMINI_API_KEY")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+            {
+                Some(api_key) => api_key,
+                None => {
+                    return RosieUpstreamHealth {
+                        configured: false,
+                        reachable: false,
+                        latency_ms: 0,
+                        message: "Gemini API key is not configured (GEMINI_API_KEY unset)"
+                            .to_string(),
+                    };
+                }
+            };
+            let base = std::env::var("ROSIE_GEMINI_BASE_URL")
+                .unwrap_or_else(|_| "https://generativelanguage.googleapis.com".to_string())
+                .trim_end_matches('/')
+                .to_string();
+            (format!("{base}/v1beta/models?key={api_key}"), None, None)
+        }
+        _ => {
+            let upstream = match std::env::var("ROSIE_LOCAL_LLM_BASE_URL")
+                .or_else(|_| std::env::var("RIVERSIDE_LLAMA_UPSTREAM"))
+                .ok()
+                .map(|v| v.trim().trim_end_matches('/').to_string())
+                .filter(|v| !v.is_empty())
+            {
+                Some(u) => u,
+                None => {
+                    return RosieUpstreamHealth {
+                        configured: false,
+                        reachable: false,
+                        latency_ms: 0,
+                        message: "ROSIE upstream not configured (RIVERSIDE_LLAMA_UPSTREAM unset)"
+                            .to_string(),
+                    };
+                }
+            };
+            (format!("{upstream}/health"), None, None)
         }
     };
-    let url = format!("{upstream}/health");
-    match http
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-    {
+
+    if auth_bearer.is_none() && missing_message.is_some() {
+        return RosieUpstreamHealth {
+            configured: false,
+            reachable: false,
+            latency_ms: 0,
+            message: missing_message.unwrap().to_string(),
+        };
+    }
+
+    let mut request = http.get(&url).timeout(std::time::Duration::from_secs(5));
+    if let Some(token) = auth_bearer {
+        request = request.bearer_auth(token);
+    }
+
+    match request.send().await {
         Ok(resp) => {
             let status = resp.status();
             if status.is_success() {

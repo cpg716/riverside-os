@@ -31,11 +31,17 @@ pub trait RosieTTSProvider: Send + Sync {
 /// Local Gemma provider (via llama-server)
 pub struct LocalGemmaProvider {
     upstream_url: String,
+    model: String,
     client: reqwest::Client,
 }
 
 impl LocalGemmaProvider {
     pub fn new(upstream_url: String) -> Self {
+        let model = std::env::var("ROSIE_LOCAL_LLM_MODEL").unwrap_or_else(|_| "local".to_string());
+        Self::new_with_model(upstream_url, model)
+    }
+
+    fn new_with_model(upstream_url: String, model: String) -> Self {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .connect_timeout(std::time::Duration::from_secs(5))
@@ -46,14 +52,17 @@ impl LocalGemmaProvider {
 
         Self {
             upstream_url: upstream_url.trim_end_matches('/').to_string(),
+            model,
             client,
         }
     }
 
     pub fn from_env() -> Result<Self, String> {
-        let upstream_url = std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
-            .map_err(|_| "RIVERSIDE_LLAMA_UPSTREAM not set".to_string())?;
-        Ok(Self::new(upstream_url))
+        let upstream_url = std::env::var("ROSIE_LOCAL_LLM_BASE_URL")
+            .or_else(|_| std::env::var("RIVERSIDE_LLAMA_UPSTREAM"))
+            .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
+        let model = std::env::var("ROSIE_LOCAL_LLM_MODEL").unwrap_or_else(|_| "local".to_string());
+        Ok(Self::new_with_model(upstream_url, model))
     }
 }
 
@@ -90,7 +99,97 @@ impl RosieLLMProvider for LocalGemmaProvider {
 
     async fn chat_completion(&self, messages: Vec<Value>) -> Result<Value, String> {
         self.chat_completion_payload(json!({
-            "model": "local",
+            "model": self.model.clone(),
+            "messages": messages,
+            "stream": false,
+        }))
+        .await
+    }
+}
+
+/// Remote LM Studio provider.
+///
+/// LM Studio Remote / LM Link is exposed to ROS as an OpenAI-compatible
+/// localhost endpoint on the work hub. ROS never starts or supervises that
+/// process.
+pub struct RemoteLmStudioProvider {
+    base_url: String,
+    model: String,
+    client: reqwest::Client,
+}
+
+impl RemoteLmStudioProvider {
+    pub fn from_env() -> Result<Self, String> {
+        let base_url = std::env::var("ROSIE_REMOTE_LMSTUDIO_BASE_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:1234/v1".to_string());
+        let model = std::env::var("ROSIE_REMOTE_LMSTUDIO_MODEL")
+            .unwrap_or_else(|_| "gemma-4-12B-it-q5_k_m.gguf".to_string());
+        if base_url.trim().is_empty() {
+            return Err("ROSIE_REMOTE_LMSTUDIO_BASE_URL is empty".to_string());
+        }
+        if model.trim().is_empty() {
+            return Err("ROSIE_REMOTE_LMSTUDIO_MODEL is empty".to_string());
+        }
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .pool_max_idle_per_host(0)
+            .http1_only()
+            .build()
+            .map_err(|error| format!("Failed to create LM Studio HTTP client: {error}"))?;
+        Ok(Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            model,
+            client,
+        })
+    }
+
+    fn chat_url(&self) -> String {
+        if self.base_url.ends_with("/v1") {
+            format!("{}/chat/completions", self.base_url)
+        } else {
+            format!("{}/v1/chat/completions", self.base_url)
+        }
+    }
+}
+
+#[async_trait]
+impl RosieLLMProvider for RemoteLmStudioProvider {
+    async fn chat_completion_payload(&self, payload: Value) -> Result<Value, String> {
+        let mut body = payload;
+        if let Some(object) = body.as_object_mut() {
+            object.insert("model".to_string(), json!(self.model.clone()));
+            object.insert("stream".to_string(), json!(false));
+        }
+
+        let response = self
+            .client
+            .post(self.chat_url())
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| format!("Remote LM Studio request failed: {error}"))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown Remote LM Studio error".to_string());
+            return Err(format!(
+                "Remote LM Studio returned HTTP {status}: {error_text}"
+            ));
+        }
+
+        response
+            .json::<Value>()
+            .await
+            .map_err(|error| format!("Failed to parse Remote LM Studio response: {error}"))
+    }
+
+    async fn chat_completion(&self, messages: Vec<Value>) -> Result<Value, String> {
+        self.chat_completion_payload(json!({
+            "model": self.model.clone(),
             "messages": messages,
             "stream": false,
         }))
@@ -244,10 +343,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_local_gemma_provider_requires_upstream() {
+    fn test_local_gemma_provider_uses_default_upstream() {
         std::env::remove_var("RIVERSIDE_LLAMA_UPSTREAM");
+        std::env::remove_var("ROSIE_LOCAL_LLM_BASE_URL");
         let result = LocalGemmaProvider::from_env();
-        assert!(result.is_err());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn remote_lmstudio_provider_uses_default_endpoint_without_local_model() {
+        std::env::remove_var("ROSIE_REMOTE_LMSTUDIO_BASE_URL");
+        std::env::remove_var("ROSIE_REMOTE_LMSTUDIO_MODEL");
+        std::env::remove_var("RIVERSIDE_LLAMA_MODEL_PATH");
+        let result = RemoteLmStudioProvider::from_env();
+        assert!(result.is_ok());
     }
 
     #[test]

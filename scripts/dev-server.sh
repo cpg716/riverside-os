@@ -87,6 +87,10 @@ DEFAULT_LLAMA_BIN="$ROOT/client/src-tauri/binaries/llama-server-${ARCH}-${PLATFO
 DEFAULT_LLAMA_MODEL_PATH="$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf"
 
 load_env_default "RIVERSIDE_LLAMA_UPSTREAM"
+load_env_default "RIVERSIDE_LLAMA_PROVIDER"
+load_env_default "ROSIE_PROVIDER"
+load_env_default "ROSIE_PROVIDER_MODE"
+load_env_default "ROSIE_REMOTE_LMSTUDIO_BASE_URL"
 load_env_default "RIVERSIDE_DEV_AUTOSTART_ROSIE_HOST"
 load_env_default "RIVERSIDE_LLAMA_BIN"
 load_env_default "RIVERSIDE_LLAMA_MODEL_PATH"
@@ -142,6 +146,33 @@ if [[ ! "${LLAMA_ENFORCED_ARGS[*]:-}" ]]; then
 fi
 ROSIE_AUTOSTART="${RIVERSIDE_DEV_AUTOSTART_ROSIE_HOST:-1}"
 
+rosie_selected_provider() {
+  local raw="${ROSIE_PROVIDER:-${ROSIE_PROVIDER_MODE:-${RIVERSIDE_LLAMA_PROVIDER:-local_llm}}}"
+  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
+  case "$raw" in
+    local|local-gemma|local_gemma|local-llm|local_llm|llama.cpp)
+      printf '%s' "local_llm"
+      ;;
+    auto)
+      printf '%s' "auto"
+      ;;
+    remote-lmstudio|remote_lmstudio|lmstudio|lmstudio-remote|lmstudio_remote)
+      printf '%s' "remote_lmstudio"
+      ;;
+    openai|openai-api|cloud-openai|cloud_openai)
+      printf '%s' "openai"
+      ;;
+    gemini|gemini-api|gemini_api)
+      printf '%s' "gemini"
+      ;;
+    *)
+      printf '%s' "local_llm"
+      ;;
+  esac
+}
+
+ROSIE_SELECTED_PROVIDER="$(rosie_selected_provider)"
+
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
     kill "$SERVER_PID" >/dev/null 2>&1 || true
@@ -177,12 +208,14 @@ start_rosie_host() {
   ROSIE_LLAMA_PID="$!"
 }
 
-if [[ -z "${RIVERSIDE_LLAMA_UPSTREAM:-}" ]]; then
+if [[ -z "${RIVERSIDE_LLAMA_UPSTREAM:-}" && ( "$ROSIE_SELECTED_PROVIDER" == "local_llm" || "$ROSIE_SELECTED_PROVIDER" == "auto" ) ]]; then
   export RIVERSIDE_LLAMA_UPSTREAM="$LOCAL_LLAMA_URL"
 fi
 
 if ! is_falsey "$ROSIE_AUTOSTART"; then
-  if [[ "$RIVERSIDE_LLAMA_UPSTREAM" == "$LOCAL_LLAMA_URL" ]]; then
+  if [[ "$ROSIE_SELECTED_PROVIDER" != "local_llm" && "$ROSIE_SELECTED_PROVIDER" != "auto" ]]; then
+    echo "[rosie] local Gemma Host autostart skipped for ROSIE_PROVIDER=${ROSIE_SELECTED_PROVIDER}"
+  elif [[ "$RIVERSIDE_LLAMA_UPSTREAM" == "$LOCAL_LLAMA_URL" ]]; then
     if curl -fsS "${LOCAL_LLAMA_URL}/health" >/dev/null 2>&1; then
       echo "[rosie] using existing local Gemma Host runtime at ${LOCAL_LLAMA_URL}"
     elif [[ ! -x "$LLAMA_BIN" ]]; then

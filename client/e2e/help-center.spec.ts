@@ -860,6 +860,60 @@ test.describe("ROSIE settings governance", () => {
         }),
       });
     });
+    await page.route("**/api/help/rosie/v1/runtime-status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          llm: {
+            runtime_name: "Remote LM Studio OpenAI-compatible endpoint",
+            provider: "remote_lmstudio",
+            deployment_kind: "private_remote",
+            base_url: "http://127.0.0.1:1234/v1",
+            host: "127.0.0.1",
+            port: "1234",
+            model_name: "gemma-4-12B-it-q5_k_m.gguf",
+            model_path: null,
+            model_present: true,
+            sidecar_binary_present: false,
+            running: false,
+            available: false,
+            unavailable_reason: "Remote LM Studio OpenAI-compatible endpoint is not reachable",
+            context_hint: "ROSIE does not start LM Studio",
+            api_key_configured: null,
+          },
+          stt: {
+            engine_name: "SenseVoice Small via Sherpa-ONNX",
+            provider: "local",
+            deployment_kind: "local",
+            active_engine: "sensevoice",
+            cli_path: "/host/bin/sherpa-onnx-offline",
+            cli_present: true,
+            model_name: "SenseVoice Small",
+            model_path: "/host/stt/model.int8.onnx",
+            model_present: true,
+            available: true,
+            unavailable_reason: null,
+            api_key_configured: null,
+          },
+          tts: {
+            engine_name: "Kokoro-82M via Sherpa-ONNX",
+            provider: "local",
+            deployment_kind: "local",
+            active_engine: "kokoro",
+            command_path: "/host/bin/sherpa-onnx-offline-tts",
+            command_present: true,
+            model_name: "Kokoro-82M",
+            model_path: "/host/tts/model.onnx",
+            model_present: true,
+            speaking: false,
+            available: true,
+            unavailable_reason: null,
+            api_key_configured: null,
+          },
+        }),
+      });
+    });
 
     const refreshRequest = page.waitForRequest(
       (request) =>
@@ -918,6 +972,13 @@ test.describe("ROSIE settings governance", () => {
 
     await openSettingsRosiePanel(page);
 
+    await expect(page.getByText("Local Gemma")).toBeVisible();
+    await expect(page.getByText("Remote LM Studio").first()).toBeVisible();
+    await expect(page.getByText("OpenAI").first()).toBeVisible();
+    await expect(page.getByText("Gemini").first()).toBeVisible();
+    await expect(
+      page.getByText(/Remote LM Studio OpenAI-compatible endpoint is not reachable/i),
+    ).toBeVisible();
     await expect(page.getByText(/governed intelligence pack/i)).toBeVisible();
     await expect(
       page.getByText(/rosie-policy-pack-2026-04-22-v1/i),

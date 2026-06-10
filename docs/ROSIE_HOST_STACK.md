@@ -101,36 +101,65 @@ ROSIE token telemetry tracks AI token usage for cost analysis when evaluating lo
 
 ## Approved Production Stack
 
-### 1. LLM
-- Runtime: Host-based `llama.cpp` `llama-server`
+### 1. LLM Providers
+
+ROSIE selects the LLM provider with `ROSIE_PROVIDER`. Legacy `ROSIE_PROVIDER_MODE` and `RIVERSIDE_LLAMA_PROVIDER` remain mapped for compatibility.
+
+| Provider | Runtime | Default / Required Config | Approval status |
+|---|---|---|---|
+| `local_llm` | Host-based `llama.cpp` `llama-server` | `ROSIE_LOCAL_LLM_BASE_URL` or legacy `RIVERSIDE_LLAMA_UPSTREAM`; Gemma E4B GGUF at the local ROSIE model path | Approved production default |
+| `remote_lmstudio` | Private OpenAI-compatible LM Studio endpoint on the work hub | `ROSIE_REMOTE_LMSTUDIO_BASE_URL=http://127.0.0.1:1234/v1`, `ROSIE_REMOTE_LMSTUDIO_MODEL=gemma-4-12B-it-q5_k_m.gguf` | Approved explicit private provider |
+| `openai` | OpenAI API, server-side only | `OPENAI_API_KEY`, `ROSIE_OPENAI_LLM_MODEL` | Optional explicit cloud provider |
+| `gemini` | Google Gemini API, server-side only | `GEMINI_API_KEY`, `ROSIE_GEMINI_MODEL` | Optional explicit cloud provider |
+
+Local Gemma details:
 - Model family: Gemma 4 E4B
 - Expected file: `google_gemma-4-E4B-it-Q4_K_M.gguf`
 - Default Host path: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf`
 - Desktop path: Tauri direct/local via `rosie_llama_*`
 - Server-governed Host path: `POST /api/help/rosie/v1/chat/completions`
-- Approval status: Approved production default
 
-### 1.5. Optional Cloud Provider (Gemini API)
-- Runtime: Google Gemini API (cloud-based)
-- Model family: Gemini 2.5 Pro
-- Configuration: `GEMINI_API_KEY` environment variable
-- Provider selection: `ROSIE_PROVIDER_MODE` (production default: `local-gemma`; `gemini-api` and `auto` require explicit configuration)
-- Privacy mode: `ROSIE_FORCE_LOCAL_FOR_SENSITIVE` (default: true)
-- Approval status: Optional explicit provider, not production fallback
-- Use case: Faster inference, multimodal understanding, streaming responses
-- Failure behavior: cloud provider failure returns to local Gemma only when explicitly configured; local Gemma failure blocks ROSIE until the Host stack is healthy.
+Remote LM Studio details:
+- LM Studio runs outside Riverside OS. ROSIE never starts, stops, or supervises the LM Studio process.
+- LM Studio Remote / LM Link should expose the remote home RTX 4080 SUPER model through the work hub's local LM Studio server.
+- ROSIE talks to the work hub endpoint, typically `http://127.0.0.1:1234/v1`.
+- The remote model is expected to be `gemma-4-12B-it-q5_k_m.gguf`.
+- Context length, GPU offload, Flash Attention, and KV cache are configured in LM Studio, not dynamically by Riverside OS.
+- `ROSIE_REMOTE_LMSTUDIO_CONTEXT_HINT=65536` is informational/diagnostic unless a future implementation proves otherwise.
+- For this setup, set `VITE_ROSIE_LLM_DIRECT=0` so desktop chat goes through the server-governed ROSIE route.
+
+Recommended work-hub Remote LM Studio env:
+
+```bash
+ROSIE_PROVIDER=remote_lmstudio
+ROSIE_REMOTE_LMSTUDIO_BASE_URL=http://127.0.0.1:1234/v1
+ROSIE_REMOTE_LMSTUDIO_MODEL=gemma-4-12B-it-q5_k_m.gguf
+ROSIE_REMOTE_LMSTUDIO_CONTEXT_HINT=65536
+ROSIE_STT_PROVIDER=local
+ROSIE_TTS_PROVIDER=local
+VITE_ROSIE_LLM_DIRECT=0
+```
+
+Cloud provider details:
+- OpenAI and Gemini API keys are read only by the server process.
+- Do not place cloud keys in `client/.env`, Vite env, browser settings, staff notes, logs, or screenshots.
+- `ROSIE_FORCE_LOCAL_FOR_SENSITIVE=true` and `ROSIE_ALLOW_CLOUD_FOR_SENSITIVE=false` are the default safety posture.
+- Sensitive requests must not leave local/private providers unless management explicitly sets `ROSIE_ALLOW_CLOUD_FOR_SENSITIVE=true`.
 
 ### 2. STT
-- Engine: SenseVoice Small via Sherpa-ONNX
+- Provider selection: `ROSIE_STT_PROVIDER=local | openai | gemini`
+- Default engine: SenseVoice Small via Sherpa-ONNX
 - Mode: explicit one-shot microphone capture only
 - Expected assets:
   - `model.int8.onnx`
   - `tokens.txt`
 - Default Host path: `~/Library/Application Support/riverside-os/rosie/stt/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/`
 - Approval status: Approved production default
+- Cloud STT: OpenAI uses `ROSIE_OPENAI_STT_MODEL`; Gemini uses `ROSIE_GEMINI_STT_MODEL`. Missing keys or models fail explicitly.
 
 ### 3. TTS
-- Engine: Kokoro-82M via Sherpa-ONNX
+- Provider selection: `ROSIE_TTS_PROVIDER=local | openai | gemini`
+- Default engine: Kokoro-82M via Sherpa-ONNX
 - Runtime expectation: local Host synthesis with direct process arguments, then workstation/browser playback through `/api/help/rosie/v1/voice/synthesize`
 - Expected assets:
   - `model.onnx`
@@ -139,6 +168,7 @@ ROSIE token telemetry tracks AI token usage for cost analysis when evaluating lo
   - `espeak-ng-data/`
 - Default Host path: `~/Library/Application Support/riverside-os/rosie/tts/kokoro-multi-lang-v1_0/`
 - Approval status: Approved production default
+- Cloud TTS: OpenAI uses `ROSIE_OPENAI_TTS_MODEL` / `ROSIE_OPENAI_TTS_VOICE`; Gemini uses `ROSIE_GEMINI_TTS_MODEL` / `ROSIE_GEMINI_TTS_VOICE`. Missing keys or models fail explicitly.
 
 ### 4. Host optimization stance
 - Preferred Host deployment uses OpenVINO where applicable.
@@ -156,7 +186,9 @@ ROSIE token telemetry tracks AI token usage for cost analysis when evaluating lo
 - `rosie_ready` is removed when the stack is not fully healthy.
 
 ### Insight summaries
-- Shared ROSIE insight summaries use the OpenAI-compatible `llama-server` endpoint configured by `RIVERSIDE_LLAMA_UPSTREAM`.
+- Shared ROSIE insight summaries use the selected ROSIE LLM provider for non-streaming completions.
+- Local Gemma still uses the OpenAI-compatible `llama-server` endpoint configured by `ROSIE_LOCAL_LLM_BASE_URL` or legacy `RIVERSIDE_LLAMA_UPSTREAM`.
+- Remote LM Studio uses the OpenAI-compatible `ROSIE_REMOTE_LMSTUDIO_BASE_URL` endpoint and does not require a local model file.
 - Gemma 4 E4B can spend the response budget in `reasoning_content` and return empty `message.content`; ROSIE insight summaries require usable `message.content`, and the UI shows a visible unavailable note when the summary cannot be produced.
 - Start the local Gemma Host for insight work with reasoning disabled. ROS launchers enforce the selected CPU/GPU performance profile separately.
 
@@ -183,15 +215,21 @@ RIVERSIDE_LLAMA_EXTRA_ARGS="--reasoning off" npm run dev:server
 ## Failure Behavior
 
 ### LLM
-- If the Host local/direct runtime is available, Tauri should use it when `local_first` is enabled.
-- If local/direct runtime is unavailable, Tauri blocks the request and surfaces ROSIE unavailable.
-- PWA and server-governed calls use `RIVERSIDE_LLAMA_UPSTREAM`, which must point at the healthy Host runtime in production.
+- Explicit `local_llm` failure surfaces ROSIE unavailable or a local provider error.
+- Explicit `remote_lmstudio` failure surfaces ROSIE unavailable or an LM Studio endpoint error. It must not trigger bundled `llama-server` autostart.
+- Explicit `openai` failure surfaces ROSIE unavailable or an OpenAI provider error.
+- Explicit `gemini` failure surfaces ROSIE unavailable or a Gemini provider error.
+- Auto mode may try `local_llm`, then `remote_lmstudio`, then cloud only when a cloud provider is explicitly configured and policy allows it.
+- Cloud fallback must not happen for sensitive requests unless `ROSIE_ALLOW_CLOUD_FOR_SENSITIVE=true`.
+- PWA and server-governed calls use the same provider selection; desktop direct/local calls are only for local Gemma.
 
 ### STT
-- If SenseVoice is unavailable, voice input is blocked and the stack is unhealthy.
+- If the selected STT provider is unavailable, voice input is blocked and the reason is shown.
+- Remote LM Studio is LLM-only; it is not a speech provider.
 
 ### TTS
-- If Kokoro is unavailable, voice output is blocked and the stack is unhealthy.
+- If the selected TTS provider is unavailable, voice output is blocked and the reason is shown.
+- Remote LM Studio is LLM-only; it is not a speech provider.
 
 ## Implemented Now
 - Tauri direct/local `llama-server` path
@@ -200,7 +238,7 @@ RIVERSIDE_LLAMA_EXTRA_ARGS="--reasoning off" npm run dev:server
 - Kokoro-82M TTS wiring in the Tauri voice layer
 - ROSIE Help Center voice controls and runtime status visibility
 - `scripts/verify_rosie_local_stack.sh` local verification helper
-- Provider abstraction for explicit local Gemma, Gemini API, or auto mode selection
+- Provider abstraction for explicit local Gemma, Remote LM Studio, OpenAI API, Gemini API, or conservative auto mode selection
 - Capability registry for ROSIE self-awareness
 - E2E API gateway for manual generation and workflow testing
 - Streaming TTS support with `--stream` flag

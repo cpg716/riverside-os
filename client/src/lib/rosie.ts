@@ -311,6 +311,7 @@ export type RosieLocalRuntimeStatus = {
   llm: {
     runtime_name: string;
     provider: string;
+    deployment_kind?: string;
     base_url: string;
     host: string;
     port: string;
@@ -319,20 +320,29 @@ export type RosieLocalRuntimeStatus = {
     model_present: boolean;
     sidecar_binary_present: boolean;
     running: boolean;
+    available?: boolean;
+    unavailable_reason?: string | null;
+    context_hint?: string | null;
+    api_key_configured?: boolean | null;
   };
   stt: {
     engine_name: string;
     provider: string;
+    deployment_kind?: string;
     active_engine: string;
     cli_path: string;
     cli_present: boolean;
     model_name: string;
     model_path?: string | null;
     model_present: boolean;
+    available?: boolean;
+    unavailable_reason?: string | null;
+    api_key_configured?: boolean | null;
   };
   tts: {
     engine_name: string;
     provider: string;
+    deployment_kind?: string;
     active_engine: string;
     command_path: string;
     command_present: boolean;
@@ -340,6 +350,9 @@ export type RosieLocalRuntimeStatus = {
     model_path?: string | null;
     model_present: boolean;
     speaking: boolean;
+    available?: boolean;
+    unavailable_reason?: string | null;
+    api_key_configured?: boolean | null;
   };
 };
 
@@ -657,18 +670,42 @@ export async function getRosieVoiceCapabilities(
     const runtime = await getRosieLocalRuntimeStatus(options);
     return {
       speech_to_text_supported:
-        runtime?.stt.active_engine !== "unavailable",
-      text_to_speech_supported: runtime?.tts.active_engine !== "unavailable",
+        runtime != null &&
+        (runtime.stt.available ?? runtime.stt.active_engine !== "unavailable"),
+      text_to_speech_supported:
+        runtime != null &&
+        (runtime.tts.available ?? runtime.tts.active_engine !== "unavailable"),
     };
   } catch {
     return getBrowserRosieVoiceCapabilities();
   }
 }
 
+function rosieRuntimeProviderIsLocal(runtime: RosieLocalRuntimeStatus): boolean {
+  const provider = runtime.llm.provider.trim().toLowerCase();
+  return (
+    (runtime.llm.deployment_kind == null || runtime.llm.deployment_kind === "local") &&
+    ["local", "local_llm", "local-gemma", "local_gemma", "llama.cpp"].includes(provider)
+  );
+}
+
+function rosieRuntimeUsesServerGovernedTransport(
+  runtime: RosieLocalRuntimeStatus | null,
+): boolean {
+  if (!runtime) return false;
+  const provider = runtime.llm.provider.trim().toLowerCase();
+  return (
+    ["remote_lmstudio", "remote-lmstudio", "openai", "gemini"].includes(provider) ||
+    runtime.llm.deployment_kind === "cloud" ||
+    runtime.llm.deployment_kind === "private_remote"
+  );
+}
+
 async function ensureRosieLocalLlmRunning(): Promise<void> {
   if (!isTauri()) return;
   const runtime = await getRosieLocalRuntimeStatus();
   if (!runtime) return;
+  if (!rosieRuntimeProviderIsLocal(runtime)) return;
   if (!runtime.llm.sidecar_binary_present) {
     throw new Error("ROSIE local runtime is not installed for this desktop shell.");
   }
@@ -1111,8 +1148,8 @@ export async function rosieChatCompletions(
 
   if (rosieDirectTransportAllowed(settings)) {
     const runtime = await getRosieLocalRuntimeStatus(options).catch(() => null);
-    if (runtime?.llm.provider === "openai" || runtime?.llm.provider === "gemini") {
-      // Cloud provider mode is server-governed so API keys never reach the desktop shell.
+    if (rosieRuntimeUsesServerGovernedTransport(runtime)) {
+      // Private remote and cloud providers are server-governed so secrets and routing stay server-side.
     } else {
       await ensureRosieLocalLlmRunning();
       return await invoke<RosieChatCompletionResponse>(

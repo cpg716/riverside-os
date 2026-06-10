@@ -3,6 +3,8 @@
 //! Provides an alternative to the local Gemma 4 model using Google's Gemini API.
 //! Supports chat completions, text-to-speech, and speech-to-text.
 
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -13,6 +15,9 @@ use std::time::Duration;
 pub struct GeminiConfig {
     pub api_key: String,
     pub model: String,
+    pub stt_model: String,
+    pub tts_model: String,
+    pub tts_voice: String,
     pub base_url: String,
 }
 
@@ -20,8 +25,19 @@ impl Default for GeminiConfig {
     fn default() -> Self {
         Self {
             api_key: std::env::var("GEMINI_API_KEY").unwrap_or_default(),
-            model: std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-pro".to_string()),
-            base_url: "https://generativelanguage.googleapis.com".to_string(),
+            model: std::env::var("ROSIE_GEMINI_MODEL")
+                .or_else(|_| std::env::var("GEMINI_MODEL"))
+                .unwrap_or_else(|_| "gemini-2.5-pro".to_string()),
+            stt_model: std::env::var("ROSIE_GEMINI_STT_MODEL")
+                .unwrap_or_else(|_| "gemini-2.5-flash".to_string()),
+            tts_model: std::env::var("ROSIE_GEMINI_TTS_MODEL")
+                .unwrap_or_else(|_| "gemini-2.5-flash-preview-tts".to_string()),
+            tts_voice: std::env::var("ROSIE_GEMINI_TTS_VOICE")
+                .unwrap_or_else(|_| "Kore".to_string()),
+            base_url: std::env::var("ROSIE_GEMINI_BASE_URL")
+                .unwrap_or_else(|_| "https://generativelanguage.googleapis.com".to_string())
+                .trim_end_matches('/')
+                .to_string(),
         }
     }
 }
@@ -49,11 +65,32 @@ impl GeminiClient {
         if config.api_key.is_empty() {
             return Err("GEMINI_API_KEY environment variable is not set".to_string());
         }
+        if config.model.trim().is_empty() {
+            return Err("ROSIE_GEMINI_MODEL is empty".to_string());
+        }
+        if config.stt_model.trim().is_empty() {
+            return Err("ROSIE_GEMINI_STT_MODEL is empty".to_string());
+        }
+        if config.tts_model.trim().is_empty() {
+            return Err("ROSIE_GEMINI_TTS_MODEL is empty".to_string());
+        }
         Ok(Self::new(config))
     }
 
     pub fn model_name(&self) -> &str {
         &self.config.model
+    }
+
+    pub fn stt_model(&self) -> &str {
+        &self.config.stt_model
+    }
+
+    pub fn tts_model(&self) -> &str {
+        &self.config.tts_model
+    }
+
+    pub fn tts_voice(&self) -> &str {
+        &self.config.tts_voice
     }
 
     /// Send a chat completion request to Gemini API
@@ -106,8 +143,15 @@ impl GeminiClient {
     pub async fn text_to_speech(&self, text: &str, voice: &str) -> Result<Vec<u8>, String> {
         let url = format!(
             "{}/v1beta/models/{}:generateContent?key={}",
-            self.config.base_url, self.config.model, self.config.api_key
+            self.config.base_url, self.config.tts_model, self.config.api_key
         );
+
+        let selected_voice =
+            if voice.trim().is_empty() || voice.trim().chars().all(|ch| ch.is_ascii_digit()) {
+                self.config.tts_voice.as_str()
+            } else {
+                voice.trim()
+            };
 
         let body = json!({
             "contents": [{
@@ -116,7 +160,14 @@ impl GeminiClient {
                 }]
             }],
             "generationConfig": {
-                "voice": voice,
+                "responseModalities": ["AUDIO"],
+                "speechConfig": {
+                    "voiceConfig": {
+                        "prebuiltVoiceConfig": {
+                            "voiceName": selected_voice
+                        }
+                    }
+                }
             }
         });
 
@@ -140,26 +191,33 @@ impl GeminiClient {
             ));
         }
 
-        response
-            .bytes()
+        let raw = response
+            .json::<Value>()
             .await
-            .map(|b| b.to_vec())
-            .map_err(|e| format!("Failed to read Gemini TTS response: {}", e))
+            .map_err(|e| format!("Failed to parse Gemini TTS response: {}", e))?;
+        let encoded = raw["candidates"][0]["content"]["parts"][0]["inlineData"]["data"]
+            .as_str()
+            .ok_or_else(|| "Gemini TTS response did not include audio data".to_string())?;
+        let pcm = BASE64_STANDARD
+            .decode(encoded)
+            .map_err(|error| format!("Gemini TTS audio payload was invalid: {error}"))?;
+        Ok(wav_from_pcm_24khz_mono(&pcm))
     }
 
     /// Send a speech-to-text request to Gemini API
     pub async fn speech_to_text(&self, audio_data: &[u8]) -> Result<String, String> {
         let url = format!(
             "{}/v1beta/models/{}:generateContent?key={}",
-            self.config.base_url, self.config.model, self.config.api_key
+            self.config.base_url, self.config.stt_model, self.config.api_key
         );
 
-        // Convert audio to base64
-        let audio_base64 = base64::encode(audio_data);
+        let audio_base64 = BASE64_STANDARD.encode(audio_data);
 
         let body = json!({
             "contents": [{
                 "parts": [{
+                    "text": "Transcribe this audio for a Riverside OS staff voice command. Return only the transcript text."
+                }, {
                     "inline_data": {
                         "mime_type": "audio/wav",
                         "data": audio_base64
@@ -216,6 +274,25 @@ impl GeminiClient {
     }
 }
 
+fn wav_from_pcm_24khz_mono(pcm: &[u8]) -> Vec<u8> {
+    let data_len = pcm.len() as u32;
+    let mut wav = Vec::with_capacity(44 + pcm.len());
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&24_000u32.to_le_bytes());
+    wav.extend_from_slice(&(24_000u32 * 2).to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    wav.extend_from_slice(pcm);
+    wav
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,6 +302,8 @@ mod tests {
         let config = GeminiConfig::default();
         assert_eq!(config.base_url, "https://generativelanguage.googleapis.com");
         assert_eq!(config.model, "gemini-2.5-pro");
+        assert_eq!(config.stt_model, "gemini-2.5-flash");
+        assert_eq!(config.tts_model, "gemini-2.5-flash-preview-tts");
     }
 
     #[test]
