@@ -30,7 +30,7 @@ You need **insights.view** to see the **Reports** tab. Some cards need extra key
 4. Set **From** / **To** date filters.
 5. Select the **Basis** (booked sale date vs completed / recognition) if available.
 6. Use **Refresh** after changes to pull the latest data.
-7. Use **CSV** (spreadsheet) or **Print Report** (Professional Audit Layout) for your records.
+7. Use **Print Report** (Professional Audit Layout) for the loaded report. Use **CSV** (spreadsheet) when a report includes table rows.
 
 **Booked** = when the sale was rung. **Completed** = recognition-style timing for fulfilled lines (see store policy). Ask a lead if you are unsure which to use for payroll or tax questions.
 

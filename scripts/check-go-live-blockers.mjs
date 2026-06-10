@@ -244,6 +244,30 @@ function checkRegisterReportPrinterRouting() {
   );
 }
 
+function checkCuratedReportsPrintVisibility() {
+  const file = "client/src/components/reports/ReportsWorkspace.tsx";
+  const content = read(file);
+  assert(
+    content.includes("printableDataForReport") &&
+      content.includes("handlePrintSelectedReport") &&
+      content.includes("disabled={loading || !printableReport || !!loadErr}") &&
+      content.includes("report.responseKind === \"register_day_summary\""),
+    "Curated Reports expose Print Report for loaded table, summary, and no-row results",
+    file,
+    "Reports printing must not be hidden just because a report response is summary-shaped or has zero detail rows.",
+  );
+
+  const specFile = "client/e2e/reports-mobile-cards.spec.ts";
+  const spec = read(specFile);
+  assert(
+    spec.includes('reports-catalog-card-nys_tax_audit') &&
+      spec.includes('name: /^print report$/i'),
+    "Curated Reports E2E covers Print Report visibility for non-table report responses",
+    specFile,
+    "The object-shaped curated report path should keep a visible print option across responsive layouts.",
+  );
+}
+
 function checkPrintRoutingManifest() {
   const result = spawnSync(process.execPath, ["scripts/check-print-routing-manifest.mjs"], {
     cwd: root,
@@ -664,6 +688,7 @@ checkNoComponentBrowserPrintBypass();
 checkFireAndForgetPrintsAreCaught();
 checkDirectPrinterRouting();
 checkRegisterReportPrinterRouting();
+checkCuratedReportsPrintVisibility();
 checkPrintRoutingManifest();
 checkCounterpointBridgeQueryTesterEntityParity();
 checkCounterpointSyncStagingVisibility();

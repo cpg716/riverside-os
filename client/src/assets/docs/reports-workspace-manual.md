@@ -41,8 +41,9 @@ Use Reports to find sales, register, finance, customer, wedding, inventory, staf
 4. Review the matching category section and choose a report tile.
 5. Use From, To, Basis, and Group by when those controls appear.
 6. Use Refresh after changing filters.
-7. Use CSV or Print Report when the table view supports it.
-8. If Print Report cannot open the print window, Riverside shows an error so staff can check pop-up permissions or station printer setup instead of assuming the button worked.
+7. Use Print Report from the loaded report header for table, summary, or no-row report results.
+8. Use CSV when the loaded report includes table rows.
+9. If Print Report cannot open the print path, Riverside shows an error so staff can check pop-up permissions or station printer setup instead of assuming the button worked.
 
 ## Operational detail
 

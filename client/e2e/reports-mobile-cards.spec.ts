@@ -48,6 +48,9 @@ for (const viewport of REPORTS_VIEWPORTS) {
 
     await openBackofficeSidebarTab(page, "reports");
     await page.getByTestId("reports-catalog-card-margin_pivot").click();
+    await expect(page.getByRole("button", { name: /^print report$/i })).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(page.getByText(/download csv/i)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("reports-detail-filters")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByLabel(/^from$/i)).toBeVisible({ timeout: 15_000 });
@@ -70,6 +73,9 @@ for (const viewport of REPORTS_VIEWPORTS) {
 
     await page.getByRole("button", { name: /^library$/i }).click();
     await page.getByTestId("reports-catalog-card-nys_tax_audit").click();
+    await expect(page.getByRole("button", { name: /^print report$/i })).toBeVisible({
+      timeout: 15_000,
+    });
 
     if (viewport.width <= 1023) {
       await expect(page.getByTestId("reports-detail-row-object-cards")).toBeVisible({

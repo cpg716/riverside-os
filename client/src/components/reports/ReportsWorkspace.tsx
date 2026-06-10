@@ -505,6 +505,73 @@ function rowsWithDisplayLabels(
   });
 }
 
+function keyValuePrintRows(
+  payload: Record<string, unknown>,
+  keys: string[] = Object.keys(payload),
+): Record<string, unknown>[] {
+  return keys
+    .filter((key) => hasDisplayValue(payload[key]) && !looksTechnicalField(key))
+    .map((key) => ({
+      Field: fieldLabel(key),
+      Value: formatCellValue(payload[key], key) || toCellString(payload[key]),
+    }));
+}
+
+function registerSummaryPrintRows(payload: unknown): Record<string, unknown>[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const record = payload as Record<string, unknown>;
+  const summaryRows = REGISTER_DAY_SUMMARY_FIELDS
+    .filter((key) => hasDisplayValue(record[key]))
+    .map((key) => ({
+      Section: "Summary",
+      Field: fieldLabel(key),
+      Value: formatCellValue(record[key], key),
+    }));
+
+  const activityRows = registerDayActivityRows(payload).flatMap((row, index) => {
+    const columns = keysFromRowsForDisplay([row]);
+    return columns.map((key) => ({
+      Section: `Activity ${index + 1}`,
+      Field: fieldLabel(key),
+      Value: formatCellValue(row[key], key),
+    }));
+  });
+
+  return [...summaryRows, ...activityRows];
+}
+
+function printableDataForReport(
+  report: ReportDef,
+  payload: unknown,
+  displayRows: Record<string, unknown>[],
+): { columns: string[]; rows: Record<string, unknown>[] } {
+  if (displayRows.length > 0) {
+    return { columns: keysFromRows(displayRows), rows: displayRows };
+  }
+
+  if (!isAvailableReport(report) || payload === null || payload === undefined) {
+    return { columns: ["Status"], rows: [{ Status: "No records found for this window." }] };
+  }
+
+  if (report.responseKind === "register_day_summary") {
+    const rows = registerSummaryPrintRows(payload);
+    return {
+      columns: ["Section", "Field", "Value"],
+      rows: rows.length > 0 ? rows : [{ Section: "Summary", Field: "Status", Value: "No records found for this window." }],
+    };
+  }
+
+  if (typeof payload === "object" && !Array.isArray(payload)) {
+    const rows = keyValuePrintRows(payload as Record<string, unknown>);
+    return {
+      columns: ["Field", "Value"],
+      rows: rows.length > 0 ? rows : [{ Field: "Status", Value: "No records found for this window." }],
+    };
+  }
+
+  return { columns: ["Status"], rows: [{ Status: "No records found for this window." }] };
+}
+
 function reportPrintSubtitle(report: ReportDef, ctx: ReportUrlContext): string {
   const dateRange = `${ctx.fromYmd} to ${ctx.toYmd}`;
   const qualifiers: string[] = [];
@@ -825,6 +892,25 @@ export default function ReportsWorkspace({
     () => rowsWithDisplayLabels(reportRows, tableColumns),
     [reportRows, tableColumns],
   );
+  const printableReport = useMemo(
+    () =>
+      selectedAvailable && payload !== null
+        ? printableDataForReport(selectedAvailable, payload, displayRows)
+        : null,
+    [displayRows, payload, selectedAvailable],
+  );
+  const handlePrintSelectedReport = useCallback(() => {
+    if (!selectedAvailable || !printableReport) return;
+    const started = openProfessionalTablePrint({
+      title: selectedAvailable.title,
+      subtitle: reportPrintSubtitle(selectedAvailable, ctx),
+      columns: printableReport.columns,
+      rows: printableReport.rows,
+    });
+    if (!started) {
+      toast("Print could not open. Check pop-up permissions or printer setup.", "error");
+    }
+  }, [ctx, printableReport, selectedAvailable, toast]);
   const showRange = selectedAvailable?.usesGlobalDateRange ?? false;
   const showBasis = selectedAvailable?.usesBasis ?? false;
   const showGroup = selectedAvailable?.supportsGroupBy ?? false;
@@ -1036,15 +1122,26 @@ export default function ReportsWorkspace({
               </span>
             </span>
             {isAvailableReport(selected) ? (
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => void runLoad(selected)}
-                className="ui-btn-secondary inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl px-3 py-2 text-sm font-bold sm:ml-auto sm:w-auto"
-              >
-                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
-                Refresh
-              </button>
+              <>
+                <button
+                  type="button"
+                  disabled={loading || !printableReport || !!loadErr}
+                  onClick={handlePrintSelectedReport}
+                  className="ui-btn-secondary inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl border-app-success/20 px-3 py-2 text-sm font-bold text-app-success hover:bg-app-success hover:text-white disabled:opacity-50 sm:ml-auto sm:w-auto"
+                >
+                  <Printer className="h-4 w-4" aria-hidden />
+                  Print Report
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void runLoad(selected)}
+                  className="ui-btn-secondary inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl px-3 py-2 text-sm font-bold sm:w-auto"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
+                  Refresh
+                </button>
+              </>
             ) : null}
           </div>
 
@@ -1325,24 +1422,6 @@ export default function ReportsWorkspace({
                   >
                     <Download className="h-4 w-4" aria-hidden />
                     Download CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const started = openProfessionalTablePrint({
-                        title: selected.title,
-                        subtitle: reportPrintSubtitle(selected, ctx),
-                        columns: keysFromRows(displayRows),
-                        rows: displayRows
-                      });
-                      if (!started) {
-                        toast("Print could not open. Check pop-up permissions or printer setup.", "error");
-                      }
-                    }}
-                    className="ui-btn-secondary inline-flex min-h-11 items-center gap-2 rounded-xl border-app-success/20 px-3 py-2 text-sm font-bold text-app-success hover:bg-app-success hover:text-white"
-                  >
-                    <Printer className="h-4 w-4" aria-hidden />
-                    Print Report
                   </button>
                 </div>
               ) : null}
