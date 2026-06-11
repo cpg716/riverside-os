@@ -78,6 +78,8 @@ Review **Settings → Counterpoint → Status** while the bridge is running on t
 
 Treat those values as the real import scope for the migration record. A preflight that returns suspiciously low ticket or open-doc counts is a **NO-GO** until the SQL mapping or Bridge configuration is corrected.
 
+For NCR Counterpoint v8.4, closed ticket history is counted by the configured history date (`BUS_DAT`, `TKT_DT`, or `DOC_DT`) by default. The bridge does **not** enforce `DOC_TYP/TKT_TYP = 'T'` unless `CP_OMIT_PS_TKT_DOC_TYP_FILTER=0` is explicitly set, because customized 8.4 databases can use those columns differently and an over-strict filter can return only a tiny subset of real ticket headers while lines and payments still show thousands of rows.
+
 ### Source file roles for inventory and catalog identity
 
 Counterpoint Sync database/import remains the authoritative inventory source for ROS. Do not treat every CSV in the repo as having the same authority level:
@@ -233,7 +235,7 @@ Hard dependencies in ROS:
 5. **Customer notes** (optional) — usual position after customers.
 6. **Catalog** then **inventory** then **vendor_items** — matrix keys on variants must exist before ticket/open-doc lines resolve. The shipped catalog query sends all nonblank `IM_ITEM` rows. The shipped inventory query sends MAIN `IM_INV` / `IM_INV_CELL` quantity rows, including zero-on-hand rows when Counterpoint has a row for that item or cell.
 7. **Gift cards** — default off (`SYNC_GIFT_CARDS=0`) for bulk simplicity.
-8. **Closed ticket history** (`SYNC_TICKETS`) — idempotent on `counterpoint_ticket_ref`.
+8. **Closed ticket history** (`SYNC_TICKETS`) — idempotent on `counterpoint_ticket_ref`. The default v8.4 schema-probe SQL imports by activity date rather than `DOC_TYP/TKT_TYP = 'T'`; only enable strict type filtering after SSMS confirms the local Counterpoint database uses that exact value for every historical sale ticket needed for ROS.
 9. **Open PS_DOC documents** (optional) — `SYNC_OPEN_DOCS=1` and `CP_OPEN_DOCS_*` queries **after** tickets. Posts to `POST /api/sync/counterpoint/open-docs`. Idempotent on `counterpoint_doc_ref`.
    Historical ticket/open-doc totals are useful for operational history, but tax remains non-authoritative unless you explicitly extend the bridge with proven Counterpoint tax columns.
 10. **Loyalty** — current points come from `AR_CUST` during customer sync. Keep **`SYNC_LOYALTY_HIST=0`** for cutover; loyalty ledger history is not imported.

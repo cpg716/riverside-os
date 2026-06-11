@@ -578,15 +578,7 @@ function pipeImItemVendorSql(sqlText) {
 function applyCounterpointSqlCompat(sqlText) {
   let q = String(sqlText ?? "");
   if (omitPsTktDocTypFilterEnabled()) {
-    q = q.replace(/\s+AND\s+h\.DOC_TYP\s*=\s*N'T'/gi, "");
-    q = q.replace(/\s+AND\s+h\.DOC_TYP\s*=\s*'T'/gi, "");
-    q = q.replace(/\s+AND\s+DOC_TYP\s*=\s*N'T'/gi, "");
-    q = q.replace(/\s+AND\s+DOC_TYP\s*=\s*'T'/gi, "");
-    q = q.replace(/\bWHERE\s+h\.DOC_TYP\s*=\s*N'T'\s+AND\b/gi, "WHERE ");
-    q = q.replace(/\bWHERE\s+h\.DOC_TYP\s*=\s*'T'\s+AND\b/gi, "WHERE ");
-    q = q.replace(/\bWHERE\s+DOC_TYP\s*=\s*'T'\s+AND\b/gi, "WHERE ");
-    q = q.replace(/\bWHERE\s+DOC_TYP\s*=\s*N'T'\s+AND\b/gi, "WHERE ");
-    return q;
+    return omitPsTktDocTypPredicates(q);
   }
   const col = (process.env.CP_TKT_DOC_TYP_COLUMN ?? "").trim();
   if (col && col !== "DOC_TYP" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(col)) {
@@ -594,6 +586,21 @@ function applyCounterpointSqlCompat(sqlText) {
     q = q.replace(/\bDOC_TYP\s*=\s*'T'/g, `${col} = 'T'`);
     q = q.replace(/\bDOC_TYP\s*=\s*N'T'/g, `${col} = N'T'`);
   }
+  return q;
+}
+
+const PS_TKT_DOC_TYPE_COLUMN_PATTERN =
+  String.raw`(?:h\.)?(?:(?:\[?(?:DOC_TYP|DOC_TYPE|TKT_TYP)\]?)|(?:h\.\[(?:DOC_TYP|DOC_TYPE|TKT_TYP)\]))`;
+const PS_TKT_DOC_TYPE_EQUALS_T_PATTERN =
+  String.raw`${PS_TKT_DOC_TYPE_COLUMN_PATTERN}\s*=\s*N?'T'`;
+
+function omitPsTktDocTypPredicates(sqlText) {
+  let q = String(sqlText ?? "");
+  const equalsTicketType = new RegExp(PS_TKT_DOC_TYPE_EQUALS_T_PATTERN, "gi");
+  q = q.replace(new RegExp(String.raw`\s+AND\s+${PS_TKT_DOC_TYPE_EQUALS_T_PATTERN}`, "gi"), "");
+  q = q.replace(new RegExp(String.raw`\bWHERE\s+${PS_TKT_DOC_TYPE_EQUALS_T_PATTERN}\s+AND\s+`, "gi"), "WHERE ");
+  q = q.replace(new RegExp(String.raw`\bWHERE\s+${PS_TKT_DOC_TYPE_EQUALS_T_PATTERN}\s*$`, "gi"), "WHERE 1=1");
+  q = q.replace(equalsTicketType, "1=1");
   return q;
 }
 
@@ -798,7 +805,7 @@ const CP_CATALOG_CELLS_QUERY = applyCounterpointSqlCompat(
 const CP_GIFT_CARDS_QUERY = expandImportSince(configuredSql("CP_GIFT_CARDS_QUERY"));
 const CP_GFC_HIST_QUERY = ""; // Forced empty: we only need current gift balances, no history.
 const CP_TICKETS_QUERY = applyCounterpointSqlCompat(
-  expandImportSince(configuredSql("CP_TICKETS_QUERY")).replace(/ORDER\s+BY\s+.*$/i, ""),
+  stripTrailingOrderBy(expandImportSince(configuredSql("CP_TICKETS_QUERY"))),
 );
 const CP_TICKET_LINES_QUERY = applyCounterpointSqlCompat(
   expandImportSince(configuredSql("CP_TICKET_LINES_QUERY")),
@@ -828,7 +835,7 @@ const CP_OPEN_DOC_LINES_QUERY = expandImportSince(configuredSql("CP_OPEN_DOC_LIN
 const CP_OPEN_DOC_PMT_QUERY = expandImportSince(configuredSql("CP_OPEN_DOC_PMT_QUERY"));
 const CP_RECEIVING_HISTORY_QUERY = expandImportSince(configuredSql("CP_RECEIVING_HISTORY_QUERY"));
 const CP_TICKET_NOTES_QUERY = expandImportSince(configuredSql("CP_TICKET_NOTES_QUERY"));
-const BRIDGE_VERSION = "0.7.3";
+const BRIDGE_VERSION = "0.7.4";
 
 if (!PREFLIGHT_MODE && !ALIASES_MODE && !NORMALIZATION_MODE && !LIGHTSPEED_REFERENCE_MODE) {
   console.info(
@@ -896,7 +903,7 @@ function initEffectiveSqlFromConstants() {
     catalog_cells: applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_CATALOG_CELLS_QUERY"))),
     category_masters: expandImportSince(configuredSql("CP_CATEGORY_MASTERS_QUERY")),
     tickets: applyCounterpointSqlCompat(
-      expandImportSince(configuredSql("CP_TICKETS_QUERY")).replace(/ORDER\s+BY\s+.*$/i, ""),
+      stripTrailingOrderBy(expandImportSince(configuredSql("CP_TICKETS_QUERY"))),
     ),
     ticket_lines: applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_TICKET_LINES_QUERY"))),
     ticket_payments: applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_TICKET_PAYMENTS_QUERY"))),
@@ -1300,7 +1307,17 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
   if (tkt && tktNo && tktDate) {
     const total = pickColumn(tkt, ["TOT", "TOT_EXTD_PRC", "TKT_TOT"]);
     const due = pickColumn(tkt, ["TOT_AMT_DUE", "AMT_DUE"]);
-    const typeFilter = pickColumn(tkt, ["TKT_TYP", "DOC_TYP"]) ? ` AND h.[${pickColumn(tkt, ["TKT_TYP", "DOC_TYP"])}] = N'T'` : "";
+    const configuredTypeColumn = (process.env.CP_TKT_DOC_TYP_COLUMN ?? "").trim();
+    const typeColumn =
+      configuredTypeColumn &&
+      /^[A-Za-z_][A-Za-z0-9_]*$/.test(configuredTypeColumn) &&
+      tkt.has(configuredTypeColumn)
+        ? configuredTypeColumn
+        : pickColumn(tkt, ["TKT_TYP", "DOC_TYP", "DOC_TYPE"]);
+    const typeFilter =
+      typeColumn && !omitPsTktDocTypFilterEnabled()
+        ? ` AND h.[${typeColumn}] = N'T'`
+        : "";
     sqlMap.tickets = `SELECT ${sqlText("h", tkt, [tktNo], "ticket_ref")}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter} ORDER BY h.[${tktDate}], h.[${tktNo}]`;
     changes.push("PS_TKT_HIST tickets enabled");
 
@@ -2124,10 +2141,108 @@ async function rosPost(entityKey, body) {
 }
 
 function stripTrailingOrderBy(sqlText) {
-  return String(sqlText ?? "")
-    .trim()
-    .replace(/;\s*$/u, "")
-    .replace(/\s+ORDER\s+BY\s+[\s\S]*$/iu, "");
+  const body = String(sqlText ?? "").trim().replace(/;\s*$/u, "");
+  const trailingOrderBy = findTopLevelTrailingOrderBy(body);
+  return trailingOrderBy >= 0 ? body.slice(0, trailingOrderBy).trimEnd() : body;
+}
+
+function isSqlWordChar(ch) {
+  return /[A-Za-z0-9_]/.test(ch ?? "");
+}
+
+function findTopLevelTrailingOrderBy(sqlText) {
+  const q = String(sqlText ?? "");
+  let depth = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inBracketIdentifier = false;
+  let lineComment = false;
+  let blockComment = false;
+  let lastTopLevelOrderBy = -1;
+
+  for (let i = 0; i < q.length; i += 1) {
+    const ch = q[i];
+    const next = q[i + 1];
+
+    if (lineComment) {
+      if (ch === "\n" || ch === "\r") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (ch === "*" && next === "/") {
+        blockComment = false;
+        i += 1;
+      }
+      continue;
+    }
+    if (inSingleQuote) {
+      if (ch === "'" && next === "'") {
+        i += 1;
+      } else if (ch === "'") {
+        inSingleQuote = false;
+      }
+      continue;
+    }
+    if (inDoubleQuote) {
+      if (ch === '"') inDoubleQuote = false;
+      continue;
+    }
+    if (inBracketIdentifier) {
+      if (ch === "]") inBracketIdentifier = false;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      lineComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      blockComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "'") {
+      inSingleQuote = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDoubleQuote = true;
+      continue;
+    }
+    if (ch === "[") {
+      inBracketIdentifier = true;
+      continue;
+    }
+    if (ch === "(") {
+      depth += 1;
+      continue;
+    }
+    if (ch === ")" && depth > 0) {
+      depth -= 1;
+      continue;
+    }
+    if (depth !== 0) continue;
+
+    const maybeOrder = q.slice(i, i + 5);
+    if (
+      maybeOrder.toUpperCase() === "ORDER" &&
+      !isSqlWordChar(q[i - 1]) &&
+      !isSqlWordChar(q[i + 5])
+    ) {
+      let j = i + 5;
+      while (/\s/.test(q[j] ?? "")) j += 1;
+      if (
+        q.slice(j, j + 2).toUpperCase() === "BY" &&
+        !isSqlWordChar(q[j - 1]) &&
+        !isSqlWordChar(q[j + 2])
+      ) {
+        lastTopLevelOrderBy = i;
+      }
+    }
+  }
+
+  return lastTopLevelOrderBy;
 }
 
 function sourceCountSql(sqlText) {
