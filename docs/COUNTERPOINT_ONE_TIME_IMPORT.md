@@ -76,9 +76,9 @@ Review **Settings → Counterpoint → Status** while the bridge is running on t
 - explicit rerun warnings when known non-idempotent entities are enabled
 - source-count proof for customers, catalog, variants, inventory, tickets, ticket lines/payments, receiving history, open docs, open-doc lines/payments, gift cards, store credit, and loyalty balances
 
-Treat those values as the real import scope for the migration record. A preflight that returns suspiciously low ticket or open-doc counts is a **NO-GO** until the SQL mapping or Bridge configuration is corrected.
+Treat those values as the real import scope for the migration record. A preflight that returns suspiciously low open-doc counts is a **NO-GO** until the SQL mapping or Bridge configuration is corrected. Closed-ticket header counts can be lower than expected on some Counterpoint v8.4 schemas; ROS allows that as a warning only when substantial `PS_TKT_HIST_LIN` or `PS_TKT_HIST_PMT` proof is present.
 
-For NCR Counterpoint v8.4, closed ticket history is counted by the configured history date (`BUS_DAT`, `TKT_DT`, or `DOC_DT`) by default. The bridge does **not** enforce `DOC_TYP/TKT_TYP = 'T'` unless `CP_OMIT_PS_TKT_DOC_TYP_FILTER=0` is explicitly set, because customized 8.4 databases can use those columns differently and an over-strict filter can return only a tiny subset of real ticket headers while lines and payments still show thousands of rows.
+For NCR Counterpoint v8.4, closed ticket history is counted by the activity/business date (`BUS_DAT` first, then `TKT_DT` or `DOC_DT`) by default. The bridge does **not** enforce `DOC_TYP/TKT_TYP = 'T'` unless `CP_OMIT_PS_TKT_DOC_TYP_FILTER=0` is explicitly set, because customized 8.4 databases can use those columns differently and an over-strict filter can return only a tiny subset of real ticket headers while lines and payments still show thousands of rows.
 
 ### Source file roles for inventory and catalog identity
 

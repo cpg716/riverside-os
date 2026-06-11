@@ -4290,6 +4290,20 @@ fn default_suspicious_min_for_import_entity(entity_key: &str) -> Option<i64> {
     }
 }
 
+fn counterpoint_ticket_detail_history_corroborates(
+    source_counts_by_entity: &HashMap<String, i64>,
+) -> bool {
+    let ticket_lines = source_counts_by_entity
+        .get("ticket_lines")
+        .copied()
+        .unwrap_or_default();
+    let ticket_payments = source_counts_by_entity
+        .get("ticket_payments")
+        .copied()
+        .unwrap_or_default();
+    ticket_lines.max(ticket_payments) >= COUNTERPOINT_TICKET_SUSPICIOUS_MIN
+}
+
 fn counterpoint_preflight_required_probe_entities() -> &'static [&'static str] {
     &[
         "customers",
@@ -4411,6 +4425,17 @@ pub async fn record_counterpoint_import_preflight(
     }
 
     let mut seen_counts: HashMap<String, i64> = HashMap::new();
+    let source_counts_by_entity: HashMap<String, i64> = payload
+        .counts
+        .iter()
+        .map(|row| {
+            (
+                normalize_import_entity_key(&row.entity_key),
+                row.source_count,
+            )
+        })
+        .filter(|(entity_key, _)| !entity_key.is_empty())
+        .collect();
     let mut count_rows = Vec::with_capacity(payload.counts.len());
     let mut insert_rows = Vec::with_capacity(payload.counts.len());
 
@@ -4472,14 +4497,24 @@ pub async fn record_counterpoint_import_preflight(
                     "{label} returned {} source rows, below the suspicious minimum of {min_count}.",
                     row.source_count
                 );
-                push_import_preflight_blocker(
-                    &mut blockers,
-                    Some(&entity_key),
-                    "suspicious_low_source_count",
-                    msg.clone(),
-                );
-                status = "blocked".into();
-                message.get_or_insert(msg);
+                if entity_key == "tickets"
+                    && row.source_count > 0
+                    && counterpoint_ticket_detail_history_corroborates(&source_counts_by_entity)
+                {
+                    status = "warning".into();
+                    message.get_or_insert(format!(
+                        "{msg} Ticket line/payment history is substantial, so this is treated as a Counterpoint header-shape warning instead of an import blocker."
+                    ));
+                } else {
+                    push_import_preflight_blocker(
+                        &mut blockers,
+                        Some(&entity_key),
+                        "suspicious_low_source_count",
+                        msg.clone(),
+                    );
+                    status = "blocked".into();
+                    message.get_or_insert(msg);
+                }
             }
         }
         if status == "blocked" {
@@ -13468,6 +13503,9 @@ mod tests {
             if row.entity_key == "tickets" {
                 row.source_count = 57;
             }
+            if row.entity_key == "ticket_lines" || row.entity_key == "ticket_payments" {
+                row.source_count = 0;
+            }
             if row.entity_key == "open_docs" {
                 row.source_count = 39;
             }
@@ -13503,6 +13541,57 @@ mod tests {
             .iter()
             .any(|blocker| blocker.entity_key.as_deref() == Some("open_docs")
                 && blocker.reason_code == "suspicious_low_source_count"));
+
+        sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = $1")
+            .bind(summary.import_run_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup preflight run");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_import_preflight_allows_low_ticket_headers_when_details_exist() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        ensure_counterpoint_import_first_tables(&pool).await;
+        let mut counts = realistic_import_preflight_counts();
+        for row in &mut counts {
+            match row.entity_key.as_str() {
+                "tickets" => row.source_count = 103,
+                "ticket_lines" => row.source_count = 109_264,
+                "ticket_payments" => row.source_count = 73_822,
+                "open_docs" => row.source_count = 2_111,
+                _ => {}
+            }
+        }
+
+        let summary = record_counterpoint_import_preflight(
+            &pool,
+            CounterpointImportPreflightPayload {
+                history_start: Some("2018-01-01".into()),
+                bridge_hostname: Some("test-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some("test-low-ticket-headers-detail-proof".into()),
+                import_first: true,
+                staging_enabled: false,
+                dry_run: false,
+                startup_issues: vec![],
+                counts,
+                metadata: serde_json::json!({ "test": true }),
+            },
+        )
+        .await
+        .expect("record preflight");
+
+        assert!(summary.preflight_passed);
+        assert!(summary.blockers.is_empty());
+        let ticket_row = summary
+            .counts
+            .iter()
+            .find(|row| row.entity_key == "tickets")
+            .expect("ticket count row");
+        assert_eq!(ticket_row.status, "warning");
 
         sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = $1")
             .bind(summary.import_run_id)

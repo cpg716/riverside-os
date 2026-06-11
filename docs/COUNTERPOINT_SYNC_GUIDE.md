@@ -23,7 +23,7 @@ The same settings panel also includes **Counterpoint Transition Review Packs** f
 6. **AI Cleanup** - post-import catalog/customer cleanup suggestions only
 7. **Go-Live Readiness** - deterministic proof and final recommendation
 
-Advancement is proof-gated. Bridge-reported row counts alone do not unlock import or cutover. If the Bridge reports suspiciously low ticket/open-doc counts, a wrong ROS base URL, `401 invalid or missing sync token`, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import.
+Advancement is proof-gated. Bridge-reported row counts alone do not unlock import or cutover. If the Bridge reports suspiciously low open-doc counts, a wrong ROS base URL, `401 invalid or missing sync token`, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import. Suspiciously low ticket header counts are allowed only as a warning when ticket-line or ticket-payment source counts prove substantial historical activity.
 
 When preflight passes, the Bridge starts a ROS import run before sending entity batches. Each batch writes through the normal Counterpoint ingest path, then ROS records raw source rows and provenance links to the landed ROS rows. The command center's latest import-run status is the operator proof surface; a run that never starts, fails, or has zero landed proof is not complete.
 
@@ -351,11 +351,11 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
 **Source:** `dbo.PS_TKT_HIST` + `PS_TKT_HIST_LIN` + `PS_TKT_HIST_PMT`
 **Target:** `transactions` + `transaction_lines` + `payment_transactions` + `payment_allocations`
-**Key:** `TKT_NO` → `transactions.counterpoint_ticket_ref` (unique)
+**Key:** generated Counterpoint ticket identity → `transactions.counterpoint_ticket_ref` (unique). The Bridge uses the visible v8.4 identity columns such as store, station, drawer, business date, ticket number, document number, and document id so repeated ticket numbers do not collide.
 
 | Counterpoint | ROS |
 |--------------|-----|
-| `PS_TKT_HIST.TKT_NO` | `transactions.counterpoint_ticket_ref` |
+| Generated identity from `PS_TKT_HIST` ticket columns | `transactions.counterpoint_ticket_ref` |
 | `PS_TKT_HIST.BUS_DAT` | `transactions.booked_at` |
 | `PS_TKT_HIST.TOT` | `transactions.total_price` |
 | `PS_TKT_HIST_PMT.AMT` + redeeming `PS_TKT_HIST_GFT.AMT` | `transactions.amount_paid` / `transactions.balance_due` when present |

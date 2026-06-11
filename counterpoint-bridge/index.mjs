@@ -1158,6 +1158,76 @@ function sqlNumber(alias, set, candidates, outputName, fallback = "CAST(NULL AS 
   return c ? `${alias}.[${c}] AS ${outputName}` : `${fallback} AS ${outputName}`;
 }
 
+function uniquePresentColumns(set, candidates) {
+  const seen = new Set();
+  const cols = [];
+  for (const candidate of candidates) {
+    if (!candidate || !set?.has(candidate) || seen.has(candidate)) continue;
+    seen.add(candidate);
+    cols.push(candidate);
+  }
+  return cols;
+}
+
+function ticketIdentityExpr(alias, column) {
+  const isDate = /(DAT|DATE|_DT|DT)$/i.test(String(column ?? ""));
+  const expr = isDate
+    ? `CONVERT(NVARCHAR(30), ${alias}.[${column}], 126)`
+    : `CONVERT(NVARCHAR(128), ${alias}.[${column}])`;
+  return `ISNULL(RTRIM(LTRIM(${expr})), N'')`;
+}
+
+function ticketIdentityColumns(headerSet, ticketNumberColumn, ticketDateColumn) {
+  const cols = uniquePresentColumns(headerSet, [
+    "STR_ID",
+    "STA_ID",
+    "DRW_ID",
+    "DRAWER_ID",
+    ticketDateColumn,
+    "BUS_DAT",
+    "TKT_DT",
+    "DOC_DT",
+    ticketNumberColumn,
+    "TKT_NO",
+    "DOC_NO",
+    "DOC_ID",
+  ]);
+  return cols.length > 0 ? cols : ticketNumberColumn ? [ticketNumberColumn] : [];
+}
+
+function ticketRefSql(alias, headerSet, columns, outputName = "ticket_ref") {
+  const cols = columns.filter((column) => headerSet?.has(column));
+  if (cols.length === 0) return `CAST(NULL AS NVARCHAR(512)) AS ${outputName}`;
+  const parts = [];
+  for (const column of cols) {
+    if (parts.length > 0) parts.push("N'|'");
+    parts.push(ticketIdentityExpr(alias, column));
+  }
+  return `CONCAT(${parts.join(", ")}) AS ${outputName}`;
+}
+
+function ticketJoinPairs(headerSet, childSet, fallbackHeaderColumn, fallbackChildColumn) {
+  const common = uniquePresentColumns(headerSet, [
+    "DOC_ID",
+    "STR_ID",
+    "STA_ID",
+    "DRW_ID",
+    "DRAWER_ID",
+    "BUS_DAT",
+    "TKT_DT",
+    "DOC_DT",
+    "TKT_NO",
+    "DOC_NO",
+  ]).filter((column) => childSet?.has(column));
+  if (common.length > 0) return common.map((column) => [column, column]);
+  if (fallbackHeaderColumn && fallbackChildColumn) return [[fallbackHeaderColumn, fallbackChildColumn]];
+  return [];
+}
+
+function ticketJoinPredicate(headerAlias, childAlias, pairs) {
+  return pairs.map(([headerColumn, childColumn]) => `${headerAlias}.[${headerColumn}] = ${childAlias}.[${childColumn}]`).join(" AND ");
+}
+
 function matrixKeySql(alias, dims) {
   const parts = dims.map((dim) =>
     dim
@@ -1302,9 +1372,11 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
 
   const tkt = set("PS_TKT_HIST");
   const tktNo = pickColumn(tkt, ["TKT_NO", "DOC_NO"]);
-  const tktDate = pickColumn(tkt, ["TKT_DT", "BUS_DAT", "DOC_DT"]);
+  const tktDate = pickColumn(tkt, ["BUS_DAT", "TKT_DT", "DOC_DT"]);
   const tktJoin = pickColumn(tkt, ["DOC_ID", "TKT_NO", "DOC_NO"]);
   if (tkt && tktNo && tktDate) {
+    const ticketRefColumns = ticketIdentityColumns(tkt, tktNo, tktDate);
+    const ticketRefSelect = ticketRefSql("h", tkt, ticketRefColumns);
     const total = pickColumn(tkt, ["TOT", "TOT_EXTD_PRC", "TKT_TOT"]);
     const due = pickColumn(tkt, ["TOT_AMT_DUE", "AMT_DUE"]);
     const configuredTypeColumn = (process.env.CP_TKT_DOC_TYP_COLUMN ?? "").trim();
@@ -1318,36 +1390,42 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       typeColumn && !omitPsTktDocTypFilterEnabled()
         ? ` AND h.[${typeColumn}] = N'T'`
         : "";
-    sqlMap.tickets = `SELECT ${sqlText("h", tkt, [tktNo], "ticket_ref")}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter} ORDER BY h.[${tktDate}], h.[${tktNo}]`;
-    changes.push("PS_TKT_HIST tickets enabled");
+    sqlMap.tickets = `SELECT ${ticketRefSelect}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter} ORDER BY h.[${tktDate}], h.[${tktNo}]`;
+    changes.push(`PS_TKT_HIST tickets enabled; date=${tktDate}; key=${ticketRefColumns.join("+")}`);
 
     const lin = set("PS_TKT_HIST_LIN");
     const linJoin = pickColumn(lin, [tktJoin, "DOC_ID", "TKT_NO"]);
-    if (lin && linJoin) {
+    const linJoinPairs = ticketJoinPairs(tkt, lin, tktJoin, linJoin);
+    const linJoinPredicate = ticketJoinPredicate("h", "l", linJoinPairs);
+    if (lin && linJoinPredicate) {
       const item = pickColumn(lin, ["ITEM_NO"]);
       const seq = pickColumn(lin, ["LIN_SEQ_NO", "SEQ_NO"]);
       const qty = pickColumn(lin, ["QTY_SOLD", "QTY"]);
       const price = pickColumn(lin, ["PRC", "PRICE"]);
       const cost = pickColumn(lin, ["UNIT_COST", "COST"]);
       const reason = pickColumn(lin, ["RET_REAS", "REAS_COD"]);
-      sqlMap.ticket_lines = `SELECT ${sqlText("h", tkt, [tktNo], "ticket_ref")}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${sqlText("l", lin, [item], "sku")}, ${sqlText("l", lin, [item], "counterpoint_item_key")}, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price ? `l.[${price}]` : "CAST(0 AS DECIMAL(18,4))"} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l INNER JOIN PS_TKT_HIST h ON h.[${tktJoin}] = l.[${linJoin}] WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
-      changes.push("PS_TKT_HIST_LIN ticket lines enabled");
+      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${sqlText("l", lin, [item], "sku")}, ${sqlText("l", lin, [item], "counterpoint_item_key")}, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price ? `l.[${price}]` : "CAST(0 AS DECIMAL(18,4))"} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      changes.push(`PS_TKT_HIST_LIN ticket lines enabled; join=${linJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
 
     const pmt = set("PS_TKT_HIST_PMT");
     const pmtJoin = pickColumn(pmt, [tktJoin, "DOC_ID", "TKT_NO"]);
-    if (pmt && pmtJoin) {
+    const pmtJoinPairs = ticketJoinPairs(tkt, pmt, tktJoin, pmtJoin);
+    const pmtJoinPredicate = ticketJoinPredicate("h", "p", pmtJoinPairs);
+    if (pmt && pmtJoinPredicate) {
       const payCod = pickColumn(pmt, ["PAY_COD", "PMT_TYP"]);
       const amt = pickColumn(pmt, ["AMT", "PMT_AMT"]);
-      sqlMap.ticket_payments = `SELECT ${sqlText("h", tkt, [tktNo], "ticket_ref")}, ${sqlText("p", pmt, [payCod], "pmt_typ")}, ${amt ? `p.[${amt}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_TKT_HIST_PMT p INNER JOIN PS_TKT_HIST h ON h.[${tktJoin}] = p.[${pmtJoin}] WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
-      changes.push("PS_TKT_HIST_PMT ticket payments enabled");
+      sqlMap.ticket_payments = `SELECT ${ticketRefSelect}, ${sqlText("p", pmt, [payCod], "pmt_typ")}, ${amt ? `p.[${amt}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_TKT_HIST_PMT p INNER JOIN PS_TKT_HIST h ON ${pmtJoinPredicate} WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      changes.push(`PS_TKT_HIST_PMT ticket payments enabled; join=${pmtJoinPairs.map(([h, p]) => `${h}=${p}`).join("+")}`);
     }
 
     const tktNote = set("PS_TKT_HIST_NOTE");
     const noteJoin = pickColumn(tktNote, [tktJoin, "DOC_ID", "TKT_NO"]);
     const noteCol = pickColumn(tktNote, ["NOTE", "NOTE_TXT", "TXT"]);
-    if (tktNote && noteJoin && noteCol) {
-      sqlMap.ticket_notes = `SELECT ${sqlText("h", tkt, [tktNo], "ticket_ref")}, n.[${noteCol}] AS note FROM PS_TKT_HIST_NOTE n INNER JOIN PS_TKT_HIST h ON h.[${tktJoin}] = n.[${noteJoin}] WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+    const noteJoinPairs = ticketJoinPairs(tkt, tktNote, tktJoin, noteJoin);
+    const noteJoinPredicate = ticketJoinPredicate("h", "n", noteJoinPairs);
+    if (tktNote && noteJoinPredicate && noteCol) {
+      sqlMap.ticket_notes = `SELECT ${ticketRefSelect}, n.[${noteCol}] AS note FROM PS_TKT_HIST_NOTE n INNER JOIN PS_TKT_HIST h ON ${noteJoinPredicate} WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
       changes.push("PS_TKT_HIST_NOTE ticket notes enabled");
     }
   }
