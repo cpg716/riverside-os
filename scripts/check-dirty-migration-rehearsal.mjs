@@ -48,6 +48,32 @@ function psql(database, sql, options = {}) {
   );
 }
 
+function sleep(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+function waitForPostgres() {
+  const deadline = Date.now() + 60_000;
+  let lastError = "";
+
+  while (Date.now() < deadline) {
+    const result = psql("postgres", "SELECT 1;", {
+      allowFailure: true,
+      capture: true,
+      tuplesOnly: true,
+    });
+
+    if (result.status === 0) {
+      return;
+    }
+
+    lastError = [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
+    sleep(500);
+  }
+
+  throw new Error(`Postgres container did not become ready within 60 seconds.${lastError ? `\n${lastError}` : ""}`);
+}
+
 const repairSerialSequencesSql = `
 DO $$
 DECLARE
@@ -110,6 +136,7 @@ function dropDatabase() {
 
 console.log("[pre-retag] Starting dirty migration rehearsal...");
 run("docker", ["compose", "up", "-d", "db"]);
+waitForPostgres();
 
 try {
   dropDatabase();
