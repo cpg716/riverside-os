@@ -601,6 +601,27 @@ function checkWindowsRosieProcessLockGuards() {
 }
 
 function checkReleaseWorkflowPreBuildGates() {
+  const packageJson = read("package.json");
+  assert(
+    packageJson.includes('"check:pre-retag"') &&
+      packageJson.includes('"release:retag"'),
+    "Root package exposes pre-retag and guarded retag commands",
+    "package.json",
+    "Same-version rebuilds must use npm run check:pre-retag and npm run release:retag -- <tag>.",
+  );
+
+  const retagWrapperFile = "scripts/release-retag.mjs";
+  const retagWrapper = read(retagWrapperFile);
+  assert(
+    retagWrapper.includes("git([\"status\", \"--porcelain\"]") &&
+      retagWrapper.includes("npm\", [\"run\", \"check:pre-retag\"]") &&
+      retagWrapper.includes("gh([") &&
+      retagWrapper.includes("--latest"),
+    "Guarded retag wrapper refuses dirty releases and runs pre-retag checks",
+    retagWrapperFile,
+    "Manual same-version retags should be replaced by npm run release:retag -- <tag>.",
+  );
+
   const workflowFiles = [
     ".github/workflows/windows-deployment-package.yml",
     ".github/workflows/tauri-register-updater-release.yml",
@@ -609,16 +630,18 @@ function checkReleaseWorkflowPreBuildGates() {
   for (const file of workflowFiles) {
     const content = read(file);
     assert(
-      content.includes("scripts/check-go-live-blockers.mjs"),
-      `Release workflow runs go-live blocker gates before expensive build work in ${file}`,
+      content.includes("npm run check:pre-retag") &&
+        content.includes("pre-retag-gate"),
+      `Release workflow runs the unified pre-retag gate before expensive build work in ${file}`,
       file,
-      "Print, Counterpoint, Help packaging, and installer-lock regressions should fail before asset packaging.",
+      "Print, Counterpoint, Help packaging, dirty migration, version, and installer regressions should fail before asset packaging.",
     );
     assert(
-      content.includes("scripts/check-version-parity.mjs"),
-      `Release workflow runs version parity before build work in ${file}`,
+      content.includes("package-lock.json") &&
+        content.includes("client/package-lock.json"),
+      `Release workflow installs pre-retag dependencies before build work in ${file}`,
       file,
-      "Version drift in companion apps or package-lock files can publish stale assets.",
+      "The unified pre-retag gate needs root and client dependencies before asset packaging begins.",
     );
   }
 
@@ -626,7 +649,7 @@ function checkReleaseWorkflowPreBuildGates() {
   const updater = read(updaterFile);
   assert(
     updater.includes("require-playwright-green") &&
-      /build-updater:\s*[\s\S]*?needs:\s*require-playwright-green/.test(updater),
+      /build-updater:\s*[\s\S]*?needs:\s*(?:\[[^\]]*require-playwright-green[^\]]*\]|require-playwright-green)/.test(updater),
     "Windows updater release waits for same-commit Playwright E2E before building assets",
     updaterFile,
     "The updater release must use the same Playwright gate as the deployment package and macOS release.",

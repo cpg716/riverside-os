@@ -65,6 +65,34 @@ jobs:
       - name: Validate go-live blocker gates
         run: node scripts/check-go-live-blockers.mjs
 
+  pre-retag-gate:
+    name: Pre-retag release gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+          components: rustfmt
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install client dependencies
+        run: npm --prefix client ci
+
+      - name: Run pre-retag gate
+        run: npm run check:pre-retag
+
   require-playwright-green:
     name: Require Playwright E2E green
     runs-on: ubuntu-latest
@@ -77,7 +105,7 @@ jobs:
         run: node scripts/require-playwright-success.mjs --sha "${{ github.sha }}"
 
   build-register-updater:
-    needs: [validate-scripts, require-playwright-green]
+    needs: [validate-scripts, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -278,7 +306,7 @@ jobs:
           path: client/updater-dist/
 
   build-server-binary:
-    needs: [validate-scripts, require-playwright-green]
+    needs: [validate-scripts, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -302,7 +330,7 @@ jobs:
           path: target/release/riverside-server.exe
 
   build-deployment-manager:
-    needs: [validate-scripts, require-playwright-green]
+    needs: [validate-scripts, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -432,7 +460,7 @@ jobs:
           path: deployment/manager-app/updater-dist/
 
   build-server-manager:
-    needs: [validate-scripts, require-playwright-green]
+    needs: [validate-scripts, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -570,7 +598,7 @@ jobs:
           path: deployment/server-manager-app/updater-dist/
 
   build-counterpoint-bridge-gui:
-    needs: [validate-scripts, require-playwright-green]
+    needs: [validate-scripts, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
