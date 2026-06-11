@@ -244,7 +244,8 @@ function checkTagDesignerPrintPreviewTruthfulness() {
   );
   assert(
     content.includes("Print preview also failed") &&
-      content.includes("window['print']()"),
+      content.includes("printExistingWindowAsync(w)") &&
+      content.includes("printDialogOpened: options.autoPrint === true"),
     "Tag print fallback reports preview failures and opens the generated tag print dialog",
     file,
     "If direct tag dispatch fails, the fallback must either open a real printable preview or throw a visible error.",
@@ -254,14 +255,18 @@ function checkTagDesignerPrintPreviewTruthfulness() {
 function checkRegisterReportPrinterRouting() {
   const file = "client/src/components/pos/zReportPrint.ts";
   const content = read(file);
+  const reportPrintFile = "client/src/lib/reportPrint.ts";
+  const reportPrint = read(reportPrintFile);
   assert(
-    content.includes('import { printTextReport } from "../../lib/printerBridge"') &&
-      content.includes("if (isTauriDesktop())") &&
-      content.includes("printTextReport(directReportText)") &&
+    content.includes('import { printReportDocument } from "../../lib/reportPrint"') &&
+      content.includes("printReportDocument({") &&
+      reportPrint.includes('from "./printerBridge"') &&
+      reportPrint.includes("if (isTauri())") &&
+      reportPrint.includes("printTextReport(request.text)") &&
       !content.includes("openDesktopTextPreview"),
     "POS register reports use the Reports printer bridge in Tauri desktop",
     file,
-    "Register Z-reports and Daily Sales reports must not route through desktop preview files in the Tauri app.",
+    "Register Z-reports and Daily Sales reports must route through the central Reports printer service, not desktop preview files in the Tauri app.",
   );
   assert(
     content.includes("zReportTextLines") &&

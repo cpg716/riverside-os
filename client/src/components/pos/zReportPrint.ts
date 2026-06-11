@@ -2,8 +2,7 @@
 
 import { dispatchAppToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
-import { printTextReport } from "../../lib/printerBridge";
-import { isTauri } from "@tauri-apps/api/core";
+import { printReportDocument } from "../../lib/reportPrint";
 
 export interface ZReportTenderRow {
   payment_method: string;
@@ -94,48 +93,35 @@ function notifyPrintDialogFailure(error: unknown): void {
   dispatchAppToast("Report could not be printed. Please check the Reports printer setup.", "error");
 }
 
-function isTauriDesktop() {
-  return isTauri();
+function createPrintDocument(title: string) {
+  return {
+    doc: document.implementation.createHTMLDocument(title),
+  };
 }
 
-function createPrintDocument(title: string, features: string) {
-  if (isTauriDesktop()) {
-    return {
-      doc: document.implementation.createHTMLDocument(title),
-      win: null as Window | null,
-    };
-  }
-  const win = window.open("", "_blank", features);
-  if (!win) return null;
-  return { doc: win.document, win };
-}
-
-function finishPrintDocument(
-  target: { doc: Document; win: Window | null },
-  _filename: string,
+async function finishPrintDocument(
+  target: { doc: Document },
+  filename: string,
   directReportText?: string,
-) {
+): Promise<boolean> {
   target.doc.close();
-  if (isTauriDesktop()) {
-    if (!directReportText?.trim()) {
-      notifyPrintDialogFailure(new Error("Report content is empty."));
-      return;
-    }
-    void printTextReport(directReportText).catch((error) => {
-      notifyPrintDialogFailure(error);
-    });
-    return;
+  if (!directReportText?.trim()) {
+    notifyPrintDialogFailure(new Error("Report content is empty."));
+    return false;
   }
-  if (target.win) {
-    target.win.focus();
-    setTimeout(() => {
-      try {
-        target.win?.print();
-      } catch (e) {
-        notifyPrintDialogFailure(e);
-      }
-    }, 500);
-    return;
+  try {
+    await printReportDocument({
+      title: target.doc.title || filename,
+      filename,
+      html: `<!doctype html>${target.doc.documentElement.outerHTML}`,
+      text: directReportText,
+      width: 950,
+      height: 950,
+    });
+    return true;
+  } catch (error) {
+    notifyPrintDialogFailure(error);
+    return false;
   }
 }
 
@@ -197,7 +183,7 @@ function inventoryTxLabel(value: string | null | undefined): string {
   }
 }
 
-export function openProfessionalZReportPrint(opts: {
+export async function openProfessionalZReportPrint(opts: {
   title: string;
   sessionId: string;
   registerOrdinal?: number | null;
@@ -237,9 +223,8 @@ export function openProfessionalZReportPrint(opts: {
     items?: ZReportAuditItem[];
     register_lane: number;
   }[];
-}): void {
-  const target = createPrintDocument(`${opts.title} — ${opts.sessionId}`, "width=850,height=950");
-  if (!target) return;
+}): Promise<boolean> {
+  const target = createPrintDocument(`${opts.title} — ${opts.sessionId}`);
 
   const ord = opts.registerOrdinal != null ? ` #${opts.registerOrdinal}` : "";
   const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
@@ -742,10 +727,10 @@ export function openProfessionalZReportPrint(opts: {
     </div>
   </div>
   </body></html>`);
-  finishPrintDocument(target, `z-report-${opts.sessionId.slice(0, 8)}.html`, zReportTextLines.join("\n"));
+  return finishPrintDocument(target, `z-report-${opts.sessionId.slice(0, 8)}.html`, zReportTextLines.join("\n"));
 }
 
-export function openProfessionalDailySalesPrint(opts: {
+export async function openProfessionalDailySalesPrint(opts: {
   title: string;
   rangeLabel: string;
   summary: {
@@ -786,9 +771,8 @@ export function openProfessionalDailySalesPrint(opts: {
       fulfillment?: string | null;
     }[] | null;
   }[];
-}): void {
-  const target = createPrintDocument("Daily Sales Report", "width=850,height=950");
-  if (!target) return;
+}): Promise<boolean> {
+  const target = createPrintDocument("Daily Sales Report");
 
   target.doc.title = "Daily Sales Report";
 
@@ -1044,17 +1028,16 @@ export function openProfessionalDailySalesPrint(opts: {
     <p class="muted" style="font-size: 10px;">End of Summary Audit · Riverside Men's Shop · Generated: ${generatedAt}</p>
   </div>
   </body></html>`);
-  finishPrintDocument(target, "daily-sales-report.html", dailyReportTextLines.join("\n"));
+  return finishPrintDocument(target, "daily-sales-report.html", dailyReportTextLines.join("\n"));
 }
 
-export function openProfessionalTablePrint(opts: {
+export async function openProfessionalTablePrint(opts: {
   title: string;
   subtitle?: string;
   columns: string[];
   rows: Record<string, unknown>[];
-}): boolean {
-  const target = createPrintDocument(opts.title, "width=950,height=950");
-  if (!target) return false;
+}): Promise<boolean> {
+  const target = createPrintDocument(opts.title);
 
   target.doc.title = opts.title;
 
@@ -1139,6 +1122,5 @@ export function openProfessionalTablePrint(opts: {
     <p class="muted" style="font-size: 9px;">End of Report · Riverside Men's Shop Proprietary Document</p>
   </div>
   </body></html>`);
-  finishPrintDocument(target, `${opts.title.replace(/[^a-z0-9]/gi, "_")}.html`, tableReportText);
-  return true;
+  return finishPrintDocument(target, `${opts.title.replace(/[^a-z0-9]/gi, "_")}.html`, tableReportText);
 }

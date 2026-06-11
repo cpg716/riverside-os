@@ -191,6 +191,55 @@ fn print_raw_to_windows_printer(_printer_name: &str, _bytes: &[u8]) -> Result<()
 
 #[cfg(windows)]
 fn print_text_to_windows_printer(printer_name: &str, content: &str) -> Result<(), String> {
+    const REPORT_PRINT_SCRIPT: &str = r#"
+$PrinterName = $args[0]
+$ContentPath = $args[1]
+Add-Type -AssemblyName System.Drawing
+$doc = $null
+$font = $null
+try {
+  $content = [System.IO.File]::ReadAllText($ContentPath)
+  $rawLines = $content -split '\r?\n'
+  $lines = New-Object System.Collections.Generic.List[string]
+  foreach ($line in $rawLines) {
+    if ($line.Length -le 120) {
+      [void]$lines.Add($line)
+      continue
+    }
+    for ($i = 0; $i -lt $line.Length; $i += 120) {
+      [void]$lines.Add($line.Substring($i, [Math]::Min(120, $line.Length - $i)))
+    }
+  }
+
+  $doc = New-Object System.Drawing.Printing.PrintDocument
+  $doc.DocumentName = 'Riverside OS Report'
+  $doc.PrinterSettings.PrinterName = $PrinterName
+  if (-not $doc.PrinterSettings.IsValid) {
+    throw "Configured Reports printer '$PrinterName' is not available."
+  }
+  $doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(36, 36, 36, 36)
+  $font = New-Object System.Drawing.Font('Consolas', 9)
+  $brush = [System.Drawing.Brushes]::Black
+  $state = @{ Index = 0 }
+  $handler = {
+    param($sender, $eventArgs)
+    $lineHeight = $font.GetHeight($eventArgs.Graphics)
+    $x = [single]$eventArgs.MarginBounds.Left
+    $y = [single]$eventArgs.MarginBounds.Top
+    while ($state.Index -lt $lines.Count -and ($y + $lineHeight) -le $eventArgs.MarginBounds.Bottom) {
+      $eventArgs.Graphics.DrawString($lines[$state.Index], $font, $brush, $x, $y)
+      $state.Index++
+      $y += $lineHeight
+    }
+    $eventArgs.HasMorePages = $state.Index -lt $lines.Count
+  }.GetNewClosure()
+  $doc.add_PrintPage($handler)
+  $doc.Print()
+} finally {
+  if ($font -ne $null) { $font.Dispose() }
+  if ($doc -ne $null) { $doc.Dispose() }
+}
+"#;
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_err(|e| format!("Could not create report timestamp: {e}"))?
@@ -202,19 +251,38 @@ fn print_text_to_windows_printer(printer_name: &str, content: &str) -> Result<()
     fs::write(&path, content).map_err(|e| format!("Could not prepare report print file: {e}"))?;
 
     let path_arg = path.to_string_lossy().to_string();
-    let status = Command::new("notepad.exe")
-        .args(["/pt", path_arg.as_str(), printer_name])
-        .status()
+    let output = Command::new("powershell")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            REPORT_PRINT_SCRIPT,
+            printer_name,
+            path_arg.as_str(),
+        ])
+        .output()
         .map_err(|e| format!("Could not start Windows report print: {e}"));
 
     let _ = fs::remove_file(&path);
 
-    let status = status?;
-    if status.success() {
+    let output = output?;
+    if output.status.success() {
         Ok(())
     } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let detail = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            output.status.to_string()
+        };
         Err(format!(
-            "Windows report print failed for '{printer_name}' with status {status}."
+            "Windows report print failed for '{printer_name}': {detail}"
         ))
     }
 }

@@ -380,6 +380,13 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           price: `$${centsToFixed2(parseMoneyToCents(variant.effective_retail))}`,
         })),
       );
+      if (!printResult.markShelfLabeled) {
+        toast(
+          `${printResult.message} Shelf-label status was not changed because the Zebra tag station did not confirm the job.`,
+          "info",
+        );
+        return;
+      }
 
       try {
         const res = await fetch(
@@ -396,12 +403,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           },
         );
         if (!res.ok) throw new Error("Tag print status update failed");
-        toast(
-          printResult === "direct"
-            ? `${successLabel} Zebra tag station confirmed.`
-            : `${successLabel} Browser print fallback opened.`,
-          "success",
-        );
+        toast(`${successLabel} Zebra tag station confirmed.`, "success");
         onVariantUpdated();
       } catch {
         toast("Tags opened for printing, but Riverside could not mark them as printed.", "error");
@@ -1038,6 +1040,13 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 return;
               }
               const printResult = await openInventoryTagsWindow(printItems);
+              if (!printResult.markShelfLabeled) {
+                toast(
+                  `${printResult.message} Shelf-label status was not changed because the Zebra tag station did not confirm the job.`,
+                  "info",
+                );
+                return;
+              }
               const markRes = await fetch(
                 `${baseUrl}/api/products/variants/bulk-mark-shelf-labeled`,
                 {
@@ -1059,9 +1068,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 return;
               }
               toast(
-                printResult === "direct"
-                  ? `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} sent to the Zebra tag station.`
-                  : `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} opened in browser print fallback.`,
+                `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} sent to the Zebra tag station.`,
                 "success",
               );
               onVariantUpdated();

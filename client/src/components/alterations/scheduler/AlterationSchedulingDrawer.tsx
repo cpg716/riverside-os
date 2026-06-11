@@ -4,6 +4,7 @@ import { X, Scissors, User } from "lucide-react";
 import AlterationItemEditor from "./AlterationItemEditor";
 import AlterationSmartScheduler from "./AlterationSmartScheduler";
 import { getBaseUrl } from "../../../lib/apiConfig";
+import { printReceiptPayload } from "../../../lib/receiptPrint";
 import { useToast } from "../../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
@@ -273,28 +274,11 @@ export default function AlterationSchedulingDrawer({
                       escpos_base64?: string;
                       receiptline_markdown?: string;
                     };
-                    if (data.escpos_base64) {
-                      const { printRawEscPosBase64 } = await import("../../../lib/printerBridge");
-                      await printRawEscPosBase64(data.escpos_base64);
-                      toast("Alteration card sent to printer", "success");
-                    } else if (data.receiptline_markdown) {
-                      const { transform } = await import("receiptline");
-                      const cmd = transform(data.receiptline_markdown, {
-                        cpl: 42,
-                        encoding: "cp437",
-                        command: "escpos",
-                        cutting: true,
-                      });
-                      const b64 = btoa(
-                        String(cmd)
-                          .split("")
-                          .map((c) => String.fromCharCode(c.charCodeAt(0) & 0xff))
-                          .join("")
-                      );
-                      const { printRawEscPosBase64 } = await import("../../../lib/printerBridge");
-                      await printRawEscPosBase64(b64);
-                      toast("Alteration card sent to printer", "success");
-                    }
+                    await printReceiptPayload({
+                      escposBase64: data.escpos_base64,
+                      receiptlineMarkdown: data.receiptline_markdown,
+                    }, { cpl: 42 });
+                    toast("Alteration card sent to printer", "success");
                   } catch {
                     toast("Alteration card print failed", "error");
                   }

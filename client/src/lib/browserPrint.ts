@@ -1,29 +1,57 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { openDesktopTextPreview } from "./desktopFileBridge";
 
-export function printExistingWindow(targetWindow: Window): void {
-  const runPrint = () => {
-    const execute = () => {
-      targetWindow.focus();
-      targetWindow.print();
+export function printExistingWindowAsync(targetWindow: Window): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
     };
 
-    if (typeof targetWindow.requestAnimationFrame === "function") {
-      targetWindow.requestAnimationFrame(() => {
-        targetWindow.requestAnimationFrame(execute);
-      });
+    const runPrint = () => {
+      const execute = () => {
+        try {
+          targetWindow.focus();
+          targetWindow.print();
+          settle();
+        } catch (error) {
+          settle(error);
+        }
+      };
+
+      if (typeof targetWindow.requestAnimationFrame === "function") {
+        targetWindow.requestAnimationFrame(() => {
+          targetWindow.requestAnimationFrame(execute);
+        });
+        return;
+      }
+
+      execute();
+    };
+
+    if (targetWindow.document.readyState === "complete") {
+      runPrint();
       return;
     }
 
-    execute();
-  };
+    targetWindow.addEventListener("load", runPrint, { once: true });
+  });
+}
 
-  if (targetWindow.document.readyState === "complete") {
-    runPrint();
-    return;
-  }
-
-  targetWindow.addEventListener("load", runPrint, { once: true });
+export function printExistingWindow(targetWindow: Window, onError?: (error: unknown) => void): void {
+  void printExistingWindowAsync(targetWindow).catch((error) => {
+    if (onError) {
+      onError(error);
+      return;
+    }
+    console.error("Print failed", error);
+  });
 }
 
 export function writeAndPrintDocumentWindow(
@@ -52,7 +80,10 @@ export async function openPrintableHtml(
   if (!targetWindow) {
     throw new Error("Print preview was blocked. Please allow popups for Riverside and try again.");
   }
-  writeAndPrintDocumentWindow(targetWindow, html);
+  targetWindow.document.open();
+  targetWindow.document.write(html);
+  targetWindow.document.close();
+  await printExistingWindowAsync(targetWindow);
   return "browser-print";
 }
 

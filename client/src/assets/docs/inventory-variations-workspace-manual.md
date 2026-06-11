@@ -57,7 +57,7 @@ Use this workspace when you need to:
 ## What happens next
 
 - Riverside sends the approved tag batch to the configured Zebra station when available, using EPL for classic LP/TLP 2844 printers and ZPL II for newer Zebra printers, or opens print preview as a fallback.
-- Printed variations are marked as shelf-labeled.
+- Variations are marked as shelf-labeled only after the Zebra station confirms the direct print job. Preview fallback means staff should print manually and retry direct printing before treating shelf labels as complete.
 - You remain in Product Hub so you can keep reviewing stock, pricing, or the next variation subset.
 
 ## Related workflows

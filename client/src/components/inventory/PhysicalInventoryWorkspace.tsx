@@ -49,7 +49,7 @@ import ManagerApprovalModal from "../pos/ManagerApprovalModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import VariantSearchInput from "../ui/VariantSearchInput";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
-import { printTextReport } from "../../lib/printerBridge";
+import { printPlainTextReport } from "../../lib/reportPrint";
 
 const BASE_URL = getBaseUrl();
 
@@ -537,7 +537,11 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       return;
     }
     try {
-      await printTextReport(buildPhysicalInventoryPrintText(workspaceReport));
+      await printPlainTextReport({
+        title: "Physical Inventory Reports",
+        filename: "physical-inventory-reports.txt",
+        text: buildPhysicalInventoryPrintText(workspaceReport),
+      });
       toast("Physical Inventory reports sent to the Reports printer.", "success");
     } catch (error) {
       console.error("Physical Inventory report print failed", error);

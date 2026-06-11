@@ -18,9 +18,12 @@ import {
 import {
   checkReceiptPrinterConnection,
   describePrinterTarget,
-  printRawEscPosBase64,
   resolvePrinterTarget,
 } from "../../lib/printerBridge";
+import {
+  prepareReceiptPayload,
+  printReceiptBase64,
+} from "../../lib/receiptPrint";
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2 } from "../../lib/money";
@@ -90,14 +93,6 @@ type ReviewInviteChoiceResult = {
   provider_id?: string | null;
   review_url?: string | null;
 };
-
-function binaryStringToBase64(value: string) {
-  let binary = "";
-  for (let i = 0; i < value.length; i += 1) {
-    binary += String.fromCharCode(value.charCodeAt(i) & 0xff);
-  }
-  return btoa(binary);
-}
 
 function transactionDisplayFallback(transactionId: unknown): string {
   const normalized =
@@ -186,7 +181,7 @@ export default function ReceiptSummaryModal({
   const openCashDrawerForSale = useCallback(async () => {
     if (cashDrawerKicked || !shouldKickCashDrawer()) return;
     try {
-      await printRawEscPosBase64("G3AAMvo=");
+      await printReceiptBase64("G3AAMvo=");
       setCashDrawerKicked(true);
     } catch (e) {
       console.error("Cash drawer kick failed", e);
@@ -373,31 +368,16 @@ export default function ReceiptSummaryModal({
           escpos_base64?: string;
           receiptline_markdown?: string;
         };
-        if (
-          typeof escposPayload.escpos_base64 !== "string" ||
-          !escposPayload.escpos_base64
-        ) {
-          throw new Error("Receipt printing is unavailable. Try again or use reprint.");
-        }
+        const prepared = prepareReceiptPayload(
+          {
+            escposBase64: escposPayload.escpos_base64,
+            receiptlineMarkdown: escposPayload.receiptline_markdown,
+          },
+          { cpl: 48, preferReceiptline: true },
+        );
 
-        printableBase64 = escposPayload.escpos_base64;
-        if (typeof escposPayload.receiptline_markdown === "string" && escposPayload.receiptline_markdown.trim()) {
-          try {
-            const receiptlineCommand = transform(escposPayload.receiptline_markdown, {
-              cpl: 48,
-              encoding: "cp437",
-              command: "escpos",
-              cutting: true,
-              spacing: false,
-              margin: "full",
-            });
-            printableBase64 = binaryStringToBase64(String(receiptlineCommand));
-          } catch (receiptlineError) {
-            console.warn("ReceiptLine print transform failed; using server ESC/POS fallback", receiptlineError);
-          }
-        }
-
-        await printRawEscPosBase64(printableBase64);
+        printableBase64 = prepared.printableBase64;
+        await printReceiptBase64(printableBase64);
         setPrintingSuccessMessage(
           `${opts?.gift ? "Gift receipt" : "Receipt"} sent to the station printer.`,
         );

@@ -79,7 +79,7 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 - Riverside brings in the real product name, variation label, SKU, brand, and effective retail price.
 - The print review dialog lets you change tag quantity per variation before anything prints.
 - A quantity of `0` skips that variation.
-- After a successful print, Riverside marks the printed variations as shelf-labeled.
+- After a confirmed direct Zebra print, Riverside marks the printed variations as shelf-labeled. Preview fallback opens a manual print path but does not clear the shelf-label-needed state.
 
 ## What to watch for
 
@@ -92,7 +92,7 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 ## What happens next
 
 - Direct print sends the approved retail price-tag batch to the configured Zebra 2844 / LP 2844 tag station.
-- If direct print is unavailable, Riverside opens the print preview instead.
+- If direct print is unavailable, Riverside opens the print preview instead and leaves shelf-label status unchanged.
 - Product Hub stays open so you can keep reviewing the product, switch tabs, or correct the next variation batch.
 
 ## Related workflows

@@ -2331,6 +2331,13 @@ export default function ProductHubDrawer({
                 return;
               }
               const printResult = await openInventoryTagsWindow(printItems);
+              if (!printResult.markShelfLabeled) {
+                toast(
+                  `${printResult.message} Shelf-label status was not changed because the Zebra tag station did not confirm the job.`,
+                  "info",
+                );
+                return;
+              }
               const markRes = await fetch(
                 `${baseUrl}/api/products/variants/bulk-mark-shelf-labeled`,
                 {
@@ -2352,9 +2359,7 @@ export default function ProductHubDrawer({
                 return;
               }
               toast(
-                printResult === "direct"
-                  ? `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} sent to the Zebra tag station.`
-                  : `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} opened in browser print fallback.`,
+                `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} sent to the Zebra tag station.`,
                 "success",
               );
               void loadHub();

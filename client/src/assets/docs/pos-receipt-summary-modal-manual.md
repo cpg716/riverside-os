@@ -31,11 +31,11 @@ The sale complete receipt preview shows the customer receipt after checkout. It 
 
 ## Actions
 
-- **Print receipt** sends the customer receipt to the station receipt printer.
+- **Print receipt** sends the customer receipt through the station receipt-printer route. If it fails, the completed sale stays intact and Riverside offers retry, printer check, SMS, or email delivery.
 - **View receipt** opens the preview.
 - **Text receipt** and **Email receipt** send the customer copy when the sale has the needed customer contact information.
 - **Gift receipt** prints a gift copy without exposing normal payment detail.
-- **Reports printer** opens the formatted receipt for the workstation report printer path.
+- **Reports printer** opens the formatted receipt copy for the workstation report-printer path; it does not replace the Epson receipt-station print route.
 - **Review Request** lets the cashier send or skip the Podium review request for eligible completed or picked-up sales.
 
 ## Review requests

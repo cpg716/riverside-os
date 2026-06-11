@@ -4649,10 +4649,10 @@ function PrintRetryList({ onRetry }: { onRetry: () => void }) {
   const retry = async (job: { id: string; label: string; transactionId: string; timestamp: number; attempts: number; printableBase64?: string }) => {
     try {
       const { removeFailedPrintJob, incrementPrintAttempt } = await import("../../lib/printRetryQueue");
-      const { printRawEscPosBase64 } = await import("../../lib/printerBridge");
+      const { printReceiptBase64 } = await import("../../lib/receiptPrint");
       await incrementPrintAttempt(job.id);
       if (!job.printableBase64) throw new Error("Missing print payload");
-      await printRawEscPosBase64(job.printableBase64);
+      await printReceiptBase64(job.printableBase64);
       await removeFailedPrintJob(job.id);
       toast(`Re-printed ${job.label}`, "success");
       setJobs((prev) => prev.filter((j) => j.id !== job.id));

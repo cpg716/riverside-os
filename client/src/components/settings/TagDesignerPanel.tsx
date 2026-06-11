@@ -363,10 +363,10 @@ export default function TagDesignerPanel() {
   const handlePrint = async () => {
     try {
       const result = await openInventoryTagsWindow(TEST_PRINT_ITEMS, normalizedDraft);
-      if (result === "direct") {
+      if (result.route === "direct") {
         toast("Test tag sent to the tag station.", "success");
       } else {
-        toast("Direct tag print was unavailable; print preview opened for manual printing.", "info");
+        toast(result.message, "info");
       }
     } catch (error) {
       toast(error instanceof Error ? error.message : "Test tag print failed.", "error");

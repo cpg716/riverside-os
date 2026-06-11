@@ -669,7 +669,7 @@ export default function CloseRegisterModal({
     const currentRoundingCents = parseMoneyToCents(currentRecon.total_rounding_adjustments ?? "0");
     const currentCashSalesCents = currentExpectedCents - currentOpeningCents - currentNetAdjCents - currentRoundingCents;
     const closingNotesForReport = buildClosingNotesForReport();
-    openProfessionalZReportPrint({
+    void openProfessionalZReportPrint({
       title: "Z-Report",
       sessionId: currentRecon.session_id,
       registerOrdinal,

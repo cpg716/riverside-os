@@ -8,6 +8,7 @@ import {
   type ThermalPrinterLanguage,
 } from "../../lib/printerBridge";
 import { openDesktopTextPreview } from "../../lib/desktopFileBridge";
+import { printExistingWindowAsync } from "../../lib/browserPrint";
 
 export interface InventoryTagItem {
   sku: string;
@@ -644,14 +645,22 @@ body{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px
   body{padding:0;gap:0;}
   .tag-page{width:${config.widthInches}in;height:${hIn}in;page-break-after:always;}
 }
-</style></head><body>${pages}${config.showBarcode ? generateBarcodeSvgScript() : ""}<script>
-window.addEventListener('load',function(){
-  window.setTimeout(function(){ window.focus(); window['print'](); },250);
-});
-</script></body></html>`;
+</style></head><body>${pages}${config.showBarcode ? generateBarcodeSvgScript() : ""}</body></html>`;
 }
 
-export type InventoryTagPrintResult = "direct" | "browser";
+export type InventoryTagPrintResult =
+  | {
+      route: "direct";
+      markShelfLabeled: true;
+      message: string;
+    }
+  | {
+      route: "preview";
+      markShelfLabeled: false;
+      message: string;
+      directError?: string;
+      printDialogOpened: boolean;
+    };
 
 /** Single inventory tag routed to the configured tag station. */
 export async function openSingleInventoryTag(
@@ -664,8 +673,16 @@ export async function openSingleInventoryTag(
 export async function openInventoryTagsPreviewWindow(
   items: InventoryTagItem[],
   overrideConfig?: Partial<InventoryTagPrintConfig>,
+  options: { autoPrint?: boolean; directError?: string } = {},
 ): Promise<InventoryTagPrintResult> {
-  if (items.length === 0) return "browser";
+  if (items.length === 0) {
+    return {
+      route: "preview",
+      markShelfLabeled: false,
+      message: "No tags were selected.",
+      printDialogOpened: false,
+    };
+  }
   const config = {
     ...getInventoryTagPrintConfig(),
     ...overrideConfig,
@@ -674,7 +691,13 @@ export async function openInventoryTagsPreviewWindow(
 
   if (isTauri()) {
     await openDesktopTextPreview("riverside-tag-preview.html", html);
-    return "browser";
+    return {
+      route: "preview",
+      markShelfLabeled: false,
+      message: "Tag preview opened for manual printing.",
+      directError: options.directError,
+      printDialogOpened: false,
+    };
   }
 
   // Browser/PWA: use window.open approach with appropriate size
@@ -684,9 +707,20 @@ export async function openInventoryTagsPreviewWindow(
   }
   w.document.write(html);
   w.document.close();
-  w.focus();
-  w.print();
-  return "browser";
+  if (options.autoPrint) {
+    await printExistingWindowAsync(w);
+  } else {
+    w.focus();
+  }
+  return {
+    route: "preview",
+    markShelfLabeled: false,
+    message: options.autoPrint
+      ? "Tag print dialog opened after direct print fallback."
+      : "Tag preview opened for manual printing.",
+    directError: options.directError,
+    printDialogOpened: options.autoPrint === true,
+  };
 }
 
 function isDefaultLoopbackTagTarget(target: HardwarePrinterTarget): boolean {
@@ -725,7 +759,14 @@ export async function openInventoryTagsWindow(
   items: InventoryTagItem[],
   overrideConfig?: Partial<InventoryTagPrintConfig>,
 ): Promise<InventoryTagPrintResult> {
-  if (items.length === 0) return "browser";
+  if (items.length === 0) {
+    return {
+      route: "preview",
+      markShelfLabeled: false,
+      message: "No tags were selected.",
+      printDialogOpened: false,
+    };
+  }
   const config = {
     ...getInventoryTagPrintConfig(),
     ...overrideConfig,
@@ -738,13 +779,20 @@ export async function openInventoryTagsWindow(
       : buildZplDocument(items, config);
     const target = await resolveDesktopTagPrintTarget();
     await autoRoutePrint("tag", payload, language, target);
-    return "direct";
+    return {
+      route: "direct",
+      markShelfLabeled: true,
+      message: "Tag station accepted the print job.",
+    };
   } catch (directError) {
     console.warn("Direct Zebra tag print failed; opening browser print fallback", directError);
+    const directMessage = directError instanceof Error ? directError.message : String(directError);
     try {
-      return await openInventoryTagsPreviewWindow(items, config);
+      return await openInventoryTagsPreviewWindow(items, config, {
+        autoPrint: true,
+        directError: directMessage,
+      });
     } catch (previewError) {
-      const directMessage = directError instanceof Error ? directError.message : String(directError);
       const previewMessage = previewError instanceof Error ? previewError.message : String(previewError);
       throw new Error(`Tag print failed: ${directMessage}. Print preview also failed: ${previewMessage}`);
     }

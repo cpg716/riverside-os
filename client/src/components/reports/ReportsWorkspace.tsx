@@ -899,9 +899,9 @@ export default function ReportsWorkspace({
         : null,
     [displayRows, payload, selectedAvailable],
   );
-  const handlePrintSelectedReport = useCallback(() => {
+  const handlePrintSelectedReport = useCallback(async () => {
     if (!selectedAvailable || !printableReport) return;
-    const started = openProfessionalTablePrint({
+    const started = await openProfessionalTablePrint({
       title: selectedAvailable.title,
       subtitle: reportPrintSubtitle(selectedAvailable, ctx),
       columns: printableReport.columns,
@@ -1126,7 +1126,7 @@ export default function ReportsWorkspace({
                 <button
                   type="button"
                   disabled={loading || !printableReport || !!loadErr}
-                  onClick={handlePrintSelectedReport}
+                  onClick={() => void handlePrintSelectedReport()}
                   className="ui-btn-secondary inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-xl border-app-success/20 px-3 py-2 text-sm font-bold text-app-success hover:bg-app-success hover:text-white disabled:opacity-50 sm:ml-auto sm:w-auto"
                 >
                   <Printer className="h-4 w-4" aria-hidden />

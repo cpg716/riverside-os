@@ -210,7 +210,7 @@ export default function FulfillmentCommandCenter({
                 <button
                   type="button"
                   onClick={() => {
-                     openProfessionalTablePrint({
+                     void openProfessionalTablePrint({
                         title: `Pickup Queue - ${filter.toUpperCase()}`,
                         subtitle: `Pickup and follow-up priority view`,
                         columns: ["order_short_id", "customer_name", "urgency", "next_deadline", "item_count"],
@@ -323,7 +323,7 @@ export default function FulfillmentCommandCenter({
                 onOpen={() => onOpenTransaction(item.order_id)}
                 onOpenWeddingParty={item.wedding_party_id && onOpenWeddingParty ? () => onOpenWeddingParty(item.wedding_party_id!) : undefined}
                 onPrint={() => {
-                  openProfessionalTablePrint({
+                  void openProfessionalTablePrint({
                     title: `Pickup Queue - ${item.order_short_id}`,
                     subtitle: "Single pickup follow-up row",
                     columns: ["order_short_id", "customer_name", "urgency", "next_deadline", "item_count"],

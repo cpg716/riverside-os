@@ -14,10 +14,10 @@ import {
   checkReceiptPrinterConnection,
   describePrinterTarget,
   listSystemPrinters,
-  printRawEscPosBase64,
   resolvePrinterTarget,
   type SystemPrinter,
 } from "../../lib/printerBridge";
+import { printReceiptBase64, printReceiptText } from "../../lib/receiptPrint";
 import { isTauri } from "@tauri-apps/api/core";
 import { useToast } from "../ui/ToastProviderLogic";
 
@@ -74,16 +74,6 @@ const PRINTERS: PrinterConfig[] = [
 function getStored(key: string, fallback: string) {
   if (typeof window === "undefined") return fallback;
   return window.localStorage.getItem(key) ?? fallback;
-}
-
-function escposBase64FromAscii(text: string) {
-  const bytes = [
-    0x1b, 0x40,
-    ...Array.from(text).map((ch) => ch.charCodeAt(0) & 0xff),
-    0x0a, 0x0a, 0x0a,
-    0x1d, 0x56, 0x41, 0x00,
-  ];
-  return btoa(String.fromCharCode(...bytes));
 }
 
 export default function PrintersAndScannersPanel({
@@ -195,9 +185,7 @@ export default function PrintersAndScannersPanel({
     setTestPrinting(true);
     try {
       const now = new Date().toLocaleString();
-      await printRawEscPosBase64(
-        escposBase64FromAscii(`Riverside OS\nRegister #1 printer test\n${now}\n\nEpson TM-m30III ESC/POS`),
-      );
+      await printReceiptText(`Riverside OS\nRegister #1 printer test\n${now}\n\nEpson TM-m30III ESC/POS`);
       toast("Test receipt sent to the receipt station.", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Test receipt failed", "error");
@@ -238,7 +226,7 @@ export default function PrintersAndScannersPanel({
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? "Manual drawer open was not authorized.");
       }
-      await printRawEscPosBase64("G3AAMvo=");
+      await printReceiptBase64("G3AAMvo=");
       setDrawerPin("");
       setDrawerAuthOpen(false);
       toast("Cash drawer opened and recorded for the Z-report.", "success");

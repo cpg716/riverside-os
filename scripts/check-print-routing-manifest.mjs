@@ -24,6 +24,14 @@ const trackedCallees = [
     pattern: /\bprintTextReport\s*\(/g,
   },
   {
+    name: "printReportDocument",
+    pattern: /\bprintReportDocument\s*\(/g,
+  },
+  {
+    name: "printPlainTextReport",
+    pattern: /\bprintPlainTextReport\s*\(/g,
+  },
+  {
     name: "openInventoryTagsWindow",
     pattern: /\bopenInventoryTagsWindow\s*\(/g,
   },
@@ -34,6 +42,18 @@ const trackedCallees = [
   {
     name: "printRawEscPosBase64",
     pattern: /\bprintRawEscPosBase64\s*\(/g,
+  },
+  {
+    name: "printReceiptBase64",
+    pattern: /\bprintReceiptBase64\s*\(/g,
+  },
+  {
+    name: "printReceiptPayload",
+    pattern: /\bprintReceiptPayload\s*\(/g,
+  },
+  {
+    name: "printReceiptText",
+    pattern: /\bprintReceiptText\s*\(/g,
   },
   {
     name: "autoRoutePrint",
@@ -69,9 +89,9 @@ const previewCallees = new Set([
 ]);
 
 const directPrinterCallees = new Map([
-  ["receipt", new Set(["printRawEscPosBase64"])],
-  ["cash-drawer", new Set(["printRawEscPosBase64"])],
-  ["report", new Set(["printTextReport"])],
+  ["receipt", new Set(["printRawEscPosBase64", "printReceiptBase64", "printReceiptPayload", "printReceiptText"])],
+  ["cash-drawer", new Set(["printRawEscPosBase64", "printReceiptBase64"])],
+  ["report", new Set(["printTextReport", "printReportDocument", "printPlainTextReport"])],
   ["tag", new Set(["openInventoryTagsWindow", "autoRoutePrint"])],
 ]);
 

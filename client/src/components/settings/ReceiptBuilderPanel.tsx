@@ -3,7 +3,10 @@ import { AlertTriangle, CheckCircle2, FileText, Image as ImageIcon, RefreshCw, R
 import { transform } from "receiptline";
 import RiversideReceiptLogo from "../../assets/images/riverside_logo.jpg";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { printRawEscPosBase64 } from "../../lib/printerBridge";
+import {
+  printReceiptBase64,
+  receiptlineToEscposBase64,
+} from "../../lib/receiptPrint";
 import { useToast } from "../ui/ToastProviderLogic";
 
 const EPSON_RECEIPT_CPL = 48;
@@ -108,14 +111,6 @@ function centeredLines(lines: string[]) {
     .filter(Boolean)
     .map((line) => `| ${escapeReceiptlineText(line)} |`)
     .join("\n");
-}
-
-function binaryStringToBase64(value: string) {
-  let binary = "";
-  for (let i = 0; i < value.length; i += 1) {
-    binary += String.fromCharCode(value.charCodeAt(i) & 0xff);
-  }
-  return btoa(binary);
 }
 
 function receiptTemplateWithSlots(template: string, showLogo: boolean, showBarcode: boolean) {
@@ -342,13 +337,10 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   const printTestReceipt = async () => {
     setTestPrinting(true);
     try {
-      const command = transform(getReceiptLineMarkup(), {
+      const printableBase64 = receiptlineToEscposBase64(getReceiptLineMarkup(), {
         cpl: EPSON_RECEIPT_CPL,
-        encoding: "cp437",
-        command: "escpos",
-        cutting: true,
       });
-      await printRawEscPosBase64(binaryStringToBase64(String(command)));
+      await printReceiptBase64(printableBase64);
       toast("Test receipt sent to the Epson receipt printer.", "success");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Test receipt failed", "error");

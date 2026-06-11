@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { printTextReport } from "../../lib/printerBridge";
+import { printPlainTextReport } from "../../lib/reportPrint";
 import VariantSearchInput, {
   VariantSearchResult,
 } from "../ui/VariantSearchInput";
@@ -565,9 +565,11 @@ export default function DiscountEventsPanel() {
   const printPerformance = async () => {
     if (!performanceEvent || !performanceDetail) return;
     try {
-      await printTextReport(
-        buildPerformancePrintText(performanceEvent, performanceDetail, usageFrom, usageTo),
-      );
+      await printPlainTextReport({
+        title: "Promotion Performance",
+        filename: "promotion-performance-report.txt",
+        text: buildPerformancePrintText(performanceEvent, performanceDetail, usageFrom, usageTo),
+      });
       toast("Promotion performance sent to the Reports printer.", "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to print performance report.";

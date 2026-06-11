@@ -408,7 +408,7 @@ function openZReportFromSession(session: RegisterSessionRow): void {
   const cashTender = snapshot?.tenders?.find(
     (tender) => tender.payment_method.toLowerCase() === "cash",
   );
-  openProfessionalZReportPrint({
+  void openProfessionalZReportPrint({
     title: "Z-Report",
     sessionId: snapshot?.session_id ?? session.id,
     registerOrdinal: session.register_ordinal,
@@ -682,7 +682,7 @@ export default function RegisterReports({
   const handlePrint = () => {
     const printSummary = selectedSummary;
     if (!printSummary) return;
-    openProfessionalDailySalesPrint({
+    void openProfessionalDailySalesPrint({
       title: `Daily Sales - ${rangeLabel}`,
       rangeLabel,
       summary: {
@@ -821,8 +821,8 @@ export default function RegisterReports({
 
         if (payload.pop_cash_drawer) {
           try {
-            const { printRawEscPosBase64 } = await import("../../lib/printerBridge");
-            await printRawEscPosBase64("G3AAMvo=");
+            const { printReceiptBase64 } = await import("../../lib/receiptPrint");
+            await printReceiptBase64("G3AAMvo=");
           } catch (e) {
             console.error("Cash drawer pop failed during void", e);
           }
