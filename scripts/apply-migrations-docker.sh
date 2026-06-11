@@ -29,6 +29,46 @@ file_sha256() {
   shasum -a 256 "$1" | awk '{print $1}'
 }
 
+repair_public_serial_sequences() {
+  $DPSQL -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE
+  rec record;
+  max_value bigint;
+BEGIN
+  FOR rec IN
+    SELECT
+      n.nspname AS table_schema,
+      c.relname AS table_name,
+      a.attname AS column_name,
+      pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) AS sequence_name
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_attribute a ON a.attrelid = c.oid
+    WHERE c.relkind IN ('r', 'p')
+      AND n.nspname = 'public'
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+      AND pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) IS NOT NULL
+  LOOP
+    EXECUTE format(
+      'SELECT COALESCE(MAX(%I), 0) FROM %I.%I',
+      rec.column_name,
+      rec.table_schema,
+      rec.table_name
+    )
+    INTO max_value;
+
+    EXECUTE format(
+      'SELECT setval(%L::regclass, GREATEST(%s + 1, 1), false)',
+      rec.sequence_name,
+      max_value
+    );
+  END LOOP;
+END $$;
+SQL
+}
+
 ensure_checksum_column
 
 DRIFT_COUNT=0
@@ -60,6 +100,7 @@ for f in $(ls "$ROOT"/migrations/[0-9][0-9]*_*.sql 2>/dev/null | sort -V); do
   fi
 
   echo "Applying $base to $RIVERSIDE_DB_NAME"
+  repair_public_serial_sequences
   $DPSQL -v ON_ERROR_STOP=1 < "$f"
   if [ "$(ledger_exists)" != "t" ]; then
     echo "Migration $base did not create public.ros_schema_migrations; cannot record ledger state." >&2

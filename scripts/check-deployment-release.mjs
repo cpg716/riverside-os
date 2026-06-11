@@ -154,6 +154,32 @@ assertIncludes(
   "deployment config example must carry the tag-printer language default",
 );
 
+const mainHubInstaller = "deployment/windows/install-server.ps1";
+for (const copy of [
+  "function Repair-PublicSerialSequences",
+  "pg_get_serial_sequence",
+  "Repair-PublicSerialSequences $PsqlPath $DatabaseUrl",
+]) {
+  assertIncludes(
+    mainHubInstaller,
+    copy,
+    "Main Hub installer must repair stale PostgreSQL sequences before applying pending migrations",
+  );
+}
+
+const standaloneMigrationRunner = "deployment/windows/apply-riverside-migrations.ps1";
+for (const copy of [
+  "function Repair-PublicSerialSequences",
+  "pg_get_serial_sequence",
+  "Repair-PublicSerialSequences $PsqlPath $DatabaseUrl",
+]) {
+  assertIncludes(
+    standaloneMigrationRunner,
+    copy,
+    "standalone migration runner must repair stale PostgreSQL sequences before applying pending migrations",
+  );
+}
+
 const mainHubUpdater = "client/src-tauri/src/server_updater.rs";
 const mainHubUpdaterSource = read(mainHubUpdater);
 assertNotIncludes(

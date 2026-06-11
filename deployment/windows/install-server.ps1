@@ -947,6 +947,47 @@ function Test-CoreIdentityMigrationApplied($PsqlPath, $DatabaseUrl) {
   return (($result -join "").Trim() -eq "t")
 }
 
+function Repair-PublicSerialSequences($PsqlPath, $DatabaseUrl) {
+  $sql = @'
+DO $$
+DECLARE
+  rec record;
+  max_value bigint;
+BEGIN
+  FOR rec IN
+    SELECT
+      n.nspname AS table_schema,
+      c.relname AS table_name,
+      a.attname AS column_name,
+      pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) AS sequence_name
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_attribute a ON a.attrelid = c.oid
+    WHERE c.relkind IN ('r', 'p')
+      AND n.nspname = 'public'
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+      AND pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) IS NOT NULL
+  LOOP
+    EXECUTE format(
+      'SELECT COALESCE(MAX(%I), 0) FROM %I.%I',
+      rec.column_name,
+      rec.table_schema,
+      rec.table_name
+    )
+    INTO max_value;
+
+    EXECUTE format(
+      'SELECT setval(%L::regclass, GREATEST(%s + 1, 1), false)',
+      rec.sequence_name,
+      max_value
+    );
+  END LOOP;
+END $$;
+'@
+  Invoke-Psql $PsqlPath $DatabaseUrl $sql
+}
+
 function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
   Write-DeploymentStatus "MIGRATING" "Starting database migrations"
   $files = Get-ChildItem $MigrationsDir -Filter "*.sql" |
@@ -981,6 +1022,7 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
 
     Write-Host "Apply migration $($file.Name)"
     try {
+      Repair-PublicSerialSequences $PsqlPath $DatabaseUrl
       Invoke-PsqlFile $PsqlPath $DatabaseUrl $file.FullName
     } catch {
       throw "Migration failed: $($file.Name). $($_.Exception.Message)"

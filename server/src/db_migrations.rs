@@ -22,6 +22,52 @@ fn migration_sha256(sql_content: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+async fn repair_public_serial_sequences(pool: &PgPool) -> Result<(), anyhow::Error> {
+    sqlx::query(
+        r#"
+        DO $$
+        DECLARE
+            rec record;
+            max_value bigint;
+        BEGIN
+            FOR rec IN
+                SELECT
+                    n.nspname AS table_schema,
+                    c.relname AS table_name,
+                    a.attname AS column_name,
+                    pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) AS sequence_name
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_attribute a ON a.attrelid = c.oid
+                WHERE c.relkind IN ('r', 'p')
+                  AND n.nspname = 'public'
+                  AND a.attnum > 0
+                  AND NOT a.attisdropped
+                  AND pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) IS NOT NULL
+            LOOP
+                EXECUTE format(
+                    'SELECT COALESCE(MAX(%I), 0) FROM %I.%I',
+                    rec.column_name,
+                    rec.table_schema,
+                    rec.table_name
+                )
+                INTO max_value;
+
+                EXECUTE format(
+                    'SELECT setval(%L::regclass, GREATEST(%s + 1, 1), false)',
+                    rec.sequence_name,
+                    max_value
+                );
+            END LOOP;
+        END $$;
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
     // 1. Check if the schema migrations ledger exists
     let ledger_exists_query = "
@@ -136,6 +182,11 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
         }
 
         tracing::info!("Unified Engine: Applying migration: {}...", file_name);
+        if let Err(error) = repair_public_serial_sequences(pool).await {
+            return Err(anyhow::anyhow!(
+                "Failed to repair PostgreSQL serial sequences before applying {file_name}: {error}"
+            ));
+        }
 
         // Strip psql meta-commands before parsing, then skip pg_dump session-state
         // statements after parsing so UPDATE ... SET clauses remain intact.

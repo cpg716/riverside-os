@@ -100,6 +100,47 @@ function Update-StoredChecksum([string]$PsqlPath, [string]$DatabaseUrl, [string]
   Invoke-PsqlText $PsqlPath $DatabaseUrl "UPDATE ros_schema_migrations SET file_sha256 = '$safeSha' WHERE version = '$migrationVersion' AND file_sha256 IS NULL;" | Out-Null
 }
 
+function Repair-PublicSerialSequences([string]$PsqlPath, [string]$DatabaseUrl) {
+  $sql = @'
+DO $$
+DECLARE
+  rec record;
+  max_value bigint;
+BEGIN
+  FOR rec IN
+    SELECT
+      n.nspname AS table_schema,
+      c.relname AS table_name,
+      a.attname AS column_name,
+      pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) AS sequence_name
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_attribute a ON a.attrelid = c.oid
+    WHERE c.relkind IN ('r', 'p')
+      AND n.nspname = 'public'
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+      AND pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) IS NOT NULL
+  LOOP
+    EXECUTE format(
+      'SELECT COALESCE(MAX(%I), 0) FROM %I.%I',
+      rec.column_name,
+      rec.table_schema,
+      rec.table_name
+    )
+    INTO max_value;
+
+    EXECUTE format(
+      'SELECT setval(%L::regclass, GREATEST(%s + 1, 1), false)',
+      rec.sequence_name,
+      max_value
+    );
+  END LOOP;
+END $$;
+'@
+  Invoke-PsqlCommand $PsqlPath $DatabaseUrl $sql
+}
+
 function Apply-Migrations([string]$PsqlPath, [string]$DatabaseUrl, [string]$Dir) {
   $files = Get-ChildItem $Dir -Filter "*.sql" |
     Where-Object { $_.BaseName -match '^\d+_' } |
@@ -133,6 +174,7 @@ function Apply-Migrations([string]$PsqlPath, [string]$DatabaseUrl, [string]$Dir)
     }
 
     Write-Host "Apply migration $($file.Name)"
+    Repair-PublicSerialSequences $PsqlPath $DatabaseUrl
     Invoke-PsqlFile $PsqlPath $DatabaseUrl $file.FullName
 
     if (-not (Get-MigrationLedgerExists $PsqlPath $DatabaseUrl)) {
