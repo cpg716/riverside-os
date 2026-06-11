@@ -29,6 +29,10 @@ Import-first still uses internal batching, but batching is not the operator work
 
 A run that sends Bridge rows but never creates an active import run, never records raw rows, or never links landed ROS rows is incomplete and must be rerun after the blocker is fixed.
 
+Command center proof is scoped to the latest import-first run when an import run exists. Legacy diagnostics and legacy accumulated verification are support tools only; they may include older rehearsal rows, staging facts, or dirty dev data and must not be treated as current-run sign-off proof.
+
+Duplicate customer emails are handled row-by-row. ROS keeps the existing `customers.email` uniqueness rule, lands the Counterpoint customer without an email address, preserves the original Counterpoint email in the raw/import exception payload, and opens a duplicate-email Import exception for staff review. A duplicate email should not fail the whole customer batch.
+
 ## Advanced Steps Overview
 
 The former 8-step guided pipeline remains available under **Legacy diagnostics** for mapping, quarantine, and exception review. It is not the operator success path:
@@ -282,13 +286,14 @@ Customer ingest may still map Counterpoint A/R reference text to `customers.cust
 After the bridge finishes, review **Settings → Counterpoint → Status** and confirm:
 
 1. **Last bridge run** shows the expected completion time, duration, and record count.
-2. **Sign-off reconciliation** shows the latest bridge-reported rows beside the latest ROS landed/apply count for each entity in scope.
-3. **Landing Verification** shows the expected ROS-landed counts for every domain included in the pass.
-4. **Inventory & Catalog Verification** shows live-query source-vs-ROS count proof for catalog products, variants, SKUs, barcodes, and inventory quantity rows.
-5. **Sign-off blockers** is empty, or every listed blocker has been intentionally resolved.
-6. **Server sync history** shows landed entity rows and no unexpected last-error values.
-7. **Open sync issues** is empty, or every remaining issue has been deliberately triaged.
-8. If staging was enabled, the **Inbound queue** is empty after all intended batches are applied.
+2. **Command center proof scope** shows either the latest import-first run, preflight-only state, or no preflight. Do not use legacy accumulated verification as current-run proof.
+3. **Sign-off reconciliation** shows the latest bridge-reported rows beside the latest ROS landed/apply count for each entity in scope.
+4. **Landing Verification** shows the expected ROS-landed counts for every domain included in the pass.
+5. **Inventory & Catalog Verification** shows live-query source-vs-ROS count proof for catalog products, variants, SKUs, barcodes, and inventory quantity rows.
+6. **Sign-off blockers** is empty, or every listed blocker has been intentionally resolved.
+7. **Server sync history** shows landed entity rows and no unexpected last-error values.
+8. **Open sync issues** is empty, or every remaining issue has been deliberately triaged.
+9. If staging was enabled, the **Inbound queue** is empty after all intended batches are applied.
 
 This is the current proof surface for the one-time migration. There is still no full reconciliation/reporting subsystem, so sign-off should include human review of these import artifacts plus any business-side spot checks.
 

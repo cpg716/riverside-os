@@ -41,7 +41,7 @@ Some historical tickets or open documents may land with **Historical Counterpoin
 
 ## Bridge status
 
-The bridge status shows whether the Counterpoint workstation bridge is reachable, online, offline, or degraded. If bridge controls are not reachable on this workstation, use **Reconnect to Bridge** or review the bridge host before continuing.
+The bridge status separates three facts: Bridge heartbeat, browser control API reachability, and import preflight receipt. Browser controls only affect Start/Stop buttons from this workstation. They do not prove that the Bridge sent source-count preflight, and they do not replace current import-run proof.
 
 The Bridge sync token saved in this panel must match `COUNTERPOINT_SYNC_TOKEN` in `C:\counterpoint-bridge\.env` on the Counterpoint host. If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If the bridge console shows `health 401`, run `Set-CounterpointBridgeToken.cmd` on the server PC and paste the exact bridge `.env` token. If it shows `health 503`, Riverside Server does not have a Counterpoint token configured yet.
 
@@ -51,9 +51,13 @@ The command center appears before sign-off reconciliation. It shows expected Cou
 
 The default **Command center** is the primary one-time migration surface. Do not treat the import as successful while required domains still show zero landed proof, blocked source-count rows, open exceptions, or fallback rows that have not been reviewed.
 
+Command center proof is scoped to the latest import-first run when an import run exists. **Legacy accumulated verification** is support-only: it can include rows from older rehearsals, staging diagnostics, or dirty dev data and must not be used as current-run sign-off proof.
+
 The import is proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If source counts are suspiciously low, such as too few tickets or open docs, preflight blocks the run before ROS can show a completed import.
 
 After preflight passes, the Bridge starts a ROS import run before sending batches. The latest import run tile must show a running, completed, or failed run; blank run proof means the Bridge has not begun the real import path. Each successful batch records raw Counterpoint rows and provenance for landed ROS rows, and failed batches create Import exceptions for review.
+
+Customer rows with duplicate email addresses do not stop the full import. ROS keeps the unique email constraint, lands the Counterpoint customer without an email address, preserves the original email in the raw payload/provenance trail, and opens an Import exception so staff can merge or correct the duplicate before go-live sign-off.
 
 Use **Reset Baseline** before a rehearsal when you need to start over from a clean migrated/seeded ROS database. Reset clears imported Counterpoint rows, import-run proof, exceptions, staging state, and the active ROS import-run pointer while keeping staff access, store settings, register/printer configuration, and reviewed mappings.
 

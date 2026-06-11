@@ -186,7 +186,7 @@ pub struct CounterpointImportBatchProofSummary {
     pub exception_records: i64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CounterpointCustomerRow {
     /// Becomes `customers.customer_code` (Counterpoint `CUST_NO`).
     pub cust_no: String,
@@ -239,6 +239,14 @@ pub struct CounterpointCustomerBatchSummary {
     pub updated: i32,
     pub skipped: i32,
     pub email_conflicts: i32,
+}
+
+#[derive(Debug, Clone)]
+struct CounterpointCustomerEmailConflict {
+    customer_code: String,
+    original_email: String,
+    reason: String,
+    source_payload: JsonValue,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3036,6 +3044,8 @@ async fn upsert_customer_row(
     row: &CounterpointCustomerRow,
     summary: &mut CounterpointCustomerBatchSummary,
     staff_map: &HashMap<String, Uuid>,
+    email_conflicts: &mut Vec<CounterpointCustomerEmailConflict>,
+    force_omit_email_reason: Option<&str>,
 ) -> Result<(), sqlx::Error> {
     let code = row.cust_no.trim();
     if code.is_empty() {
@@ -3080,9 +3090,30 @@ async fn upsert_customer_row(
             .fetch_optional(&mut **tx)
             .await?;
 
+    let source_payload = serde_json::to_value(row).unwrap_or_else(|_| {
+        serde_json::json!({
+            "cust_no": &code,
+            "email": email_raw,
+        })
+    });
     let mut email_to_set = email_raw.clone();
-    if let Some(ref em) = email_to_set {
+    if let (Some(em), Some(reason)) = (email_raw.as_ref(), force_omit_email_reason) {
+        email_conflicts.push(CounterpointCustomerEmailConflict {
+            customer_code: code.clone(),
+            original_email: em.clone(),
+            reason: reason.to_string(),
+            source_payload: source_payload.clone(),
+        });
+        summary.email_conflicts += 1;
+        email_to_set = None;
+    } else if let Some(ref em) = email_to_set {
         if email_taken_by_other(tx, em, existing_id).await? {
+            email_conflicts.push(CounterpointCustomerEmailConflict {
+                customer_code: code.clone(),
+                original_email: em.clone(),
+                reason: "email_already_used_by_existing_customer".into(),
+                source_payload: source_payload.clone(),
+            });
             email_to_set = None;
             summary.email_conflicts += 1;
         }
@@ -3174,6 +3205,47 @@ async fn upsert_customer_row(
     Ok(())
 }
 
+fn is_customers_email_unique_violation(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(db_error) => {
+            db_error.constraint() == Some("customers_email_key")
+                || db_error.message().contains("customers_email_key")
+        }
+        _ => false,
+    }
+}
+
+async fn record_counterpoint_customer_email_conflict_exceptions(
+    pool: &PgPool,
+    conflicts: Vec<CounterpointCustomerEmailConflict>,
+) {
+    for conflict in conflicts {
+        record_counterpoint_import_exception(
+            pool,
+            "customers",
+            Some(&conflict.customer_code),
+            "warning",
+            "duplicate_customer_email",
+            &format!(
+                "Counterpoint customer {} was imported without email {} because that email is already used by another customer.",
+                conflict.customer_code, conflict.original_email
+            ),
+            Some("Review the customer duplicate email after import. Merge or correct the customer record before final go-live sign-off."),
+            false,
+            Some("customers"),
+            None,
+            serde_json::json!({
+                "customer_code": conflict.customer_code,
+                "original_email": conflict.original_email,
+                "reason": conflict.reason,
+                "landed_without_email": true,
+                "source_row": conflict.source_payload,
+            }),
+        )
+        .await;
+    }
+}
+
 pub async fn execute_counterpoint_customer_batch(
     pool: &PgPool,
     payload: CounterpointCustomersPayload,
@@ -3193,19 +3265,60 @@ pub async fn execute_counterpoint_customer_batch(
     .into_iter()
     .collect();
 
-    let mut tx = pool.begin().await?;
     let mut summary = CounterpointCustomerBatchSummary {
         created: 0,
         updated: 0,
         skipped: 0,
         email_conflicts: 0,
     };
+    let mut email_conflicts = Vec::new();
+    let mut tx = pool.begin().await?;
 
     for row in &payload.rows {
-        upsert_customer_row(&mut tx, row, &mut summary, &staff_map).await?;
+        sqlx::query("SAVEPOINT counterpoint_customer_row")
+            .execute(&mut *tx)
+            .await?;
+        let result = upsert_customer_row(
+            &mut tx,
+            row,
+            &mut summary,
+            &staff_map,
+            &mut email_conflicts,
+            None,
+        )
+        .await;
+        match result {
+            Ok(()) => {
+                sqlx::query("RELEASE SAVEPOINT counterpoint_customer_row")
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            Err(error) if is_customers_email_unique_violation(&error) => {
+                sqlx::query("ROLLBACK TO SAVEPOINT counterpoint_customer_row")
+                    .execute(&mut *tx)
+                    .await?;
+                upsert_customer_row(
+                    &mut tx,
+                    row,
+                    &mut summary,
+                    &staff_map,
+                    &mut email_conflicts,
+                    Some("customers_email_key_retry"),
+                )
+                .await?;
+                sqlx::query("RELEASE SAVEPOINT counterpoint_customer_row")
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            Err(error) => {
+                tx.rollback().await?;
+                return Err(error.into());
+            }
+        }
     }
 
     tx.commit().await?;
+    record_counterpoint_customer_email_conflict_exceptions(pool, email_conflicts).await;
 
     if let Some(ref s) = payload.sync {
         if s.entity == "customers" {
@@ -3729,6 +3842,10 @@ pub struct CounterpointImportCommandCenterSummary {
     pub mode: String,
     pub required_history_start: String,
     pub token_configured: bool,
+    pub preflight_received: bool,
+    pub import_run_received: bool,
+    pub proof_scope: String,
+    pub proof_scope_note: String,
     pub latest_preflight: Option<CounterpointImportRunSnapshot>,
     pub latest_import_run: Option<CounterpointImportRunSnapshot>,
     pub source_counts: Vec<CounterpointImportPreflightRow>,
@@ -5433,17 +5550,173 @@ pub async fn record_counterpoint_import_batch_failure(
     Ok(())
 }
 
+fn import_provenance_target_for_source_count(
+    entity_key: &str,
+) -> Option<(&'static str, Option<&'static str>)> {
+    let key = entity_key.trim().to_ascii_lowercase();
+    match key.as_str() {
+        "customers" => Some(("customers", Some("customers"))),
+        "vendors" | "vendor_masters" | "counterpoint_vendor_masters" => {
+            Some(("vendors", Some("vendors")))
+        }
+        "category_masters" | "counterpoint_category_masters" => {
+            Some(("category_masters", Some("categories")))
+        }
+        "catalog_products"
+        | "catalog_items_with_resolved_categories"
+        | "catalog_items_with_resolved_vendors"
+        | "catalog_category_vendor_fields" => Some(("catalog", Some("products"))),
+        "catalog_variants"
+        | "catalog_variant_skus"
+        | "catalog_variant_barcodes"
+        | "catalog_price_cost_fields"
+        | "catalog_variant_labels" => Some(("catalog", Some("product_variants"))),
+        "inventory_quantity_rows"
+        | "inventory_quantity_rows_matched"
+        | "inventory_quantity_cost_fields" => Some(("inventory", Some("product_variants"))),
+        "gift_cards" | "gift_card_current_balances" => Some(("gift_cards", Some("gift_cards"))),
+        "tickets" | "closed_ticket_history" => Some(("tickets", Some("transactions"))),
+        "ticket_lines" | "closed_ticket_lines" => Some(("tickets", Some("transaction_lines"))),
+        "ticket_payments" | "closed_ticket_payments" => {
+            Some(("tickets", Some("payment_allocations")))
+        }
+        "open_docs" | "open_docs_unfulfilled_obligations" => {
+            Some(("open_docs", Some("transactions")))
+        }
+        "open_doc_lines" => Some(("open_docs", Some("transaction_lines"))),
+        "open_doc_payments" | "open_doc_deposits_payments" => {
+            Some(("open_docs", Some("payment_allocations")))
+        }
+        "receiving_history" => Some(("receiving_history", Some("counterpoint_receiving_history"))),
+        "loyalty_points" | "loyalty_history" => {
+            Some(("loyalty_hist", Some("loyalty_point_ledger")))
+        }
+        "store_credit_opening" => Some(("store_credit_opening", Some("customers"))),
+        _ => None,
+    }
+}
+
+async fn import_run_landed_count_for_source_count(
+    pool: &PgPool,
+    import_run_id: Uuid,
+    entity_key: &str,
+) -> Result<i64, sqlx::Error> {
+    let Some((provenance_entity, ros_table)) =
+        import_provenance_target_for_source_count(entity_key)
+    else {
+        return Ok(0);
+    };
+
+    match ros_table {
+        Some(table) => {
+            sqlx::query_scalar(
+                r#"
+                SELECT COUNT(DISTINCT ros_id)::bigint
+                FROM counterpoint_import_provenance
+                WHERE import_run_id = $1
+                  AND entity_key = $2
+                  AND ros_table = $3
+                "#,
+            )
+            .bind(import_run_id)
+            .bind(provenance_entity)
+            .bind(table)
+            .fetch_one(pool)
+            .await
+        }
+        None => {
+            sqlx::query_scalar(
+                r#"
+                SELECT COUNT(DISTINCT source_key)::bigint
+                FROM counterpoint_import_raw_records
+                WHERE import_run_id = $1
+                  AND entity_key = $2
+                  AND landed
+                "#,
+            )
+            .bind(import_run_id)
+            .bind(provenance_entity)
+            .fetch_one(pool)
+            .await
+        }
+    }
+}
+
+async fn build_counterpoint_import_run_reconciliation(
+    pool: &PgPool,
+    import_run_id: Uuid,
+    source_counts: &[CounterpointImportPreflightRow],
+) -> Result<Vec<CounterpointSnapshotReconciliationRow>, CounterpointSyncError> {
+    let mut rows = Vec::with_capacity(source_counts.len());
+    for source in source_counts {
+        let landed_count =
+            import_run_landed_count_for_source_count(pool, import_run_id, &source.entity_key)
+                .await?;
+        let count_difference = landed_count - source.source_count;
+        let passed = count_difference == 0;
+        rows.push(CounterpointSnapshotReconciliationRow {
+            key: source.entity_key.clone(),
+            label: source.label.clone(),
+            status: if passed { "pass" } else { "fail" }.into(),
+            passed,
+            source_count: Some(source.source_count),
+            landed_count,
+            count_difference: Some(count_difference),
+            source_sum: source.source_sum.clone(),
+            landed_sum: Decimal::ZERO.to_string(),
+            sum_difference: Some(Decimal::ZERO.to_string()),
+            source_checksum: source.source_checksum.clone(),
+            landed_checksum: None,
+            checksum_matched: None,
+            note: if passed {
+                "Current import run provenance matches the Bridge source count.".into()
+            } else {
+                "Current import run provenance does not yet match the Bridge source count.".into()
+            },
+            source_updated_at: None,
+        });
+    }
+    Ok(rows)
+}
+
 pub async fn build_counterpoint_import_command_center(
     pool: &PgPool,
     token_configured: bool,
 ) -> Result<CounterpointImportCommandCenterSummary, CounterpointSyncError> {
     let latest_preflight = load_latest_counterpoint_import_preflight(pool).await?;
     let latest_import_run = load_latest_counterpoint_import_run(pool).await?;
-    let source_counts = match latest_preflight.as_ref() {
-        Some(run) => load_counterpoint_import_source_count_rows(pool, run.id).await?,
+    let source_count_run_id = latest_import_run
+        .as_ref()
+        .map(|run| run.id)
+        .or_else(|| latest_preflight.as_ref().map(|run| run.id));
+    let source_counts = match source_count_run_id {
+        Some(import_run_id) => {
+            load_counterpoint_import_source_count_rows(pool, import_run_id).await?
+        }
         None => Vec::new(),
     };
-    let landing = build_counterpoint_landing_verification_summary(pool).await?;
+    let snapshot_reconciliation = if let Some(run) = latest_import_run.as_ref() {
+        build_counterpoint_import_run_reconciliation(pool, run.id, &source_counts).await?
+    } else {
+        Vec::new()
+    };
+    let (proof_scope, proof_scope_note) = if latest_import_run.is_some() {
+        (
+            "current_import_run".to_string(),
+            "Counts are scoped to raw/provenance rows written by the latest Counterpoint import run.".to_string(),
+        )
+    } else if latest_preflight.is_some() {
+        (
+            "preflight_only".to_string(),
+            "Source counts are available, but no import run has started; landed proof remains empty by design.".to_string(),
+        )
+    } else {
+        (
+            "no_preflight".to_string(),
+            "No Bridge source-count preflight has been received for the import-first workflow."
+                .to_string(),
+        )
+    };
     let open_exception_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM counterpoint_import_exceptions WHERE status = 'open'",
     )
@@ -5490,11 +5763,15 @@ pub async fn build_counterpoint_import_command_center(
         mode: "import_first".into(),
         required_history_start: COUNTERPOINT_IMPORT_HISTORY_START.into(),
         token_configured,
+        preflight_received: latest_preflight.is_some(),
+        import_run_received: latest_import_run.is_some(),
+        proof_scope,
+        proof_scope_note,
         latest_preflight,
         latest_import_run,
         source_counts,
-        landing_rows: landing.rows,
-        snapshot_reconciliation: landing.snapshot_reconciliation,
+        landing_rows: Vec::new(),
+        snapshot_reconciliation,
         open_exception_count,
         fallback_landed_exception_count,
         staging_open_count,
@@ -5573,9 +5850,23 @@ async fn record_counterpoint_import_exception(
             message, suggested_fix, fallback_landed, ros_table, ros_id, source_payload
         )
         SELECT (
-            SELECT id FROM counterpoint_import_runs
-            WHERE preflight_passed
-            ORDER BY created_at DESC
+            SELECT id
+            FROM (
+                SELECT id, 0 AS priority, created_at
+                FROM counterpoint_import_runs
+                WHERE run_kind IN ('rehearsal', 'go_live')
+                  AND status = 'running'
+                UNION ALL
+                SELECT id, 1 AS priority, created_at
+                FROM counterpoint_import_runs
+                WHERE run_kind IN ('rehearsal', 'go_live')
+                  AND status IN ('completed', 'failed')
+                UNION ALL
+                SELECT id, 2 AS priority, created_at
+                FROM counterpoint_import_runs
+                WHERE preflight_passed
+            ) candidate_runs
+            ORDER BY priority, created_at DESC
             LIMIT 1
         ), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
         WHERE NOT EXISTS (
@@ -13358,6 +13649,21 @@ mod tests {
         .expect("complete import run");
         assert_eq!(completed.status, "completed");
 
+        let command_center = build_counterpoint_import_command_center(&pool, true)
+            .await
+            .expect("build import command center");
+        assert!(command_center.preflight_received);
+        assert!(command_center.import_run_received);
+        assert_eq!(command_center.proof_scope, "current_import_run");
+        let customers_reconciliation = command_center
+            .snapshot_reconciliation
+            .iter()
+            .find(|row| row.key == "customers")
+            .expect("customers command-center reconciliation row");
+        assert_eq!(customers_reconciliation.source_count, Some(26_579));
+        assert_eq!(customers_reconciliation.landed_count, 1);
+        assert!(!customers_reconciliation.passed);
+
         let _ = sqlx::query("DELETE FROM customers WHERE customer_code = $1")
             .bind(&customer_code)
             .execute(&pool)
@@ -13367,6 +13673,129 @@ mod tests {
             .execute(&pool)
             .await;
         restore_counterpoint_config(&pool, original_config).await;
+    }
+
+    #[tokio::test]
+    async fn counterpoint_customer_duplicate_email_lands_without_email_exception() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        ensure_counterpoint_import_first_tables(&pool).await;
+        let unique = Uuid::new_v4().to_string();
+        let suffix = &unique[..8];
+        let existing_code = format!("CP-EMAIL-EXIST-{suffix}");
+        let duplicate_code = format!("CP-EMAIL-DUPE-{suffix}");
+        let clean_code = format!("CP-EMAIL-CLEAN-{suffix}");
+        let shared_email = format!("cp-shared-{suffix}@example.com");
+        let clean_email = format!("cp-clean-{suffix}@example.com");
+
+        for code in [&existing_code, &duplicate_code, &clean_code] {
+            let _ = sqlx::query("DELETE FROM counterpoint_import_exceptions WHERE source_key = $1")
+                .bind(code)
+                .execute(&pool)
+                .await;
+            let _ = sqlx::query("DELETE FROM customers WHERE customer_code = $1")
+                .bind(code)
+                .execute(&pool)
+                .await;
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO customers (
+                customer_code, first_name, last_name, email, customer_created_source
+            )
+            VALUES ($1, 'Existing', 'Email Owner', $2, 'store')
+            "#,
+        )
+        .bind(&existing_code)
+        .bind(&shared_email)
+        .execute(&pool)
+        .await
+        .expect("seed existing customer email");
+
+        let payload: CounterpointCustomersPayload = serde_json::from_value(serde_json::json!({
+            "rows": [
+                {
+                    "cust_no": duplicate_code.clone(),
+                    "first_name": "Duplicate",
+                    "last_name": "Email",
+                    "email": shared_email.clone(),
+                    "loyalty_points": 0
+                },
+                {
+                    "cust_no": clean_code.clone(),
+                    "first_name": "Clean",
+                    "last_name": "Email",
+                    "email": clean_email.clone(),
+                    "loyalty_points": 0
+                }
+            ]
+        }))
+        .expect("customer payload");
+
+        let summary = execute_counterpoint_customer_batch(&pool, payload)
+            .await
+            .expect("customer import should continue after duplicate email");
+
+        assert_eq!(summary.created, 2);
+        assert_eq!(summary.updated, 0);
+        assert_eq!(summary.email_conflicts, 1);
+
+        let duplicate_email: Option<String> =
+            sqlx::query_scalar("SELECT email FROM customers WHERE customer_code = $1")
+                .bind(&duplicate_code)
+                .fetch_one(&pool)
+                .await
+                .expect("load duplicate customer email");
+        assert!(duplicate_email.is_none());
+
+        let clean_landed_email: Option<String> =
+            sqlx::query_scalar("SELECT email FROM customers WHERE customer_code = $1")
+                .bind(&clean_code)
+                .fetch_one(&pool)
+                .await
+                .expect("load clean customer email");
+        assert_eq!(clean_landed_email.as_deref(), Some(clean_email.as_str()));
+
+        let exception_payload: JsonValue = sqlx::query_scalar(
+            r#"
+            SELECT source_payload
+            FROM counterpoint_import_exceptions
+            WHERE entity_key = 'customers'
+              AND source_key = $1
+              AND reason_code = 'duplicate_customer_email'
+              AND status = 'open'
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(&duplicate_code)
+        .fetch_one(&pool)
+        .await
+        .expect("load duplicate email exception");
+        assert_eq!(
+            exception_payload
+                .get("original_email")
+                .and_then(JsonValue::as_str),
+            Some(shared_email.as_str())
+        );
+        assert_eq!(
+            exception_payload
+                .get("landed_without_email")
+                .and_then(JsonValue::as_bool),
+            Some(true)
+        );
+
+        for code in [&existing_code, &duplicate_code, &clean_code] {
+            let _ = sqlx::query("DELETE FROM counterpoint_import_exceptions WHERE source_key = $1")
+                .bind(code)
+                .execute(&pool)
+                .await;
+            let _ = sqlx::query("DELETE FROM customers WHERE customer_code = $1")
+                .bind(code)
+                .execute(&pool)
+                .await;
+        }
     }
 
     async fn ensure_counterpoint_ingest_quarantine_table(pool: &PgPool) {

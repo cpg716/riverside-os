@@ -363,6 +363,10 @@ interface CounterpointImportCommandCenterSummary {
   mode: string;
   required_history_start: string;
   token_configured: boolean;
+  preflight_received: boolean;
+  import_run_received: boolean;
+  proof_scope: string;
+  proof_scope_note: string;
   latest_preflight: CounterpointImportRunSnapshot | null;
   latest_import_run: CounterpointImportRunSnapshot | null;
   source_counts: CounterpointImportPreflightRow[];
@@ -2014,6 +2018,21 @@ export default function CounterpointSyncSettingsPanel() {
   const stagingOn = status?.counterpoint_staging_enabled === true;
   const serverBridgeActive = status?.windows_sync_state === "online" || status?.windows_sync_state === "syncing";
   const serverBridgeSyncing = status?.windows_sync_state === "syncing";
+  const bridgeHeartbeatLabel =
+    status?.windows_sync_state === "syncing"
+      ? "Syncing"
+      : status?.windows_sync_state === "online"
+        ? "Online"
+        : "Offline";
+  const browserControlLabel = bridgeControlsReachable ? "Reachable" : "Unavailable";
+  const importPreflightLabel = commandCenter?.preflight_received ? "Received" : "Not received";
+  const importRunReceiptLabel = commandCenter?.import_run_received ? "Run recorded" : "No import run";
+  const proofScopeLabel =
+    commandCenter?.proof_scope === "current_import_run"
+      ? "Current import run"
+      : commandCenter?.proof_scope === "preflight_only"
+        ? "Preflight only"
+        : "No import preflight";
   const pendingN = batches.filter((b) => b.status === "pending").length;
   const applyingN = batches.filter((b) => b.status === "applying").length;
   const visiblePendingN = Math.max(pendingN, status?.staging_pending_count ?? 0);
@@ -2502,6 +2521,10 @@ export default function CounterpointSyncSettingsPanel() {
           <p className="mt-1 max-w-4xl text-xs text-app-text-muted">
             Source counts are proved first, then supported data lands in ROS. Only failures, fallback rows, and cleanup suggestions need review after import.
           </p>
+          <p className="mt-2 text-xs font-semibold text-app-text-muted">
+            Proof scope: <span className="text-app-text">{proofScopeLabel}</span>
+            {commandCenter?.proof_scope_note ? ` - ${commandCenter.proof_scope_note}` : ""}
+          </p>
         </div>
         <span className={`ui-pill text-[10px] ${
           commandCenter?.ready_for_import
@@ -2803,15 +2826,18 @@ export default function CounterpointSyncSettingsPanel() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Bridge control reachability
+            Browser control API
           </p>
           <p className="mt-1 text-sm font-bold text-app-text">
             {bridgeControlsReachable
-              ? "Direct controls reachable"
-              : "Bridge controls are not reachable on this workstation"}
+              ? "Browser can reach Bridge controls"
+              : "Browser cannot reach Bridge controls"}
           </p>
           <p className="mt-1 text-xs font-semibold text-app-text-muted">
-            Server: {(status?.windows_sync_state ?? "unknown").toUpperCase()}
+            Bridge heartbeat: {bridgeHeartbeatLabel}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-app-text-muted">
+            Import preflight: {importPreflightLabel}
           </p>
           {bridgeControlResolvedUrl ? (
             <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
@@ -2831,7 +2857,7 @@ export default function CounterpointSyncSettingsPanel() {
       </div>
       {!bridgeControlsReachable ? (
         <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs font-semibold text-amber-800 dark:text-amber-100">
-          Bridge controls are not reachable from this browser. ROS server heartbeat is tracked separately, so SQL extraction may still be online while direct Start/Stop controls are unavailable.
+          Browser controls are unavailable from this workstation. This only affects Start/Stop controls in this browser; Bridge heartbeat and import preflight are tracked separately.
         </p>
       ) : null}
     </div>
@@ -3044,8 +3070,11 @@ export default function CounterpointSyncSettingsPanel() {
               const report = [
                 "Counterpoint Support Diagnostics",
                 `Generated: ${new Date().toLocaleString()}`,
-                `Bridge: ${bridgeControlsReachable ? "direct controls reachable" : "not reachable"}`,
-                `Server state: ${status?.windows_sync_state ?? "unknown"}`,
+                `Bridge heartbeat: ${bridgeHeartbeatLabel}`,
+                `Browser control API: ${browserControlLabel}`,
+                `Import preflight: ${importPreflightLabel}`,
+                `Import run: ${importRunReceiptLabel}`,
+                `Proof scope: ${proofScopeLabel}`,
                 `Queue: ${fmtNum(visiblePendingN)} pending, ${fmtNum(visibleApplyingN)} applying, ${fmtNum(staleApplyingN)} stale applying`,
                 ...signoffBlockers,
               ].join("\n");
@@ -3066,10 +3095,14 @@ export default function CounterpointSyncSettingsPanel() {
           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Deployment visibility</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {[
-              { label: "Bridge reachability", value: bridgeControlsReachable ? "Direct controls reachable" : "Not reachable" },
+              { label: "Bridge heartbeat", value: bridgeHeartbeatLabel },
+              { label: "Browser controls", value: browserControlLabel },
+              { label: "Import preflight", value: importPreflightLabel },
+              { label: "Import run", value: importRunReceiptLabel },
               { label: "Bridge host", value: status?.bridge_hostname ?? "Not reported" },
-              { label: "Landing mode", value: stagingOn ? "Staging queue" : "Direct import" },
-              { label: "Last bridge activity", value: formatDate(status?.last_seen_at ?? bridgeLive?.lastRun) },
+              { label: "Proof scope", value: proofScopeLabel },
+              { label: "Landing mode", value: stagingOn ? "Legacy staging queue" : "Import-first direct" },
+              { label: "Last heartbeat", value: formatDate(status?.last_seen_at ?? bridgeLive?.lastRun) },
             ].map((row) => (
               <div key={row.label} className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
                 <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{row.label}</p>
@@ -3117,13 +3150,18 @@ export default function CounterpointSyncSettingsPanel() {
 
       <div className="mt-4 rounded-lg border border-app-border bg-app-bg/60 p-3">
         <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          Post-import verification
+          Legacy accumulated verification
         </h4>
         <p className="mt-1 text-xs text-app-text-muted">
-          Counts below are deterministic proof from ROS tables and bridge-reported import facts.
+          Counts below are accumulated ROS table totals and older Bridge facts. They are support diagnostics only and are not scoped to the current import-first run.
         </p>
+        {commandCenter?.proof_scope !== "current_import_run" ? (
+          <p className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-2 text-xs font-semibold text-amber-800 dark:text-amber-100">
+            Current import-run proof is not available here yet. Use the Command center for import-first readiness; this table can include dirty rehearsal data from previous attempts.
+          </p>
+        ) : null}
         <h4 className="mt-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          Sign-off reconciliation
+          Accumulated sign-off reconciliation
         </h4>
         <div className="mt-3 overflow-auto">
           <table className="w-full min-w-[760px] text-left text-xs">

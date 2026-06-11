@@ -160,10 +160,31 @@ async function mockCounterpointProofRoutes(page: Page) {
         mode: "import_first",
         required_history_start: "2018-01-01",
         token_configured: true,
+        preflight_received: true,
+        import_run_received: true,
+        proof_scope: "current_import_run",
+        proof_scope_note: "Counts are scoped to the latest import run.",
         latest_preflight: {
           id: "00000000-0000-0000-0000-000000000001",
           run_kind: "preflight",
           status: "preflight_passed",
+          history_start: "2018-01-01",
+          bridge_hostname: "counterpoint-host",
+          bridge_version: "test",
+          ros_base_url: "http://127.0.0.1:3000",
+          source_fingerprint: "abc",
+          preflight_passed: true,
+          preflight_blockers: [],
+          totals: {},
+          started_at: NOW,
+          completed_at: NOW,
+          created_at: NOW,
+          updated_at: NOW,
+        },
+        latest_import_run: {
+          id: "00000000-0000-0000-0000-000000000002",
+          run_kind: "rehearsal",
+          status: "completed",
           history_start: "2018-01-01",
           bridge_hostname: "counterpoint-host",
           bridge_version: "test",
@@ -355,7 +376,12 @@ async function mockEmptyCounterpointProofRoutes(page: Page) {
         mode: "import_first",
         required_history_start: "2018-01-01",
         token_configured: true,
+        preflight_received: false,
+        import_run_received: false,
+        proof_scope: "no_preflight",
+        proof_scope_note: "No Bridge source-count preflight has been received for the import-first workflow.",
         latest_preflight: null,
+        latest_import_run: null,
         source_counts: [],
         landing_rows: [],
         snapshot_reconciliation: [],
@@ -934,13 +960,15 @@ test.describe("Counterpoint sign-off UI", () => {
 
     const panel = await openCounterpointSettings(page, "connect");
 
-    await expect(
-      panel.getByText("Bridge controls are not reachable on this workstation").first(),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(panel.getByText("Browser cannot reach Bridge controls").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(panel.getByText(/Bridge heartbeat:/).first()).toBeVisible();
+    await expect(panel.getByText(/Import preflight:/).first()).toBeVisible();
     await expect(panel.getByRole("button", { name: /reconnect to bridge/i })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(panel.getByText("Server: OFFLINE")).toBeVisible({ timeout: 15_000 });
+    await expect(panel.getByText("Bridge heartbeat: Offline")).toBeVisible({ timeout: 15_000 });
     await expect(panel.getByText("Ready for sign-off review")).toHaveCount(0);
     await expect(panel.getByText("No automatic blockers detected")).toHaveCount(0);
   });
@@ -1288,23 +1316,26 @@ test.describe("Counterpoint sign-off UI", () => {
     await expect(panel.getByText("Recovery and replay posture")).toBeVisible();
     await expect(panel.getByRole("button", { name: /copy support report/i })).toBeVisible();
     await expect(panel.getByText("Counterpoint Support Diagnostics")).toBeVisible();
-    await expect(panel.getByText("Direct controls reachable", { exact: true }).first()).toBeVisible();
+    await expect(
+      panel.getByText("Browser can reach Bridge controls", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(panel.getByText("Current import run", { exact: true }).first()).toBeVisible();
     await expect(panel.getByText("Pending apply", { exact: true }).first()).toBeVisible();
     await expect(panel.getByText("Support review needed", { exact: true }).first()).toBeVisible();
 
-    await expect(panel.getByText("Post-import verification")).toBeVisible({
+    await expect(panel.getByText("Legacy accumulated verification")).toBeVisible({
       timeout: 20_000,
     });
-    await expect(panel.getByText("Sign-off reconciliation")).toBeVisible({
+    await expect(panel.getByText("Accumulated sign-off reconciliation")).toBeVisible({
       timeout: 20_000,
     });
     const postImportBeforeSignoff = await page.evaluate(() => {
       const elements = Array.from(document.querySelectorAll("h4, p, span"));
       const postImport = elements.find(
-        (element) => element.textContent?.trim() === "Post-import verification",
+        (element) => element.textContent?.trim() === "Legacy accumulated verification",
       );
       const signoff = elements.find(
-        (element) => element.textContent?.trim() === "Sign-off reconciliation",
+        (element) => element.textContent?.trim() === "Accumulated sign-off reconciliation",
       );
       return Boolean(
         postImport &&
