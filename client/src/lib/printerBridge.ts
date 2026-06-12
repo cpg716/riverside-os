@@ -497,6 +497,12 @@ export async function autoRoutePrint(
   }
 
   if (type === "tag") {
+    // In the desktop app, an explicit Zebra target should be tested directly from the Tauri shell.
+    // Keep the Main Hub route only for the unresolved/default loopback tag target so Back Office/PWA
+    // still lets the hub-owned station settings decide where the Zebra job goes.
+    if (isTauri() && !isLoopbackNetworkTarget(target)) {
+      return printRawThermal(payload, target);
+    }
     return printViaMainHubPrintServer(type, payload, target, "text");
   }
 
