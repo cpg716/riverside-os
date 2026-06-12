@@ -62,8 +62,7 @@ fn select_deployment_asset(
 
     if deployment_assets.is_empty() {
         return Err(format!(
-            "Could not find Windows Deployment ZIP asset in release tag {}",
-            tag_name
+            "Could not find Windows Deployment ZIP asset in release tag {tag_name}"
         ));
     }
 
@@ -81,8 +80,7 @@ fn select_deployment_asset(
             .collect::<Vec<_>>()
             .join(", ");
         return Err(format!(
-            "Release {} does not contain a Windows Deployment ZIP for build {}. Available deployment assets: {}",
-            tag_name, target_build_short, names
+            "Release {tag_name} does not contain a Windows Deployment ZIP for build {target_build_short}. Available deployment assets: {names}"
         ));
     }
 
@@ -160,8 +158,7 @@ fn verify_deployment_package_build(
 
     if actual_build_short != target_build_short {
         return Err(format!(
-            "Deployment package build mismatch. Expected {}, package contains {}. Refusing to run the Main Hub update.",
-            target_build_short, actual_build_short
+            "Deployment package build mismatch. Expected {target_build_short}, package contains {actual_build_short}. Refusing to run the Main Hub update."
         ));
     }
 
