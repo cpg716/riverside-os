@@ -80,6 +80,6 @@ The **Z-Reports** view now acts as the shared drawer coordination surface.
 If a drawer group is already marked **Closing now**, avoid starting a second close from another linked register.
 
 ## Tips
-- **Decoupled Printing**: Receipts print on receipt paper; Reports print on office paper. Ensure your **Report Printer** is set in Terminal Overrides.
+- **Decoupled Printing**: Receipts print on receipt paper; Reports print on office paper. Ensure your **Report Printer** is set in **Settings -> Printers & Scanners**.
 - **Shared till group**: Reporting on Register #1 includes data aggregated from all satellite lanes (iPad and Back Office).
 - **One close per drawer**: Satellite lanes stay visible for coordination, but the final Z-close still happens once from Register #1 for the whole till group.

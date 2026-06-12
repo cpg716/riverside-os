@@ -103,7 +103,7 @@ for (const copy of [
   "Installing Main Hub",
   "Installing Back Office App",
   "Installing Register #1 App",
-  "Live installer output is shown below",
+  "Live installer output is shown in the full Execution Output console below.",
   "runMainHubDesktopSequence: true",
   "wizardExecutionStatus === 'success'",
   "Install failed. Review or copy the execution log before retrying.",

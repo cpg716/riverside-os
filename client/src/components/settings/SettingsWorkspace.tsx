@@ -1158,6 +1158,7 @@ export default function SettingsWorkspace({
                 cashierCode={posCashierCode}
                 lifecycleStatus={posLifecycleStatus}
                 onRefreshMeta={onPosRefreshMeta}
+                onOpenPrintingSettings={navigateToTab ? () => navigateToTab("printing") : undefined}
               />
             )}
             {activeTab === "station-network" && (

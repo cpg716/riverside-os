@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, ArrowDownToLine, Link, Download, Monitor, Square, AlertTriangle, Activity, HardDrive, XCircle, Copy } from 'lucide-react';
+import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, Link, Download, Monitor, Square, AlertTriangle, Activity, HardDrive, XCircle, Copy } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import RosieIcon from './RosieIcon';
 
 interface LogMessage {
@@ -43,6 +44,27 @@ interface InstallUpdateResult {
   installed_build: string | null;
 }
 
+interface ConfirmAction {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  tone?: 'danger' | 'warning';
+  onConfirm: () => void | Promise<void>;
+}
+
+const normalizeApiBaseInput = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return 'http://127.0.0.1:3000';
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  try {
+    const url = new URL(withScheme);
+    if (!url.port && url.protocol === 'http:') url.port = '3000';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return withScheme.replace(/\/$/, '');
+  }
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'wizard' | 'maintenance'>('maintenance');
   const [maintenanceTab, setMaintenanceTab] = useState<'status' | 'updates' | 'database' | 'utilities' | 'danger'>('status');
@@ -68,6 +90,8 @@ export default function App() {
   const [pgLoading, setPgLoading] = useState(false);
   const [selfUpdateCheck, setSelfUpdateCheck] = useState<UpdateCheckResult | null>(null);
   const [selfUpdateBusy, setSelfUpdateBusy] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+  const [counterpointToken, setCounterpointToken] = useState('');
 
   const selectedInstallLabel =
     role === 'main-hub'
@@ -83,6 +107,13 @@ export default function App() {
 
   const logText = logs.map((log) => log.text).join('\n');
 
+  const networkFieldLabel =
+    role === 'main-hub' ? 'Main Hub Database Host' : 'Main Hub API Address';
+  const networkFieldHelp =
+    role === 'main-hub'
+      ? 'Usually 127.0.0.1 on the Main Hub.'
+      : 'Use the Main Hub address reachable from this workstation, for example http://10.64.70.196:3000.';
+
   const copyLogs = async () => {
     try {
       await navigator.clipboard.writeText(logText);
@@ -92,10 +123,46 @@ export default function App() {
     }
   };
 
+  const openServerLogs = async () => {
+    try {
+      await invoke('open_logs');
+    } catch (e) {
+      setLogs(prev => [...prev, { level: 'error', text: `Could not open logs directory: ${e}` }]);
+    }
+  };
+
+  const openDeploymentLog = async () => {
+    try {
+      await invoke('open_deployment_log');
+    } catch (e) {
+      setLogs(prev => [...prev, { level: 'error', text: `Could not open log file: ${e}` }]);
+    }
+  };
+
+  const closeWindow = async () => {
+    try {
+      await getCurrentWindow().close();
+    } catch (e) {
+      setLogs(prev => [...prev, { level: 'error', text: `Could not close Deployment Manager: ${e}` }]);
+    }
+  };
+
+  const requestConfirmation = (action: ConfirmAction) => {
+    setConfirmAction(action);
+  };
+
+  const runConfirmedAction = async () => {
+    const action = confirmAction;
+    if (!action) return;
+    setConfirmAction(null);
+    await action.onConfirm();
+  };
+
   const buildMainHubConfig = () => {
     const newConfig = { ...config };
     if (!newConfig.server) newConfig.server = {};
     if (!newConfig.server.database) newConfig.server.database = {};
+    if (!newConfig.register) newConfig.register = {};
     if (!newConfig.server.installRoot) newConfig.server.installRoot = 'C:\\RiversideOS';
     if (!newConfig.server.httpBind) newConfig.server.httpBind = '0.0.0.0:3000';
     if (!newConfig.server.firewallRuleName) newConfig.server.firewallRuleName = 'Riverside OS Server';
@@ -109,7 +176,14 @@ export default function App() {
       };
     }
     newConfig.server.database.adminPassword = dbPassword;
-    if (!newConfig.server.database.host) newConfig.server.database.host = serverIp;
+    if (role === 'main-hub') {
+      newConfig.server.database.host = serverIp || '127.0.0.1';
+      newConfig.register.apiBase = 'http://127.0.0.1:3000';
+      newConfig.register.stationLabel = 'Main Hub';
+    } else {
+      newConfig.register.apiBase = normalizeApiBaseInput(serverIp);
+      newConfig.register.stationLabel = role === 'standalone-backoffice' ? 'Back Office' : 'Register #1';
+    }
     if (!newConfig.server.database.port) newConfig.server.database.port = 5432;
     if (!newConfig.server.database.databaseName) newConfig.server.database.databaseName = 'riverside_os';
     if (!newConfig.server.database.appUser) newConfig.server.database.appUser = 'riverside_app';
@@ -144,6 +218,11 @@ export default function App() {
         setConfig(parsed);
         if (parsed?.server?.database?.adminPassword) {
           setDbPassword(parsed.server.database.adminPassword);
+        }
+        if (parsed?.register?.apiBase) {
+          setServerIp(parsed.register.apiBase);
+        } else if (parsed?.server?.database?.host) {
+          setServerIp(parsed.server.database.host);
         }
       } catch (e) {
         console.error("Failed to parse config:", e);
@@ -273,6 +352,15 @@ export default function App() {
     }
   };
 
+  const syncCounterpointBridgeToken = async () => {
+    const token = counterpointToken.trim();
+    if (!token) {
+      setLogs([{ level: 'error', text: 'Paste the Counterpoint bridge token before syncing it to the Main Hub.' }]);
+      return;
+    }
+    await executeScript('set-counterpoint-bridge-token.ps1', ['-Token', token]);
+  };
+
   const checkDeploymentManagerUpdate = async () => {
     if (selfUpdateBusy) return;
     setSelfUpdateBusy(true);
@@ -317,7 +405,11 @@ export default function App() {
   };
 
 
-  const executeInline = async (command: string, description: string) => {
+  const executeInline = async (
+    command: string,
+    description: string,
+    options?: { refreshPostgres?: boolean },
+  ) => {
     if (isExecuting) return;
     if (!requireElevation(description)) return;
     setIsExecuting(true);
@@ -329,6 +421,9 @@ export default function App() {
 
     try {
       await invoke('run_inline_powershell', { scriptContent: command });
+      if (options?.refreshPostgres) {
+        await refreshPgStatus();
+      }
     } catch (e) {
       setLogs(prev => [...prev, { level: 'error', text: `Failed: ${e}` }]);
     } finally {
@@ -336,6 +431,72 @@ export default function App() {
       unlisten();
     }
   };
+
+  const renderExecutionOutput = (emptyText: string) => (
+    <div className="flex flex-col min-h-[400px] border-t pt-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold text-zinc-800 text-lg flex items-center gap-2">
+          <Terminal className="w-5 h-5 text-brand-600" /> Execution Output
+        </h3>
+        <div className="flex items-center gap-2">
+          {isExecuting && (
+            <span className="flex items-center gap-2 text-xs font-semibold text-brand-600 bg-brand-50 px-2.5 py-1 rounded-md animate-pulse">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Running Task...
+            </span>
+          )}
+          {logs.length > 0 && (
+            <button
+              type="button"
+              onClick={copyLogs}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-zinc-200 text-zinc-700 font-semibold rounded-lg hover:bg-zinc-300 transition-all"
+            >
+              <Copy className="w-3.5 h-3.5" /> Copy Logs
+            </button>
+          )}
+          {logs.length > 0 && (
+            <button
+              type="button"
+              onClick={openDeploymentLog}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs bg-zinc-200 text-zinc-700 font-semibold rounded-lg hover:bg-zinc-300 transition-all"
+            >
+              <FolderOpen className="w-3.5 h-3.5" /> Open Log File
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="flex-1 bg-zinc-900 rounded-xl p-5 font-mono text-xs text-zinc-300 overflow-y-auto min-h-[350px] max-h-[600px] shadow-inner">
+        {logs.length === 0 ? (
+          <div className="h-full min-h-[350px] flex flex-col items-center justify-center text-zinc-500 gap-2">
+            <Terminal className="w-8 h-8 text-zinc-700" />
+            <span>{emptyText}</span>
+          </div>
+        ) : (
+          <div className="space-y-1.5 pb-4">
+            {logs.map((log, i) => (
+              <p key={i} className={`whitespace-pre-wrap ${
+                log.level === 'error' ? 'text-red-400' :
+                log.level === 'success' ? 'text-green-400' :
+                'text-zinc-300'
+              }`}>
+                {log.text}
+              </p>
+            ))}
+            <div ref={logsEndRef} />
+          </div>
+        )}
+      </div>
+      {logs.length > 0 && !isExecuting && (
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            onClick={() => setLogs([])}
+            className="px-5 py-2 text-sm bg-zinc-200 text-zinc-700 font-semibold rounded-lg hover:bg-zinc-300 transition-all"
+          >
+            Clear Logs
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col items-center py-12 px-4">
@@ -387,35 +548,36 @@ export default function App() {
 
       {activeTab === 'wizard' ? (
         /* WIZARD TAB */
-        <div className="w-full max-w-4xl grid grid-cols-12 gap-8">
-          {/* Sidebar steps */}
-          <div className="col-span-4 space-y-2">
-            {[
-              { num: 1, title: 'Station Role', desc: 'Choose server or register', icon: Server },
-              { num: 2, title: 'Configuration', desc: 'Network and database', icon: Settings },
-              { num: 3, title: 'Execution', desc: 'Apply changes', icon: Play },
-              { num: 4, title: 'Complete', desc: 'Ready to run', icon: CheckCircle },
-            ].map((s) => {
-              const active = step === s.num;
-              const past = step > s.num;
-              return (
-                <div
-                  key={s.num}
-                  className={`p-4 rounded-xl border transition-all ${active ? 'bg-white border-brand-500 shadow-sm' : past ? 'bg-transparent border-transparent opacity-60' : 'bg-transparent border-transparent opacity-40'}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${active ? 'bg-brand-100 text-brand-700' : past ? 'bg-zinc-200 text-zinc-700' : 'bg-zinc-100 text-zinc-400'}`}>
-                      {past ? <CheckCircle className="w-4 h-4" /> : s.num}
-                    </div>
-                    <div>
-                      <h3 className={`font-semibold text-sm ${active ? 'text-zinc-900' : 'text-zinc-600'}`}>{s.title}</h3>
-                      <p className="text-xs text-zinc-500">{s.desc}</p>
+        <div className="w-full max-w-5xl flex flex-col gap-6">
+          <div className="grid grid-cols-12 gap-8">
+            {/* Sidebar steps */}
+            <div className="col-span-4 space-y-2">
+              {[
+                { num: 1, title: 'Station Role', desc: 'Choose server or register', icon: Server },
+                { num: 2, title: 'Configuration', desc: 'Network and database', icon: Settings },
+                { num: 3, title: 'Execution', desc: 'Apply changes', icon: Play },
+                { num: 4, title: 'Complete', desc: 'Ready to run', icon: CheckCircle },
+              ].map((s) => {
+                const active = step === s.num;
+                const past = step > s.num;
+                return (
+                  <div
+                    key={s.num}
+                    className={`p-4 rounded-xl border transition-all ${active ? 'bg-white border-brand-500 shadow-sm' : past ? 'bg-transparent border-transparent opacity-60' : 'bg-transparent border-transparent opacity-40'}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${active ? 'bg-brand-100 text-brand-700' : past ? 'bg-zinc-200 text-zinc-700' : 'bg-zinc-100 text-zinc-400'}`}>
+                        {past ? <CheckCircle className="w-4 h-4" /> : s.num}
+                      </div>
+                      <div>
+                        <h3 className={`font-semibold text-sm ${active ? 'text-zinc-900' : 'text-zinc-600'}`}>{s.title}</h3>
+                        <p className="text-xs text-zinc-500">{s.desc}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
 
           {/* Workspace */}
           <div className="col-span-8 glass-panel p-8 min-h-[500px] flex flex-col">
@@ -459,13 +621,15 @@ export default function App() {
                 <h2 className="text-xl font-bold mb-6">Network & Database Configuration</h2>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-semibold text-zinc-700 mb-1">Server IP Address</label>
+                    <label className="block text-sm font-semibold text-zinc-700 mb-1">{networkFieldLabel}</label>
                     <input
                       type="text"
                       value={serverIp}
                       onChange={(e) => setServerIp(e.target.value)}
+                      placeholder={role === 'main-hub' ? '127.0.0.1' : 'http://10.64.70.196:3000'}
                       className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
                     />
+                    <p className="mt-1 text-xs text-zinc-500">{networkFieldHelp}</p>
                   </div>
                   {role === 'main-hub' && (
                     <div>
@@ -486,7 +650,7 @@ export default function App() {
             {step === 3 && (
               <div className="flex-1 flex flex-col">
                 <h2 className="text-xl font-bold mb-2">{selectedInstallLabel}...</h2>
-                <p className="text-sm text-zinc-500 mb-4">Live installer output is shown below and mirrored in the full Execution Output console.</p>
+                <p className="text-sm text-zinc-500 mb-4">Live installer output is shown in the full Execution Output console below.</p>
                 {wizardExecutionStatus === 'error' && (
                   <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
                     Install failed. Review or copy the execution log before retrying. The Finish button is disabled until the install completes successfully.
@@ -497,26 +661,6 @@ export default function App() {
                     Install completed successfully. You can finish this wizard.
                   </div>
                 )}
-                <div className="flex-1 min-h-[280px] rounded-xl bg-zinc-900 p-4 font-mono text-xs text-zinc-300 overflow-y-auto shadow-inner">
-                  {logs.length === 0 ? (
-                    <div className="h-full min-h-[240px] flex flex-col items-center justify-center text-zinc-500 gap-2">
-                      <Terminal className="w-7 h-7 text-zinc-700" />
-                      <span>Starting installer...</span>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 pb-2">
-                      {logs.slice(-80).map((log, i) => (
-                        <p key={i} className={`whitespace-pre-wrap ${
-                          log.level === 'error' ? 'text-red-400' :
-                          log.level === 'success' ? 'text-green-400' :
-                          'text-zinc-300'
-                        }`}>
-                          {log.text}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
             )}
 
@@ -547,12 +691,14 @@ export default function App() {
                 </button>
               )}
               {step === 4 && (
-                <button onClick={() => window.close()} className="px-6 py-2.5 bg-zinc-200 text-zinc-800 font-semibold rounded-lg hover:bg-zinc-300 flex items-center gap-2">
+                <button onClick={closeWindow} className="px-6 py-2.5 bg-zinc-200 text-zinc-800 font-semibold rounded-lg hover:bg-zinc-300 flex items-center gap-2">
                   Close
                 </button>
               )}
             </div>
           </div>
+          </div>
+          {(step === 3 || logs.length > 0) && renderExecutionOutput('Starting installer...')}
         </div>
       ) : (
 
@@ -623,7 +769,7 @@ export default function App() {
                       <span className="text-xs font-semibold">Restart Server</span>
                     </button>
                     <button
-                      onClick={() => invoke('open_logs')}
+                      onClick={openServerLogs}
                       className="p-4 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all flex flex-col items-center justify-center gap-2 group text-center"
                     >
                       <FolderOpen className="w-6 h-6 text-zinc-400 group-hover:text-brand-500" />
@@ -736,21 +882,21 @@ export default function App() {
                         {pgStatus.service_name && (
                           <div className="flex gap-2 pt-3 border-t border-zinc-100">
                             <button
-                              onClick={() => { executeInline(`Start-Service -Name '${pgStatus.service_name}'`, 'Start PostgreSQL'); setTimeout(refreshPgStatus, 3000); }}
+                              onClick={() => executeInline(`Start-Service -Name '${pgStatus.service_name}'`, 'Start PostgreSQL', { refreshPostgres: true })}
                               disabled={isExecuting || pgStatus.service_status === 'running'}
                               className="flex-1 text-xs font-semibold py-2 rounded-lg border border-zinc-200 hover:border-green-500 hover:bg-green-50 disabled:opacity-40 transition-all"
                             >
                               Start PG Service
                             </button>
                             <button
-                              onClick={() => { executeInline(`Restart-Service -Name '${pgStatus.service_name}' -Force`, 'Restart PostgreSQL'); setTimeout(refreshPgStatus, 5000); }}
+                              onClick={() => executeInline(`Restart-Service -Name '${pgStatus.service_name}' -Force`, 'Restart PostgreSQL', { refreshPostgres: true })}
                               disabled={isExecuting}
                               className="flex-1 text-xs font-semibold py-2 rounded-lg border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 disabled:opacity-40 transition-all"
                             >
                               Restart PG Service
                             </button>
                             <button
-                              onClick={() => { executeInline(`Stop-Service -Name '${pgStatus.service_name}' -Force`, 'Stop PostgreSQL'); setTimeout(refreshPgStatus, 3000); }}
+                              onClick={() => executeInline(`Stop-Service -Name '${pgStatus.service_name}' -Force`, 'Stop PostgreSQL', { refreshPostgres: true })}
                               disabled={isExecuting || pgStatus.service_status === 'stopped'}
                               className="flex-1 text-xs font-semibold py-2 rounded-lg border border-zinc-200 hover:border-red-500 hover:bg-red-50 disabled:opacity-40 transition-all"
                             >
@@ -812,8 +958,8 @@ export default function App() {
                         </span>
                         <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
                       </div>
-                      <h4 className="font-bold text-sm text-zinc-900">Update Register / Workstation</h4>
-                      <p className="text-xs text-zinc-500 mt-1">Download and install the native front-end client POS software.</p>
+                      <h4 className="font-bold text-sm text-zinc-900">Update Desktop App</h4>
+                      <p className="text-xs text-zinc-500 mt-1">Install the native Riverside desktop shell for Register, Back Office, or Main Hub.</p>
                     </div>
                   </button>
 
@@ -880,7 +1026,7 @@ export default function App() {
                 <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-zinc-900">
                   <Database className="w-5 h-5 text-brand-600" /> Database Administration
                 </h3>
-                <p className="text-xs text-zinc-500 mb-6">Manage PostgreSQL schema updates, test records initialization, and administrative credentials.</p>
+                <p className="text-xs text-zinc-500 mb-6">Manage PostgreSQL schema updates, bootstrap admin recovery, and database credentials.</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <button
                     onClick={() => executeScript('apply-riverside-migrations.ps1')}
@@ -900,28 +1046,32 @@ export default function App() {
                   </button>
 
                   <button
-                    onClick={() => executeInline('$psql = Get-Command psql.exe -ErrorAction SilentlyContinue; $psqlPath = if ($psql) { $psql.Source } else { \'psql.exe\' }; if (Test-Path \'seeds\') { & $psqlPath -U postgres -d riverside_os -f \'seeds/seed_core_required.sql\'; & $psqlPath -U postgres -d riverside_os -f \'seeds/seed_rbac.sql\'; Write-Host \'Database seeded successfully.\' } else { Write-Host \'No seeds directory found.\' }', 'Seed Database')}
+                    onClick={() => executeScript('repair-bootstrap-admin.ps1')}
                     disabled={isExecuting}
                     className="text-left p-5 rounded-xl border border-zinc-200 hover:border-brand-500 hover:bg-brand-50 transition-all disabled:opacity-50 flex flex-col justify-between h-40 group"
                   >
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <span className="p-2 rounded-lg bg-zinc-100 text-zinc-700 group-hover:bg-brand-100 group-hover:text-brand-700">
-                          <ArrowDownToLine className="w-5 h-5" />
+                          <Key className="w-5 h-5" />
                         </span>
-                        <ArrowDownToLine className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
+                        <Key className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
                       </div>
-                      <h4 className="font-bold text-sm text-zinc-900">Seed Database</h4>
-                      <p className="text-xs text-zinc-500 mt-1">Inject core settings data and fallback administrator role access tables.</p>
+                      <h4 className="font-bold text-sm text-zinc-900">Repair Admin Account</h4>
+                      <p className="text-xs text-zinc-500 mt-1">Create or repair the bootstrap admin login after database recovery.</p>
                     </div>
                   </button>
 
                   <button
-                    onClick={() => {
-                      if (confirm('This will stop the database, force a password reset, and start it again. Your new password will be auto-saved to the config file. Proceed?')) {
-                        executeScript('reset-postgres-password.ps1');
-                      }
-                    }}
+                    onClick={() =>
+                      requestConfirmation({
+                        title: 'Reset PostgreSQL Admin Password',
+                        message: 'This stops PostgreSQL, forces a password reset, restarts it, and saves the new password to deployment config.',
+                        confirmLabel: 'Reset Password',
+                        tone: 'warning',
+                        onConfirm: () => executeScript('reset-postgres-password.ps1'),
+                      })
+                    }
                     disabled={isExecuting}
                     className="text-left p-5 rounded-xl border border-red-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex flex-col justify-between h-40 group"
                   >
@@ -932,7 +1082,7 @@ export default function App() {
                         </span>
                         <Key className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
                       </div>
-                      <h4 className="font-bold text-sm text-red-600">Reset Admin Password</h4>
+                      <h4 className="font-bold text-sm text-red-600">Reset PostgreSQL Password</h4>
                       <p className="text-xs text-red-400/80 mt-1">Forces PostgreSQL database admin password reset and stores key in config.</p>
                     </div>
                   </button>
@@ -945,7 +1095,18 @@ export default function App() {
                 <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-zinc-900">
                   <Cpu className="w-5 h-5 text-brand-600" /> Utility & Integration Tools
                 </h3>
-                <p className="text-xs text-zinc-500 mb-6 font-medium">Verify integrations, rebuild AI features, or restore administrative identity profiles.</p>
+                <p className="text-xs text-zinc-500 mb-6 font-medium">Repair local AI services, sync integration tokens, and restore encrypted server credentials.</p>
+                <div className="mb-4 max-w-xl">
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Counterpoint Bridge Token</label>
+                  <input
+                    type="password"
+                    value={counterpointToken}
+                    onChange={(e) => setCounterpointToken(e.target.value)}
+                    placeholder="Paste COUNTERPOINT_SYNC_TOKEN before syncing"
+                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none"
+                  />
+                  <p className="mt-1 text-[11px] text-zinc-500">Used only by Sync Counterpoint Bridge; the saved execution log masks the token argument.</p>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <button
                     onClick={() => executeScript('Install-RosieAiStack.ps1')}
@@ -982,7 +1143,7 @@ export default function App() {
                   </button>
 
                   <button
-                    onClick={() => executeScript('set-counterpoint-bridge-token.ps1')}
+                    onClick={syncCounterpointBridgeToken}
                     disabled={isExecuting}
                     className="text-left p-4 rounded-xl border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 transition-all disabled:opacity-50 flex items-center justify-between group"
                   >
@@ -992,7 +1153,7 @@ export default function App() {
                       </span>
                       <div>
                         <h4 className="font-bold text-sm text-zinc-900">Sync Counterpoint Bridge</h4>
-                        <p className="text-xs text-zinc-500">Map and regenerate token validation schemas for Counterpoint Sync.</p>
+                        <p className="text-xs text-zinc-500">Save the bridge token to the Main Hub server and restart Riverside OS Server.</p>
                       </div>
                     </div>
                     <Link className="w-4 h-4 text-zinc-400 group-hover:text-amber-500" />
@@ -1014,23 +1175,6 @@ export default function App() {
                     </div>
                     <Wrench className="w-4 h-4 text-zinc-400 group-hover:text-amber-500" />
                   </button>
-
-                  <button
-                    onClick={() => executeScript('repair-bootstrap-admin.ps1')}
-                    disabled={isExecuting}
-                    className="text-left p-4 rounded-xl border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 transition-all disabled:opacity-50 flex items-center justify-between group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="p-2 rounded-lg bg-zinc-100 text-zinc-700 group-hover:bg-amber-100 group-hover:text-amber-700">
-                        <Key className="w-5 h-5" />
-                      </span>
-                      <div>
-                        <h4 className="font-bold text-sm text-zinc-900">Repair Admin Account</h4>
-                        <p className="text-xs text-zinc-500">Inject master admin record if locked out of main panel.</p>
-                      </div>
-                    </div>
-                    <Key className="w-4 h-4 text-zinc-400 group-hover:text-amber-500" />
-                  </button>
                 </div>
               </div>
             )}
@@ -1043,11 +1187,15 @@ export default function App() {
                 <p className="text-xs text-red-400/80 mb-6 font-medium">Irreversible actions that modify or delete system-wide store data. Proceed with caution.</p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <button
-                    onClick={() => {
-                      if(confirm('Are you sure you want to completely START FRESH? This will clear the DB, seed the proper start data, and set it up like new. This cannot be undone.')) {
-                        executeScript('reset-riverside-database.ps1', ['-StartFresh']);
-                      }
-                    }}
+                    onClick={() =>
+                      requestConfirmation({
+                        title: 'Start Fresh',
+                        message: 'This clears the Riverside database, reapplies migrations, and rebuilds baseline data. This cannot be undone.',
+                        confirmLabel: 'Start Fresh',
+                        tone: 'danger',
+                        onConfirm: () => executeScript('reset-riverside-database.ps1', ['-StartFresh']),
+                      })
+                    }
                     disabled={isExecuting}
                     className="text-left p-5 rounded-xl border border-red-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex flex-col justify-between h-40 group"
                   >
@@ -1064,11 +1212,15 @@ export default function App() {
                   </button>
 
                   <button
-                    onClick={() => {
-                      if(confirm('REMOVE MAIN HUB: This stops the Riverside OS Server, removes scheduled tasks, deletes server/client/release subdirectories, removes the firewall rule, and DROPS the PostgreSQL database. Proceed?')) {
-                        executeScript('remove-main-hub.ps1', ['-Force']);
-                      }
-                    }}
+                    onClick={() =>
+                      requestConfirmation({
+                        title: 'Uninstall Main Hub',
+                        message: 'This stops Riverside OS Server, removes scheduled tasks, removes firewall rules, deletes server files, and drops the PostgreSQL database.',
+                        confirmLabel: 'Uninstall Main Hub',
+                        tone: 'danger',
+                        onConfirm: () => executeScript('remove-main-hub.ps1', ['-Force']),
+                      })
+                    }
                     disabled={isExecuting}
                     className="text-left p-5 rounded-xl border border-zinc-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex flex-col justify-between h-40 group"
                   >
@@ -1085,22 +1237,15 @@ export default function App() {
                   </button>
 
                   <button
-                    onClick={() => {
-                      if(confirm('UNINSTALL REGISTER: This will stop the Riverside OS desktop app, run its uninstaller, and remove station config. Proceed?')) {
-                        executeInline(
-                          `$ErrorActionPreference = 'SilentlyContinue';
-                           foreach ($name in @('Riverside POS','Riverside.POS','RiversideOS','riverside-pos')) { Stop-Process -Name $name -Force -ErrorAction SilentlyContinue };
-                           $regPaths = @('HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*');
-                           $apps = foreach ($p in $regPaths) { Get-ItemProperty $p -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match 'Riverside' -and ($_.DisplayName -match 'POS|OS') } };
-                           foreach ($app in $apps) { if ($app.PSChildName -match '^\\{.*\\}$') { Start-Process msiexec.exe -Wait -ArgumentList @('/x',$app.PSChildName,'/qn','/norestart') } elseif ($app.UninstallString) { Start-Process cmd.exe -Wait -ArgumentList @('/c',$app.UninstallString) } };
-                           $stationDir = Join-Path $env:PROGRAMDATA 'RiversideOS';
-                           Remove-Item (Join-Path $stationDir 'station-config.json') -Force -ErrorAction SilentlyContinue;
-                           Remove-Item (Join-Path $stationDir 'register-deployment-summary.txt') -Force -ErrorAction SilentlyContinue;
-                           Write-Host 'Register uninstall complete.'`,
-                          'Uninstall Register'
-                        );
-                      }
-                    }}
+                    onClick={() =>
+                      requestConfirmation({
+                        title: 'Uninstall Workstation App',
+                        message: 'This stops the Riverside desktop app, runs the packaged workstation app removal script, and removes local station config.',
+                        confirmLabel: 'Uninstall Workstation',
+                        tone: 'danger',
+                        onConfirm: () => executeScript('remove-standalone-app.ps1', ['-Force']),
+                      })
+                    }
                     disabled={isExecuting}
                     className="text-left p-5 rounded-xl border border-zinc-200 hover:border-red-500 hover:bg-red-50 transition-all disabled:opacity-50 flex flex-col justify-between h-40 group"
                   >
@@ -1111,8 +1256,8 @@ export default function App() {
                         </span>
                         <Trash2 className="w-4 h-4 text-zinc-400 group-hover:text-red-500" />
                       </div>
-                      <h4 className="font-bold text-sm text-red-600">Uninstall Register</h4>
-                      <p className="text-xs text-zinc-500 mt-1">Stops desktop register application shell and wipes localized registry config.</p>
+                      <h4 className="font-bold text-sm text-red-600">Uninstall Workstation</h4>
+                      <p className="text-xs text-zinc-500 mt-1">Stops the desktop app, runs the workstation uninstaller, and removes local station config.</p>
                     </div>
                   </button>
                 </div>
@@ -1120,60 +1265,41 @@ export default function App() {
             )}
           </div>
 
-          {/* Full-width Execution Output Console */}
-          <div className="flex flex-col min-h-[400px] border-t pt-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-zinc-800 text-lg flex items-center gap-2">
-                <Terminal className="w-5 h-5 text-brand-600" /> Execution Output
-              </h3>
-              <div className="flex items-center gap-2">
-                {isExecuting && (
-                  <span className="flex items-center gap-2 text-xs font-semibold text-brand-600 bg-brand-50 px-2.5 py-1 rounded-md animate-pulse">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Running Task...
-                  </span>
-                )}
-                {logs.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={copyLogs}
-                    className="flex items-center gap-2 px-3 py-1.5 text-xs bg-zinc-200 text-zinc-700 font-semibold rounded-lg hover:bg-zinc-300 transition-all"
-                  >
-                    <Copy className="w-3.5 h-3.5" /> Copy Logs
-                  </button>
-                )}
+          {renderExecutionOutput('Select and run a command or update script above...')}
+        </div>
+      )}
+      {confirmAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/45 px-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl border border-zinc-200">
+            <div className="flex items-start gap-3">
+              <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                confirmAction.tone === 'danger' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'
+              }`}>
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-zinc-900">{confirmAction.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-600">{confirmAction.message}</p>
               </div>
             </div>
-            <div className="flex-1 bg-zinc-900 rounded-xl p-5 font-mono text-xs text-zinc-300 overflow-y-auto min-h-[350px] max-h-[600px] shadow-inner">
-              {logs.length === 0 ? (
-                <div className="h-full min-h-[350px] flex flex-col items-center justify-center text-zinc-500 gap-2">
-                  <Terminal className="w-8 h-8 text-zinc-700" />
-                  <span>Select and run a command or update script above...</span>
-                </div>
-              ) : (
-                <div className="space-y-1.5 pb-4">
-                  {logs.map((log, i) => (
-                    <p key={i} className={`whitespace-pre-wrap ${
-                      log.level === 'error' ? 'text-red-400' :
-                      log.level === 'success' ? 'text-green-400' :
-                      'text-zinc-300'
-                    }`}>
-                      {log.text}
-                    </p>
-                  ))}
-                  <div ref={logsEndRef} />
-                </div>
-              )}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmAction(null)}
+                className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={runConfirmedAction}
+                className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${
+                  confirmAction.tone === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'
+                }`}
+              >
+                {confirmAction.confirmLabel}
+              </button>
             </div>
-            {logs.length > 0 && !isExecuting && (
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  onClick={() => setLogs([])}
-                  className="px-5 py-2 text-sm bg-zinc-200 text-zinc-700 font-semibold rounded-lg hover:bg-zinc-300 transition-all"
-                >
-                  Clear Logs
-                </button>
-              </div>
-            )}
           </div>
         </div>
       )}

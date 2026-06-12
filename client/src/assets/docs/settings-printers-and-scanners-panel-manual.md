@@ -23,6 +23,8 @@ status: approved
 
 This panel stores the current workstation's hardware targets. Back Office and POS use the same local settings, but POS opens a Register Hardware view with lane-focused readiness and test actions.
 
+Register Settings only controls register preferences such as receipt auto-print. Receipt, tag, and Reports printer targets must be set here so every print path uses the same station configuration.
+
 ## When to use it
 
 Use this panel when opening a new lane, replacing a printer, checking scanner input, or troubleshooting receipt delivery after a completed sale.

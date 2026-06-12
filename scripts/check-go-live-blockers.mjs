@@ -601,6 +601,115 @@ function checkWindowsRosieProcessLockGuards() {
   }
 }
 
+function checkWindowsInstallerRerunIdempotency() {
+  const installerFile = "deployment/windows/install-server.ps1";
+  const installer = read(installerFile);
+  assert(
+    !installer.includes("ON CONFLICT (version)") &&
+      installer.includes("SELECT 1 FROM ros_schema_migrations WHERE version = '$migrationVersion'"),
+    "Windows installer migration ledger recovery does not require a pre-existing version constraint",
+    installerFile,
+    "Rerun installs can recover 001_core_identity_staff before 007 adds ros_schema_migrations_pkey.",
+  );
+  assert(
+    !installer.includes("ON CONFLICT (cashier_code)") &&
+      installer.includes("SELECT 1 FROM staff WHERE cashier_code = '1234'"),
+    "Windows installer bootstrap admin does not require staff cashier uniqueness before constraints migrate",
+    installerFile,
+    "Rerun installs can recreate Chris G before 007 adds staff_cashier_code_key.",
+  );
+
+  const repairFile = "deployment/windows/repair-bootstrap-admin.ps1";
+  const repair = read(repairFile);
+  assert(
+    !repair.includes("ON CONFLICT (cashier_code)") &&
+      repair.includes("SELECT 1 FROM staff WHERE cashier_code = '1234'"),
+    "Bootstrap admin repair script does not require staff cashier uniqueness before constraints migrate",
+    repairFile,
+    "The standalone bootstrap repair path must work on partially migrated Main Hub databases.",
+  );
+}
+
+function checkDeploymentManagerPersistentLogs() {
+  const backendFile = "deployment/manager-app/src-tauri/src/lib.rs";
+  const backend = read(backendFile);
+  assert(
+    backend.includes("deployment-manager.log") &&
+      backend.includes("append_persistent_log") &&
+      backend.includes("emit_deployment_log") &&
+      backend.includes("open_deployment_log"),
+    "Deployment Manager mirrors execution output to deployment-manager.log",
+    backendFile,
+    "The package README promises a deployment-manager.log file next to the installer for support.",
+  );
+
+  const frontendFile = "deployment/manager-app/src/App.tsx";
+  const frontend = read(frontendFile);
+  assert(
+    frontend.includes("Open Log File") && frontend.includes("open_deployment_log"),
+    "Deployment Manager exposes the persistent execution log from the output console",
+    frontendFile,
+    "Staff must be able to open the saved installer/update log without relying on clipboard copy.",
+  );
+
+  const serverManagerFile = "deployment/server-manager-app/src-tauri/src/lib.rs";
+  const serverManager = read(serverManagerFile);
+  assert(
+    serverManager.includes("server-manager.log") &&
+      serverManager.includes("append_persistent_log") &&
+      serverManager.includes("emit_server_manager_log") &&
+      serverManager.includes("Persistent log:"),
+    "ROS Server Manager mirrors action output to server-manager.log",
+    serverManagerFile,
+    "Server recovery actions must leave a saved log under the Main Hub logs directory.",
+  );
+}
+
+function checkDeploymentManagerActionWiring() {
+  const frontendFile = "deployment/manager-app/src/App.tsx";
+  const frontend = read(frontendFile);
+  assert(
+    !frontend.includes("confirm(") &&
+      !frontend.includes("setTimeout(") &&
+      !frontend.includes("Seed Database") &&
+      frontend.includes("requestConfirmation") &&
+      frontend.includes("renderExecutionOutput") &&
+      frontend.includes("newConfig.register.apiBase = normalizeApiBaseInput(serverIp)") &&
+      frontend.includes("remove-standalone-app.ps1") &&
+      frontend.includes("counterpointToken") &&
+      frontend.includes("set-counterpoint-bridge-token.ps1', ['-Token', token]"),
+    "Deployment Manager visible actions are wired, confirmable, and use the shared execution console",
+    frontendFile,
+    "Avoid browser prompts, arbitrary refresh timers, dead seed actions, unwired standalone API config, and hidden Counterpoint token prompts.",
+  );
+
+  const scriptCalls = sortedSet(
+    [...frontend.matchAll(/executeScript\('([^']+)'/g)].map((match) => match[1]),
+  );
+  const missingScripts = scriptCalls.filter(
+    (script) => !fs.existsSync(path.join(root, "deployment/windows", script)),
+  );
+  assert(
+    missingScripts.length === 0,
+    "Deployment Manager script buttons point to packaged Windows scripts",
+    frontendFile,
+    missingScripts.length > 0
+      ? `Missing scripts: ${missingScripts.join(", ")}`
+      : "Every executeScript button should resolve inside deployment/windows.",
+  );
+
+  const backendFile = "deployment/manager-app/src-tauri/src/lib.rs";
+  const backend = read(backendFile);
+  assert(
+    backend.includes("format_script_args_for_log") &&
+      backend.includes("\"-token\"") &&
+      backend.includes("[redacted]"),
+    "Deployment Manager masks sensitive script arguments in persistent execution logs",
+    backendFile,
+    "Counterpoint bridge tokens and future password-like args must not be written to deployment-manager.log.",
+  );
+}
+
 function checkReleaseWorkflowPreBuildGates() {
   const packageJson = read("package.json");
   assert(
@@ -757,6 +866,9 @@ checkCounterpointWorkbenchSql();
 checkPackagedHelpManuals();
 checkGeneratedHelpManualCoverage();
 checkWindowsRosieProcessLockGuards();
+checkWindowsInstallerRerunIdempotency();
+checkDeploymentManagerPersistentLogs();
+checkDeploymentManagerActionWiring();
 checkReleaseWorkflowPreBuildGates();
 checkDesktopAndPwaUpdateWiring();
 

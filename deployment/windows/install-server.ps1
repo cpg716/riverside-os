@@ -533,11 +533,11 @@ function Assert-DatabaseUtf8($PsqlPath, $Db, [string]$DatabaseName) {
 
 function Ensure-BootstrapAdmin($PsqlPath, $DatabaseUrl) {
   $bootstrapPinHash = '$argon2id$v=19$m=19456,t=2,p=1$KWJoKjtQYNuPjRIyKL2M9g$FBpoET53ejevTU5LrsLTzQMrgXpV5NavqruJmerdPsc'
-  $sql = "INSERT INTO staff (full_name, cashier_code, pin_hash, role, is_active, avatar_key) " +
-    "VALUES ('Chris G', '1234', '$bootstrapPinHash', 'admin', TRUE, 'ros_default') " +
-    "ON CONFLICT (cashier_code) DO UPDATE SET " +
-    "full_name = EXCLUDED.full_name, pin_hash = EXCLUDED.pin_hash, role = EXCLUDED.role, " +
-    "is_active = TRUE, avatar_key = COALESCE(staff.avatar_key, EXCLUDED.avatar_key); " +
+  $sql = "UPDATE staff SET full_name = 'Chris G', pin_hash = '$bootstrapPinHash', role = 'admin'::staff_role, " +
+    "is_active = TRUE, avatar_key = COALESCE(avatar_key, 'ros_default') WHERE cashier_code = '1234'; " +
+    "INSERT INTO staff (full_name, cashier_code, pin_hash, role, is_active, avatar_key) " +
+    "SELECT 'Chris G', '1234', '$bootstrapPinHash', 'admin'::staff_role, TRUE, 'ros_default' " +
+    "WHERE NOT EXISTS (SELECT 1 FROM staff WHERE cashier_code = '1234'); " +
     "DO `$`$ BEGIN " +
     "IF NOT EXISTS (SELECT 1 FROM staff WHERE cashier_code = '1234' AND role = 'admin'::staff_role AND is_active = TRUE AND pin_hash IS NOT NULL) THEN " +
     "RAISE EXCEPTION 'Bootstrap admin was not created.'; END IF; END `$`$;"
@@ -939,7 +939,13 @@ function Update-StoredMigrationChecksum($PsqlPath, $DatabaseUrl, [string]$Versio
 function Add-MigrationLedgerEntry($PsqlPath, $DatabaseUrl, [string]$Version, [string]$FileSha256) {
   $migrationVersion = Escape-SqlLiteral $Version
   $safeSha = Escape-SqlLiteral $FileSha256
-  Invoke-Psql $PsqlPath $DatabaseUrl "INSERT INTO ros_schema_migrations (version, file_sha256) VALUES ('$migrationVersion', '$safeSha') ON CONFLICT (version) DO UPDATE SET file_sha256 = CASE WHEN ros_schema_migrations.file_sha256 IS NULL OR btrim(ros_schema_migrations.file_sha256) = '' THEN EXCLUDED.file_sha256 ELSE ros_schema_migrations.file_sha256 END;"
+  $sql = "UPDATE ros_schema_migrations SET file_sha256 = CASE " +
+    "WHEN file_sha256 IS NULL OR btrim(file_sha256) = '' THEN '$safeSha' " +
+    "ELSE file_sha256 END WHERE version = '$migrationVersion'; " +
+    "INSERT INTO ros_schema_migrations (version, file_sha256) " +
+    "SELECT '$migrationVersion', '$safeSha' " +
+    "WHERE NOT EXISTS (SELECT 1 FROM ros_schema_migrations WHERE version = '$migrationVersion');"
+  Invoke-Psql $PsqlPath $DatabaseUrl $sql
 }
 
 function Test-CoreIdentityMigrationApplied($PsqlPath, $DatabaseUrl) {

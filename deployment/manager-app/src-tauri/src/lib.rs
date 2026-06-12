@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -51,6 +54,73 @@ fn get_package_root() -> PathBuf {
     }
 
     path
+}
+
+fn get_deployment_manager_log_path() -> PathBuf {
+    get_package_root().join("deployment-manager.log")
+}
+
+fn log_timestamp() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    format!("epoch:{seconds}")
+}
+
+fn append_persistent_log(log_path: &PathBuf, level: &str, text: &str) {
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+        let _ = writeln!(
+            file,
+            "[{}] [{}] {}",
+            log_timestamp(),
+            level.to_uppercase(),
+            text
+        );
+    }
+}
+
+fn emit_deployment_log(app: &AppHandle, log_path: &PathBuf, level: &str, text: impl Into<String>) {
+    let text = text.into();
+    append_persistent_log(log_path, level, &text);
+    let _ = app.emit(
+        "deployment-log",
+        LogMessage {
+            level: level.to_string(),
+            text,
+        },
+    );
+}
+
+fn format_script_args_for_log(args: Option<&Vec<String>>) -> String {
+    let Some(values) = args else {
+        return "(none)".to_string();
+    };
+    if values.is_empty() {
+        return "(none)".to_string();
+    }
+
+    let sensitive_flags = ["-token", "-password", "-adminpassword", "-apppassword"];
+    let mut redact_next = false;
+    values
+        .iter()
+        .map(|value| {
+            if redact_next {
+                redact_next = false;
+                return "[redacted]".to_string();
+            }
+
+            if sensitive_flags.contains(&value.to_ascii_lowercase().as_str()) {
+                redact_next = true;
+            }
+            value.clone()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn get_config_path() -> PathBuf {
@@ -125,6 +195,7 @@ async fn run_deployment_script(
     args: Option<Vec<String>>,
 ) -> Result<(), String> {
     let package_root = get_package_root();
+    let log_path = get_deployment_manager_log_path();
     let script_path = package_root.join(&script_name);
 
     if !script_path.exists() {
@@ -135,28 +206,28 @@ async fn run_deployment_script(
         ));
     }
 
-    let args_display = args
-        .as_ref()
-        .map(|values| values.join(" "))
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "(none)".to_string());
-    let _ = app.emit(
-        "deployment-log",
-        LogMessage {
-            level: "info".to_string(),
-            text: format!(
-                "Launching {} from {}",
-                script_path.display(),
-                package_root.display()
-            ),
-        },
+    let args_display = format_script_args_for_log(args.as_ref());
+    emit_deployment_log(
+        &app,
+        &log_path,
+        "info",
+        format!(
+            "Launching {} from {}",
+            script_path.display(),
+            package_root.display()
+        ),
     );
-    let _ = app.emit(
-        "deployment-log",
-        LogMessage {
-            level: "info".to_string(),
-            text: format!("Arguments: {args_display}"),
-        },
+    emit_deployment_log(
+        &app,
+        &log_path,
+        "info",
+        format!("Arguments: {args_display}"),
+    );
+    emit_deployment_log(
+        &app,
+        &log_path,
+        "info",
+        format!("Persistent log: {}", log_path.display()),
     );
 
     let mut cmd = Command::new("powershell");
@@ -178,48 +249,44 @@ async fn run_deployment_script(
     }
 
     suppress_child_console(&mut cmd);
-    let mut child = cmd
+    let mut child = match cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn powershell: {e}"))?;
+    {
+        Ok(child) => child,
+        Err(error) => {
+            let message = format!("Failed to spawn powershell: {error}");
+            emit_deployment_log(&app, &log_path, "error", &message);
+            return Err(message);
+        }
+    };
 
-    let _ = app.emit(
-        "deployment-log",
-        LogMessage {
-            level: "info".to_string(),
-            text: "PowerShell process started; waiting for script output...".to_string(),
-        },
+    emit_deployment_log(
+        &app,
+        &log_path,
+        "info",
+        "PowerShell process started; waiting for script output...",
     );
 
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
     let app_clone = app.clone();
+    let stdout_log_path = log_path.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let _ = app_clone.emit(
-                "deployment-log",
-                LogMessage {
-                    level: "info".to_string(),
-                    text: line,
-                },
-            );
+            emit_deployment_log(&app_clone, &stdout_log_path, "info", line);
         }
     });
 
     let app_clone = app.clone();
+    let stderr_log_path = log_path.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let _ = app_clone.emit(
-                "deployment-log",
-                LogMessage {
-                    level: "error".to_string(),
-                    text: line,
-                },
-            );
+            emit_deployment_log(&app_clone, &stderr_log_path, "error", line);
         }
     });
 
@@ -228,16 +295,11 @@ async fn run_deployment_script(
         .await
         .map_err(|e| format!("Failed to wait: {e}"))?;
 
-    let _ = app.emit(
-        "deployment-log",
-        LogMessage {
-            level: if status.success() {
-                "success".to_string()
-            } else {
-                "error".to_string()
-            },
-            text: format!("Script exited with status: {status}"),
-        },
+    emit_deployment_log(
+        &app,
+        &log_path,
+        if status.success() { "success" } else { "error" },
+        format!("Script exited with status: {status}"),
     );
 
     if status.success() {
@@ -257,6 +319,7 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
         );
     }
 
+    let log_path = get_deployment_manager_log_path();
     let mut cmd = Command::new("powershell");
     cmd.arg("-NoProfile")
         .arg("-ExecutionPolicy")
@@ -266,38 +329,39 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     suppress_child_console(&mut cmd);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn powershell: {e}"))?;
+    emit_deployment_log(
+        &app,
+        &log_path,
+        "info",
+        format!("Persistent log: {}", log_path.display()),
+    );
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            let message = format!("Failed to spawn powershell: {error}");
+            emit_deployment_log(&app, &log_path, "error", &message);
+            return Err(message);
+        }
+    };
 
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
 
     let app_clone = app.clone();
+    let stdout_log_path = log_path.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let _ = app_clone.emit(
-                "deployment-log",
-                LogMessage {
-                    level: "info".to_string(),
-                    text: line,
-                },
-            );
+            emit_deployment_log(&app_clone, &stdout_log_path, "info", line);
         }
     });
 
     let app_clone = app.clone();
+    let stderr_log_path = log_path.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let _ = app_clone.emit(
-                "deployment-log",
-                LogMessage {
-                    level: "error".to_string(),
-                    text: line,
-                },
-            );
+            emit_deployment_log(&app_clone, &stderr_log_path, "error", line);
         }
     });
 
@@ -306,16 +370,11 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
         .await
         .map_err(|e| format!("Failed to wait: {e}"))?;
 
-    let _ = app.emit(
-        "deployment-log",
-        LogMessage {
-            level: if status.success() {
-                "success".to_string()
-            } else {
-                "error".to_string()
-            },
-            text: format!("Command exited with status: {status}"),
-        },
+    emit_deployment_log(
+        &app,
+        &log_path,
+        if status.success() { "success" } else { "error" },
+        format!("Command exited with status: {status}"),
     );
 
     if status.success() {
@@ -390,8 +449,25 @@ async fn open_logs() -> Result<(), String> {
         PathBuf::from("C:\\RiversideOS\\logs")
     };
 
+    tokio::fs::create_dir_all(&log_dir)
+        .await
+        .map_err(|e| e.to_string())?;
     Command::new("explorer")
         .arg(log_dir)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn open_deployment_log() -> Result<(), String> {
+    let log_path = get_deployment_manager_log_path();
+    if !log_path.exists() {
+        append_persistent_log(&log_path, "info", "Deployment Manager log file created.");
+    }
+
+    Command::new("explorer")
+        .arg(format!("/select,{}", log_path.to_string_lossy()))
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -590,6 +666,7 @@ pub fn run() {
             run_deployment_script,
             run_inline_powershell,
             open_logs,
+            open_deployment_log,
             is_elevated,
             relaunch_elevated,
             get_postgres_status

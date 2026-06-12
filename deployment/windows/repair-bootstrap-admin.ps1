@@ -110,11 +110,11 @@ $bootstrapPinHash = '$argon2id$v=19$m=19456,t=2,p=1$KWJoKjtQYNuPjRIyKL2M9g$FBpoE
 
 $env:PGPASSWORD = $db.appPassword
 try {
-  $sql = "INSERT INTO staff (full_name, cashier_code, pin_hash, role, is_active, avatar_key) " +
-    "VALUES ('Chris G', '1234', '$bootstrapPinHash', 'admin', TRUE, 'ros_default') " +
-    "ON CONFLICT (cashier_code) DO UPDATE SET " +
-    "full_name = EXCLUDED.full_name, pin_hash = EXCLUDED.pin_hash, role = EXCLUDED.role, " +
-    "is_active = TRUE, avatar_key = COALESCE(staff.avatar_key, EXCLUDED.avatar_key); " +
+  $sql = "UPDATE staff SET full_name = 'Chris G', pin_hash = '$bootstrapPinHash', role = 'admin'::staff_role, " +
+    "is_active = TRUE, avatar_key = COALESCE(avatar_key, 'ros_default') WHERE cashier_code = '1234'; " +
+    "INSERT INTO staff (full_name, cashier_code, pin_hash, role, is_active, avatar_key) " +
+    "SELECT 'Chris G', '1234', '$bootstrapPinHash', 'admin'::staff_role, TRUE, 'ros_default' " +
+    "WHERE NOT EXISTS (SELECT 1 FROM staff WHERE cashier_code = '1234'); " +
     "DO `$`$ BEGIN " +
     "IF NOT EXISTS (SELECT 1 FROM staff WHERE cashier_code = '1234' AND role = 'admin'::staff_role AND is_active = TRUE AND pin_hash IS NOT NULL) THEN " +
     "RAISE EXCEPTION 'Bootstrap admin was not created.'; END IF; END `$`$;"

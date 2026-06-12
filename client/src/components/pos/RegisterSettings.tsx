@@ -11,13 +11,15 @@ interface RegisterSettingsProps {
   cashierCode?: string | null;
   lifecycleStatus?: string | null;
   onRefreshMeta?: () => Promise<void>;
+  onOpenPrintingSettings?: () => void;
 }
 
 export default function RegisterSettings({ 
   sessionId,
   cashierCode,
   lifecycleStatus,
-  onRefreshMeta
+  onRefreshMeta,
+  onOpenPrintingSettings,
 }: RegisterSettingsProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const [soundProfile, setSoundProfile] = React.useState<PosSoundProfile>(() => {
@@ -28,13 +30,7 @@ export default function RegisterSettings({
     return "classic";
   });
 
-  const [receiptPrinterIp, setReceiptPrinterIp] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1");
-  const [receiptPrinterPort, setReceiptPrinterPort] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.receipt.port") || "9100");
   const [autoPrintReceipts, setAutoPrintReceipts] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.receipt.autoPrint") === "true");
-  
-  const [tagPrinterIp, setTagPrinterIp] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.tag.ip") || "127.0.0.1");
-  const [reportPrinterIp, setReportPrinterIp] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.report.ip") || "");
-  const [autoPrintReports, setAutoPrintReports] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.report.autoPrint") === "true");
 
   // ── Cash Rounding (server-persisted) ────────────────────────────────────────
   const [cashRoundingEnabled, setCashRoundingEnabled] = React.useState<boolean>(false);
@@ -78,13 +74,7 @@ export default function RegisterSettings({
 
   const [busy, setBusy] = React.useState(false);
 
-  const saveReceiptIp = (val: string) => { setReceiptPrinterIp(val); window.localStorage.setItem("ros.hardware.printer.receipt.ip", val); };
-  const saveReceiptPort = (val: string) => { setReceiptPrinterPort(val); window.localStorage.setItem("ros.hardware.printer.receipt.port", val); };
   const toggleAutoPrintReceipts = () => { const next = !autoPrintReceipts; setAutoPrintReceipts(next); window.localStorage.setItem("ros.hardware.printer.receipt.autoPrint", String(next)); };
-
-  const saveTagIp = (val: string) => { setTagPrinterIp(val); window.localStorage.setItem("ros.hardware.printer.tag.ip", val); };
-  const saveReportIp = (val: string) => { setReportPrinterIp(val); window.localStorage.setItem("ros.hardware.printer.report.ip", val); };
-  const toggleAutoPrintReports = () => { const next = !autoPrintReports; setAutoPrintReports(next); window.localStorage.setItem("ros.hardware.printer.report.autoPrint", String(next)); };
 
   const handleSoundChange = (val: PosSoundProfile) => {
     setSoundProfile(val);
@@ -229,36 +219,15 @@ export default function RegisterSettings({
               </div>
               <div>
                 <h3 className="text-lg font-black tracking-tight">Printer &amp; Peripherals</h3>
-                <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">Assigned register devices</p>
+                <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">Receipt automation and workstation hardware setup</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Receipt Printer (Thermal) */}
               <div className="ui-card p-6 border-app-border space-y-6">
                 <div className="flex items-center justify-between border-b border-app-border pb-3">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Receipt Station (Thermal)</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Receipt Automation</p>
                   <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                   <label className="flex flex-col gap-2">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Printer IP</span>
-                      <input 
-                        value={receiptPrinterIp} 
-                        onChange={e => saveReceiptIp(e.target.value)}
-                        placeholder="127.0.0.1"
-                        className="ui-input font-mono text-xs"
-                      />
-                   </label>
-                   <label className="flex flex-col gap-2">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">TCP Port</span>
-                      <input 
-                        value={receiptPrinterPort} 
-                        onChange={e => saveReceiptPort(e.target.value)}
-                        placeholder="9100"
-                        className="ui-input font-mono text-xs"
-                      />
-                   </label>
                 </div>
                 <button 
                   type="button"
@@ -267,7 +236,7 @@ export default function RegisterSettings({
                 >
                    <div className="text-left">
                       <p className="text-sm font-black uppercase italic tracking-tighter">Auto-Print</p>
-                      <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">Immediate thermal bridge</p>
+                      <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">Print customer receipts after checkout</p>
                    </div>
                    <div className={`h-6 w-12 rounded-full p-1 transition-colors ${autoPrintReceipts ? 'bg-app-text shadow-inner' : 'bg-app-border'}`}>
                       <div className={`h-4 w-4 rounded-full bg-app-surface shadow-sm transition-transform ${autoPrintReceipts ? 'translate-x-6 shadow-lg' : 'translate-x-0'}`} />
@@ -275,50 +244,21 @@ export default function RegisterSettings({
                 </button>
               </div>
 
-              {/* Tag Printer */}
               <div className="ui-card p-6 border-app-border space-y-6">
                 <div className="flex items-center justify-between border-b border-app-border pb-3">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Tag Station</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Hardware Setup</p>
                   <div className="h-2 w-2 rounded-full bg-blue-500/40" />
                 </div>
-                <label className="flex flex-col gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Zebra Station IP</span>
-                  <input 
-                    value={tagPrinterIp} 
-                    onChange={e => saveTagIp(e.target.value)}
-                    placeholder="192.168.1.101"
-                    className="ui-input font-mono text-xs"
-                  />
-                </label>
-              </div>
-
-              {/* Report Printer (Full Page) */}
-              <div className="ui-card p-6 border-app-border space-y-6">
-                <div className="flex items-center justify-between border-b border-app-border pb-3">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Report Station (Audit)</p>
-                  <div className="h-2 w-2 rounded-full bg-violet-500/40" />
-                </div>
-                <label className="flex flex-col gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Reporting Bridge IP</span>
-                  <input 
-                    value={reportPrinterIp} 
-                    onChange={e => saveReportIp(e.target.value)}
-                    placeholder="e.g. 192.168.1.50"
-                    className="ui-input font-mono text-xs"
-                  />
-                </label>
-                <button 
+                <p className="text-xs font-semibold leading-relaxed text-app-text-muted">
+                  Configure Receipt, Tag, and Reports printer targets from Printers &amp; Scanners so every print path uses the same station settings.
+                </p>
+                <button
                   type="button"
-                  onClick={toggleAutoPrintReports}
-                  className={`flex w-full items-center justify-between rounded-xl border p-4 transition-all ${autoPrintReports ? 'border-app-text bg-app-accent/10 border-2' : 'border-app-border bg-app-surface'}`}
+                  onClick={onOpenPrintingSettings}
+                  disabled={!onOpenPrintingSettings}
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-app-border bg-app-surface-2 px-4 text-[10px] font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50"
                 >
-                   <div className="text-left">
-                      <p className="text-sm font-black uppercase italic tracking-tighter">Auto-Print (Silent)</p>
-                      <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">Bypass system dialog</p>
-                   </div>
-                   <div className={`h-6 w-12 rounded-full p-1 transition-colors ${autoPrintReports ? 'bg-app-text shadow-inner' : 'bg-app-border'}`}>
-                      <div className={`h-4 w-4 rounded-full bg-app-surface shadow-sm transition-transform ${autoPrintReports ? 'translate-x-6 shadow-lg' : 'translate-x-0'}`} />
-                   </div>
+                  Open Printers &amp; Scanners
                 </button>
               </div>
             </div>

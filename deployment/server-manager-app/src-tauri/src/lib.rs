@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -59,6 +62,71 @@ fn get_package_root() -> PathBuf {
 
 fn get_config_path() -> PathBuf {
     get_package_root().join("riverside-deployment.config.json")
+}
+
+fn get_server_install_root() -> PathBuf {
+    let config_path = get_config_path();
+    if let Ok(raw) = std::fs::read_to_string(config_path) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if let Some(root) = value
+                .get("server")
+                .and_then(|server| server.get("installRoot"))
+                .and_then(|root| root.as_str())
+                .filter(|root| !root.trim().is_empty())
+            {
+                return PathBuf::from(root);
+            }
+        }
+    }
+
+    PathBuf::from("C:\\RiversideOS")
+}
+
+fn get_server_manager_log_path() -> PathBuf {
+    get_server_install_root()
+        .join("logs")
+        .join("server-manager.log")
+}
+
+fn log_timestamp() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    format!("epoch:{seconds}")
+}
+
+fn append_persistent_log(log_path: &PathBuf, level: &str, text: &str) {
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+        let _ = writeln!(
+            file,
+            "[{}] [{}] {}",
+            log_timestamp(),
+            level.to_uppercase(),
+            text
+        );
+    }
+}
+
+fn emit_server_manager_log(
+    app: &AppHandle,
+    log_path: &PathBuf,
+    level: &str,
+    text: impl Into<String>,
+) {
+    let text = text.into();
+    append_persistent_log(log_path, level, &text);
+    let _ = app.emit(
+        "server-manager-log",
+        LogMessage {
+            level: level.to_string(),
+            text,
+        },
+    );
 }
 
 fn script_supports_config_path(script_name: &str) -> bool {
@@ -200,41 +268,45 @@ async fn run_inline(app: AppHandle, script: &str) -> Result<(), String> {
 }
 
 async fn run_command_with_logs(app: AppHandle, mut cmd: Command) -> Result<(), String> {
+    let log_path = get_server_manager_log_path();
+    emit_server_manager_log(
+        &app,
+        &log_path,
+        "info",
+        format!("Persistent log: {}", log_path.display()),
+    );
     suppress_child_console(&mut cmd);
-    let mut child = cmd
+    let mut child = match cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn PowerShell: {e}"))?;
+    {
+        Ok(child) => child,
+        Err(error) => {
+            let message = format!("Failed to spawn PowerShell: {error}");
+            emit_server_manager_log(&app, &log_path, "error", &message);
+            return Err(message);
+        }
+    };
 
     let stdout = child.stdout.take().ok_or("Could not read stdout")?;
     let stderr = child.stderr.take().ok_or("Could not read stderr")?;
 
     let app_clone = app.clone();
+    let stdout_log_path = log_path.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let _ = app_clone.emit(
-                "server-manager-log",
-                LogMessage {
-                    level: "info".to_string(),
-                    text: line,
-                },
-            );
+            emit_server_manager_log(&app_clone, &stdout_log_path, "info", line);
         }
     });
 
     let app_clone = app.clone();
+    let stderr_log_path = log_path.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            let _ = app_clone.emit(
-                "server-manager-log",
-                LogMessage {
-                    level: "error".to_string(),
-                    text: line,
-                },
-            );
+            emit_server_manager_log(&app_clone, &stderr_log_path, "error", line);
         }
     });
 
@@ -243,12 +315,11 @@ async fn run_command_with_logs(app: AppHandle, mut cmd: Command) -> Result<(), S
         .await
         .map_err(|e| format!("Failed waiting on command: {e}"))?;
     let level = if status.success() { "success" } else { "error" };
-    let _ = app.emit(
-        "server-manager-log",
-        LogMessage {
-            level: level.to_string(),
-            text: format!("Command exited with status: {status}"),
-        },
+    emit_server_manager_log(
+        &app,
+        &log_path,
+        level,
+        format!("Command exited with status: {status}"),
     );
 
     if status.success() {
@@ -284,7 +355,13 @@ async fn run_server_action(app: AppHandle, action_id: String) -> Result<(), Stri
         "install_rosie" => run_script(app, "Install-RosieAiStack.ps1", &[]).await,
         "start_rosie" => run_script(app, "start-riverside-llama.ps1", &[]).await,
         "reset_postgres_password" => run_script(app, "reset-postgres-password.ps1", &[]).await,
-        "open_logs" => run_inline(app, "explorer (Join-Path 'C:\\RiversideOS' 'logs')").await,
+        "open_logs" => {
+            run_inline(
+                app,
+                "$logDir = Join-Path 'C:\\RiversideOS' 'logs'; New-Item -ItemType Directory -Path $logDir -Force | Out-Null; explorer $logDir",
+            )
+            .await
+        }
         "cleanup_logs" => {
             run_inline(
                 app,

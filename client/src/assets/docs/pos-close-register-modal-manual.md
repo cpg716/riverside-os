@@ -57,7 +57,7 @@ Register close is final for the till group. If cash, card, gift card, or RMS/R2S
 
 ## Tips
 - **No mid-shift "X"**: Mid-shift counts should use the live Dashboard. The Z-close is a permanent shift-ending action.
-- **Hardware Decoupling**: Ensure your **Report Printer** is correctly assigned in Register Settings to avoid routing Z-reports to the thermal receipt printer.
+- **Hardware Decoupling**: Ensure your **Report Printer** is correctly assigned in **Settings -> Printers & Scanners** to avoid routing Z-reports to the thermal receipt printer.
 
 ## Related workflows
 
