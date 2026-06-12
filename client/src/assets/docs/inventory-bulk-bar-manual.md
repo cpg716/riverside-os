@@ -60,7 +60,7 @@ Batch Scan is resolution-only. It does not receive inventory, adjust stock, star
 
 ## What happens next
 
-- Riverside sends the reviewed label batch directly to the configured Zebra 2844 / LP 2844 tag station, using EPL for classic LP/TLP 2844 printers and ZPL II for newer Zebra printers, or opens print preview if direct print is unavailable.
+- Riverside sends the reviewed label batch directly to the configured Zebra 2844 / LP 2844 tag station, using EPL for classic LP/TLP 2844 printers and ZPL II for newer Zebra printers. Desktop stations report the printer error if direct print fails; browser/PWA sessions can open print preview as a fallback.
 - Preview fallback is not a confirmed Zebra print. Riverside leaves shelf-label status unchanged until a direct tag-station job succeeds.
 - The selection toolbar stays tied to the current list so you can continue with another bulk action if needed.
 

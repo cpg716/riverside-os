@@ -3,8 +3,8 @@
  * Run on the Counterpoint SQL host: npm install && npm start
  * Schema probe: npm run discover or DISCOVER_SCHEMA.cmd (SQL only; no ROS token).
  *
- * Entities: staff/users, optional SLS_REP stubs, customers, store credit (optional), inventory, catalog,
- * gift cards, tickets, open PS_DOC orders (optional).
+ * Entities: staff/users, optional SLS_REP stubs, vendors/categories, catalog, inventory,
+ * customers, sales history, open PS_DOC orders, loyalty balances, and gift cards.
  * Heartbeat: idle/syncing each poll cycle; bridge polls for pending sync requests.
  */
 import fs from "node:fs";
@@ -104,7 +104,7 @@ function getMigrationSnapshot() {
     }
     if (rosStagingEnabled) {
         rerunWarnings.push(
-            "ROS inbound staging is enabled. Import is not complete until pending batches are reviewed and applied.",
+            "ROS support queue mode is enabled. Import-first rehearsal must post directly into ROS.",
         );
     }
 
@@ -131,7 +131,7 @@ function getMigrationSnapshot() {
         non_idempotent_entities: nonIdempotentEntities,
         rerun_warnings: rerunWarnings,
         retirement_checklist: [
-            "Verify ROS sync history, unresolved issues, and any staging queue before declaring migration complete.",
+            "Verify ROS sync history, unresolved issues, and any support queue rows before declaring migration complete.",
             "Capture the bridge run summary and ROS verification evidence for the cutover record.",
             "Stop the bridge and remove any startup shortcut or scheduled rerun on the Counterpoint host.",
             "Retire bridge credentials or remove the bridge folder after cutover so Counterpoint cannot be imported again by accident.",
@@ -527,7 +527,7 @@ function getSyncAnchorDate(entityKey) {
   return state[`${entityKey}_last_date`] || CP_IMPORT_SINCE;
 }
 
-/** Legacy signature, now acts as pass-through so queries retain the placeholder until execution. */
+/** Pass-through so queries retain the history-floor placeholder until execution. */
 function expandImportSince(sqlText, anchorDate = CP_IMPORT_SINCE) {
   return String(sqlText ?? "");
 }
@@ -1053,6 +1053,150 @@ function escapeSqlStringLiteral(s) {
   return String(s).replace(/'/g, "''");
 }
 
+function normalizedSqlText(alias, column, width = 64) {
+  return `UPPER(RTRIM(LTRIM(CONVERT(NVARCHAR(${width}), ${alias}.[${column}]))))`;
+}
+
+function itemStatusImportPredicate(alias, column) {
+  const normalized = normalizedSqlText(alias, column, 64);
+  const upperColumn = String(column ?? "").toUpperCase();
+  if (upperColumn.includes("ACTIVE") && !upperColumn.includes("INACTIVE")) {
+    return `(${alias}.[${column}] IS NULL OR ${normalized} IN (N'1', N'Y', N'YES', N'T', N'TRUE', N'A', N'ACTIVE'))`;
+  }
+  if (upperColumn.includes("INACT") || upperColumn.includes("DISCONT") || upperColumn.includes("OBSOLETE")) {
+    return `(${alias}.[${column}] IS NULL OR ${normalized} NOT IN (N'1', N'Y', N'YES', N'T', N'TRUE', N'I', N'INACTIVE', N'D', N'DISC', N'DISCONT', N'DISCONTINUED', N'OBSOLETE'))`;
+  }
+  return `(${alias}.[${column}] IS NULL OR ${normalized} NOT IN (N'I', N'INACTIVE', N'D', N'DISC', N'DISCONT', N'DISCONTINUED', N'OBSOLETE', N'VOID', N'DELETED'))`;
+}
+
+function openDocActivePredicate(headerSet, alias) {
+  const predicates = [];
+  const docStatus = pickColumn(headerSet, ["DOC_STAT", "DOC_STATUS", "STA_COD", "STATUS", "STAT"]);
+  const docVoid = pickColumn(headerSet, ["VOID_FLG", "VOIDED", "VOID_FLAG", "IS_VOID"]);
+  const docClosedAt = pickColumn(headerSet, ["CLOSE_DAT", "CLSD_DAT", "CLOSED_DAT", "CLOSED_AT", "FULFILL_DAT"]);
+  if (docStatus) {
+    predicates.push(
+      `(${alias}.[${docStatus}] IS NULL OR ${normalizedSqlText(alias, docStatus, 32)} NOT IN (N'C', N'CL', N'CLS', N'CLOSED', N'COMPLETE', N'COMPLETED', N'V', N'VOID', N'VOIDED'))`,
+    );
+  }
+  if (docVoid) {
+    predicates.push(
+      `(${alias}.[${docVoid}] IS NULL OR ${normalizedSqlText(alias, docVoid, 32)} NOT IN (N'1', N'Y', N'YES', N'T', N'TRUE'))`,
+    );
+  }
+  if (docClosedAt) {
+    predicates.push(`${alias}.[${docClosedAt}] IS NULL`);
+  }
+  return predicates.length > 0 ? predicates.join(" AND ") : "1=1";
+}
+
+function counterpointItemActivityPredicates(entries, itemAlias, locId) {
+  const predicates = [];
+  const locEsc = escapeSqlStringLiteral(locId);
+  const imInv = entries ? columnSet(entries, "IM_INV") : null;
+  const invQty = pickColumn(imInv, ["QTY_ON_HND", "QTY_AVAIL", "QTY"]);
+  if (imInv?.has("ITEM_NO") && invQty) {
+    const invLoc = imInv.has("LOC_ID") ? ` AND scope_inv.[LOC_ID] = N'${locEsc}'` : "";
+    predicates.push(
+      `EXISTS (SELECT 1 FROM IM_INV scope_inv WHERE scope_inv.[ITEM_NO] = ${itemAlias}.[ITEM_NO]${invLoc} AND ISNULL(scope_inv.[${invQty}], 0) <> 0)`,
+    );
+  }
+
+  const tkt = entries ? columnSet(entries, "PS_TKT_HIST") : null;
+  const tktLin = entries ? columnSet(entries, "PS_TKT_HIST_LIN") : null;
+  const tktNo = pickColumn(tkt, ["TKT_NO", "DOC_NO"]);
+  const tktDate = pickColumn(tkt, ["BUS_DAT", "TKT_DT", "DOC_DT"]);
+  const tktJoin = pickColumn(tkt, ["DOC_ID", "TKT_NO", "DOC_NO"]);
+  const tktLineJoin = pickColumn(tktLin, [tktJoin, "DOC_ID", "TKT_NO"]);
+  const tktLinePairs = ticketJoinPairs(tkt, tktLin, tktJoin, tktLineJoin);
+  const tktLinePredicate = ticketJoinPredicate("scope_th", "scope_tl", tktLinePairs);
+  if (tkt?.has(tktDate) && tktLin?.has("ITEM_NO") && tktLinePredicate) {
+    predicates.push(
+      `EXISTS (SELECT 1 FROM PS_TKT_HIST_LIN scope_tl INNER JOIN PS_TKT_HIST scope_th ON ${tktLinePredicate} WHERE scope_tl.[ITEM_NO] = ${itemAlias}.[ITEM_NO] AND scope_th.[${tktDate}] >= '__CP_IMPORT_SINCE__')`,
+    );
+  }
+
+  const psDocHdr = entries ? (columnSet(entries, "PS_DOC_HDR") ?? columnSet(entries, "PS_DOC")) : null;
+  const psDocTable = columnSet(entries, "PS_DOC_HDR") ? "PS_DOC_HDR" : columnSet(entries, "PS_DOC") ? "PS_DOC" : "";
+  const psDocLin = entries ? columnSet(entries, "PS_DOC_LIN") : null;
+  const docRef = pickColumn(psDocHdr, ["DOC_ID", "DOC_NO", "TKT_NO"]);
+  const lineDoc = pickColumn(psDocLin, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
+  const lineJoinPairs = ticketJoinPairs(psDocHdr, psDocLin, docRef, lineDoc);
+  const lineJoinPredicate = ticketJoinPredicate("scope_dh", "scope_dl", lineJoinPairs);
+  if (psDocTable && psDocLin?.has("ITEM_NO") && lineJoinPredicate) {
+    predicates.push(
+      `EXISTS (SELECT 1 FROM PS_DOC_LIN scope_dl INNER JOIN ${psDocTable} scope_dh ON ${lineJoinPredicate} WHERE scope_dl.[ITEM_NO] = ${itemAlias}.[ITEM_NO] AND ${openDocActivePredicate(psDocHdr, "scope_dh")})`,
+    );
+  }
+
+  const recvHeaderTable = entries && columnSet(entries, "PO_RECVR_HIST")
+    ? "PO_RECVR_HIST"
+    : entries && columnSet(entries, "PO_RECVR")
+      ? "PO_RECVR"
+      : "";
+  const recvLineTable = entries && columnSet(entries, "PO_RECVR_HIST_LIN")
+    ? "PO_RECVR_HIST_LIN"
+    : entries && columnSet(entries, "PO_RECVR_LIN")
+      ? "PO_RECVR_LIN"
+      : "";
+  const recvHeader = recvHeaderTable ? columnSet(entries, recvHeaderTable) : null;
+  const recvLine = recvLineTable ? columnSet(entries, recvLineTable) : null;
+  const recvHeaderJoin = pickColumn(recvHeader, ["RECVR_NO", "RECV_NO", "DOC_ID", "PO_NO"]);
+  const recvLineJoin = pickColumn(recvLine, [recvHeaderJoin, "RECVR_NO", "RECV_NO", "DOC_ID", "PO_NO"].filter(Boolean));
+  const recvHeaderDate = pickColumn(recvHeader, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT", "RECVD_DAT", "POST_DAT"]);
+  const recvLineDate = pickColumn(recvLine, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT", "RECVD_DAT", "POST_DAT"]);
+  if (recvHeaderTable && recvLineTable && recvHeaderJoin && recvLineJoin && recvLine?.has("ITEM_NO") && (recvHeaderDate || recvLineDate)) {
+    const dateAlias = recvHeaderDate ? "scope_rh" : "scope_rl";
+    const dateCol = recvHeaderDate ?? recvLineDate;
+    predicates.push(
+      `EXISTS (SELECT 1 FROM ${recvLineTable} scope_rl INNER JOIN ${recvHeaderTable} scope_rh ON scope_rh.[${recvHeaderJoin}] = scope_rl.[${recvLineJoin}] WHERE scope_rl.[ITEM_NO] = ${itemAlias}.[ITEM_NO] AND ${dateAlias}.[${dateCol}] >= '__CP_IMPORT_SINCE__')`,
+    );
+  } else if (recvLineTable && recvLine?.has("ITEM_NO")) {
+    const recvDate = pickColumn(recvLine, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT", "RECVD_DAT", "POST_DAT"]);
+    if (recvDate) {
+      predicates.push(
+        `EXISTS (SELECT 1 FROM ${recvLineTable} scope_rl WHERE scope_rl.[ITEM_NO] = ${itemAlias}.[ITEM_NO] AND scope_rl.[${recvDate}] >= '__CP_IMPORT_SINCE__')`,
+      );
+    }
+  }
+  return predicates;
+}
+
+function buildCounterpointItemScopePredicate(entries, itemAlias, locId) {
+  const imItem = entries ? columnSet(entries, "IM_ITEM") : null;
+  const base = `NULLIF(RTRIM(LTRIM(${itemAlias}.[ITEM_NO])), N'') IS NOT NULL`;
+  if (!imItem?.has("ITEM_NO")) return base;
+
+  const statusColumn = pickColumn(imItem, [
+    "ACTIVE_FLG",
+    "ACTIVE",
+    "INACTIVE",
+    "INACTIVE_FLG",
+    "DISCONT",
+    "DISCONT_FLG",
+    "ITEM_STAT",
+    "ITEM_STATUS",
+    "STAT",
+    "STATUS",
+  ]);
+  const dateColumn = pickColumn(imItem, [
+    "LST_SAL_DAT",
+    "LST_SOLD_DAT",
+    "LST_SALE_DAT",
+    "LST_RECV_DAT",
+    "LST_PUR_DAT",
+    "LST_MAINT_DT",
+    "LST_UPD_DAT",
+    "RS_UTC_DT",
+  ]);
+  const keepPredicates = [
+    ...(statusColumn ? [itemStatusImportPredicate(itemAlias, statusColumn)] : []),
+    ...(dateColumn ? [`${itemAlias}.[${dateColumn}] >= '__CP_IMPORT_SINCE__'`] : []),
+    ...counterpointItemActivityPredicates(entries, itemAlias, locId),
+  ];
+  return keepPredicates.length > 0 ? `${base} AND (${keepPredicates.join(" OR ")})` : base;
+}
+
 /**
  * `CP_IMPORT_SCOPE=maximal` parent catalog row — still not "all columns everywhere"; this builder reads
  * INFORMATION_SCHEMA so missing LONG_DESCR, IM_PRC, or IM_BARCOD/BARCOD names do not hard-fail the query.
@@ -1109,7 +1253,8 @@ function buildFlexMaxCatalogSql(invCostCol, locId, entries) {
   }
 
   const tail = [prcJoin, invJoin, barcodeJoin].filter(Boolean).join(" ");
-  return `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS item_no, ${descrExpr} AS descr, ${longExpr} AS long_descr, ${categExpr} AS categ_cod, ${vendExpr} AS vend_no, ${gridExpr} AS is_grd, ${prc1} AS prc_1, ${prc2} AS prc_2, ${prc3} AS prc_3, ${invCostSql} AS lst_cost, ${barcodeSelect} FROM IM_ITEM i ${tail} WHERE RTRIM(LTRIM(i.ITEM_NO)) <> N'' ORDER BY i.ITEM_NO`.replace(
+  const itemScope = buildCounterpointItemScopePredicate(entries, "i", locId);
+  return `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS item_no, ${descrExpr} AS descr, ${longExpr} AS long_descr, ${categExpr} AS categ_cod, ${vendExpr} AS vend_no, ${gridExpr} AS is_grd, ${prc1} AS prc_1, ${prc2} AS prc_2, ${prc3} AS prc_3, ${invCostSql} AS lst_cost, ${barcodeSelect} FROM IM_ITEM i ${tail} WHERE ${itemScope} ORDER BY i.ITEM_NO`.replace(
     /\s+/g,
     " ",
   );
@@ -1126,7 +1271,12 @@ function buildFlexMaxInventorySql(invCostCol, locId, entries) {
   const locFilter = imInv?.has("LOC_ID") ? ` AND i.LOC_ID = N'${locEsc}'` : "";
   const cellLocFilter = imCell?.has("LOC_ID") ? ` AND c.LOC_ID = N'${locEsc}'` : "";
   const parentCost = costField ? `i.${costField}` : "CAST(NULL AS DECIMAL(18,4))";
-  const parentSql = `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS sku, CAST(i.QTY_ON_HND AS INT) AS stock_on_hand, RTRIM(LTRIM(i.ITEM_NO)) AS counterpoint_item_key, ${parentCost} AS last_cost FROM IM_INV i WHERE i.ITEM_NO IS NOT NULL${locFilter}`;
+  const imItem = entries ? columnSet(entries, "IM_ITEM") : null;
+  const itemJoin = imItem?.has("ITEM_NO") ? " INNER JOIN IM_ITEM item ON item.ITEM_NO = i.ITEM_NO" : "";
+  const itemScope = imItem?.has("ITEM_NO")
+    ? buildCounterpointItemScopePredicate(entries, "item", locId)
+    : "i.ITEM_NO IS NOT NULL";
+  const parentSql = `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS sku, CAST(i.QTY_ON_HND AS INT) AS stock_on_hand, RTRIM(LTRIM(i.ITEM_NO)) AS counterpoint_item_key, ${parentCost} AS last_cost FROM IM_INV i${itemJoin} WHERE ${itemScope}${locFilter}`;
   if (!imCell?.has("ITEM_NO") || !imCell.has("QTY_ON_HND")) {
     return parentSql;
   }
@@ -1138,7 +1288,11 @@ function buildFlexMaxInventorySql(invCostCol, locId, entries) {
     ? ` LEFT JOIN IM_INV inv ON inv.ITEM_NO = c.ITEM_NO${imInv.has("LOC_ID") && imCell.has("LOC_ID") ? " AND inv.LOC_ID = c.LOC_ID" : ""}`
     : "";
   const costExpr = imInv?.has(costField) ? `inv.${costField}` : "CAST(NULL AS DECIMAL(18,4))";
-  const cellSql = `SELECT ${keyExpr} AS sku, CAST(c.QTY_ON_HND AS INT) AS stock_on_hand, ${keyExpr} AS counterpoint_item_key, ${costExpr} AS last_cost FROM IM_INV_CELL c${cellCostJoin} WHERE c.ITEM_NO IS NOT NULL${cellLocFilter}`;
+  const cellItemJoin = imItem?.has("ITEM_NO") ? " INNER JOIN IM_ITEM item ON item.ITEM_NO = c.ITEM_NO" : "";
+  const cellItemScope = imItem?.has("ITEM_NO")
+    ? buildCounterpointItemScopePredicate(entries, "item", locId)
+    : "c.ITEM_NO IS NOT NULL";
+  const cellSql = `SELECT ${keyExpr} AS sku, CAST(c.QTY_ON_HND AS INT) AS stock_on_hand, ${keyExpr} AS counterpoint_item_key, ${costExpr} AS last_cost FROM IM_INV_CELL c${cellItemJoin}${cellCostJoin} WHERE ${cellItemScope}${cellLocFilter}`;
   return `${parentSql} UNION ALL ${cellSql}`;
 }
 
@@ -1220,7 +1374,9 @@ function ticketJoinPairs(headerSet, childSet, fallbackHeaderColumn, fallbackChil
     "DOC_NO",
   ]).filter((column) => childSet?.has(column));
   if (common.length > 0) return common.map((column) => [column, column]);
-  if (fallbackHeaderColumn && fallbackChildColumn) return [[fallbackHeaderColumn, fallbackChildColumn]];
+  if (fallbackHeaderColumn && fallbackChildColumn && headerSet?.has(fallbackHeaderColumn) && childSet?.has(fallbackChildColumn)) {
+    return [[fallbackHeaderColumn, fallbackChildColumn]];
+  }
   return [];
 }
 
@@ -1254,6 +1410,7 @@ function buildFlexCatalogCellsSql(invCostCol, locId, entries) {
   if (!imCell?.has("ITEM_NO")) return "";
   const imPrc = columnSet(entries, "IM_PRC");
   const imInv = columnSet(entries, "IM_INV");
+  const imItem = columnSet(entries, "IM_ITEM");
   const dim1 = pickColumn(imCell, ["DIM_1_UPR", "DIM_1_VAL", "DIM_1", "GRID_1_VAL"]);
   const dim2 = pickColumn(imCell, ["DIM_2_UPR", "DIM_2_VAL", "DIM_2", "GRID_2_VAL"]);
   const dim3 = pickColumn(imCell, ["DIM_3_UPR", "DIM_3_VAL", "DIM_3", "GRID_3_VAL"]);
@@ -1273,7 +1430,11 @@ function buildFlexCatalogCellsSql(invCostCol, locId, entries) {
   const minQty = imCell.has("MIN_QTY") ? "CAST(c.MIN_QTY AS INT)" : "CAST(NULL AS INT)";
   const qty = imCell.has("QTY_ON_HND") ? "CAST(c.QTY_ON_HND AS INT)" : "CAST(NULL AS INT)";
   const locFilter = imCell.has("LOC_ID") ? ` AND c.LOC_ID = N'${locEsc}'` : "";
-  return `SELECT RTRIM(LTRIM(c.ITEM_NO)) AS parent_item_no, ${keyExpr} AS counterpoint_item_key, ${keyExpr} AS sku, ${labelExpr} AS variation_label, ${qty} AS stock_on_hand, ${minQty} AS min_qty, ${prc1} AS retail_price, ${prc2} AS prc_2, ${prc3} AS prc_3, ${unitCost} AS unit_cost, CAST(NULL AS NVARCHAR(50)) AS barcode FROM IM_INV_CELL c${prcJoin}${invJoin} WHERE c.ITEM_NO IS NOT NULL${locFilter}`;
+  const itemJoin = imItem?.has("ITEM_NO") ? " INNER JOIN IM_ITEM item ON item.ITEM_NO = c.ITEM_NO" : "";
+  const itemScope = imItem?.has("ITEM_NO")
+    ? buildCounterpointItemScopePredicate(entries, "item", locId)
+    : "c.ITEM_NO IS NOT NULL";
+  return `SELECT RTRIM(LTRIM(c.ITEM_NO)) AS parent_item_no, ${keyExpr} AS counterpoint_item_key, ${keyExpr} AS sku, ${labelExpr} AS variation_label, ${qty} AS stock_on_hand, ${minQty} AS min_qty, ${prc1} AS retail_price, ${prc2} AS prc_2, ${prc3} AS prc_3, ${unitCost} AS unit_cost, CAST(NULL AS NVARCHAR(50)) AS barcode FROM IM_INV_CELL c${itemJoin}${prcJoin}${invJoin} WHERE ${itemScope}${locFilter}`;
 }
 
 function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
@@ -1438,7 +1599,11 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
   const docRef = pickColumn(psDocHdr, ["DOC_ID", "DOC_NO", "TKT_NO"]);
   const docDate = pickColumn(psDocHdr, ["TKT_DT", "DOC_DT", "BUS_DAT"]);
   if (psDocTable && docRef && docDate) {
-    const hasTot = psDocTot?.has(docRef) && psDocTot.has("TOT") && psDocTot.has("TOT_TND");
+    const docRefColumns = ticketIdentityColumns(psDocHdr, docRef, docDate);
+    const docRefSelect = ticketRefSql("h", psDocHdr, docRefColumns, "doc_ref");
+    const docTotJoinPairs = ticketJoinPairs(psDocHdr, psDocTot, docRef, docRef);
+    const docTotJoinPredicate = ticketJoinPredicate("h", "t", docTotJoinPairs);
+    const hasTot = Boolean(psDocTot && docTotJoinPredicate && psDocTot.has("TOT") && psDocTot.has("TOT_TND"));
     const total = pickColumn(psDocHdr, ["TOT", "TOT_EXTD_PRC"]);
     const paid = pickColumn(psDocHdr, ["TOT_TND", "AMT_PAID", "TOT"]);
     const docStatus = pickColumn(psDocHdr, ["DOC_STAT", "DOC_STATUS", "STA_COD", "STATUS", "STAT"]);
@@ -1459,18 +1624,24 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       activeDocPredicates.push(`h.[${docClosedAt}] IS NULL`);
     }
     const activeDocWhere = activeDocPredicates.length > 0 ? activeDocPredicates.join(" AND ") : "1=1";
-    const docTotJoinForChildren = hasTot ? ` LEFT JOIN PS_DOC_HDR_TOT t ON h.[${docRef}] = t.[${docRef}]` : "";
+    const docTotJoinForChildren = hasTot ? ` LEFT JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate}` : "";
     sqlMap.open_docs = hasTot
-      ? `SELECT ${sqlText("h", psDocHdr, [docRef], "doc_ref")}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, t.[TOT] AS total_price, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON h.[${docRef}] = t.[${docRef}] WHERE ${activeDocWhere}`
-      : `SELECT ${sqlText("h", psDocHdr, [docRef], "doc_ref")}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${paid ? `h.[${paid}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid FROM ${psDocTable} h WHERE ${activeDocWhere}`;
-    changes.push(`${psDocTable} open documents enabled`);
+      ? `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, t.[TOT] AS total_price, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate} WHERE ${activeDocWhere}`
+      : `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${paid ? `h.[${paid}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid FROM ${psDocTable} h WHERE ${activeDocWhere}`;
+    changes.push(`${psDocTable} open documents enabled; key=${docRefColumns.join("+")}`);
     const lineDoc = pickColumn(psDocLin, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
-    if (psDocLin && lineDoc) {
-      sqlMap.open_doc_lines = `SELECT ${sqlText("l", psDocLin, [lineDoc], "doc_ref")}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "sku")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "counterpoint_item_key")}, ${sqlNumber("l", psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"], "quantity", "CAST(1 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, CAST(NULL AS NVARCHAR(255)) AS description FROM PS_DOC_LIN l INNER JOIN ${psDocTable} h ON h.[${docRef}] = l.[${lineDoc}]${docTotJoinForChildren} WHERE ${activeDocWhere}`;
+    const lineJoinPairs = ticketJoinPairs(psDocHdr, psDocLin, docRef, lineDoc);
+    const lineJoinPredicate = ticketJoinPredicate("h", "l", lineJoinPairs);
+    if (psDocLin && lineJoinPredicate) {
+      sqlMap.open_doc_lines = `SELECT ${docRefSelect}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "sku")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "counterpoint_item_key")}, ${sqlNumber("l", psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"], "quantity", "CAST(1 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, CAST(NULL AS NVARCHAR(255)) AS description FROM PS_DOC_LIN l INNER JOIN ${psDocTable} h ON ${lineJoinPredicate}${docTotJoinForChildren} WHERE ${activeDocWhere}`;
+      changes.push(`PS_DOC_LIN open-doc lines enabled; join=${lineJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
     const pmtDoc = pickColumn(psDocPmt, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
-    if (psDocPmt && pmtDoc) {
-      sqlMap.open_doc_pmt = `SELECT ${sqlText("p", psDocPmt, [pmtDoc], "doc_ref")}, ${sqlText("p", psDocPmt, ["PAY_COD", "PMT_TYP"], "pmt_typ")}, ${sqlNumber("p", psDocPmt, ["AMT", "PMT_AMT"], "amount", "CAST(0 AS DECIMAL(18,2))")}, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_DOC_PMT p INNER JOIN ${psDocTable} h ON h.[${docRef}] = p.[${pmtDoc}]${docTotJoinForChildren} WHERE ${activeDocWhere}`;
+    const pmtJoinPairs = ticketJoinPairs(psDocHdr, psDocPmt, docRef, pmtDoc);
+    const pmtJoinPredicate = ticketJoinPredicate("h", "p", pmtJoinPairs);
+    if (psDocPmt && pmtJoinPredicate) {
+      sqlMap.open_doc_pmt = `SELECT ${docRefSelect}, ${sqlText("p", psDocPmt, ["PAY_COD", "PMT_TYP"], "pmt_typ")}, ${sqlNumber("p", psDocPmt, ["AMT", "PMT_AMT"], "amount", "CAST(0 AS DECIMAL(18,2))")}, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_DOC_PMT p INNER JOIN ${psDocTable} h ON ${pmtJoinPredicate}${docTotJoinForChildren} WHERE ${activeDocWhere}`;
+      changes.push(`PS_DOC_PMT open-doc payments enabled; join=${pmtJoinPairs.map(([h, p]) => `${h}=${p}`).join("+")}`);
     }
   }
 
@@ -1828,7 +1999,7 @@ async function rebuildEffectiveSql(pool) {
 
 function logCanonicalSyncOrder() {
   console.info(
-    "[sync-order] Enforced pass order: staff → sales_rep_stubs (opt) → vendors → customers (includes current loyalty balance snapshot) → store_credit_opening (opt) → customer_notes (opt) → category_masters (opt, before catalog) → catalog → inventory → vendor_items (opt) → gift_cards (opt) → tickets/opt → open_docs (opt) → receiving_history (opt) → ticket_notes (opt).",
+    "[sync-order] Enforced pass order: staff → sales_rep_stubs (opt) → category_masters → vendors → catalog parent products + variants → vendor_items (supplier #) → inventory quantities → customers → customer_notes (opt) → tickets/sales history → receiving history → open_docs/orders → store_credit_opening (opt) → loyalty balances → gift cards.",
   );
 }
 
@@ -2323,9 +2494,13 @@ function findTopLevelTrailingOrderBy(sqlText) {
   return lastTopLevelOrderBy;
 }
 
-function sourceCountSql(sqlText) {
+function sourceCountSql(sqlText, options = {}) {
   const body = stripTrailingOrderBy(sqlText);
   if (!body) return "";
+  const distinctColumn = options.distinctColumn;
+  if (distinctColumn) {
+    return `SELECT COUNT_BIG(DISTINCT NULLIF(RTRIM(LTRIM(CONVERT(NVARCHAR(512), [${distinctColumn}]))), N'')) AS source_count FROM (${body}) AS cp_source_count`;
+  }
   return `SELECT COUNT_BIG(1) AS source_count FROM (${body}) AS cp_source_count`;
 }
 
@@ -2345,7 +2520,7 @@ async function countCounterpointSourceRows(pool, probe) {
     };
   }
   try {
-    const result = await pool.request().query(sourceCountSql(sqlText));
+    const result = await pool.request().query(sourceCountSql(sqlText, probe));
     const first = normalizeRowKeys((result.recordset ?? [])[0] ?? {});
     const sourceCount = Number(first.source_count ?? first[""] ?? 0);
     return {
@@ -2373,8 +2548,25 @@ async function countCounterpointSourceRows(pool, probe) {
 
 function importFirstProbePlan() {
   return [
-    { entityKey: "customers", label: "Counterpoint customers", queryKey: "customers", required: true },
-    { entityKey: "catalog_products", label: "Catalog products", queryKey: "catalog", required: true },
+    {
+      entityKey: "counterpoint_categories",
+      label: "Counterpoint categories by name",
+      queryKey: "category_masters",
+      required: true,
+    },
+    {
+      entityKey: "counterpoint_vendors",
+      label: "Counterpoint vendors",
+      queryKey: SYNC_VENDORS_FILTERED ? "vendors_filtered" : "vendors_fast_simple",
+      required: true,
+    },
+    {
+      entityKey: "catalog_products",
+      label: "Catalog parent products",
+      queryKey: "catalog",
+      required: true,
+      distinctColumn: "item_no",
+    },
     {
       entityKey: "catalog_variants",
       label: "Catalog variants/SKUs",
@@ -2382,6 +2574,7 @@ function importFirstProbePlan() {
       required: true,
     },
     { entityKey: "inventory_quantity_rows", label: "Inventory quantity rows", queryKey: "inventory", required: true },
+    { entityKey: "customers", label: "Counterpoint customers", queryKey: "customers", required: true },
     {
       entityKey: "tickets",
       label: "Closed ticket history",
@@ -2401,8 +2594,8 @@ function importFirstProbePlan() {
     },
     { entityKey: "open_doc_lines", label: "Open-doc lines", queryKey: "open_doc_lines", required: true },
     { entityKey: "open_doc_payments", label: "Open-doc deposits/payments", queryKey: "open_doc_pmt", required: false },
-    { entityKey: "gift_cards", label: "Gift card current balances", queryKey: "gift_cards", required: true },
     { entityKey: "loyalty_points", label: "Customer loyalty balances", queryKey: "customers", required: true },
+    { entityKey: "gift_cards", label: "Gift card current balances", queryKey: "gift_cards", required: true },
     { entityKey: "store_credit_opening", label: "Store credit opening balances", queryKey: "store_credit", required: false },
   ];
 }
@@ -5440,29 +5633,29 @@ function getOrderedSyncSteps(poolOverride) {
       hb: "sales_rep_stubs",
       run: () => syncSalesRepStubs(pool),
     },
-    { on: SYNC_VENDORS, label: "vendors", hb: "vendors", run: () => syncVendors(pool) },
-    { on: SYNC_CUSTOMERS, label: "customers", hb: "customers", run: () => syncCustomers(pool) },
-    {
-      on: SYNC_STORE_CREDIT_OPENING,
-      label: "store_credit_opening",
-      hb: "store_credit_opening",
-      run: () => syncStoreCreditOpening(pool),
-    },
-    { on: SYNC_CUSTOMER_NOTES, label: "customer_notes", hb: "customer_notes", run: () => syncCustomerNotes(pool) },
     {
       on: SYNC_CATEGORY_MASTERS,
       label: "category_masters",
       hb: "category_masters",
       run: () => syncCategoryMasters(pool),
     },
+    { on: SYNC_VENDORS, label: "vendors", hb: "vendors", run: () => syncVendors(pool) },
     { on: SYNC_CATALOG, label: "catalog", hb: "catalog", run: () => syncCatalog(pool) },
-    { on: SYNC_INVENTORY, label: "inventory", hb: "inventory", run: () => syncInventory(pool) },
     { on: SYNC_VENDOR_ITEMS, label: "vendor_items", hb: "vendor_items", run: () => syncVendorItems(pool) },
-    { on: SYNC_GIFT_CARDS, label: "gift_cards", hb: "gift_cards", run: () => syncGiftCards(pool) },
+    { on: SYNC_INVENTORY, label: "inventory", hb: "inventory", run: () => syncInventory(pool) },
+    { on: SYNC_CUSTOMERS, label: "customers", hb: "customers", run: () => syncCustomers(pool) },
+    { on: SYNC_CUSTOMER_NOTES, label: "customer_notes", hb: "customer_notes", run: () => syncCustomerNotes(pool) },
     { on: SYNC_TICKETS, label: "tickets", hb: "tickets", run: () => syncTickets(pool) },
-    { on: SYNC_OPEN_DOCS, label: "open_docs", hb: "open_docs", run: () => syncOpenDocs(pool) },
-    { on: SYNC_LOYALTY_HIST, label: "loyalty_hist", hb: "loyalty_hist", run: () => syncLoyaltyHist(pool) },
     { on: SYNC_RECEIVING_HISTORY, label: "receiving_history", hb: "receiving_history", run: () => syncReceivingHistory(pool) },
+    { on: SYNC_OPEN_DOCS, label: "open_docs", hb: "open_docs", run: () => syncOpenDocs(pool) },
+    {
+      on: SYNC_STORE_CREDIT_OPENING,
+      label: "store_credit_opening",
+      hb: "store_credit_opening",
+      run: () => syncStoreCreditOpening(pool),
+    },
+    { on: SYNC_LOYALTY_HIST, label: "loyalty_hist", hb: "loyalty_hist", run: () => syncLoyaltyHist(pool) },
+    { on: SYNC_GIFT_CARDS, label: "gift_cards", hb: "gift_cards", run: () => syncGiftCards(pool) },
   ];
 }
 
@@ -5616,7 +5809,7 @@ async function main() {
   console.info(
     `[ingest] Mode: ${
       rosStagingEnabled
-        ? "legacy staging — batches queue in ROS until staff Apply (advanced diagnostics only)"
+        ? "support queue — batches queue in ROS until staff apply them from diagnostics"
         : "import-first direct — each supported batch lands in ROS with proof and exception tracking"
     }`,
   );

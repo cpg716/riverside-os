@@ -55,6 +55,7 @@ Use the bell when you need to:
 
 - A row that says **Tap to review** is usually a bundle. Expand it first, then open the exact line you need.
 - A row that says **Tap to open** should take you directly to the related record or workspace.
+- Update alerts open **Settings → Updates** so managers can run the update from the same task section.
 - **Announcements** are for reading, not completing.
 - **Complete** is only for task-like alerts. Do not use **Dismiss** when the work itself is still unfinished.
 

@@ -1,5 +1,6 @@
 import { getBaseUrl, getBaseUrlDiagnostics, DEFAULT_BASE_URL } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { checkServerLocalStatus, loadLocalStationConfig, type RiversideStationConfig, type ServerLocalStatus } from "../../lib/appUpdater";
 import {
   Wifi,
   Monitor,
@@ -37,6 +38,8 @@ interface HealthStatus {
   latency_ms: number;
   version?: string;
   error?: string;
+  source?: string;
+  checked_url?: string;
 }
 
 /* ── Helpers ── */
@@ -64,6 +67,22 @@ function sourceLabel(source: string): string {
   }
 }
 
+async function probeApiStatus(targetBaseUrl: string) {
+  const start = performance.now();
+  const [healthRes, versionRes] = await Promise.all([
+    fetch(`${targetBaseUrl}/api/health`).catch(() => null),
+    fetch(`${targetBaseUrl}/api/version`).catch(() => null),
+  ]);
+  const versionData = versionRes?.ok
+    ? await versionRes.json().catch(() => null)
+    : null;
+  return {
+    ok: healthRes?.ok ?? false,
+    latency_ms: Math.round(performance.now() - start),
+    version: versionData?.version,
+  };
+}
+
 /* ── Component ── */
 
 export default function StationNetworkPanel() {
@@ -75,6 +94,8 @@ export default function StationNetworkPanel() {
   const [networkLoading, setNetworkLoading] = useState(false);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [localServerStatus, setLocalServerStatus] = useState<ServerLocalStatus | null>(null);
+  const [stationConfig, setStationConfig] = useState<RiversideStationConfig | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   // Connection editor
@@ -88,10 +109,21 @@ export default function StationNetworkPanel() {
 
   const diagnostics = useMemo(() => getBaseUrlDiagnostics(), []);
 
-  const stationLabel = useMemo(() => {
+  const browserStationLabel = useMemo(() => {
     if (typeof window === "undefined") return null;
     return localStorage.getItem("ros.station.label");
   }, []);
+
+  const stationLabel =
+    stationConfig?.register?.stationLabel?.trim() || browserStationLabel;
+
+  const localInstallLabel = localServerStatus?.is_local
+    ? "Main Hub detected"
+    : localServerStatus
+      ? "Satellite station"
+      : "Not checked";
+
+  const installedApiBase = stationConfig?.register?.apiBase?.trim();
 
   /* ── Fetch network info from server ── */
 
@@ -110,37 +142,82 @@ export default function StationNetworkPanel() {
 
   const checkHealth = useCallback(async () => {
     setHealthLoading(true);
-    const start = performance.now();
     try {
-      const [healthRes, versionRes] = await Promise.all([
-        fetch(`${baseUrl}/api/health`).catch(() => null),
-        fetch(`${baseUrl}/api/version`).catch(() => null),
-      ]);
-      const latency = Math.round(performance.now() - start);
-      const versionData = versionRes?.ok
-        ? await versionRes.json().catch(() => null)
-        : null;
+      const primary = await probeApiStatus(baseUrl);
+      let localFallback: ServerLocalStatus | null = null;
+      if (!primary.ok) {
+        try {
+          localFallback = await checkServerLocalStatus();
+          setLocalServerStatus(localFallback);
+        } catch {
+          localFallback = null;
+        }
+        const configFallback = await loadLocalStationConfig().catch(() => null);
+        setStationConfig(configFallback);
+        const fallbackApi = configFallback?.register?.apiBase?.trim();
+        if (fallbackApi && fallbackApi !== baseUrl) {
+          const fallback = await probeApiStatus(fallbackApi);
+          if (fallback.ok) {
+            setHealth({
+              ok: true,
+              latency_ms: fallback.latency_ms,
+              version: fallback.version,
+              error: "Selected API host failed; installed Main Hub API is reachable",
+              source: "installed-config",
+              checked_url: fallbackApi,
+            });
+            return;
+          }
+        }
+      }
       setHealth({
-        ok: healthRes?.ok ?? false,
-        latency_ms: latency,
-        version: versionData?.version,
-        error: healthRes?.ok ? undefined : "Server unreachable",
+        ok: primary.ok,
+        latency_ms: primary.latency_ms,
+        version: primary.version,
+        error: primary.ok
+          ? undefined
+          : localFallback?.is_local
+            ? "Selected API host failed; Main Hub install detected locally"
+            : "Server unreachable from selected API host",
+        source: localFallback?.is_local ? "local-probe" : "api",
+        checked_url: baseUrl,
       });
     } catch {
+      let localFallback: ServerLocalStatus | null = null;
+      try {
+        localFallback = await checkServerLocalStatus();
+        setLocalServerStatus(localFallback);
+      } catch {
+        localFallback = null;
+      }
       setHealth({
         ok: false,
-        latency_ms: Math.round(performance.now() - start),
-        error: "Connection failed",
+        latency_ms: 0,
+        error: localFallback?.is_local
+          ? "Selected API host failed; Main Hub install detected locally"
+          : "Connection failed",
+        source: localFallback?.is_local ? "local-probe" : "api",
+        checked_url: baseUrl,
       });
     } finally {
       setHealthLoading(false);
     }
   }, [baseUrl]);
 
+  const refreshLocalStation = useCallback(async () => {
+    const [status, config] = await Promise.all([
+      checkServerLocalStatus().catch(() => null),
+      loadLocalStationConfig().catch(() => null),
+    ]);
+    setLocalServerStatus(status);
+    setStationConfig(config);
+  }, []);
+
   useEffect(() => {
+    void refreshLocalStation();
     void fetchNetworkInfo();
     void checkHealth();
-  }, [fetchNetworkInfo, checkHealth]);
+  }, [refreshLocalStation, fetchNetworkInfo, checkHealth]);
 
   /* ── Copy URL ── */
 
@@ -201,29 +278,53 @@ export default function StationNetworkPanel() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <InfoTile label="Station Label" value={stationLabel || "Not set"} muted={!stationLabel} />
             <InfoTile label="API Host" value={diagnostics.resolved} mono />
-            <InfoTile label="Source" value={sourceLabel(diagnostics.source)} />
+            <InfoTile label="Installed Role" value={localInstallLabel} muted={!localServerStatus} />
+            <InfoTile label="Installed API" value={installedApiBase || "Not set"} mono muted={!installedApiBase} />
             <div className="rounded-xl border border-app-border bg-app-bg/60 p-3">
               <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Connection</p>
               {healthLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin text-app-accent" />
               ) : health ? (
-                <div className="flex items-center gap-2">
-                  {health.ok ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  ) : (
-                    <AlertTriangle className="h-4 w-4 text-red-500" />
-                  )}
-                  <span className={`text-sm font-black ${health.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
-                    {health.ok ? `OK — ${health.latency_ms}ms` : health.error}
-                  </span>
-                  {health.version && (
-                    <span className="text-[10px] text-app-text-muted ml-1">v{health.version}</span>
-                  )}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    {health.ok ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-red-500" />
+                    )}
+                    <span className={`text-sm font-black ${health.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                      {health.ok ? `OK — ${health.latency_ms}ms` : health.error}
+                    </span>
+                    {health.version && (
+                      <span className="text-[10px] text-app-text-muted ml-1">v{health.version}</span>
+                    )}
+                  </div>
+                  {health.error && health.ok ? (
+                    <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-200">{health.error}</p>
+                  ) : null}
+                  {health.checked_url ? (
+                    <p className="break-all font-mono text-[10px] text-app-text-muted">{health.checked_url}</p>
+                  ) : null}
                 </div>
               ) : (
                 <span className="text-sm text-app-text-muted">—</span>
               )}
             </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <InfoTile label="Selected Source" value={sourceLabel(diagnostics.source)} />
+            <InfoTile
+              label="Main Hub Files"
+              value={
+                localServerStatus
+                  ? [
+                      localServerStatus.config_exists ? "config" : "no config",
+                      localServerStatus.server_binary_exists ? "server app" : "no server app",
+                    ].join(" / ")
+                  : "Not checked"
+              }
+              muted={!localServerStatus?.config_exists && !localServerStatus?.server_binary_exists}
+            />
           </div>
 
           {/* Connection editor */}

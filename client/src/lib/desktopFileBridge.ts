@@ -43,7 +43,18 @@ export async function openDesktopTextPreview(
     filename,
     content,
   });
-  await openPath(path);
+  try {
+    await openPath(path);
+  } catch (openPathError) {
+    const fileUrl = encodeURI(`file:///${path.replace(/\\/g, "/").replace(/^\/+/, "")}`);
+    try {
+      await openUrl(fileUrl);
+    } catch (openUrlError) {
+      throw new Error(
+        `Could not open preview file ${path}: ${String(openPathError)}; ${String(openUrlError)}`,
+      );
+    }
+  }
   return true;
 }
 

@@ -53,12 +53,12 @@ The production receipt path is **Standard Epson**: ROS generates a merged Receip
 
 Browser/PWA network printing is allowlisted by the saved station configuration. `/api/hardware/print` only dispatches to receipt, tag, or report network targets that appear in `pos_station_config.printer_config`. A valid POS register session can sync printer settings for its own active register lane; Back Office admins can still manage any lane.
 
-The previous HTML receipt designer is no longer exposed in the active Settings UI. Receipt view, email, and text delivery use the standard receipt renderer when no legacy saved HTML template exists.
+The previous HTML receipt designer is no longer exposed in the active Settings UI. Receipt view, email, and text delivery use the standard receipt renderer when no saved HTML template exists.
 
 ### Item Tags
 Inventory tag actions generate raw Zebra tag commands for the saved **Tag Station** and dispatch them directly through `autoRoutePrint("tag", ..., language)`. The production tag printer is the Zebra 2844 / LP 2844 class printer at 203 DPI. Auto language mode emits EPL for classic LP/TLP 2844 installed-printer names and ZPL II for newer Zebra/ZPL printers. Staff can choose an installed Zebra printer from the desktop printer dropdown, or configure a network printer IP when the Zebra is reachable over TCP 9100.
 
-If direct dispatch is not available, ROS opens the retail tag preview so staff can use the operating system print dialog as a fallback. The preview path is a recovery path; normal inventory tag printing should go directly from the app to the configured Zebra tag station.
+In the desktop app, tag printing is direct-to-printer only: if the configured Zebra station cannot accept the job, ROS reports the printer error and leaves shelf-label status unchanged. Browser/PWA sessions can still open the retail tag preview so staff can use the operating system print dialog as a fallback. The preview path is a browser recovery path; normal inventory tag printing should go directly from the app to the configured Zebra tag station.
 
 ### Document Auto-Routing
 The `printerBridge.ts` module includes an intelligent dispatcher that resolves the correct station based on document metadata:

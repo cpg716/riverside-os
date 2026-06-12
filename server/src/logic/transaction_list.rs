@@ -299,6 +299,16 @@ pub async fn query_paged_transactions(
                         oi.quantity,
                         'x ',
                         COALESCE(
+                            CASE
+                                WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                                THEN NULLIF(oi.size_specs->>'counterpoint_description', '')
+                                ELSE NULL
+                            END,
+                            CASE
+                                WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                                THEN NULLIF(oi.vendor_reference, '')
+                                ELSE NULL
+                            END,
                             NULLIF(p.name, ''),
                             NULLIF(oi.size_specs->>'counterpoint_description', ''),
                             NULLIF(oi.size_specs->>'line_description', ''),
@@ -308,8 +318,36 @@ pub async fn query_paged_transactions(
                             'Order item'
                         ),
                         CASE
-                            WHEN COALESCE(NULLIF(pv.sku, ''), NULLIF(oi.size_specs->>'counterpoint_sku', ''), NULLIF(oi.size_specs->>'counterpoint_item_key', '')) IS NOT NULL
-                            THEN CONCAT(' (', COALESCE(NULLIF(pv.sku, ''), NULLIF(oi.size_specs->>'counterpoint_sku', ''), NULLIF(oi.size_specs->>'counterpoint_item_key', '')), ')')
+                            WHEN COALESCE(
+                                CASE
+                                    WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                                    THEN NULLIF(oi.size_specs->>'counterpoint_sku', '')
+                                    ELSE NULL
+                                END,
+                                CASE
+                                    WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                                    THEN NULLIF(oi.size_specs->>'counterpoint_item_key', '')
+                                    ELSE NULL
+                                END,
+                                NULLIF(pv.sku, ''),
+                                NULLIF(oi.size_specs->>'counterpoint_sku', ''),
+                                NULLIF(oi.size_specs->>'counterpoint_item_key', '')
+                            ) IS NOT NULL
+                            THEN CONCAT(' (', COALESCE(
+                                CASE
+                                    WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                                    THEN NULLIF(oi.size_specs->>'counterpoint_sku', '')
+                                    ELSE NULL
+                                END,
+                                CASE
+                                    WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                                    THEN NULLIF(oi.size_specs->>'counterpoint_item_key', '')
+                                    ELSE NULL
+                                END,
+                                NULLIF(pv.sku, ''),
+                                NULLIF(oi.size_specs->>'counterpoint_sku', ''),
+                                NULLIF(oi.size_specs->>'counterpoint_item_key', '')
+                            ), ')')
                             ELSE ''
                         END
                     ),
@@ -323,6 +361,16 @@ pub async fn query_paged_transactions(
                     jsonb_build_object(
                         'name',
                         COALESCE(
+                            CASE
+                                WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                                THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_description'), '')
+                                ELSE NULL
+                            END,
+                            CASE
+                                WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                                THEN NULLIF(TRIM(oi.vendor_reference), '')
+                                ELSE NULL
+                            END,
                             NULLIF(TRIM(p.name), ''),
                             NULLIF(TRIM(oi.size_specs->>'counterpoint_description'), ''),
                             NULLIF(TRIM(oi.size_specs->>'line_description'), ''),
@@ -334,6 +382,16 @@ pub async fn query_paged_transactions(
                         ),
                         'sku',
                         COALESCE(
+                            CASE
+                                WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                                THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_sku'), '')
+                                ELSE NULL
+                            END,
+                            CASE
+                                WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                                THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_item_key'), '')
+                                ELSE NULL
+                            END,
                             NULLIF(TRIM(pv.sku), ''),
                             NULLIF(TRIM(oi.size_specs->>'counterpoint_sku'), ''),
                             NULLIF(TRIM(oi.size_specs->>'counterpoint_item_key'), '')

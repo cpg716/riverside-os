@@ -139,6 +139,7 @@ interface SettingsWorkspaceProps {
   onOpenQbo?: () => void;
   onSettingsSectionNavigate?: (sectionId: string) => void;
   onNavigateOperationsTarget?: (target: OperationsCenterNavigateTarget) => void;
+  onNavigateCustomers?: (section?: string) => void;
   // POS Specific
   posSessionId?: string | null;
   posCashierCode?: string | null;
@@ -271,6 +272,7 @@ export default function SettingsWorkspace({
   onOpenQbo,
   onSettingsSectionNavigate,
   onNavigateOperationsTarget,
+  onNavigateCustomers,
   posSessionId,
   posCashierCode,
   posLifecycleStatus,
@@ -1349,7 +1351,9 @@ export default function SettingsWorkspace({
                     </div>
                   </header>
 
-                  <CounterpointSyncSettingsPanel />
+                  <CounterpointSyncSettingsPanel
+                    onNavigateCustomers={onNavigateCustomers}
+                  />
                 </div>
               )}
 

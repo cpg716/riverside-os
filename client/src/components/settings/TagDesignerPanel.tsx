@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
 import {
   Eye,
   LayoutTemplate,
@@ -345,6 +346,7 @@ export default function TagDesignerPanel() {
   const [baselineConfig, setBaselineConfig] = useState<InventoryTagPrintConfig>(savedConfig);
 
   const hasChanges = JSON.stringify(normalizedDraft) !== JSON.stringify(baselineConfig);
+  const desktopApp = isTauri();
 
   const updateDraft = <K extends keyof InventoryTagPrintConfig>(key: K, value: InventoryTagPrintConfig[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -353,11 +355,15 @@ export default function TagDesignerPanel() {
   const handleSave = () => { const next = saveInventoryTagPrintConfig(draft); setDraft(next); setBaselineConfig(next); toast("Tag layout saved.", "success"); };
   const handleReset = () => { const r = getInventoryTagPrintConfig(); setDraft(r); setBaselineConfig(r); toast("Restored to your last saved layout.", "info"); };
   const handlePreview = async () => {
+    if (desktopApp) {
+      toast("Use the live preview here; Print test tag sends the saved layout to the Zebra station.", "info");
+      return;
+    }
     try {
       await openInventoryTagsPreviewWindow(SAMPLE_ITEMS, normalizedDraft);
       toast("Print preview opened.", "success");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Print preview failed.", "error");
+      toast(error instanceof Error ? error.message : String(error || "Print preview failed."), "error");
     }
   };
   const handlePrint = async () => {
@@ -392,7 +398,9 @@ export default function TagDesignerPanel() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => void handlePrint()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Printer size={16} /> Print test tag</button>
-            <button type="button" onClick={() => void handlePreview()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Eye size={16} /> Print preview</button>
+            {!desktopApp ? (
+              <button type="button" onClick={() => void handlePreview()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Eye size={16} /> Print preview</button>
+            ) : null}
             <button type="button" onClick={handleReset} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><RotateCcw size={16} /> Undo changes</button>
             <button type="button" onClick={handleSave} className="inline-flex items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-sm font-black text-white shadow-sm transition-colors hover:brightness-110"><Save size={16} /> Save layout</button>
           </div>

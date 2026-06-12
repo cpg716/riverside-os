@@ -55,7 +55,7 @@ export interface InventoryTagPrintConfig {
   /** Overall tag composition layout. */
   tagLayout: TagLayoutId;
   footerText: string;
-  /** Legacy field kept for backward compat — no longer rendered. */
+  /** Saved-layout compatibility field; no longer rendered. */
   accentStyle?: "classic" | "bold" | "minimal";
 }
 
@@ -785,8 +785,11 @@ export async function openInventoryTagsWindow(
       message: "Tag station accepted the print job.",
     };
   } catch (directError) {
-    console.warn("Direct Zebra tag print failed; opening browser print fallback", directError);
     const directMessage = directError instanceof Error ? directError.message : String(directError);
+    if (isTauri()) {
+      throw new Error(`Tag station print failed: ${directMessage}`);
+    }
+    console.warn("Direct Zebra tag print failed; opening browser print fallback", directError);
     try {
       return await openInventoryTagsPreviewWindow(items, config, {
         autoPrint: true,

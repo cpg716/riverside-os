@@ -284,7 +284,7 @@ async fn broadcast_update_notification(
         "update_available",
         &format!("Riverside OS {} Available", version),
         message,
-        json!({ "route": "/settings/updates" }),
+        json!({ "type": "settings", "section": "updates" }),
         "system",
         json!({ "roles": ["admin"] }),
         Some(dedup_key),

@@ -29,6 +29,7 @@ import {
   isCompletableNotification,
   notificationDestinationLabel,
   isSharedReadEligibleNotification,
+  normalizeNotificationDeepLink,
   notificationPrimaryInteraction,
   notificationRecencyBucket,
   notificationSeverity,
@@ -605,7 +606,7 @@ export default function NotificationCenterDrawer({
   ) => {
     await markSharedReadAllIfNeeded(r);
     void markRead(r.staff_notification_id);
-    onNavigate(link);
+    onNavigate(normalizeNotificationDeepLink(link));
     onClose();
   };
 

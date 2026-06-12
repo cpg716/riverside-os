@@ -10,12 +10,31 @@ function linkField(o: Record<string, unknown>, ...keys: string[]): string {
   return "";
 }
 
+function settingsSectionFromRoute(o: Record<string, unknown>): string {
+  const route = linkField(o, "route");
+  if (!route) return "";
+  const path = route.split(/[?#]/, 1)[0]?.replace(/\/{2,}/g, "/") ?? "";
+  const parts = path.replace(/\/+$/, "").split("/").filter(Boolean);
+  if (parts[0]?.toLowerCase() !== "settings") return "";
+  return parts[1]?.trim().toLowerCase() || "hub";
+}
+
+export function normalizeNotificationDeepLink(
+  link: NotificationDeepLink,
+): NotificationDeepLink {
+  if (!link || typeof link !== "object") return link;
+  if (typeof link.type === "string" && link.type.trim()) return link;
+  const section = settingsSectionFromRoute(link as Record<string, unknown>);
+  return section ? { ...link, type: "settings", section } : link;
+}
+
 /** Whether tapping the row should navigate (vs expand-only for broadcast / non-routable). */
 export function isActionableNotificationDeepLink(
   link: unknown,
 ): link is NotificationDeepLink {
   if (!link || typeof link !== "object") return false;
   const o = link as Record<string, unknown>;
+  if (settingsSectionFromRoute(o)) return true;
   const t = o.type;
   if (typeof t !== "string" || !t.trim()) return false;
   if (t === "none" || t === "notification_bundle") return false;
@@ -56,7 +75,9 @@ export function isActionableNotificationDeepLink(
 
 export function notificationDestinationLabel(link: unknown): string {
   if (!link || typeof link !== "object") return "Notification";
-  const t = (link as Record<string, unknown>).type;
+  const raw = link as Record<string, unknown>;
+  if (settingsSectionFromRoute(raw)) return "Settings";
+  const t = raw.type;
   if (typeof t !== "string" || !t.trim()) return "Notification";
 
   switch (t) {

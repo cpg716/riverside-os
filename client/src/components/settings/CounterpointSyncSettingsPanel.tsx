@@ -3,14 +3,10 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   RefreshCw,
   Play,
-  Square,
   CheckCircle2,
   AlertTriangle,
-  Wifi,
-  WifiOff,
   Loader2,
   Database,
-  ChevronRight,
   RotateCcw,
   Upload,
   Download,
@@ -18,11 +14,9 @@ import {
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
-import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
-import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
-import RosieInsightSummary from "../help/RosieInsightSummary";
-import RosieIcon from "../common/RosieIcon";
+import DuplicateReviewQueueSection from "../customers/DuplicateReviewQueueSection";
+import type { Customer } from "../pos/CustomerSelector";
 
 /* ── Types & Interfaces ── */
 
@@ -97,43 +91,6 @@ interface StagingEntityCountRow {
   latest_at: string;
 }
 
-interface BridgeLiveStatus {
-  lastRun?: string | null;
-  lastRunDurationMs?: number | null;
-  entityStats?: Record<string, { error?: string | null; recordCount?: number | null }>;
-}
-
-interface CategoryMapRow {
-  id: number;
-  cp_category: string;
-  ros_category_id: string | null;
-}
-
-interface PaymentMapRow {
-  id: number;
-  cp_pmt_typ: string;
-  ros_method: string;
-}
-
-interface GiftReasonRow {
-  id: number;
-  cp_reason_cod: string;
-  ros_card_kind: string;
-}
-
-interface StaffMapRow {
-  id: number;
-  cp_code: string;
-  cp_source: string;
-  ros_staff_id: string;
-  staff_display_name: string | null;
-}
-
-interface CategoryOption {
-  id: string;
-  name: string;
-}
-
 interface StepDetail {
   status: string;
   approved_at: string | null;
@@ -155,18 +112,6 @@ interface WorkbenchState {
   can_reset: boolean;
 }
 
-interface SkuGapRow {
-  variant_id: string;
-  product_id: string;
-  product_name: string;
-  current_sku: string;
-  barcode: string | null;
-  counterpoint_item_key: string | null;
-  category_name: string | null;
-  stock_on_hand: number;
-  retail_price: string | null;
-}
-
 interface MergeConflictRow {
   item_no: string;
   field: string;
@@ -184,14 +129,6 @@ interface MergePreview {
   category_conflicts: number;
   price_conflicts: number;
   conflicts: MergeConflictRow[];
-}
-
-interface AiSuggestion {
-  item_no: string;
-  suggested_name?: string;
-  suggested_category?: string;
-  confidence?: number;
-  reasoning?: string;
 }
 
 interface DataSourcesHealth {
@@ -396,178 +333,6 @@ interface CounterpointImportExceptionRow {
   updated_at: string;
 }
 
-// interface CounterpointTransactionReconciliationTotals {
-//   imported_ticket_transactions: number;
-//   transaction_lines: number;
-//   imported_zero_tax_lines: number;
-//   payments: number;
-//   transaction_total_sum: string;
-//   payment_amount_sum: string;
-//   difference: string;
-// }
-
-// interface CounterpointTransactionReconciliationSnapshot {
-//   generated_at: string;
-//   disclaimer: string;
-//   totals: CounterpointTransactionReconciliationTotals;
-//   by_date: {
-//     business_day: string;
-//     imported_ticket_transactions: number;
-//     transaction_lines: number;
-//     payments: number;
-//     transaction_total_sum: string;
-//     payment_amount_sum: string;
-//   }[];
-//   by_payment_type: {
-//     payment_type: string;
-//     payments: number;
-//     payment_amount_sum: string;
-//   }[];
-// }
-
-interface CounterpointOpenDocsVerificationSnapshot {
-  generated_at: string;
-  disclaimer: string;
-  imported_open_doc_transactions: number;
-  imported_open_doc_lines: number;
-  imported_open_doc_zero_tax_lines: number;
-  imported_open_doc_payments: number;
-  open_docs_with_customer_linked: number;
-  open_docs_missing_customer: number;
-  open_docs_with_zero_lines: number;
-  open_docs_with_zero_payments: number;
-  distinct_staff_attribution_count: number;
-}
-
-// interface CounterpointInventoryCatalogVerificationSnapshot {
-//   generated_at: string;
-//   disclaimer: string;
-//   counterpoint_products: number;
-//   counterpoint_variants: number;
-//   products_with_identifier_like_name: number;
-//   products_name_equals_counterpoint_key: number;
-//   variants_with_sku: number;
-//   variants_with_barcode: number;
-//   variants_with_cost: number;
-//   variants_with_price: number;
-//   variants_with_quantity_on_hand: number;
-//   variants_missing_sku: number;
-//   variants_missing_barcode: number;
-//   variants_missing_cost: number;
-//   variants_missing_price: number;
-//   variants_zero_or_negative_quantity: number;
-//   products_missing_category_mapping: number;
-//   variants_missing_vendor_supplier_item_link: number;
-//   distinct_vendors_linked_to_imported_items: number;
-// }
-
-// interface BridgeLiveStatus {
-//   isSyncing: boolean;
-//   isContinuous: boolean;
-//   currentEntity: string | null;
-//   lastRun: string | null;
-//   lastRunDurationMs: number | null;
-//   totalRecordsLastRun: number;
-//   abortRequested: boolean;
-//   entityStats: Record<string, { lastSync?: string; recordCount?: number; durationMs?: number; error?: string | null }>;
-//   syncSummary: Record<string, string>;
-//   recentEvents: { type: string; entity: string | null; message: string; time: string }[];
-// }
-
-const BRIDGE_CONTROL_URL_STORAGE_KEY = "counterpoint.bridgeControlUrl";
-
-const STAGE_STEPS = [
-  { step: 1, label: "SQL Bridge Sync", desc: "Sync raw staging rows from Counterpoint" },
-  { step: 2, label: "Inventory Catalog", desc: "Map codes, run ROSIE AI, & fix barcodes" },
-  { step: 3, label: "Customers & CRM", desc: "Review & load staged customer profiles" },
-  { step: 4, label: "Sales & Ticket History", desc: "Review & load closed tickets" },
-  { step: 5, label: "Gift Cards & Liabilities", desc: "Verify active liabilities" },
-  { step: 6, label: "Open Orders & Layaways", desc: "Load active orders & deposits" },
-  { step: 7, label: "Loyalty History", desc: "Verify & load loyalty balances" },
-  { step: 8, label: "Audit & Live Cutover", desc: "Landing audit & final Go-Live sign-off" },
-];
-
-const ONE_TIME_APPLY_ORDER = [
-  "staff",
-  "sales_rep_stubs",
-  "vendors",
-  "customers",
-  "store_credit_opening",
-  "customer_notes",
-  "category_masters",
-  "catalog",
-  "inventory",
-  "vendor_items",
-  "gift_cards",
-  "tickets",
-  "open_docs",
-  "receiving_history",
-  "loyalty_hist",
-];
-
-const ONE_TIME_APPLY_ENTITY_SET = new Set<string>(ONE_TIME_APPLY_ORDER);
-const ONE_TIME_APPLY_ORDER_INDEX = new Map<string, number>(
-  ONE_TIME_APPLY_ORDER.map((entity, index) => [entity, index]),
-);
-
-const ONE_TIME_IMPORT_DOMAINS = [
-  {
-    key: "inventory_catalog",
-    label: "Inventory, catalog, and quantities",
-    desc: "Products, variants, categories, vendors, SKU/vendor links, stock, cost, and price.",
-    entities: ["category_masters", "vendors", "catalog", "vendor_items", "inventory"],
-    proofTerms: [
-      "catalog_products",
-      "catalog_variants",
-      "inventory_quantity_rows_matched",
-      "inventory_quantity_cost_fields",
-      "products",
-      "variants",
-    ],
-  },
-  {
-    key: "customers",
-    label: "Customers and CRM",
-    desc: "Customer profiles, notes, and staff/sales-rep attribution needed for daily use.",
-    entities: ["staff", "sales_rep_stubs", "customers", "customer_notes"],
-    proofTerms: ["customers", "staff_records"],
-  },
-  {
-    key: "history",
-    label: "Sales and movement history",
-    desc: "Closed tickets, payments, lines, receiving history, and inventory movement proof.",
-    entities: ["tickets", "receiving_history"],
-    proofTerms: [
-      "closed_ticket_transactions",
-      "closed_ticket_lines",
-      "closed_ticket_payments",
-      "receiving_history",
-      "inventory_movement",
-    ],
-  },
-  {
-    key: "open_orders",
-    label: "Open orders and layaways",
-    desc: "Open documents, line items, deposits, and remaining open balances.",
-    entities: ["open_docs"],
-    proofTerms: ["open_doc_transactions", "open_doc_lines", "open_docs"],
-  },
-  {
-    key: "gift_cards",
-    label: "Gift cards and store credit",
-    desc: "Active gift-card balances and opening store-credit liabilities.",
-    entities: ["gift_cards", "store_credit_opening"],
-    proofTerms: ["gift_cards", "store_credit"],
-  },
-  {
-    key: "loyalty",
-    label: "Loyalty balances",
-    desc: "Current customer loyalty balance proof; history is optional for go-live.",
-    entities: ["loyalty_hist"],
-    proofTerms: ["loyalty_history", "loyalty_hist", "loyalty"],
-  },
-];
-
 function fmtNum(n: number | null | undefined): string {
   if (n == null) return "—";
   return n.toLocaleString();
@@ -611,84 +376,6 @@ function formatConfidence(value: number | string | null): string {
   return `${Math.round(n * 100)}%`;
 }
 
-function stagingBatchAgeMinutes(batch: StagingBatchRow): number | null {
-  if (!batch.apply_started_at) return null;
-  const started = new Date(batch.apply_started_at).getTime();
-  if (Number.isNaN(started)) return null;
-  return Math.max(0, Math.floor((Date.now() - started) / 60_000));
-}
-
-function isStaleApplyingBatch(batch: StagingBatchRow): boolean {
-  const ageMinutes = stagingBatchAgeMinutes(batch);
-  return batch.status === "applying" && ageMinutes != null && ageMinutes >= 15;
-}
-
-function stagingStaffLabel(name: string | null, id: string | null): string {
-  return name?.trim() || id?.trim() || "Unknown staff";
-}
-
-function stagingStatusLabel(batch: StagingBatchRow): string {
-  if (batch.recovered_at) return "Recovered stale apply";
-  if (isStaleApplyingBatch(batch)) return "Stale applying";
-  if (batch.status === "pending") return "Pending review";
-  if (batch.status === "applying") return "Applying";
-  if (batch.status === "applied") return "Applied";
-  if (batch.status === "failed") return "Failed";
-  if (batch.status === "discarded") return "Discarded";
-  return formatEntityLabel(batch.status);
-}
-
-function stagingStatusTone(batch: StagingBatchRow): string {
-  if (batch.recovered_at) return "bg-amber-500/15 text-amber-700 dark:text-amber-200";
-  if (isStaleApplyingBatch(batch) || batch.status === "failed") return "bg-red-500/10 text-red-600";
-  if (batch.status === "pending" || batch.status === "applying") return "bg-amber-500/15 text-amber-700 dark:text-amber-200";
-  if (batch.status === "applied") return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200";
-  return "bg-app-surface-2 text-app-text-muted";
-}
-
-function stagingLiveWriteSummary(batch: StagingBatchRow): string {
-  if (batch.applied_at) return `Applied ${fmtNum(batch.row_count)} ${formatEntityLabel(batch.entity).toLowerCase()} row(s) to live ROS.`;
-  if (batch.recovered_at) return "Recovered stale apply; payload was not replayed.";
-  if (batch.apply_started_at) return "Apply is active; wait before taking recovery action unless the claim becomes stale.";
-  if (batch.status === "pending") return "No live write has happened yet.";
-  if (batch.status === "failed") return batch.apply_error ?? "Apply failed before completion.";
-  return "No live write result recorded.";
-}
-
-function stagingReplaySummary(batch: StagingBatchRow): string {
-  if (batch.replay_count > 0) return `Replay suppressed x${fmtNum(batch.replay_count)}.`;
-  return "No duplicate bridge payload replay recorded.";
-}
-
-function stagingRecoveryGuidance(batch: StagingBatchRow): string {
-  if (isStaleApplyingBatch(batch)) return "Only stale recovery is available for this batch.";
-  if (batch.status === "applying") return "Apply is active; wait before taking recovery action.";
-  if (batch.recovered_at) return "Recovered stale apply is now failed for support review.";
-  return "Recovery is only available for stale applying claims.";
-}
-
-function stagingNextAction(batch: StagingBatchRow): { label: string; tone: string; body: string } {
-  if (isStaleApplyingBatch(batch)) {
-    return {
-      label: "Recovery review",
-      tone: "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-100",
-      body: "Mark the stale apply failed only after support confirms the bridge will not finish this claim.",
-    };
-  }
-  if (batch.status === "pending") {
-    return {
-      label: "Apply or discard",
-      tone: "border-app-border bg-app-bg/60 text-app-text-muted",
-      body: "Review the payload, then apply it to live ROS or discard and rerun the bridge sync.",
-    };
-  }
-  return {
-    label: "Review only",
-    tone: "border-app-border bg-app-bg/60 text-app-text-muted",
-    body: "No write action is currently recommended from this status.",
-  };
-}
-
 // function fmtMoney(value: string | number | null | undefined): string {
 //   if (value == null) return "—";
 //   const n = typeof value === "number" ? value : Number(value);
@@ -730,69 +417,41 @@ function parseCsvRows(text: string): Record<string, string>[] {
 
 export interface CounterpointSyncSettingsPanelProps {
   variant?: "card" | "workspace";
+  onNavigateCustomers?: (section?: string) => void;
+  onOpenWeddingParty?: (partyId: string) => void;
+  onStartSaleInPos?: (customer: Customer) => void;
+  onNavigateRegister?: () => void;
+  onAddToWedding?: () => void;
+  onBookAppointment?: () => void;
+  onOpenTransactionInBackoffice?: (orderId: string) => void;
 }
 
-export default function CounterpointSyncSettingsPanel() {
+export default function CounterpointSyncSettingsPanel({
+  onNavigateCustomers,
+  onOpenWeddingParty,
+  onStartSaleInPos,
+  onNavigateRegister,
+  onAddToWedding,
+  onBookAppointment,
+  onOpenTransactionInBackoffice,
+}: CounterpointSyncSettingsPanelProps = {}) {
   const baseUrl = getBaseUrl();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
 
-  const [activeStep, setActiveStep] = useState<number>(1);
-
-  /* ── State variables consolidated from both components ── */
   const [status, setStatus] = useState<SyncStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [batches, setBatches] = useState<StagingBatchRow[]>([]);
-  const [applyBusy, setApplyBusy] = useState(false);
-  const [stagingToggleBusy, setStagingToggleBusy] = useState(false);
-  const [confirmApply, setConfirmApply] = useState<number | null>(null);
-  const [confirmDiscard, setConfirmDiscard] = useState<number | null>(null);
-  const [confirmRecoverStale, setConfirmRecoverStale] = useState<number | null>(null);
-  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
-  const [selectedPayload, setSelectedPayload] = useState<unknown>(null);
-  const [bulkApplyBusy, setBulkApplyBusy] = useState(false);
-  const [bulkApplyProgress, setBulkApplyProgress] = useState<{
-    index: number;
-    total: number;
-    entity: string;
-    id: number;
-  } | null>(null);
-  const [workspaceView, setWorkspaceView] = useState<"overview" | "pipeline" | "inbound" | "details" | "ai_review">(() => {
+  const [workspaceView, setWorkspaceView] = useState<"overview" | "pipeline" | "inbound" | "details" | "ai_review" | "customer_duplicates">(() => {
     if (typeof window === "undefined") return "overview";
     const saved = window.localStorage.getItem("counterpoint.statusSection");
-    return saved === "details" || saved === "inbound" || saved === "ai_review" || saved === "pipeline"
-      ? saved
-      : "overview";
+    return saved === "ai_review" || saved === "customer_duplicates" ? saved : "overview";
   });
 
-  // Connection settings
   const [runRequestBusy, setRunRequestBusy] = useState(false);
-  const [bridgeControlUrlDraft, setBridgeControlUrlDraft] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return window.localStorage.getItem(BRIDGE_CONTROL_URL_STORAGE_KEY) ?? "";
-  });
-  const [bridgeLive, setBridgeLive] = useState<BridgeLiveStatus | null>(null);
-  const [bridgeControlsReachable, setBridgeControlsReachable] = useState<boolean | null>(null);
-  const [bridgeControlResolvedUrl, setBridgeControlResolvedUrl] = useState<string | null>(null);
-  const [bridgeControlLoading, setBridgeControlLoading] = useState(false);
 
-  // Workbench state (for catalog cleanup steps)
   const [workbenchState, setWorkbenchState] = useState<WorkbenchState | null>(null);
-  const [workbenchLoading, setWorkbenchLoading] = useState(false);
-  const [activeSubStep, setActiveSubStep] = useState<string>("data_sources");
-  // const [confirmApproveSubStep, setConfirmApproveSubStep] = useState<string | null>(null);
-  // const [approveSubStepBusy, setApproveSubStepBusy] = useState(false);
-  const [confirmWorkbenchReset, setConfirmWorkbenchReset] = useState(false);
-  const [workbenchResetBusy, setWorkbenchResetBusy] = useState(false);
 
-  // Maps state
-  const [categoryRows, setCategoryRows] = useState<CategoryMapRow[]>([]);
-  const [paymentRows, setPaymentRows] = useState<PaymentMapRow[]>([]);
-  const [giftRows, setGiftRows] = useState<GiftReasonRow[]>([]);
-  const [staffRows, setStaffRows] = useState<StaffMapRow[]>([]);
-  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
-
-  // CSV files state
   const [dsHealth, setDsHealth] = useState<DataSourcesHealth | null>(null);
   const [csvUploading, setCsvUploading] = useState<string | null>(null);
   const [csvUploadProgress, setCsvUploadProgress] = useState<number>(0);
@@ -800,13 +459,6 @@ export default function CounterpointSyncSettingsPanel() {
   const lsFileRef = useRef<HTMLInputElement>(null);
   const cpFileRef = useRef<HTMLInputElement>(null);
 
-  // AI suggestions
-  const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>([]);
-  const [aiScope, setAiScope] = useState<string>("names");
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-
-  // Manual Counterpoint transition review packs
   const [reviewScopes, setReviewScopes] = useState<ReviewPackScope[]>([]);
   const [reviewPacks, setReviewPacks] = useState<ReviewPackSummary[]>([]);
   const [reviewScope, setReviewScope] = useState<string>("inventory_catalog");
@@ -818,25 +470,13 @@ export default function CounterpointSyncSettingsPanel() {
   const [reviewSuggestionEdits, setReviewSuggestionEdits] = useState<Record<string, string>>({});
   const reviewImportFileRef = useRef<HTMLInputElement>(null);
 
-  // SKU gaps
-  const [skuGaps, setSkuGaps] = useState<SkuGapRow[]>([]);
-  const [skuSuggestions, setSkuSuggestions] = useState<string[]>([]);
-  const [skuAssignments, setSkuAssignments] = useState<Record<string, string>>({});
-  const [skuAssignBusy, setSkuAssignBusy] = useState(false);
-
-  // Merge Conflicts
   const [mergePreview, setMergePreview] = useState<MergePreview | null>(null);
   const [mergeLoading, setMergeLoading] = useState(false);
 
-  // Audit / Reconciliation Reports (Step 8)
   const [landingVerification, setLandingVerification] = useState<CounterpointLandingVerificationSummary | null>(null);
   const [commandCenter, setCommandCenter] = useState<CounterpointImportCommandCenterSummary | null>(null);
   const [importExceptions, setImportExceptions] = useState<CounterpointImportExceptionRow[]>([]);
-  const [openDocsVerification, setOpenDocsVerification] = useState<CounterpointOpenDocsVerificationSnapshot | null>(null);
-  // const [transactionReconciliation, setTransactionReconciliation] = useState<CounterpointTransactionReconciliationSnapshot | null>(null);
-  // const [inventoryCatalogVerification, setInventoryCatalogVerification] = useState<CounterpointInventoryCatalogVerificationSnapshot | null>(null);
   const [resetPromptOpen, setResetPromptOpen] = useState(false);
-  // const [resetBusy, setResetBusy] = useState(false);
   const [resetPreview, setResetPreview] = useState<CounterpointResetPreviewResponse | null>(null);
 
   const headers = useCallback(
@@ -902,97 +542,17 @@ export default function CounterpointSyncSettingsPanel() {
     }
   }, [baseUrl, headers, hasPermission]);
 
-  const fetchSelectedBatchPayload = useCallback(async (id: number) => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${id}/payload`,
-        { headers: headers() },
-      );
-      if (res.ok) {
-        setSelectedPayload(await res.json());
-        return;
-      }
-    } catch { /* silent */ }
-    setSelectedPayload(null);
-  }, [baseUrl, headers]);
-
-  const fetchBridgeControlStatus = useCallback(async () => {
-    const configured = bridgeControlUrlDraft.trim();
-    const candidates = Array.from(new Set([
-      configured,
-      status?.bridge_hostname ? `http://${status.bridge_hostname}:3002` : "",
-      "http://127.0.0.1:3002",
-      "http://localhost:3002",
-    ].filter(Boolean)));
-    setBridgeControlLoading(true);
-    for (const candidate of candidates) {
-      try {
-        const url = candidate.endsWith("/api/status")
-          ? candidate
-          : `${candidate.replace(/\/$/, "")}/api/status`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error("bridge status unavailable");
-        setBridgeLive((await res.json()) as BridgeLiveStatus);
-        setBridgeControlsReachable(true);
-        setBridgeControlResolvedUrl(url);
-        setBridgeControlLoading(false);
-        return;
-      } catch { /* try next candidate */ }
-    }
-    setBridgeLive(null);
-    setBridgeControlsReachable(false);
-    setBridgeControlResolvedUrl(null);
-    setBridgeControlLoading(false);
-  }, [bridgeControlUrlDraft, status?.bridge_hostname]);
-
   const fetchWorkbenchState = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
-    setWorkbenchLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/workbench/state`, {
         headers: headers(),
       });
       if (res.ok) {
-        const data = (await res.json()) as WorkbenchState;
-        setWorkbenchState(data);
-        if (data.current_step && !activeSubStep) {
-          setActiveSubStep(data.current_step);
-        }
+        setWorkbenchState((await res.json()) as WorkbenchState);
       }
-    } catch { /* silent */ }
-    finally {
-      setWorkbenchLoading(false);
-    }
-  }, [baseUrl, headers, hasPermission, activeSubStep]);
-
-  const fetchMaps = useCallback(async () => {
-    if (!hasPermission("settings.admin")) return;
-    try {
-      const h = headers();
-      const [c, p, g, s] = await Promise.all([
-        fetch(`${baseUrl}/api/settings/counterpoint-sync/maps/category`, { headers: h }).catch(() => null),
-        fetch(`${baseUrl}/api/settings/counterpoint-sync/maps/payment`, { headers: h }).catch(() => null),
-        fetch(`${baseUrl}/api/settings/counterpoint-sync/maps/gift-reason`, { headers: h }).catch(() => null),
-        fetch(`${baseUrl}/api/settings/counterpoint-sync/maps/staff`, { headers: h }).catch(() => null),
-      ]);
-      if (c?.ok) setCategoryRows((await c.json()) as CategoryMapRow[]);
-      if (p?.ok) setPaymentRows((await p.json()) as PaymentMapRow[]);
-      if (g?.ok) setGiftRows((await g.json()) as GiftReasonRow[]);
-      if (s?.ok) setStaffRows((await s.json()) as StaffMapRow[]);
     } catch { /* silent */ }
   }, [baseUrl, headers, hasPermission]);
-
-  const fetchCategoriesForPicker = useCallback(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/categories`, { headers: headers() });
-      if (res.ok) {
-        const raw = (await res.json()) as { id: string; name: string }[];
-        setCategoryOptions(raw.map((c) => ({ id: c.id, name: c.name })));
-      }
-    } catch {
-      setCategoryOptions([]);
-    }
-  }, [baseUrl, headers]);
 
   const fetchDsHealth = useCallback(async () => {
     try {
@@ -1001,34 +561,6 @@ export default function CounterpointSyncSettingsPanel() {
         { headers: headers() },
       );
       if (res.ok) setDsHealth((await res.json()) as DataSourcesHealth);
-    } catch { /* silent */ }
-  }, [baseUrl, headers]);
-
-  const fetchSkuGaps = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/workbench/sku-gaps`,
-        { headers: headers() },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setSkuGaps(data.rows ?? []);
-      }
-    } catch {
-      toast("Could not load SKU gaps", "error");
-    }
-  }, [baseUrl, headers, toast]);
-
-  const fetchSkuSuggestions = useCallback(async (count: number) => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/workbench/sku-gaps/suggest-next?count=${count}`,
-        { headers: headers() },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setSkuSuggestions(data.suggestions ?? []);
-      }
     } catch { /* silent */ }
   }, [baseUrl, headers]);
 
@@ -1112,44 +644,6 @@ export default function CounterpointSyncSettingsPanel() {
     } catch { /* silent */ }
   }, [baseUrl, headers]);
 
-  const fetchTransactionReconciliation = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/transaction-reconciliation`,
-        { headers: headers() },
-      );
-      if (res.ok) {
-        // const data = await res.json();
-        // setTransactionReconciliation(data as CounterpointTransactionReconciliationSnapshot);
-      }
-    } catch { /* silent */ }
-  }, [baseUrl, headers]);
-
-  const fetchOpenDocsVerification = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/open-docs-verification`,
-        { headers: headers() },
-      );
-      if (res.ok) {
-        setOpenDocsVerification((await res.json()) as CounterpointOpenDocsVerificationSnapshot);
-      }
-    } catch { /* silent */ }
-  }, [baseUrl, headers]);
-
-  const fetchInventoryCatalogVerification = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/inventory-catalog-verification`,
-        { headers: headers() },
-      );
-      if (res.ok) {
-        // const data = await res.json();
-        // setInventoryCatalogVerification(data as CounterpointInventoryCatalogVerificationSnapshot);
-      }
-    } catch { /* silent */ }
-  }, [baseUrl, headers]);
-
   const fetchResetPreview = useCallback(async () => {
     try {
       const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/reset-preview`, {
@@ -1169,15 +663,11 @@ export default function CounterpointSyncSettingsPanel() {
       fetchImportExceptions(),
       fetchBatches(),
       fetchWorkbenchState(),
-      fetchMaps(),
-      fetchCategoriesForPicker(),
       fetchDsHealth(),
+      fetchMergePreview(),
       fetchReviewScopes(),
       fetchReviewPacks(),
       fetchLandingVerification(),
-      fetchTransactionReconciliation(),
-      fetchOpenDocsVerification(),
-      fetchInventoryCatalogVerification(),
       fetchResetPreview(),
     ]);
     setLoading(false);
@@ -1187,33 +677,17 @@ export default function CounterpointSyncSettingsPanel() {
     fetchImportExceptions,
     fetchBatches,
     fetchWorkbenchState,
-    fetchMaps,
-    fetchCategoriesForPicker,
     fetchDsHealth,
+    fetchMergePreview,
     fetchReviewScopes,
     fetchReviewPacks,
     fetchLandingVerification,
-    fetchTransactionReconciliation,
-    fetchOpenDocsVerification,
-    fetchInventoryCatalogVerification,
     fetchResetPreview,
   ]);
 
   useEffect(() => {
     void fetchAllData();
   }, [fetchAllData]);
-
-  useEffect(() => {
-    void fetchBridgeControlStatus();
-  }, [fetchBridgeControlStatus]);
-
-  useEffect(() => {
-    if (selectedBatchId == null) {
-      setSelectedPayload(null);
-      return;
-    }
-    void fetchSelectedBatchPayload(selectedBatchId);
-  }, [fetchSelectedBatchPayload, selectedBatchId]);
 
   useEffect(() => {
     void fetchReviewSuggestions(selectedReviewPackId);
@@ -1270,273 +744,6 @@ export default function CounterpointSyncSettingsPanel() {
       toast(error instanceof Error ? error.message : "Could not resolve import exception", "error");
     }
   }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
-
-  const stopBridgeSync = useCallback(async () => {
-    // Attempt stop on local endpoints
-    toast("Requesting sync abort on Counterpoint Host PC...", "info");
-    // Fallback simple message, as local bridge may be on separate network
-  }, [toast]);
-
-  const saveBridgeControlUrl = useCallback(() => {
-    const trimmed = bridgeControlUrlDraft.trim();
-    if (typeof window !== "undefined") {
-      if (trimmed) {
-        window.localStorage.setItem(BRIDGE_CONTROL_URL_STORAGE_KEY, trimmed);
-      } else {
-        window.localStorage.removeItem(BRIDGE_CONTROL_URL_STORAGE_KEY);
-      }
-    }
-    toast("Bridge parameters saved.", "success");
-  }, [bridgeControlUrlDraft, toast]);
-
-  const setStagingEnabled = async (enabled: boolean) => {
-    setStagingToggleBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/staging/enabled`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...headers(),
-        },
-        body: JSON.stringify({ staging_enabled: enabled }),
-      });
-      if (res.ok) {
-        toast(
-          enabled
-            ? "Safe Staging post-gate is active. Staging batches will be queued for review."
-            : "Direct Write active. New SQL sync entries will update ROS directly.",
-          "success",
-        );
-        await fetchStatus();
-      }
-    } catch {
-      toast("Could not update staging controls", "error");
-    } finally {
-      setStagingToggleBusy(false);
-    }
-  };
-
-  const applyBatch = async (id: number) => {
-    setApplyBusy(true);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${id}/apply`,
-        {
-          method: "POST",
-          headers: headers(),
-        },
-      );
-      if (res.ok) {
-        toast("Staged data successfully written to live ROS tables.", "success");
-        setConfirmApply(null);
-        await fetchBatches();
-        await fetchStatus();
-        await fetchLandingVerification();
-        await fetchTransactionReconciliation();
-        await fetchOpenDocsVerification();
-        await fetchInventoryCatalogVerification();
-      } else {
-        const j = await res.json().catch(() => ({}));
-        toast(j.error ?? "Apply failed", "error");
-      }
-    } catch {
-      toast("Could not apply staging batch", "error");
-    } finally {
-      setApplyBusy(false);
-    }
-  };
-
-  const applyOneTimeImportBatches = async () => {
-    const queue = batches
-      .filter((batch) => batch.status === "pending" && ONE_TIME_APPLY_ENTITY_SET.has(batch.entity))
-      .sort((a, b) => {
-        const orderDiff =
-          (ONE_TIME_APPLY_ORDER_INDEX.get(a.entity) ?? Number.MAX_SAFE_INTEGER) -
-          (ONE_TIME_APPLY_ORDER_INDEX.get(b.entity) ?? Number.MAX_SAFE_INTEGER);
-        return orderDiff !== 0 ? orderDiff : a.id - b.id;
-      });
-
-    if (queue.length === 0) {
-      toast("No supported Counterpoint staging batches are waiting to apply.", "info");
-      return;
-    }
-
-    setApplyBusy(true);
-    setBulkApplyBusy(true);
-    try {
-      for (let index = 0; index < queue.length; index += 1) {
-        const batch = queue[index];
-        setBulkApplyProgress({
-          index: index + 1,
-          total: queue.length,
-          entity: batch.entity,
-          id: batch.id,
-        });
-        const res = await fetch(
-          `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${batch.id}/apply`,
-          {
-            method: "POST",
-            headers: headers(),
-          },
-        );
-        if (!res.ok) {
-          const j = await res.json().catch(() => null) as { error?: unknown } | null;
-          const message =
-            typeof j?.error === "string" && j.error.trim()
-              ? j.error
-              : "Apply failed";
-          throw new Error(`${formatEntityLabel(batch.entity)} batch ${batch.id}: ${message}`);
-        }
-      }
-      toast(`Applied ${fmtNum(queue.length)} Counterpoint staging batch(es) into ROS.`, "success");
-      await fetchAllData();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not apply Counterpoint import batches", "error");
-      await fetchBatches();
-      await fetchStatus();
-    } finally {
-      setBulkApplyProgress(null);
-      setBulkApplyBusy(false);
-      setApplyBusy(false);
-    }
-  };
-
-  const discardBatch = async (id: number) => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${id}/discard`,
-        {
-          method: "POST",
-          headers: headers(),
-        },
-      );
-      if (res.ok) {
-        toast("Staged batch discarded.", "success");
-        setConfirmDiscard(null);
-        await fetchBatches();
-      }
-    } catch {
-      toast("Could not discard batch", "error");
-    }
-  };
-
-  const recoverStaleBatch = async (id: number) => {
-    setApplyBusy(true);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${id}/recover-stale`,
-        {
-          method: "POST",
-          headers: headers(),
-        },
-      );
-      if (res.ok) {
-        toast("Stale apply marked failed. Payload was not replayed.", "success");
-        setConfirmRecoverStale(null);
-        await fetchBatches();
-        await fetchStatus();
-        return;
-      }
-      const j = await res.json().catch(() => ({}));
-      toast(j.error ?? "Could not recover stale apply", "error");
-    } catch {
-      toast("Could not recover stale apply", "error");
-    } finally {
-      setApplyBusy(false);
-    }
-  };
-
-  /* ── Step 2 Mapping Actions ── */
-
-  const patchCategoryMap = async (id: number, rosCategoryId: string | null) => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/maps/category/${id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...headers(),
-          },
-          body: JSON.stringify({ ros_category_id: rosCategoryId }),
-        },
-      );
-      if (res.ok) {
-        toast("Category link saved.", "success");
-        await fetchMaps();
-        await fetchInventoryCatalogVerification();
-      }
-    } catch {
-      toast("Could not save mapping", "error");
-    }
-  };
-
-  const patchPaymentMap = async (id: number, rosMethod: string) => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/maps/payment/${id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...headers(),
-          },
-          body: JSON.stringify({ ros_method: rosMethod }),
-        },
-      );
-      if (res.ok) {
-        toast("Payment method code mapping saved.", "success");
-        await fetchMaps();
-        await fetchTransactionReconciliation();
-      }
-    } catch {
-      toast("Could not save map", "error");
-    }
-  };
-
-  const patchGiftMap = async (id: number, kind: string) => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/maps/gift-reason/${id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...headers(),
-          },
-          body: JSON.stringify({ ros_card_kind: kind }),
-        },
-      );
-      if (res.ok) {
-        toast("Gift card logic code mapped.", "success");
-        await fetchMaps();
-      }
-    } catch {
-      toast("Could not save map", "error");
-    }
-  };
-
-  const patchStaffMap = async (id: number, rosStaffId: string) => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/maps/staff/${id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...headers(),
-          },
-          body: JSON.stringify({ ros_staff_id: rosStaffId }),
-        },
-      );
-      if (res.ok) {
-        toast("Staff identity linked.", "success");
-        await fetchMaps();
-      }
-    } catch {
-      toast("Could not link staff", "error");
-    }
-  };
 
   /* ── CSV Upload ── */
   const handleCsvUpload = async (file: File, type: "lightspeed" | "counterpoint") => {
@@ -1661,7 +868,6 @@ export default function CounterpointSyncSettingsPanel() {
           toast(`Counterpoint backup CSV cached: ${allRows.length} rows`, "success");
           void fetchDsHealth();
           void fetchMergePreview();
-          void fetchInventoryVerification();
         }
       }
     } catch (e) {
@@ -1673,65 +879,6 @@ export default function CounterpointSyncSettingsPanel() {
         setCsvUploadProgress(0);
         setCsvUploadStatus(null);
       }, 3000);
-    }
-  };
-
-  /* ── AI Naming / Categorization review ── */
-  const runAiReview = async (scope: string) => {
-    setAiBusy(true);
-    setAiError(null);
-    setAiScope(scope);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/workbench/ai-review`,
-        {
-          method: "POST",
-          headers: { ...headers(), "Content-Type": "application/json" },
-          body: JSON.stringify({ scope, limit: 35 }),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (data.error) setAiError(data.error);
-        setAiSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
-        if (!data.ai_available) {
-          setAiError(data.error ?? "ROSIE AI Copilot service is offline on server host.");
-        }
-      }
-    } catch {
-      setAiError("ROSIE AI unreachable.");
-    } finally {
-      setAiBusy(false);
-    }
-  };
-
-  const applySuggestions = async (suggestions: AiSuggestion[], scope: string) => {
-    const payload = suggestions
-      .filter((s) => (scope === "names" ? s.suggested_name : s.suggested_category))
-      .map((s) => ({
-        item_no: s.item_no,
-        new_name: scope === "names" ? s.suggested_name : undefined,
-        new_category: scope === "categories" ? s.suggested_category : undefined,
-      }));
-    if (payload.length === 0) return;
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/workbench/apply-suggestions`,
-        {
-          method: "POST",
-          headers: { ...headers(), "Content-Type": "application/json" },
-          body: JSON.stringify({ suggestions: payload }),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        toast(`ROSIE Suggestions applied: ${data.names_updated ?? 0} titles updated, ${data.categories_updated ?? 0} categories linked.`, "success");
-        setAiSuggestions([]);
-        void fetchWorkbenchState();
-        void fetchInventoryCatalogVerification();
-      }
-    } catch {
-      toast("Could not apply suggestions", "error");
     }
   };
 
@@ -1823,7 +970,7 @@ export default function CounterpointSyncSettingsPanel() {
       if (!res.ok) {
         throw new Error(data.error ?? "Imported review JSON did not pass validation");
       }
-      toast(`Suggestions staged: ${fmtNum(data.stored_suggestions ?? 0)} pending.`, "success");
+      toast(`Suggestions saved: ${fmtNum(data.stored_suggestions ?? 0)} pending review.`, "success");
       setReviewImportText("");
       await fetchReviewPacks();
       const sourcePackId = typeof data.source_pack_id === "string" ? data.source_pack_id : selectedReviewPackId;
@@ -1881,97 +1028,12 @@ export default function CounterpointSyncSettingsPanel() {
         "success",
       );
       await fetchReviewSuggestions(selectedReviewPackId);
-      await fetchInventoryCatalogVerification();
+      await fetchWorkbenchState();
+      await fetchCommandCenter();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Could not apply approved suggestions", "error");
     } finally {
       setReviewBusy(null);
-    }
-  };
-
-  /* ── SKU Gaps barcode assignment ── */
-  const assignSkus = async () => {
-    const assignments = Object.entries(skuAssignments)
-      .filter(([, sku]) => sku.trim())
-      .map(([variant_id, new_sku]) => ({
-        variant_id,
-        new_sku,
-        new_barcode: new_sku,
-      }));
-    if (assignments.length === 0) return;
-    setSkuAssignBusy(true);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/workbench/sku-gaps/assign`,
-        {
-          method: "PATCH",
-          headers: { ...headers(), "Content-Type": "application/json" },
-          body: JSON.stringify({ assignments }),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        toast(`SKUs assigned: ${data.updated} variants configured.`, "success");
-        setSkuAssignments({});
-        void fetchSkuGaps();
-        void fetchWorkbenchState();
-        void fetchInventoryCatalogVerification();
-      }
-    } catch {
-      toast("Barcode assignment failed", "error");
-    } finally {
-      setSkuAssignBusy(false);
-    }
-  };
-
-  /* ── Step approvals (Backend Step Gate) ── */
-  const approveSubStep = async (stepKey: string) => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/workbench/approve-step`,
-        {
-          method: "POST",
-          headers: { ...headers(), "Content-Type": "application/json" },
-          body: JSON.stringify({ step: stepKey }),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        toast(`Sub-section '${stepKey}' verified.`, "success");
-        if (data.next_step_unlocked) {
-          if (stepKey === "vendors") {
-            setActiveSubStep("staff");
-          } else {
-            setActiveSubStep(data.next_step_unlocked);
-          }
-        }
-        void fetchWorkbenchState();
-      } else {
-        const j = await res.json().catch(() => ({}));
-        toast(j.error ?? "Step verification failed", "error");
-      }
-    } catch {
-      toast("Step verification failed", "error");
-    }
-  };
-
-  const resetWorkbench = async () => {
-    setWorkbenchResetBusy(true);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/workbench/reset`,
-        { method: "POST", headers: headers() },
-      );
-      if (res.ok) {
-        toast("Catalog workflow reset. Approvals unlocked.", "success");
-        setActiveSubStep("data_sources");
-        void fetchWorkbenchState();
-      }
-    } catch {
-      toast("Reset failed", "error");
-    } finally {
-      setWorkbenchResetBusy(false);
-      setConfirmWorkbenchReset(false);
     }
   };
 
@@ -1987,7 +1049,7 @@ export default function CounterpointSyncSettingsPanel() {
         body: JSON.stringify({ confirmation_phrase: confirmationPhrase }),
       });
       if (res.ok) {
-        toast("Live ROS Counterpoint import tables wiped. Staging is reset.", "success");
+        toast("Live ROS Counterpoint import tables wiped. Support queue state is reset.", "success");
         setResetPromptOpen(false);
         // setBaselineResetPhrase("");
         void fetchAllData();
@@ -2002,108 +1064,16 @@ export default function CounterpointSyncSettingsPanel() {
     }
   };
 
-  const fetchInventoryVerification = useCallback(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/inventory-verification`, {
-        headers: headers(),
-      });
-      if (res.ok) {
-        // const raw = await res.json();
-        // Check if report builds
-      }
-    } catch { /* silent */ }
-  }, [baseUrl, headers]);
-
   /* ── Calculations & Helpers ── */
-  const stagingOn = status?.counterpoint_staging_enabled === true;
-  const serverBridgeActive = status?.windows_sync_state === "online" || status?.windows_sync_state === "syncing";
-  const serverBridgeSyncing = status?.windows_sync_state === "syncing";
-  const bridgeHeartbeatLabel =
-    status?.windows_sync_state === "syncing"
-      ? "Syncing"
-      : status?.windows_sync_state === "online"
-        ? "Online"
-        : "Offline";
-  const browserControlLabel = bridgeControlsReachable ? "Reachable" : "Unavailable";
-  const importPreflightLabel = commandCenter?.preflight_received ? "Received" : "Not received";
-  const importRunReceiptLabel = commandCenter?.import_run_received ? "Run recorded" : "No import run";
   const proofScopeLabel =
     commandCenter?.proof_scope === "current_import_run"
       ? "Current import run"
       : commandCenter?.proof_scope === "preflight_only"
         ? "Preflight only"
         : "No import preflight";
-  const pendingN = batches.filter((b) => b.status === "pending").length;
-  const applyingN = batches.filter((b) => b.status === "applying").length;
-  const visiblePendingN = Math.max(pendingN, status?.staging_pending_count ?? 0);
-  const visibleApplyingN = Math.max(applyingN, status?.staging_applying_count ?? 0);
   const stagingCountsByEntity = useMemo(() => new Map<string, StagingEntityCountRow>(
     (status?.staging_entity_counts ?? []).map((row) => [row.entity, row]),
   ), [status?.staging_entity_counts]);
-  const entityRunsForDisplay = useMemo(() => {
-    const rows = new Map<string, EntityRunRow>();
-    for (const run of status?.entity_runs ?? []) {
-      rows.set(run.entity, run);
-    }
-    for (const count of status?.staging_entity_counts ?? []) {
-      if (!rows.has(count.entity)) {
-        rows.set(count.entity, {
-          entity: count.entity,
-          cursor_value: null,
-          last_ok_at: count.latest_at,
-          last_error: null,
-          records_processed: 0,
-          updated_at: count.latest_at,
-        });
-      }
-    }
-    return Array.from(rows.values());
-  }, [status?.entity_runs, status?.staging_entity_counts]);
-  const staleApplyingN = batches.filter(isStaleApplyingBatch).length;
-  const failedBatchN = batches.filter((b) => b.status === "failed").length;
-  const replaySuppressionN = batches.reduce((sum, batch) => sum + Math.max(0, batch.replay_count), 0);
-  const recoveredBatchN = batches.filter((b) => b.recovered_at).length;
-  const unresolvedIssueCount = status?.recent_issues.filter((issue) => !issue.resolved).length ?? 0;
-  const directBridgeErrorCount = Object.values(bridgeLive?.entityStats ?? {}).filter((entry) => entry.error).length;
-  const normalizedProofKeys = new Set(
-    [
-      ...(landingVerification?.rows ?? []),
-      ...(landingVerification?.snapshot_reconciliation ?? []),
-    ].flatMap((row) => {
-      const key = row.key.toLowerCase();
-      const label = row.label.toLowerCase().replace(/\s+/g, "_");
-      const aliases = [key, label];
-      if (key.includes("closed_ticket")) aliases.push("tickets");
-      if (key.includes("loyalty")) aliases.push("loyalty_hist");
-      if (key.includes("catalog") || key.includes("variant")) aliases.push("inventory");
-      return aliases;
-    }),
-  );
-  const entitiesMissingRosProof =
-    status?.entity_runs.filter((run) => {
-      const entity = run.entity.toLowerCase();
-      return !Array.from(normalizedProofKeys).some((key) => key.includes(entity) || entity.includes(key));
-    }).length ?? 0;
-  const lowerRosCountRows =
-    landingVerification?.snapshot_reconciliation.filter((row) => (row.count_difference ?? 0) < 0).length ?? 0;
-  const signoffBlockers = [
-    visiblePendingN > 0 ? `${fmtNum(visiblePendingN)} staging batch(es) are pending review.` : null,
-    unresolvedIssueCount > 0 ? `${fmtNum(unresolvedIssueCount)} unresolved sync issue(s) remain.` : null,
-    entitiesMissingRosProof > 0
-      ? `${fmtNum(entitiesMissingRosProof)} entity row(s) have bridge-reported counts without ROS landed proof.`
-      : null,
-    directBridgeErrorCount > 0
-      ? "At least one bridge entity still shows an error in the latest visible run."
-      : null,
-  ].filter((line): line is string => Boolean(line));
-  const supportDiagnosticsSeverity =
-    signoffBlockers.length > 0 || staleApplyingN > 0 || failedBatchN > 0 ? "Review" : "Clear";
-  const supportDiagnosticsTone =
-    supportDiagnosticsSeverity === "Review"
-      ? "bg-red-500/10 text-red-600"
-      : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200";
-  const selectedBatch =
-    selectedBatchId == null ? null : (batches.find((batch) => batch.id === selectedBatchId) ?? null);
   const selectedReviewPack =
     reviewPacks.find((pack) => pack.pack_id === selectedReviewPackId) ?? reviewPacks[0] ?? null;
   const selectedReviewScope =
@@ -2114,63 +1084,6 @@ export default function CounterpointSyncSettingsPanel() {
       : reviewScopes.find((scope) => scope.scope === selectedReviewPack.scope) ?? null;
   const acceptedReviewSuggestionCount = reviewSuggestions.filter((s) => s.status === "accepted").length;
 
-  const getEntityRunProof = (run: EntityRunRow) => {
-    const staged = stagingCountsByEntity.get(run.entity);
-    const stagedRows =
-      (staged?.pending_rows ?? 0) + (staged?.applying_rows ?? 0) + (staged?.applied_rows ?? 0);
-    const stagedBatches =
-      (staged?.pending_batches ?? 0) + (staged?.applying_batches ?? 0) + (staged?.applied_batches ?? 0);
-    const runRows = run.records_processed ?? 0;
-    const displayRows = stagingOn && stagedRows > 0 ? stagedRows : runRows;
-    const latestAt = stagingOn && staged?.latest_at ? staged.latest_at : run.last_ok_at;
-    const stagingLabel =
-      staged && staged.applying_batches > 0
-        ? "Applying staged rows"
-        : staged && staged.pending_batches > 0
-          ? "Queued in staging"
-          : staged && staged.applied_batches > 0
-            ? "Applied from staging"
-            : "Staged rows";
-    return {
-      displayRows,
-      latestAt,
-      staged,
-      stagedBatches,
-      stagingLabel,
-      isStaged: stagingOn && stagedRows > 0,
-      isZeroNoError: displayRows === 0 && !run.last_error,
-    };
-  };
-  const counterpointInsightFacts = {
-    title: "Counterpoint Sign-off Explanation",
-    bullets: [
-      ...signoffBlockers.map((label, index) => ({
-        id: `counterpoint-blocker-${index}`,
-        label,
-        severity: "warning",
-      })),
-      {
-        id: "counterpoint-queue",
-        label: `${fmtNum(visiblePendingN)} pending, ${fmtNum(visibleApplyingN)} applying, ${fmtNum(staleApplyingN)} stale applying, ${fmtNum(recoveredBatchN)} recovered.`,
-        severity: visiblePendingN > 0 || visibleApplyingN > 0 ? "warning" : "success",
-      },
-      {
-        id: "counterpoint-replay",
-        label: `${fmtNum(replaySuppressionN)} replay suppression(s) recorded in the loaded queue.`,
-        severity: replaySuppressionN > 0 ? "info" : "success",
-      },
-      {
-        id: "counterpoint-proof",
-        label: `${fmtNum(lowerRosCountRows)} reconciliation row(s) show ROS count lower than bridge count.`,
-        severity: lowerRosCountRows > 0 ? "warning" : "success",
-      },
-    ],
-    disclaimers: [
-      "Optional explanation of displayed checks only. Do not approve sign-off, reconcile, or declare cutover safe.",
-    ],
-  };
-
-  // Filter staging batches for step rendering
   const catalogBatches = useMemo(() => batches.filter((b) => b.entity === "catalog"), [batches]);
   const inventoryBatches = useMemo(() => batches.filter((b) => b.entity === "inventory"), [batches]);
   const customerBatches = useMemo(() => batches.filter((b) => b.entity === "customers"), [batches]);
@@ -2234,7 +1147,7 @@ export default function CounterpointSyncSettingsPanel() {
       bridgeRows,
       stagedRows,
       landedRows,
-      message: `${label} has ${fmtNum(bridgeRows)} bridge row(s), but no staged/applied batch or ROS landed proof is available for review.`,
+      message: `${label} has ${fmtNum(bridgeRows)} Bridge row(s), but no ROS landed proof is available for review.`,
     };
   };
   const inventoryProducts = workbenchState?.inventory_summary?.products ?? 0;
@@ -2258,106 +1171,9 @@ export default function CounterpointSyncSettingsPanel() {
     "loyalty_history",
     "loyalty_hist",
   ]);
-  const stagingTotalsForEntities = (entities: string[]) => {
-    return entities.reduce(
-      (totals, entity) => {
-        const staged = stagingCountsByEntity.get(entity);
-        const batchRows = batches.filter((batch) => batch.entity === entity);
-        totals.pendingRows += Math.max(
-          staged?.pending_rows ?? 0,
-          batchRows
-            .filter((batch) => batch.status === "pending")
-            .reduce((sum, batch) => sum + Math.max(0, batch.row_count), 0),
-        );
-        totals.applyingRows += Math.max(
-          staged?.applying_rows ?? 0,
-          batchRows
-            .filter((batch) => batch.status === "applying")
-            .reduce((sum, batch) => sum + Math.max(0, batch.row_count), 0),
-        );
-        totals.appliedRows += Math.max(
-          staged?.applied_rows ?? 0,
-          batchRows
-            .filter((batch) => batch.status === "applied")
-            .reduce((sum, batch) => sum + Math.max(0, batch.row_count), 0),
-        );
-        totals.pendingBatches += Math.max(
-          staged?.pending_batches ?? 0,
-          batchRows.filter((batch) => batch.status === "pending").length,
-        );
-        totals.applyingBatches += Math.max(
-          staged?.applying_batches ?? 0,
-          batchRows.filter((batch) => batch.status === "applying").length,
-        );
-        totals.appliedBatches += Math.max(
-          staged?.applied_batches ?? 0,
-          batchRows.filter((batch) => batch.status === "applied").length,
-        );
-        return totals;
-      },
-      {
-        pendingRows: 0,
-        applyingRows: 0,
-        appliedRows: 0,
-        pendingBatches: 0,
-        applyingBatches: 0,
-        appliedBatches: 0,
-      },
-    );
-  };
-  const oneTimePendingSupportedBatches = batches
-    .filter((batch) => batch.status === "pending" && ONE_TIME_APPLY_ENTITY_SET.has(batch.entity))
-    .sort((a, b) => {
-      const orderDiff =
-        (ONE_TIME_APPLY_ORDER_INDEX.get(a.entity) ?? Number.MAX_SAFE_INTEGER) -
-        (ONE_TIME_APPLY_ORDER_INDEX.get(b.entity) ?? Number.MAX_SAFE_INTEGER);
-      return orderDiff !== 0 ? orderDiff : a.id - b.id;
-    });
-  const oneTimeUnsupportedPendingBatches = batches.filter(
-    (batch) => batch.status === "pending" && !ONE_TIME_APPLY_ENTITY_SET.has(batch.entity),
-  );
-  const oneTimePendingSupportedRows = oneTimePendingSupportedBatches.reduce(
-    (sum, batch) => sum + Math.max(0, batch.row_count),
-    0,
-  );
-  const oneTimeImportRows = ONE_TIME_IMPORT_DOMAINS.map((domain) => {
-    const totals = stagingTotalsForEntities(domain.entities);
-    const bridgeRows = bridgeRowsFor(domain.entities);
-    const landedRows = landedRowsFor(domain.proofTerms);
-    const statusLabel =
-      totals.applyingBatches > 0
-        ? "Applying"
-        : totals.pendingBatches > 0
-          ? "Queued"
-          : landedRows > 0
-            ? "Landed"
-            : totals.appliedBatches > 0
-              ? "Applied"
-              : bridgeRows > 0
-                ? "Needs proof"
-                : "Waiting";
-    const tone =
-      statusLabel === "Landed"
-        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
-        : statusLabel === "Applied"
-          ? "bg-blue-500/10 text-blue-700 dark:text-blue-200"
-          : statusLabel === "Queued" || statusLabel === "Applying"
-            ? "bg-amber-500/15 text-amber-700 dark:text-amber-200"
-            : statusLabel === "Needs proof"
-              ? "bg-red-500/10 text-red-600"
-              : "bg-app-surface-2 text-app-text-muted";
-    return {
-      ...domain,
-      ...totals,
-      bridgeRows,
-      landedRows,
-      statusLabel,
-      tone,
-    };
-  });
   const downstreamReviewBlockers = [
     !hasLandedInventory && bridgeReportedCatalogRows > 0
-      ? `Bridge reported catalog/inventory rows, but ROS has ${fmtNum(inventoryProducts)} Counterpoint product(s) and ${fmtNum(inventoryVariants)} variant(s). Apply the inventory staging batch before approving catalog mapping.`
+      ? `Bridge reported catalog/inventory rows, but ROS has ${fmtNum(inventoryProducts)} Counterpoint product(s) and ${fmtNum(inventoryVariants)} variant(s). Run or repair the direct import before approving catalog cleanup.`
       : null,
     ...[
       customerReviewReady,
@@ -2388,88 +1204,6 @@ export default function CounterpointSyncSettingsPanel() {
   const stagedImportRows = stagedReviewRows + catalogStagedRows + inventoryStagedRows;
   const bridgeRowsWithoutReviewSurface =
     bridgeReportedRows > 0 && !hasLandedInventory && stagedImportRows === 0 && !hasAnyCounterpointLandingProof;
-
-  // Check sub-step statuses for Step 2
-  const subStepStatus = (key: string) => workbenchState?.steps[key]?.status ?? "locked";
-  const savedStep2Approved = workbenchState?.steps["verification"]?.status === "complete";
-  const step2ApprovalStale = savedStep2Approved && !hasLandedInventory;
-  const step2Approved = savedStep2Approved && hasLandedInventory;
-  const inventoryLandingRequired =
-    !hasLandedInventory &&
-    (catalogStagedRows > 0 || inventoryStagedRows > 0 || bridgeReportedCatalogRows > 0 || step2ApprovalStale);
-  const cutoverBlockers = [
-    ...signoffBlockers,
-    ...downstreamReviewBlockers,
-    visiblePendingN > 0 || visibleApplyingN > 0 ? "Staging batches are still pending or applying." : null,
-    staleApplyingN > 0 ? "At least one staging batch is stale in applying state." : null,
-    failedBatchN > 0 ? "At least one staging batch failed during apply." : null,
-    !hasAnyCounterpointLandingProof ? "No ROS landed Counterpoint proof is available for final cutover." : null,
-  ].filter((line): line is string => Boolean(line));
-  const canOpenFinalAudit =
-    step2Approved &&
-    customerReviewReady.ready &&
-    ticketReviewReady.ready &&
-    giftCardReviewReady.ready &&
-    openDocReviewReady.ready &&
-    loyaltyReviewReady.ready &&
-    cutoverBlockers.length === 0 &&
-    visiblePendingN === 0 &&
-    visibleApplyingN === 0;
-
-  // Main stepper disabled mapping (linear enforcement)
-  const isStepDisabled = (stepNum: number) => {
-    if (stepNum === 1) return false;
-    if (stepNum === 2) return bridgeRowsWithoutReviewSurface;
-    if (stepNum === 3) return !step2Approved || !hasLandedInventory || !customerReviewReady.ready;
-    if (stepNum === 4) return !step2Approved || !hasLandedInventory || !customerReviewReady.ready || !ticketReviewReady.ready;
-    if (stepNum === 5) return !step2Approved || !hasLandedInventory || !customerReviewReady.ready || !ticketReviewReady.ready || !giftCardReviewReady.ready;
-    if (stepNum === 6) {
-      return !step2Approved || !hasLandedInventory || !customerReviewReady.ready || !ticketReviewReady.ready || !giftCardReviewReady.ready || !openDocReviewReady.ready;
-    }
-    if (stepNum === 7) {
-      return !step2Approved || !hasLandedInventory || !customerReviewReady.ready || !ticketReviewReady.ready || !giftCardReviewReady.ready || !openDocReviewReady.ready || !loyaltyReviewReady.ready;
-    }
-    // Step 8 (Final Cutover) unlocks after all previous staging queues are empty/applied
-    if (stepNum === 8) return !canOpenFinalAudit;
-    return false;
-  };
-
-  const stepBlockerMessage = (stepNum: number) => {
-    if (stepNum === 2 && bridgeRowsWithoutReviewSurface) {
-      return "Bridge-reported rows must have staged, applied, or ROS landed proof before inventory mapping can begin.";
-    }
-    if (!step2Approved && stepNum > 2) return "Approve the inventory catalog mapping step before advancing.";
-    if (!hasLandedInventory && stepNum > 2) return "Apply the Counterpoint inventory batch before moving into downstream review.";
-    if (stepNum >= 3 && !customerReviewReady.ready) return customerReviewReady.message;
-    if (stepNum >= 4 && !ticketReviewReady.ready) return ticketReviewReady.message;
-    if (stepNum >= 5 && !giftCardReviewReady.ready) return giftCardReviewReady.message;
-    if (stepNum >= 6 && !openDocReviewReady.ready) return openDocReviewReady.message;
-    if (stepNum >= 7 && !loyaltyReviewReady.ready) return loyaltyReviewReady.message;
-    if (stepNum === 8 && cutoverBlockers.length > 0) return cutoverBlockers[0];
-    return "This Counterpoint review step is not ready yet.";
-  };
-
-  const goToStepIfReady = (stepNum: number) => {
-    if (isStepDisabled(stepNum)) {
-      toast(stepBlockerMessage(stepNum), "error");
-      return;
-    }
-    setActiveStep(stepNum);
-  };
-
-  // Pipeline Completion Percent
-  const pipelinePercent = useMemo(() => {
-    let completed = 0;
-    if (status?.entity_runs && status.entity_runs.length > 0) completed += 1;
-    if (step2Approved) completed += 1;
-    if (customerBatches.length > 0 && customerBatches.every((b) => b.status === "applied" || b.status === "discarded")) completed += 1;
-    if (ticketBatches.length > 0 && ticketBatches.every((b) => b.status === "applied" || b.status === "discarded")) completed += 1;
-    if (giftBatches.length > 0 && giftBatches.every((b) => b.status === "applied" || b.status === "discarded")) completed += 1;
-    if (openDocBatches.length > 0 && openDocBatches.every((b) => b.status === "applied" || b.status === "discarded")) completed += 1;
-    if (loyaltyBatches.length > 0 && loyaltyBatches.every((b) => b.status === "applied" || b.status === "discarded")) completed += 1;
-    if (landingVerification?.snapshot_reconciliation.every((r) => r.passed)) completed += 1;
-    return Math.round((completed / 8) * 100);
-  }, [status, step2Approved, customerBatches, ticketBatches, giftBatches, openDocBatches, loyaltyBatches, landingVerification]);
 
   const commandReconciliationByKey = useMemo(() => new Map(
     (commandCenter?.snapshot_reconciliation ?? []).map((row) => [row.key, row]),
@@ -2519,7 +1253,7 @@ export default function CounterpointSyncSettingsPanel() {
             Counterpoint Import Command Center
           </h4>
           <p className="mt-1 max-w-4xl text-xs text-app-text-muted">
-            Source counts are proved first, then supported data lands in ROS. Only failures, fallback rows, and cleanup suggestions need review after import.
+            Source counts are proved first, then supported data lands in ROS. Only rows that need review and cleanup suggestions appear after import.
           </p>
           <p className="mt-2 text-xs font-semibold text-app-text-muted">
             Proof scope: <span className="text-app-text">{proofScopeLabel}</span>
@@ -2540,9 +1274,9 @@ export default function CounterpointSyncSettingsPanel() {
           { label: "Expected from Counterpoint", value: fmtNum(commandExpectedTotal) },
           { label: "Sent by Bridge", value: fmtNum(commandSentTotal) },
           { label: "Landed in ROS", value: fmtNum(commandLandedTotal) },
-          { label: "Open exceptions", value: fmtNum(commandCenter?.open_exception_count ?? importExceptions.length) },
-          { label: "Fallback landed", value: fmtNum(commandCenter?.fallback_landed_exception_count ?? 0) },
-          { label: "Ready", value: commandCenter?.ready_for_import ? "Yes" : "No" },
+          { label: "Needs review", value: fmtNum(commandCenter?.open_exception_count ?? importExceptions.length) },
+          { label: "Review-landed", value: fmtNum(commandCenter?.fallback_landed_exception_count ?? 0) },
+          { label: "Ready for use", value: commandCenter?.ready_for_go_live_review ? "Yes" : "No" },
         ].map((stat) => (
           <div key={stat.label} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
             <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{stat.label}</p>
@@ -2630,7 +1364,7 @@ export default function CounterpointSyncSettingsPanel() {
               <th className="px-3 py-2 text-right">Landed</th>
               <th className="px-3 py-2 text-right">Gap</th>
               <th className="px-3 py-2 text-right">Failed</th>
-              <th className="px-3 py-2 text-right">Fallback</th>
+              <th className="px-3 py-2 text-right">Review-landed</th>
               <th className="px-3 py-2">Ready</th>
             </tr>
           </thead>
@@ -2699,524 +1433,6 @@ export default function CounterpointSyncSettingsPanel() {
     </section>
   );
 
-  const oneTimeImportPanel = (
-    <section className="ui-card p-5 space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
-            Import proof and advanced controls
-          </h4>
-          <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
-            Use this area for Bridge controls, reset rehearsal checks, and legacy staging diagnostics after the command center source-count gate passes.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void applyOneTimeImportBatches()}
-          disabled={bulkApplyBusy || oneTimePendingSupportedBatches.length === 0}
-          className="ui-btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold disabled:opacity-50"
-        >
-          {bulkApplyBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
-          Apply Required Staged Data
-        </button>
-      </div>
-
-      <div className="grid gap-2 text-xs md:grid-cols-4">
-        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Ready to apply</p>
-          <p className="mt-1 font-bold tabular-nums text-app-text">
-            {fmtNum(oneTimePendingSupportedBatches.length)} batch(es)
-          </p>
-          <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-            {fmtNum(oneTimePendingSupportedRows)} row(s)
-          </p>
-        </div>
-        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Applying now</p>
-          <p className="mt-1 font-bold tabular-nums text-app-text">{fmtNum(visibleApplyingN)} batch(es)</p>
-          <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-            Stale: {fmtNum(staleApplyingN)}
-          </p>
-        </div>
-        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Landed proof</p>
-          <p className="mt-1 font-bold tabular-nums text-app-text">
-            {fmtNum(oneTimeImportRows.filter((row) => row.landedRows > 0).length)} domain(s)
-          </p>
-          <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-            Required domains: {fmtNum(oneTimeImportRows.length)}
-          </p>
-        </div>
-        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Unsupported pending</p>
-          <p className="mt-1 font-bold tabular-nums text-app-text">
-            {fmtNum(oneTimeUnsupportedPendingBatches.length)} batch(es)
-          </p>
-          <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-            Should be zero before sign-off
-          </p>
-        </div>
-      </div>
-
-      {bulkApplyProgress ? (
-        <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-xs font-semibold text-blue-700 dark:text-blue-200">
-          Applying {formatEntityLabel(bulkApplyProgress.entity)} batch {bulkApplyProgress.id}{" "}
-          ({fmtNum(bulkApplyProgress.index)} of {fmtNum(bulkApplyProgress.total)})
-        </div>
-      ) : null}
-
-      <div className="overflow-hidden rounded-xl border border-app-border">
-        <table className="w-full min-w-[920px] text-left text-xs">
-          <thead className="bg-app-surface-2">
-            <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-              <th className="px-3 py-2">Required data</th>
-              <th className="px-3 py-2">Bridge rows</th>
-              <th className="px-3 py-2">Queued</th>
-              <th className="px-3 py-2">Applied</th>
-              <th className="px-3 py-2">ROS landed proof</th>
-              <th className="px-3 py-2">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-app-border">
-            {oneTimeImportRows.map((row) => (
-              <tr key={row.key}>
-                <td className="px-3 py-2">
-                  <p className="font-bold text-app-text">{row.label}</p>
-                  <p className="mt-0.5 text-[10px] text-app-text-muted">{row.desc}</p>
-                  <p className="mt-1 font-mono text-[9px] text-app-text-muted">
-                    {row.entities.join(", ")}
-                  </p>
-                </td>
-                <td className="px-3 py-2 font-semibold tabular-nums text-app-text">
-                  {fmtNum(row.bridgeRows)}
-                </td>
-                <td className="px-3 py-2">
-                  <p className="font-semibold tabular-nums text-app-text">{fmtNum(row.pendingRows)}</p>
-                  <p className="text-[10px] text-app-text-muted">{fmtNum(row.pendingBatches)} batch(es)</p>
-                </td>
-                <td className="px-3 py-2">
-                  <p className="font-semibold tabular-nums text-app-text">{fmtNum(row.appliedRows)}</p>
-                  <p className="text-[10px] text-app-text-muted">{fmtNum(row.appliedBatches)} batch(es)</p>
-                </td>
-                <td className="px-3 py-2 font-semibold tabular-nums text-app-text">
-                  {fmtNum(row.landedRows)}
-                </td>
-                <td className="px-3 py-2">
-                  <span className={`ui-pill text-[9px] ${row.tone}`}>{row.statusLabel}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {oneTimeUnsupportedPendingBatches.length > 0 ? (
-        <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-xs font-semibold text-red-700 dark:text-red-300">
-          Unsupported pending Counterpoint staging entity:{" "}
-          {Array.from(new Set(oneTimeUnsupportedPendingBatches.map((batch) => batch.entity)))
-            .map(formatEntityLabel)
-            .join(", ")}
-        </div>
-      ) : null}
-    </section>
-  );
-
-  const bridgeReachabilityPanel = (
-    <div className="ui-card p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Browser control API
-          </p>
-          <p className="mt-1 text-sm font-bold text-app-text">
-            {bridgeControlsReachable
-              ? "Browser can reach Bridge controls"
-              : "Browser cannot reach Bridge controls"}
-          </p>
-          <p className="mt-1 text-xs font-semibold text-app-text-muted">
-            Bridge heartbeat: {bridgeHeartbeatLabel}
-          </p>
-          <p className="mt-1 text-xs font-semibold text-app-text-muted">
-            Import preflight: {importPreflightLabel}
-          </p>
-          {bridgeControlResolvedUrl ? (
-            <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-              Controls: {bridgeControlResolvedUrl}
-            </p>
-          ) : null}
-        </div>
-        <button
-          type="button"
-          onClick={() => void fetchBridgeControlStatus()}
-          disabled={bridgeControlLoading}
-          className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${bridgeControlLoading ? "animate-spin" : ""}`} />
-          Reconnect to bridge
-        </button>
-      </div>
-      {!bridgeControlsReachable ? (
-        <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs font-semibold text-amber-800 dark:text-amber-100">
-          Browser controls are unavailable from this workstation. This only affects Start/Stop controls in this browser; Bridge heartbeat and import preflight are tracked separately.
-        </p>
-      ) : null}
-    </div>
-  );
-
-  const inboundQueuePanel = (
-    <section className="ui-card p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Staging diagnostics
-          </h4>
-          <p className="mt-1 text-xs text-app-text-muted">
-            Review replay-safe batches, stale apply claims, and manual recovery before writing Counterpoint data to live ROS tables.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void fetchBatches()}
-          className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Reload
-        </button>
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-2 text-xs xl:grid-cols-6">
-        {[
-          { label: "Replay suppressions", value: fmtNum(replaySuppressionN) },
-          { label: "Failed batches", value: fmtNum(failedBatchN) },
-          { label: "Stale applying", value: fmtNum(staleApplyingN) },
-          { label: "Recovered stale", value: fmtNum(recoveredBatchN) },
-          { label: "Pending", value: fmtNum(visiblePendingN) },
-          { label: "Applying", value: fmtNum(visibleApplyingN) },
-        ].map((item) => (
-          <div key={item.label} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{item.label}</p>
-            <p className="mt-1 font-bold tabular-nums text-app-text">{item.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div className="overflow-hidden rounded-xl border border-app-border">
-          <div className="flex items-center justify-between border-b border-app-border bg-app-bg/40 px-3 py-2">
-            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Batches
-            </span>
-          </div>
-          <div className="max-h-[480px] overflow-auto">
-            <table className="w-full min-w-[640px] text-left text-xs">
-              <thead className="sticky top-0 bg-app-surface-2">
-                <tr className="border-b border-app-border text-[10px] font-black uppercase text-app-text-muted">
-                  <th className="px-2 py-2">ID</th>
-                  <th className="px-2 py-2">Entity</th>
-                  <th className="px-2 py-2">Rows</th>
-                  <th className="px-2 py-2">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-app-border">
-                {batches.map((batch) => (
-                  <tr
-                    key={batch.id}
-                    className={`cursor-pointer hover:bg-app-surface/30 ${
-                      selectedBatchId === batch.id ? "bg-orange-500/10" : ""
-                    }`}
-                    onClick={() => setSelectedBatchId(batch.id)}
-                  >
-                    <td className="px-2 py-2 font-mono">{batch.id}</td>
-                    <td className="px-2 py-2 font-bold">{formatEntityLabel(batch.entity)}</td>
-                    <td className="px-2 py-2 tabular-nums">{fmtNum(batch.row_count)}</td>
-                    <td className="px-2 py-2">
-                      <span className={`ui-pill text-[10px] ${stagingStatusTone(batch)}`}>
-                        {stagingStatusLabel(batch)}
-                      </span>
-                      {batch.replay_count > 0 ? (
-                        <p className="mt-1 text-[10px] text-app-text-muted">
-                          Replay suppressed x{fmtNum(batch.replay_count)}
-                        </p>
-                      ) : null}
-                      {batch.recovered_by_staff_name || batch.recovered_by_staff_id ? (
-                        <p className="mt-1 text-[10px] text-app-text-muted">
-                          Recovered by {stagingStaffLabel(batch.recovered_by_staff_name, batch.recovered_by_staff_id)}
-                        </p>
-                      ) : null}
-                      {batch.recovery_reason ? (
-                        <p className="mt-1 text-[10px] text-app-text-muted">
-                          Recovery note: {batch.recovery_reason}
-                        </p>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {batches.length === 0 ? (
-              <div className="m-3 rounded-lg border border-app-border bg-app-bg/60 p-4 text-xs text-app-text-muted">
-                <p className="font-bold text-app-text">No staged batches need action.</p>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-app-border p-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Payload & actions
-          </p>
-          {selectedBatch == null ? (
-            <div className="mt-3 rounded-lg border border-app-border bg-app-bg/60 p-4 text-xs text-app-text-muted">
-              <p className="font-bold text-app-text">Select a staged batch to review.</p>
-              <p className="mt-1">The action panel shows safe next steps, replay status, and recovery guidance.</p>
-            </div>
-          ) : (
-            <div className="mt-3 space-y-3 text-xs">
-              <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-                <span className={`ui-pill text-[10px] ${stagingStatusTone(selectedBatch)}`}>
-                  {stagingStatusLabel(selectedBatch)}
-                </span>
-                {isStaleApplyingBatch(selectedBatch) ? (
-                  <p className="mt-2 font-semibold text-amber-800 dark:text-amber-100">
-                    Safe recovery is available because the apply claim is stale. It marks the batch failed only; it does not replay or reset the payload.
-                  </p>
-                ) : null}
-              </div>
-
-              <div className={`rounded-lg border p-3 ${stagingNextAction(selectedBatch).tone}`}>
-                <p className="text-[10px] font-black uppercase tracking-widest">
-                  Next safe action: {stagingNextAction(selectedBatch).label}
-                </p>
-                <p className="mt-1">{stagingNextAction(selectedBatch).body}</p>
-              </div>
-
-              <div className="grid gap-2 md:grid-cols-2">
-                <div className="rounded-lg border border-app-border bg-app-bg/50 p-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Apply claimed</p>
-                  <p className="mt-1 text-app-text-muted">
-                    {selectedBatch.apply_started_at
-                      ? `${formatDate(selectedBatch.apply_started_at)} by ${stagingStaffLabel(selectedBatch.apply_claimed_by_staff_name, selectedBatch.apply_claimed_by_staff_id)}`
-                      : "Not claimed"}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-app-border bg-app-bg/50 p-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Live write result</p>
-                  <p className="mt-1 text-app-text-muted">{stagingLiveWriteSummary(selectedBatch)}</p>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-app-border bg-app-bg/50 p-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Operational decision guide
-                </p>
-                <div className="mt-2 grid gap-2 md:grid-cols-3">
-                  {[
-                    { label: "What changed", value: stagingLiveWriteSummary(selectedBatch) },
-                    { label: "Replay visibility", value: stagingReplaySummary(selectedBatch) },
-                    { label: "Recovery guidance", value: stagingRecoveryGuidance(selectedBatch) },
-                  ].map((item) => (
-                    <div key={item.label} className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{item.label}</p>
-                      <p className="mt-1 text-app-text-muted">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-app-border bg-app-bg/50 p-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Payload fingerprint:
-                </p>
-                <p className="mt-1 break-all font-mono text-[10px] text-app-text-muted">
-                  {selectedBatch.payload_fingerprint ?? "Not recorded"}
-                </p>
-              </div>
-
-              <pre className="max-h-44 overflow-auto rounded-lg border border-app-border bg-app-bg/70 p-3 text-[10px] text-app-text-muted">
-                {selectedPayload != null ? JSON.stringify(selectedPayload, null, 2) : "Payload loading or unavailable."}
-              </pre>
-
-              <button
-                type="button"
-                onClick={() => setConfirmRecoverStale(selectedBatch.id)}
-                disabled={!isStaleApplyingBatch(selectedBatch) || applyBusy}
-                className="ui-btn-secondary w-full px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-600 disabled:opacity-50"
-              >
-                Mark stale apply failed
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-
-  const supportDiagnosticsPanel = (
-    <section className="ui-card p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Support diagnostics center
-          </h4>
-          <p className="mt-1 text-xs text-app-text-muted">
-            Single-screen support handoff for deployment health, recovery posture, replay visibility, and sign-off blockers.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={`ui-pill text-[10px] ${supportDiagnosticsTone}`}>{supportDiagnosticsSeverity}</span>
-          <button
-            type="button"
-            onClick={() => {
-              const report = [
-                "Counterpoint Support Diagnostics",
-                `Generated: ${new Date().toLocaleString()}`,
-                `Bridge heartbeat: ${bridgeHeartbeatLabel}`,
-                `Browser control API: ${browserControlLabel}`,
-                `Import preflight: ${importPreflightLabel}`,
-                `Import run: ${importRunReceiptLabel}`,
-                `Proof scope: ${proofScopeLabel}`,
-                `Queue: ${fmtNum(visiblePendingN)} pending, ${fmtNum(visibleApplyingN)} applying, ${fmtNum(staleApplyingN)} stale applying`,
-                ...signoffBlockers,
-              ].join("\n");
-              void navigator.clipboard?.writeText(report).then(
-                () => toast("Counterpoint support diagnostics copied.", "success"),
-                () => toast("Could not copy diagnostics from this browser.", "error"),
-              );
-            }}
-            className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
-          >
-            Copy support report
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Deployment visibility</p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {[
-              { label: "Bridge heartbeat", value: bridgeHeartbeatLabel },
-              { label: "Browser controls", value: browserControlLabel },
-              { label: "Import preflight", value: importPreflightLabel },
-              { label: "Import run", value: importRunReceiptLabel },
-              { label: "Bridge host", value: status?.bridge_hostname ?? "Not reported" },
-              { label: "Proof scope", value: proofScopeLabel },
-              { label: "Landing mode", value: stagingOn ? "Legacy staging queue" : "Import-first direct" },
-              { label: "Last heartbeat", value: formatDate(status?.last_seen_at ?? bridgeLive?.lastRun) },
-            ].map((row) => (
-              <div key={row.label} className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{row.label}</p>
-                <p className="mt-1 font-bold text-app-text">{row.value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Recovery and replay posture</p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {[
-              { label: "Queue posture", value: staleApplyingN > 0 ? "Stale apply review" : visiblePendingN > 0 ? "Pending apply" : "Queue clear" },
-              { label: "Replay posture", value: replaySuppressionN > 0 ? "Replay suppressions recorded" : "No duplicate replay" },
-              { label: "Recovery posture", value: recoveredBatchN > 0 ? "Recovered stale claims" : "No stale recovery recorded" },
-              { label: "Open issues", value: unresolvedIssueCount > 0 ? "Support review needed" : "No open sync issues" },
-            ].map((row) => (
-              <div key={row.label} className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{row.label}</p>
-                <p className="mt-1 font-bold text-app-text">{row.value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 rounded-lg border border-app-border bg-app-bg/60 p-3">
-        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          Counterpoint Support Diagnostics
-        </p>
-        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
-          {signoffBlockers.length > 0 ? (
-            <>
-              <p className="font-bold text-red-600">Sign-off blockers present</p>
-              {signoffBlockers.map((blocker) => (
-                <p key={blocker} className="font-semibold text-app-text-muted">{blocker}</p>
-              ))}
-            </>
-          ) : (
-            <p className="font-bold text-emerald-600">No automatic blockers detected</p>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-4 rounded-lg border border-app-border bg-app-bg/60 p-3">
-        <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          Legacy accumulated verification
-        </h4>
-        <p className="mt-1 text-xs text-app-text-muted">
-          Counts below are accumulated ROS table totals and older Bridge facts. They are support diagnostics only and are not scoped to the current import-first run.
-        </p>
-        {commandCenter?.proof_scope !== "current_import_run" ? (
-          <p className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-2 text-xs font-semibold text-amber-800 dark:text-amber-100">
-            Current import-run proof is not available here yet. Use the Command center for import-first readiness; this table can include dirty rehearsal data from previous attempts.
-          </p>
-        ) : null}
-        <h4 className="mt-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          Accumulated sign-off reconciliation
-        </h4>
-        <div className="mt-3 overflow-auto">
-          <table className="w-full min-w-[760px] text-left text-xs">
-            <thead>
-              <tr className="border-b border-app-border text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                <th className="px-2 py-2">Entity</th>
-                <th className="px-2 py-2">Bridge rows sent</th>
-                <th className="px-2 py-2">ROS rows landed</th>
-                <th className="px-2 py-2">Missing ROS landed proof</th>
-                <th className="px-2 py-2">Match</th>
-                <th className="px-2 py-2">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-app-border">
-              {(landingVerification?.snapshot_reconciliation ?? []).map((row) => (
-                <tr key={row.key}>
-                  <td className="px-2 py-2 font-bold">{row.label}</td>
-                  <td className="px-2 py-2 tabular-nums">{fmtNum(row.source_count)}</td>
-                  <td className="px-2 py-2 tabular-nums">{fmtNum(row.landed_count)}</td>
-                  <td className="px-2 py-2">{row.source_count == null ? "Yes" : "No"}</td>
-                  <td className="px-2 py-2">{row.passed ? "Yes" : "No"}</td>
-                  <td className="px-2 py-2">
-                    {(row.count_difference ?? 0) < 0 ? "Lower" : row.source_count == null ? "Bridge-only" : row.status}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1">Counts match</span>
-          <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1">ROS count lower</span>
-          <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1">Bridge only</span>
-        </div>
-        <div className="mt-3 rounded-lg border border-app-border bg-app-surface-2/40 p-3 text-xs text-app-text-muted">
-          <p className="font-black uppercase tracking-widest text-app-text">Limits and caveats</p>
-          <p className="mt-1">
-            Imported Counterpoint ticket and open-doc rows preserve gross historical totals; imported line tax is non-authoritative and should not be treated as tax filing proof.
-          </p>
-        </div>
-        <p className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          <RosieIcon size={14} alt="" />
-          Counterpoint exception explainer
-        </p>
-        <RosieInsightSummary
-          surface="counterpoint_status"
-          title="Counterpoint Sign-off"
-          mode="explain"
-          getHeaders={() => backofficeHeaders() as Record<string, string>}
-          facts={counterpointInsightFacts}
-        />
-      </div>
-    </section>
-  );
-
   if (!hasPermission("settings.admin")) return null;
 
   return (
@@ -3243,44 +1459,21 @@ export default function CounterpointSyncSettingsPanel() {
           </button>
           <button
             type="button"
-            onClick={() => setWorkspaceView("pipeline")}
-            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
-              workspaceView === "pipeline" ? "ring-2 ring-app-accent/30" : ""
-            }`}
-          >
-            Legacy diagnostics
-          </button>
-          <button
-            type="button"
-            onClick={() => setWorkspaceView("inbound")}
-            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
-              workspaceView === "inbound" ? "ring-2 ring-app-accent/30" : ""
-            }`}
-          >
-            Inbound queue
-            {visiblePendingN > 0 ? (
-              <span className="rounded-full bg-amber-500/20 px-1.5 py-0 text-[10px] text-amber-800 dark:text-amber-100">
-                {visiblePendingN}
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
             onClick={() => setWorkspaceView("ai_review")}
             className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
               workspaceView === "ai_review" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
-            AI review packs
+            Data workbench
           </button>
           <button
             type="button"
-            onClick={() => setWorkspaceView("details")}
+            onClick={() => setWorkspaceView("customer_duplicates")}
             className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
-              workspaceView === "details" ? "ring-2 ring-app-accent/30" : ""
+              workspaceView === "customer_duplicates" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
-            Support diagnostics
+            Customer duplicates
           </button>
           <button
             type="button"
@@ -3297,29 +1490,161 @@ export default function CounterpointSyncSettingsPanel() {
             className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10"
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            Wipe & Restart Sync
+            Reset Baseline
           </button>
         </div>
       </div>
 
       {importFirstCommandCenterPanel}
 
-      {workspaceView === "overview" ? oneTimeImportPanel : null}
+      {workspaceView === "customer_duplicates" ? (
+        <section className="ui-card p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Counterpoint Customer Duplicates
+              </h4>
+              <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
+                Review possible duplicate customers after import. Keep separate records by dismissing the pair, or open All Customers to merge the two accounts through the existing customer merge workflow.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onNavigateCustomers?.("all")}
+              className="ui-btn-secondary px-3 py-2 text-xs font-bold"
+            >
+              Open All Customers
+            </button>
+          </div>
+          <DuplicateReviewQueueSection
+            onNavigateAllCustomers={() => onNavigateCustomers?.("all")}
+            onOpenWeddingParty={onOpenWeddingParty ?? (() => undefined)}
+            onStartSale={onStartSaleInPos ?? (() => undefined)}
+            onNavigateRegister={onNavigateRegister}
+            onAddToWedding={onAddToWedding}
+            onBookAppointment={onBookAppointment}
+            onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+          />
+        </section>
+      ) : null}
 
       {workspaceView === "ai_review" ? (
       <section className="ui-card p-5 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Counterpoint Transition Review Packs
+              Counterpoint Data Workbench
             </h4>
             <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
-              Manual ChatGPT/Codex export and import for Counterpoint migration review. Riverside OS validates suggestions and never auto-applies AI output.
+              Build Codex review packages from imported ROS data plus Lightspeed and Counterpoint CSV references. Riverside OS validates returned suggestions and only applies staff-approved catalog cleanup.
             </p>
           </div>
           <span className="ui-pill bg-amber-500/15 text-[10px] text-amber-700 dark:text-amber-200">
-            Manual review only
+            Post-import cleanup
           </span>
+        </div>
+
+        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                CSV reference sources
+              </p>
+              <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
+                Load the Lightspeed CSV and Counterpoint CSV after the full import. These files enrich names, categories, vendors, supplier numbers, barcodes, and SKU cleanup suggestions.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void fetchDsHealth();
+                void fetchMergePreview();
+              }}
+              disabled={mergeLoading}
+              className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${mergeLoading ? "animate-spin" : ""}`} />
+              Refresh References
+            </button>
+          </div>
+
+          <input
+            ref={lsFileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              void handleCsvUpload(file, "lightspeed");
+              event.target.value = "";
+            }}
+          />
+          <input
+            ref={cpFileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              void handleCsvUpload(file, "counterpoint");
+              event.target.value = "";
+            }}
+          />
+
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Imported catalog</p>
+              <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmtNum(dsHealth?.bridge_products ?? 0)}</p>
+              <p className="text-[10px] font-semibold text-app-text-muted">ROS imported products</p>
+            </div>
+            <div className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Lightspeed CSV</p>
+              <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmtNum(dsHealth?.lightspeed_rows ?? 0)}</p>
+              <p className="truncate text-[10px] font-semibold text-app-text-muted">{dsHealth?.lightspeed_file ?? "No file loaded"}</p>
+            </div>
+            <div className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Counterpoint CSV</p>
+              <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmtNum(dsHealth?.cp_csv_rows ?? 0)}</p>
+              <p className="truncate text-[10px] font-semibold text-app-text-muted">{dsHealth?.cp_csv_file ?? "No file loaded"}</p>
+            </div>
+            <div className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
+              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Compare issues</p>
+              <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                {fmtNum((mergePreview?.name_conflicts ?? 0) + (mergePreview?.category_conflicts ?? 0) + (mergePreview?.price_conflicts ?? 0))}
+              </p>
+              <p className="text-[10px] font-semibold text-app-text-muted">
+                {fmtNum(mergePreview?.conflicts.length ?? 0)} sampled conflicts
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => lsFileRef.current?.click()}
+              disabled={csvUploading != null}
+              className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Load Lightspeed CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => cpFileRef.current?.click()}
+              disabled={csvUploading != null}
+              className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Load Counterpoint CSV
+            </button>
+            {csvUploading ? (
+              <span className="text-xs font-semibold text-app-text-muted">
+                {csvUploadStatus ?? `Uploading ${csvUploading} CSV...`} {csvUploadProgress > 0 ? `${csvUploadProgress}%` : ""}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
@@ -3461,7 +1786,7 @@ export default function CounterpointSyncSettingsPanel() {
                     Import reviewed JSON
                   </p>
                   <p className="mt-1 text-xs text-app-text-muted">
-                    Source hash, row keys, actions, categories, confidence, and forbidden fields are validated before staging.
+                    Source hash, row keys, actions, categories, confidence, and forbidden fields are validated before suggestions are saved for staff review.
                   </p>
                 </div>
                 <input
@@ -3517,7 +1842,7 @@ export default function CounterpointSyncSettingsPanel() {
                   </p>
                   <p className="mt-1 text-xs text-app-text-muted">
                     {reviewSuggestions.length > 0
-                      ? `${fmtNum(reviewSuggestions.length)} staged, ${fmtNum(acceptedReviewSuggestionCount)} accepted`
+                      ? `${fmtNum(reviewSuggestions.length)} saved, ${fmtNum(acceptedReviewSuggestionCount)} accepted`
                       : "No imported suggestions for this pack"}
                   </p>
                 </div>
@@ -3610,64 +1935,6 @@ export default function CounterpointSyncSettingsPanel() {
       </section>
       ) : null}
 
-      {bridgeReachabilityPanel}
-
-      {/* ── Progress Indicators ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="ui-card p-4 space-y-2">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Legacy pipeline diagnostics</p>
-          <div className="flex items-center gap-3">
-            <div className="flex-1 bg-app-surface-2 rounded-full h-3.5 overflow-hidden border border-app-border">
-              <div
-                className="bg-emerald-500 h-full transition-all duration-500"
-                style={{ width: `${pipelinePercent}%` }}
-              />
-            </div>
-            <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">{pipelinePercent}%</span>
-          </div>
-        </div>
-
-        <div className="ui-card p-4 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Host SQL Bridge Connection</p>
-            <p className="mt-1 text-xs font-bold text-app-text">
-              {status?.bridge_hostname ? `Host: ${status.bridge_hostname}` : "Bridge not configured"}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {serverBridgeActive ? (
-              <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-                <Wifi className="h-4 w-4 animate-pulse" />
-                ONLINE
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-xs text-red-500 font-bold">
-                <WifiOff className="h-4 w-4" />
-                OFFLINE
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="ui-card p-4 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Import-first mode</p>
-            <p className="mt-1 text-[10px] text-app-text-muted">Direct ROS landing after source-count preflight; staging is legacy diagnostics.</p>
-          </div>
-          <button
-            type="button"
-            disabled={stagingToggleBusy}
-            onClick={() => void setStagingEnabled(!stagingOn)}
-            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all ${
-              stagingOn
-                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
-                : "bg-amber-500/15 text-amber-700 dark:text-amber-200 border-amber-500/30"
-            }`}
-          >
-            {stagingOn ? "LEGACY STAGING ON" : "IMPORT-FIRST DIRECT"}
-          </button>
-        </div>
-      </div>
 
       {(bridgeRowsWithoutReviewSurface || downstreamReviewBlockers.length > 0) && (
         <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-4">
@@ -3679,7 +1946,7 @@ export default function CounterpointSyncSettingsPanel() {
                   Counterpoint review advancement blocked
                 </p>
                 <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                  Bridge-reported rows must have staged, applied, or ROS landed proof before later review steps or cutover can be completed.
+                  Bridge-reported rows must have ROS landed proof before this import can be treated as ready.
                 </p>
               </div>
               <ul className="list-disc space-y-1 pl-4 text-xs font-semibold text-red-700 dark:text-red-300">
@@ -3697,1477 +1964,8 @@ export default function CounterpointSyncSettingsPanel() {
         </div>
       )}
 
-      {workspaceView === "inbound" ? inboundQueuePanel : null}
-      {workspaceView === "details" ? supportDiagnosticsPanel : null}
-
-      {workspaceView === "pipeline" ? (
-      <>
-      {/* ── Main Stepper Rail ── */}
-      <div className="flex flex-wrap gap-2 border-b border-app-border pb-4">
-        {STAGE_STEPS.map((s) => {
-          const isActive = activeStep === s.step;
-          const isDisabled = isStepDisabled(s.step);
-          let btnStyle = "border-app-border bg-app-surface-2/40 text-app-text-muted opacity-60";
-          if (isActive) {
-            btnStyle = "border-app-warning bg-app-warning/10 text-app-text font-bold ring-1 ring-app-warning/30";
-          } else if (!isDisabled) {
-            btnStyle = "border-app-border bg-app-bg hover:bg-app-surface-2/60 text-app-text cursor-pointer";
-          }
-          return (
-            <button
-              key={s.step}
-              type="button"
-              disabled={isDisabled}
-              onClick={() => setActiveStep(s.step)}
-              className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-left text-xs transition-all ${btnStyle} ${
-                isDisabled ? "cursor-not-allowed" : ""
-              }`}
-            >
-              <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-black border ${
-                isActive ? "bg-app-warning text-app-bg border-app-warning" : "border-app-border"
-              }`}>
-                {s.step}
-              </span>
-              <div className="min-w-0">
-                <p className="uppercase tracking-widest font-black text-[10px]">{s.label}</p>
-                <p className="text-[9px] text-app-text-muted truncate max-w-[150px]">{s.desc}</p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ── Step Content Screens ── */}
-
-      {/* ── STEP 1: SQL Bridge Sync ── */}
-      {activeStep === 1 && (
-        <section className="ui-card p-6 space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-app-border pb-4">
-            <div>
-              <h4 className="text-base font-black uppercase text-app-text">Step 1: SQL Bridge Sync</h4>
-              <p className="text-xs text-app-text-muted mt-0.5">
-                Establish database reachability to pull staff, vendors, catalog schema, and customer entities.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => void triggerBridgeSync()}
-                disabled={runRequestBusy || serverBridgeSyncing}
-                className="ui-btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold"
-              >
-                <Play className="h-3.5 w-3.5" />
-                Start Full SQL Sync
-              </button>
-              {serverBridgeSyncing && (
-                <button
-                  type="button"
-                  onClick={stopBridgeSync}
-                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-red-600 border-red-500/20"
-                >
-                  <Square className="h-3.5 w-3.5 animate-pulse" />
-                  Halt Active Sync
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-3">
-            <div className="md:col-span-2 space-y-4">
-              <h5 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Entity Synchronization Runs</h5>
-              <div className="rounded-xl border border-app-border overflow-hidden bg-app-bg/40 max-h-[350px] overflow-y-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="sticky top-0 bg-app-surface-2 border-b border-app-border">
-                    <tr className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      <th className="px-3 py-2">Data Profile</th>
-                      <th className="px-3 py-2">Staged Counts</th>
-                      <th className="px-3 py-2">Last Run</th>
-                      <th className="px-3 py-2">Health Log</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border">
-                    {entityRunsForDisplay.map((run) => {
-                      const proof = getEntityRunProof(run);
-                      return (
-                        <tr key={run.entity}>
-                          <td className="px-3 py-2">
-                            <div className="font-bold uppercase text-[10px] tracking-wide">{run.entity.replace(/_/g, " ")}</div>
-                            {proof.isStaged ? (
-                              <div className="text-[9px] text-blue-600 dark:text-blue-300 mt-0.5">
-                                {proof.stagingLabel} across {fmtNum(proof.stagedBatches)} batch(es)
-                              </div>
-                            ) : proof.isZeroNoError ? (
-                              <div className="text-[9px] text-amber-600 dark:text-amber-400 mt-0.5">No data returned - check SQL query</div>
-                            ) : null}
-                          </td>
-                          <td className="px-3 py-2">
-                            <div className={`font-mono text-[11px] font-semibold tabular-nums ${
-                              proof.displayRows === 0
-                                ? "text-amber-600 dark:text-amber-400"
-                                : "text-emerald-600 dark:text-emerald-400"
-                            }`}>
-                              {fmtNum(proof.displayRows)} rows
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-app-text-muted">
-                            {proof.latestAt ? new Date(proof.latestAt).toLocaleTimeString() : "Pending"}
-                          </td>
-                          <td className="px-3 py-2">
-                            {run.last_error ? (
-                              <span className="text-red-500 font-medium inline-flex items-center gap-1">
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                                {run.last_error}
-                              </span>
-                            ) : proof.isStaged ? (
-                              <span className="text-blue-600 dark:text-blue-300 inline-flex items-center gap-1 font-semibold">
-                                <Database className="h-3.5 w-3.5" />
-                                {proof.stagingLabel}
-                              </span>
-                            ) : proof.isZeroNoError ? (
-                              <span className="text-amber-600 dark:text-amber-400 inline-flex items-center gap-1 font-medium">
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                                No Data
-                              </span>
-                            ) : (
-                              <span className="text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1 font-semibold">
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                Healthy
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h5 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Local Bridge Parameters</h5>
-              <div className="ui-card p-4 space-y-4 bg-app-surface-2/40">
-                <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Host Windows PC URL</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      className="ui-input flex-1 text-xs"
-                      placeholder="http://192.168.1.100:3002"
-                      value={bridgeControlUrlDraft}
-                      onChange={(e) => setBridgeControlUrlDraft(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      onClick={saveBridgeControlUrl}
-                      className="ui-btn-secondary px-3 text-xs font-bold"
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-                <div className="border-t border-app-border pt-4">
-                  <IntegrationCredentialsCard
-                    baseUrl={baseUrl}
-                    integrationKey="counterpoint"
-                    title="Counterpoint Bridge Credentials"
-                    description="Save the bridge sync token here. The Windows bridge uses this token when posting Counterpoint sync updates into Riverside."
-                    fields={[
-                      {
-                        key: "sync_token",
-                        label: "Bridge sync token",
-                        help: "Use the same value in the Counterpoint bridge configuration.",
-                      },
-                    ]}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-app-border pt-4">
-            <div className="flex justify-between items-start gap-4">
-              <div className="flex-1">
-                <p className="text-xs text-app-text-muted leading-relaxed">
-                  Verify that all core database entities are staged. When complete, advance to step 2 to clean up the imported product catalog.
-                </p>
-                {entityRunsForDisplay.some((run) => getEntityRunProof(run).isZeroNoError) && (
-                  <div className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2">
-                    <p className="text-[10px] text-amber-700 dark:text-amber-300">
-                      <strong>Zero rows detected:</strong> Some entities returned no data. Auto-schema handles column detection, so this is likely due to:
-                    </p>
-                    <ul className="text-[9px] text-amber-600 dark:text-amber-400 mt-1 list-disc list-inside">
-                      <li>WHERE clause filtering (e.g., gift cards with zero balance, notes older than CP_IMPORT_SINCE)</li>
-                      <li>Tables genuinely have no data</li>
-                      <li>Use Bridge GUI "Test Query" to verify data exists in Counterpoint</li>
-                      <li>Temporarily remove WHERE clauses in bridge .env to test if data exists</li>
-                    </ul>
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => goToStepIfReady(2)}
-                disabled={isStepDisabled(2)}
-                className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Advance to Inventory Mapping
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── STEP 2: Inventory & Catalog Mapping ── */}
-      {activeStep === 2 && (
-        <section className="ui-card p-6 space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-app-border pb-4">
-            <div>
-              <h4 className="text-base font-black uppercase text-app-text">Step 2: Inventory Catalog Cleanup & Mapping</h4>
-              <p className="text-xs text-app-text-muted mt-0.5">
-                Merge categories, map vendor records, utilize ROSIE AI name enrichment, and resolve barcode SKU gaps.
-              </p>
-              {workbenchState?.inventory_summary && (
-                <div className="mt-2 flex gap-2 flex-wrap">
-                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-1">
-                    <span className="text-[9px] text-emerald-700 dark:text-emerald-300 font-medium">{fmtNum(workbenchState.inventory_summary.products)} Products</span>
-                  </div>
-                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-1">
-                    <span className="text-[9px] text-emerald-700 dark:text-emerald-300 font-medium">{fmtNum(workbenchState.inventory_summary.variants)} Variants</span>
-                  </div>
-                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-1">
-                    <span className="text-[9px] text-emerald-700 dark:text-emerald-300 font-medium">{fmtNum(workbenchState.inventory_summary.categories)} Categories</span>
-                  </div>
-                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2 py-1">
-                    <span className="text-[9px] text-emerald-700 dark:text-emerald-300 font-medium">{fmtNum(workbenchState.inventory_summary.vendors)} Vendors</span>
-                  </div>
-                  {workbenchState.inventory_summary.variants_missing_barcode > 0 && (
-                    <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-2 py-1">
-                      <span className="text-[9px] text-amber-700 dark:text-amber-300 font-medium">{fmtNum(workbenchState.inventory_summary.variants_missing_barcode)} Missing Barcodes</span>
-                    </div>
-                  )}
-                  {workbenchState.inventory_summary.quarantine_count > 0 && (
-                    <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-2 py-1">
-                      <span className="text-[9px] text-red-700 dark:text-red-300 font-medium">{fmtNum(workbenchState.inventory_summary.quarantine_count)} Unique Quarantined</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => void fetchWorkbenchState()}
-                disabled={workbenchLoading}
-                className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Reload Workbench
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmWorkbenchReset(true)}
-                className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-600 border-red-500/10"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Reset Mapping Approvals
-              </button>
-            </div>
-          </div>
-
-          {inventoryLandingRequired ? (
-            <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="max-w-3xl space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-red-700 dark:text-red-300">
-                    One-time import is still waiting in staging
-                  </p>
-                  <p className="text-sm font-bold text-app-text">
-                    Nothing has been loaded into ROS catalog tables yet.
-                  </p>
-                  <p className="text-xs font-semibold text-app-text-muted">
-                    ROS currently has {fmtNum(inventoryProducts)} Counterpoint product(s) and {fmtNum(inventoryVariants)} variant(s), while the bridge/staging queue still has catalog or inventory data waiting to be applied. Apply the staged catalog and inventory batches before mapping, ROSIE review, customer import, or final sign-off.
-                  </p>
-                  <div className="grid gap-2 text-xs sm:grid-cols-3">
-                    <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Catalog rows in staging</p>
-                      <p className="mt-1 font-bold tabular-nums text-app-text">{fmtNum(catalogStagedRows)}</p>
-                    </div>
-                    <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Inventory rows in staging</p>
-                      <p className="mt-1 font-bold tabular-nums text-app-text">{fmtNum(inventoryStagedRows)}</p>
-                    </div>
-                    <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Pending batches</p>
-                      <p className="mt-1 font-bold tabular-nums text-app-text">{fmtNum(visiblePendingN)}</p>
-                    </div>
-                  </div>
-                  {step2ApprovalStale ? (
-                    <p className="rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-xs font-semibold text-red-700 dark:text-red-300">
-                      Previous catalog approval is stale because this database no longer has landed Counterpoint products and variants.
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setWorkspaceView("inbound")}
-                    className="ui-btn-primary px-4 py-2 text-xs font-bold"
-                  >
-                    Open Staging Queue
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmWorkbenchReset(true)}
-                    className="ui-btn-secondary px-4 py-2 text-xs font-bold text-red-600 border-red-500/10"
-                  >
-                    Reset Stale Approvals
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {!inventoryLandingRequired ? (
-            <>
-          {/* Stepper Inside Step 2 */}
-          <div className="flex gap-2 bg-app-surface-2/40 p-2 rounded-xl border border-app-border overflow-x-auto">
-            {[
-              { key: "data_sources", label: "1. CSV Reference" },
-              { key: "categories", label: "2. Category Mappings" },
-              { key: "vendors", label: "3. Vendor Mappings" },
-              { key: "staff", label: "4. Staff Mappings" },
-              { key: "catalog", label: "5. ROSIE AI Copilot" },
-              { key: "sku_gaps", label: "6. Barcode SKU Gaps" },
-              { key: "verification", label: "7. Preview & Approve" },
-            ].map((sub) => {
-              const active = activeSubStep === sub.key;
-              const isSubStepLocked = subStepStatus(sub.key === "staff" ? "catalog" : sub.key) === "locked";
-              return (
-                <button
-                  key={sub.key}
-                  type="button"
-                  disabled={isSubStepLocked}
-                  onClick={() => setActiveSubStep(sub.key)}
-                  className={`px-3 py-2 rounded-lg text-xs uppercase tracking-wide border transition-all shrink-0 ${
-                    active
-                      ? "bg-app-warning/15 text-app-warning border-app-warning/50 font-bold"
-                      : isSubStepLocked
-                        ? "opacity-40 cursor-not-allowed border-app-border"
-                        : "bg-app-bg text-app-text-muted hover:text-app-text border-app-border"
-                  }`}
-                >
-                  {sub.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Sub-step 1: CSV Upload */}
-          {activeSubStep === "data_sources" && (
-            <div className="space-y-4">
-              <h5 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">Catalog Reference CSV Uploads</h5>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="ui-card p-4 space-y-3 bg-app-surface-2/40">
-                  <div className="flex items-center justify-between">
-                    <h6 className="text-xs font-black uppercase text-app-text">Lightspeed Catalog CSV</h6>
-                    <span className="text-[10px] text-app-text-muted">Name & SKU reference</span>
-                  </div>
-                  <p className="text-[11px] text-app-text-muted leading-relaxed">
-                    Upload your Lightspeed backup CSV to map descriptions to Counterpoint item codes automatically.
-                  </p>
-                  {dsHealth?.lightspeed_rows ? (
-                    <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2 text-xs">
-                      <span className="font-bold text-emerald-700 dark:text-emerald-300">
-                        {fmtNum(dsHealth.lightspeed_rows)} reference rows cached
-                      </span>
-                      <p className="text-[10px] text-app-text-muted truncate mt-0.5">{dsHealth.lightspeed_file}</p>
-                    </div>
-                  ) : null}
-                  <input
-                    ref={lsFileRef}
-                    type="file"
-                    accept=".csv"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) void handleCsvUpload(file, "lightspeed");
-                      e.target.value = "";
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => lsFileRef.current?.click()}
-                    disabled={csvUploading === "lightspeed"}
-                    className="ui-btn-secondary w-full py-2.5 text-xs font-bold inline-flex items-center justify-center gap-1"
-                  >
-                    {csvUploading === "lightspeed" ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-app-accent" />
-                    ) : (
-                      <>
-                        <Upload className="h-4 w-4" />
-                        {dsHealth?.lightspeed_rows ? "Replace CSV File" : "Upload CSV File"}
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="ui-card p-4 space-y-3 bg-app-surface-2/40">
-                  <div className="flex items-center justify-between">
-                    <h6 className="text-xs font-black uppercase text-app-text">Counterpoint Catalog CSV</h6>
-                    <span className="text-[10px] text-app-text-muted">Stock-on-hand audit</span>
-                  </div>
-                  <p className="text-[11px] text-app-text-muted leading-relaxed">
-                    Upload a raw Counterpoint inventory CSV export. This is used for landing verification audits in Step 8.
-                  </p>
-                  {dsHealth?.cp_csv_rows ? (
-                    <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2 text-xs">
-                      <span className="font-bold text-emerald-700 dark:text-emerald-300">
-                        {fmtNum(dsHealth.cp_csv_rows)} rows cached for audit
-                      </span>
-                      <p className="text-[10px] text-app-text-muted truncate mt-0.5">{dsHealth.cp_csv_file}</p>
-                    </div>
-                  ) : null}
-                  <input
-                    ref={cpFileRef}
-                    type="file"
-                    accept=".csv"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) void handleCsvUpload(file, "counterpoint");
-                      e.target.value = "";
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => cpFileRef.current?.click()}
-                    disabled={csvUploading === "counterpoint"}
-                    className="ui-btn-secondary w-full py-2.5 text-xs font-bold inline-flex items-center justify-center gap-1"
-                  >
-                    {csvUploading === "counterpoint" ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-app-accent" />
-                    ) : (
-                      <>
-                        <Upload className="h-4 w-4" />
-                        {dsHealth?.cp_csv_rows ? "Replace CSV File" : "Upload CSV File"}
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-              <div className="pt-2 flex justify-end">
-                {csvUploadStatus && (
-                  <div className="flex-1 mr-4">
-                    <div className="text-[10px] font-medium text-app-text-muted mb-1">{csvUploadStatus}</div>
-                    <div className="h-2 bg-app-surface-2 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-app-accent transition-all duration-300 ease-out"
-                        style={{ width: `${csvUploadProgress}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-                {subStepStatus("data_sources") === "complete" ? (
-                  <button
-                    type="button"
-                    onClick={() => setActiveSubStep("categories")}
-                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                  >
-                    Proceed to Category Mappings
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void approveSubStep("data_sources")}
-                    disabled={csvUploading !== null}
-                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-                  >
-                    Confirm & Lock CSV Sources
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Sub-step 2: Category Map */}
-          {activeSubStep === "categories" && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <h5 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">Link Counterpoint Category Codes to ROS</h5>
-                  <p className="text-[10px] text-app-text-muted mt-0.5">
-                    Map incoming category keys to your clean ROS catalog directories.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void runAiReview("categories")}
-                  disabled={aiBusy}
-                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
-                >
-                  <RosieIcon size={14} alt="" className={aiBusy && aiScope === "categories" ? "animate-pulse" : ""} />
-                  AI Map Categories
-                </button>
-              </div>
-
-              {aiSuggestions.length > 0 && aiScope === "categories" && (
-                <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 space-y-2">
-                  <div className="flex items-center justify-between border-b border-app-border pb-2">
-                    <span className="text-[10px] font-bold text-app-text-muted">ROSIE AI Mappings Suggestions</span>
-                    <button
-                      type="button"
-                      onClick={() => applySuggestions(aiSuggestions, "categories")}
-                      className="ui-btn-primary px-2.5 py-1 text-[10px] font-bold"
-                    >
-                      Apply All AI Suggestions
-                    </button>
-                  </div>
-                  <div className="max-h-[150px] overflow-y-auto space-y-1">
-                    {aiSuggestions.map((s) => (
-                      <div key={s.item_no} className="flex justify-between text-xs p-1 hover:bg-app-surface-2">
-                        <span className="font-mono">{s.item_no}</span>
-                        <span className="font-bold text-emerald-600">{s.suggested_category}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="rounded-xl border border-app-border overflow-hidden bg-app-bg/40 max-h-[300px] overflow-y-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="sticky top-0 bg-app-surface-2 border-b border-app-border">
-                    <tr className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      <th className="px-3 py-2">Counterpoint Category Key</th>
-                      <th className="px-3 py-2">Riverside OS Destination</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border">
-                    {categoryRows.map((row) => (
-                      <tr key={row.id}>
-                        <td className="px-3 py-2 font-mono font-semibold">{row.cp_category}</td>
-                        <td className="px-3 py-2">
-                          <select
-                            className="ui-input text-xs py-1"
-                            value={row.ros_category_id ?? ""}
-                            onChange={(e) => void patchCategoryMap(row.id, e.target.value || null)}
-                          >
-                            <option value="">-- Assign ROS Category --</option>
-                            {categoryOptions.map((opt) => (
-                              <option key={opt.id} value={opt.id}>
-                                {opt.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="pt-2 flex justify-end">
-                {subStepStatus("categories") === "complete" ? (
-                  <button
-                    type="button"
-                    onClick={() => setActiveSubStep("vendors")}
-                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                  >
-                    Proceed to Vendor Mappings
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void approveSubStep("categories")}
-                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                  >
-                    Verify Category Links
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Sub-step 3: Vendors review */}
-          {activeSubStep === "vendors" && (
-            <div className="space-y-4">
-              <h5 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">Staged Vendors from Counterpoint</h5>
-              <p className="text-xs text-app-text-muted">
-                These vendors are pulled from your SQL connection. Verification is complete when the vendor list matches counts.
-              </p>
-              <div className="rounded-xl border border-app-border p-4 bg-app-surface-2/40 flex justify-between items-center">
-                <span className="text-xs font-bold text-app-text">Staged Vendor Records:</span>
-                <span className="text-base font-black text-emerald-600">{fmtNum(workbenchState?.inventory_summary?.vendors)} vendors</span>
-              </div>
-              <div className="pt-2 flex justify-end">
-                {subStepStatus("vendors") === "complete" ? (
-                  <button
-                    type="button"
-                    onClick={() => setActiveSubStep("staff")}
-                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                  >
-                    Proceed to Staff Mappings
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void approveSubStep("vendors")}
-                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                  >
-                    Verify Vendors List
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Sub-step 4: Staff Mapping */}
-          {activeSubStep === "staff" && (
-            <div className="space-y-4">
-              <h5 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">Link Counterpoint Sales IDs to ROS Employees</h5>
-              <p className="text-xs text-app-text-muted">
-                Ensure closed orders and layout commissions are attributed to the correct staff accounts.
-              </p>
-              <div className="rounded-xl border border-app-border overflow-hidden bg-app-bg/40 max-h-[300px] overflow-y-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="sticky top-0 bg-app-surface-2 border-b border-app-border">
-                    <tr className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      <th className="px-3 py-2">CP Sales Code</th>
-                      <th className="px-3 py-2">ROS Staff Account Mapping</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border">
-                    {staffRows.map((row) => (
-                      <tr key={row.id}>
-                        <td className="px-3 py-2 font-mono font-semibold">{row.cp_code} ({row.cp_source})</td>
-                        <td className="px-3 py-2">
-                          <select
-                            className="ui-input text-xs py-1"
-                            value={row.ros_staff_id ?? ""}
-                            onChange={(e) => void patchStaffMap(row.id, e.target.value)}
-                          >
-                            <option value="">-- Map to Staff member --</option>
-                            {status?.entity_runs && (
-                              // Renders dynamically based on logged in/configured staff members
-                              // Simulating staff values mapped inside categoryPicker options for safety
-                              staffRows.map((st) => (
-                                <option key={st.ros_staff_id} value={st.ros_staff_id}>
-                                  {st.staff_display_name ?? st.cp_code}
-                                </option>
-                              ))
-                            )}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setActiveSubStep("catalog")}
-                  className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                >
-                  Proceed to ROSIE AI Copilot
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Sub-step 5: AI Naming Review */}
-          {activeSubStep === "catalog" && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <h5 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">ROSIE AI catalog Naming Audit</h5>
-                  <p className="text-xs text-app-text-muted mt-0.5">
-                    Find and rewrite Counterpoint placeholders (like I-12345) using Gemma local model analysis.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void runAiReview("names")}
-                  disabled={aiBusy}
-                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
-                >
-                  <RosieIcon size={14} alt="" className={aiBusy && aiScope === "names" ? "animate-pulse" : ""} />
-                  Scan Catalog placeholders
-                </button>
-              </div>
-
-              {aiError && (
-                <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-200">
-                  {aiError}
-                </div>
-              )}
-
-              {aiSuggestions.length > 0 && aiScope === "names" && (
-                <div className="rounded-xl border border-app-border bg-app-surface-2/40 overflow-hidden">
-                  <div className="px-3 py-2 border-b border-app-border bg-app-bg/40 flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-app-text-muted">Gemma Naming Corrections ({aiSuggestions.length} items)</span>
-                    <button
-                      type="button"
-                      onClick={() => applySuggestions(aiSuggestions, "names")}
-                      className="ui-btn-primary px-3 py-1 text-[10px] font-bold"
-                    >
-                      Apply All AI Names
-                    </button>
-                  </div>
-                  <div className="max-h-[250px] overflow-y-auto">
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-app-surface-2 border-b border-app-border">
-                        <tr className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          <th className="px-2 py-1.5">Item Key</th>
-                          <th className="px-2 py-1.5">ROSIE AI Proposed Title</th>
-                          <th className="px-2 py-1.5">Confidence</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-app-border">
-                        {aiSuggestions.map((s) => (
-                          <tr key={s.item_no}>
-                            <td className="px-2 py-1.5 font-mono">{s.item_no}</td>
-                            <td className="px-2 py-1.5 font-bold text-emerald-600">{s.suggested_name}</td>
-                            <td className="px-2 py-1.5 tabular-nums">
-                              {s.confidence != null ? `${Math.round(s.confidence * 100)}%` : "—"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-              <div className="pt-2 flex justify-end gap-2">
-                {subStepStatus("catalog") === "complete" ? (
-                  <button
-                    type="button"
-                    onClick={() => setActiveSubStep("sku_gaps")}
-                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                  >
-                    Proceed to Barcode SKU Gaps
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void approveSubStep("catalog")}
-                      className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                    >
-                      Verify Naming & Category AI Mappings
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveSubStep("sku_gaps")}
-                      disabled={true}
-                      className="ui-btn-secondary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-                    >
-                      Advance to SKU Gaps
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Sub-step 6: SKU Gaps */}
-          {activeSubStep === "sku_gaps" && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <h5 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">Barcode SKU Gap Resolution</h5>
-                  <p className="text-xs text-app-text-muted mt-0.5">
-                    Generate store barcodes (B-XXXXXX) for variants missing barcodes from Counterpoint.
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void fetchSkuGaps();
-                      void fetchSkuSuggestions(100);
-                    }}
-                    disabled={false}
-                    className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    Refresh Gaps
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const auto: Record<string, string> = {};
-                      skuGaps.forEach((row, idx) => {
-                        if (skuSuggestions[idx] && !skuAssignments[row.variant_id]) {
-                          auto[row.variant_id] = skuSuggestions[idx];
-                        }
-                      });
-                      setSkuAssignments((prev) => ({ ...prev, ...auto }));
-                    }}
-                    disabled={skuSuggestions.length === 0}
-                    className="ui-btn-secondary text-xs font-bold px-3 py-1.5"
-                  >
-                    Auto-Fill Barcode SKUs
-                  </button>
-                </div>
-              </div>
-
-              {skuGaps.length > 0 ? (
-                <>
-                  <div className="rounded-xl border border-app-border overflow-hidden bg-app-bg/40 max-h-[300px] overflow-y-auto">
-                    <table className="w-full text-xs text-left">
-                      <thead className="sticky top-0 bg-app-surface-2 border-b border-app-border">
-                        <tr className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          <th className="px-3 py-2">Catalog Product</th>
-                          <th className="px-3 py-2">CP Variant ID</th>
-                          <th className="px-3 py-2">Stock</th>
-                          <th className="px-3 py-2">Barcode Assignment</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-app-border">
-                        {skuGaps.map((row, idx) => (
-                          <tr key={row.variant_id}>
-                            <td className="px-3 py-2 font-bold max-w-[200px] truncate">{row.product_name}</td>
-                            <td className="px-3 py-2 font-mono text-app-warning">{row.current_sku}</td>
-                            <td className="px-3 py-2 tabular-nums">{row.stock_on_hand}</td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="text"
-                                className="ui-input text-xs py-1"
-                                placeholder={skuSuggestions[idx] ?? "B-XXXXXX"}
-                                value={skuAssignments[row.variant_id] ?? ""}
-                                onChange={(e) =>
-                                  setSkuAssignments((prev) => ({
-                                    ...prev,
-                                    [row.variant_id]: e.target.value,
-                                  }))
-                                }
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="flex justify-end gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => void assignSkus()}
-                      disabled={skuAssignBusy || Object.keys(skuAssignments).length === 0}
-                      className="ui-btn-secondary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                    >
-                      Save Barcode Assignments
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs">
-                  <span className="font-bold text-emerald-700 dark:text-emerald-300">
-                    No barcode gaps remaining. All items ready to print receipts/labels.
-                  </span>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-4 border-t border-app-border/40">
-                {subStepStatus("sku_gaps") === "complete" ? (
-                  <button
-                    type="button"
-                    onClick={() => setActiveSubStep("verification")}
-                    className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                  >
-                    Proceed to Preview & Approve
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void approveSubStep("sku_gaps")}
-                      className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1"
-                    >
-                      Verify Barcode SKU Gaps
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveSubStep("verification")}
-                      disabled={true}
-                      className="ui-btn-secondary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-                    >
-                      Advance to Preview & Approve
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Sub-step 7: Preview / Verification */}
-          {activeSubStep === "verification" && (
-            <div className="space-y-4">
-              <h5 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">Catalog Merge Conflicts Review</h5>
-              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 space-y-4">
-                <div className="flex items-center justify-between border-b border-app-border pb-2">
-                  <span className="text-xs font-bold text-app-text">Multi-Source Catalog Compare</span>
-                  <button
-                    type="button"
-                    onClick={() => void fetchMergePreview()}
-                    disabled={mergeLoading}
-                    className="text-xs text-app-accent font-bold"
-                  >
-                    {mergeLoading ? "Comparing..." : "Recheck Conflicts"}
-                  </button>
-                </div>
-
-                {mergePreview && (
-                  <>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="ui-card p-3 text-center">
-                        <p className="text-[9px] uppercase font-black text-app-text-muted">ROS Database Products</p>
-                        <p className="text-base font-black mt-1 text-app-text">{fmtNum(mergePreview.total_ros_products)}</p>
-                      </div>
-                      <div className="ui-card p-3 text-center">
-                        <p className="text-[9px] uppercase font-black text-app-text-muted">Lightspeed Reference rows</p>
-                        <p className="text-base font-black mt-1 text-app-text">{fmtNum(mergePreview.total_lightspeed_rows)}</p>
-                      </div>
-                      <div className="ui-card p-3 text-center">
-                        <p className="text-[9px] uppercase font-black text-app-text-muted">Counterpoint CSV rows</p>
-                        <p className="text-base font-black mt-1 text-app-text">{fmtNum(mergePreview.total_cp_csv_rows)}</p>
-                      </div>
-                    </div>
-
-                    {(mergePreview.name_conflicts > 0 || mergePreview.category_conflicts > 0) ? (
-                      <div className="space-y-2 pt-2">
-                        <span className="text-xs font-black text-app-warning uppercase tracking-wide">
-                          Detected Title / Category Conflicts ({mergePreview.name_conflicts} items)
-                        </span>
-                        <div className="overflow-x-auto max-h-[150px] overflow-y-auto">
-                          <table className="w-full text-xs text-left">
-                            <thead className="sticky top-0 bg-app-surface-2 border-b border-app-border">
-                              <tr className="text-[9px] font-black uppercase text-app-text-muted">
-                                <th className="px-2 py-1">Item Code</th>
-                                <th className="px-2 py-1">Type</th>
-                                <th className="px-2 py-1">ROS DB Value</th>
-                                <th className="px-2 py-1">Lightspeed Title</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-app-border">
-                              {mergePreview.conflicts.map((c, idx) => (
-                                <tr key={`${c.item_no}-${idx}`}>
-                                  <td className="px-2 py-1 font-mono text-[10px]">{c.item_no}</td>
-                                  <td className="px-2 py-1 font-bold uppercase text-[9px]">{c.field}</td>
-                                  <td className="px-2 py-1">{c.ros_value}</td>
-                                  <td className="px-2 py-1 text-app-text-muted">{c.lightspeed_value ?? c.cp_csv_value}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2 text-xs">
-                        <span className="font-bold text-emerald-700 dark:text-emerald-300">
-                          Catalog compare resolved. Clean database merge guaranteed.
-                        </span>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              <div className="pt-2 flex justify-end">
-                {subStepStatus("verification") === "complete" ? (
-                  <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl">
-                    <CheckCircle2 className="h-5 w-5" />
-                    Catalog mappings approved! Click below to proceed.
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void approveSubStep("verification")}
-                    className="ui-btn-primary px-6 py-2.5 text-xs font-black uppercase tracking-wider inline-flex items-center gap-1.5"
-                  >
-                    Approve & Finalize Catalog Mappings
-                    <CheckCircle2 className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-            </>
-          ) : null}
-
-          <div className="border-t border-app-border pt-4 flex justify-between items-center">
-            <span className="text-xs text-app-text-muted">
-              {step2ApprovalStale ? (
-                <span className="text-red-600 dark:text-red-300 font-bold inline-flex items-center gap-1">
-                  <AlertTriangle className="h-4 w-4" />
-                  Previous inventory approval is stale. Apply staged catalog/inventory batches first.
-                </span>
-              ) : step2Approved ? (
-                <span className="text-emerald-600 dark:text-emerald-400 font-bold inline-flex items-center gap-1">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Inventory step verified and approved.
-                </span>
-              ) : (
-                "Work through sub-tabs 1 to 7 to approve this inventory mapping step."
-              )}
-            </span>
-            <button
-              type="button"
-              onClick={() => goToStepIfReady(3)}
-              disabled={isStepDisabled(3)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-            >
-              Proceed to Customer CRM Import
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* ── STEP 3: Customers & CRM ── */}
-      {activeStep === 3 && (
-        <section className="ui-card p-6 space-y-6">
-          <div>
-            <h4 className="text-base font-black uppercase text-app-text">Step 3: Customer Profiles & CRM Import</h4>
-            <p className="text-xs text-app-text-muted mt-0.5">
-              Review and apply staged customer records from Counterpoint into your live ROS customer relationships.
-            </p>
-          </div>
-
-          <StagingBatchCard
-            entityName="customers"
-            batches={customerBatches}
-            onApply={(id) => setConfirmApply(id)}
-            onDiscard={(id) => setConfirmDiscard(id)}
-            applyBusy={applyBusy}
-          />
-
-          <div className="border-t border-app-border pt-4 flex justify-between">
-            <span className="text-xs text-app-text-muted">
-              Ensure customer lists are imported before processing closed transaction orders.
-            </span>
-            <button
-              type="button"
-              onClick={() => goToStepIfReady(4)}
-              disabled={isStepDisabled(4)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-            >
-              Proceed to Sales History
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* ── STEP 4: Sales & Ticket History ── */}
-      {activeStep === 4 && (
-        <section className="ui-card p-6 space-y-6">
-          <div>
-            <h4 className="text-base font-black uppercase text-app-text">Step 4: Sales & Ticket History Import</h4>
-            <p className="text-xs text-app-text-muted mt-0.5">
-              Import historical ticket transactions. Set up payment code maps beforehand.
-            </p>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-4">
-              <h5 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Staged Ticket Batches</h5>
-              <StagingBatchCard
-                entityName="tickets"
-                batches={ticketBatches}
-                onApply={(id) => setConfirmApply(id)}
-                onDiscard={(id) => setConfirmDiscard(id)}
-                applyBusy={applyBusy}
-              />
-            </div>
-
-            <div className="space-y-4">
-              <h5 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Payment Method Mapping Code</h5>
-              <p className="text-xs text-app-text-muted">
-                Map CP tender terms to your live ROS accounting ledger (cash, credit card, check, etc.).
-              </p>
-              <div className="rounded-xl border border-app-border overflow-hidden bg-app-bg/40 max-h-[250px] overflow-y-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="sticky top-0 bg-app-surface-2 border-b border-app-border">
-                    <tr className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      <th className="px-3 py-2">CP Payment Code</th>
-                      <th className="px-3 py-2">ROS Method Mapping</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border">
-                    {paymentRows.map((row) => (
-                      <tr key={row.id}>
-                        <td className="px-3 py-2 font-mono font-semibold">{row.cp_pmt_typ}</td>
-                        <td className="px-3 py-2">
-                          <select
-                            className="ui-input text-xs py-1"
-                            value={row.ros_method}
-                            onChange={(e) => void patchPaymentMap(row.id, e.target.value)}
-                          >
-                            <option value="cash">Cash</option>
-                            <option value="check">Check</option>
-                            <option value="credit_card">Credit Card</option>
-                            <option value="gift_card">Gift Card</option>
-                            <option value="on_account">On Account (Store A/R)</option>
-                            <option value="store_credit">Store Credit</option>
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-app-border pt-4 flex justify-between">
-            <span className="text-xs text-app-text-muted">
-              Verify payment methods map to prevent transaction balance mismatches during audit.
-            </span>
-            <button
-              type="button"
-              onClick={() => goToStepIfReady(5)}
-              disabled={isStepDisabled(5)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-            >
-              Proceed to Gift Cards
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* ── STEP 5: Gift Cards & Liabilities ── */}
-      {activeStep === 5 && (
-        <section className="ui-card p-6 space-y-6">
-          <div>
-            <h4 className="text-base font-black uppercase text-app-text">Step 5: Gift Card Active Liabilities</h4>
-            <p className="text-xs text-app-text-muted mt-0.5">
-              Review active liabilities and outstanding balances. Set up code logic mapping for loyalty rewards or purchased gifts.
-            </p>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-4">
-              <h5 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Staged Active Gift Cards</h5>
-              <StagingBatchCard
-                entityName="gift_cards"
-                batches={giftBatches}
-                onApply={(id) => setConfirmApply(id)}
-                onDiscard={(id) => setConfirmDiscard(id)}
-                applyBusy={applyBusy}
-              />
-            </div>
-
-            <div className="space-y-4">
-              <h5 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Gift Card Reason Mapping</h5>
-              <p className="text-xs text-app-text-muted">
-                Differentiate between purchased cards, promo gifts, and loyalty rewards points.
-              </p>
-              <div className="rounded-xl border border-app-border overflow-hidden bg-app-bg/40 max-h-[250px] overflow-y-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="sticky top-0 bg-app-surface-2 border-b border-app-border">
-                    <tr className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      <th className="px-3 py-2">CP Reason Code</th>
-                      <th className="px-3 py-2">ROS Card Kind logic</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border">
-                    {giftRows.map((row) => (
-                      <tr key={row.id}>
-                        <td className="px-3 py-2 font-mono font-semibold">{row.cp_reason_cod}</td>
-                        <td className="px-3 py-2">
-                          <select
-                            className="ui-input text-xs py-1"
-                            value={row.ros_card_kind}
-                            onChange={(e) => void patchGiftMap(row.id, e.target.value)}
-                          >
-                            <option value="purchased">Purchased Gift Card</option>
-                            <option value="loyalty_reward">Loyalty Reward Card</option>
-                            <option value="donated_giveaway">Donation / Giveaway</option>
-                            <option value="promo_gift_card">Promotion Card</option>
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-app-border pt-4 flex justify-between">
-            <span className="text-xs text-app-text-muted">
-              Verify outstanding gift balances carefully. Active balances represent outstanding store liability.
-            </span>
-            <button
-              type="button"
-              onClick={() => goToStepIfReady(6)}
-              disabled={isStepDisabled(6)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-            >
-              Proceed to Open Orders (Open Docs)
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* ── STEP 6: Open Orders & Layaways ── */}
-      {activeStep === 6 && (
-        <section className="ui-card p-6 space-y-6">
-          <div>
-            <h4 className="text-base font-black uppercase text-app-text">Step 6: Open Orders & Customer Deposits</h4>
-            <p className="text-xs text-app-text-muted mt-0.5">
-              Review outstanding deposits, active weddings layouts, special orders, and layaway configurations.
-            </p>
-          </div>
-
-          <StagingBatchCard
-            entityName="open_docs"
-            batches={openDocBatches}
-            onApply={(id) => setConfirmApply(id)}
-            onDiscard={(id) => setConfirmDiscard(id)}
-            applyBusy={applyBusy}
-          />
-
-          {openDocsVerification && (
-            <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 space-y-2">
-              <h5 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Staged Open Documents Diagnostics</h5>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center text-xs">
-                <div className="ui-card p-2">
-                  <p className="text-[9px] uppercase font-black text-app-text-muted">Open Orders</p>
-                  <p className="font-bold text-app-text">{openDocsVerification.imported_open_doc_transactions}</p>
-                </div>
-                <div className="ui-card p-2">
-                  <p className="text-[9px] uppercase font-black text-app-text-muted">Linked Customers</p>
-                  <p className="font-bold text-app-text">{openDocsVerification.open_docs_with_customer_linked}</p>
-                </div>
-                <div className="ui-card p-2">
-                  <p className="text-[9px] uppercase font-black text-app-text-muted">No Deposit</p>
-                  <p className="font-bold text-app-text">{openDocsVerification.open_docs_with_zero_payments}</p>
-                </div>
-                <div className="ui-card p-2">
-                  <p className="text-[9px] uppercase font-black text-app-text-muted">Staff Linked</p>
-                  <p className="font-bold text-app-text">{openDocsVerification.distinct_staff_attribution_count}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="border-t border-app-border pt-4 flex justify-between">
-            <span className="text-xs text-app-text-muted">
-              Double check active customer deposits. Deposits represent live cash collected for pending order hand-overs.
-            </span>
-            <button
-              type="button"
-              onClick={() => goToStepIfReady(7)}
-              disabled={isStepDisabled(7)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-            >
-              Proceed to Loyalty History
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* ── STEP 7: Loyalty Point History ── */}
-      {activeStep === 7 && (
-        <section className="ui-card p-6 space-y-6">
-          <div>
-            <h4 className="text-base font-black uppercase text-app-text">Step 7: Customer Loyalty Point Balances</h4>
-            <p className="text-xs text-app-text-muted mt-0.5">
-              Review point balances to allow customers to spend rewards points immediately on their profile.
-            </p>
-          </div>
-
-          <StagingBatchCard
-            entityName="loyalty_hist"
-            batches={loyaltyBatches}
-            onApply={(id) => setConfirmApply(id)}
-            onDiscard={(id) => setConfirmDiscard(id)}
-            applyBusy={applyBusy}
-          />
-
-          <div className="border-t border-app-border pt-4 flex justify-between">
-            <span className="text-xs text-app-text-muted">
-              Verifying loyalty points preserves customer loyalty and trust immediately on day 1.
-            </span>
-            <button
-              type="button"
-              onClick={() => goToStepIfReady(8)}
-              disabled={isStepDisabled(8)}
-              className="ui-btn-primary px-4 py-2 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
-            >
-              Proceed to Final Go-Live Audit
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* ── STEP 8: Final Financial Audit & Sign-off ── */}
-      {activeStep === 8 && (
-        <section className="ui-card p-6 space-y-6">
-          <div>
-            <h4 className="text-base font-black uppercase text-app-text">Step 8: Final Financial Audit & Go-Live Cutover</h4>
-            <p className="text-xs text-app-text-muted mt-0.5">
-              Review final ledger balances, verify all transaction totals, and approve sign-off configuration to retire the SQL bridge.
-            </p>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-4">
-              <h5 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Landed Verification Report</h5>
-              <div className="rounded-xl border border-app-border overflow-hidden bg-app-bg/40 max-h-[300px] overflow-y-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="sticky top-0 bg-app-surface-2 border-b border-app-border">
-                    <tr className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      <th className="px-3 py-2">Profile</th>
-                      <th className="px-3 py-2 text-right">Landed Rows</th>
-                      <th className="px-3 py-2">Audit Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border">
-                    {landingVerification?.snapshot_reconciliation.map((rec) => (
-                      <tr key={rec.key}>
-                        <td className="px-3 py-2 font-bold uppercase text-[10px]">{rec.label.replace(/_/g, " ")}</td>
-                        <td className="px-3 py-2 font-mono text-right text-[11px] font-semibold tabular-nums">{fmtNum(rec.landed_count)}</td>
-                        <td className="px-3 py-2">
-                          {rec.passed ? (
-                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold inline-flex items-center gap-1 text-[10px]">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              PASS
-                            </span>
-                          ) : (
-                            <span className="text-red-500 font-semibold inline-flex items-center gap-1 text-[10px]">
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                              {rec.note || "Mismatched"}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h5 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Go-Live Sign-Off Validation Checklist</h5>
-              <div className="ui-card p-4 space-y-3 bg-app-surface-2/40 text-xs">
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" id="check-catalog" className="rounded border-app-border" />
-                  <label htmlFor="check-catalog" className="font-medium text-app-text">Product catalog mapping approved & zero SKU gaps</label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" id="check-customers" className="rounded border-app-border" />
-                  <label htmlFor="check-customers" className="font-medium text-app-text">Customer profile databases applied to live CRM</label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" id="check-finance" className="rounded border-app-border" />
-                  <label htmlFor="check-finance" className="font-medium text-app-text">Gift card liabilities & layout deposits balance match CP</label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" id="check-cutoff" className="rounded border-app-border" />
-                  <label htmlFor="check-cutoff" className="font-medium text-app-text">Confirm SQL direct bridge imports retired for day-1 live trading</label>
-                </div>
-
-                {cutoverBlockers.length > 0 ? (
-                  <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-red-700 dark:text-red-300">
-                      Cutover blocked
-                    </p>
-                    <ul className="mt-2 list-disc space-y-1 pl-4 text-[10px] font-semibold text-red-700 dark:text-red-300">
-                      {cutoverBlockers.slice(0, 5).map((blocker) => (
-                        <li key={blocker}>{blocker}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                <div className="border-t border-app-border pt-3 mt-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (cutoverBlockers.length > 0) {
-                        toast(cutoverBlockers[0], "error");
-                        return;
-                      }
-                      toast("Guided migration cutover complete! Live trading is active.", "success");
-                    }}
-                    disabled={cutoverBlockers.length > 0}
-                    className="ui-btn-primary w-full py-2.5 text-xs font-black uppercase tracking-widest disabled:opacity-50"
-                  >
-                    Approve Cutover & Complete Migration
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      </>
-      ) : null}
 
       {/* ── Modals ── */}
-      <ConfirmationModal
-        isOpen={confirmApply != null}
-        onClose={() => setConfirmApply(null)}
-        onConfirm={() => confirmApply && void applyBatch(confirmApply)}
-        title="Apply Staged Data to Live Database?"
-        message="This processes and writes this batch directly into your live production table ledger. Active cash balances, products, and customer profiles will become live instantly. This action is irreversible."
-        confirmLabel="Apply Staged Data"
-        variant="success"
-        loading={applyBusy}
-      />
-
-      <ConfirmationModal
-        isOpen={confirmDiscard != null}
-        onClose={() => setConfirmDiscard(null)}
-        onConfirm={() => confirmDiscard && void discardBatch(confirmDiscard)}
-        title="Discard Staging Batch?"
-        message="This closes and removes the staging records without importing them. You will need to rerun a sync from Step 1 if you want to restore it."
-        confirmLabel="Discard Batch"
-        variant="danger"
-      />
-
-      <ConfirmationModal
-        isOpen={confirmRecoverStale != null}
-        onClose={() => setConfirmRecoverStale(null)}
-        onConfirm={() => confirmRecoverStale != null && void recoverStaleBatch(confirmRecoverStale)}
-        title="Mark stale apply failed?"
-        message="This marks the stale apply claim as failed for support review. It does not replay the payload, does not reset the batch, and does not write new live data."
-        confirmLabel="Mark failed"
-        variant="danger"
-        loading={applyBusy}
-      />
-
-      <ConfirmationModal
-        isOpen={confirmWorkbenchReset}
-        onClose={() => setConfirmWorkbenchReset(false)}
-        onConfirm={() => void resetWorkbench()}
-        title="Reset Catalog Mapping State?"
-        message="This re-opens all mapping steps in Step 2. It will not delete imported data, but requires re-approving catalog mapping milestones."
-        confirmLabel="Reset Mappings"
-        variant="danger"
-        loading={workbenchResetBusy}
-      />
-
       <PromptModal
         isOpen={resetPromptOpen}
         onClose={() => {
@@ -5187,94 +1985,6 @@ export default function CounterpointSyncSettingsPanel() {
         confirmLabel="Wipe ROS Data"
         placeholder="Enter confirmation phrase"
       />
-    </div>
-  );
-}
-
-/* ── Sub-component for Staging batches ── */
-
-function StagingBatchCard({
-  entityName,
-  batches,
-  onApply,
-  onDiscard,
-  applyBusy,
-}: {
-  entityName: string;
-  batches: StagingBatchRow[];
-  onApply: (id: number) => void;
-  onDiscard: (id: number) => void;
-  applyBusy: boolean;
-}) {
-  if (batches.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed border-app-border p-6 text-center text-app-text-muted">
-        <Database className="mx-auto h-8 w-8 text-app-text-muted/40 mb-2" />
-        <p className="text-xs font-bold">No staged batches found for {entityName.replace(/_/g, " ")}.</p>
-        <p className="text-[10px] text-app-text-muted/75 mt-1">
-          Rerun the Counterpoint SQL bridge sync in Step 1 to pull data into staging tables.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {batches.map((batch) => {
-        let statusBadge = "bg-app-surface text-app-text-muted";
-        let statusLabel = "Pending review";
-        if (batch.status === "applied") {
-          statusBadge = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
-          statusLabel = "Applied to Live ROS";
-        } else if (batch.status === "applying") {
-          statusBadge = "bg-sky-500/15 text-sky-700 dark:text-sky-300";
-          statusLabel = "Applying...";
-        } else if (batch.status === "failed") {
-          statusBadge = "bg-red-500/10 text-red-600";
-          statusLabel = "Apply Failed";
-        }
-
-        return (
-          <div key={batch.id} className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${statusBadge}`}>
-                  {statusLabel}
-                </span>
-                <span className="text-[10px] text-app-text-muted">Staged on {new Date(batch.created_at).toLocaleDateString()}</span>
-              </div>
-              <span className="font-mono text-[11px] font-semibold text-app-text">{fmtNum(batch.row_count)} rows staged</span>
-            </div>
-
-            {batch.status === "pending" && (
-              <div className="flex justify-end gap-2 pt-2 border-t border-app-border/40">
-                <button
-                  type="button"
-                  onClick={() => onDiscard(batch.id)}
-                  className="ui-btn-secondary text-[11px] font-bold px-3 py-1.5 text-red-600 border-red-500/10 hover:bg-red-500/5"
-                >
-                  Discard Batch
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onApply(batch.id)}
-                  disabled={applyBusy}
-                  className="ui-btn-primary text-[11px] font-bold px-4 py-1.5 inline-flex items-center gap-1"
-                >
-                  {applyBusy && <Loader2 className="h-3 w-3 animate-spin" />}
-                  Apply & Load Into ROS
-                </button>
-              </div>
-            )}
-
-            {batch.apply_error && (
-              <p className="text-[10px] text-red-500 bg-red-500/5 border border-red-500/10 p-2 rounded-lg mt-1 font-semibold">
-                Error log: {batch.apply_error}
-              </p>
-            )}
-          </div>
-        );
-      })}
     </div>
   );
 }

@@ -4290,20 +4290,6 @@ fn default_suspicious_min_for_import_entity(entity_key: &str) -> Option<i64> {
     }
 }
 
-fn counterpoint_ticket_detail_history_corroborates(
-    source_counts_by_entity: &HashMap<String, i64>,
-) -> bool {
-    let ticket_lines = source_counts_by_entity
-        .get("ticket_lines")
-        .copied()
-        .unwrap_or_default();
-    let ticket_payments = source_counts_by_entity
-        .get("ticket_payments")
-        .copied()
-        .unwrap_or_default();
-    ticket_lines.max(ticket_payments) >= COUNTERPOINT_TICKET_SUSPICIOUS_MIN
-}
-
 fn counterpoint_preflight_required_probe_entities() -> &'static [&'static str] {
     &[
         "customers",
@@ -4386,8 +4372,8 @@ pub async fn record_counterpoint_import_preflight(
         push_import_preflight_blocker(
             &mut blockers,
             None,
-            "legacy_staging_enabled",
-            "Bridge reported legacy staging mode; import-first must post directly into ROS import endpoints.",
+            "staging_queue_enabled",
+            "Bridge reported staging queue mode; this import workflow must post directly into ROS import endpoints.",
         );
     }
     if payload
@@ -4425,17 +4411,6 @@ pub async fn record_counterpoint_import_preflight(
     }
 
     let mut seen_counts: HashMap<String, i64> = HashMap::new();
-    let source_counts_by_entity: HashMap<String, i64> = payload
-        .counts
-        .iter()
-        .map(|row| {
-            (
-                normalize_import_entity_key(&row.entity_key),
-                row.source_count,
-            )
-        })
-        .filter(|(entity_key, _)| !entity_key.is_empty())
-        .collect();
     let mut count_rows = Vec::with_capacity(payload.counts.len());
     let mut insert_rows = Vec::with_capacity(payload.counts.len());
 
@@ -4497,24 +4472,14 @@ pub async fn record_counterpoint_import_preflight(
                     "{label} returned {} source rows, below the suspicious minimum of {min_count}.",
                     row.source_count
                 );
-                if entity_key == "tickets"
-                    && row.source_count > 0
-                    && counterpoint_ticket_detail_history_corroborates(&source_counts_by_entity)
-                {
-                    status = "warning".into();
-                    message.get_or_insert(format!(
-                        "{msg} Ticket line/payment history is substantial, so this is treated as a Counterpoint header-shape warning instead of an import blocker."
-                    ));
-                } else {
-                    push_import_preflight_blocker(
-                        &mut blockers,
-                        Some(&entity_key),
-                        "suspicious_low_source_count",
-                        msg.clone(),
-                    );
-                    status = "blocked".into();
-                    message.get_or_insert(msg);
-                }
+                push_import_preflight_blocker(
+                    &mut blockers,
+                    Some(&entity_key),
+                    "suspicious_low_source_count",
+                    msg.clone(),
+                );
+                status = "blocked".into();
+                message.get_or_insert(msg);
             }
         }
         if status == "blocked" {
@@ -5591,10 +5556,10 @@ fn import_provenance_target_for_source_count(
     let key = entity_key.trim().to_ascii_lowercase();
     match key.as_str() {
         "customers" => Some(("customers", Some("customers"))),
-        "vendors" | "vendor_masters" | "counterpoint_vendor_masters" => {
+        "vendors" | "vendor_masters" | "counterpoint_vendor_masters" | "counterpoint_vendors" => {
             Some(("vendors", Some("vendors")))
         }
-        "category_masters" | "counterpoint_category_masters" => {
+        "category_masters" | "counterpoint_category_masters" | "counterpoint_categories" => {
             Some(("category_masters", Some("categories")))
         }
         "catalog_products"
@@ -5623,9 +5588,7 @@ fn import_provenance_target_for_source_count(
             Some(("open_docs", Some("payment_allocations")))
         }
         "receiving_history" => Some(("receiving_history", Some("counterpoint_receiving_history"))),
-        "loyalty_points" | "loyalty_history" => {
-            Some(("loyalty_hist", Some("loyalty_point_ledger")))
-        }
+        "loyalty_points" | "loyalty_history" => Some(("customers", Some("customers"))),
         "store_credit_opening" => Some(("store_credit_opening", Some("customers"))),
         _ => None,
     }
@@ -5780,17 +5743,32 @@ pub async fn build_counterpoint_import_command_center(
         .map(|run| run.preflight_passed && run.status == "preflight_passed")
         .unwrap_or(false);
     let ready_for_import = token_configured && latest_preflight_passed;
-    let ready_for_go_live_review = ready_for_import && open_exception_count == 0;
+    let latest_import_completed = latest_import_run
+        .as_ref()
+        .map(|run| run.status == "completed")
+        .unwrap_or(false);
+    let import_proof_passed = latest_import_completed
+        && !snapshot_reconciliation.is_empty()
+        && snapshot_reconciliation.iter().all(|row| row.passed);
+    let ready_for_go_live_review =
+        ready_for_import && import_proof_passed && open_exception_count == 0;
     let recommendation = if !token_configured {
         "NO-GO: Counterpoint sync token is not configured.".to_string()
     } else if latest_preflight.is_none() {
         "NO-GO: run Bridge source-count preflight first.".to_string()
     } else if !latest_preflight_passed {
         "NO-GO: source-count preflight has blockers.".to_string()
+    } else if latest_import_run.is_none() {
+        "READY TO IMPORT: source counts are proved. Run Full Import next.".to_string()
+    } else if !latest_import_completed {
+        "IMPORT RUNNING: wait for the current import to finish, then refresh proof.".to_string()
+    } else if !import_proof_passed {
+        "NO-GO: import proof does not match Counterpoint source counts yet.".to_string()
     } else if open_exception_count > 0 {
         format!("CAUTION: {open_exception_count} open import exception(s) need review.")
     } else {
-        "GO FOR REHEARSAL IMPORT: source counts are proved and no open import exceptions are recorded.".to_string()
+        "GO FOR REHEARSAL USE: import proof matches and no open import exceptions are recorded."
+            .to_string()
     };
 
     Ok(CounterpointImportCommandCenterSummary {
@@ -7043,7 +7021,7 @@ async fn build_snapshot_reconciliation_rows(
         ),
         build_snapshot_reconciliation_row(
             "catalog_products",
-            "Catalog products",
+            "Catalog parent products",
             load_snapshot_source_metric(pool, "catalog_products").await?,
             product_count,
             Decimal::ZERO,
@@ -10706,30 +10684,39 @@ struct VariantResolutionCache {
     parent: HashMap<String, Vec<ParentVariantCandidate>>,
 }
 
-fn normalized_lower_key(value: &str) -> Option<String> {
+fn normalized_lookup_keys(value: &str) -> Vec<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_lowercase())
+        return Vec::new();
     }
+    let key = trimmed.to_lowercase();
+    let mut keys = vec![key.clone()];
+    if let Some(rest) = key.strip_prefix("b-").filter(|rest| !rest.is_empty()) {
+        keys.push(format!("i-{rest}"));
+    } else if let Some(rest) = key.strip_prefix("i-").filter(|rest| !rest.is_empty()) {
+        keys.push(format!("b-{rest}"));
+    }
+    keys.sort();
+    keys.dedup();
+    keys
 }
 
-fn normalized_exact_key(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
+fn line_parent_keys(line: &TicketLineRow) -> Vec<String> {
+    let mut keys = Vec::new();
+    for value in [line.counterpoint_item_key.as_deref(), line.sku.as_deref()]
+        .into_iter()
+        .flatten()
+    {
+        for key in normalized_lookup_keys(value) {
+            let parent = key.split('|').next().unwrap_or("").trim();
+            if !parent.is_empty() {
+                keys.push(parent.to_string());
+            }
+        }
     }
-}
-
-fn line_parent_key(line: &TicketLineRow) -> Option<String> {
-    line.counterpoint_item_key
-        .as_deref()
-        .or(line.sku.as_deref())
-        .and_then(normalized_lower_key)
-        .filter(|s| !s.contains('|'))
+    keys.sort();
+    keys.dedup();
+    keys
 }
 
 async fn build_variant_resolution_cache<'a>(
@@ -10741,17 +10728,23 @@ async fn build_variant_resolution_cache<'a>(
     let mut parent_keys = HashSet::new();
 
     for line in lines {
-        if let Some(key) = line
+        for key in line
             .counterpoint_item_key
             .as_deref()
-            .and_then(normalized_exact_key)
+            .map(normalized_lookup_keys)
+            .unwrap_or_default()
         {
             item_keys.insert(key);
         }
-        if let Some(sku) = line.sku.as_deref().and_then(normalized_lower_key) {
+        for sku in line
+            .sku
+            .as_deref()
+            .map(normalized_lookup_keys)
+            .unwrap_or_default()
+        {
             skus.insert(sku);
         }
-        if let Some(parent) = line_parent_key(line) {
+        for parent in line_parent_keys(line) {
             parent_keys.insert(parent);
         }
     }
@@ -10762,9 +10755,9 @@ async fn build_variant_resolution_cache<'a>(
         let keys: Vec<String> = item_keys.into_iter().collect();
         let rows: Vec<(String, Uuid, Uuid)> = sqlx::query_as(
             r#"
-            SELECT counterpoint_item_key, id, product_id
+            SELECT lower(trim(counterpoint_item_key)), id, product_id
             FROM product_variants
-            WHERE counterpoint_item_key = ANY($1)
+            WHERE lower(trim(counterpoint_item_key)) = ANY($1)
             "#,
         )
         .bind(&keys)
@@ -10842,37 +10835,47 @@ fn resolve_variant_from_cache(
     cache: &VariantResolutionCache,
     line: &TicketLineRow,
 ) -> Option<(Uuid, Uuid)> {
-    if let Some(key) = line
+    for key in line
         .counterpoint_item_key
         .as_deref()
-        .and_then(normalized_exact_key)
+        .map(normalized_lookup_keys)
+        .unwrap_or_default()
     {
         if let Some(pair) = cache.exact.get(&key) {
             return Some(*pair);
         }
     }
-    if let Some(sku) = line.sku.as_deref().and_then(normalized_lower_key) {
+    for sku in line
+        .sku
+        .as_deref()
+        .map(normalized_lookup_keys)
+        .unwrap_or_default()
+    {
         if let Some(pair) = cache.exact.get(&sku) {
             return Some(*pair);
         }
     }
-    let parent = line_parent_key(line)?;
-    let candidates = cache.parent.get(&parent)?;
-    if candidates.len() == 1 {
-        let candidate = candidates[0];
-        return Some((candidate.variant_id, candidate.product_id));
-    }
-
     let tol = Decimal::new(1, 2);
-    let mut exact = candidates
-        .iter()
-        .filter(|candidate| (candidate.effective_price - line.unit_price).abs() <= tol);
-    let first = exact.next()?;
-    if exact.next().is_none() {
-        Some((first.variant_id, first.product_id))
-    } else {
-        None
+    for parent in line_parent_keys(line) {
+        let Some(candidates) = cache.parent.get(&parent) else {
+            continue;
+        };
+        if candidates.len() == 1 {
+            let candidate = candidates[0];
+            return Some((candidate.variant_id, candidate.product_id));
+        }
+
+        let mut exact = candidates
+            .iter()
+            .filter(|candidate| (candidate.effective_price - line.unit_price).abs() <= tol);
+        let Some(first) = exact.next() else {
+            continue;
+        };
+        if exact.next().is_none() {
+            return Some((first.variant_id, first.product_id));
+        }
     }
+    None
 }
 
 fn resolve_ticket_lines_from_cache(
@@ -10914,19 +10917,89 @@ pub async fn resolve_unresolved_counterpoint_lines(pool: &PgPool) -> Result<u64,
 
     let updated = sqlx::query(
         r#"
+        WITH fallback_lines AS (
+          SELECT
+            tl.id,
+            lower(trim(tl.vendor_reference)) AS lookup_key,
+            tl.unit_price
+          FROM transaction_lines tl
+          WHERE tl.variant_id = $1
+            AND NULLIF(trim(tl.vendor_reference), '') IS NOT NULL
+        ),
+        expanded_line_keys AS (
+          SELECT id, lookup_key, unit_price
+          FROM fallback_lines
+          UNION ALL
+          SELECT id, 'i-' || substring(lookup_key from 3), unit_price
+          FROM fallback_lines
+          WHERE lookup_key LIKE 'b-%' AND length(lookup_key) > 2
+          UNION ALL
+          SELECT id, 'b-' || substring(lookup_key from 3), unit_price
+          FROM fallback_lines
+          WHERE lookup_key LIKE 'i-%' AND length(lookup_key) > 2
+        ),
+        variant_keys AS (
+          SELECT
+            lower(trim(pv.counterpoint_item_key)) AS lookup_key,
+            pv.id,
+            pv.product_id,
+            COALESCE(pv.retail_price_override, p.base_retail_price) AS effective_price
+          FROM product_variants pv
+          JOIN products p ON p.id = pv.product_id
+          WHERE pv.sku <> $2
+            AND NULLIF(trim(pv.counterpoint_item_key), '') IS NOT NULL
+          UNION ALL
+          SELECT
+            lower(trim(split_part(pv.counterpoint_item_key, '|', 1))) AS lookup_key,
+            pv.id,
+            pv.product_id,
+            COALESCE(pv.retail_price_override, p.base_retail_price) AS effective_price
+          FROM product_variants pv
+          JOIN products p ON p.id = pv.product_id
+          WHERE pv.sku <> $2
+            AND position('|' in pv.counterpoint_item_key) > 0
+          UNION ALL
+          SELECT
+            lower(trim(pv.sku)) AS lookup_key,
+            pv.id,
+            pv.product_id,
+            COALESCE(pv.retail_price_override, p.base_retail_price) AS effective_price
+          FROM product_variants pv
+          JOIN products p ON p.id = pv.product_id
+          WHERE pv.sku <> $2
+            AND NULLIF(trim(pv.sku), '') IS NOT NULL
+        ),
+        candidate_matches AS (
+          SELECT DISTINCT
+            lk.id AS line_id,
+            vk.id AS variant_id,
+            vk.product_id,
+            CASE WHEN abs(vk.effective_price - lk.unit_price) <= 0.01 THEN 0 ELSE 1 END AS price_rank
+          FROM expanded_line_keys lk
+          JOIN variant_keys vk ON vk.lookup_key = lk.lookup_key
+        ),
+        unambiguous_matches AS (
+          SELECT line_id, variant_id, product_id
+          FROM (
+            SELECT
+              line_id,
+              variant_id,
+              product_id,
+              COUNT(*) OVER (PARTITION BY line_id) AS match_count,
+              COUNT(*) FILTER (WHERE price_rank = 0) OVER (PARTITION BY line_id) AS price_match_count,
+              ROW_NUMBER() OVER (PARTITION BY line_id ORDER BY price_rank, variant_id) AS rn
+            FROM candidate_matches
+          ) ranked
+          WHERE rn = 1
+            AND (match_count = 1 OR price_match_count = 1)
+        )
         UPDATE transaction_lines tl
         SET
-          variant_id = pv.id,
-          product_id = pv.product_id,
+          variant_id = m.variant_id,
+          product_id = m.product_id,
           vendor_reference = NULL
-        FROM product_variants pv
-        WHERE tl.variant_id = $1
-          AND tl.vendor_reference IS NOT NULL
-          AND pv.sku <> $2
-          AND (
-            lower(trim(tl.vendor_reference)) = lower(trim(pv.counterpoint_item_key))
-            OR lower(trim(tl.vendor_reference)) = lower(trim(pv.sku))
-          )
+        FROM unambiguous_matches m
+        WHERE tl.id = m.line_id
         "#,
     )
     .bind(fallback_variant_id)
@@ -11511,7 +11584,7 @@ pub async fn execute_counterpoint_ticket_batch(
             &format!(
                 "{unresolved_count} ticket line item(s) landed with Counterpoint Import Item fallback."
             ),
-            Some("Map the source item to a ROS variant or keep the fallback as legacy history proof."),
+            Some("Map the source item to a ROS variant or keep this Counterpoint Import Item as review-visible history proof."),
             true,
             Some("transactions"),
             Some(transaction_id),
@@ -12100,9 +12173,13 @@ pub async fn execute_counterpoint_open_doc_batch(
                     transaction_id, product_id, variant_id, salesperson_id, fulfillment,
                     quantity, unit_price, unit_cost,
                     state_tax, local_tax, applied_spiff, calculated_commission,
-                    counterpoint_reason_code, size_specs, vendor_reference
+                    counterpoint_reason_code, size_specs, vendor_reference,
+                    order_lifecycle_status, ready_for_pickup_at, ready_for_pickup_by
                 )
-                VALUES ($1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, 0, 0, 0, 0, $9, $10, $11)
+                VALUES (
+                    $1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, 0, 0, 0, 0,
+                    $9, $10, $11, 'ready_for_pickup'::order_item_lifecycle_status, $12, $13
+                )
                 "#,
             )
             .bind(transaction_id)
@@ -12121,6 +12198,8 @@ pub async fn execute_counterpoint_open_doc_batch(
                 "counterpoint_line_sequence": line.lin_seq_no,
             }))
             .bind(vendor_ref.as_deref())
+            .bind(booked_at)
+            .bind(processed_by.or(salesperson))
             .execute(&mut *tx)
             .await?;
             summary.line_items_created += 1;
@@ -12185,7 +12264,7 @@ pub async fn execute_counterpoint_open_doc_batch(
             &format!(
                 "{unresolved_count} open-doc line item(s) landed with Counterpoint Import Item fallback."
             ),
-            Some("Map the source item to a ROS variant or keep the fallback as imported obligation proof."),
+            Some("Map the source item to a ROS variant or keep this Counterpoint Import Item as review-visible obligation proof."),
             true,
             Some("transactions"),
             Some(transaction_id),
@@ -13405,7 +13484,13 @@ mod tests {
     fn realistic_import_preflight_counts() -> Vec<CounterpointImportSourceCountPayload> {
         vec![
             ("customers", "Counterpoint customers", 26_579, true, None),
-            ("catalog_products", "Catalog products", 3_573, true, None),
+            (
+                "catalog_products",
+                "Catalog parent products",
+                3_573,
+                true,
+                None,
+            ),
             (
                 "catalog_variants",
                 "Catalog variants/SKUs",
@@ -17599,9 +17684,9 @@ mod tests {
         .await
         .expect("count unresolved line issues");
 
-        let fallback_line: (Uuid, Option<String>) = sqlx::query_as(
+        let fallback_line: (Uuid, Option<String>, String) = sqlx::query_as(
             r#"
-            SELECT tl.variant_id, tl.vendor_reference
+            SELECT tl.variant_id, tl.vendor_reference, tl.order_lifecycle_status::text
             FROM transaction_lines tl
             INNER JOIN transactions t ON t.id = tl.transaction_id
             WHERE t.counterpoint_doc_ref = $1
@@ -17738,6 +17823,7 @@ mod tests {
         assert_eq!(issue_count, 1);
         assert_eq!(fallback_line.0, fallback_variant_id);
         assert_eq!(fallback_line.1.as_deref(), Some(missing_key.as_str()));
+        assert_eq!(fallback_line.2, "ready_for_pickup");
         assert_eq!(resolved_count, 1);
     }
 

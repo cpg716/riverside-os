@@ -13,17 +13,17 @@ End-to-end reference for setting up and operating the one-way data ingest from *
 **Import-First Migration Command Center:**
 The Counterpoint Sync and Migration Inventory Workbench now defaults to a single **Command center** in **Settings → Integrations → Counterpoint**. The operator workflow is source-count preflight, optional reset baseline, full import, import results, exceptions, AI cleanup, and go-live readiness:
 
-The same settings panel also includes **Counterpoint Transition Review Packs** for manual ChatGPT/Codex review. ROS generates JSON packs, staff upload those files manually to the external review tool, and ROS validates imported suggestions before any Staff Access review or safe apply action.
+The same settings panel also includes the **Counterpoint Data Workbench** for manual ChatGPT/Codex review. ROS generates JSON packs, staff upload those files manually to the external review tool, and ROS validates imported suggestions before any Staff Access review or safe apply action.
 
 1. **Connect & Source Counts** - Bridge reachability, token/base URL check, `CP_IMPORT_SINCE=2018-01-01`, and source-count probes
 2. **Reset/Rehearsal Controls** - guarded reset to a clean rehearsal baseline when needed
 3. **Run Full Import** - import supported Counterpoint rows directly into ROS after preflight passes
-4. **Import Results** - expected source rows, Bridge-sent rows, ROS landed rows, failed rows, fallback-landed rows
-5. **Exceptions** - failed, quarantined, or fallback-landed source records requiring review
+4. **Import Results** - expected source rows, Bridge-sent rows, ROS landed rows, failed rows, and rows needing review
+5. **Exceptions** - failed, quarantined, or review-landed source records requiring staff review
 6. **AI Cleanup** - post-import catalog/customer cleanup suggestions only
 7. **Go-Live Readiness** - deterministic proof and final recommendation
 
-Advancement is proof-gated. Bridge-reported row counts alone do not unlock import or cutover. If the Bridge reports suspiciously low open-doc counts, a wrong ROS base URL, `401 invalid or missing sync token`, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import. Suspiciously low ticket header counts are allowed only as a warning when ticket-line or ticket-payment source counts prove substantial historical activity.
+Advancement is proof-gated. Bridge-reported row counts alone do not unlock import or cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, `401 invalid or missing sync token`, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import.
 
 When preflight passes, the Bridge starts a ROS import run before sending entity batches. Each batch writes through the normal Counterpoint ingest path, then ROS records raw source rows and provenance links to the landed ROS rows. The command center's latest import-run status is the operator proof surface; a run that never starts, fails, or has zero landed proof is not complete.
 
@@ -153,7 +153,7 @@ Normal setup does not add entity SQL or entity flags to `.env`. The bridge probe
 | Open Counterpoint docs | `PS_DOC_*` family when visible |
 | Receiving history | `PO_RECVR_HIST` family when visible |
 
-Use the GUI Auto Config action or `node index.mjs auto-config` after `SQL_CONNECTION_STRING` is set. Legacy `CP_*_QUERY` entries are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
+Use the GUI Auto Config action or `node index.mjs auto-config` after `SQL_CONNECTION_STRING` is set. Old `CP_*_QUERY` entries are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
 
 ### 3d. Start
 
@@ -312,7 +312,7 @@ Default runtime inventory mapping pulls `IM_INV` rows and `IM_INV_CELL` rows for
 
 **Provenance:** Products created by this sync get `data_source = 'counterpoint'` (migration 85). Products that already exist (matched via their variants' `counterpoint_item_key`) are updated but their `data_source` is not overwritten.
 
-**Default catalog:** the runtime mapper sends all nonblank `IM_ITEM` rows so zero-stock items are still available for lookup, history, vendor mapping, and reporting. It also sends `IM_INV_CELL` matrix cells with their Counterpoint cell keys and quantity fields when that table is visible.
+**Default catalog:** the runtime mapper sends Counterpoint parent products that are active now or have evidence since `CP_IMPORT_SINCE` (default January 1, 2018): recent sales, active open docs, receiving activity, or nonzero inventory. It also sends `IM_INV_CELL` matrix cells with their Counterpoint cell keys and quantity fields when that table is visible.
 
 **Category mapping:** The bridge sends a `category` string from `CATEG_COD`. ROS looks up `counterpoint_category_map` first (admin-configurable), then falls back to a case-insensitive name match in `categories`. Unmapped categories result in `category_id = NULL` on the product.
 
@@ -394,10 +394,10 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
 ROS ships common Counterpoint tender mappings, and admins can review or change them in **Settings → Counterpoint → Payments**. Unknown tender codes no longer silently fall back to cash; they import as `counterpoint_unmapped`, preserve the original Counterpoint tender code in payment metadata, and create an unresolved sync issue that must be reviewed before sign-off.
 
-Historical tickets and open documents are not dropped solely because Counterpoint omitted line detail or provided only an ambiguous parent item key. When a financial record has payment/header value but no exact ROS variant can be selected, ROS imports it against the `HIST-CP-FALLBACK` item, preserves the original Counterpoint key in `transaction_lines.vendor_reference`, and raises a review warning for operator cleanup.
+Historical tickets and open documents are not dropped solely because Counterpoint omitted line detail or provided only an ambiguous parent item key. When a financial record has payment/header value but no exact ROS variant can be selected, ROS imports it against the `HIST-CP-FALLBACK` item, preserves the original Counterpoint key in `transaction_lines.vendor_reference`, shows the original Counterpoint description/SKU in order review, and raises a review warning for operator cleanup. Imported open documents land as current obligations with line lifecycle set to ready for pickup; they do not need the full new-ROS order lifecycle before go-live review.
 
 ### 4f-2. Customer ID Matching & Prefix Logic (v0.8.0+)
-To handle mixed Counterpoint ID formats (legacy integers vs. newer `C-` prefixed strings), the ROS sync service employs a bidirectional resolution strategy during ticket and open-doc imports:
+To handle mixed Counterpoint ID formats (plain integers vs. `C-` prefixed strings), the ROS sync service employs a bidirectional resolution strategy during ticket and open-doc imports:
 
 1. **Exact Match**: Checks `customer_code` in the local DB.
 2. **Prefix fallback**: High-performance query checks for both `code` and `'C-' + code`.

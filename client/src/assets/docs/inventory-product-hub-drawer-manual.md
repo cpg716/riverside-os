@@ -92,7 +92,7 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 ## What happens next
 
 - Direct print sends the approved retail price-tag batch to the configured Zebra 2844 / LP 2844 tag station.
-- If direct print is unavailable, Riverside opens the print preview instead and leaves shelf-label status unchanged.
+- If direct print fails in the desktop app, Riverside shows the printer error and leaves shelf-label status unchanged. Browser/PWA sessions can open print preview as a fallback.
 - Product Hub stays open so you can keep reviewing the product, switch tabs, or correct the next variation batch.
 
 ## Related workflows

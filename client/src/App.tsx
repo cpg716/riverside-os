@@ -630,6 +630,7 @@ function App() {
           "ros-operations-center",
           "ros-dev-center",
           "rosie",
+          "updates",
           "online-store",
           "help-center",
           "backups",
@@ -2282,6 +2283,10 @@ function AppMainColumn({
                           setBugReportsDeepLinkId(null)
                         }
                         onNavigateToTab={setActiveSubSection}
+                        onNavigateCustomers={(section = "all") => {
+                          setActiveTab("customers");
+                          setActiveSubSection(section);
+                        }}
                         onOpenOnlineStore={() => {
                           setActiveTab("online-store");
                           setActiveSubSection("dashboard");
