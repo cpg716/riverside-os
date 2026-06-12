@@ -36,7 +36,7 @@ Use this panel when opening a new lane, replacing a printer, checking scanner in
 3. Leave **Open cash drawer on cash/check** enabled for Register #1 when the drawer is attached to the Epson receipt printer.
 4. For the Zebra 2844 clothing tag station, choose the installed Zebra printer or enter the tag printer IP, then leave **Printer language** on **Auto-detect LP/TLP 2844** unless support tells you to force EPL or ZPL.
 5. Choose the installed **Reports Printer** on the Windows desktop station. Reports do not use a network-address mode in the desktop app.
-6. Open **Tag Designer → Print test tag** to send an actual test label using the current saved tag layout through the Main Hub print server. The success message names the target and whether ROS used EPL or ZPL.
+6. Use **Print test tag** on the Clothing Tag Station card, or open **Tag Designer → Print test tag**, to send an actual test label using the current saved tag layout through the Main Hub print server. The success message names the target and whether ROS used EPL or ZPL.
 7. In POS, use **Print test** to send a short Epson test receipt.
 8. Use **Open drawer** only when you need a manual drawer open. Enter a reason and the acting staff member's **Access PIN** so the event is recorded for the Z-report.
 9. Use **Check connection** for the receipt and Reports printers. The desktop app checks installed printers directly; PWA/browser mode asks the Riverside server to check receipt/tag network printer IP and port.
@@ -53,7 +53,7 @@ If a printer test fails, do not keep retrying sale completion from the cart. Con
 - The cash drawer opens automatically only on CASH and CHECK sales from Register #1.
 - Manual drawer opens require an Access PIN, a reason, and are listed on the Z-report.
 - The POS Register Hardware view shows the active receipt address, cash drawer state, and Zebra tag target at the top of the page.
-- Item tags print through the Main Hub print server to the configured Zebra station. Auto language uses the resolved station target: EPL for classic Zebra LP/TLP 2844 names and ZPL II for newer Zebra/ZPL printers. If the desktop app still has the default tag address but sees an installed Zebra/2844 printer, it uses that installed printer and chooses the language from that printer before trying the network fallback.
+- Item tags print through the Main Hub print server to the configured Zebra station. Auto language resolves the Main Hub tag target before printing: EPL for classic Zebra LP/TLP 2844 stations and ZPL II only for explicit ZPL/newer Zebra selections. If the desktop app still has the default tag address but sees an installed Zebra/2844 printer, it uses that installed printer and chooses the language from that printer before trying the network fallback.
 - In the desktop app, direct tag printing must reach the configured Zebra station. If that fails, Riverside shows the printer error and does not mark variants as shelf-labeled.
 - Tag Designer shows the live tag preview in the panel. Browser/PWA sessions can still open a printable preview document, but the desktop app uses **Print test tag** for the real Zebra path.
 - Browser/PWA mode can save the same receipt and tag settings and can use server-side network printing when the API host can reach the printer. Receipt checks in PWA/browser mode verify the server-to-printer TCP path; installed-printer dropdowns and Windows printer checks run in the desktop app.

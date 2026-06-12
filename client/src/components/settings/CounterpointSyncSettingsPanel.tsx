@@ -16,6 +16,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import PromptModal from "../ui/PromptModal";
 import DuplicateReviewQueueSection from "../customers/DuplicateReviewQueueSection";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import type { Customer } from "../pos/CustomerSelector";
 
 /* ── Types & Interfaces ── */
@@ -1598,6 +1599,25 @@ export default function CounterpointSyncSettingsPanel({
           </button>
         </div>
       </div>
+
+      <IntegrationCredentialsCard
+        baseUrl={baseUrl}
+        integrationKey="counterpoint"
+        title="Counterpoint Bridge Token"
+        description="Save the ROS sync token used by the Windows Counterpoint Bridge. The same value must be set as COUNTERPOINT_SYNC_TOKEN in the Bridge .env file."
+        fields={[
+          {
+            key: "sync_token",
+            label: "Sync token",
+            placeholder: counterpointTokenConfigured
+              ? "Saved - enter only to replace"
+              : "Paste the bridge sync token",
+            help: "Generate one long random token, save it here, and paste the exact same value into the Bridge .env file on the Counterpoint host.",
+            type: "password",
+          },
+        ]}
+        onSaved={fetchAllData}
+      />
 
       {importFirstCommandCenterPanel}
 

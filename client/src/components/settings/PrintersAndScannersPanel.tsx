@@ -11,7 +11,6 @@ import {
 import { getBaseUrl } from "../../lib/apiConfig";
 import {
   TAG_PRINTER_LANGUAGE_KEY,
-  checkMainHubPrintServerTarget,
   checkReceiptPrinterConnection,
   describePrinterTarget,
   listSystemPrinters,
@@ -20,6 +19,7 @@ import {
   type SystemPrinter,
 } from "../../lib/printerBridge";
 import { printReceiptBase64, printReceiptText } from "../../lib/receiptPrint";
+import { openInventoryTagsWindow, type InventoryTagItem } from "../inventory/labelPrint";
 import { isTauri } from "@tauri-apps/api/core";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -75,6 +75,18 @@ const PRINTERS: PrinterConfig[] = [
     systemStorageKey: "ros.hardware.printer.report.systemName",
     defaultIp: "",
     defaultPort: "9100",
+  },
+];
+
+const TEST_TAG_ITEMS: InventoryTagItem[] = [
+  {
+    sku: "ROS-TEST-TAG",
+    productName: "Riverside test tag",
+    variation: "Printer check",
+    brand: "RIVERSIDE",
+    price: "$1.00",
+    regularPrice: null,
+    salePrice: null,
   },
 ];
 
@@ -185,6 +197,14 @@ export default function PrintersAndScannersPanel({
     try {
       if (printer.key === "receipt") {
         await checkReceiptPrinterConnection(resolvePrinterTarget("receipt"));
+      } else if (printer.key === "tag") {
+        const result = await openInventoryTagsWindow(TEST_TAG_ITEMS);
+        if (result.route === "direct") {
+          toast(`Test tag ${result.message}`, "success");
+        } else {
+          toast(result.message, "info");
+        }
+        return;
       } else {
         const mode =
           !printer.supportsNetwork || values[printer.modeStorageKey] === "system"
@@ -198,11 +218,6 @@ export default function PrintersAndScannersPanel({
         const ip = values[printer.ipStorageKey]?.trim();
         if (!ip) {
           throw new Error(`${printer.label} address is not configured.`);
-        }
-        if (printer.key === "tag") {
-          const result = await checkMainHubPrintServerTarget("tag", resolvePrinterTarget("tag"));
-          toast(`${printer.label} responded through Main Hub print server at ${result.target}.`, "success");
-          return;
         }
         toast(`${printer.label} saved. Live readiness checks are currently for receipt printers.`, "success");
         return;
@@ -480,7 +495,7 @@ export default function PrintersAndScannersPanel({
                 )}
                 {printer.key === "receipt" || printer.key === "report"
                   ? "Check connection"
-                  : "Confirm setting"}
+                  : "Print test tag"}
               </button>
 
               {mode === "pos" && printer.key === "receipt" ? (

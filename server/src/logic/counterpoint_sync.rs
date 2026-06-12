@@ -18,7 +18,7 @@ use sqlx::{Acquire, PgPool, Postgres, QueryBuilder, Transaction};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::logic::store_credit;
+use crate::logic::{integration_credentials, store_credit};
 
 const HISTORICAL_FALLBACK_SKU: &str = "HIST-CP-FALLBACK";
 const HISTORICAL_FALLBACK_NAME: &str = "Historical Counterpoint Sale (Item Unresolved)";
@@ -4111,7 +4111,7 @@ pub async fn get_sync_status(
             if !token_configured {
                 (
                     "offline".into(),
-                    Some("COUNTERPOINT_SYNC_TOKEN not set on server".into()),
+                    Some("Counterpoint sync token is not saved/configured on the Main Hub".into()),
                     phase,
                     entity,
                     ver,
@@ -4165,7 +4165,7 @@ pub async fn get_sync_status(
             if !token_configured {
                 (
                     "offline".into(),
-                    Some("COUNTERPOINT_SYNC_TOKEN not set on server".into()),
+                    Some("Counterpoint sync token is not saved/configured on the Main Hub".into()),
                     "idle".into(),
                     None,
                     None,
@@ -5926,16 +5926,31 @@ pub struct CounterpointHealth {
 
 pub async fn health_check(pool: &PgPool) -> CounterpointHealth {
     let start = std::time::Instant::now();
-    let token_configured = std::env::var("COUNTERPOINT_SYNC_TOKEN")
-        .ok()
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false);
+    let saved_token_configured = integration_credentials::load_integration_credentials(
+        pool,
+        "counterpoint",
+        &["sync_token"],
+    )
+    .await
+    .ok()
+    .and_then(|values| {
+        values
+            .get("sync_token")
+            .map(|value| !value.trim().is_empty())
+    })
+    .unwrap_or(false);
+    let token_configured = saved_token_configured
+        || std::env::var("COUNTERPOINT_SYNC_TOKEN")
+            .ok()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
     if !token_configured {
         return CounterpointHealth {
             configured: false,
             reachable: false,
             latency_ms: 0,
-            message: "Counterpoint not configured (COUNTERPOINT_SYNC_TOKEN unset)".to_string(),
+            message: "Counterpoint not configured (no saved sync token or COUNTERPOINT_SYNC_TOKEN)"
+                .to_string(),
         };
     }
     let hb = sqlx::query_as::<_, (DateTime<Utc>, String, Option<String>, Option<String>, Option<String>)>(

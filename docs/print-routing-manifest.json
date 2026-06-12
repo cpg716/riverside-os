@@ -161,6 +161,16 @@
       "proof": "Variation workspace tag actions use the tag station route."
     },
     {
+      "id": "printer-settings-test-tag",
+      "file": "client/src/components/settings/PrintersAndScannersPanel.tsx",
+      "callee": "openInventoryTagsWindow",
+      "occurrences": 1,
+      "kind": "inventory-tag-test",
+      "route": "direct",
+      "printer": "tag",
+      "proof": "Clothing Tag Station settings test sends a real test label through the direct tag station route."
+    },
+    {
       "id": "label-print-desktop-preview-helper",
       "file": "client/src/components/inventory/labelPrint.ts",
       "callee": "openDesktopTextPreview",

@@ -166,6 +166,7 @@ export default function App() {
     if (!newConfig.server.database) newConfig.server.database = {};
     if (!newConfig.register) newConfig.register = {};
     if (!newConfig.server.installRoot) newConfig.server.installRoot = 'C:\\RiversideOS';
+    newConfig.server.environmentMode = 'production';
     if (!newConfig.server.httpBind) newConfig.server.httpBind = '0.0.0.0:3000';
     if (!newConfig.server.firewallRuleName) newConfig.server.firewallRuleName = 'Riverside OS Server';
     if (!newConfig.server.corsOrigins || !newConfig.server.corsOrigins.length) {

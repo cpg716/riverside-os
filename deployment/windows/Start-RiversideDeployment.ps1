@@ -546,6 +546,7 @@ function Save-FormToConfig {
   }
   $serverApiBase = Normalize-ApiBase $serverAddress
 
+  $config.server.environmentMode = "production"
   $config.server.httpBind = "0.0.0.0:3000"
   $config.server.corsOrigins = @(
     $serverApiBase,

@@ -3,6 +3,7 @@
   "server": {
     "installRoot": "C:\\RiversideOS",
     "httpBind": "0.0.0.0:3000",
+    "environmentMode": "production",
     "strictProduction": false,
     "corsOrigins": [
       "http://ros-server:3000",

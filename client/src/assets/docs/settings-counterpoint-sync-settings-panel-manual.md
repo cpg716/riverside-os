@@ -27,13 +27,14 @@ Use this panel to verify facts. ROSIE can explain displayed facts only; it does 
 
 ## How to use it
 
-1. Confirm the Bridge status and workstation reachability.
-2. Use **Command center** to confirm source-count preflight passed for inventory/catalog, customers, sales and movement history, open orders, gift cards/store credit, and loyalty balances.
-3. Use **Reset Baseline** for a clean rehearsal database when needed.
-4. Click **Run Full Import** only after preflight passes.
-5. Review landed proof, rows needing review, and review-landed rows before sign-off reconciliation.
-6. Use support diagnostics only when mapping, quarantine, or review blockers need manual resolution.
-7. Use imported tax semantics to explain historical rows without changing current tax or QBO math.
+1. Save the **Counterpoint Bridge Token** at the top of the panel. It must exactly match `COUNTERPOINT_SYNC_TOKEN` in the Windows Bridge `.env` file.
+2. Confirm the Bridge status and workstation reachability.
+3. Use **Command center** to confirm source-count preflight passed for inventory/catalog, customers, sales and movement history, open orders, gift cards/store credit, and loyalty balances.
+4. Use **Reset Baseline** for a clean rehearsal database when needed.
+5. Click **Run Full Import** only after preflight passes.
+6. Review landed proof, rows needing review, and review-landed rows before sign-off reconciliation.
+7. Use support diagnostics only when mapping, quarantine, or review blockers need manual resolution.
+8. Use imported tax semantics to explain historical rows without changing current tax or QBO math.
 
 If a failed support-queue batch has been reviewed and successfully replayed into a newer import run, use **Discard** to remove the stale failed row from active blockers while preserving the original audit record.
 
@@ -45,7 +46,7 @@ Imported Counterpoint open documents are current obligations. Their lines are ma
 
 The bridge status separates three facts: Bridge heartbeat, browser control API reachability, and import preflight receipt. Browser controls only affect Start/Stop buttons from this workstation. They do not prove that the Bridge sent source-count preflight, and they do not replace current import-run proof.
 
-The Bridge sync token saved in this panel must match `COUNTERPOINT_SYNC_TOKEN` in `C:\counterpoint-bridge\.env` on the Counterpoint host. If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If the bridge console shows `health 401`, run `Set-CounterpointBridgeToken.cmd` on the server PC and paste the exact bridge `.env` token. If it shows `health 503`, Riverside Server does not have a Counterpoint token configured yet.
+The Bridge sync token saved in **Counterpoint Bridge Token** must match `COUNTERPOINT_SYNC_TOKEN` in `C:\counterpoint-bridge\.env` on the Counterpoint host. If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If the bridge console shows `health 401`, paste the exact Bridge `.env` token into this panel and save it again. If it shows `health 503`, Riverside Server does not have a Counterpoint token configured yet.
 
 ## Command center and post-import verification
 

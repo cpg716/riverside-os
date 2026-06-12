@@ -48,6 +48,7 @@ use crate::logic::counterpoint_sync::{
     CounterpointTicketsPayload, CounterpointVendorItemsPayload, CounterpointVendorsPayload,
     HeartbeatPayload, LightspeedNormalizationReferenceImportPayload,
 };
+use crate::logic::integration_credentials;
 use crate::middleware;
 
 const STALE_STAGING_APPLY_AFTER_MINUTES: i32 = 15;
@@ -59,18 +60,49 @@ const VALID_GIFT_CARD_KINDS: [&str; 4] = [
     "promo_gift_card",
 ];
 
-fn validate_sync_token(
+const COUNTERPOINT_CREDENTIAL_KEYS: &[&str] = &["sync_token"];
+
+fn env_counterpoint_sync_token() -> Option<String> {
+    std::env::var("COUNTERPOINT_SYNC_TOKEN")
+        .ok()
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+}
+
+async fn saved_counterpoint_sync_token(state: &AppState) -> Option<String> {
+    match integration_credentials::load_integration_credentials(
+        &state.db,
+        "counterpoint",
+        COUNTERPOINT_CREDENTIAL_KEYS,
+    )
+    .await
+    {
+        Ok(values) => values
+            .get("sync_token")
+            .map(|token| token.trim().to_string())
+            .filter(|token| !token.is_empty()),
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "could not load saved Counterpoint sync token; falling back to environment"
+            );
+            None
+        }
+    }
+}
+
+async fn expected_counterpoint_sync_token(state: &AppState) -> Option<String> {
+    saved_counterpoint_sync_token(state)
+        .await
+        .or_else(env_counterpoint_sync_token)
+        .or_else(|| state.counterpoint_sync_token.clone())
+}
+
+async fn validate_sync_token(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
-    let env_token = std::env::var("COUNTERPOINT_SYNC_TOKEN")
-        .ok()
-        .map(|token| token.trim().to_string())
-        .filter(|token| !token.is_empty());
-    let expected = env_token
-        .as_deref()
-        .or(state.counterpoint_sync_token.as_deref());
-    let Some(expected) = expected else {
+    let Some(expected) = expected_counterpoint_sync_token(state).await else {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({
@@ -107,7 +139,7 @@ async fn cp_health(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let counterpoint_staging_enabled =
         counterpoint_staging::counterpoint_staging_enabled(&state.db)
             .await
@@ -132,7 +164,7 @@ async fn cp_staging(
     headers: HeaderMap,
     Json(body): Json<CpStagingIngestBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let staging_on = counterpoint_staging::counterpoint_staging_enabled(&state.db)
         .await
         .map_err(|e| {
@@ -185,7 +217,7 @@ async fn cp_heartbeat(
     headers: HeaderMap,
     Json(payload): Json<HeartbeatPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     match counterpoint_sync::upsert_heartbeat(&state.db, &payload).await {
         Ok(resp) => Ok(Json(serde_json::to_value(resp).unwrap_or_default())),
         Err(e) => {
@@ -203,7 +235,7 @@ async fn cp_ack_request(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let request_id = body
         .get("request_id")
         .and_then(|v| v.as_i64())
@@ -222,7 +254,7 @@ async fn cp_complete_request(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let request_id = body
         .get("request_id")
         .and_then(|v| v.as_i64())
@@ -242,7 +274,7 @@ async fn cp_run_start(
     headers: HeaderMap,
     Json(payload): Json<counterpoint_sync::SyncCursorIn>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     counterpoint_sync::begin_sync_run(&state.db, payload.entity.trim(), payload.cursor.as_deref())
         .await
         .map_err(|e| {
@@ -259,7 +291,7 @@ async fn cp_snapshot_reconciliation(
     headers: HeaderMap,
     Json(payload): Json<CounterpointSnapshotSourceMetricsPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     counterpoint_sync::record_counterpoint_snapshot_source_metrics(&state.db, payload)
         .await
         .map_err(cp_err)?;
@@ -271,7 +303,7 @@ async fn cp_import_preflight(
     headers: HeaderMap,
     Json(payload): Json<CounterpointImportPreflightPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let summary = record_counterpoint_import_preflight(&state.db, payload)
         .await
         .map_err(cp_err)?;
@@ -283,7 +315,7 @@ async fn cp_import_run_start(
     headers: HeaderMap,
     Json(payload): Json<CounterpointImportRunStartPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let summary = start_counterpoint_import_run(&state.db, payload)
         .await
         .map_err(cp_err)?;
@@ -295,7 +327,7 @@ async fn cp_import_run_complete(
     headers: HeaderMap,
     Json(payload): Json<CounterpointImportRunCompletePayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let run = complete_counterpoint_import_run(&state.db, payload)
         .await
         .map_err(cp_err)?;
@@ -322,7 +354,7 @@ async fn cp_import_batch(
     headers: HeaderMap,
     Json(body): Json<CounterpointImportBatchBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let entity = body.entity.trim().to_string();
     if entity.is_empty() {
         return Err((
@@ -391,7 +423,7 @@ async fn cp_fidelity_diagnostics(
     headers: HeaderMap,
     Json(payload): Json<CounterpointFidelityDiagnosticPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let report = counterpoint_sync::record_counterpoint_fidelity_diagnostics(&state.db, payload)
         .await
         .map_err(cp_err)?;
@@ -403,7 +435,7 @@ async fn cp_customers(
     headers: HeaderMap,
     Json(payload): Json<CounterpointCustomersPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_customer_batch(&state.db, payload).await;
     match res {
@@ -440,7 +472,7 @@ async fn cp_inventory(
     headers: HeaderMap,
     Json(payload): Json<CounterpointInventoryPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_inventory_batch(&state.db, payload).await;
     match res {
@@ -475,7 +507,7 @@ async fn cp_inventory_preflight(
     headers: HeaderMap,
     Json(payload): Json<CounterpointInventoryPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     validate_counterpoint_inventory_identity_preflight(&payload)
         .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
         .map_err(cp_err)
@@ -486,7 +518,7 @@ async fn cp_category_masters(
     headers: HeaderMap,
     Json(payload): Json<CounterpointCategoryMastersPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_category_masters_batch(&state.db, payload).await;
     match res {
@@ -528,7 +560,7 @@ async fn cp_catalog(
     headers: HeaderMap,
     Json(payload): Json<CounterpointCatalogPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_catalog_batch(&state.db, payload).await;
     match res {
@@ -566,7 +598,7 @@ async fn cp_catalog_preflight(
     headers: HeaderMap,
     Json(payload): Json<CounterpointCatalogPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     validate_counterpoint_catalog_identity_preflight(&payload)
         .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
         .map_err(cp_err)
@@ -577,7 +609,7 @@ async fn cp_aliases_preflight(
     headers: HeaderMap,
     Json(payload): Json<CounterpointBarcodeAliasPreflightPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     preflight_counterpoint_barcode_aliases(&state.db, payload)
         .await
         .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
@@ -589,7 +621,7 @@ async fn cp_aliases_persist(
     headers: HeaderMap,
     Json(payload): Json<CounterpointBarcodeAliasPersistPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     persist_counterpoint_barcode_aliases(&state.db, payload)
         .await
         .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
@@ -601,7 +633,7 @@ async fn cp_normalization_preview(
     headers: HeaderMap,
     Json(payload): Json<CounterpointNormalizationPreviewPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     preview_counterpoint_lightspeed_normalization_candidates(&state.db, payload)
         .await
         .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
@@ -613,7 +645,7 @@ async fn cp_lightspeed_reference_import(
     headers: HeaderMap,
     Json(payload): Json<LightspeedNormalizationReferenceImportPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     import_lightspeed_normalization_reference(&state.db, payload)
         .await
         .map(|report| Json(serde_json::to_value(report).unwrap_or_default()))
@@ -625,7 +657,7 @@ async fn cp_gift_cards(
     headers: HeaderMap,
     Json(payload): Json<CounterpointGiftCardsPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_gift_card_batch(&state.db, payload).await;
     match res {
@@ -662,7 +694,7 @@ async fn cp_tickets(
     headers: HeaderMap,
     Json(payload): Json<CounterpointTicketsPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_ticket_batch(&state.db, payload).await;
     match res {
@@ -701,7 +733,7 @@ async fn cp_store_credit_opening(
     headers: HeaderMap,
     Json(payload): Json<CounterpointStoreCreditOpeningPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_store_credit_opening_batch(&state.db, payload).await;
     match res {
@@ -743,7 +775,7 @@ async fn cp_open_docs(
     headers: HeaderMap,
     Json(payload): Json<CounterpointOpenDocsPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_open_doc_batch(&state.db, payload).await;
     match res {
@@ -786,7 +818,7 @@ async fn cp_vendors(
     headers: HeaderMap,
     Json(payload): Json<CounterpointVendorsPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_vendor_batch(&state.db, payload).await;
     match res {
@@ -821,7 +853,7 @@ async fn cp_customer_notes(
     headers: HeaderMap,
     Json(payload): Json<CounterpointCustomerNotesPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_customer_notes_batch(&state.db, payload).await;
     match res {
@@ -855,7 +887,7 @@ async fn cp_loyalty_hist(
     headers: HeaderMap,
     Json(payload): Json<CounterpointLoyaltyHistPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_loyalty_hist_batch(&state.db, payload).await;
     match res {
@@ -890,7 +922,7 @@ async fn cp_receiving_history(
     headers: HeaderMap,
     Json(payload): Json<crate::logic::counterpoint_sync::CounterpointReceivingPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res =
         crate::logic::counterpoint_sync::execute_counterpoint_receiving_batch(&state.db, payload)
@@ -927,7 +959,7 @@ async fn cp_vendor_items(
     headers: HeaderMap,
     Json(payload): Json<CounterpointVendorItemsPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_vendor_item_batch(&state.db, payload).await;
     match res {
@@ -962,7 +994,7 @@ async fn cp_sales_rep_stubs(
     headers: HeaderMap,
     Json(payload): Json<CounterpointSlsRepStubPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.codes.len();
     let res = execute_counterpoint_sls_rep_stub_batch(&state.db, payload).await;
     match res {
@@ -1004,7 +1036,7 @@ async fn cp_staff(
     headers: HeaderMap,
     Json(payload): Json<CounterpointStaffPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    validate_sync_token(&state, &headers)?;
+    validate_sync_token(&state, &headers).await?;
     let n = payload.rows.len();
     let res = execute_counterpoint_staff_batch(&state.db, payload).await;
     match res {
@@ -1066,11 +1098,7 @@ async fn settings_status(
     // Automatically attempt to resolve any fallback lines on status refresh
     let _ = counterpoint_sync::resolve_unresolved_counterpoint_lines(&state.db).await;
 
-    let token_configured = state.counterpoint_sync_token.is_some()
-        || std::env::var("COUNTERPOINT_SYNC_TOKEN")
-            .ok()
-            .map(|token| !token.trim().is_empty())
-            .unwrap_or(false);
+    let token_configured = counterpoint_token_configured(&state).await;
     match counterpoint_sync::get_sync_status(&state.db, token_configured).await {
         Ok(resp) => {
             let mut value = serde_json::to_value(resp).unwrap_or_default();
@@ -1101,12 +1129,8 @@ async fn settings_status(
     }
 }
 
-fn counterpoint_token_configured(state: &AppState) -> bool {
-    state.counterpoint_sync_token.is_some()
-        || std::env::var("COUNTERPOINT_SYNC_TOKEN")
-            .ok()
-            .map(|token| !token.trim().is_empty())
-            .unwrap_or(false)
+async fn counterpoint_token_configured(state: &AppState) -> bool {
+    expected_counterpoint_sync_token(state).await.is_some()
 }
 
 async fn settings_command_center(
@@ -1116,8 +1140,11 @@ async fn settings_command_center(
     middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
         .await
         .map_err(map_perm)?;
-    match build_counterpoint_import_command_center(&state.db, counterpoint_token_configured(&state))
-        .await
+    match build_counterpoint_import_command_center(
+        &state.db,
+        counterpoint_token_configured(&state).await,
+    )
+    .await
     {
         Ok(summary) => Ok(Json(serde_json::to_value(summary).unwrap_or_default())),
         Err(e) => Err((

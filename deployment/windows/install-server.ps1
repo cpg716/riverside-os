@@ -772,13 +772,24 @@ function Escape-SqlLiteral([string]$Value) {
   return $Value.Replace("'", "''")
 }
 
+function Resolve-ServerEnvironmentMode($Config) {
+  $mode = "$($Config.server.environmentMode)".Trim().ToLowerInvariant()
+  if ([string]::IsNullOrWhiteSpace($mode)) {
+    return "production"
+  }
+  if ($mode -notin @("development", "production", "e2e")) {
+    throw "Invalid server.environmentMode '$mode'. Expected development, production, or e2e."
+  }
+  return $mode
+}
+
 function Write-ServerEnv($Path, $Config, $DatabaseUrl, $FrontendDist, $RosieModelPath) {
   $server = $Config.server
   $configuredLlamaProfile = ""
   if ($server.environment) {
     $configuredLlamaProfile = "$($server.environment.RIVERSIDE_LLAMA_PERF_PROFILE)".Trim()
   }
-  $environmentMode = if ([bool]$server.strictProduction) { "production" } else { "development" }
+  $environmentMode = Resolve-ServerEnvironmentMode $Config
   $httpBind = $server.httpBind
   if ([string]::IsNullOrWhiteSpace($httpBind)) { $httpBind = "0.0.0.0:3000" }
   $corsOrigins = @($server.corsOrigins) |
@@ -1074,8 +1085,11 @@ function Apply-SeedFiles($PsqlPath, $DatabaseUrl, $SeedsDir) {
   }
 }
 
-function Set-DatabaseEnvironmentMode($PsqlPath, $DatabaseUrl, [bool]$StrictProduction) {
-  $mode = if ($StrictProduction) { "production" } else { "development" }
+function Set-DatabaseEnvironmentMode($PsqlPath, $DatabaseUrl, [string]$Mode) {
+  $mode = $Mode.Trim().ToLowerInvariant()
+  if ($mode -notin @("development", "production", "e2e")) {
+    throw "Invalid database environment_mode '$mode'. Expected development, production, or e2e."
+  }
   Invoke-Psql $PsqlPath $DatabaseUrl "UPDATE store_settings SET environment_mode = '$mode' WHERE id = 1;"
   $actualMode = Invoke-PsqlScalar $PsqlPath $DatabaseUrl "SELECT environment_mode FROM store_settings WHERE id = 1;"
   if ($actualMode -ne $mode) {
@@ -1396,7 +1410,7 @@ if ($script:postgresReachable) {
       try {
         Apply-Migrations $psql $databaseUrl (Join-Path $releaseDir "migrations")
         Apply-SeedFiles $psql $databaseUrl (Join-Path $releaseDir "seeds")
-        Set-DatabaseEnvironmentMode $psql $databaseUrl ([bool]$server.strictProduction)
+        Set-DatabaseEnvironmentMode $psql $databaseUrl (Resolve-ServerEnvironmentMode $config)
       } finally {
         Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
       }

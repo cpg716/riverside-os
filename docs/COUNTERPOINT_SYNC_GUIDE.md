@@ -91,6 +91,8 @@ This token authenticates every bridge request. **Never log this token.** Routine
 
 If Backoffice Settings refuses to save the token with `RIVERSIDE_CREDENTIALS_KEY must be set`, run **`Repair-RiversideCredentialsKey.cmd`** from the Windows deployment package on the Backoffice / Server PC. The repair writes the credential encryption key into the installed server `.env` and Windows machine environment, then restarts the Riverside server task.
 
+The Main Hub uses the encrypted token saved in Settings as the primary source for Bridge health, heartbeat, preflight, and import requests. `COUNTERPOINT_SYNC_TOKEN` in the Main Hub server `.env` is a fallback/bootstrap value; editing that file by hand does not update a running server process until the server restarts.
+
 ### 2c. Verify the health endpoint
 
 ```bash

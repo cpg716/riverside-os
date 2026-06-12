@@ -55,12 +55,12 @@ Ensure these values in `counterpoint-bridge/.env` are intact:
 ### health 503
 
 - **What it means**: Riverside Server is reachable, but no Counterpoint sync token is configured on the Riverside side.
-- **Resolution**: On the Backoffice / Server PC, save the token in **Settings → Counterpoint**, or run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package and restart Riverside Server.
+- **Resolution**: On the Main Hub, save the token in **Settings → Integrations → Counterpoint → Counterpoint Bridge Token**. If saving the token is blocked by a credential-key warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package and restart Riverside Server. Editing `C:\RiversideOS\server\.env` is only a fallback/bootstrap path and requires a server restart.
 
 ### health 401
 
 - **What it means**: Riverside Server has a token, but the bridge sent a different token or no token.
-- **Resolution**: On the Backoffice / Server PC, run `Set-CounterpointBridgeToken.cmd` from the Windows deployment package and paste the exact `COUNTERPOINT_SYNC_TOKEN` from `C:\counterpoint-bridge\.env`. Then close and restart the bridge.
+- **Resolution**: Save the exact same token in both places: Main Hub **Settings → Integrations → Counterpoint → Counterpoint Bridge Token** and the Counterpoint Bridge `.env` as `COUNTERPOINT_SYNC_TOKEN`. Then close and restart the bridge so its process reloads `.env`.
 
 ---
 

@@ -411,6 +411,7 @@ $configPath = __CONFIG_PATH__
 $packageRoot = __PACKAGE_ROOT__
 $config = if (Test-Path $configPath) { Get-Content $configPath -Raw | ConvertFrom-Json } else { $null }
 $installRoot = if ($config -and $config.server -and $config.server.installRoot) { "$($config.server.installRoot)" } else { 'C:\RiversideOS' }
+$serverEnvPath = Join-Path $installRoot 'server\.env'
 $db = if ($config -and $config.server -and $config.server.database) { $config.server.database } else { $null }
 $envConfig = if ($config -and $config.server -and $config.server.environment) { $config.server.environment } else { $null }
 $httpBind = if ($config -and $config.server -and $config.server.httpBind) { "$($config.server.httpBind)" } else { '0.0.0.0:3000' }
@@ -436,12 +437,54 @@ function Test-Http($Url) {
   }
 }
 
+function Read-DotEnv($Path) {
+  $map = @{}
+  if (-not (Test-Path $Path)) { return $map }
+  foreach ($line in Get-Content $Path -ErrorAction SilentlyContinue) {
+    $trimmed = "$line".Trim()
+    if (-not $trimmed -or $trimmed.StartsWith('#') -or $trimmed -notmatch '=') { continue }
+    $name, $value = $trimmed -split '=', 2
+    $map[$name.Trim()] = $value.Trim().Trim('"').Trim("'")
+  }
+  return $map
+}
+
+function Parse-DatabaseUrl($Value) {
+  if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+  try {
+    $uri = [System.Uri]$Value
+    $user = ''
+    $password = ''
+    if ($uri.UserInfo) {
+      $parts = $uri.UserInfo -split ':', 2
+      $user = [System.Uri]::UnescapeDataString($parts[0])
+      if ($parts.Count -gt 1) { $password = [System.Uri]::UnescapeDataString($parts[1]) }
+    }
+    return @{
+      host = $uri.Host
+      port = if ($uri.Port -gt 0) { "$($uri.Port)" } else { '5432' }
+      database = $uri.AbsolutePath.TrimStart('/')
+      user = $user
+      password = $password
+    }
+  } catch {
+    return $null
+  }
+}
+
+$serverEnv = Read-DotEnv $serverEnvPath
+$databaseUrl = if ($serverEnv.ContainsKey('DATABASE_URL')) { $serverEnv['DATABASE_URL'] } else { '' }
+$databaseUrlParts = Parse-DatabaseUrl $databaseUrl
+if (-not $envConfig -and $serverEnv.Count -gt 0) {
+  $envConfig = [pscustomobject]$serverEnv
+}
+
 $issues = New-Object System.Collections.ArrayList
 $out = [ordered]@{
   generated_at = (Get-Date).ToString('s')
   package_root = $packageRoot
-  config_path = $configPath
-  config_exists = [bool](Test-Path $configPath)
+  config_path = if (Test-Path $configPath) { $configPath } elseif (Test-Path $serverEnvPath) { $serverEnvPath } else { $configPath }
+  config_exists = [bool]((Test-Path $configPath) -or (Test-Path $serverEnvPath))
   install_root = $installRoot
   api_base = $apiBase
   elevated = $false
@@ -514,19 +557,24 @@ if (-not $psqlPath -or -not (Test-Path $psqlPath)) {
     if ($found) { $psqlPath = $found.FullName }
   }
 }
-$dbHost = if ($db -and $db.host) { "$($db.host)" } else { '127.0.0.1' }
-$dbPort = if ($db -and $db.port) { "$($db.port)" } else { '5432' }
-$dbName = if ($db -and $db.databaseName) { "$($db.databaseName)" } else { 'riverside_os' }
-$dbUser = if ($db -and $db.adminUser) { "$($db.adminUser)" } else { 'postgres' }
-$dbPassword = if ($db -and $null -ne $db.adminPassword) { "$($db.adminPassword)" } else { '' }
+$dbHost = if ($db -and $db.host) { "$($db.host)" } elseif ($databaseUrlParts) { "$($databaseUrlParts.host)" } else { '127.0.0.1' }
+$dbPort = if ($db -and $db.port) { "$($db.port)" } elseif ($databaseUrlParts) { "$($databaseUrlParts.port)" } else { '5432' }
+$dbName = if ($db -and $db.databaseName) { "$($db.databaseName)" } elseif ($databaseUrlParts) { "$($databaseUrlParts.database)" } else { 'riverside_os' }
+$dbUser = if ($db -and $db.adminUser -and $db.adminPassword) { "$($db.adminUser)" } elseif ($databaseUrlParts) { "$($databaseUrlParts.user)" } else { 'postgres' }
+$dbPassword = if ($db -and $null -ne $db.adminPassword -and "$($db.adminPassword)") { "$($db.adminPassword)" } elseif ($databaseUrlParts) { "$($databaseUrlParts.password)" } else { '' }
+$dbProbeDatabase = if ($db -and $db.adminUser -and $db.adminPassword) { 'postgres' } else { $dbName }
 $pg = @{ service_name = if ($pgSvc) { $pgSvc.Name } else { '' }; service_status = if ($pgSvc) { "$($pgSvc.Status)" } else { 'missing' }; psql_found = [bool]($psqlPath -and (Test-Path $psqlPath)); connectable = $false; db_exists = $false; db_size = ''; table_count = ''; migration_count = '' }
 if ($pg.psql_found) {
   $env:PGPASSWORD = $dbPassword
-  $connect = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d postgres -w -tAc 'SELECT 1;' 2>&1
+  $connect = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbProbeDatabase -w -tAc 'SELECT 1;' 2>&1
   $pg.connectable = ($LASTEXITCODE -eq 0 -and (($connect -join '').Trim() -eq '1'))
   if ($pg.connectable) {
-    $exists = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d postgres -w -tAc "SELECT 1 FROM pg_database WHERE datname = '$dbName';" 2>&1
-    $pg.db_exists = (($exists -join '').Trim() -eq '1')
+    if ($dbProbeDatabase -eq $dbName) {
+      $pg.db_exists = $true
+    } else {
+      $exists = & $psqlPath -h $dbHost -p $dbPort -U $dbUser -d postgres -w -tAc "SELECT 1 FROM pg_database WHERE datname = '$dbName';" 2>&1
+      $pg.db_exists = (($exists -join '').Trim() -eq '1')
+    }
     if ($pg.db_exists) {
       $pg.db_size = ((& $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -w -tAc 'SELECT pg_size_pretty(pg_database_size(current_database()));' 2>&1) -join '').Trim()
       $pg.table_count = ((& $psqlPath -h $dbHost -p $dbPort -U $dbUser -d $dbName -w -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>&1) -join '').Trim()

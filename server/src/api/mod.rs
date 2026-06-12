@@ -269,6 +269,8 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
         .nest("/api/weddings", weddings::router())
         .nest("/api/weather", weather::router())
         .nest("/api/hardware", hardware::router())
+        .route("/api/ready", get(health::ready))
+        .route("/api/live", get(health::live))
         .nest("/api/health", health::health_router())
         .nest("/api/sync", counterpoint_sync::router())
         .nest(

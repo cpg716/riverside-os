@@ -1,6 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import {
   autoRoutePrint,
+  checkMainHubPrintServerTarget,
   describePrinterTarget,
   listSystemPrinters,
   resolvePrinterTarget,
@@ -410,7 +411,10 @@ function inferTagPrinterLanguage(target: HardwarePrinterTarget = resolvePrinterT
     }
   }
 
-  return "zpl";
+  // Riverside's standard clothing tag station is the classic Zebra LP/TLP 2844
+  // family, which speaks EPL. Operators can explicitly choose ZPL for newer
+  // Zebra models in Printers & Scanners.
+  return "epl";
 }
 
 export function getInventoryTagPrinterLanguage(target?: HardwarePrinterTarget): ThermalPrinterLanguage {
@@ -754,6 +758,42 @@ async function resolveDesktopTagPrintTarget(): Promise<HardwarePrinterTarget> {
   };
 }
 
+function targetFromMainHubCheck(
+  target: HardwarePrinterTarget,
+  result: Awaited<ReturnType<typeof checkMainHubPrintServerTarget>>,
+): HardwarePrinterTarget {
+  if (result.route === "system") {
+    return {
+      mode: "system",
+      printerName: result.target,
+    };
+  }
+
+  const parsed = result.target.match(/^(.+):(\d+)$/);
+  if (!parsed) {
+    return target;
+  }
+  const port = Number.parseInt(parsed[2], 10);
+  if (!Number.isFinite(port) || port <= 0 || port > 65535) {
+    return target;
+  }
+  return {
+    mode: "network",
+    ip: parsed[1],
+    port,
+  };
+}
+
+async function resolveTagPrintTarget(): Promise<HardwarePrinterTarget> {
+  const target = await resolveDesktopTagPrintTarget();
+  if (!isDefaultLoopbackTagTarget(target)) {
+    return target;
+  }
+
+  const result = await checkMainHubPrintServerTarget("tag", target);
+  return targetFromMainHubCheck(target, result);
+}
+
 /** Multi-label Zebra/ZPL dispatch using the configured Tag Station. */
 export async function openInventoryTagsWindow(
   items: InventoryTagItem[],
@@ -773,16 +813,18 @@ export async function openInventoryTagsWindow(
   };
 
   try {
-    const target = await resolveDesktopTagPrintTarget();
+    const target = await resolveTagPrintTarget();
     const language = getInventoryTagPrinterLanguage(target);
     const payload = language === "epl"
       ? buildEplDocument(items, config)
       : buildZplDocument(items, config);
-    await autoRoutePrint("tag", payload, language, target);
+    const result = (await autoRoutePrint("tag", payload, language, target)) as
+      | { target?: string }
+      | undefined;
     return {
       route: "direct",
       markShelfLabeled: true,
-      message: `accepted by ${describePrinterTarget(target)} using ${language.toUpperCase()}.`,
+      message: `queued to ${result?.target ?? describePrinterTarget(target)} using ${language.toUpperCase()}.`,
     };
   } catch (directError) {
     const directMessage = directError instanceof Error ? directError.message : String(directError);

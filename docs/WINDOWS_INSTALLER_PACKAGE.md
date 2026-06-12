@@ -74,6 +74,8 @@ The Deployment Manager writes `riverside-deployment.config.json` for the selecte
 
 The manager shows all command output in the full-width **Execution Output** console. Use **Copy Logs** to place the current log buffer on the clipboard for support. The release package also keeps logs under the installed `C:\RiversideOS\logs` path where applicable.
 
+Main Hub deployment packages stamp the installed server and database as `production` (`RIVERSIDE_MODE=production` and `store_settings.environment_mode='production'`). `RIVERSIDE_STRICT_PRODUCTION` is a separate hardening gate and may remain `false` until live payment credentials are configured.
+
 ## Passwords and secrets
 
 The Deployment Manager keeps the password work inside the installer flow:

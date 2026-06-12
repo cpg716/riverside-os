@@ -117,7 +117,7 @@ Clicking the **Audit** button in the Deployment Manager (or running `Audit-Syste
 | **Database Connection** | Attempts SQL check query using resolved credentials. | Validates config credentials and database existence. |
 | **Schema & Migrations** | Queries table counts and checks `ros_schema_migrations`. | Identifies if migrations are pending or unapplied. |
 | **Server Task Status** | Audits state of `"Riverside OS Server"` scheduled task. | Checks if task is registered, active, or terminated. |
-| **API Health** | Pings port 3000 `/api/version` and `/api/staff/list-for-pos`. | Verifies Axum server is responding to HTTP traffic. |
+| **API Health** | Pings port 3000 `/api/health`, `/api/ready`, `/api/live`, and `/api/version`. | Verifies Axum server is responding to HTTP traffic. |
 | **System Environment** | Audits machine-level `RIVERSIDE_CREDENTIALS_KEY` variable. | Confirms API server has access to encryption keys. |
 | **Printer Connectivity** | Pings IPs defined in `receiptPrinter` / `tagPrinter` settings. | Identifies routing/firewall issues for ticket printers. |
 
@@ -276,7 +276,7 @@ The verifier fails the release if any manifest is missing `+build` metadata, mis
 If an in-app update fails or a station cannot launch after an update, use this sequence. Do not skip directly to database reset unless ownership explicitly approves data loss.
 
 1. **Main Hub first:** On the Main Hub, open the Deployment Manager as Administrator and run **Audit**.
-2. **Repair server path:** If the API is down, use ROS Server Manager or Deployment Manager to restart/repair the `"Riverside OS Server"` scheduled task, then confirm `GET /api/health` returns 200.
+2. **Repair server path:** If the API is down, use ROS Server Manager or Deployment Manager to restart/repair the `"Riverside OS Server"` scheduled task, then confirm `GET /api/health` returns 200. ROS Server Manager falls back to `C:\RiversideOS\server\.env` for installed Main Hub database diagnostics when the package config JSON is not present beside the manager executable.
 3. **Repair release files:** If the server binary, web bundle, migrations, or ROSIE assets are missing, rerun the latest deployment package Main Hub install/update path.
 4. **Repair migrations only:** If the app opens but reports missing tables/columns, run **Apply Migrations** from the same release package.
 5. **Repair ROSIE only:** If AI/help features fail but the POS/server are healthy, run **Install/Repair ROSIE AI Stack** from the deployment tools.

@@ -191,6 +191,7 @@ fn start_time() -> &'static Instant {
 
 pub fn health_router() -> axum::Router<AppState> {
     axum::Router::new()
+        .route("/", axum::routing::get(health))
         .route("/health", axum::routing::get(health))
         .route("/ready", axum::routing::get(ready))
         .route("/live", axum::routing::get(live))
