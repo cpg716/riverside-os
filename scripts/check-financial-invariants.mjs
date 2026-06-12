@@ -461,14 +461,14 @@ function checkReleaseWiring() {
   );
   assertIncludes(
     goLive,
-    '["run", "check:financial-invariants"]',
-    "Go-live blocker script runs npm run check:financial-invariants",
+    "process.execPath",
+    "Go-live blocker script starts the financial gate with the current Node executable",
     goLiveFile,
   );
   assertIncludes(
     goLive,
-    'process.platform === "win32" ? "npm.cmd" : "npm"',
-    "Go-live blocker script starts npm correctly on Windows runners",
+    'path.join(root, "scripts/check-financial-invariants.mjs")',
+    "Go-live blocker script runs the financial invariant file directly",
     goLiveFile,
   );
 
