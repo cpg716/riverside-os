@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 const root = process.cwd();
 const failures = [];
 const passes = [];
+const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function rel(file) {
   return file.split(path.sep).join("/");
@@ -902,7 +903,7 @@ function checkDesktopAndPwaUpdateWiring() {
 }
 
 function checkFinancialInvariantGate() {
-  const result = spawnSync("npm", ["run", "check:financial-invariants"], {
+  const result = spawnSync(npmBin, ["run", "check:financial-invariants"], {
     cwd: root,
     encoding: "utf8",
     env: process.env,

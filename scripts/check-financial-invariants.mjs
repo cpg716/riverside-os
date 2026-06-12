@@ -465,6 +465,12 @@ function checkReleaseWiring() {
     "Go-live blocker script runs npm run check:financial-invariants",
     goLiveFile,
   );
+  assertIncludes(
+    goLive,
+    'process.platform === "win32" ? "npm.cmd" : "npm"',
+    "Go-live blocker script starts npm correctly on Windows runners",
+    goLiveFile,
+  );
 
   const preRetagFile = "scripts/check-pre-retag.mjs";
   const preRetag = read(preRetagFile);
