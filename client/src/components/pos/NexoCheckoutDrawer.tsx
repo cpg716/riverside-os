@@ -1734,7 +1734,7 @@ export default function NexoCheckoutDrawer({
       return "Balance remaining or deposit protocol required.";
     }
     if (taxExemptNoteRequired) return "Enter the tax exempt note or reference number.";
-    if (!operator) return "No cashier verified.";
+    if (!operator) return "No staff member verified.";
     return "";
   }, [busy, balanced, takeawaySatisfied, tw, taxExemptNoteRequired, operator]);
   const activeTerminalAttemptIdForRefresh =
@@ -2077,7 +2077,7 @@ export default function NexoCheckoutDrawer({
               </div>
 
               <div className="hidden md:flex flex-col text-right min-w-[120px]">
-                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-1 leading-none opacity-60">Cashier</span>
+                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-1 leading-none opacity-60">Staff</span>
                  <span className="text-sm font-bold uppercase text-app-text truncate">{operator?.fullName || "SYSTEM"}</span>
               </div>
 

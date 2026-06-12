@@ -1,6 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   WifiOff,
   ExternalLink,
@@ -249,6 +249,11 @@ export default function RemoteAccessPanel() {
   const baseUrl = getBaseUrl();
 
   const refreshHostStatus = useCallback(async () => {
+    if (!isTauri()) {
+      setHostStatus(null);
+      setHostIdentity(null);
+      return;
+    }
     try {
       const [nextStatus, nextIdentity] = await Promise.all([
         invoke<UnifiedServerStatus>("get_unified_server_status"),
@@ -366,6 +371,10 @@ export default function RemoteAccessPanel() {
   }, [hostAccessUrl]);
 
   const handleStartEngine = async () => {
+    if (!isTauri()) {
+      toast("Local host controls are available in the Riverside OS desktop app.", "error");
+      return;
+    }
     setHostBusy(true);
     try {
       const next = await invoke<UnifiedServerStatus>("start_unified_server", {
@@ -898,7 +907,7 @@ export default function RemoteAccessPanel() {
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-2">
                     <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                      Store Node Name
+                      Store Device Name
                     </span>
                     <div className="text-2xl font-black italic tracking-tight text-app-text">
                       {status.Self.HostName}

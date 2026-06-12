@@ -83,4 +83,18 @@ test.describe("settings deep-link contract", () => {
       ).toBe(true);
     }
   });
+
+  test("printer settings keep Reports printer on installed-printer path", async ({ page }) => {
+    test.setTimeout(60_000);
+    await signInToBackOffice(page, { persistSession: true });
+
+    await page.goto("/settings/printing", { waitUntil: "domcontentloaded" });
+    await expectNoDeadShell(page);
+
+    const reportCard = page.getByTestId("printer-card-report");
+    await expect(reportCard).toContainText("Reports Printer");
+    await expect(reportCard.getByLabel("Printer setup")).toHaveValue("system");
+    await expect(reportCard.getByRole("option", { name: "Network address" })).toHaveCount(0);
+    await expect(reportCard.getByRole("button", { name: /Check connection/i })).toBeVisible();
+  });
 });

@@ -804,10 +804,10 @@ pub async fn fetch_register_day_summary(
                   AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
                   AND pt.status = 'success'
             ) AS amount_paid_in_window,
-            GREATEST(o.total_price - COALESCE(SUM(
+            COALESCE(SUM(
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
-                * (oi.state_tax + oi.local_tax)
-            ), 0), 0)::numeric(14,2) AS sales_total_booked,
+                * (oi.unit_price + oi.state_tax + oi.local_tax)
+            ), 0)::numeric(14,2) AS sales_total_booked,
             (
                 SELECT STRING_AGG(DISTINCT oi2.fulfillment::text, ', ')
                 FROM transaction_lines oi2

@@ -458,11 +458,7 @@ export default function StaffEditDrawer({
       isOpen={open}
       onClose={onClose}
       title={name || "Edit Staff"}
-      subtitle={
-        staff.cashier_code
-          ? `Register ID: ${staff.cashier_code}`
-          : "Profile Details"
-      }
+      subtitle="Profile Details"
       panelMaxClassName="max-w-xl"
       noPadding
       contentContained

@@ -586,14 +586,14 @@ export default function PodiumMessagingInboxSection({
   const SelectedChannelIcon = selectedRow ? channelIcon(selectedRow.channel) : MessageCircle;
 
   return (
-    <div className="ui-page flex flex-1 flex-col gap-5 p-4">
+    <div className="ui-page flex flex-1 flex-col gap-4 p-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
             Customer messaging
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-black tracking-tight text-app-text">
+            <h1 className="text-2xl font-black tracking-tight text-app-text">
               Inbox
             </h1>
             <IntegrationBrandLogo
@@ -604,7 +604,7 @@ export default function PodiumMessagingInboxSection({
             />
           </div>
           <p className="mt-2 max-w-2xl text-sm font-semibold text-app-text-muted">
-            Current Podium SMS and email conversations from matched customers. Review messages, reply in context, and open the customer record when a message needs follow-up.
+            Synced Podium conversations for matched customers.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -635,28 +635,28 @@ export default function PodiumMessagingInboxSection({
             ["Unread", `${unreadCount}`],
             ["Last Podium pull", health.last_sync_at ? fullDateTime(health.last_sync_at) : "Not yet"],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-2xl border border-app-border bg-app-surface px-4 py-4 shadow-sm">
+            <div key={label} className="rounded-xl border border-app-border bg-app-surface px-4 py-3 shadow-sm">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 {label}
               </p>
-              <p className="mt-2 text-2xl font-black text-app-text">{value}</p>
+              <p className="mt-1 text-xl font-black text-app-text">{value}</p>
             </div>
           ))}
         </div>
       ) : null}
 
       {health ? (
-        <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-3 text-sm shadow-sm">
+        <div className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-sm shadow-sm">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Inbox updating
+                Sync status
               </p>
               <p className="mt-1 font-semibold text-app-text">
-                This screen refreshes every minute while open. New Podium webhooks appear here after refresh.
+                Refreshes every minute while open.
               </p>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                Last webhook: {fullDateTime(health.last_webhook_received_at)} · Last local message: {fullDateTime(health.last_message_at)}
+                Podium: {fullDateTime(health.last_webhook_received_at)} · ROS: {fullDateTime(health.last_message_at)}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -668,8 +668,8 @@ export default function PodiumMessagingInboxSection({
                 }`}
               >
                 {health.webhook_secret_configured && health.inbound_ingest_enabled
-                  ? "Webhook ready"
-                  : "Webhook needs setup"}
+                  ? "Podium ready"
+                  : "Podium setup needed"}
               </span>
               <span
                 className={`ui-pill ${
@@ -678,9 +678,9 @@ export default function PodiumMessagingInboxSection({
               >
                 {providerPullDue
                   ? syncBusy
-                    ? "Pulling missed history"
-                    : "Missed-history pull due"
-                  : "Missed-history pull current"}
+                    ? "Pulling history"
+                    : "History pull due"
+                  : "History current"}
               </span>
             </div>
           </div>
@@ -774,14 +774,14 @@ export default function PodiumMessagingInboxSection({
               ? "Podium inbox could not refresh"
               : rows.length > 0
                 ? "No conversations match this view"
-                : "No ROS-synced Podium conversations yet"}
+                : "No Podium conversations synced"}
           </p>
           <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
             {loadError
               ? "Retry is safe. Do not treat the inbox as empty until refresh succeeds."
               : rows.length > 0
                 ? "Clear the search or switch channels to see the remaining synced conversations."
-                : "This view only shows Podium messages that reached Riverside OS through webhooks or replies sent from ROS. If Podium has live conversations but this stays empty, verify Podium webhook delivery in Settings."}
+                : "Check Podium setup if live conversations are missing."}
           </p>
         </div>
       ) : (

@@ -43,7 +43,7 @@ ROSIE does not close the register, change tender totals, change counted cash, ap
 
 ## Professional Z-Report
 Upon closing, a professional, full-page **Z-Audit Report** is generated. 
-- **Audit Grade**: Replaces legacy thermal strips with high-fidelity Letter/A4 documents.
+- **Audit Grade**: Produces high-fidelity Letter/A4 documents for accounting review.
 - **Reporting Station**: The header confirms the assigned printer name for accountability.
 - **Daily Cash Deposit**: Captures the bank deposit date and cash deposit amount for deposit verification and accounting review.
 - **QBO Preview**: Shows the journal-entry breakdown staged for QuickBooks review.

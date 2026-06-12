@@ -49,8 +49,9 @@ This is the primary operational list. It shows customers who have reached the `l
 
 ### Fulfillment Workflow
 1. **Refresh Eligible Customers**: Use the refresh button to pull the latest balances.
-2. **Redeem Reward**: Click the **Redeem** button to open the redemption dialog. This deducts the points and issues the full reward to a loyalty gift card.
-3. **Bulk Labels**: Use this action in the header to print standard mailing labels for every member currently in the pool.
+2. Use **Previous** and **Next** when the eligible pool spans more than one page.
+3. **Redeem Reward**: Click the **Redeem** button to open the redemption dialog. This deducts the points and issues the full reward to a loyalty gift card.
+4. **Page selection and labels**: **Select Page** and **Print Page Labels** apply to the currently visible eligible customers. Select individual customers before starting a batch when you do not want the whole page.
 
 ## Loyalty Activity
 

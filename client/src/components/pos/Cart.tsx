@@ -722,7 +722,7 @@ export default function Cart({
       mode: "takeaway" | "order" | "needs_measurements",
     ) => {
       if (!checkoutOperator) {
-        toast("Sign in as cashier on the register sign-in screen before adding wedding items.", "error");
+        toast("Verify Staff Access on the register sign-in screen before adding wedding items.", "error");
         return;
       }
       if (isRmsPaymentCart) {
@@ -2322,12 +2322,12 @@ export default function Cart({
             </div>
           ) : null}
 
-          {/* Cashier + default salesperson on one row (after sign-in). Sign-in uses full-screen overlay (Back Office style). */}
+          {/* Staff Access + default salesperson on one row after sign-in. */}
           {checkoutOperator ? (
             <div className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border/70 bg-app-surface-2/70 px-3 py-1.5">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-                  Cashier:
+                  Staff:
                 </span>
                 <span className="min-w-0 truncate text-xs font-black text-app-text">
                   {checkoutOperator.fullName}
@@ -3897,7 +3897,7 @@ export default function Cart({
                         const actor = await resolveActorStaffId();
                         if (!actor) {
                           toast(
-                            "Sign in to Back Office or verify cashier to delete parked sales.",
+                            "Sign in to Back Office or verify Staff Access to delete parked sales.",
                             "error",
                           );
                           return;
@@ -4139,7 +4139,7 @@ export default function Cart({
           return parkSale(label);
         }}
         title="Park Sale"
-        message="Name this parked sale so another cashier can find it quickly."
+        message="Name this parked sale so another staff member can find it quickly."
         placeholder="Sale label"
         defaultValue={parkSaleDraftLabel}
         confirmLabel="Park Sale"

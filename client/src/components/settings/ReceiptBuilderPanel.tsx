@@ -266,7 +266,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replaceAll("{{RECEIPT_DATE}}", "| 04/26/2026 02:14 AM |")
       .replaceAll("{{CUSTOMER_LINE}}", "Customer: Chris Garcia")
       .replaceAll("{{SALESPERSON_LINE}}", "Salesperson: Taylor M.")
-      .replaceAll("{{CASHIER_LINE}}", "Cashier: Alex B.")
+      .replaceAll("{{CASHIER_LINE}}", "Staff: Alex B.")
       .replaceAll(
         "{{ITEM_LINES}}",
         activeTab === "standard"

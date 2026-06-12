@@ -79,7 +79,9 @@ export function resolvePrinterAddress(type: PrintDocType): HardwareAddress {
 
 export function resolvePrinterTarget(type: PrintDocType): HardwarePrinterTarget {
   const mode =
-    window.localStorage.getItem(printerModeKey(type)) === "system" ? "system" : "network";
+    type === "report" || window.localStorage.getItem(printerModeKey(type)) === "system"
+      ? "system"
+      : "network";
   if (mode === "system") {
     return {
       mode,

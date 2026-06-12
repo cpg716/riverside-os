@@ -1895,7 +1895,7 @@ export default function HelpCenterSettingsPanel() {
                 </span>
               </div>
               <div className="rounded border border-app-border bg-app-surface-2/40 p-2">
-                Node available:{" "}
+                Runtime available:{" "}
                 <span className="font-bold">
                   {opsStatus ? (opsStatus.node_available ? "yes" : "no") : "…"}
                 </span>

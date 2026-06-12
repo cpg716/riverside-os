@@ -264,6 +264,10 @@ fn default_velocity_limit() -> i64 {
     100
 }
 
+fn default_best_sellers_view() -> String {
+    "variation".to_string()
+}
+
 #[derive(Debug, Deserialize)]
 pub struct BestSellersQuery {
     #[serde(flatten)]
@@ -272,6 +276,8 @@ pub struct BestSellersQuery {
     pub basis: String,
     #[serde(default = "default_velocity_limit")]
     pub limit: i64,
+    #[serde(default = "default_best_sellers_view")]
+    pub view: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -290,6 +296,7 @@ pub struct DeadStockQuery {
 #[derive(Debug, Serialize)]
 pub struct BestSellersResponse {
     pub reporting_basis: String,
+    pub view: String,
     pub from: NaiveDate,
     /// Half-open range end (UTC): rows use `[from, to)`.
     pub to: NaiveDate,
@@ -1715,6 +1722,7 @@ pub async fn rosie_reporting_run(
                 },
                 basis: params.basis,
                 limit: params.limit,
+                view: default_best_sellers_view(),
             };
             let Json(data) =
                 best_sellers(State(state.clone()), headers.clone(), Query(query)).await?;
@@ -1902,10 +1910,24 @@ async fn best_sellers(
     let (start, end) = range_bounds(&q.range);
     let basis = parse_report_basis(&q.basis).map_err(InsightsError::BadRequest)?;
     let lim = q.limit.clamp(1, 500);
-    let rows = inventory_velocity::fetch_best_sellers(&state.db, start, end, basis, lim).await?;
+    let view = match q.view.trim().to_ascii_lowercase().as_str() {
+        "product" | "products" | "parent" | "parent_product" => "product",
+        "variation" | "variations" | "sku" | "skus" => "variation",
+        other => {
+            return Err(InsightsError::BadRequest(format!(
+                "unsupported best sellers view: {other}"
+            )))
+        }
+    };
+    let rows = if view == "product" {
+        inventory_velocity::fetch_best_seller_products(&state.db, start, end, basis, lim).await?
+    } else {
+        inventory_velocity::fetch_best_sellers(&state.db, start, end, basis, lim).await?
+    };
 
     Ok(Json(BestSellersResponse {
         reporting_basis: basis.as_str().to_string(),
+        view: view.to_string(),
         from: start.date_naive(),
         to: end.date_naive(),
         limit: lim,
@@ -1932,6 +1954,290 @@ async fn dead_stock(
         to: end.date_naive(),
         limit: lim,
         max_units_sold: max_u,
+        rows,
+    }))
+}
+
+#[derive(Debug, FromRow)]
+struct WeddingProgramProfitDbRow {
+    pub wedding_party_id: Uuid,
+    pub wedding_party_name: String,
+    pub event_date: Option<NaiveDate>,
+    pub groom_name: Option<String>,
+    pub bride_name: Option<String>,
+    pub wedding_salesperson_name: Option<String>,
+    pub member_count: i64,
+    pub transaction_count: i64,
+    pub line_count: i64,
+    pub paid_suits: i64,
+    pub free_suits: i64,
+    pub net_sales: Decimal,
+    pub promo_discount: Decimal,
+    pub cost_of_goods: Decimal,
+    pub gross_profit: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WeddingProgramProfitRow {
+    pub wedding_party_id: Option<Uuid>,
+    pub wedding_party_name: String,
+    pub event_date: Option<NaiveDate>,
+    pub groom_name: Option<String>,
+    pub bride_name: Option<String>,
+    pub wedding_salesperson_name: Option<String>,
+    pub member_count: i64,
+    pub transaction_count: i64,
+    pub line_count: i64,
+    pub paid_suits: i64,
+    pub free_suits: i64,
+    pub expected_free_suits: i64,
+    pub free_suit_difference: i64,
+    pub program_ratio: String,
+    pub net_sales: Decimal,
+    pub promo_discount: Decimal,
+    pub cost_of_goods: Decimal,
+    pub gross_profit: Decimal,
+    pub profit_percent: String,
+    pub average_net_sale_per_paid_suit: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WeddingProgramProfitResponse {
+    pub reporting_basis: String,
+    pub from: NaiveDate,
+    pub to: NaiveDate,
+    pub party_count: i64,
+    pub rows: Vec<WeddingProgramProfitRow>,
+}
+
+fn expected_free_suits_for_program(paid_suits: i64) -> i64 {
+    if paid_suits <= 0 {
+        0
+    } else {
+        paid_suits / 5
+    }
+}
+
+fn decimal_average(total: Decimal, count: i64) -> Decimal {
+    if count <= 0 {
+        Decimal::ZERO
+    } else {
+        (total / Decimal::from(count)).round_dp(2)
+    }
+}
+
+fn profit_percent_string(profit: Decimal, net_sales: Decimal) -> String {
+    if net_sales == Decimal::ZERO {
+        "0.00%".to_string()
+    } else {
+        format!(
+            "{}%",
+            ((profit / net_sales) * Decimal::from(100)).round_dp(2)
+        )
+    }
+}
+
+fn program_ratio_string(paid_suits: i64, free_suits: i64) -> String {
+    format!("{paid_suits} paid / {free_suits} free")
+}
+
+fn wedding_program_report_row(row: WeddingProgramProfitDbRow) -> WeddingProgramProfitRow {
+    let expected_free_suits = expected_free_suits_for_program(row.paid_suits);
+    WeddingProgramProfitRow {
+        wedding_party_id: Some(row.wedding_party_id),
+        wedding_party_name: row.wedding_party_name,
+        event_date: row.event_date,
+        groom_name: row.groom_name,
+        bride_name: row.bride_name,
+        wedding_salesperson_name: row.wedding_salesperson_name,
+        member_count: row.member_count,
+        transaction_count: row.transaction_count,
+        line_count: row.line_count,
+        paid_suits: row.paid_suits,
+        free_suits: row.free_suits,
+        expected_free_suits,
+        free_suit_difference: row.free_suits - expected_free_suits,
+        program_ratio: program_ratio_string(row.paid_suits, row.free_suits),
+        net_sales: row.net_sales,
+        promo_discount: row.promo_discount,
+        cost_of_goods: row.cost_of_goods,
+        gross_profit: row.gross_profit,
+        profit_percent: profit_percent_string(row.gross_profit, row.net_sales),
+        average_net_sale_per_paid_suit: decimal_average(row.net_sales, row.paid_suits),
+    }
+}
+
+async fn wedding_program_profit_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeWithBasisQuery>,
+) -> Result<Json<WeddingProgramProfitResponse>, InsightsError> {
+    require_admin_for_margin_analytics(&state, &headers).await?;
+    let (start, end) = range_bounds(&q.range);
+    let basis = parse_report_basis(&q.basis).map_err(InsightsError::BadRequest)?;
+    let order_filter = order_date_filter_sql(basis);
+    let sql = format!(
+        r#"
+        WITH returned_lines AS (
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ),
+        eligible_lines AS (
+            SELECT
+                wp.id AS wedding_party_id,
+                COALESCE(NULLIF(TRIM(wp.party_name), ''), NULLIF(TRIM(wp.groom_name), ''), 'Unnamed wedding') AS wedding_party_name,
+                wp.event_date,
+                NULLIF(TRIM(wp.groom_name), '') AS groom_name,
+                NULLIF(TRIM(wp.bride_name), '') AS bride_name,
+                NULLIF(TRIM(wp.salesperson), '') AS wedding_salesperson_name,
+                wm.id AS wedding_member_id,
+                COALESCE(wm.is_free_suit_promo, false) AS is_free_suit_promo,
+                o.id AS transaction_id,
+                oi.id AS line_id,
+                GREATEST(oi.quantity - COALESCE(rl.returned, 0), 0)::bigint AS effective_qty,
+                GREATEST(oi.quantity - COALESCE(rl.returned, 0), 0)::numeric AS effective_qty_numeric,
+                COALESCE(oi.unit_price, 0)::numeric AS unit_price,
+                COALESCE(oi.discount_amount, 0)::numeric AS discount_amount,
+                CASE
+                    WHEN oi.size_specs ? 'original_unit_price'
+                     AND NULLIF(TRIM(oi.size_specs->>'original_unit_price'), '') IS NOT NULL
+                     AND TRIM(oi.size_specs->>'original_unit_price') ~ '^[0-9]+(\.[0-9]+)?$'
+                    THEN (TRIM(oi.size_specs->>'original_unit_price'))::numeric
+                    ELSE NULL
+                END AS original_unit_price,
+                COALESCE(oi.unit_cost, 0)::numeric AS unit_cost
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
+            INNER JOIN wedding_members wm ON wm.id = o.wedding_member_id
+            INNER JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+            LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN returned_lines rl ON rl.transaction_line_id = oi.id
+            WHERE {order_filter}
+              AND oi.fulfillment::text = 'wedding_order'
+              AND (wm.suit_variant_id IS NULL OR oi.variant_id = wm.suit_variant_id)
+              AND COALESCE(oi.is_internal, false) = FALSE
+              AND COALESCE(wp.is_deleted, false) = FALSE
+              AND (p.id IS NULL OR p.pos_line_kind IS NULL)
+        ),
+        party_rollup AS (
+            SELECT
+                wedding_party_id,
+                wedding_party_name,
+                event_date,
+                groom_name,
+                bride_name,
+                wedding_salesperson_name,
+                COUNT(DISTINCT wedding_member_id)::bigint AS member_count,
+                COUNT(DISTINCT transaction_id)::bigint AS transaction_count,
+                COUNT(DISTINCT line_id)::bigint AS line_count,
+                COALESCE(SUM(effective_qty) FILTER (WHERE NOT is_free_suit_promo), 0)::bigint AS paid_suits,
+                COALESCE(SUM(effective_qty) FILTER (WHERE is_free_suit_promo), 0)::bigint AS free_suits,
+                COALESCE(ROUND(SUM(((unit_price - discount_amount) * effective_qty_numeric)::numeric), 2), 0)::numeric(14,2) AS net_sales,
+                COALESCE(
+                    ROUND(
+                        SUM(
+                            (
+                                discount_amount
+                                + GREATEST(COALESCE(original_unit_price, unit_price) - unit_price, 0)
+                            ) * effective_qty_numeric
+                        )::numeric,
+                        2
+                    ),
+                    0
+                )::numeric(14,2) AS promo_discount,
+                COALESCE(ROUND(SUM((unit_cost * effective_qty_numeric)::numeric), 2), 0)::numeric(14,2) AS cost_of_goods
+            FROM eligible_lines
+            WHERE effective_qty > 0
+            GROUP BY
+                wedding_party_id,
+                wedding_party_name,
+                event_date,
+                groom_name,
+                bride_name,
+                wedding_salesperson_name
+        )
+        SELECT
+            wedding_party_id,
+            wedding_party_name,
+            event_date,
+            groom_name,
+            bride_name,
+            wedding_salesperson_name,
+            member_count,
+            transaction_count,
+            line_count,
+            paid_suits,
+            free_suits,
+            net_sales,
+            promo_discount,
+            cost_of_goods,
+            (net_sales - cost_of_goods)::numeric(14,2) AS gross_profit
+        FROM party_rollup
+        ORDER BY event_date ASC NULLS LAST, wedding_party_name ASC
+        LIMIT 500
+        "#
+    );
+    let db_rows = sqlx::query_as::<_, WeddingProgramProfitDbRow>(&sql)
+        .bind(start)
+        .bind(end)
+        .fetch_all(&state.db)
+        .await?;
+    let party_count = db_rows.len() as i64;
+
+    let mut total_member_count = 0_i64;
+    let mut total_transaction_count = 0_i64;
+    let mut total_line_count = 0_i64;
+    let mut total_paid_suits = 0_i64;
+    let mut total_free_suits = 0_i64;
+    let mut total_net_sales = Decimal::ZERO;
+    let mut total_promo_discount = Decimal::ZERO;
+    let mut total_cost_of_goods = Decimal::ZERO;
+    let mut total_gross_profit = Decimal::ZERO;
+
+    let mut rows: Vec<WeddingProgramProfitRow> = Vec::with_capacity(db_rows.len() + 1);
+    for row in db_rows {
+        total_member_count += row.member_count;
+        total_transaction_count += row.transaction_count;
+        total_line_count += row.line_count;
+        total_paid_suits += row.paid_suits;
+        total_free_suits += row.free_suits;
+        total_net_sales += row.net_sales;
+        total_promo_discount += row.promo_discount;
+        total_cost_of_goods += row.cost_of_goods;
+        total_gross_profit += row.gross_profit;
+        rows.push(wedding_program_report_row(row));
+    }
+
+    let total_expected_free_suits = expected_free_suits_for_program(total_paid_suits);
+    rows.push(WeddingProgramProfitRow {
+        wedding_party_id: None,
+        wedding_party_name: "Period Total".to_string(),
+        event_date: None,
+        groom_name: None,
+        bride_name: None,
+        wedding_salesperson_name: None,
+        member_count: total_member_count,
+        transaction_count: total_transaction_count,
+        line_count: total_line_count,
+        paid_suits: total_paid_suits,
+        free_suits: total_free_suits,
+        expected_free_suits: total_expected_free_suits,
+        free_suit_difference: total_free_suits - total_expected_free_suits,
+        program_ratio: program_ratio_string(total_paid_suits, total_free_suits),
+        net_sales: total_net_sales.round_dp(2),
+        promo_discount: total_promo_discount.round_dp(2),
+        cost_of_goods: total_cost_of_goods.round_dp(2),
+        gross_profit: total_gross_profit.round_dp(2),
+        profit_percent: profit_percent_string(total_gross_profit, total_net_sales),
+        average_net_sale_per_paid_suit: decimal_average(total_net_sales, total_paid_suits),
+    });
+
+    Ok(Json(WeddingProgramProfitResponse {
+        reporting_basis: basis.as_str().to_string(),
+        from: start.date_naive(),
+        to: end.date_naive(),
+        party_count,
         rows,
     }))
 }
@@ -3960,6 +4266,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/sales-pivot", get(sales_pivot))
         .route("/margin-pivot", get(margin_pivot))
+        .route(
+            "/wedding-program-profit",
+            get(wedding_program_profit_report),
+        )
         .route("/commission-ledger", get(commission_ledger))
         .route("/commission-adjustments", post(commission_adjustment))
         .route("/commission-lines", get(commission_lines))

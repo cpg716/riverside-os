@@ -189,6 +189,10 @@ pub struct MonthlyEligibleQuery {
     pub year: Option<i32>,
     #[serde(default)]
     pub month: Option<i32>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -217,6 +221,8 @@ async fn monthly_eligible(
             .await?;
 
     let use_month_filter = q.year.is_some() && q.month.is_some();
+    let limit = q.limit.unwrap_or(200).clamp(1, 500);
+    let offset = q.offset.unwrap_or(0).max(0);
 
     let rows = if use_month_filter {
         let year = q.year.unwrap_or(0);
@@ -238,11 +244,14 @@ async fn monthly_eligible(
                     AND EXTRACT(MONTH FROM l.created_at)::int = $3
               )
             ORDER BY c.loyalty_points DESC, c.last_name, c.first_name
+            LIMIT $4 OFFSET $5
             "#,
         )
         .bind(threshold)
         .bind(year)
         .bind(month)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&state.db)
         .await?
     } else {
@@ -256,9 +265,12 @@ async fn monthly_eligible(
             WHERE loyalty_points >= $1
               AND is_active = TRUE
             ORDER BY loyalty_points DESC, last_name, first_name
+            LIMIT $2 OFFSET $3
             "#,
         )
         .bind(threshold)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&state.db)
         .await?
     };

@@ -29,8 +29,8 @@ Snapshots are full PostgreSQL dumps stored in the configured backup directory on
 *   **Cron Schedule**: Configurable via **System Control → Cloud Backups**. Default is `0 2 * * *` (2:00 AM daily).
 *   **Retention**: The system automatically cleans up snapshots older than the configured "Retention Policy" (default: 30 days).
 
-### Manual Trigger:
-You can trigger an immediate backup via the **Manual Trigger** button. This is recommended before performing major catalog imports or schema updates.
+### Create Backup:
+Use **Create Backup** for an immediate snapshot. This is recommended before major catalog imports or schema updates.
 
 ## 2. Off-Site Copies
 Backups should not live on only one machine. Use **Off-Site Storage** for direct cloud upload and **Replication Folders** for store-local redundancy.

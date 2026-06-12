@@ -310,7 +310,7 @@ export default function ShipmentsHubSection({
       }
       setRates(j.rates ?? []);
       if (j.stub)
-        toast("Using demo rates (configure Shippo for live pricing).", "info");
+        toast("Shippo live pricing is not configured. These rates are for setup only.", "info");
       else toast("Rates updated", "success");
       void openDetail(detailId);
     } catch {
@@ -1429,7 +1429,7 @@ export default function ShipmentsHubSection({
                         ) : null}
                         {!rateRef && !txId ? (
                           <p className="text-[10px] text-app-text-muted">
-                            Apply a live rate (not demo) before buying a label.
+                            Apply a live carrier rate before buying a label.
                           </p>
                         ) : null}
                       </div>

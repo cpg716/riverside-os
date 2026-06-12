@@ -27,6 +27,7 @@ type PrinterConfig = {
   key: PrinterKey;
   label: string;
   helper: string;
+  supportsNetwork: boolean;
   ipStorageKey: string;
   portStorageKey?: string;
   modeStorageKey: string;
@@ -40,6 +41,7 @@ const PRINTERS: PrinterConfig[] = [
     key: "receipt",
     label: "Receipt Station",
     helper: "Epson TM-m30III / ESC-POS receipts and Register #1 cash drawer",
+    supportsNetwork: true,
     ipStorageKey: "ros.hardware.printer.receipt.ip",
     portStorageKey: "ros.hardware.printer.receipt.port",
     modeStorageKey: "ros.hardware.printer.receipt.mode",
@@ -51,6 +53,7 @@ const PRINTERS: PrinterConfig[] = [
     key: "tag",
     label: "Clothing Tag Station",
     helper: "Zebra 2844 on the host PC for clothing tags",
+    supportsNetwork: true,
     ipStorageKey: "ros.hardware.printer.tag.ip",
     portStorageKey: "ros.hardware.printer.tag.port",
     modeStorageKey: "ros.hardware.printer.tag.mode",
@@ -61,7 +64,8 @@ const PRINTERS: PrinterConfig[] = [
   {
     key: "report",
     label: "Reports Printer",
-    helper: "Full-page reports and audit paperwork",
+    helper: "Full-page reports and audit paperwork from an installed Windows printer",
+    supportsNetwork: false,
     ipStorageKey: "ros.hardware.printer.report.ip",
     portStorageKey: "ros.hardware.printer.report.port",
     modeStorageKey: "ros.hardware.printer.report.mode",
@@ -90,7 +94,10 @@ export default function PrintersAndScannersPanel({
     () =>
       Object.fromEntries([
         ...PRINTERS.flatMap((printer) => [
-          [printer.modeStorageKey, getStored(printer.modeStorageKey, "network")],
+          [
+            printer.modeStorageKey,
+            printer.supportsNetwork ? getStored(printer.modeStorageKey, "network") : "system",
+          ],
           [printer.systemStorageKey, getStored(printer.systemStorageKey, "")],
           [printer.ipStorageKey, getStored(printer.ipStorageKey, printer.defaultIp)],
           [
@@ -146,6 +153,11 @@ export default function PrintersAndScannersPanel({
 
   useEffect(() => {
     void refreshSystemPrinters();
+    for (const printer of PRINTERS) {
+      if (!printer.supportsNetwork) {
+        window.localStorage.setItem(printer.modeStorageKey, "system");
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -155,7 +167,10 @@ export default function PrintersAndScannersPanel({
       if (printer.key === "receipt") {
         await checkReceiptPrinterConnection(resolvePrinterTarget("receipt"));
       } else {
-        const mode = values[printer.modeStorageKey] === "system" ? "system" : "network";
+        const mode =
+          !printer.supportsNetwork || values[printer.modeStorageKey] === "system"
+            ? "system"
+            : "network";
         if (mode === "system") {
           await checkReceiptPrinterConnection(resolvePrinterTarget(printer.key));
           toast(`${printer.label} is available on this station.`, "success");
@@ -285,10 +300,17 @@ export default function PrintersAndScannersPanel({
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         {PRINTERS.map((printer) => {
           const portKey = printer.portStorageKey ?? `${printer.ipStorageKey}.port`;
-          const targetMode = values[printer.modeStorageKey] === "system" ? "system" : "network";
+          const targetMode =
+            !printer.supportsNetwork || values[printer.modeStorageKey] === "system"
+              ? "system"
+              : "network";
           const showPort = targetMode === "network";
           return (
-            <div key={printer.key} className="ui-card flex flex-col gap-5 p-6">
+            <div
+              key={printer.key}
+              data-testid={`printer-card-${printer.key}`}
+              className="ui-card flex flex-col gap-5 p-6"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-app-accent/10 text-app-accent">
@@ -325,7 +347,9 @@ export default function PrintersAndScannersPanel({
                     className="ui-input mt-2 w-full text-sm font-bold"
                   >
                     <option value="system">Installed printer on this PC</option>
-                    <option value="network">Network address</option>
+                    {printer.supportsNetwork ? (
+                      <option value="network">Network address</option>
+                    ) : null}
                   </select>
                 </label>
                 {targetMode === "system" ? (
@@ -435,7 +459,9 @@ export default function PrintersAndScannersPanel({
                 ) : (
                   <CheckCircle2 className="h-4 w-4" />
                 )}
-                {printer.key === "receipt" ? "Check connection" : "Confirm setting"}
+                {printer.key === "receipt" || printer.key === "report"
+                  ? "Check connection"
+                  : "Confirm setting"}
               </button>
 
               {mode === "pos" && printer.key === "receipt" ? (

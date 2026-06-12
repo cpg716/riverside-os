@@ -2306,7 +2306,7 @@ function AppMainColumn({
                       <span className="font-semibold text-app-text">
                         {activeTab}
                       </span>{" "}
-                      module coming soon.
+                      workspace is not available from this workstation.
                     </p>
                   </div>
                 );

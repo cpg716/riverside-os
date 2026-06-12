@@ -44,7 +44,10 @@ for (const viewport of LOYALTY_VIEWPORTS) {
         }),
       });
     });
-    await page.route("**/api/loyalty/monthly-eligible", async (route) => {
+    await page.route("**/api/loyalty/monthly-eligible**", async (route) => {
+      const url = new URL(route.request().url());
+      expect(url.searchParams.get("limit")).toBe("100");
+      expect(url.searchParams.get("offset")).toBe("0");
       await route.fulfill({
         status: 200,
         contentType: "application/json",

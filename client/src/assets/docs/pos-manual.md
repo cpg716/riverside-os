@@ -32,17 +32,17 @@ Use this guide when a staff member is working a live register station.
 - Use **POS → Dashboard** for shift context between customers.
 - Move to the dedicated **Orders**, **Customers**, or **Reports** manuals when the task leaves live checkout.
 
-## Cashier Sign-In
+## Staff Access For A Sale
 
-To ensure sales are attributed to the correct staff member, Riverside OS uses a **touch-grid sign-in** system.
+To ensure each sale is attributed to the correct staff member, Riverside OS uses the same Staff Access pattern at the register.
 
 1. **Select Your Name**: When starting a sale or changing sessions, tap your avatar/name from the scrollable grid.
-2. **Enter PIN**: Type your 4-digit code.
+2. **Enter Access PIN**: Type your 4-digit code.
 3. **Continue**: Unlock the register.
 
 If you are already logged in but a different staff member needs to ring a sale, they can tap the **Lock** or **User** icon to bring up the sign-in overlay without closing the current register session.
 
-Cashier sign-in records who operated the register. It is separate from **Salesperson** attribution for commissions. Before completing payment, every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a default Salesperson or a line-level Salesperson. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
+Staff Access records who operated the register. It is separate from **Salesperson** attribution for commissions. Before completing payment, every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a default Salesperson or a line-level Salesperson. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
 
 ---
 

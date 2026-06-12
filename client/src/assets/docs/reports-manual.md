@@ -29,8 +29,9 @@ You need **insights.view** to see the **Reports** tab. Some cards need extra key
 3. Tap a **report card** (e.g., Sales By Day, Merchant Activity) to load the table.
 4. Set **From** / **To** date filters.
 5. Select the **Basis** (booked sale date vs completed / recognition) if available.
-6. Use **Refresh** after changes to pull the latest data.
-7. Use **Print Report** (Professional Audit Layout) for the loaded report. Use **CSV** (spreadsheet) when a report includes table rows.
+6. For **Best Sellers**, choose **Product View** to group parent products or **Variation View** to inspect individual SKUs.
+7. Use **Refresh** after changes to pull the latest data.
+8. Use **Print Report** (Professional Audit Layout) for the loaded report. Use **CSV** (spreadsheet) when a report includes table rows.
 
 **Booked** = when the sale was rung. **Completed** = recognition-style timing for fulfilled lines (see store policy). Ask a lead if you are unsure which to use for payroll or tax questions.
 
@@ -78,10 +79,12 @@ Use **Open Insights (Metabase)** on the Reports page when you need dashboards or
 - **RMS charges**: Export of store-account charges vs payments.
 - **Appointments & No-Show**: Appointment count, completed visits, cancellations/no-shows, appointment type, assigned salesperson, and wedding-linked vs walk-in context.
 - **Wedding Event Readiness**: Upcoming wedding risk by event date, including missing measurements, balances, fulfillment, alterations, shipments, and pickup risk.
+- **Wedding Program Profit**: Admin-only wedding-party profitability for the free-groom suit program, including paid wedding members, free-suit promo members, expected free suits, net sales, promo discount, cost, profit, and margin by selected date basis.
 - **Staff Schedule Coverage vs Sales**: Staffing coverage compared with sales volume, appointments, pickups, and register activity.
 - **Customer Follow-Up**: Customers needing action because of balances, pickups, recent quotes/orders, wedding dates, stale RMS charges, or missing recent contact.
 - **Exception & Risk**: Negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open register sessions, and unclosed tasks.
 - **Sales By Day**: One row per business day with daily sales, average sale, sales per active hour, prior-week comparison, same-date prior-year comparison when history exists, and an aggregated hourly sales chart.
+- **Best Sellers**: Use **Product View** for parent product performance and **Variation View** for individual SKU demand within those products.
 - **Sales Trend & Pace**: Daily sales pace compared with the prior week, including paid amounts and open balances.
 - **Gift Card Liability Activity**: Gift card issue/load, redemption, other decreases, and net liability movement.
 - **Layaway Aging & Deposit Risk**: Open layaway age, paid deposits, balances, promised pickup dates, and risk status.

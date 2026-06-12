@@ -1073,8 +1073,8 @@ export default function QboWorkspace({
           Staff session
         </p>
         <p className="mt-1 text-xs text-app-text-muted">
-          QBO API calls use your Back Office staff credentials (unlock Staff, or the
-          cashier code from an open register session when you are in Back Office).
+          QBO API calls use your Back Office Staff Access or the staff member
+          verified on an open register session.
         </p>
       </div>
 

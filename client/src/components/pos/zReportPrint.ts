@@ -390,7 +390,7 @@ export async function openProfessionalZReportPrint(opts: {
     `Generated: ${generatedAt}`,
     `Report ID: ${opts.sessionId}`,
     `Register Group: ${ord ? `Register Group${ord}` : "Register Group"}`,
-    `Shift Primary Cashier: ${opts.cashierLabel || "System Admin"}`,
+    `Shift Staff Member: ${opts.cashierLabel || "System Admin"}`,
     opts.openedAt ? `Shift Start: ${new Date(opts.openedAt).toLocaleString()}` : "",
     `Assigned Reports Printer: ${reportPrinter}`,
     "",
@@ -586,7 +586,7 @@ export async function openProfessionalZReportPrint(opts: {
 
   <div class="header-grid">
     <div>
-      <p class="stat-label">Shift Primary Cashier</p>
+      <p class="stat-label">Shift Staff Member</p>
       <p style="font-size: 16px; font-weight: 700;">${opts.cashierLabel || "System Admin"}</p>
       ${opts.openedAt ? `<p class="muted">Shift Start: ${new Date(opts.openedAt).toLocaleString()}</p>` : ""}
     </div>

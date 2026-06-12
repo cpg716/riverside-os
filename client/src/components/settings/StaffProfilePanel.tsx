@@ -297,7 +297,7 @@ export default function StaffProfilePanel() {
         const err = await res.json() as { error?: string };
         throw new Error(err.error || "Failed to update PIN");
       }
-      toast("Access PIN updated. Your register code has been synchronized.", "success");
+      toast("Access PIN updated.", "success");
       setPinModalOpen(false);
       setNewPin("");
       await loadProfile();
@@ -733,7 +733,7 @@ export default function StaffProfilePanel() {
                 <div>
                    <h4 className="text-lg font-black uppercase text-app-text italic tracking-tighter">Security Protocol</h4>
                    <p className="mt-3 text-[13px] font-semibold text-app-text-muted leading-relaxed max-w-3xl opacity-80">
-                     Sensitive demographic changes and role modifications are logged for audit transparency. To ensure maximal workstation security, your Access PIN should be rotated significantly if shared. Managers can perform remote resets via the Team Roster if your account is locked.
+                     Profile and role changes are audit logged. Rotate your Access PIN if it was shared; managers can reset locked accounts from Team Roster.
                    </p>
                 </div>
              </div>

@@ -786,13 +786,10 @@ export async function openInventoryTagsWindow(
     };
   } catch (directError) {
     const directMessage = directError instanceof Error ? directError.message : String(directError);
-    if (isTauri()) {
-      throw new Error(`Tag station print failed: ${directMessage}`);
-    }
-    console.warn("Direct Zebra tag print failed; opening browser print fallback", directError);
+    console.warn("Direct Zebra tag print failed; opening print fallback", directError);
     try {
       return await openInventoryTagsPreviewWindow(items, config, {
-        autoPrint: true,
+        autoPrint: !isTauri(),
         directError: directMessage,
       });
     } catch (previewError) {

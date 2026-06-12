@@ -40,10 +40,11 @@ Use Reports to find sales, register, finance, customer, wedding, inventory, staf
 3. Search with plain terms such as pickup, balance, tax, cash, drawer, slow stock, weather, appointments, no-show, or open orders.
 4. Review the matching category section and choose a report tile.
 5. Use From, To, Basis, and Group by when those controls appear.
-6. Use Refresh after changing filters.
-7. Use Print Report from the loaded report header for table, summary, or no-row report results.
-8. Use CSV when the loaded report includes table rows.
-9. If Print Report cannot open the print path, Riverside shows an error so staff can check pop-up permissions or station printer setup instead of assuming the button worked.
+6. For **Best Sellers**, use **Product View** for parent products and **Variation View** for individual SKUs.
+7. Use Refresh after changing filters.
+8. Use Print Report from the loaded report header for table, summary, or no-row report results.
+9. Use CSV when the loaded report includes table rows.
+10. If Print Report cannot open the print path, Riverside shows an error so staff can check pop-up permissions or station printer setup instead of assuming the button worked.
 
 ## Operational detail
 
@@ -58,6 +59,8 @@ Use Reports when the store needs a repeatable answer with the same filters, basi
 - Search includes report titles, descriptions, category names, category descriptions, aliases, keywords, staff questions, audience, sensitivity, and runnable status.
 - The report catalog should only show planned roadmap cards when there is no live Riverside API for that report yet.
 - **Daily Sales Weather** shows sales by store day alongside the captured weather snapshot for that day.
+- **Best Sellers** can group by parent product or by variation/SKU, depending on whether staff need the broad product winner or the exact size/color/SKU winner.
+- **Wedding Program Profit** is Admin-only and shows the free-groom suit program by wedding party and selected date basis, including paid wedding members, free-suit promo members, discounts, cost, profit, and margin.
 
 ## What happens next
 

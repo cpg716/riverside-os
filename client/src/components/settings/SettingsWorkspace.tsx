@@ -689,8 +689,8 @@ export default function SettingsWorkspace({
                     Data Lifecycle & Backups
                   </h2>
                   <p className="text-sm text-app-text-muted mt-2 font-medium">
-                    Protect and optimize your enterprise data with point-in-time
-                    snapshots.
+                    Create backups, verify storage, and keep database maintenance
+                    clear.
                   </p>
                 </header>
 
@@ -715,7 +715,7 @@ export default function SettingsWorkspace({
                           ) : (
                             <Database className="w-3 h-3 text-app-accent" />
                           )}
-                          Manual Trigger
+                          Create Backup
                         </button>
                       </div>
 
@@ -740,10 +740,10 @@ export default function SettingsWorkspace({
                               }`}
                             >
                               {backupCfg.backup_dir_configured
-                                ? "Explicit Path"
+                                ? "Custom Path"
                                 : backupCfg.backup_dir_explicit_required
                                   ? "Required"
-                                  : "Dev Fallback"}
+                                  : "Default Path"}
                             </span>
                           </div>
                         </div>
@@ -1108,7 +1108,7 @@ export default function SettingsWorkspace({
                       <div className="space-y-6">
                         <div>
                           <h4 className="text-xs font-black uppercase tracking-widest text-app-text mb-2">
-                            Db Structure Health
+                            Database Health
                           </h4>
                           <p className="text-[10px] text-app-text-muted leading-relaxed font-bold uppercase opacity-60">
                             Reclaims disk space and updates query planner stats.
@@ -1118,7 +1118,7 @@ export default function SettingsWorkspace({
                             disabled={optimizeBusy}
                             className="mt-4 w-full h-12 rounded-xl bg-app-accent text-white font-black uppercase tracking-widest hover:bg-app-accent-hover transition-all active:scale-95 shadow-lg shadow-app-accent/30"
                           >
-                            {optimizeBusy ? "VACUUMING..." : "Optimize Now"}
+                            {optimizeBusy ? "Optimizing..." : "Optimize Now"}
                           </button>
                         </div>
                         <div className="pt-6 border-t border-app-border/40">

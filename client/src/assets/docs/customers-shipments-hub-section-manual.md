@@ -51,6 +51,7 @@ Use the Shipments Hub to manage packed-but-not-delivered orders, tracking number
 ## What to watch for
 
 - Confirm you are updating the correct shipment before posting tracking.
+- If Shippo live pricing is not configured, ROS may show setup-only rates. Do not buy a label until a live carrier rate has been applied.
 - Delivery status should match real carrier progress, not internal intent.
 - Do not request a label refund after the package has been handed to the carrier.
 - Do not mix carrier accounts in one manifest or pickup request. ROS blocks mixed selections.

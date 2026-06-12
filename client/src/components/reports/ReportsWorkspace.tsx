@@ -368,6 +368,7 @@ const FIELD_LABELS: Record<string, string> = {
   appointment_date: "Appointment Date",
   active_sales_hours: "Active Sales Hours",
   average_sale: "Average Sale",
+  average_net_sale_per_paid_suit: "Avg. Net Sale / Paid Suit",
   avg_discount_percent: "Avg. Discount %",
   brand: "Brand",
   business_date: "Business Date",
@@ -378,6 +379,7 @@ const FIELD_LABELS: Record<string, string> = {
   customer_display_name: "Customer",
   customer_name: "Customer",
   cancellation_count: "Cancellations",
+  cost_of_goods: "Cost Of Goods",
   date: "Date",
   event_date: "Event Date",
   exempt_sales: "Exempt Sales",
@@ -390,6 +392,7 @@ const FIELD_LABELS: Record<string, string> = {
   gross: "Gross",
   gross_amount: "Gross Amount",
   gross_margin: "Gross Margin",
+  gross_profit: "Gross Profit",
   gross_sales: "Gross Sales",
   label_cost: "Label Cost",
   label_count: "Labels",
@@ -416,6 +419,7 @@ const FIELD_LABELS: Record<string, string> = {
   payment_count: "Payments",
   payment_method: "Payment Method",
   payment_provider: "Processor",
+  paid_suits: "Paid Suits",
   provider_status: "Provider Status",
   pending_alteration_count: "Pending Alterations",
   pending_pickup_count: "Pending Pickups",
@@ -428,6 +432,9 @@ const FIELD_LABELS: Record<string, string> = {
   prior_year_day_sales_total: "Prior Year Sales",
   prior_year_sales_per_hour: "Prior Year Sales / Hour",
   product_name: "Product",
+  profit_percent: "Margin %",
+  program_ratio: "Program Ratio",
+  promo_discount: "Promo Discount",
   quoted_amount: "Quoted Amount",
   quantity: "Quantity",
   reason: "Reason",
@@ -475,12 +482,18 @@ const FIELD_LABELS: Record<string, string> = {
   transaction_total: "Transaction Total",
   unit_cost: "Unit Cost",
   units_sold: "Units Sold",
+  variation_count: "Variations Sold",
+  top_sku: "Top SKU",
+  expected_free_suits: "Expected Free Suits",
+  free_suits: "Free Suits",
+  free_suit_difference: "Free Suit Difference",
   unpaid_balance_count: "Unpaid Members",
   unpaid_balance_total: "Unpaid Balance Total",
   unfulfilled_item_count: "Unfulfilled Items",
   upcoming_wedding_date: "Upcoming Wedding Date",
   variance: "Variance",
   walk_in_count: "Walk-Ins",
+  wedding_salesperson_name: "Wedding Salesperson",
   wedding_linked_count: "Wedding-Linked",
   wedding_party_name: "Wedding Party",
   weather_snapshot: "Weather",
@@ -576,6 +589,9 @@ function reportPrintSubtitle(report: ReportDef, ctx: ReportUrlContext): string {
   const dateRange = `${ctx.fromYmd} to ${ctx.toYmd}`;
   const qualifiers: string[] = [];
   if (isAvailableReport(report) && report.usesBasis) qualifiers.push(`${ctx.basis} basis`);
+  if (report.id === "best_sellers") {
+    qualifiers.push(ctx.bestSellerView === "product" ? "Product View" : "Variation View");
+  }
   if (isAvailableReport(report) && report.supportsGroupBy) {
     qualifiers.push(`grouped by ${ctx.groupBy}`);
   }
@@ -764,6 +780,7 @@ export default function ReportsWorkspace({
   const [{ from, to }, setRange] = useState(defaultRange);
   const [basis, setBasis] = useState("booked");
   const [groupBy, setGroupBy] = useState<string>("brand");
+  const [bestSellerView, setBestSellerView] = useState<"product" | "variation">("product");
   const [searchQuery, setSearchQuery] = useState("");
   const [selected, setSelected] = useState<ReportDef | null>(null);
   const [payload, setPayload] = useState<unknown>(null);
@@ -771,8 +788,8 @@ export default function ReportsWorkspace({
   const [loading, setLoading] = useState(false);
 
   const ctx: ReportUrlContext = useMemo(
-    () => ({ fromYmd: from, toYmd: to, basis, groupBy }),
-    [from, to, basis, groupBy],
+    () => ({ fromYmd: from, toYmd: to, basis, groupBy, bestSellerView }),
+    [from, to, basis, groupBy, bestSellerView],
   );
 
   const visible = useMemo(
@@ -1196,6 +1213,30 @@ export default function ReportsWorkspace({
                   <option value="completed">Completed (recognition)</option>
                 </select>
               </label>
+            ) : null}
+            {selectedAvailable?.id === "best_sellers" ? (
+              <div className="flex w-full flex-col gap-1 text-xs font-bold text-app-text-muted sm:w-auto">
+                View
+                <div className="inline-flex rounded-xl border border-app-border bg-app-surface p-1">
+                  {[
+                    ["product", "Product View"],
+                    ["variation", "Variation View"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setBestSellerView(value as "product" | "variation")}
+                      className={`min-h-9 rounded-lg px-3 text-xs font-black uppercase tracking-widest transition ${
+                        bestSellerView === value
+                          ? "bg-app-accent text-white shadow-sm"
+                          : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : null}
             {showGroup ? (
               <label className="flex w-full flex-col gap-1 text-xs font-bold text-app-text-muted sm:w-auto">

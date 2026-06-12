@@ -65,4 +65,4 @@ New receipt settings apply to future receipt previews, printed receipts, text re
 
 - Printers & Scanners controls the workstation printer target, cash drawer test, Zebra tag station, report printer, and scanner test.
 - POS sale completion uses these receipt settings after checkout.
-- Podium receipt delivery uses the same standard receipt content when no legacy HTML template exists.
+- Podium receipt delivery uses the same standard receipt content when no custom HTML template exists.

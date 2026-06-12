@@ -8,7 +8,7 @@ import StaffMiniSelector from "../ui/StaffMiniSelector";
 const baseUrl = getBaseUrl();
 
 /**
- * Full-screen gate for “cashier for this sale” — same visual language as
+ * Full-screen gate for Staff Access on this sale — same visual language as
  * {@link ../layout/BackofficeSignInGate.tsx} (card + PIN keypad), separate from cart chrome.
  */
 export default function PosSaleCashierSignInOverlay({
@@ -97,7 +97,7 @@ export default function PosSaleCashierSignInOverlay({
             id="pos-sale-cashier-title"
             className="mt-1 text-xl font-black tracking-tight text-app-text"
           >
-            Sign-in for this sale
+            Staff Access for this sale
           </h1>
         </div>
         <div className="space-y-5 px-5 py-5 sm:space-y-6 sm:px-8 sm:py-8">
@@ -131,7 +131,7 @@ export default function PosSaleCashierSignInOverlay({
 
           <div className="space-y-1">
             <p className="text-center text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-              PIN
+              Access PIN
             </p>
             <PinDots length={credential.length} className="py-0.5" />
             <NumericPinKeypad

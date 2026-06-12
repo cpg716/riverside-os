@@ -74,6 +74,7 @@ export type ReportUrlContext = {
   toYmd: string;
   basis: string;
   groupBy: string;
+  bestSellerView: "product" | "variation";
 };
 
 export type ReportChartValueFormat = "money" | "number" | "points";
@@ -319,8 +320,8 @@ export const REPORTS_CATALOG: ReportDef[] = [
     responseKind: "best_sellers",
     usesGlobalDateRange: true,
     usesBasis: true,
-    buildPath: ({ fromYmd, toYmd, basis }) =>
-      `/api/insights/best-sellers?basis=${enc(basis)}&from=${enc(fromYmd)}&to=${enc(toYmd)}&limit=100`,
+    buildPath: ({ fromYmd, toYmd, basis, bestSellerView }) =>
+      `/api/insights/best-sellers?view=${enc(bestSellerView)}&basis=${enc(basis)}&from=${enc(fromYmd)}&to=${enc(toYmd)}&limit=100`,
   },
   {
     id: "dead_stock",
@@ -566,6 +567,39 @@ export const REPORTS_CATALOG: ReportDef[] = [
     usesGlobalDateRange: false,
     usesBasis: false,
     buildPath: () => `/api/insights/wedding-saved-views`,
+  },
+  {
+    id: "wedding_program_profit",
+    title: "Wedding Program Profit",
+    description:
+      "Wedding-party profit for the free-groom suit program, including paid suits, free suits, discounts, cost, profit, and margin.",
+    category: "Weddings",
+    aliases: ["free groom suit", "free suit promo", "wedding promo margin", "groomsmen promo"],
+    keywords: [
+      "wedding",
+      "program",
+      "profit",
+      "margin",
+      "free groom",
+      "free suit",
+      "groomsmen",
+      "paid suits",
+      "promo",
+    ],
+    questions: [
+      "How profitable is the wedding program?",
+      "Which wedding parties earned free suits?",
+      "What is our margin by wedding party?",
+    ],
+    audience: "Owner",
+    sensitivity: "Admin-only",
+    adminOnly: true,
+    permissionsAll: ["insights.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: true,
+    usesBasis: true,
+    buildPath: ({ fromYmd, toYmd, basis }) =>
+      `/api/insights/wedding-program-profit?basis=${enc(basis)}&from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
   {
     id: "merchant_activity",

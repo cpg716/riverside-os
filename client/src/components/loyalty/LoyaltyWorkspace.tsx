@@ -39,6 +39,7 @@ interface LoyaltyPipelineStats {
 }
 
 const BASE = getBaseUrl();
+const ELIGIBLE_PAGE_SIZE = 100;
 
 function summaryValueSize(value: string): string {
   if (value.length >= 10) return "text-[1.25rem] sm:text-[1.45rem] xl:text-[1.65rem]";
@@ -1032,27 +1033,33 @@ function LoyaltyBatchRedeemDialog({
 
 function EligibleList({ 
   settings, 
+  eligibleTotal,
   onRedeemSuccess 
 }: { 
   settings: LoyaltySettings | null, 
+  eligibleTotal?: number | null,
   onRedeemSuccess: () => void 
 }) {
   const { backofficeHeaders } = useBackofficeAuth();
   const [customers, setCustomers] = useState<LoyaltyEligibleCustomer[]>([]);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(0);
   const [singleBatchCustomer, setSingleBatchCustomer] = useState<LoyaltyEligibleCustomer | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
 
-  const load = useCallback(async () => {
+  const loadPage = useCallback(async (nextPage: number) => {
+    const normalizedPage = Math.max(0, nextPage);
     setLoading(true);
     try {
-      const res = await fetch(`${BASE}/api/loyalty/monthly-eligible`, {
+      const offset = normalizedPage * ELIGIBLE_PAGE_SIZE;
+      const res = await fetch(`${BASE}/api/loyalty/monthly-eligible?limit=${ELIGIBLE_PAGE_SIZE}&offset=${offset}`, {
         headers: backofficeHeaders(),
       });
       if (res.ok) {
         const rows = (await res.json()) as LoyaltyEligibleCustomer[];
         setCustomers(rows);
+        setPage(normalizedPage);
         setSelectedIds((current) => {
           const valid = new Set(rows.map((customer) => customer.id));
           return new Set(Array.from(current).filter((id) => valid.has(id)));
@@ -1064,14 +1071,22 @@ function EligibleList({
   }, [backofficeHeaders]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadPage(0);
+  }, [loadPage]);
 
   const selectedCustomers = useMemo(
     () => customers.filter((customer) => selectedIds.has(customer.id)),
     [customers, selectedIds],
   );
   const batchCustomers = singleBatchCustomer ? [singleBatchCustomer] : selectedCustomers;
+  const visibleStart = customers.length > 0 ? page * ELIGIBLE_PAGE_SIZE + 1 : 0;
+  const visibleEnd = page * ELIGIBLE_PAGE_SIZE + customers.length;
+  const knownTotal = eligibleTotal ?? visibleEnd;
+  const hasNextPage = eligibleTotal == null
+    ? customers.length === ELIGIBLE_PAGE_SIZE
+    : visibleEnd < eligibleTotal;
+  const hasPreviousPage = page > 0;
+  const totalLabel = eligibleTotal?.toLocaleString() ?? customers.length.toLocaleString();
 
   const toggleSelected = (customerId: string) => {
     setSelectedIds((current) => {
@@ -1082,7 +1097,7 @@ function EligibleList({
     });
   };
 
-  const allSelected = customers.length > 0 && selectedIds.size === customers.length;
+  const allSelected = customers.length > 0 && customers.every((customer) => selectedIds.has(customer.id));
   const toggleAll = () => {
     setSelectedIds(
       allSelected
@@ -1098,17 +1113,38 @@ function EligibleList({
           <div>
             <h2 className="text-base font-black tracking-tight text-app-text">Customers Ready for Reward</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted mt-1">
-              {customers.length} members currently at or above threshold
+              {totalLabel} members currently at or above threshold
             </p>
+            {customers.length > 0 && knownTotal > 0 ? (
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Showing {visibleStart.toLocaleString()}-{visibleEnd.toLocaleString()} of {knownTotal.toLocaleString()}
+              </p>
+            ) : null}
           </div>
           <div className="flex w-full flex-wrap gap-2 sm:w-auto">
             <button
               type="button"
-              onClick={() => void load()}
+              onClick={() => void loadPage(page)}
               className="ui-btn-secondary flex items-center gap-2 px-4 py-2 border-app-border/50 shadow-sm"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Refresh Eligible Customers
+            </button>
+            <button
+              type="button"
+              disabled={!hasPreviousPage || loading}
+              onClick={() => void loadPage(page - 1)}
+              className="ui-btn-secondary flex items-center gap-2 px-4 py-2 border-app-border/50 shadow-sm disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={!hasNextPage || loading}
+              onClick={() => void loadPage(page + 1)}
+              className="ui-btn-secondary flex items-center gap-2 px-4 py-2 border-app-border/50 shadow-sm disabled:opacity-50"
+            >
+              Next
             </button>
             {customers.length > 0 && (
               <button
@@ -1116,7 +1152,7 @@ function EligibleList({
                 onClick={toggleAll}
                 className="ui-btn-secondary flex items-center gap-2 px-4 py-2 border-app-border/50 shadow-sm"
               >
-                {allSelected ? "Clear Selection" : "Select All"}
+                {allSelected ? "Clear Page Selection" : "Select Page"}
               </button>
             )}
             {selectedCustomers.length > 0 && settings && (
@@ -1139,7 +1175,7 @@ function EligibleList({
                 className="ui-btn-secondary flex items-center gap-2 px-4 py-2 border-app-border/50 shadow-sm"
               >
                 <Printer className="h-4 w-4" />
-                Print Labels
+                Print Page Labels
               </button>
             )}
           </div>
@@ -1284,7 +1320,7 @@ function EligibleList({
                 setSelectedIds(new Set());
               }
               setSingleBatchCustomer(null);
-              void load();
+              void loadPage(page);
               void onRedeemSuccess();
             }}
           />
@@ -1530,6 +1566,7 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
           ) : (
             <EligibleList 
               settings={settings} 
+              eligibleTotal={stats?.eligible_customers_count}
               onRedeemSuccess={() => void loadData()} 
             />
           )}

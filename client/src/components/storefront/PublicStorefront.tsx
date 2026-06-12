@@ -2491,7 +2491,7 @@ function CartPane({
       setRateAddressKey(addressKeyLive);
       if (j.stub) {
         toast(
-          "Showing demo rates - enable Shippo in staff Settings and save the Shippo API token for live pricing.",
+          "Showing setup rates - enable Shippo in staff Settings and save the Shippo API token for live pricing.",
           "info",
         );
       } else {
@@ -2689,7 +2689,7 @@ function CartPane({
               <>
                 <p className="text-xs text-storefront-muted-foreground">
                   Shipping rates use Shippo when configured in staff Settings;
-                  otherwise demo rates. Quotes expire in about 15 minutes.
+                  otherwise setup rates. Quotes expire in about 15 minutes.
                 </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
@@ -2787,7 +2787,7 @@ function CartPane({
               <div className="space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-storefront-muted-foreground">
                   Choose a service
-                  {shipRatesStub ? " (demo)" : ""}
+                  {shipRatesStub ? " (setup)" : ""}
                 </p>
                 <ul className="space-y-2">
                   {shipRates.map((r) => {

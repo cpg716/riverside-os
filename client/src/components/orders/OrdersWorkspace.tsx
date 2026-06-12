@@ -465,7 +465,7 @@ async function openBespokeOrdersPrint(opts: {
           <div class="order-footer">
             <div class="staff-line">
               <span>${escapePrintHtml(row.primary_salesperson_name ? `Salesperson: ${row.primary_salesperson_name}` : "Salesperson: —")}</span>
-              <span>${escapePrintHtml(row.operator_name ? `Cashier: ${row.operator_name}` : "Cashier: —")}</span>
+              <span>${escapePrintHtml(row.operator_name ? `Staff: ${row.operator_name}` : "Staff: —")}</span>
             </div>
             <div class="money-grid">
               <div><span>Total</span><strong>${escapePrintHtml(money(row.total_price))}</strong></div>
@@ -782,7 +782,7 @@ function OrderTableRow({
           {row.primary_salesperson_name ?? "—"}
         </p>
         <p className="mt-1 max-w-[180px] truncate text-[9px] font-bold text-app-text-muted">
-          Cashier: {row.operator_name ?? "—"}
+          Staff: {row.operator_name ?? "—"}
         </p>
       </td>
       <td className="px-4 py-4 align-top">
@@ -899,7 +899,7 @@ function OrderMobileCard({
             {row.primary_salesperson_name
               ? ` · ${row.primary_salesperson_name}`
               : ""}
-            {row.operator_name ? ` · Cashier ${row.operator_name}` : ""}
+            {row.operator_name ? ` · Staff ${row.operator_name}` : ""}
           </p>
           <div className="mt-2 space-y-1 rounded-xl border border-app-border/50 bg-app-surface-2/70 px-3 py-2 text-xs font-semibold text-app-text-muted">
             {lifecycleItems.map((item, index) => (
@@ -2236,7 +2236,7 @@ export default function OrdersWorkspace({
                     <th className="px-4 py-3 text-[9px] font-black uppercase leading-tight tracking-[0.14em] text-app-text-muted">
                       <span className="block">Salesperson</span>
                       <span className="mt-0.5 block text-[8px] tracking-[0.12em] opacity-70">
-                        Cashier
+                        Staff
                       </span>
                     </th>
                     <th className="px-4 py-4 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">

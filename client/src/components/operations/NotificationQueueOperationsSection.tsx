@@ -178,7 +178,7 @@ export default function NotificationQueueOperationsSection({
                 Customer Notifications
               </h2>
               <p className="mt-1 max-w-3xl text-sm font-semibold leading-relaxed text-app-text-muted">
-                Review automated customer SMS and email activity. Failed delivery rows stay visible until staff contacts the customer or fixes the contact record, then marks the row reviewed.
+                Track customer SMS/email delivery and review failures.
               </p>
               {surface === "pos" ? (
                 <p className="mt-1 text-xs font-black uppercase tracking-widest text-app-accent">
@@ -215,35 +215,22 @@ export default function NotificationQueueOperationsSection({
         ))}
       </div>
 
-      <div className="px-4 sm:px-6">
-        <div className="ui-card ui-tint-default px-4 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                Automated Customer Messaging
-              </p>
-              <p className="mt-1 text-sm font-semibold text-app-text">
-                Appointment confirmations, appointment reminders, pickup notices, alteration-ready notices, receipts, and review invites appear here after their automation trigger runs.
-              </p>
-            </div>
-            <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              {filteredRows.length} {filteredRows.length === 1 ? "record" : "records"}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-1 flex-col p-3 sm:p-6 lg:p-8 animate-workspace-snap">
+      <div className="flex flex-1 flex-col p-3 sm:p-6 animate-workspace-snap">
         <div className="ui-card flex flex-col overflow-hidden">
           <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-2 px-4 py-4 lg:px-5">
-            <div className="relative group min-w-0">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors" size={16} />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search customer, message type, status, delivery, or error…"
-                className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
-              />
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+              <div className="relative group min-w-0 flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors" size={16} />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search customer, type, status, or error…"
+                  className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
+                />
+              </div>
+              <span className="rounded-full border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                {filteredRows.length} {filteredRows.length === 1 ? "record" : "records"}
+              </span>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <select
@@ -299,10 +286,10 @@ export default function NotificationQueueOperationsSection({
             <div className="flex flex-1 flex-col items-center justify-center p-12">
               <Mail size={48} className="mx-auto mb-3 opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest italic text-app-text-muted">
-                No customer notification activity matches this filter.
+                No notification activity.
               </p>
               <p className="mt-2 max-w-md text-center text-xs font-semibold text-app-text-muted opacity-70">
-                Automated SMS/email records appear here when Riverside sends or records delivery status for a customer message.
+                Try another filter or refresh.
               </p>
             </div>
           ) : (

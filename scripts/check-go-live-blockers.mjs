@@ -244,11 +244,12 @@ function checkTagDesignerPrintPreviewTruthfulness() {
   );
   assert(
     content.includes("Print preview also failed") &&
+      content.includes("autoPrint: !isTauri()") &&
       content.includes("printExistingWindowAsync(w)") &&
       content.includes("printDialogOpened: options.autoPrint === true"),
-    "Tag print fallback reports preview failures and opens the generated tag print dialog",
+    "Tag print fallback reports preview failures and uses the right recovery surface by runtime",
     file,
-    "If direct tag dispatch fails, the fallback must either open a real printable preview or throw a visible error.",
+    "If direct tag dispatch fails, browser/PWA should open the print dialog and Tauri should open a desktop preview without marking shelf labels printed.",
   );
 }
 

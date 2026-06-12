@@ -1071,9 +1071,13 @@ export default function CounterpointSyncSettingsPanel({
       : commandCenter?.proof_scope === "preflight_only"
         ? "Preflight only"
         : "No import preflight";
-  const stagingCountsByEntity = useMemo(() => new Map<string, StagingEntityCountRow>(
-    (status?.staging_entity_counts ?? []).map((row) => [row.entity, row]),
-  ), [status?.staging_entity_counts]);
+  const stagingCountsByEntity = useMemo(() => {
+    const rows = new Map<string, StagingEntityCountRow>();
+    for (const count of status?.staging_entity_counts ?? []) {
+      rows.set(count.entity, count);
+    }
+    return rows;
+  }, [status?.staging_entity_counts]);
   const selectedReviewPack =
     reviewPacks.find((pack) => pack.pack_id === selectedReviewPackId) ?? reviewPacks[0] ?? null;
   const selectedReviewScope =
@@ -1244,6 +1248,9 @@ export default function CounterpointSyncSettingsPanel({
   const commandSentTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.sentByBridge ?? 0), 0);
   const commandLandedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.landedCount), 0);
   const commandBlockedRows = commandCenterRows.filter((row) => row.status === "blocked" || row.landedStatus === "Lower").length;
+  const stagingSummaryRows = [...stagingCountsByEntity.values()]
+    .filter((row) => row.pending_rows > 0 || row.applying_rows > 0 || row.applied_rows > 0)
+    .sort((a, b) => a.entity.localeCompare(b.entity));
 
   const importFirstCommandCenterPanel = (
     <section className="ui-card p-5 space-y-4">
@@ -1353,6 +1360,43 @@ export default function CounterpointSyncSettingsPanel({
           </div>
         </div>
       </div>
+
+      {stagingSummaryRows.length > 0 ? (
+        <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-200">
+            Staging review
+          </p>
+          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {stagingSummaryRows.map((row) => {
+              const queuedRows = row.pending_rows + row.applying_rows;
+              return (
+                <div key={row.entity} className="rounded-md border border-app-border bg-app-bg/70 p-3 text-xs">
+                  <p className="font-black text-app-text">{formatEntityLabel(row.entity)}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        Queued in staging
+                      </p>
+                      <p className="mt-1 font-black tabular-nums text-app-text">{fmtNum(queuedRows)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        Applied from staging
+                      </p>
+                      <p className="mt-1 font-black tabular-nums text-app-text">{fmtNum(row.applied_rows)}</p>
+                    </div>
+                  </div>
+                  {queuedRows > 0 ? (
+                    <p className="mt-2 font-semibold text-amber-700 dark:text-amber-200">
+                      No live write has happened yet.
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div className="overflow-auto rounded-lg border border-app-border">
         <table className="w-full min-w-[920px] text-left text-xs">
