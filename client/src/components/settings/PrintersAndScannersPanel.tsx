@@ -11,15 +11,18 @@ import {
 import { getBaseUrl } from "../../lib/apiConfig";
 import {
   TAG_PRINTER_LANGUAGE_KEY,
+  checkMainHubPrintServerTarget,
   checkReceiptPrinterConnection,
   describePrinterTarget,
   listSystemPrinters,
   resolvePrinterTarget,
+  syncPrinterConfigToServer,
   type SystemPrinter,
 } from "../../lib/printerBridge";
 import { printReceiptBase64, printReceiptText } from "../../lib/receiptPrint";
 import { isTauri } from "@tauri-apps/api/core";
 import { useToast } from "../ui/ToastProviderLogic";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 type PrinterKey = "receipt" | "tag" | "report";
 
@@ -90,6 +93,7 @@ export default function PrintersAndScannersPanel({
   posCashierCode?: string | null;
 }) {
   const { toast } = useToast();
+  const { backofficeHeaders } = useBackofficeAuth();
   const initialValues = useMemo(
     () =>
       Object.fromEntries([
@@ -126,9 +130,24 @@ export default function PrintersAndScannersPanel({
   const [systemPrinters, setSystemPrinters] = useState<SystemPrinter[]>([]);
   const [loadingSystemPrinters, setLoadingSystemPrinters] = useState(false);
 
+  const syncMainHubPrinterConfig = () => {
+    const stationLabel = window.localStorage.getItem("ros.station.label")?.trim();
+    if (stationLabel !== "Main Hub" && stationLabel !== "Backoffice / Server") {
+      return;
+    }
+    const headers = Object.fromEntries(new Headers(backofficeHeaders()).entries());
+    if (!headers["x-riverside-staff-code"] || !headers["x-riverside-staff-pin"]) {
+      return;
+    }
+    void syncPrinterConfigToServer(getBaseUrl(), headers, 0).catch((error) => {
+      console.warn("Main Hub printer config sync failed", error);
+    });
+  };
+
   const saveValue = (key: string, value: string) => {
     setValues((prev) => ({ ...prev, [key]: value }));
     window.localStorage.setItem(key, value);
+    syncMainHubPrinterConfig();
   };
 
   const saveCashDrawerEnabled = (enabled: boolean) => {
@@ -181,8 +200,8 @@ export default function PrintersAndScannersPanel({
           throw new Error(`${printer.label} address is not configured.`);
         }
         if (printer.key === "tag") {
-          await checkReceiptPrinterConnection(resolvePrinterTarget("tag"));
-          toast(`${printer.label} responded.`, "success");
+          const result = await checkMainHubPrintServerTarget("tag", resolvePrinterTarget("tag"));
+          toast(`${printer.label} responded through Main Hub print server at ${result.target}.`, "success");
           return;
         }
         toast(`${printer.label} saved. Live readiness checks are currently for receipt printers.`, "success");

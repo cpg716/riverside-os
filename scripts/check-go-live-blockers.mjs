@@ -220,6 +220,27 @@ function checkDirectPrinterRouting() {
     labelFile,
     "Inventory tag printing must keep routing through ros.hardware.printer.tag.* and support classic LP/TLP 2844 EPL as well as ZPL.",
   );
+  assert(
+    bridge.includes("/api/hardware/print-station") &&
+      bridge.includes("printViaMainHubPrintServer") &&
+      bridge.includes('if (type === "tag")') &&
+      bridge.includes('return printViaMainHubPrintServer(type, payload, target, "text")') &&
+      bridge.includes("isLoopbackNetworkTarget(target)"),
+    "Tag printing routes through the Main Hub station print server",
+    bridgeFile,
+    "Tags must use the server-side station print route so the Main Hub owns Zebra dispatch instead of each Tauri shell deciding locally.",
+  );
+  const serverHardware = read("server/src/api/hardware.rs");
+  assert(
+    serverHardware.includes('/print-station') &&
+      serverHardware.includes("handle_print_station") &&
+      serverHardware.includes("resolve_stored_station_target") &&
+      serverHardware.includes("print_raw_to_windows_printer") &&
+      serverHardware.includes("PrintStation::Tag"),
+    "Main Hub hardware API exposes station print dispatch for installed and network printers",
+    "server/src/api/hardware.rs",
+    "The server must be able to print raw tag payloads to a Windows installed Zebra or a configured network target.",
+  );
 }
 
 function checkTagDesignerPrintPreviewTruthfulness() {
@@ -241,6 +262,12 @@ function checkTagDesignerPrintPreviewTruthfulness() {
     "Desktop tag test print can use an installed Zebra when the tag station is still on default loopback",
     file,
     "A Windows-installed Zebra 2844 should not silently fall through to 127.0.0.1:9100 when that default was never replaced.",
+  );
+  assert(
+    /const\s+target\s*=\s*await\s+resolveDesktopTagPrintTarget\(\)[\s\S]*?const\s+language\s*=\s*getInventoryTagPrinterLanguage\(target\)/.test(content),
+    "Desktop tag print language is inferred from the resolved Zebra target",
+    file,
+    "Auto language selection must happen after the default-loopback desktop target is resolved, otherwise classic LP/TLP 2844 printers can receive ZPL and accept a spool job without printing a usable tag.",
   );
   assert(
     content.includes("Print preview also failed") &&
@@ -406,6 +433,17 @@ function checkCounterpointSyncStagingVisibility() {
     "Main Hub Counterpoint Sync screen shows staged rows even before live apply",
     panelFile,
     "Bridge-extracted rows must not appear as No Data just because they are still in review staging.",
+  );
+  assert(
+    panel.includes('data-testid="counterpoint-bridge-connection-status"') &&
+      panel.includes("Bridge connection status") &&
+      panel.includes("counterpointTokenConfigured") &&
+      panel.includes("status?.last_seen_at") &&
+      panel.includes("No accepted heartbeat") &&
+      panel.includes("Counterpoint sync token is not configured in Back Office Settings"),
+    "Main Hub Counterpoint Sync screen shows explicit Bridge connection health",
+    panelFile,
+    "Operators must be able to distinguish local Bridge API listening from ROS-accepted token, heartbeat, host, phase, and version status.",
   );
 
   const apiFile = "server/src/api/counterpoint_sync.rs";
@@ -714,10 +752,11 @@ function checkReleaseWorkflowPreBuildGates() {
   const packageJson = read("package.json");
   assert(
     packageJson.includes('"check:pre-retag"') &&
-      packageJson.includes('"release:retag"'),
+      packageJson.includes('"release:retag"') &&
+      packageJson.includes('"check:financial-invariants"'),
     "Root package exposes pre-retag and guarded retag commands",
     "package.json",
-    "Same-version rebuilds must use npm run check:pre-retag and npm run release:retag -- <tag>.",
+    "Same-version rebuilds must use npm run check:pre-retag and npm run release:retag -- <tag>; financial invariants must remain an explicit root gate.",
   );
 
   const retagWrapperFile = "scripts/release-retag.mjs";
@@ -775,10 +814,25 @@ function checkDesktopAndPwaUpdateWiring() {
       updater.includes("./install-register.ps1 -ConfigPath") &&
       updater.includes("-StationMode mainhub") &&
       updater.includes("Start-Transcript") &&
-      updater.includes("health_ep = contract::HEALTH_ENDPOINT"),
+      updater.includes("health_ep = contract::HEALTH_ENDPOINT") &&
+      updater.includes("select_deployment_asset") &&
+      updater.includes("verify_deployment_package_build") &&
+      updater.includes("sourceGitSha") &&
+      updater.includes("Deployment package build mismatch"),
     "Main Hub in-app updater runs server, bootstrap, local desktop app, transcript, and health-check steps",
     updaterFile,
-    "Main Hub updates must cover server/API, migrations, bootstrap admin, local desktop app config, and readiness proof.",
+    "Main Hub updates must cover server/API, migrations, bootstrap admin, local desktop app config, readiness proof, and exact build selection.",
+  );
+
+  const updatePanel = "client/src/components/settings/UpdateManagerPanel.tsx";
+  const updatePanelContent = read(updatePanel);
+  assert(
+    updatePanelContent.includes("serverUpdateCheck?.latest_build_sha") &&
+      updatePanelContent.includes("Extracting and verifying package build") &&
+      updatePanelContent.includes("Update runner launched"),
+    "Main Hub update panel passes latest build SHA and labels runner launch accurately",
+    updatePanel,
+    "Same-version Main Hub rebuilds must install the exact deployment build advertised by update-check.",
   );
 
   const registerInstaller = "deployment/windows/install-register.ps1";
@@ -847,6 +901,30 @@ function checkDesktopAndPwaUpdateWiring() {
   );
 }
 
+function checkFinancialInvariantGate() {
+  const result = spawnSync("npm", ["run", "check:financial-invariants"], {
+    cwd: root,
+    encoding: "utf8",
+    env: process.env,
+  });
+  if (result.error) {
+    fail(
+      "Financial invariant gate failed to start",
+      "scripts/check-financial-invariants.mjs",
+      result.error.message,
+    );
+    return;
+  }
+  assert(
+    result.status === 0,
+    "Financial invariant gate passes",
+    "scripts/check-financial-invariants.mjs",
+    result.status === 0
+      ? "Financial source, policy, E2E coverage, and production probe invariants passed."
+      : `${result.stdout || ""}${result.stderr || ""}`.trim(),
+  );
+}
+
 checkCurrentReleaseNotes();
 checkTauriOpenerAcl();
 checkBrowserPrintHelper();
@@ -871,6 +949,7 @@ checkDeploymentManagerPersistentLogs();
 checkDeploymentManagerActionWiring();
 checkReleaseWorkflowPreBuildGates();
 checkDesktopAndPwaUpdateWiring();
+checkFinancialInvariantGate();
 
 if (failures.length > 0) {
   console.error("Go-live blocker check failed.");

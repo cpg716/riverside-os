@@ -116,6 +116,79 @@ WHERE payload ? 'activity_date'
 ORDER BY created_at DESC
 LIMIT 50;
 
+\echo 'P1 probe: receiving events with freight missing inventory receipt rows'
+SELECT
+    re.id AS receiving_event_id,
+    re.purchase_order_id,
+    re.invoice_number,
+    re.freight_total,
+    re.received_at
+FROM receiving_events re
+LEFT JOIN inventory_transactions it
+    ON it.reference_table = 'receiving_events'
+   AND it.reference_id = re.id
+   AND it.tx_type::text = 'po_receipt'
+WHERE COALESCE(re.freight_total, 0) > 0
+GROUP BY re.id, re.purchase_order_id, re.invoice_number, re.freight_total, re.received_at
+HAVING COUNT(it.id) = 0
+ORDER BY re.received_at DESC;
+
+\echo 'P1 probe: supplier freight captured on receipts for accounting review'
+SELECT
+    'supplier_freight_receipts' AS metric,
+    COUNT(*)::text AS receipt_count,
+    COALESCE(SUM(re.freight_total), 0)::numeric(14, 2)::text AS supplier_freight_total
+FROM receiving_events re
+WHERE COALESCE(re.freight_total, 0) > 0;
+
+\echo 'P1 probe: shipped customer transactions missing shipping registry rows'
+SELECT
+    t.id AS transaction_id,
+    t.display_id,
+    t.shipping_amount_usd,
+    t.booked_at,
+    t.fulfilled_at
+FROM transactions t
+LEFT JOIN shipment s ON s.transaction_id = t.id
+WHERE t.fulfillment_method::text = 'ship'
+  AND COALESCE(t.shipping_amount_usd, 0) > 0
+  AND s.id IS NULL
+ORDER BY t.booked_at DESC;
+
+\echo 'P1 probe: customer shipping charges accidentally stored as supplier freight'
+SELECT
+    q.id AS qbo_sync_log_id,
+    q.sync_date,
+    q.status,
+    line.value->>'memo' AS memo,
+    detail.value->>'kind' AS detail_kind
+FROM qbo_sync_logs q
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(q.payload->'lines', '[]'::jsonb)) AS line(value)
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(line.value->'detail', '[]'::jsonb)) AS detail(value)
+WHERE (
+        line.value->>'memo' = 'Customer-charged shipping income'
+        AND detail.value->>'kind' = 'freight'
+    )
+   OR (
+        line.value->>'memo' LIKE 'Inbound freight / shipping cost%'
+        AND detail.value->>'kind' = 'shipping_income'
+    )
+ORDER BY q.sync_date DESC, q.created_at DESC;
+
+\echo 'P1 probe: QBO payloads that combine receiving and freight into one detail line'
+SELECT
+    q.id AS qbo_sync_log_id,
+    q.sync_date,
+    q.status,
+    line.value->>'memo' AS memo,
+    detail.value AS detail
+FROM qbo_sync_logs q
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(q.payload->'lines', '[]'::jsonb)) AS line(value)
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(line.value->'detail', '[]'::jsonb)) AS detail(value)
+WHERE line.value->>'memo' LIKE 'Receiving:%'
+  AND detail.value->>'kind' = 'freight'
+ORDER BY q.sync_date DESC, q.created_at DESC;
+
 \echo 'P1 probe: stale backup health'
 SELECT
     id,

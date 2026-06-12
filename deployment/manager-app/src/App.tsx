@@ -65,6 +65,8 @@ const normalizeApiBaseInput = (value: string) => {
   }
 };
 
+const MAIN_HUB_DATABASE_HOST = '127.0.0.1';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'wizard' | 'maintenance'>('maintenance');
   const [maintenanceTab, setMaintenanceTab] = useState<'status' | 'updates' | 'database' | 'utilities' | 'danger'>('status');
@@ -158,7 +160,7 @@ export default function App() {
     await action.onConfirm();
   };
 
-  const buildMainHubConfig = () => {
+  const buildMainHubConfig = (targetRole = role) => {
     const newConfig = { ...config };
     if (!newConfig.server) newConfig.server = {};
     if (!newConfig.server.database) newConfig.server.database = {};
@@ -176,13 +178,13 @@ export default function App() {
       };
     }
     newConfig.server.database.adminPassword = dbPassword;
-    if (role === 'main-hub') {
-      newConfig.server.database.host = serverIp || '127.0.0.1';
+    if (targetRole === 'main-hub') {
+      newConfig.server.database.host = MAIN_HUB_DATABASE_HOST;
       newConfig.register.apiBase = 'http://127.0.0.1:3000';
       newConfig.register.stationLabel = 'Main Hub';
     } else {
       newConfig.register.apiBase = normalizeApiBaseInput(serverIp);
-      newConfig.register.stationLabel = role === 'standalone-backoffice' ? 'Back Office' : 'Register #1';
+      newConfig.register.stationLabel = targetRole === 'standalone-backoffice' ? 'Back Office' : 'Register #1';
     }
     if (!newConfig.server.database.port) newConfig.server.database.port = 5432;
     if (!newConfig.server.database.databaseName) newConfig.server.database.databaseName = 'riverside_os';
@@ -192,8 +194,8 @@ export default function App() {
     return newConfig;
   };
 
-  const saveMainHubConfig = async () => {
-    const newConfig = buildMainHubConfig();
+  const saveMainHubConfig = async (targetRole = role) => {
+    const newConfig = buildMainHubConfig(targetRole);
     await invoke('write_deployment_config', { config: JSON.stringify(newConfig) });
     setConfig(newConfig);
   };
@@ -312,7 +314,7 @@ export default function App() {
     });
 
     try {
-      await saveMainHubConfig();
+      await saveMainHubConfig('main-hub');
       setLogs(prev => [...prev, { level: 'info', text: 'Saved Main Hub database settings for update.' }]);
       setLogs(prev => [...prev, { level: 'info', text: 'Executing install-server.ps1...' }]);
       await invoke('run_deployment_script', { scriptName: 'install-server.ps1', args: undefined });
@@ -624,10 +626,11 @@ export default function App() {
                     <label className="block text-sm font-semibold text-zinc-700 mb-1">{networkFieldLabel}</label>
                     <input
                       type="text"
-                      value={serverIp}
+                      value={role === 'main-hub' ? MAIN_HUB_DATABASE_HOST : serverIp}
                       onChange={(e) => setServerIp(e.target.value)}
                       placeholder={role === 'main-hub' ? '127.0.0.1' : 'http://10.64.70.196:3000'}
-                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
+                      disabled={role === 'main-hub'}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 outline-none disabled:bg-zinc-100 disabled:text-zinc-500"
                     />
                     <p className="mt-1 text-xs text-zinc-500">{networkFieldHelp}</p>
                   </div>

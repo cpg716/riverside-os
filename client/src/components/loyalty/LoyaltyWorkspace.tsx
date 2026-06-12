@@ -259,7 +259,7 @@ function SettingsPanel({
     setErr(null); setSaved(false); setSaving(true);
     const t = parseInt(threshold, 10);
     const rewardCents = parseMoneyToCents(reward);
-    if (!Number.isFinite(t) || t <= 0) { setErr("Threshold must be a positive integer."); setSaving(false); return; }
+    if (!Number.isFinite(t) || t < 5000) { setErr("Threshold must be at least 5,000 points."); setSaving(false); return; }
     if (rewardCents <= 0) { setErr("Reward amount must be positive."); setSaving(false); return; }
     
     const res = await fetch(`${BASE}/api/loyalty/settings`, {
@@ -324,7 +324,7 @@ function SettingsPanel({
               <label className="block space-y-2">
                 <span className="px-1 text-xs font-bold text-app-text-muted">Points needed</span>
                 <div className="relative group">
-                   <input type="number" min="1" value={threshold} onChange={e => setThreshold(e.target.value)} className="ui-input w-full bg-app-surface border-app-border pl-10 transition-all font-black text-app-warning focus:border-app-warning/40" />
+                   <input type="number" min="5000" value={threshold} onChange={e => setThreshold(e.target.value)} className="ui-input w-full bg-app-surface border-app-border pl-10 transition-all font-black text-app-warning focus:border-app-warning/40" />
                    <Coins className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-app-text-muted opacity-40 group-focus-within:opacity-100 transition-opacity" />
                 </div>
               </label>

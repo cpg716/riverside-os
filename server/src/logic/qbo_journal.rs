@@ -675,7 +675,7 @@ pub async fn propose_daily_journal(
             p.category_id,
             c.name AS category_name,
             it.tx_type::text,
-            SUM(((COALESCE(it.unit_cost, 0) + COALESCE(it.landed_cost_component, 0)) * it.quantity_delta)::numeric(14, 2)) AS total_value
+            SUM((COALESCE(it.unit_cost, 0) * it.quantity_delta)::numeric(14, 2)) AS total_value
         FROM inventory_transactions it
         INNER JOIN product_variants pv ON pv.id = it.variant_id
         INNER JOIN products p ON p.id = pv.product_id

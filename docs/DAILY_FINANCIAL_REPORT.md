@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Daily Financial Report is an automated system that generates, stores, and emails a comprehensive financial summary at the end of each business day. It covers sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, freight, category margins, and QBO journal status.
+The Daily Financial Report is an automated system that generates, stores, and emails a comprehensive financial summary at the end of each business day. It covers sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, supplier inbound freight, category margins, and QBO journal status.
 
 Reports are generated after the register Z-close and can be viewed, resent, or test-sent from the Settings panel.
 
@@ -15,7 +15,7 @@ Reports are generated after the register Z-close and can be viewed, resent, or t
 | **Enable Daily Financial Report** | Off | Master toggle for generation and storage |
 | **Auto-Send After Close** | On | Email the report automatically after Z-close |
 | **Include QuickBooks Status** | On | Show QBO journal sync status in the report |
-| **Include Inventory Activity** | On | Show receiving/freight activity |
+| **Include Inventory Activity** | On | Show receiving and supplier inbound freight activity |
 | **Email Subject Template** | `Riverside OS — Daily Financial Report — {date}` | `{date}` placeholder replaced with business date |
 | **Recipient Email Addresses** | _(empty)_ | List of email addresses to receive the report |
 
@@ -53,7 +53,7 @@ Each daily report includes:
 - Alteration service income (shown only when > 0)
 
 ### Inventory Receiving
-- Units received, merchandise cost, freight/shipping cost (shown only when > 0)
+- Units received, merchandise cost, and supplier inbound freight cost (shown only when > 0). Supplier freight is not added into item cost.
 
 ### Sales by Category
 - Category name, net sales, COGS, margin %, units sold

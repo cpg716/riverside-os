@@ -57,6 +57,25 @@ function normalizeApiBase(value: string): string {
   }
 }
 
+function isLoopbackApiBase(value: string): boolean {
+  try {
+    const parsed = new URL(normalizeApiBase(value));
+    return parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "::1" || parsed.hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function failedApiMessage(baseUrl: string, localFallback: ServerLocalStatus | null): string {
+  if (localFallback?.is_local && isLoopbackApiBase(baseUrl)) {
+    return "Main Hub server is not responding on the local API host";
+  }
+  if (localFallback?.is_local) {
+    return "Selected API host failed; Main Hub install detected locally";
+  }
+  return "Server unreachable from selected API host";
+}
+
 function sourceLabel(source: string): string {
   switch (source) {
     case "override": return "Manual override (localStorage)";
@@ -176,9 +195,7 @@ export default function StationNetworkPanel() {
         version: primary.version,
         error: primary.ok
           ? undefined
-          : localFallback?.is_local
-            ? "Selected API host failed; Main Hub install detected locally"
-            : "Server unreachable from selected API host",
+          : failedApiMessage(baseUrl, localFallback),
         source: localFallback?.is_local ? "local-probe" : "api",
         checked_url: baseUrl,
       });
@@ -193,9 +210,7 @@ export default function StationNetworkPanel() {
       setHealth({
         ok: false,
         latency_ms: 0,
-        error: localFallback?.is_local
-          ? "Selected API host failed; Main Hub install detected locally"
-          : "Connection failed",
+        error: failedApiMessage(baseUrl, localFallback),
         source: localFallback?.is_local ? "local-probe" : "api",
         checked_url: baseUrl,
       });

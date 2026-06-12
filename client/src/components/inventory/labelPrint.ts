@@ -1,6 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import {
   autoRoutePrint,
+  describePrinterTarget,
   listSystemPrinters,
   resolvePrinterTarget,
   TAG_PRINTER_LANGUAGE_KEY,
@@ -392,11 +393,10 @@ function buildEplDocument(
   return items.map((item) => renderEplTag(item, config)).join("\n");
 }
 
-function inferTagPrinterLanguage(): ThermalPrinterLanguage {
+function inferTagPrinterLanguage(target: HardwarePrinterTarget = resolvePrinterTarget("tag")): ThermalPrinterLanguage {
   const configured = window.localStorage.getItem(TAG_PRINTER_LANGUAGE_KEY);
   if (configured === "zpl" || configured === "epl") return configured;
 
-  const target = resolvePrinterTarget("tag");
   if (target.mode === "system") {
     const name = target.printerName.toLowerCase();
     const looksLikeClassic2844 =
@@ -413,9 +413,9 @@ function inferTagPrinterLanguage(): ThermalPrinterLanguage {
   return "zpl";
 }
 
-export function getInventoryTagPrinterLanguage(): ThermalPrinterLanguage {
+export function getInventoryTagPrinterLanguage(target?: HardwarePrinterTarget): ThermalPrinterLanguage {
   if (typeof window === "undefined") return "zpl";
-  return inferTagPrinterLanguage();
+  return inferTagPrinterLanguage(target);
 }
 
 function readStoredConfig(): Partial<InventoryTagPrintConfig> | null {
@@ -773,16 +773,16 @@ export async function openInventoryTagsWindow(
   };
 
   try {
-    const language = getInventoryTagPrinterLanguage();
+    const target = await resolveDesktopTagPrintTarget();
+    const language = getInventoryTagPrinterLanguage(target);
     const payload = language === "epl"
       ? buildEplDocument(items, config)
       : buildZplDocument(items, config);
-    const target = await resolveDesktopTagPrintTarget();
     await autoRoutePrint("tag", payload, language, target);
     return {
       route: "direct",
       markShelfLabeled: true,
-      message: "Tag station accepted the print job.",
+      message: `accepted by ${describePrinterTarget(target)} using ${language.toUpperCase()}.`,
     };
   } catch (directError) {
     const directMessage = directError instanceof Error ? directError.message : String(directError);

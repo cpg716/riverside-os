@@ -6,7 +6,7 @@ Riverside OS supports high-velocity hardware bridging for thermal receipt printe
 
 Hardware communication in Riverside OS is **platform-aware**. The application detects its environment (Tauri Desktop vs. PWA/Browser) and chooses the most appropriate protocol for dispatch.
 
-- **Tauri Native (Desktop)**: Communicates through either **installed Windows printers** or direct **TCP/IP** (ESC/POS and ZPL) for lanes that use raw network printing.
+- **Tauri Native (Desktop)**: Receipts print from the Register #1 desktop station, reports print through the selected installed Reports printer, and inventory tags route through the Main Hub print hub so the Zebra station is owned by the server PC.
 - **PWA / Browser**: Fallback to **Fetch/HTTP** (server-mediated dispatch) or supervised browser print dialogs.
 
 The core logic resides in `client/src/lib/printerBridge.ts` via the `autoRoutePrint` function.
@@ -56,9 +56,9 @@ Browser/PWA network printing is allowlisted by the saved station configuration. 
 The previous HTML receipt designer is no longer exposed in the active Settings UI. Receipt view, email, and text delivery use the standard receipt renderer when no saved HTML template exists.
 
 ### Item Tags
-Inventory tag actions generate raw Zebra tag commands for the saved **Tag Station** and dispatch them directly through `autoRoutePrint("tag", ..., language)`. The production tag printer is the Zebra 2844 / LP 2844 class printer at 203 DPI. Auto language mode emits EPL for classic LP/TLP 2844 installed-printer names and ZPL II for newer Zebra/ZPL printers. Staff can choose an installed Zebra printer from the desktop printer dropdown, or configure a network printer IP when the Zebra is reachable over TCP 9100.
+Inventory tag actions generate raw Zebra tag commands for the saved **Tag Station** and dispatch them through the Main Hub print hub at `/api/hardware/print-station`. The production tag printer is the Zebra 2844 / LP 2844 class printer at 203 DPI. Auto language mode emits EPL for classic LP/TLP 2844 installed-printer names and ZPL II for newer Zebra/ZPL printers. Staff can choose an installed Zebra printer from the Main Hub desktop printer dropdown, or configure a network printer IP when the Zebra is reachable over TCP 9100.
 
-In the desktop app, tag printing is direct-to-printer only: if the configured Zebra station cannot accept the job, ROS reports the printer error and leaves shelf-label status unchanged. Browser/PWA sessions can still open the retail tag preview so staff can use the operating system print dialog as a fallback. The preview path is a browser recovery path; normal inventory tag printing should go directly from the app to the configured Zebra tag station.
+In the desktop app, tag printing is Main-Hub-direct-to-printer only: if the configured Zebra station cannot accept the job, ROS reports the printer error and leaves shelf-label status unchanged. Browser/PWA sessions can still open the retail tag preview so staff can use the operating system print dialog as a fallback. The preview path is a browser recovery path; normal inventory tag printing should go from the app to the Main Hub print hub and then to the configured Zebra tag station.
 
 ### Document Auto-Routing
 The `printerBridge.ts` module includes an intelligent dispatcher that resolves the correct station based on document metadata:
@@ -67,6 +67,8 @@ The `printerBridge.ts` module includes an intelligent dispatcher that resolves t
 await printRawEscPosBase64(escposBase64);
 await autoRoutePrint("tag", thermalPayload, "epl" | "zpl");
 ```
+
+`autoRoutePrint("tag", ...)` sends the Zebra payload to the Main Hub print hub. The server then prints either to the configured network printer target or to a Windows-installed Zebra printer using raw spooler output.
 
 ### Pre-Build Print Route Gate
 
@@ -96,5 +98,5 @@ When setting up a new lane:
 6. Save or sync the lane printer settings so browser/PWA print dispatch is allowlisted.
 7. Run **Check connection** for the receipt printer from the desktop app, or confirm the saved target from browser/POS mode.
 8. In POS Register Hardware, run **Print test** for the Epson receipt station and use **Open drawer** with an Access PIN and reason to verify the audited drawer path.
-9. Print a sample inventory tag and confirm it routes directly to the Zebra 2844 tag station, with browser preview used only as fallback.
+9. Print a sample inventory tag and confirm the success message names the Main Hub print server target and EPL/ZPL language, with browser preview used only as fallback.
 10. In the POS, verify that **Auto-Print** toggles are set according to staff preference.

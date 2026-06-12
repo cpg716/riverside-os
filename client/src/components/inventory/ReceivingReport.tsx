@@ -68,6 +68,10 @@ function dollars(v: number): string {
   return `$${Number(v).toFixed(2)}`;
 }
 
+function freightLineTotal(line: ReceivingEventLine): number {
+  return Number(line.landed_cost_component) * Number(line.quantity_received);
+}
+
 interface Props {
   receivingEventId: string;
   onClose: () => void;
@@ -121,6 +125,7 @@ export default function ReceivingReport({
         <td>${escapeHtml(l.product_name)}${l.variation_label ? ` — ${escapeHtml(l.variation_label)}` : ""}</td>
         <td class="r">${dollars(l.unit_cost)}</td>
         <td class="r">${dollars(l.line_total)}</td>
+        <td class="r">${dollars(freightLineTotal(l))}</td>
       </tr>`,
       )
       .join("");
@@ -157,7 +162,7 @@ export default function ReceivingReport({
           </div>
           <table>
             <thead>
-              <tr><th>Qty</th><th>SKU</th><th>Item</th><th class="r">Unit Cost</th><th class="r">Extended</th></tr>
+              <tr><th>Qty</th><th>SKU</th><th>Item</th><th class="r">Invoice Unit</th><th class="r">Merch Ext</th><th class="r">Freight Alloc.</th></tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>
@@ -189,7 +194,7 @@ export default function ReceivingReport({
 
   return createPortal(
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 font-sans">
-      <div className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-3xl border border-app-border bg-app-surface shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+      <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col rounded-3xl border border-app-border bg-app-surface shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300">
         {/* Header */}
         <header className="flex items-center justify-between border-b border-app-border bg-emerald-50 px-6 py-4">
           <div className="flex items-center gap-3">
@@ -294,10 +299,13 @@ export default function ReceivingReport({
                         Item
                       </th>
                       <th className="px-4 py-2.5 text-[9px] font-bold uppercase tracking-wider text-app-text-muted text-right">
-                        Unit Cost
+                        Invoice Unit
                       </th>
                       <th className="px-4 py-2.5 text-[9px] font-bold uppercase tracking-wider text-app-text-muted text-right">
-                        Extended
+                        Merch Ext
+                      </th>
+                      <th className="px-4 py-2.5 text-[9px] font-bold uppercase tracking-wider text-app-text-muted text-right">
+                        Freight Alloc.
                       </th>
                     </tr>
                   </thead>
@@ -326,6 +334,9 @@ export default function ReceivingReport({
                         </td>
                         <td className="px-4 py-2.5 text-right font-mono tabular-nums font-bold text-app-text">
                           {dollars(line.line_total)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-mono tabular-nums font-bold text-app-text">
+                          {dollars(freightLineTotal(line))}
                         </td>
                       </tr>
                     ))}

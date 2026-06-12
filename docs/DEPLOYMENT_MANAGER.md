@@ -232,8 +232,8 @@ As of v0.80.9, **routine updates no longer require the Deployment Manager**. All
 
 On the Main Hub station, **Settings → Updates → Server update** shows a live version status banner and a one-click update button. When clicked, the system:
 
-1. Downloads the latest Windows deployment ZIP from GitHub.
-2. Extracts it to a temporary directory.
+1. Downloads the Windows deployment ZIP for the version/build reported by the update check.
+2. Extracts it to a temporary directory and verifies `deployment-package.manifest.json` against the target build SHA before launching any elevated script.
 3. Runs `install-server.ps1`, `repair-bootstrap-admin.ps1`, and `install-register.ps1` elevated via UAC in a PowerShell window.
 4. **Automatically restarts the `Riverside OS Server` scheduled task** after install.
 5. Polls `GET /api/health` every 2 seconds (up to 60 s) and confirms the server is responding before printing "Update Complete".

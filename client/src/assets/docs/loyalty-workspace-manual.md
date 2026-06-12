@@ -39,13 +39,13 @@ Use this workspace to manage Riverside loyalty rewards, review reward readiness,
 
 At the top of the workspace, the summary cards show:
 - **Points On Accounts**: Total loyalty points currently sitting on customer accounts.
-- **Ready For Reward**: Customers who are at or above the reward threshold.
+- **Ready For Reward**: Customers who are at or above the reward threshold. Riverside enforces a 5,000-point minimum before a customer appears here.
 - **Reward Cards Issued**: Total number of loyalty reward cards issued.
 - **Recent Adjustments**: Manual loyalty adjustments in the last 30 days.
 
 ## Customers Ready For Reward
 
-This is the primary operational list. It shows customers who have reached the `loyalty_point_threshold`.
+This is the primary operational list. It shows customers who have reached the reward threshold. Customers must have at least 5,000 points before they are eligible for a reward gift card, even if an older install stored a lower threshold.
 
 ### Fulfillment Workflow
 1. **Refresh Eligible Customers**: Use the refresh button to pull the latest balances.

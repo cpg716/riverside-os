@@ -118,9 +118,12 @@ export async function loadLocalStationConfig(): Promise<RiversideStationConfig |
   return invoke<RiversideStationConfig | null>("load_station_config");
 }
 
-export async function downloadAndRunServerInstaller(version: string): Promise<string> {
+export async function downloadAndRunServerInstaller(
+  version: string,
+  buildSha?: string | null,
+): Promise<string> {
   if (!isTauri()) {
     throw new Error("Server installer can only be run from the desktop app.");
   }
-  return invoke<string>("download_and_run_server_installer", { version });
+  return invoke<string>("download_and_run_server_installer", { version, buildSha });
 }

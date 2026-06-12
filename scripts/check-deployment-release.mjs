@@ -107,6 +107,10 @@ for (const copy of [
   "runMainHubDesktopSequence: true",
   "wizardExecutionStatus === 'success'",
   "Install failed. Review or copy the execution log before retrying.",
+  "const MAIN_HUB_DATABASE_HOST = '127.0.0.1'",
+  "newConfig.server.database.host = MAIN_HUB_DATABASE_HOST",
+  "await saveMainHubConfig('main-hub')",
+  "disabled={role === 'main-hub'}",
 ]) {
   assertIncludes(managerApp, copy, "install execution step must be role-specific and visible");
 }
@@ -159,11 +163,14 @@ for (const copy of [
   "function Repair-PublicSerialSequences",
   "pg_get_serial_sequence",
   "Repair-PublicSerialSequences $PsqlPath $DatabaseUrl",
+  "function Resolve-MainHubDatabaseHost",
+  "$success = Test-PostgresReachable $dbHost $dbPort",
+  "Continuing so the installer can start, repair, or install local PostgreSQL.",
 ]) {
   assertIncludes(
     mainHubInstaller,
     copy,
-    "Main Hub installer must repair stale PostgreSQL sequences before applying pending migrations",
+    "Main Hub installer must repair stale PostgreSQL sequences and avoid raw database precheck socket failures",
   );
 }
 

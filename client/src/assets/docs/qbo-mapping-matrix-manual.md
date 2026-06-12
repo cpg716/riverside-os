@@ -22,11 +22,11 @@ The Mapping Matrix is the configuration engine that tells Riverside OS where to 
 
 ## What this is
 
-Use the **Mapping Matrix** to link Riverside categories, payment tenders, and required default accounts to your QuickBooks Online Chart of Accounts.
+Use the **Mapping Matrix** to link Riverside categories and payment tenders to your QuickBooks Online Chart of Accounts.
 
 ## What this is
 
-Use this matrix to map Riverside categories, tenders, and required default accounts to the correct QuickBooks Online chart-of-accounts records.
+Use this matrix to map Riverside categories and tenders to the correct QuickBooks Online chart-of-accounts records. Required default accounts are configured in the **Required default mappings** table directly below the matrix.
 
 ## Mapping categories
 
@@ -48,7 +48,7 @@ These are explicit accounts used by global financial logic:
 - **Merchant Processing Fees**: Map this to your "Merchant Fees" or "Bank Charges" expense account.
 - **Sales Tax**: Map to your "Sales Tax Payable" liability account.
 - **Shipping Expense**: Map to your outbound shipping freight account.
-- **Receiving Clearing**: Map `INV_RECEIVING_CLEARING` before relying on receiving or freight journal rows.
+- **Receiving clearing**: Map `INV_RECEIVING_CLEARING` before relying on receiving or freight journal rows. This is the receiving-clearing role used for same-day received merchandise and inbound freight distributions; inbound freight stays separate and is not added into item cost.
 - **Gift Card Breakage Income**: Map expired purchased-card breakage separately from normal sales revenue.
 
 ## How to map an account
@@ -56,7 +56,7 @@ These are explicit accounts used by global financial logic:
 1. Navigate to **Back Office → Settings → QBO Bridge → Mappings**.
 2. Locate the row you wish to update.
 3. Select the matching account from the **QBO Account** dropdown.
-4. Tapping "Save Matrix" will persist these mappings server-side for all future journal proposals.
+4. Tapping "Save Matrix" persists category, tender, and liability mappings. Required default mappings save from their own row controls below the matrix.
 
 ## Tips
 

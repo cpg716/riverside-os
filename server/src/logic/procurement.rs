@@ -2,7 +2,7 @@
 //!
 //! **Inventory / WAC:** Blended cost uses **invoice unit cost only** — freight is excluded from
 //! `cost_override` and WAC so inventory assets stay aligned with physical product cost; freight is
-//! carried separately (e.g. `inventory_transactions.landed_cost_component` → QBO expense).
+//! carried separately (legacy field `inventory_transactions.landed_cost_component` → QBO expense).
 
 use rust_decimal::Decimal;
 use rust_decimal::RoundingStrategy;
@@ -14,13 +14,13 @@ pub fn round_unit_cost(d: Decimal) -> Decimal {
     d.round_dp_with_strategy(4, RoundingStrategy::AwayFromZero)
 }
 
-/// Blended cost after receiving: \((Q_{old} \cdot C_{old}) + (Q_{new} \cdot C_{landed}) / (Q_{old} + Q_{new})\).
+/// Blended cost after receiving: \((Q_{old} \cdot C_{old}) + (Q_{new} \cdot C_{invoice}) / (Q_{old} + Q_{new})\).
 #[inline]
 pub fn weighted_average_cost(
     qty_on_hand_before: i32,
     cost_before: Decimal,
     qty_incoming: i32,
-    landed_unit_cost: Decimal,
+    invoice_unit_cost: Decimal,
 ) -> Option<Decimal> {
     if qty_incoming <= 0 {
         return None;
@@ -31,7 +31,7 @@ pub fn weighted_average_cost(
     if denom.is_zero() {
         return None;
     }
-    let numer = q_old * cost_before + q_new * landed_unit_cost;
+    let numer = q_old * cost_before + q_new * invoice_unit_cost;
     Some(round_unit_cost(numer / denom))
 }
 

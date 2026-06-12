@@ -370,7 +370,7 @@ export default function TagDesignerPanel() {
     try {
       const result = await openInventoryTagsWindow(TEST_PRINT_ITEMS, normalizedDraft);
       if (result.route === "direct") {
-        toast("Test tag sent to the tag station.", "success");
+        toast(`Test tag ${result.message}`, "success");
       } else {
         toast(result.message, "info");
       }

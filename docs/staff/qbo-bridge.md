@@ -29,7 +29,7 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 **Purpose:** Map ROS **accounts**, **products**, **tenders**, and **expense** paths to QBO entities.
 
-1. **Mappings** → work tab by tab. Map category revenue/inventory/COGS, Custom garment overrides, tenders, tax, deposit holding, gift card liability, loyalty expense, store credit liability, refund queue clearing, forfeited deposit income, alterations income, and shipping income. Map **Helcim card clearing** once for Helcim card, manual, vault, and web checkout tenders. If your store takes **R2S payment collections** on the register (**PAYMENT** line), ensure **ledger** includes **`RMS_R2S_PAYMENT_CLEARING`** (pass-through) and the **tender** matrix includes **Check** if you use checks — **[`../POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
+1. **Mappings** → work tab by tab. Map category revenue/inventory/COGS, Custom garment overrides, tenders, tax, deposit holding, gift card liability, loyalty expense, store credit liability, refund queue clearing, forfeited deposit income, alterations income, customer shipping income, receiving clearing, and supplier inbound freight. Map **Helcim card clearing** once for Helcim card, manual, vault, and web checkout tenders. If your store takes **R2S payment collections** on the register (**PAYMENT** line), ensure **ledger** includes **`RMS_R2S_PAYMENT_CLEARING`** (pass-through) and the **tender** matrix includes **Check** if you use checks — **[`../POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
 2. **Save** after each section; screenshot or export **before** large changes.
 3. Use the blank option to clear a wrong mapping, then save. Cleared mappings are removed from ROS and future staging will warn if that account is required.
 4. After mapping change, expect **new** staging rows to reflect the new chart.
@@ -38,12 +38,12 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 **Purpose:** Review **journal bundles** before they hit QBO.
 
-ROS does not post checkout-by-checkout revenue journals directly to QBO. Sales, tax, COGS, shipping income, deposits, returns, gift-card liability, tender clearing, and operational inventory movement flow through the reviewed **Daily QBO Staging Journal** so accounting has one clear approval point.
+ROS does not post checkout-by-checkout revenue journals directly to QBO. Sales, tax, COGS, customer shipping income, supplier inbound freight, deposits, returns, gift-card liability, tender clearing, and operational inventory movement flow through the reviewed **Daily QBO Staging Journal** so accounting has one clear approval point.
 
 1. **Staging** → sort by **date** or **status**.
 2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
 3. After **Z-Close**, ROS stages the daily journal for that business date. A background worker also auto-proposes the previous business date at 2 AM local time, so most days will already have a pending row when accounting opens. If the pending row already exists, staging refreshes it with the latest facts. If the day was already approved or synced and later activity changes the day, ROS creates a revision row for the same business date.
-4. Open a row → **drilldown** to lines; fix **unmapped** SKUs, shipping income, liability, clearing, or fallback accounts **before** approve. Operational inventory moves can now appear in the same journal preview: Receiving, Return to Vendor, Damaged, Physical Count, and Adjustments.
+4. Open a row → **drilldown** to lines; fix **unmapped** SKUs, customer shipping income, supplier freight, liability, clearing, or fallback accounts **before** approve. Operational inventory moves can now appear in the same journal preview: Receiving, Return to Vendor, Damaged, Physical Count, and Adjustments. Supplier freight from receiving stays separate from merchandise receiving and must not be added into item cost.
 5. Before approving a day with disputed fulfillment, loyalty, commission, tax, or receipt totals, confirm `reporting.transaction_status_integrity` has no ROS register issues for that window. Do not approve around a status mismatch until pickup / shipment workflow or IT repair resolves it.
 6. Before approving card-heavy days, use **Payments → Sync Fees** so the merchant-fee expense and clearing offset use API-returned fee data when Helcim has provided it. ROS does not estimate missing fees or net amounts.
 7. **Approve** only when totals match **ROS** expectations for that close.
@@ -70,7 +70,8 @@ Before pilot accounting relies on QBO posting, run these scenarios in the QBO sa
 | Completed-sale void day | Original sale remains traceable, void record is explainable, refund/reversal evidence clears correctly, and any revision row is reviewed before approval. | |
 | Exchange with replacement sale | Return and replacement effects are understandable and traceable. | |
 | Deposit/open balance activity | Deposit liability and relief behavior matches the transaction detail. | |
-| Shipping income | Shipping income maps to the configured account. | |
+| Customer shipping income | Customer-paid shipping maps to the configured shipping income account and is not supplier freight. | |
+| Supplier inbound freight | Freight paid on vendor receiving maps to supplier freight expense and receiving clearing, separate from merchandise item cost. | |
 | Operational inventory moves | Receiving, RTV, Damaged, Physical Count, and Adjustments appear with the expected inventory / clearing / shrinkage mapping. | |
 | Warning-bearing journal | Accounting reviews warnings before approval; warnings are not ignored because the journal balances. | |
 | Failed sync and retry | Failed row remains visible, error is assigned, and retry does not create an unexplained duplicate. | |

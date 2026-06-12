@@ -190,7 +190,10 @@ export default function UpdateManagerPanel() {
     try {
       setUpdateLog(l => [...l, "Downloading deployment package from GitHub..."]);
       setUpdateStep("extracting");
-      const msg = await downloadAndRunServerInstaller(targetVersion);
+      const msg = await downloadAndRunServerInstaller(
+        targetVersion,
+        serverUpdateCheck?.latest_build_sha ?? null,
+      );
       setUpdateStep("running_installer");
       setUpdateLog(l => [...l, msg]);
       setUpdateStep("done");
@@ -637,9 +640,9 @@ export default function UpdateManagerPanel() {
                 <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-3 space-y-1.5">
                   {([
                     ["downloading", "Downloading deployment package"],
-                    ["extracting", "Extracting package"],
-                    ["running_installer", "Installing Main Hub: server, app files, migrations, ROSIE"],
-                    ["done", "Server ready — relaunch Riverside on all stations"],
+                    ["extracting", "Extracting and verifying package build"],
+                    ["running_installer", "Launching elevated Main Hub update runner"],
+                    ["done", "Update runner launched — follow the elevated window"],
                   ] as [UpdateStep, string][]).map(([s, label]) => {
                     const steps: UpdateStep[] = ["downloading", "extracting", "running_installer", "done"];
                     const idx = steps.indexOf(s);

@@ -334,19 +334,6 @@ export default function QboMappingMatrix({
                 placeholder="6200 · Marketing expense"
               />
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Inventory invoice holding
-              </label>
-              <AccountSelect
-                valueId={mappings.invoice_holding?.qbo_account_id ?? ""}
-                accounts={accounts}
-                onPick={(id, name) =>
-                  updateMapping("invoice_holding", id, name)
-                }
-                placeholder="2040 · Accrued vendor invoice"
-              />
-            </div>
             <div className="border-t border-app-border pt-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Operational income & liability accounts

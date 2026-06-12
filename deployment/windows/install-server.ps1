@@ -217,6 +217,18 @@ function Test-PostgresReachable([string]$DbHost, [int]$DbPort) {
   }
 }
 
+function Resolve-MainHubDatabaseHost([string]$DbHost) {
+  $value = "$DbHost".Trim()
+  if ([string]::IsNullOrWhiteSpace($value)) {
+    return "127.0.0.1"
+  }
+  if ($value -ne "127.0.0.1" -and $value -ne "localhost" -and $value -ne "::1") {
+    Write-Warning "Database host was '$value'. Main Hub PostgreSQL uses local host 127.0.0.1."
+    return "127.0.0.1"
+  }
+  return "127.0.0.1"
+}
+
 function Ensure-PostgresServiceRunning {
   $dbHost = "127.0.0.1"
   $dbPort = 5432
@@ -1151,6 +1163,13 @@ if (Test-PlaceholderSecret $config.server.database.appPassword) {
   $dbPort = $config.server.database.port
   $dbUser = $config.server.database.adminUser
   if ([string]::IsNullOrWhiteSpace($dbHost)) { $dbHost = "127.0.0.1" }
+  $resolvedDbHost = Resolve-MainHubDatabaseHost $dbHost
+  if ($resolvedDbHost -ne $dbHost) {
+    Set-SafeProperty $config.server.database "host" $resolvedDbHost
+    $configModified = $true
+    $dbHost = $resolvedDbHost
+    Write-Host "Repaired Main Hub database host to $dbHost." -ForegroundColor Green
+  }
   if (-not $dbPort) { $dbPort = 5432 }
   if ([string]::IsNullOrWhiteSpace($dbUser)) { $dbUser = "postgres" }
 
@@ -1161,13 +1180,8 @@ if (Test-PlaceholderSecret $config.server.database.appPassword) {
   }
 
   Write-Host "Verifying database connection details..."
-  $tcpClient = New-Object System.Net.Sockets.TcpClient
-  $connect = $tcpClient.BeginConnect($dbHost, $dbPort, $null, $null)
-  $success = $connect.AsyncWaitHandle.WaitOne(1000, $false)
+  $success = Test-PostgresReachable $dbHost $dbPort
   if ($success) {
-    $tcpClient.EndConnect($connect)
-    $tcpClient.Close()
-
     $authenticated = $false
     $currentPwd = $config.server.database.adminPassword
     if (Test-PlaceholderSecret $currentPwd) { $currentPwd = "" }
@@ -1226,6 +1240,8 @@ if (Test-PlaceholderSecret $config.server.database.appPassword) {
       Start-Process notepad.exe $ConfigPath
       throw "Database password missing in config. Please update server.database.adminPassword in $ConfigPath"
     }
+  } else {
+    Write-Warning "PostgreSQL is not reachable on $dbHost`:$dbPort during credential precheck. Continuing so the installer can start, repair, or install local PostgreSQL."
   }
 
 if ($configModified) {

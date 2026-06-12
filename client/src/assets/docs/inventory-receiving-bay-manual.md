@@ -59,6 +59,8 @@ Before posting, unreceived lines can be corrected for ordered quantity and invoi
 
 Unit cost and freight fields accept typed decimal amounts from the invoice paperwork. Enter the exact invoice cost before posting.
 
+Posted receiving reports show invoice unit cost, merchandise extended total, and freight allocation as separate values. Freight is not added into item cost; QBO distribution and sync review post inbound freight separately from merchandise receiving.
+
 ## Stale paperwork
 
 If the latest vendor paperwork cannot refresh but previously loaded rows remain visible, Riverside OS warns that the paperwork may not be current and that it is showing the last successfully loaded results.

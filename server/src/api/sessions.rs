@@ -1714,7 +1714,7 @@ async fn build_reconciliation(
             it.quantity_delta,
             it.unit_cost,
             ROUND(
-                ((COALESCE(it.unit_cost, 0) + COALESCE(it.landed_cost_component, 0)) * it.quantity_delta::numeric),
+                (COALESCE(it.unit_cost, 0) * it.quantity_delta::numeric),
                 2
             )::numeric AS value_delta,
             it.reference_table,

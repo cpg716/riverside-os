@@ -485,6 +485,8 @@ ROS stores this in the `counterpoint_bridge_heartbeat` singleton table and deriv
 | **SYNCING** | Token configured, heartbeat fresh, phase = `syncing` (shows current entity) |
 | **OFFLINE** | Token not configured **or** no heartbeat in the last 2 minutes |
 
+The Main Hub **Counterpoint → Command center** shows a dedicated **Bridge connection status** block for this status. It separates the Bridge app listening on the Counterpoint workstation from ROS accepting that Bridge. If the Bridge console says the local API is listening but Main Hub shows **Token missing** or **No accepted heartbeat**, save the Counterpoint sync token in Back Office Settings and make sure the same value is in the Bridge `.env` for the exact `ROS_BASE_URL` shown on the Bridge host.
+
 **Polling Stability:** To prevent console spam when the shop is closed (bridge unreachable), the Back Office Settings UI will stop automatic polling after **3 consecutive failures**. Use the **"Reconnect to Bridge"** button to resume monitoring once you are back in the store.
 
 ---

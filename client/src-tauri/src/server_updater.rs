@@ -38,6 +38,178 @@ struct GithubRelease {
     assets: Vec<GithubAsset>,
 }
 
+fn normalized_build_short(value: &str) -> Option<String> {
+    let cleaned = value
+        .trim()
+        .trim_start_matches('+')
+        .trim()
+        .to_ascii_lowercase();
+    if cleaned.is_empty() || cleaned == "unknown" || cleaned == "dev" {
+        return None;
+    }
+    Some(cleaned.chars().take(8).collect())
+}
+
+fn select_deployment_asset(
+    assets: Vec<GithubAsset>,
+    tag_name: &str,
+    target_build_short: Option<&str>,
+) -> Result<GithubAsset, String> {
+    let mut deployment_assets: Vec<GithubAsset> = assets
+        .into_iter()
+        .filter(|asset| asset.name.ends_with("-Windows-Deployment.zip"))
+        .collect();
+
+    if deployment_assets.is_empty() {
+        return Err(format!(
+            "Could not find Windows Deployment ZIP asset in release tag {}",
+            tag_name
+        ));
+    }
+
+    if let Some(target_build_short) = target_build_short {
+        if let Some(index) = deployment_assets
+            .iter()
+            .position(|asset| asset.name.to_ascii_lowercase().contains(target_build_short))
+        {
+            return Ok(deployment_assets.remove(index));
+        }
+
+        let names = deployment_assets
+            .iter()
+            .map(|asset| asset.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "Release {} does not contain a Windows Deployment ZIP for build {}. Available deployment assets: {}",
+            tag_name, target_build_short, names
+        ));
+    }
+
+    deployment_assets.into_iter().next().ok_or_else(|| {
+        format!("Could not find Windows Deployment ZIP asset in release tag {tag_name}")
+    })
+}
+
+fn find_deployment_manifest(script_dir: &Path, extraction_dir: &Path) -> Option<PathBuf> {
+    let manifest_name = "deployment-package.manifest.json";
+    let mut current = Some(script_dir);
+    while let Some(dir) = current {
+        let candidate = dir.join(manifest_name);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        if dir == extraction_dir {
+            break;
+        }
+        current = dir.parent();
+    }
+    None
+}
+
+fn verify_deployment_package_build(
+    script_dir: &Path,
+    extraction_dir: &Path,
+    target_build_sha: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(target_build_short) = target_build_sha.and_then(normalized_build_short) else {
+        return Ok(None);
+    };
+
+    let manifest_path =
+        find_deployment_manifest(script_dir, extraction_dir).ok_or_else(|| {
+            "Deployment package is missing deployment-package.manifest.json; refusing to run an unverifiable Main Hub update."
+                .to_string()
+        })?;
+
+    let raw = std::fs::read_to_string(&manifest_path).map_err(|e| {
+        format!(
+            "Could not read deployment package manifest {}: {e}",
+            manifest_path.display()
+        )
+    })?;
+    let manifest: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
+        format!(
+            "Could not parse deployment package manifest {}: {e}",
+            manifest_path.display()
+        )
+    })?;
+
+    let actual_build = manifest
+        .get("sourceGitSha")
+        .and_then(|value| value.as_str())
+        .or_else(|| {
+            manifest
+                .get("sourceGitShort")
+                .and_then(|value| value.as_str())
+        })
+        .ok_or_else(|| {
+            format!(
+                "Deployment package manifest {} does not include sourceGitSha/sourceGitShort.",
+                manifest_path.display()
+            )
+        })?;
+
+    let actual_build_short = normalized_build_short(actual_build).ok_or_else(|| {
+        format!(
+            "Deployment package manifest {} has an invalid source build '{}'.",
+            manifest_path.display(),
+            actual_build
+        )
+    })?;
+
+    if actual_build_short != target_build_short {
+        return Err(format!(
+            "Deployment package build mismatch. Expected {}, package contains {}. Refusing to run the Main Hub update.",
+            target_build_short, actual_build_short
+        ));
+    }
+
+    Ok(Some(actual_build_short))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{select_deployment_asset, GithubAsset};
+
+    fn asset(name: &str) -> GithubAsset {
+        GithubAsset {
+            name: name.to_string(),
+            browser_download_url: format!("https://example.invalid/{name}"),
+        }
+    }
+
+    #[test]
+    fn deployment_asset_selection_prefers_target_build_sha() {
+        let selected = select_deployment_asset(
+            vec![
+                asset("RiversideOS-v0.90.0-14c3164-Windows-Deployment.zip"),
+                asset("RiversideOS-v0.90.0-e96a3e5-Windows-Deployment.zip"),
+            ],
+            "v0.90.0",
+            Some("e96a3e5"),
+        )
+        .expect("expected matching deployment asset");
+
+        assert_eq!(
+            selected.name,
+            "RiversideOS-v0.90.0-e96a3e5-Windows-Deployment.zip"
+        );
+    }
+
+    #[test]
+    fn deployment_asset_selection_rejects_missing_target_build_sha() {
+        let err = select_deployment_asset(
+            vec![asset("RiversideOS-v0.90.0-14c3164-Windows-Deployment.zip")],
+            "v0.90.0",
+            Some("e96a3e5"),
+        )
+        .expect_err("missing exact build should fail");
+
+        assert!(err.contains("does not contain a Windows Deployment ZIP for build e96a3e5"));
+    }
+}
+
 #[command]
 pub fn check_server_local_status() -> Result<ServerLocalStatus, String> {
     // Default install root — overridden if the config file specifies otherwise.
@@ -81,10 +253,14 @@ pub fn check_server_local_status() -> Result<ServerLocalStatus, String> {
 }
 
 #[command]
-pub async fn download_and_run_server_installer(version: String) -> Result<String, String> {
+pub async fn download_and_run_server_installer(
+    version: String,
+    build_sha: Option<String>,
+) -> Result<String, String> {
     #[cfg(not(windows))]
     {
         let _version = version;
+        let _build_sha = build_sha;
         Err("Main Hub updates can only be executed on the Windows Main Hub.".to_string())
     }
 
@@ -121,16 +297,10 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
             .await
             .map_err(|e| format!("Failed to parse GitHub release JSON: {e}"))?;
 
-        let asset = release
-            .assets
-            .into_iter()
-            .find(|a| a.name.ends_with("-Windows-Deployment.zip"))
-            .ok_or_else(|| {
-                format!(
-                    "Could not find Windows Deployment ZIP asset in release tag {}",
-                    tag_name
-                )
-            })?;
+        let target_build_short = build_sha.as_deref().and_then(normalized_build_short);
+        let asset =
+            select_deployment_asset(release.assets, &tag_name, target_build_short.as_deref())?;
+        let asset_name = asset.name.clone();
 
         let download_url = asset.browser_download_url;
 
@@ -251,6 +421,9 @@ pub async fn download_and_run_server_installer(version: String) -> Result<String
                 );
             }
         }
+
+        let verified_build =
+            verify_deployment_package_build(&script_dir, &extraction_dir, build_sha.as_deref())?;
 
         let runner_script_path = temp_dir.join("update-runner.ps1");
         let runner_log_path = temp_dir.join("main-hub-update-transcript.txt");
@@ -408,7 +581,12 @@ Read-Host 'Press Enter to close this window'
         }
 
         Ok(format!(
-            "Main Hub update launched. If the elevated PowerShell window is not visible, run {} manually. Transcript: {}. Relaunch Riverside when the update completes.",
+            "Main Hub update launched from {}{} If the elevated PowerShell window is not visible, run {} manually. Transcript: {}. Relaunch Riverside when the update completes.",
+            asset_name,
+            verified_build
+                .as_deref()
+                .map(|build| format!(" (verified build {build})."))
+                .unwrap_or_else(|| ". ".to_string()),
             runner_script_path.display(),
             runner_log_path.display()
         ))

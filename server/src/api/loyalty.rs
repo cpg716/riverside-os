@@ -28,6 +28,12 @@ use crate::auth::permissions::{
 use crate::auth::pins::{self, log_staff_access};
 use crate::middleware;
 
+const LOYALTY_REWARD_MINIMUM_POINTS: i32 = 5_000;
+
+fn effective_loyalty_point_threshold(raw_threshold: i32) -> i32 {
+    raw_threshold.max(LOYALTY_REWARD_MINIMUM_POINTS)
+}
+
 #[derive(Debug, Error)]
 pub enum LoyaltyError {
     #[error("Database error: {0}")]
@@ -118,7 +124,7 @@ async fn loyalty_settings_from_db(state: &AppState) -> Result<Json<LoyaltySettin
     .await?;
 
     Ok(Json(LoyaltySettings {
-        loyalty_point_threshold: row.0,
+        loyalty_point_threshold: effective_loyalty_point_threshold(row.0),
         loyalty_reward_amount: row.1,
         points_per_dollar: crate::logic::loyalty::POINTS_PER_DOLLAR,
         loyalty_letter_template: row.2,
@@ -151,10 +157,10 @@ async fn patch_settings(
 ) -> Result<Json<LoyaltySettings>, LoyaltyError> {
     require_loyalty_program_settings(&state, &headers).await?;
     if let Some(t) = body.loyalty_point_threshold {
-        if t <= 0 {
-            return Err(LoyaltyError::InvalidPayload(
-                "loyalty_point_threshold must be positive".to_string(),
-            ));
+        if t < LOYALTY_REWARD_MINIMUM_POINTS {
+            return Err(LoyaltyError::InvalidPayload(format!(
+                "loyalty_point_threshold must be at least {LOYALTY_REWARD_MINIMUM_POINTS}"
+            )));
         }
         sqlx::query("UPDATE store_settings SET loyalty_point_threshold = $1 WHERE id = 1")
             .bind(t)
@@ -219,6 +225,7 @@ async fn monthly_eligible(
         sqlx::query_scalar("SELECT loyalty_point_threshold FROM store_settings WHERE id = 1")
             .fetch_one(&state.db)
             .await?;
+    let threshold = effective_loyalty_point_threshold(threshold);
 
     let use_month_filter = q.year.is_some() && q.month.is_some();
     let limit = q.limit.unwrap_or(200).clamp(1, 500);
@@ -495,6 +502,7 @@ async fn redeem_reward(
     )
     .fetch_one(&state.db)
     .await?;
+    let threshold = effective_loyalty_point_threshold(threshold);
 
     if threshold <= 0 || reward_amount_per_threshold <= Decimal::ZERO {
         return Err(LoyaltyError::InvalidPayload(
@@ -922,6 +930,7 @@ async fn get_loyalty_pipeline_stats(
         sqlx::query_scalar("SELECT loyalty_point_threshold FROM store_settings WHERE id = 1")
             .fetch_one(&state.db)
             .await?;
+    let threshold = effective_loyalty_point_threshold(threshold);
 
     let stats = sqlx::query(
         r#"
@@ -950,6 +959,14 @@ async fn get_loyalty_pipeline_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loyalty_threshold_never_drops_below_reward_floor() {
+        assert_eq!(effective_loyalty_point_threshold(1), 5_000);
+        assert_eq!(effective_loyalty_point_threshold(1_000), 5_000);
+        assert_eq!(effective_loyalty_point_threshold(5_000), 5_000);
+        assert_eq!(effective_loyalty_point_threshold(7_500), 7_500);
+    }
 
     #[test]
     fn redemption_contract_requires_zero_immediate_use() {

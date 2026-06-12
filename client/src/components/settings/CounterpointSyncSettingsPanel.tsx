@@ -1248,6 +1248,23 @@ export default function CounterpointSyncSettingsPanel({
   const commandSentTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.sentByBridge ?? 0), 0);
   const commandLandedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.landedCount), 0);
   const commandBlockedRows = commandCenterRows.filter((row) => row.status === "blocked" || row.landedStatus === "Lower").length;
+  const counterpointTokenConfigured = status?.token_configured ?? commandCenter?.token_configured ?? false;
+  const bridgeRuntimeState = status?.windows_sync_state ?? "offline";
+  const bridgeConnectionLabel = !counterpointTokenConfigured
+    ? "Token missing"
+    : bridgeRuntimeState === "online"
+      ? "Bridge online"
+      : bridgeRuntimeState === "syncing"
+        ? "Bridge syncing"
+        : "Bridge offline";
+  const bridgeConnectionClass = counterpointTokenConfigured && bridgeRuntimeState !== "offline"
+    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
+    : "border-red-500/25 bg-red-500/10 text-red-600";
+  const bridgeHost = status?.bridge_hostname ?? commandCenter?.latest_preflight?.bridge_hostname ?? null;
+  const bridgeVersion = status?.bridge_version ?? commandCenter?.latest_preflight?.bridge_version ?? null;
+  const bridgeRuntimeNote = !counterpointTokenConfigured
+    ? "NO-GO - Counterpoint sync token is not configured in Back Office Settings. The Bridge can listen locally, but ROS will reject health, heartbeat, preflight, and import requests until the saved ROS token matches the Bridge .env token."
+    : status?.offline_reason ?? "ROS has accepted a recent Counterpoint Bridge heartbeat.";
   const stagingSummaryRows = [...stagingCountsByEntity.values()]
     .filter((row) => row.pending_rows > 0 || row.applying_rows > 0 || row.applied_rows > 0)
     .sort((a, b) => a.entity.localeCompare(b.entity));
@@ -1274,6 +1291,49 @@ export default function CounterpointSyncSettingsPanel({
         }`}>
           {commandCenter?.ready_for_import ? "Preflight passed" : "Preflight blocked"}
         </span>
+      </div>
+
+      <div
+        className={`rounded-lg border p-3 ${bridgeConnectionClass}`}
+        data-testid="counterpoint-bridge-connection-status"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest">
+              Bridge connection status
+            </p>
+            <p className="mt-1 text-xs font-semibold">
+              {bridgeRuntimeNote}
+            </p>
+          </div>
+          <span className="ui-pill border border-app-border bg-app-bg/70 text-[10px]">
+            {bridgeConnectionLabel}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 text-xs md:grid-cols-5">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Token</p>
+            <p className="mt-1 font-bold text-app-text">{counterpointTokenConfigured ? "Configured" : "Missing"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Heartbeat</p>
+            <p className="mt-1 font-bold text-app-text">{status?.last_seen_at ? formatDate(status.last_seen_at) : "No accepted heartbeat"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge host</p>
+            <p className="mt-1 font-bold text-app-text">{bridgeHost ?? "Unknown"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Phase</p>
+            <p className="mt-1 font-bold text-app-text">
+              {status?.current_entity ? `${status.bridge_phase} - ${status.current_entity}` : status?.bridge_phase ?? "idle"}
+            </p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge version</p>
+            <p className="mt-1 font-bold text-app-text">{bridgeVersion ?? "Not reported"}</p>
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">

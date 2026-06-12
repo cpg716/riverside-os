@@ -5,6 +5,7 @@ import { sessionPollAuthHeaders } from "./posRegisterAuth";
 
 export type PrintDocType = "receipt" | "tag" | "report";
 export type ThermalPrinterLanguage = "zpl" | "epl";
+export type PrintHubFormat = "text" | "raw_text" | "raw_base64" | "raw_escpos_base64";
 
 export const TAG_PRINTER_LANGUAGE_KEY = "ros.hardware.printer.tag.language";
 
@@ -28,6 +29,14 @@ export type HardwarePrinterTarget =
       mode: "system";
       printerName: string;
     };
+
+export type PrintHubResult = {
+  status: string;
+  station: PrintDocType;
+  route: "network" | "system";
+  target: string;
+  bytes?: number;
+};
 
 const printerModeKey = (type: PrintDocType) => `ros.hardware.printer.${type}.mode`;
 const printerSystemNameKey = (type: PrintDocType) =>
@@ -127,6 +136,114 @@ export function describePrinterTarget(target: HardwarePrinterTarget) {
     return target.printerName ? target.printerName : "No installed printer selected";
   }
   return `${target.ip}:${target.port}`;
+}
+
+function stationPrintBody(
+  station: PrintDocType,
+  target: HardwarePrinterTarget,
+  payload: string,
+  format: PrintHubFormat,
+) {
+  if (station === "tag" && isLoopbackNetworkTarget(target)) {
+    return {
+      station,
+      payload,
+      format,
+    };
+  }
+
+  if (target.mode === "system") {
+    return {
+      station,
+      mode: "system",
+      printer_name: requireSystemPrinterName(target),
+      payload,
+      format,
+    };
+  }
+
+  const networkTarget = normalizeNetworkTarget(target);
+  return {
+    station,
+    mode: "network",
+    ip: networkTarget.ip,
+    port: networkTarget.port,
+    payload,
+    format,
+  };
+}
+
+function isLoopbackNetworkTarget(target: HardwarePrinterTarget) {
+  return (
+    target.mode === "network" &&
+    ["127.0.0.1", "localhost", "::1", "[::1]"].includes(target.ip.trim())
+  );
+}
+
+export async function printViaMainHubPrintServer(
+  station: PrintDocType,
+  payload: string,
+  target: HardwarePrinterTarget = resolvePrinterTarget(station),
+  format: PrintHubFormat = "text",
+): Promise<PrintHubResult> {
+  const headers = sessionPollAuthHeaders();
+  if (!hasStationPrintAuth(headers)) {
+    throw new Error("Sign in before sending a print job to the Main Hub print server.");
+  }
+
+  const res = await fetch(`${getBaseUrl()}/api/hardware/print-station`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(stationPrintBody(station, target, payload, format)),
+  });
+  const body = (await res.json().catch(() => ({}))) as Partial<PrintHubResult> & { error?: string };
+  if (!res.ok) {
+    throw new Error(body.error || `Main Hub print server rejected the ${station} job.`);
+  }
+  if (!body.target || !body.route || !body.status) {
+    throw new Error("Main Hub print server returned an invalid print response.");
+  }
+  return body as PrintHubResult;
+}
+
+export async function checkMainHubPrintServerTarget(
+  station: PrintDocType,
+  target: HardwarePrinterTarget = resolvePrinterTarget(station),
+): Promise<PrintHubResult> {
+  const headers = sessionPollAuthHeaders();
+  if (!hasStationPrintAuth(headers)) {
+    throw new Error("Sign in before checking the Main Hub print server.");
+  }
+
+  const body = stationPrintBody(station, target, "", "text");
+  const res = await fetch(`${getBaseUrl()}/api/hardware/check-station-printer`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Partial<PrintHubResult> & { error?: string };
+  if (!res.ok) {
+    throw new Error(data.error || `Main Hub print server could not reach the ${station} printer.`);
+  }
+  if (!data.target || !data.route || !data.status) {
+    throw new Error("Main Hub print server returned an invalid printer check response.");
+  }
+  return data as PrintHubResult;
+}
+
+function hasStationPrintAuth(headers: Record<string, string>) {
+  return Boolean(
+    ((headers["x-riverside-staff-code"] ?? "").trim() &&
+      (headers["x-riverside-staff-pin"] ?? "").trim()) ||
+      ((headers["x-riverside-pos-session-id"] ?? "").trim() &&
+        (headers["x-riverside-pos-session-token"] ?? "").trim()),
+  );
 }
 
 function requireSystemPrinterName(target: Extract<HardwarePrinterTarget, { mode: "system" }>) {
@@ -377,6 +494,10 @@ export async function autoRoutePrint(
   }
   if (target.mode === "network" && !target.ip) {
     throw new Error(`No printer address configured for ${type} documents.`);
+  }
+
+  if (type === "tag") {
+    return printViaMainHubPrintServer(type, payload, target, "text");
   }
 
   if (format === "zpl" || format === "epl") {

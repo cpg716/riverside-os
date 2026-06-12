@@ -82,4 +82,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("079_counterpoint_transition_review_packs.sql", include_str!("../../migrations/079_counterpoint_transition_review_packs.sql")),
     ("080_counterpoint_payment_method_aliases.sql", include_str!("../../migrations/080_counterpoint_payment_method_aliases.sql")),
     ("081_counterpoint_import_first_proof.sql", include_str!("../../migrations/081_counterpoint_import_first_proof.sql")),
+    ("082_loyalty_reward_threshold_floor.sql", include_str!("../../migrations/082_loyalty_reward_threshold_floor.sql")),
 ];
