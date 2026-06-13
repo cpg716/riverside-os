@@ -245,13 +245,13 @@ export default function GlobalTopBar({
         {/* Global Action Cluster */}
         <div className="flex items-center gap-1.5 border-r border-app-border pr-2 sm:gap-2 sm:pr-3 md:mr-1">
           {onOpenRosie ? <RosieTriggerButton onOpen={onOpenRosie} /> : null}
-          {onOpenHelp ? <HelpCenterTriggerButton onOpen={onOpenHelp} /> : null}
-          {onOpenBugReport ? <BugReportTriggerButton onOpen={onOpenBugReport} /> : null}
+          {onOpenHelp ? <HelpCenterTriggerButton onOpen={onOpenHelp} className="hidden min-[480px]:inline-flex" /> : null}
+          {onOpenBugReport ? <BugReportTriggerButton onOpen={onOpenBugReport} className="hidden min-[480px]:inline-flex" /> : null}
 
           <button
             type="button"
             onClick={onThemeToggle}
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-2xl text-app-text-muted transition-all hover:bg-app-surface-2 hover:text-app-text active:scale-95"
+            className="hidden min-h-11 min-w-11 items-center justify-center rounded-2xl text-app-text-muted transition-all hover:bg-app-surface-2 hover:text-app-text active:scale-95 min-[480px]:flex"
             aria-label={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
             title={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
           >

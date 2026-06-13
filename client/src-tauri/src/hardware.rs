@@ -252,9 +252,16 @@ try {
         "riverside-report-{}-{timestamp}.txt",
         std::process::id()
     ));
+    let script_path = std::env::temp_dir().join(format!(
+        "riverside-report-print-{}-{timestamp}.ps1",
+        std::process::id()
+    ));
     fs::write(&path, content).map_err(|e| format!("Could not prepare report print file: {e}"))?;
+    fs::write(&script_path, REPORT_PRINT_SCRIPT)
+        .map_err(|e| format!("Could not prepare report print script: {e}"))?;
 
     let path_arg = path.to_string_lossy().to_string();
+    let script_arg = script_path.to_string_lossy().to_string();
     let output = Command::new("powershell")
         .creation_flags(CREATE_NO_WINDOW)
         .args([
@@ -262,8 +269,8 @@ try {
             "-NonInteractive",
             "-ExecutionPolicy",
             "Bypass",
-            "-Command",
-            REPORT_PRINT_SCRIPT,
+            "-File",
+            script_arg.as_str(),
             printer_name,
             path_arg.as_str(),
         ])
@@ -271,6 +278,7 @@ try {
         .map_err(|e| format!("Could not start Windows report print: {e}"));
 
     let _ = fs::remove_file(&path);
+    let _ = fs::remove_file(&script_path);
 
     let output = output?;
     if output.status.success() {

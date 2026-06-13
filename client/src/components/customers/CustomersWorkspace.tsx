@@ -2453,86 +2453,6 @@ export function AddCustomerDrawer({
             </p>
           ) : null}
 
-          {(dupLoading || nameNeedsPhoneReview || dupCandidates.length > 0) && (
-            <div
-              className="rounded-lg border border-app-warning/35 bg-app-warning/10 p-3"
-              data-testid="crm-duplicate-candidates"
-            >
-              <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-warning">
-                <ShieldCheck size={14} />
-                Duplicate review
-              </div>
-              {dupLoading ? (
-                <p className="text-xs font-semibold text-app-text-muted">
-                  Checking customer matches...
-                </p>
-              ) : nameNeedsPhoneReview ? (
-                <p className="rounded-lg border border-app-warning/30 bg-app-surface px-3 py-2 text-xs font-semibold text-app-text">
-                  This name already exists. Enter a phone number first so we can
-                  check for a direct phone match before showing same-name
-                  profiles.
-                </p>
-              ) : (
-                <ul className="space-y-2 text-xs text-app-text">
-                  {dupCandidates.map((c) => (
-                    <li
-                      key={c.id}
-                      className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <p className="font-black text-app-text">
-                            {[c.first_name, c.last_name]
-                              .filter(Boolean)
-                              .join(" ") || "(no name)"}
-                          </p>
-                          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                            {c.customer_code}
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-app-warning/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
-                          {duplicateReasonLabel(c.match_reason)}
-                        </span>
-                      </div>
-                      <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                        <div>
-                          <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                            Phone
-                          </dt>
-                          <dd className="font-semibold text-app-text">
-                            {c.phone || "No phone"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                            Email
-                          </dt>
-                          <dd className="break-all font-semibold text-app-text">
-                            {c.email || "No email"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                            Address
-                          </dt>
-                          <dd className="font-semibold text-app-text">
-                            {formatDuplicateAddress(c) || "No address"}
-                          </dd>
-                        </div>
-                      </dl>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {!dupLoading && dupCandidates.length > 0 ? (
-                <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
-                  If this is the same person, review the existing profile and
-                  update contact details there instead of creating a duplicate.
-                </p>
-              ) : null}
-            </div>
-          )}
-
           <section className="rounded-xl border border-app-border bg-app-surface p-3 shadow-sm">
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
               <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -2626,6 +2546,86 @@ export function AddCustomerDrawer({
               </label>
             </div>
           </section>
+
+          {(dupLoading || nameNeedsPhoneReview || dupCandidates.length > 0) && (
+            <div
+              className="rounded-lg border border-app-warning/35 bg-app-warning/10 p-3"
+              data-testid="crm-duplicate-candidates"
+            >
+              <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-warning">
+                <ShieldCheck size={14} />
+                Duplicate review
+              </div>
+              {dupLoading ? (
+                <p className="text-xs font-semibold text-app-text-muted">
+                  Checking customer matches...
+                </p>
+              ) : nameNeedsPhoneReview ? (
+                <p className="rounded-lg border border-app-warning/30 bg-app-surface px-3 py-2 text-xs font-semibold text-app-text">
+                  This name already exists. Enter a phone number first so we can
+                  check for a direct phone match before showing same-name
+                  profiles.
+                </p>
+              ) : (
+                <ul className="max-h-56 space-y-2 overflow-y-auto pr-1 text-xs text-app-text">
+                  {dupCandidates.map((c) => (
+                    <li
+                      key={c.id}
+                      className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-black text-app-text">
+                            {[c.first_name, c.last_name]
+                              .filter(Boolean)
+                              .join(" ") || "(no name)"}
+                          </p>
+                          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                            {c.customer_code}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-app-warning/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
+                          {duplicateReasonLabel(c.match_reason)}
+                        </span>
+                      </div>
+                      <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <div>
+                          <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Phone
+                          </dt>
+                          <dd className="font-semibold text-app-text">
+                            {c.phone || "No phone"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Email
+                          </dt>
+                          <dd className="break-all font-semibold text-app-text">
+                            {c.email || "No email"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Address
+                          </dt>
+                          <dd className="font-semibold text-app-text">
+                            {formatDuplicateAddress(c) || "No address"}
+                          </dd>
+                        </div>
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!dupLoading && dupCandidates.length > 0 ? (
+                <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
+                  If this is the same person, review the existing profile and
+                  update contact details there instead of creating a duplicate.
+                </p>
+              ) : null}
+            </div>
+          )}
 
           <section
             className="space-y-2 rounded-xl border border-app-border bg-app-surface p-3 shadow-sm"

@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { getBaseUrl } from "../../lib/apiConfig";
 import {
-  TAG_PRINTER_LANGUAGE_KEY,
+  RIVERSIDE_TAG_PRINTER_LANGUAGE,
+  RIVERSIDE_TAG_PRINTER_NAME,
   checkReceiptPrinterConnection,
   describePrinterTarget,
   listSystemPrinters,
@@ -127,7 +128,6 @@ export default function PrintersAndScannersPanel({
             ),
           ],
         ]),
-        [TAG_PRINTER_LANGUAGE_KEY, getStored(TAG_PRINTER_LANGUAGE_KEY, "")],
       ]) as Record<string, string>,
     [],
   );
@@ -305,11 +305,7 @@ export default function PrintersAndScannersPanel({
   const tagPrinter = resolvePrinterTarget("tag");
   const receiptTarget = describePrinterTarget(receiptPrinter);
   const tagTarget = describePrinterTarget(tagPrinter);
-  const tagLanguage = values[TAG_PRINTER_LANGUAGE_KEY] === "epl"
-    ? "EPL"
-    : values[TAG_PRINTER_LANGUAGE_KEY] === "zpl"
-      ? "ZPL"
-      : "Not selected";
+  const tagLanguage = RIVERSIDE_TAG_PRINTER_LANGUAGE.toUpperCase();
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -392,101 +388,95 @@ export default function PrintersAndScannersPanel({
                 ) : null}
               </div>
 
-              <div className="grid grid-cols-1 gap-3">
-                <label className="block">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    {printer.key === "tag" ? "Tag Printer Mode" : "Printer setup"}
-                  </span>
-                  <select
-                    value={targetMode}
-                    onChange={(e) => saveValue(printer.modeStorageKey, e.target.value)}
-                    className="ui-input mt-2 w-full text-sm font-bold"
-                  >
-                    <option value="system">Installed printer on this PC</option>
-                    {printer.supportsNetwork ? (
-                      <option value="network">Network address</option>
-                    ) : null}
-                  </select>
-                </label>
-                {targetMode === "system" ? (
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                    <label className="block min-w-0">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        {printer.key === "tag" ? "Tag Printer" : "Installed printer"}
-                      </span>
-                      <select
-                        value={values[printer.systemStorageKey] ?? ""}
-                        onChange={(e) => saveValue(printer.systemStorageKey, e.target.value)}
-                        className="ui-input mt-2 w-full text-sm font-bold"
-                      >
-                        <option value="">Choose printer</option>
-                        {systemPrinters.map((systemPrinter) => (
-                          <option key={systemPrinter.name} value={systemPrinter.name}>
-                            {systemPrinter.name}
-                            {systemPrinter.is_default ? " (default)" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => void refreshSystemPrinters()}
-                      disabled={loadingSystemPrinters}
-                      className="mt-6 inline-flex min-h-11 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 px-3 text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50"
-                      aria-label="Refresh installed printers"
+              {printer.key === "tag" ? (
+                <div className="rounded-xl border border-app-border bg-app-surface-2 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Riverside tag printer
+                  </p>
+                  <p className="mt-1 break-words text-sm font-black text-app-text">
+                    {RIVERSIDE_TAG_PRINTER_NAME}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                    Local USB Zebra LP 2844 using {RIVERSIDE_TAG_PRINTER_LANGUAGE.toUpperCase()}.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3">
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Printer setup
+                    </span>
+                    <select
+                      value={targetMode}
+                      onChange={(e) => saveValue(printer.modeStorageKey, e.target.value)}
+                      className="ui-input mt-2 w-full text-sm font-bold"
                     >
-                      <RefreshCw className={`h-4 w-4 ${loadingSystemPrinters ? "animate-spin" : ""}`} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className={showPort ? "grid grid-cols-[1fr_7rem] gap-3" : "grid grid-cols-1 gap-3"}>
-                    <label className="block">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        {printer.key === "tag" ? "Tag Printer Address/IP" : "Printer address"}
-                      </span>
-                      <input
-                        value={values[printer.ipStorageKey] ?? ""}
-                        onChange={(e) => saveValue(printer.ipStorageKey, e.target.value)}
-                        placeholder={printer.key === "report" ? "Optional" : "192.168.1.50"}
-                        className="ui-input mt-2 w-full font-mono text-xs"
-                      />
-                    </label>
-                    {showPort ? (
+                      <option value="system">Installed printer on this PC</option>
+                      {printer.supportsNetwork ? (
+                        <option value="network">Network address</option>
+                      ) : null}
+                    </select>
+                  </label>
+                  {targetMode === "system" ? (
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                      <label className="block min-w-0">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Installed printer
+                        </span>
+                        <select
+                          value={values[printer.systemStorageKey] ?? ""}
+                          onChange={(e) => saveValue(printer.systemStorageKey, e.target.value)}
+                          className="ui-input mt-2 w-full text-sm font-bold"
+                        >
+                          <option value="">Choose printer</option>
+                          {systemPrinters.map((systemPrinter) => (
+                            <option key={systemPrinter.name} value={systemPrinter.name}>
+                              {systemPrinter.name}
+                              {systemPrinter.is_default ? " (default)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void refreshSystemPrinters()}
+                        disabled={loadingSystemPrinters}
+                        className="mt-6 inline-flex min-h-11 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 px-3 text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50"
+                        aria-label="Refresh installed printers"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${loadingSystemPrinters ? "animate-spin" : ""}`} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className={showPort ? "grid grid-cols-[1fr_7rem] gap-3" : "grid grid-cols-1 gap-3"}>
                       <label className="block">
                         <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          {printer.key === "tag" ? "Tag Printer Port" : "Port"}
+                          Printer address
                         </span>
                         <input
-                          value={values[portKey] ?? ""}
-                          onChange={(e) => saveValue(portKey, e.target.value)}
-                          placeholder="9100"
+                          value={values[printer.ipStorageKey] ?? ""}
+                          onChange={(e) => saveValue(printer.ipStorageKey, e.target.value)}
+                          placeholder={printer.key === "report" ? "Optional" : "192.168.1.50"}
                           className="ui-input mt-2 w-full font-mono text-xs"
                         />
                       </label>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-
-              {printer.key === "tag" ? (
-                <label className="block">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Tag Printer Language
-                  </span>
-                  <select
-                    value={values[TAG_PRINTER_LANGUAGE_KEY] ?? ""}
-                    onChange={(e) => saveValue(TAG_PRINTER_LANGUAGE_KEY, e.target.value)}
-                    className="ui-input mt-2 w-full text-sm font-bold"
-                  >
-                    <option value="">Choose language</option>
-                    <option value="zpl">ZPL / LP 2844-Z or newer Zebra ZPL</option>
-                    <option value="epl">EPL / LP 2844 legacy</option>
-                  </select>
-                  <span className="mt-2 block text-xs font-semibold leading-relaxed text-amber-700 dark:text-amber-300">
-                    Use EPL for legacy LP 2844. Use ZPL for LP 2844-Z or newer Zebra ZPL printers.
-                  </span>
-                </label>
-              ) : null}
+                      {showPort ? (
+                        <label className="block">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            Port
+                          </span>
+                          <input
+                            value={values[portKey] ?? ""}
+                            onChange={(e) => saveValue(portKey, e.target.value)}
+                            placeholder="9100"
+                            className="ui-input mt-2 w-full font-mono text-xs"
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {printer.key === "receipt" ? (
                 <label className="flex items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 p-4">

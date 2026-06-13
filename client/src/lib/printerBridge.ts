@@ -38,6 +38,9 @@ export type PrintHubResult = {
   bytes?: number;
 };
 
+export const RIVERSIDE_TAG_PRINTER_NAME = "Zebra LP 2844";
+export const RIVERSIDE_TAG_PRINTER_LANGUAGE: ThermalPrinterLanguage = "epl";
+
 const printerModeKey = (type: PrintDocType) => `ros.hardware.printer.${type}.mode`;
 const printerSystemNameKey = (type: PrintDocType) =>
   `ros.hardware.printer.${type}.systemName`;
@@ -87,6 +90,13 @@ export function resolvePrinterAddress(type: PrintDocType): HardwareAddress {
 }
 
 export function resolvePrinterTarget(type: PrintDocType): HardwarePrinterTarget {
+  if (type === "tag") {
+    return {
+      mode: "system",
+      printerName: RIVERSIDE_TAG_PRINTER_NAME,
+    };
+  }
+
   const mode =
     type === "report" || window.localStorage.getItem(printerModeKey(type)) === "system"
       ? "system"

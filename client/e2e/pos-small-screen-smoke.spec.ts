@@ -4,6 +4,7 @@ import {
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
 import {
+  enterPosShell,
   ensurePosRegisterSessionOpen,
   ensurePosSaleCashierSignedIn,
 } from "./helpers/openPosRegister";
@@ -25,11 +26,8 @@ async function openPosRegisterSurface(
   page: Parameters<typeof test>[0]["page"],
 ): Promise<void> {
   await signInToBackOffice(page);
-  await openBackofficeSidebarTab(page, "register");
-
-  await expect(
-    page.getByRole("navigation", { name: "POS Navigation" }),
-  ).toBeVisible({ timeout: 20_000 });
+  await openBackofficeSidebarTab(page, "register").catch(() => {});
+  await enterPosShell(page);
 
   await ensurePosRegisterSessionOpen(page);
   await ensurePosSaleCashierSignedIn(page);

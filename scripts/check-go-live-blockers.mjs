@@ -212,13 +212,14 @@ function checkDirectPrinterRouting() {
   const labelPrint = read(labelFile);
   assert(
     labelPrint.includes('autoRoutePrint("tag"') &&
-      labelPrint.includes("buildZplDocument") &&
       labelPrint.includes("buildEplDocument") &&
       labelPrint.includes("getInventoryTagPrinterLanguage") &&
-      labelPrint.includes("TAG_PRINTER_LANGUAGE_KEY"),
-    "Tag direct printer path remains wired to the tag station with EPL/ZPL language selection",
+      labelPrint.includes("RIVERSIDE_TAG_PRINTER_LANGUAGE") &&
+      bridge.includes('RIVERSIDE_TAG_PRINTER_NAME = "Zebra LP 2844"') &&
+      bridge.includes('RIVERSIDE_TAG_PRINTER_LANGUAGE: ThermalPrinterLanguage = "epl"'),
+    "Tag direct printer path remains locked to the Riverside LP 2844 EPL station",
     labelFile,
-    "Inventory tag printing must keep routing through ros.hardware.printer.tag.* and support classic LP/TLP 2844 EPL as well as ZPL.",
+    "Riverside production tag printing must target the installed Zebra LP 2844 queue and generate EPL.",
   );
   assert(
     bridge.includes("/api/hardware/print-station") &&
@@ -261,22 +262,22 @@ function checkTagDesignerPrintPreviewTruthfulness() {
     "Blocked tag previews must surface as errors so staff do not see a false print/preview success.",
   );
   assert(
-    content.includes("Choose an installed Tag printer or a non-loopback Tag printer address") &&
+    content.includes("resolveTagPrintTarget") &&
       !content.includes("resolveDesktopTagPrintTarget") &&
       !content.includes("listSystemPrinters") &&
       !content.includes("inferTagPrinterLanguage") &&
       content.includes('autoRoutePrint("tag", payload, language, target)'),
-    "Desktop tag print requires the explicitly configured Tag printer target",
+    "Desktop tag print uses the fixed Riverside LP 2844 target",
     file,
-    "Default 127.0.0.1 tag configuration must block instead of auto-detecting an installed Zebra or asking the Main Hub to choose one.",
+    "Default 127.0.0.1 tag configuration must not be used for Riverside production tags.",
   );
   assert(
-    content.includes("Choose a Tag printer language (EPL or ZPL)") &&
-      content.includes("TAG_PRINTER_LANGUAGE_KEY") &&
+    content.includes("return RIVERSIDE_TAG_PRINTER_LANGUAGE") &&
+      !content.includes("TAG_PRINTER_LANGUAGE_KEY") &&
       !/looksLikeClassic2844|explicitlyZpl|Auto-detect/i.test(content),
-    "Tag print language is read only from the explicit Tag printer language setting",
+    "Tag print language is fixed to Riverside LP 2844 EPL",
     file,
-    "Tag payload generation must not override the selected EPL/ZPL language by printer-name inference.",
+    "Tag payload generation must not depend on generic Zebra language selection or printer-name inference.",
   );
   assert(
     content.includes("Print preview also failed") &&
@@ -292,11 +293,13 @@ function checkTagDesignerPrintPreviewTruthfulness() {
   );
 
   assert(
-    settings.includes('<option value="">Choose language</option>') &&
+    settings.includes("RIVERSIDE_TAG_PRINTER_NAME") &&
+      settings.includes("RIVERSIDE_TAG_PRINTER_LANGUAGE") &&
+      !settings.includes('<option value="">Choose language</option>') &&
       !settings.includes("Auto-detect LP/TLP 2844"),
-    "Printer settings require an explicit Tag printer language",
+    "Printer settings show the fixed Riverside LP 2844 EPL route",
     settingsFile,
-    "Production tag printing must block until staff choose EPL or ZPL.",
+    "Production tag printing must not ask staff to choose unsupported tag printer modes or languages.",
   );
 }
 

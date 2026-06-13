@@ -37,7 +37,12 @@ async function openMainNavSubItem(page: Page, label: RegExp): Promise<void> {
   }
   await expect(subButton).toBeVisible({ timeout: 20_000 });
   await expect(subButton).toBeEnabled();
-  await subButton.click({ force: true });
+  await subButton.scrollIntoViewIfNeeded().catch(() => {});
+  await subButton.click({ force: true }).catch(async () => {
+    await subButton.evaluate((element) => {
+      (element as HTMLButtonElement).click();
+    });
+  });
 }
 
 for (const viewport of WORKFLOW_VIEWPORTS) {

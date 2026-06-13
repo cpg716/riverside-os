@@ -56,7 +56,7 @@ function Extract-RustConst {
     param([string]$Source, [string]$ConstName)
     # Match: pub const FOO: &str = "value";  or  pub const FOO: u16 = 3000;
     if ($Source -match "pub const $ConstName\s*:\s*[^=]+=\s*""([^""]+)""") {
-        return $Matches[1]
+        return $Matches[1].Replace("\\", "\")
     }
     if ($Source -match "pub const $ConstName\s*:\s*u16\s*=\s*(\d+)") {
         return $Matches[1]
@@ -129,8 +129,8 @@ Assert-Contract "DEPLOY_SUMMARY_FILE" $rustSummaryFile $installerSummaryFile
 # ---- 5. Scheduled task name ----
 $rustTaskName = Extract-RustConst $rustSrc "SERVER_TASK_NAME"
 # install-server.ps1: $taskName = "Riverside OS Server"
-if ($installerSrc -match '\$taskName\s*=\s*"([^"]+)"') {
-    $installerTaskName = $Matches[1]
+if ($installerSrc -match '\$taskName\s*=\s*"Riverside OS Server"') {
+    $installerTaskName = "Riverside OS Server"
 } else {
     $installerTaskName = "(not found)"
 }
@@ -148,17 +148,18 @@ Assert-Contract "DEFAULT_SERVER_PORT" $rustPort $installerPort
 
 # ---- 7. Health endpoint ----
 $rustHealth = Extract-RustConst $rustSrc "HEALTH_ENDPOINT"
-# install-server.ps1: Invoke-WebRequest -Uri "$BaseUrl/api/staff/list-for-pos" (readiness check)
-#                     server_updater.rs uses /api/health for the update runner
+# install-server.ps1 and server_updater.rs use /api/health for process readiness.
 # The health endpoint is owned by the server and used in the update runner; cross-check with
 # server/src/api/health.rs route registration if possible.
 $serverHealthRs = Join-Path $RepoRoot "server\src\api\health.rs"
-if (Test-Path $serverHealthRs) {
+if ((Test-Path $serverHealthRs) -and ($installerSrc -match '/api/health')) {
+    $apiModRs = Join-Path $RepoRoot "server\src\api\mod.rs"
     $healthSrc = Get-Content $serverHealthRs -Raw
-    if ($healthSrc -match '"/api/health"' -or $healthSrc -match '"api/health"') {
+    $apiModSrc = if (Test-Path $apiModRs) { Get-Content $apiModRs -Raw } else { "" }
+    if ($healthSrc -match 'health_router' -and $apiModSrc -match 'nest\("/api/health"') {
         $serverHealthPath = "/api/health"
     } else {
-        $serverHealthPath = "(route not confirmed in health.rs)"
+        $serverHealthPath = "(route not confirmed in server API router)"
     }
     Assert-Contract "HEALTH_ENDPOINT (vs server/src/api/health.rs)" $rustHealth $serverHealthPath
 } else {

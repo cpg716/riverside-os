@@ -147,15 +147,15 @@ assertNotIncludes(
 );
 assertIncludes(
   registerInstaller,
-  '$Config.register.tagPrinter | Add-Member -NotePropertyName "language" -NotePropertyValue "auto" -Force',
-  "install-register.ps1 must preserve auto EPL/ZPL tag-printer language defaults",
+  '$Config.register.tagPrinter | Add-Member -NotePropertyName "language" -NotePropertyValue "epl" -Force',
+  "install-register.ps1 must preserve the Riverside LP 2844 EPL tag-printer default",
 );
 
 const deploymentConfigExample = "deployment/windows/riverside-deployment.config.example.json";
 assertIncludes(
   deploymentConfigExample,
-  '"language": "auto"',
-  "deployment config example must carry the tag-printer language default",
+  '"language": "epl"',
+  "deployment config example must carry the Riverside LP 2844 EPL tag-printer default",
 );
 
 const mainHubInstaller = "deployment/windows/install-server.ps1";

@@ -79,7 +79,7 @@ function Ensure-RegisterConfigDefaults($Config) {
     $Config.register.tagPrinter | Add-Member -NotePropertyName "systemName" -NotePropertyValue "" -Force
   }
   if ($null -eq $Config.register.tagPrinter.language) {
-    $Config.register.tagPrinter | Add-Member -NotePropertyName "language" -NotePropertyValue "auto" -Force
+    $Config.register.tagPrinter | Add-Member -NotePropertyName "language" -NotePropertyValue "epl" -Force
   }
 
   if ($null -eq $Config.register.reportPrinter) {

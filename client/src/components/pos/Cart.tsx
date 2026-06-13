@@ -1262,6 +1262,7 @@ export default function Cart({
         const reason = line.price_override_reason?.trim();
         if (!reason || automaticReasons.has(reason.toLowerCase())) return false;
         if (line.discount_event_id) return false;
+        if (line.gift_card_load_code) return false;
         if (line.quantity <= 0) return false;
         if (line.line_type === "alteration_service" || line.fulfillment === "custom") {
           return false;

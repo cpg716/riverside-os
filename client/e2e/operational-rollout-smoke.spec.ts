@@ -491,11 +491,9 @@ test.describe("operational rollout smoke", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "orders");
-
-    await page.getByRole("button", { name: "Transaction Records" }).click();
     await page
       .getByRole("textbox", {
-        name: /Search by customer, phone, Transaction Record #, or fulfillment order #/i,
+        name: /Search by customer, phone, order item, Transaction Record #, or fulfillment order #/i,
       })
       .fill(displayId);
     const orderRow = page.locator("tr", { hasText: displayId }).first();
@@ -575,10 +573,9 @@ test.describe("operational rollout smoke", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "orders");
-    await page.getByRole("button", { name: "Transaction Records" }).click();
     await page
       .getByRole("textbox", {
-        name: /Search by customer, phone, Transaction Record #, or fulfillment order #/i,
+        name: /Search by customer, phone, order item, Transaction Record #, or fulfillment order #/i,
       })
       .fill(displayId);
 
@@ -713,7 +710,7 @@ test.describe("operational rollout smoke", () => {
     );
 
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^support center$/i);
+    await openSettingsSubItem(page, /^ros operations & support center$/i);
     await page.getByRole("button", { name: /^bug manager$/i }).first().click();
     await page.getByRole("button", { name: /^view$/i }).first().click();
 

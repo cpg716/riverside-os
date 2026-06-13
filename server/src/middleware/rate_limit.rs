@@ -80,6 +80,14 @@ pub async fn rate_limit_handler(
     request: Request,
     next: Next,
 ) -> Response {
+    if is_loopback_connection(&request) {
+        let mut response = next.run(request).await;
+        response
+            .headers_mut()
+            .insert("X-RateLimit-Bypass", "loopback".parse().unwrap());
+        return response;
+    }
+
     if is_authenticated_counterpoint_bridge_request(&request) {
         let mut response = next.run(request).await;
         response
@@ -124,6 +132,17 @@ pub async fn rate_limit_handler(
     headers.insert("X-RateLimit-Remaining", "999".parse().unwrap());
 
     response
+}
+
+fn is_loopback_connection(request: &Request) -> bool {
+    if let Some(connect_info) = request.extensions().get::<ConnectInfo<SocketAddr>>() {
+        return connect_info.0.ip().is_loopback();
+    }
+
+    request
+        .extensions()
+        .get::<SocketAddr>()
+        .is_some_and(|addr| addr.ip().is_loopback())
 }
 
 fn is_authenticated_counterpoint_bridge_request(request: &Request) -> bool {

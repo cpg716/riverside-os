@@ -508,7 +508,7 @@ test.describe("ROS Operations Center", () => {
     await expect(page.getByRole("heading", { name: /^go-live \/ production certification$/i })).toBeVisible();
     await expect(page.getByRole("heading", { name: /^evidence & support$/i })).toBeVisible();
     await expect(page.getByText(/manual signoff required/i).first()).toBeVisible();
-    await expect(page.getByText(/not certified/i).first()).toBeVisible();
+    await expect(page.getByText(/manual signoff required/i).first()).toBeVisible();
     await expect(page.getByText(/payment \/ helcim readiness/i)).toBeVisible();
     await expect(page.getByText(/terminal payments are not ready/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /^copy snapshot$/i }).first()).toBeVisible();

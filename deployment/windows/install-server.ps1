@@ -629,7 +629,7 @@ function Confirm-InstalledClientVersion($ClientDistPath, [string]$ExpectedVersio
   }
 }
 
-function Test-RiversideApiReady([string]$BaseUrl, [int]$Port) {
+function Test-RiversideServerProcess([int]$Port) {
   $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
     Select-Object -First 1
   if (-not $listener) {
@@ -642,24 +642,63 @@ function Test-RiversideApiReady([string]$BaseUrl, [int]$Port) {
     throw "Port $Port is being used by $owner instead of Riverside OS Server."
   }
 
+  return $true
+}
+
+function Test-RiversideApiEndpoint([string]$Url, [string]$ExpectedPrefixPattern) {
   try {
-    $response = Invoke-WebRequest -Uri "$BaseUrl/api/staff/list-for-pos" -UseBasicParsing -TimeoutSec 3
+    $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5
     $content = "$($response.Content)".TrimStart()
-    return $response.StatusCode -eq 200 -and ($content.StartsWith("[") -or $content.StartsWith("{"))
+    return $response.StatusCode -eq 200 -and ($content -match $ExpectedPrefixPattern)
   } catch {
-    Write-Host "API check is not ready yet: $($_.Exception.Message)"
+    $script:lastRiversideApiReadyError = $_.Exception.Message
     return $false
   }
 }
 
 function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
-  $deadline = (Get-Date).AddSeconds(30)
+  $script:lastRiversideApiReadyError = $null
+  $healthUrl = "$BaseUrl/api/health"
+  $readyUrl = "$BaseUrl/api/ready"
+  $staffUrl = "$BaseUrl/api/staff/list-for-pos"
+
+  Write-Host "Waiting for Riverside OS Server process on port $Port..."
+  $deadline = (Get-Date).AddSeconds(180)
+  $healthPassed = $false
   do {
-    if (Test-RiversideApiReady $BaseUrl $Port) {
-      return
+    if ((Test-RiversideServerProcess $Port) -and (Test-RiversideApiEndpoint $healthUrl '^\{')) {
+      Write-Host "Riverside OS Server health check passed at $healthUrl"
+      $healthPassed = $true
+      break
     }
-    Start-Sleep -Milliseconds 500
+    if ($script:lastRiversideApiReadyError) {
+      Write-Host "API health check is not ready yet: $script:lastRiversideApiReadyError"
+    }
+    Start-Sleep -Seconds 2
   } while ((Get-Date) -lt $deadline)
+
+  if (-not $healthPassed) {
+    throw "Riverside OS Server did not pass the health check at $healthUrl. Check the Riverside OS Server scheduled task and C:\RiversideOS\server\.env."
+  }
+
+  Write-Host "Waiting for Riverside OS database readiness at $readyUrl..."
+  $deadline = (Get-Date).AddSeconds(180)
+  $readyPassed = $false
+  do {
+    if (Test-RiversideApiEndpoint $readyUrl '^\{') {
+      Write-Host "Riverside OS readiness check passed at $readyUrl"
+      $readyPassed = $true
+      break
+    }
+    if ($script:lastRiversideApiReadyError) {
+      Write-Host "API readiness check is not ready yet: $script:lastRiversideApiReadyError"
+    }
+    Start-Sleep -Seconds 2
+  } while ((Get-Date) -lt $deadline)
+
+  if ($readyPassed) {
+    return
+  }
 
   if (-not $script:postgresReachable) {
     Write-Warning "Riverside OS Server API is not responding at $BaseUrl. This is expected because PostgreSQL was not reachable during install and the database was not set up."
@@ -667,7 +706,14 @@ function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
     return
   }
 
-  throw "Riverside OS Server did not pass the API check at $BaseUrl/api/staff/list-for-pos."
+  Write-Warning "Riverside OS Server is running, but the database readiness check did not pass within 180 seconds."
+  Write-Warning "Last readiness error: $script:lastRiversideApiReadyError"
+  Write-Warning "Checking POS staff list once for a more specific diagnostic..."
+  if (Test-RiversideApiEndpoint $staffUrl '^(\[|\{)') {
+    Write-Host "Riverside OS POS staff check passed at $staffUrl"
+    return
+  }
+  Write-Warning "POS staff list did not respond yet at $staffUrl. The server process is running; open the app and use Main Hub Repair if staff sign-in is unavailable."
 }
 
 function Resolve-LlamaPerfProfile([string]$Requested) {
@@ -908,8 +954,12 @@ function Install-RosieStack($PackageRoot) {
 }
 
 function Set-MachineEnvironmentFromServerConfig($Config) {
-  # Machine-level environment variable writes removed for security hardening.
-  # All secrets are loaded locally from the C:\RiversideOS\server\.env file.
+  # Keep secrets in C:\RiversideOS\server\.env, but clear stale machine-level
+  # runtime mode because Windows environment variables override dotenv values.
+  $environmentMode = Resolve-ServerEnvironmentMode $Config
+  [Environment]::SetEnvironmentVariable("RIVERSIDE_MODE", $environmentMode, "Machine")
+  $env:RIVERSIDE_MODE = $environmentMode
+  Write-Host "Machine RIVERSIDE_MODE set to $environmentMode."
 }
 
 function Get-MigrationSortKey($File) {

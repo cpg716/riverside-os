@@ -78,6 +78,8 @@ Imported suggestions never apply automatically. Staff must accept, reject, edit,
 
 For returns/exchanges, use the returns readiness scope to flag whether historical Counterpoint purchases resolve to current ROS items and original tender evidence. It preserves original Counterpoint ticket and line identity.
 
+The staging diagnostics view shows replay status, stale applying batches, landed-row proof, and recovery actions. Use **Mark stale apply failed** only when a batch has been stuck long enough for support review; it records the recovery state without replaying the batch.
+
 ## Blockers and warnings
 
 Review blockers before warnings. Common blockers include failed source-count preflight, unresolved sync issues, missing ROS landed proof, open import exceptions, and Bridge entity errors.

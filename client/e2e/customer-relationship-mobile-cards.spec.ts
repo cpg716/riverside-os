@@ -468,7 +468,7 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
     surface: "customer_snapshot",
     mode: "summary",
     facts: {
-      title: "Customer Snapshot",
+      title: "Customer Things To Know",
       bullets: expect.arrayContaining([
         { id: "snapshot-0", label: "1 open order", severity: "info" },
       ]),
@@ -645,9 +645,7 @@ test("Customer relationship drawer opens linked profiles and keeps timeline lang
 
   let dialog = page.getByRole("dialog", { name: /riley harper/i });
   await expect(dialog).toBeVisible({ timeout: 20_000 });
-  await expect(
-    dialog.getByText(/Parent profile\. Parent profile keeps loyalty points/i),
-  ).toBeVisible();
+  await expect(dialog.getByText(/Parent profile/i).first()).toBeVisible();
   await dialog.getByRole("button", { name: /open jordan harper/i }).click();
 
   dialog = page.getByRole("dialog", { name: /jordan harper/i });

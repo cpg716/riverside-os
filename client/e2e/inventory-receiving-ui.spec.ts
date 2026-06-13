@@ -79,7 +79,7 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(page.getByText(/direct invoice/i).first()).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByText(/standalone|offline/i)).toHaveCount(0);
+    await expect(page.getByText(/pick an existing purchase order/i)).toBeVisible();
 
     const invoiceRow = page.locator("tr").filter({ hasText: directInvoice.po_number }).first();
     await expect(invoiceRow).toBeVisible({ timeout: 20_000 });

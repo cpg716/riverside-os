@@ -605,7 +605,7 @@ function Save-FormToConfig {
 
   $config.register.tagPrinter.mode = "system"
   $config.register.tagPrinter.systemName = "$($tagPrinterCombo.SelectedItem)"
-  $config.register.tagPrinter.language = "auto"
+  $config.register.tagPrinter.language = "epl"
   $config.register.reportPrinter.mode = "system"
   $config.register.reportPrinter.systemName = "$($reportPrinterCombo.SelectedItem)"
 

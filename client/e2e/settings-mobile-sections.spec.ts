@@ -47,7 +47,7 @@ for (const viewport of SETTINGS_VIEWPORTS) {
       timeout: 20_000,
     });
 
-    await openSettingsSubItem(page, /^support center$/i);
+    await openSettingsSubItem(page, /^ros operations & support center$/i);
     await expect(page.getByRole("heading", { name: /support center/i })).toBeVisible({
       timeout: 20_000,
     });

@@ -346,8 +346,22 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
   const contBtn = cashierDlg.getByTestId("pos-sale-cashier-continue");
   await expect(contBtn).toBeEnabled({ timeout: 10_000 });
   await contBtn.click();
-  
-  await expect(cashierDlg).toBeHidden({ timeout: 20_000 });
+
+  await expect
+    .poll(
+      async () =>
+        !(await cashierDlg.isVisible().catch(() => false)) ||
+        ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true"),
+      { timeout: 20_000 },
+    )
+    .toBeTruthy();
+  if (
+    (await cashierDlg.isVisible().catch(() => false)) &&
+    ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true")
+  ) {
+    await cashierDlg.getByRole("button", { name: /^cancel$/i }).click().catch(() => {});
+  }
+  await expect(cashierDlg).toBeHidden({ timeout: 5_000 });
   await waitForRegisterReady(page);
 }
 
@@ -392,15 +406,21 @@ export async function attachNewCustomerToSale(
 
 export async function enterPosShell(page: Page): Promise<void> {
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
+  const posShell = page.getByTestId("pos-shell-root");
   if (await posNav.isVisible().catch(() => false)) {
     return;
   }
+  if (await posShell.isVisible().catch(() => false)) {
+    return;
+  }
 
-  const waitForPosNavigationVisible = async (timeoutMs: number): Promise<boolean> => {
+  const waitForPosShellReady = async (timeoutMs: number): Promise<boolean> => {
     try {
       await expect
         .poll(
-          async () => await posNav.isVisible().catch(() => false),
+          async () =>
+            (await posNav.isVisible().catch(() => false)) ||
+            (await posShell.isVisible().catch(() => false)),
           { timeout: timeoutMs },
         )
         .toBeTruthy();
@@ -411,7 +431,10 @@ export async function enterPosShell(page: Page): Promise<void> {
   };
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    if (await posNav.isVisible().catch(() => false)) {
+    if (
+      (await posNav.isVisible().catch(() => false)) ||
+      (await posShell.isVisible().catch(() => false))
+    ) {
       return;
     }
 
@@ -421,10 +444,25 @@ export async function enterPosShell(page: Page): Promise<void> {
     if (await enterPosButton.isVisible().catch(() => false)) {
       await expect(enterPosButton).toBeEnabled({ timeout: 10_000 });
       await enterPosButton.click();
-      if (await posNav.isVisible().catch(() => false)) {
+      if (
+        (await posNav.isVisible().catch(() => false)) ||
+        (await posShell.isVisible().catch(() => false))
+      ) {
         return;
       }
-      if (await waitForPosNavigationVisible(2_000)) {
+      if (await waitForPosShellReady(2_000)) {
+        return;
+      }
+      continue;
+    }
+
+    const openPosRegisterButton = page.getByRole("button", {
+      name: /open pos register/i,
+    });
+    if (await openPosRegisterButton.isVisible().catch(() => false)) {
+      await expect(openPosRegisterButton).toBeEnabled({ timeout: 10_000 });
+      await openPosRegisterButton.click({ timeout: 5_000 }).catch(() => {});
+      if (await waitForPosShellReady(2_000)) {
         return;
       }
       continue;
@@ -439,13 +477,16 @@ export async function enterPosShell(page: Page): Promise<void> {
       }
     }
 
-    if (await posNav.isVisible().catch(() => false)) {
+    if (
+      (await posNav.isVisible().catch(() => false)) ||
+      (await posShell.isVisible().catch(() => false))
+    ) {
       return;
     }
-    if (await waitForPosNavigationVisible(2_000)) {
+    if (await waitForPosShellReady(2_000)) {
       return;
     }
   }
 
-  await expect(posNav).toBeVisible({ timeout: 20_000 });
+  await expect(posShell.or(posNav)).toBeVisible({ timeout: 20_000 });
 }

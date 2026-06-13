@@ -34,9 +34,9 @@ Use this panel when opening a new lane, replacing a printer, checking scanner in
 1. Open **Settings → Printers & Scanners**.
 2. For the Epson TM-m30III receipt station, choose an installed printer from the desktop printer dropdown or enter the printer IP and port for network mode.
 3. Leave **Open cash drawer on cash/check** enabled for Register #1 when the drawer is attached to the Epson receipt printer.
-4. For the Zebra clothing tag station, choose **Tag Printer Mode**, select the installed Zebra printer or enter a non-loopback **Tag Printer Address/IP** and **Tag Printer Port**, then choose **Tag Printer Language**. Use **EPL** for legacy LP 2844 printers. Use **ZPL** for LP 2844-Z or newer Zebra ZPL printers.
+4. The Zebra clothing tag station is fixed to the local Windows printer queue **Zebra LP 2844** and uses **EPL**.
 5. Choose the installed **Reports Printer** on the Windows desktop station. Reports do not use a network-address mode in the desktop app.
-6. Use **Print test tag** on the Clothing Tag Station card, or open **Tag Designer → Print test tag**, to send an actual test label using the current saved tag layout and selected EPL/ZPL language. The success message appears only after ROS dispatches to the selected target.
+6. Use **Print test tag** on the Clothing Tag Station card, or open **Tag Designer → Print test tag**, to send an actual EPL test label using the current saved tag layout. The success message appears only after ROS dispatches to the Zebra LP 2844 queue.
 7. In POS, use **Print test** to send a short Epson test receipt.
 8. Use **Open drawer** only when you need a manual drawer open. Enter a reason and the acting staff member's **Access PIN** so the event is recorded for the Z-report.
 9. Use **Check connection** for the receipt and Reports printers. The desktop app checks installed printers directly; PWA/browser mode asks the Riverside server to check receipt/tag network printer IP and port.
@@ -52,12 +52,12 @@ If a printer test fails, do not keep retrying sale completion from the cart. Con
 - Receipt printing uses Epson ESC/POS for the TM-m30III path.
 - The cash drawer opens automatically only on CASH and CHECK sales from Register #1.
 - Manual drawer opens require an Access PIN, a reason, and are listed on the Z-report.
-- The POS Register Hardware view shows the active receipt address, cash drawer state, Zebra tag target, and selected EPL/ZPL language at the top of the page.
+- The POS Register Hardware view shows the active receipt address, cash drawer state, and fixed Zebra LP 2844 EPL tag route at the top of the page.
 - The diagnostics panel shows runtime, receipt route, tag route, tag language, and the last printer test result.
-- Item tags require an explicit Tag printer target and explicit printer language. The default `127.0.0.1` tag address is not a production target; choose an installed Zebra printer or a real network printer address before printing tags.
+- Item tags print through the local Windows **Zebra LP 2844** queue using EPL. The old `127.0.0.1` tag address path is not used for Riverside tags.
 - In the desktop app, direct tag printing must reach the configured Zebra station. If that fails, Riverside shows the printer error and does not mark variants as shelf-labeled.
 - Tag Designer shows the live tag preview in the panel. **Print test tag** uses the same direct tag route as inventory tag buttons and does not fall back to preview when the selected printer path fails.
-- Browser/PWA mode can save the same receipt and tag settings and can use server-side network printing when the API host can reach the printer. Receipt checks in PWA/browser mode verify the server-to-printer TCP path; installed-printer dropdowns and Windows printer checks run in the desktop app.
+- Browser/PWA mode can save the same receipt settings. Tag printing still routes to the Main Hub Zebra LP 2844 queue when the API host is the Windows Main Hub. Receipt checks in PWA/browser mode verify the server-to-printer TCP path; installed-printer dropdowns and Windows printer checks run in the desktop app.
 - USB scanner hardware on PC and Bluetooth scanner hardware on iPad/phone should be configured as HID keyboard input with an Enter suffix.
 
 ## What happens next

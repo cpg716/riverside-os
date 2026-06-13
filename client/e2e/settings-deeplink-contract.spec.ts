@@ -99,12 +99,13 @@ test.describe("settings deep-link contract", () => {
 
     const tagCard = page.getByTestId("printer-card-tag");
     await expect(tagCard).toContainText("Clothing Tag Station");
-    await expect(tagCard.getByLabel("Tag Printer Mode")).toBeVisible();
-    await expect(tagCard.getByLabel("Tag Printer Address/IP")).toBeVisible();
-    await expect(tagCard.getByLabel("Tag Printer Port")).toBeVisible();
-    await expect(tagCard.getByLabel("Tag Printer Language")).toHaveValue("");
-    await expect(tagCard).toContainText("Use EPL for legacy LP 2844");
+    await expect(tagCard).toContainText("Zebra LP 2844");
+    await expect(tagCard).toContainText("Local USB Zebra LP 2844 using EPL");
+    await expect(tagCard.getByLabel("Tag Printer Mode")).toHaveCount(0);
+    await expect(tagCard.getByLabel("Tag Printer Language")).toHaveCount(0);
     await expect(page.getByText("Printer Diagnostics")).toBeVisible();
+    await expect(page.getByText("Tag language")).toBeVisible();
+    await expect(page.getByText("EPL", { exact: true })).toBeVisible();
     await expect(page.getByText("Last test result:")).toBeVisible();
   });
 });

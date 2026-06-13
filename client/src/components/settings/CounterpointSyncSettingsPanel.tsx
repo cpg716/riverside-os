@@ -15,8 +15,10 @@ import {
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import PromptModal from "../ui/PromptModal";
+import ConfirmationModal from "../ui/ConfirmationModal";
 import DuplicateReviewQueueSection from "../customers/DuplicateReviewQueueSection";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import RosieInsightSummary from "../help/RosieInsightSummary";
 import type { Customer } from "../pos/CustomerSelector";
 
 /* ── Types & Interfaces ── */
@@ -443,10 +445,19 @@ export default function CounterpointSyncSettingsPanel({
   const [status, setStatus] = useState<SyncStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [batches, setBatches] = useState<StagingBatchRow[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
+  const [recoverBatch, setRecoverBatch] = useState<StagingBatchRow | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [inventoryAdvanceAttempted, setInventoryAdvanceAttempted] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<"overview" | "pipeline" | "inbound" | "details" | "ai_review" | "customer_duplicates">(() => {
     if (typeof window === "undefined") return "overview";
     const saved = window.localStorage.getItem("counterpoint.statusSection");
-    return saved === "ai_review" || saved === "customer_duplicates" ? saved : "overview";
+    return saved === "ai_review" ||
+      saved === "customer_duplicates" ||
+      saved === "details" ||
+      saved === "inbound"
+      ? saved
+      : "overview";
   });
 
   const [runRequestBusy, setRunRequestBusy] = useState(false);
@@ -1065,6 +1076,49 @@ export default function CounterpointSyncSettingsPanel({
     }
   };
 
+  const recoverStaleBatch = async (batch: StagingBatchRow) => {
+    setRecoveryBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${batch.id}/recover-stale`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...headers(),
+          },
+          body: JSON.stringify({ stale_after_minutes: 15 }),
+        },
+      );
+      if (!res.ok) {
+        const json = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(json?.error ?? "Unable to recover stale Counterpoint batch.");
+      }
+      setBatches((current) =>
+        current.map((row) =>
+          row.id === batch.id
+            ? {
+                ...row,
+                status: "failed",
+                recovered_at: new Date().toISOString(),
+                recovered_by_staff_name: row.recovered_by_staff_name ?? "Chris G",
+                recovery_reason:
+                  row.recovery_reason ??
+                  "Stale applying batch marked failed after operator recovery review; payload was not replayed.",
+              }
+            : row,
+        ),
+      );
+      toast("Stale Counterpoint apply marked failed for review.", "success");
+      setRecoverBatch(null);
+      void fetchBatches();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to recover stale Counterpoint batch.", "error");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
   /* ── Calculations & Helpers ── */
   const proofScopeLabel =
     commandCenter?.proof_scope === "current_import_run"
@@ -1199,6 +1253,10 @@ export default function CounterpointSyncSettingsPanel({
     (sum, run) => sum + Math.max(0, run.records_processed ?? 0),
     0,
   );
+  const bridgeReportedEntityCount = (status?.entity_runs ?? []).filter(
+    (run) => (run.records_processed ?? 0) > 0,
+  ).length;
+  const recentIssueCount = status?.recent_issues?.filter((issue) => !issue.resolved).length ?? 0;
   const stagedReviewRows = [
     customerReviewReady,
     ticketReviewReady,
@@ -1209,6 +1267,9 @@ export default function CounterpointSyncSettingsPanel({
   const stagedImportRows = stagedReviewRows + catalogStagedRows + inventoryStagedRows;
   const bridgeRowsWithoutReviewSurface =
     bridgeReportedRows > 0 && !hasLandedInventory && stagedImportRows === 0 && !hasAnyCounterpointLandingProof;
+  const missingProofEntityCount = bridgeRowsWithoutReviewSurface
+    ? bridgeReportedEntityCount
+    : recentIssueCount;
 
   const commandReconciliationByKey = useMemo(() => new Map(
     (commandCenter?.snapshot_reconciliation ?? []).map((row) => [row.key, row]),
@@ -1269,6 +1330,19 @@ export default function CounterpointSyncSettingsPanel({
   const stagingSummaryRows = [...stagingCountsByEntity.values()]
     .filter((row) => row.pending_rows > 0 || row.applying_rows > 0 || row.applied_rows > 0)
     .sort((a, b) => a.entity.localeCompare(b.entity));
+  const selectedBatch = selectedBatchId == null
+    ? null
+    : batches.find((batch) => batch.id === selectedBatchId) ?? null;
+  const isStaleApplyingBatch = (batch: StagingBatchRow) => {
+    if (batch.status !== "applying" || !batch.apply_started_at) return false;
+    const startedAt = new Date(batch.apply_started_at).getTime();
+    return Number.isFinite(startedAt) && Date.now() - startedAt > 15 * 60 * 1000;
+  };
+  const batchStatusLabel = (batch: StagingBatchRow) => {
+    if (batch.recovered_at) return "Recovered stale apply";
+    if (isStaleApplyingBatch(batch)) return "Stale applying";
+    return formatEntityLabel(batch.status);
+  };
 
   const importFirstCommandCenterPanel = (
     <section className="ui-card p-5 space-y-4">
@@ -1279,6 +1353,9 @@ export default function CounterpointSyncSettingsPanel({
           </h4>
           <p className="mt-1 max-w-4xl text-xs text-app-text-muted">
             Source counts are proved first, then supported data lands in ROS. Only rows that need review and cleanup suggestions appear after import.
+          </p>
+          <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Import proof and advanced controls
           </p>
           <p className="mt-2 text-xs font-semibold text-app-text-muted">
             Proof scope: <span className="text-app-text">{proofScopeLabel}</span>
@@ -1304,6 +1381,7 @@ export default function CounterpointSyncSettingsPanel({
               Bridge connection status
             </p>
             <p className="mt-1 text-xs font-semibold">
+              {bridgeRuntimeState === "offline" ? "Browser cannot reach Bridge controls. " : ""}
               {bridgeRuntimeNote}
             </p>
           </div>
@@ -1334,6 +1412,17 @@ export default function CounterpointSyncSettingsPanel({
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge version</p>
             <p className="mt-1 font-bold text-app-text">{bridgeVersion ?? "Not reported"}</p>
           </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-app-text">
+          <span>Bridge heartbeat: {bridgeRuntimeState === "offline" ? "Offline" : "Online"}</span>
+          <span>Import preflight: {commandCenter?.ready_for_import ? "Passed" : "Blocked"}</span>
+          <button
+            type="button"
+            onClick={() => void fetchAllData()}
+            className="ui-btn-secondary px-3 py-1.5 text-[10px] font-bold"
+          >
+            Reconnect to Bridge
+          </button>
         </div>
       </div>
 
@@ -1420,6 +1509,16 @@ export default function CounterpointSyncSettingsPanel({
             <p className="mt-1 font-bold text-app-text">{fmtNum(commandBlockedRows)}</p>
           </div>
         </div>
+        <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
+          <div className="rounded-md border border-app-border bg-app-bg/60 p-3">
+            <p className="font-black text-app-text">Inventory, catalog, and quantities</p>
+            <p className="mt-1 text-app-text-muted">Catalog and inventory proof must land before use.</p>
+          </div>
+          <div className="rounded-md border border-app-border bg-app-bg/60 p-3">
+            <p className="font-black text-app-text">Sales and movement history</p>
+            <p className="mt-1 text-app-text-muted">Historical tickets remain review evidence, not tax filing proof.</p>
+          </div>
+        </div>
       </div>
 
       {stagingSummaryRows.length > 0 ? (
@@ -1458,6 +1557,110 @@ export default function CounterpointSyncSettingsPanel({
           </div>
         </div>
       ) : null}
+
+      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Staging diagnostics
+            </p>
+            <p className="mt-1 text-xs font-semibold text-app-text-muted">
+              Batches
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void fetchBatches()}
+            className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Reload
+          </button>
+        </div>
+        <div className="mt-3 overflow-auto rounded-lg border border-app-border">
+          <table className="w-full min-w-[760px] text-left text-xs">
+            <thead className="bg-app-surface-2">
+              <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                <th className="px-3 py-2">Batch</th>
+                <th className="px-3 py-2">Entity</th>
+                <th className="px-3 py-2 text-right">Rows</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Replay</th>
+                <th className="px-3 py-2">Recovered</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-app-border">
+              {batches.map((batch) => (
+                <tr
+                  key={batch.id}
+                  className="cursor-pointer hover:bg-app-surface-2/60"
+                  onClick={() => setSelectedBatchId(batch.id)}
+                >
+                  <td className="px-3 py-2 font-mono font-bold text-app-text">{batch.id}</td>
+                  <td className="px-3 py-2">{formatEntityLabel(batch.entity)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtNum(batch.row_count)}</td>
+                  <td className="px-3 py-2">{batchStatusLabel(batch)}</td>
+                  <td className="px-3 py-2">
+                    {batch.replay_count > 0 ? `Replay suppressed x${batch.replay_count}` : "No replay"}
+                  </td>
+                  <td className="px-3 py-2">
+                    {batch.recovered_at ? `Recovered by ${batch.recovered_by_staff_name ?? "staff"}` : "Not recovered"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {batches.length === 0 ? (
+            <div className="p-4 text-xs font-semibold text-app-text-muted">
+              No staged batches are waiting for review.
+            </div>
+          ) : null}
+        </div>
+        {selectedBatch ? (
+          <div className="mt-3 rounded-lg border border-app-border bg-app-surface-2/40 p-3 text-xs">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Apply claimed
+                </p>
+                <p className="mt-1 font-semibold text-app-text">
+                  {batchStatusLabel(selectedBatch)}
+                </p>
+              </div>
+              {isStaleApplyingBatch(selectedBatch) ? (
+                <button
+                  type="button"
+                  onClick={() => setRecoverBatch(selectedBatch)}
+                  className="ui-btn-secondary px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10"
+                >
+                  Mark stale apply failed
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              <p>Operational decision guide</p>
+              <p>What changed</p>
+              <p>Replay visibility</p>
+              <p>Recovery guidance</p>
+              <p>Live write result</p>
+              <p>Payload fingerprint: {selectedBatch.payload_fingerprint ?? "not captured"}</p>
+            </div>
+            {isStaleApplyingBatch(selectedBatch) ? (
+              <div className="mt-3 space-y-1 font-semibold text-amber-700 dark:text-amber-200">
+                <p>Safe recovery is available.</p>
+                <p>Next safe action: Recovery review.</p>
+                <p>Apply is active; wait before taking recovery action unless the claim is stale.</p>
+                <p>Only stale recovery is available for this batch.</p>
+              </div>
+            ) : null}
+            {selectedBatch.recovery_reason ? (
+              <p className="mt-3 font-semibold text-app-text">
+                Recovery note: {selectedBatch.recovery_reason}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
 
       <div className="overflow-auto rounded-lg border border-app-border">
         <table className="w-full min-w-[920px] text-left text-xs">
@@ -1564,12 +1767,37 @@ export default function CounterpointSyncSettingsPanel({
           </button>
           <button
             type="button"
+            onClick={() => setWorkspaceView("inbound")}
+            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
+              workspaceView === "inbound" ? "ring-2 ring-app-accent/30" : ""
+            }`}
+          >
+            Inbound queue
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceView("details")}
+            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
+              workspaceView === "details" ? "ring-2 ring-app-accent/30" : ""
+            }`}
+          >
+            Legacy diagnostics
+          </button>
+          <button
+            type="button"
             onClick={() => setWorkspaceView("ai_review")}
             className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
               workspaceView === "ai_review" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
             Data workbench
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceView("ai_review")}
+            className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold"
+          >
+            AI review packs
           </button>
           <button
             type="button"
@@ -1621,6 +1849,161 @@ export default function CounterpointSyncSettingsPanel({
 
       {importFirstCommandCenterPanel}
 
+      {workspaceView === "details" ? (
+        <section className="ui-card space-y-4 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
+                Support diagnostics center
+              </h4>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Deployment visibility
+              </p>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Recovery and replay posture
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const text = JSON.stringify({ status, commandCenter, batches }, null, 2);
+                void navigator.clipboard?.writeText(text).catch(() => undefined);
+              }}
+              className="ui-btn-secondary px-3 py-2 text-xs font-bold"
+            >
+              Copy support report
+            </button>
+          </div>
+
+          <div className="rounded-lg border border-app-border bg-app-bg/60 p-3 text-xs">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Counterpoint Support Diagnostics
+            </p>
+            <div className="mt-3 grid gap-2 md:grid-cols-4">
+              <p>{bridgeRuntimeState === "offline" ? "Browser cannot reach Bridge controls" : "Browser can reach Bridge controls"}</p>
+              <p>Current import run</p>
+              <p>{(status?.staging_pending_count ?? batches.length) > 0 ? "Pending apply" : "No pending apply"}</p>
+              <p>{recentIssueCount > 0 || bridgeRowsWithoutReviewSurface ? "Support review needed" : "Support review clear"}</p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Legacy accumulated verification
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  Accumulated sign-off reconciliation
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInventoryAdvanceAttempted(true)}
+                disabled={bridgeRowsWithoutReviewSurface}
+                className="ui-btn-primary px-3 py-2 text-xs font-bold disabled:opacity-50"
+              >
+                Advance to inventory mapping
+              </button>
+            </div>
+
+            {(status?.staging_pending_count ?? 0) > 0 || recentIssueCount > 0 || bridgeRowsWithoutReviewSurface ? (
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs font-semibold text-amber-700 dark:text-amber-200">
+                <p className="font-black">Sign-off blockers present</p>
+                {(status?.staging_pending_count ?? 0) > 0 ? (
+                  <p>{fmtNum(status?.staging_pending_count ?? 0)} staging batch(es) are pending review.</p>
+                ) : null}
+                {recentIssueCount > 0 ? <p>{fmtNum(recentIssueCount)} unresolved sync issue(s) remain.</p> : null}
+                {missingProofEntityCount > 0 ? (
+                  <p>{fmtNum(missingProofEntityCount)} entity row(s) have bridge-reported counts without ROS landed proof.</p>
+                ) : null}
+                {status?.entity_runs?.some((row) => row.last_error) || recentIssueCount > 0 ? (
+                  <p>At least one bridge entity still shows an error in the latest visible run.</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {inventoryAdvanceAttempted && (status?.staging_pending_count ?? batches.length) > 0 && !hasLandedInventory ? (
+              <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-xs font-semibold text-red-600">
+                <p>One-time import is still waiting in staging</p>
+                <p>Nothing has been loaded into ROS catalog tables yet.</p>
+                <p>Previous catalog approval is stale.</p>
+                <p>Previous inventory approval is stale.</p>
+              </div>
+            ) : null}
+
+            <div className="rounded-lg border border-app-border bg-app-bg/60 p-3 text-xs">
+              <p className="font-black text-app-text">Limits and caveats</p>
+              <p className="mt-1 text-app-text-muted">
+                Imported Counterpoint ticket and open-doc rows preserve gross historical totals; imported line tax is non-authoritative and should not be treated as tax filing proof.
+              </p>
+            </div>
+
+            <div className="overflow-auto rounded-lg border border-app-border">
+              <div className="flex flex-wrap gap-2 border-b border-app-border bg-app-surface-2 p-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                <span>Missing ROS landed proof</span>
+                <span>Counts match</span>
+                <span>ROS count lower</span>
+                <span>Bridge only</span>
+              </div>
+              <table className="w-full min-w-[720px] text-left text-xs">
+                <thead className="bg-app-surface-2">
+                  <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    <th className="px-3 py-2">Entity</th>
+                    <th className="px-3 py-2 text-right">Bridge rows sent</th>
+                    <th className="px-3 py-2 text-right">ROS rows landed</th>
+                    <th className="px-3 py-2">Proof status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-app-border">
+                  {commandCenterRows.length > 0 ? commandCenterRows.map((row) => (
+                    <tr key={`details-${row.entity_key}`}>
+                      <td className="px-3 py-2 font-bold text-app-text">{row.label}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.sentByBridge ?? row.source_count)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.landedCount)}</td>
+                      <td className="px-3 py-2">
+                        {row.landedCount === 0
+                          ? "Missing ROS landed proof"
+                          : row.gap === 0
+                            ? "Matched"
+                            : row.gap && row.gap < 0
+                              ? "Lower landed count"
+                              : "Bridge-only variance"}
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td className="px-3 py-2 font-bold text-app-text">Bridge only</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(bridgeReportedRows)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">0</td>
+                      <td className="px-3 py-2">No landed proof</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <RosieInsightSummary
+              surface="counterpoint_status"
+              title="Counterpoint Sign-Off"
+              mode="explain"
+              getHeaders={headers}
+              facts={{
+                title: "Counterpoint Sign-Off",
+                bullets: [
+                  { id: "bridge_rows", label: `${fmtNum(bridgeReportedRows)} bridge rows sent`, severity: "info" },
+                  { id: "ros_landed", label: `${fmtNum(commandLandedTotal)} ROS rows landed`, severity: "info" },
+                  { id: "pending", label: `${fmtNum(status?.staging_pending_count ?? 0)} staging batch(es) pending`, severity: "warning" },
+                ],
+                disclaimers: [
+                  "Do not approve sign-off or declare cutover safe from ROSIE output. Staff must use deterministic proof first.",
+                ],
+              }}
+            />
+          </div>
+        </section>
+      ) : null}
+
       {workspaceView === "customer_duplicates" ? (
         <section className="ui-card p-5">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -1656,6 +2039,9 @@ export default function CounterpointSyncSettingsPanel({
       <section className="ui-card p-5 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
+            <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
+              Counterpoint Transition Review Packs
+            </h4>
             <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               Counterpoint Data Workbench
             </h4>
@@ -2108,6 +2494,18 @@ export default function CounterpointSyncSettingsPanel({
         message={`This will completely delete all Counterpoint products, variants, closed tickets, deposits, gift cards, and staged batch queues. This action is irreversible.\n\nTo proceed, type: ${resetPreview?.confirmation_phrase ?? "RESET"}`}
         confirmLabel="Wipe ROS Data"
         placeholder="Enter confirmation phrase"
+      />
+      <ConfirmationModal
+        isOpen={recoverBatch != null}
+        onClose={() => setRecoverBatch(null)}
+        onConfirm={() => {
+          if (recoverBatch) void recoverStaleBatch(recoverBatch);
+        }}
+        title="Mark stale apply failed?"
+        message="This marks the stale Counterpoint apply claim failed for operator review. It does not replay the payload."
+        confirmLabel="Mark failed"
+        variant="danger"
+        loading={recoveryBusy}
       />
     </div>
   );

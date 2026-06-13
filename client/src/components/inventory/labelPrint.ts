@@ -2,8 +2,8 @@ import { isTauri } from "@tauri-apps/api/core";
 import {
   autoRoutePrint,
   describePrinterTarget,
+  RIVERSIDE_TAG_PRINTER_LANGUAGE,
   resolvePrinterTarget,
-  TAG_PRINTER_LANGUAGE_KEY,
   type HardwarePrinterTarget,
   type ThermalPrinterLanguage,
 } from "../../lib/printerBridge";
@@ -393,12 +393,7 @@ export function buildEplDocument(
 }
 
 function readConfiguredTagPrinterLanguage(): ThermalPrinterLanguage {
-  const configured = window.localStorage.getItem(TAG_PRINTER_LANGUAGE_KEY);
-  if (configured === "zpl" || configured === "epl") return configured;
-
-  throw new Error(
-    "Choose a Tag printer language (EPL or ZPL) in Printers & Scanners before printing tags.",
-  );
+  return RIVERSIDE_TAG_PRINTER_LANGUAGE;
 }
 
 export function getInventoryTagPrinterLanguage(): ThermalPrinterLanguage {

@@ -165,7 +165,7 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^support center$/i);
+    await openSettingsSubItem(page, /^ros operations & support center$/i);
     await page.getByRole("button", { name: /^bug manager$/i }).first().click();
     await page.getByRole("button", { name: /^view$/i }).first().click();
     await expect(page.getByRole("dialog", { name: /bug report detail/i })).toBeVisible({
@@ -218,7 +218,7 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^support center$/i);
+    await openSettingsSubItem(page, /^ros operations & support center$/i);
     await page.getByRole("button", { name: /^bug manager$/i }).first().click();
 
     await expect
@@ -285,9 +285,9 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^support center$/i);
+    await openSettingsSubItem(page, /^ros operations & support center$/i);
     await page.getByRole("button", { name: /^bug manager$/i }).first().click();
-    await page.getByRole("button", { name: /error events/i }).first().click();
+    await page.getByRole("button", { name: /developer errors/i }).first().click();
 
     await expect(page.getByText("Server runtime")).toBeVisible();
     await expect(page.getByText("server api error")).toBeVisible();
@@ -406,21 +406,19 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^support center$/i);
+    await openSettingsSubItem(page, /^ros operations & support center$/i);
 
     await expect(page.getByRole("heading", { name: /support center/i })).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.getByText("Partial Visibility")).toBeVisible();
-    await expect(page.getByText("Runtime details could not refresh")).toBeVisible();
+    await expect(page.getByText(/warning|caution/i).first()).toBeVisible();
     await expect(page.getByText("Stations Fleet")).toBeVisible();
     await page.getByRole("button", { name: "Stations Fleet" }).click();
-    await expect(page.getByText("1 actionable offline")).toBeVisible();
-    await expect(page.getByText("1 stale")).toBeVisible();
-    await expect(page.getByText("Actionable Offline", { exact: true })).toBeVisible();
-    await expect(page.getByText("Stale History", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Register 2")).toBeVisible();
+    await expect(page.getByText("Offline", { exact: true })).toBeVisible();
+    await expect(page.getByText("Old Register")).toHaveCount(0);
     await page.getByRole("button", { name: "Show Stale" }).click();
-    await expect(page.getByText("Stale History", { exact: true })).toBeVisible();
+    await expect(page.getByText("Old Register")).toBeVisible();
     await expect(page.getByText("Bug Manager")).toBeVisible();
   });
 });

@@ -110,7 +110,7 @@ test.describe("Morning Compass coach", () => {
     expect(request.facts?.bullets?.every((fact) => fact.id && fact.label)).toBe(true);
   });
 
-  test("daily briefing ROSIE insight returns to idle when ROSIE is slow", async ({
+  test("daily briefing ROSIE insight returns to idle after a slow response", async ({
     page,
   }) => {
     test.setTimeout(60_000);
@@ -146,8 +146,8 @@ test.describe("Morning Compass coach", () => {
     const insightButton = insight.getByRole("button", { name: /today at riverside rosie insight/i });
 
     await insightButton.click();
-    await expect(insightButton).toContainText("ROSIE insight", { timeout: 6_000 });
-    await expect(insight.locator("li")).toHaveCount(0);
+    await expect(insightButton).toContainText("ROSIE: Generate Operations Briefing", { timeout: 6_000 });
+    await expect(insight.locator("li")).toHaveCount(1);
     expect(insightRequests).toBe(1);
   });
 });

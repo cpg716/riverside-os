@@ -28,8 +28,10 @@ This is the main **Register desktop shell** used on the Windows Tauri app after 
 ## Tips
 
 - On Windows register stations, Riverside now opens in a maximized desktop window so the POS shell has enough room for the cart, drawer, and sidebar.
+- On narrow phone/PWA widths, the top bar keeps menu, POS, search, ROSIE, notifications, and staff profile usable first. Secondary help, bug report, and theme controls reappear when there is enough width.
 - Before the cart opens, the Register Access screen now runs a station-readiness check for API reachability and receipt-printer connectivity.
 - Core cashier actions in the cart use larger touch targets. Disabled actions stay visible but muted, so staff can see what becomes available after selecting a customer or adding sale lines.
+- Selling a purchased gift-card load line should open checkout like a normal non-taxable sale line. It should not ask for below-cost Manager Access unless an actual manual below-cost merchandise discount is present.
 - **Park Sale** uses a Riverside prompt instead of a browser dialog.
 - Register #1 is the main cash-drawer lane. Other lanes still depend on Register #1 being open first.
 - Standalone POS workflows like `Shipping`, `Layaways`, `RMS Charge`, and `Podium Inbox` should stay top-level in the rail rather than being nested under `Customers` or `Inventory`.

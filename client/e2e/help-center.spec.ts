@@ -98,7 +98,7 @@ test("prints the currently viewed Help section", async ({ page }) => {
   const printPage = await popupPromise;
 
   await expect(printPage.locator("body")).toContainText("Register (POS)");
-  await expect(printPage.locator("body")).toContainText("staff guide");
+  await expect(printPage.locator("body")).toContainText(/staff guide/i);
   await expect(printPage.getByTestId("help-center-search")).toHaveCount(0);
 });
 
@@ -296,7 +296,7 @@ test("Top Bar ROSIE opens voice-first chat with Riverside context", async ({
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-ask-rosie-trigger").click();
   await expect(page.getByTestId("help-center-rosie-conversation-tab")).toBeVisible();
-  await expect(page.getByText(/Chat mode can use Riverside help/i)).toBeVisible();
+  await expect(page.getByText(/ROSIE can use approved Riverside help/i)).toBeVisible();
   await page
     .getByTestId("help-center-rosie-conversation-input")
     .fill("show me today’s sales");
@@ -972,7 +972,7 @@ test.describe("ROSIE settings governance", () => {
 
     await openSettingsRosiePanel(page);
 
-    await expect(page.getByText("Local Gemma")).toBeVisible();
+    await expect(page.getByText("Local Gemma").first()).toBeVisible();
     await expect(page.getByText("Remote LM Studio").first()).toBeVisible();
     await expect(page.getByText("OpenAI").first()).toBeVisible();
     await expect(page.getByText("Gemini").first()).toBeVisible();
