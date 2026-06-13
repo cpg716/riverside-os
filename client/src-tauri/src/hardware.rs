@@ -5,6 +5,10 @@ use tauri::command;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
+const PRINTER_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const PRINTER_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+const PRINTER_CHECK_TIMEOUT: Duration = Duration::from_secs(2);
+
 #[cfg(windows)]
 use std::{ffi::c_void, fs, process::Command, time::SystemTime};
 
@@ -356,13 +360,12 @@ pub async fn print_text_to_system_printer(
 pub async fn print_zpl_receipt(ip: String, port: u16, payload: String) -> Result<(), String> {
     log::info!("Attempting to dispatch ZPL receipt to {ip}:{port}");
 
-    // Generous 5-second connect timeout for internal LAN
     let connect_future = TcpStream::connect((ip.as_str(), port));
-    let mut stream = match tokio::time::timeout(Duration::from_secs(5), connect_future).await {
+    let mut stream = match tokio::time::timeout(PRINTER_CONNECT_TIMEOUT, connect_future).await {
         Ok(Ok(s)) => s,
         Ok(Err(e)) => {
             log::error!("Failed to connect to printer: {e}");
-            return Err(format!("Network connection failed: {e}"));
+            return Err(format!("Could not connect to printer: {e}"));
         }
         Err(_) => {
             log::error!("Printer connection timed out to {ip}:{port}");
@@ -370,14 +373,7 @@ pub async fn print_zpl_receipt(ip: String, port: u16, payload: String) -> Result
         }
     };
 
-    if let Err(e) = stream.write_all(payload.as_bytes()).await {
-        log::error!("Failed to transmit ZPL payload: {e}");
-        return Err(format!("Payload transmission failed: {e}"));
-    }
-
-    if let Err(e) = stream.flush().await {
-        log::error!("Failed to flush stream: {e}");
-    }
+    write_printer_job(&mut stream, payload.as_bytes(), "ZPL").await?;
 
     log::info!("Successfully dispatched ZPL to {ip}:{port}");
     Ok(())
@@ -388,9 +384,9 @@ pub async fn print_escpos_receipt(ip: String, port: u16, payload: String) -> Res
     log::info!("Attempting to dispatch ESC/POS receipt to {ip}:{port}");
 
     let connect_future = TcpStream::connect((ip.as_str(), port));
-    let mut stream = match tokio::time::timeout(Duration::from_secs(5), connect_future).await {
+    let mut stream = match tokio::time::timeout(PRINTER_CONNECT_TIMEOUT, connect_future).await {
         Ok(Ok(s)) => s,
-        Ok(Err(e)) => return Err(format!("Network connection failed: {e}")),
+        Ok(Err(e)) => return Err(format!("Could not connect to receipt printer: {e}")),
         Err(_) => return Err("Printer connection timed out".to_string()),
     };
 
@@ -412,14 +408,7 @@ pub async fn print_escpos_receipt(ip: String, port: u16, payload: String) -> Res
     buf.extend_from_slice(b"\n\n\n\n");
     buf.extend_from_slice(&cut);
 
-    if let Err(e) = stream.write_all(&buf).await {
-        log::error!("Failed to transmit ESC/POS buffer: {e}");
-        return Err(format!("Payload transmission failed: {e}"));
-    }
-
-    if let Err(e) = stream.flush().await {
-        log::error!("Failed to flush printer stream: {e}");
-    }
+    write_printer_job(&mut stream, &buf, "ESC/POS").await?;
 
     log::info!("Successfully dispatched ESC/POS to Epson {ip}:{port}");
     Ok(())
@@ -439,19 +428,13 @@ pub async fn print_escpos_binary_b64(
         .map_err(|e| format!("Invalid base64: {e}"))?;
 
     let connect_future = TcpStream::connect((ip.as_str(), port));
-    let mut stream = match tokio::time::timeout(Duration::from_secs(5), connect_future).await {
+    let mut stream = match tokio::time::timeout(PRINTER_CONNECT_TIMEOUT, connect_future).await {
         Ok(Ok(s)) => s,
-        Ok(Err(e)) => return Err(format!("Network connection failed: {e}")),
+        Ok(Err(e)) => return Err(format!("Could not connect to receipt printer: {e}")),
         Err(_) => return Err("Printer connection timed out".to_string()),
     };
 
-    if let Err(e) = stream.write_all(&bytes).await {
-        log::error!("Failed to transmit raw ESC/POS: {e}");
-        return Err(format!("Payload transmission failed: {e}"));
-    }
-    if let Err(e) = stream.flush().await {
-        log::error!("Failed to flush printer stream: {e}");
-    }
+    write_printer_job(&mut stream, &bytes, "raw ESC/POS").await?;
 
     log::info!("Raw ESC/POS dispatched to {ip}:{port}");
     Ok(())
@@ -462,13 +445,46 @@ pub async fn check_printer_connection(ip: String, port: u16) -> Result<(), Strin
     log::info!("Diagnostic: checking printer @ {ip}:{port}");
     let connect_future = TcpStream::connect((ip.as_str(), port));
 
-    // Quick 2-second handshake for status check
-    match tokio::time::timeout(Duration::from_secs(2), connect_future).await {
+    match tokio::time::timeout(PRINTER_CHECK_TIMEOUT, connect_future).await {
         Ok(Ok(_)) => {
             log::info!("Printer diagnostic SUCCESS");
             Ok(())
         }
-        Ok(Err(e)) => Err(format!("Network failed: {e}")),
-        Err(_) => Err("Connection timed out".to_string()),
+        Ok(Err(e)) => Err(format!("Could not connect to printer: {e}")),
+        Err(_) => Err("Printer connection timed out".to_string()),
+    }
+}
+
+async fn write_printer_job(
+    stream: &mut TcpStream,
+    bytes: &[u8],
+    label: &str,
+) -> Result<(), String> {
+    match tokio::time::timeout(PRINTER_WRITE_TIMEOUT, stream.write_all(bytes)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            log::error!("Printer accepted connection but did not accept {label} job: {e}");
+            return Err(format!(
+                "Printer accepted connection but did not accept the job: {e}"
+            ));
+        }
+        Err(_) => {
+            log::error!("Printer write timed out while sending {label} job");
+            return Err("Printer connection timed out while sending the job.".to_string());
+        }
+    }
+
+    match tokio::time::timeout(PRINTER_WRITE_TIMEOUT, stream.flush()).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => {
+            log::error!("Printer accepted connection but did not flush {label} job: {e}");
+            Err(format!(
+                "Printer accepted connection but did not accept the job: {e}"
+            ))
+        }
+        Err(_) => {
+            log::error!("Printer flush timed out after sending {label} job");
+            Err("Printer connection timed out while finishing the job.".to_string())
+        }
     }
 }

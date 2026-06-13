@@ -383,13 +383,13 @@ export default function ReceiptSummaryModal({
         );
       } catch (e: unknown) {
         console.error("Printing failed", e);
-        const message = "Receipt printing is unavailable.";
+        const message = "Receipt did not print. Check the receipt printer, then use Reprint Receipt.";
         setError(message);
         setPrintingFailureTitle(
           opts?.gift ? "Gift receipt did not print" : "Receipt did not print",
         );
         setPrintingFailure(
-          `${message} The sale is already complete. Retry printing, check the station printer, or send the receipt by SMS or email.`,
+          `${message} The sale is already complete. Retry printing, run printer check, or send the receipt by SMS or email.`,
         );
         // Queue for retry from the POS header
         if (transactionId && printableBase64.trim()) {

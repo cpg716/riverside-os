@@ -96,5 +96,15 @@ test.describe("settings deep-link contract", () => {
     await expect(reportCard.getByLabel("Printer setup")).toHaveValue("system");
     await expect(reportCard.getByRole("option", { name: "Network address" })).toHaveCount(0);
     await expect(reportCard.getByRole("button", { name: /Check connection/i })).toBeVisible();
+
+    const tagCard = page.getByTestId("printer-card-tag");
+    await expect(tagCard).toContainText("Clothing Tag Station");
+    await expect(tagCard.getByLabel("Tag Printer Mode")).toBeVisible();
+    await expect(tagCard.getByLabel("Tag Printer Address/IP")).toBeVisible();
+    await expect(tagCard.getByLabel("Tag Printer Port")).toBeVisible();
+    await expect(tagCard.getByLabel("Tag Printer Language")).toHaveValue("");
+    await expect(tagCard).toContainText("Use EPL for legacy LP 2844");
+    await expect(page.getByText("Printer Diagnostics")).toBeVisible();
+    await expect(page.getByText("Last test result:")).toBeVisible();
   });
 });

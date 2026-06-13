@@ -19,7 +19,10 @@ import {
   type SystemPrinter,
 } from "../../lib/printerBridge";
 import { printReceiptBase64, printReceiptText } from "../../lib/receiptPrint";
-import { openInventoryTagsWindow, type InventoryTagItem } from "../inventory/labelPrint";
+import {
+  openInventoryTagsWindow,
+  type InventoryTagItem,
+} from "../inventory/labelPrint";
 import { isTauri } from "@tauri-apps/api/core";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -78,17 +81,17 @@ const PRINTERS: PrinterConfig[] = [
   },
 ];
 
-const TEST_TAG_ITEMS: InventoryTagItem[] = [
-  {
+function buildTestTagItems(): InventoryTagItem[] {
+  return [{
     sku: "ROS-TEST-TAG",
-    productName: "Riverside test tag",
-    variation: "Printer check",
+    productName: "ROS TAG TEST",
+    variation: new Date().toLocaleString(),
     brand: "RIVERSIDE",
     price: "$1.00",
     regularPrice: null,
     salePrice: null,
-  },
-];
+  }];
+}
 
 function getStored(key: string, fallback: string) {
   if (typeof window === "undefined") return fallback;
@@ -139,6 +142,7 @@ export default function PrintersAndScannersPanel({
   const [drawerReason, setDrawerReason] = useState("Manual drawer open");
   const [testPrinting, setTestPrinting] = useState(false);
   const [lastScan, setLastScan] = useState("");
+  const [lastTestResult, setLastTestResult] = useState("No printer test has run.");
   const [systemPrinters, setSystemPrinters] = useState<SystemPrinter[]>([]);
   const [loadingSystemPrinters, setLoadingSystemPrinters] = useState(false);
 
@@ -198,13 +202,15 @@ export default function PrintersAndScannersPanel({
       if (printer.key === "receipt") {
         await checkReceiptPrinterConnection(resolvePrinterTarget("receipt"));
       } else if (printer.key === "tag") {
-        const result = await openInventoryTagsWindow(TEST_TAG_ITEMS, undefined, {
+        const result = await openInventoryTagsWindow(buildTestTagItems(), undefined, {
           allowPreviewFallback: false,
         });
         if (result.route === "direct") {
           toast(`Test tag ${result.message}`, "success");
+          setLastTestResult(`Tag test sent: ${result.message}`);
         } else {
           toast(result.message, "info");
+          setLastTestResult(result.message);
         }
         return;
       } else {
@@ -215,6 +221,7 @@ export default function PrintersAndScannersPanel({
         if (mode === "system") {
           await checkReceiptPrinterConnection(resolvePrinterTarget(printer.key));
           toast(`${printer.label} is available on this station.`, "success");
+          setLastTestResult(`${printer.label} check passed.`);
           return;
         }
         const ip = values[printer.ipStorageKey]?.trim();
@@ -225,8 +232,11 @@ export default function PrintersAndScannersPanel({
         return;
       }
       toast(`${printer.label} responded.`, "success");
+      setLastTestResult(`${printer.label} responded.`);
     } catch (e) {
-      toast(e instanceof Error ? e.message : `${printer.label} check failed`, "error");
+      const message = e instanceof Error ? e.message : `${printer.label} check failed`;
+      setLastTestResult(message);
+      toast(message, "error");
     } finally {
       setTesting(null);
     }
@@ -238,8 +248,11 @@ export default function PrintersAndScannersPanel({
       const now = new Date().toLocaleString();
       await printReceiptText(`Riverside OS\nRegister #1 printer test\n${now}\n\nEpson TM-m30III ESC/POS`);
       toast("Test receipt sent to the receipt station.", "success");
+      setLastTestResult("Receipt test sent to the receipt station.");
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Test receipt failed", "error");
+      const message = e instanceof Error ? e.message : "Test receipt failed";
+      setLastTestResult(message);
+      toast(message, "error");
     } finally {
       setTestPrinting(false);
     }
@@ -288,8 +301,15 @@ export default function PrintersAndScannersPanel({
     }
   };
 
-  const receiptTarget = describePrinterTarget(resolvePrinterTarget("receipt"));
-  const tagTarget = describePrinterTarget(resolvePrinterTarget("tag"));
+  const receiptPrinter = resolvePrinterTarget("receipt");
+  const tagPrinter = resolvePrinterTarget("tag");
+  const receiptTarget = describePrinterTarget(receiptPrinter);
+  const tagTarget = describePrinterTarget(tagPrinter);
+  const tagLanguage = values[TAG_PRINTER_LANGUAGE_KEY] === "epl"
+    ? "EPL"
+    : values[TAG_PRINTER_LANGUAGE_KEY] === "zpl"
+      ? "ZPL"
+      : "Not selected";
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -316,7 +336,7 @@ export default function PrintersAndScannersPanel({
           {[
             ["Receipt", receiptTarget, "Epson TM-m30III"],
             ["Drawer", cashDrawerEnabled ? "Cash/check only" : "Disabled", "Attached to receipt printer"],
-            ["Tags", tagTarget, "Zebra 2844 clothing tags"],
+            ["Tags", `${tagTarget} (${tagLanguage})`, "Zebra 2844 clothing tags"],
           ].map(([label, value, helper]) => (
             <div key={label} className="ui-card p-5">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -375,7 +395,7 @@ export default function PrintersAndScannersPanel({
               <div className="grid grid-cols-1 gap-3">
                 <label className="block">
                   <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Printer setup
+                    {printer.key === "tag" ? "Tag Printer Mode" : "Printer setup"}
                   </span>
                   <select
                     value={targetMode}
@@ -392,7 +412,7 @@ export default function PrintersAndScannersPanel({
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                     <label className="block min-w-0">
                       <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        Installed printer
+                        {printer.key === "tag" ? "Tag Printer" : "Installed printer"}
                       </span>
                       <select
                         value={values[printer.systemStorageKey] ?? ""}
@@ -422,7 +442,7 @@ export default function PrintersAndScannersPanel({
                   <div className={showPort ? "grid grid-cols-[1fr_7rem] gap-3" : "grid grid-cols-1 gap-3"}>
                     <label className="block">
                       <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        Printer address
+                        {printer.key === "tag" ? "Tag Printer Address/IP" : "Printer address"}
                       </span>
                       <input
                         value={values[printer.ipStorageKey] ?? ""}
@@ -434,7 +454,7 @@ export default function PrintersAndScannersPanel({
                     {showPort ? (
                       <label className="block">
                         <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          Port
+                          {printer.key === "tag" ? "Tag Printer Port" : "Port"}
                         </span>
                         <input
                           value={values[portKey] ?? ""}
@@ -451,7 +471,7 @@ export default function PrintersAndScannersPanel({
               {printer.key === "tag" ? (
                 <label className="block">
                   <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Printer language
+                    Tag Printer Language
                   </span>
                   <select
                     value={values[TAG_PRINTER_LANGUAGE_KEY] ?? ""}
@@ -459,9 +479,12 @@ export default function PrintersAndScannersPanel({
                     className="ui-input mt-2 w-full text-sm font-bold"
                   >
                     <option value="">Choose language</option>
-                    <option value="epl">EPL / Zebra LP 2844</option>
-                    <option value="zpl">ZPL II / newer Zebra</option>
+                    <option value="zpl">ZPL / LP 2844-Z or newer Zebra ZPL</option>
+                    <option value="epl">EPL / LP 2844 legacy</option>
                   </select>
+                  <span className="mt-2 block text-xs font-semibold leading-relaxed text-amber-700 dark:text-amber-300">
+                    Use EPL for legacy LP 2844. Use ZPL for LP 2844-Z or newer Zebra ZPL printers.
+                  </span>
                 </label>
               ) : null}
 
@@ -583,6 +606,51 @@ export default function PrintersAndScannersPanel({
       </section>
 
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="ui-card p-6 lg:col-span-2">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-app-accent/10 text-app-accent">
+              <Printer className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Printer Diagnostics
+              </h3>
+              <p className="text-xs font-semibold text-app-text-muted">
+                Current workstation print routing.
+              </p>
+            </div>
+          </div>
+          <dl className="mt-5 grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <dt className="font-black uppercase tracking-widest text-app-text-muted">Runtime</dt>
+              <dd className="mt-1 font-bold text-app-text">{isTauri() ? "Tauri desktop" : "PWA/browser"}</dd>
+            </div>
+            <div>
+              <dt className="font-black uppercase tracking-widest text-app-text-muted">Receipt printer mode</dt>
+              <dd className="mt-1 font-bold text-app-text">{receiptPrinter.mode}</dd>
+            </div>
+            <div>
+              <dt className="font-black uppercase tracking-widest text-app-text-muted">Receipt target</dt>
+              <dd className="mt-1 break-words font-bold text-app-text">{receiptTarget}</dd>
+            </div>
+            <div>
+              <dt className="font-black uppercase tracking-widest text-app-text-muted">Tag printer mode</dt>
+              <dd className="mt-1 font-bold text-app-text">{tagPrinter.mode}</dd>
+            </div>
+            <div>
+              <dt className="font-black uppercase tracking-widest text-app-text-muted">Tag target</dt>
+              <dd className="mt-1 break-words font-bold text-app-text">{tagTarget}</dd>
+            </div>
+            <div>
+              <dt className="font-black uppercase tracking-widest text-app-text-muted">Tag language</dt>
+              <dd className="mt-1 font-bold text-app-text">{tagLanguage}</dd>
+            </div>
+          </dl>
+          <p className="mt-4 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-xs font-semibold text-app-text-muted">
+            Last test result: {lastTestResult}
+          </p>
+        </div>
+
         <div className="ui-card p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-app-accent/10 text-app-accent">

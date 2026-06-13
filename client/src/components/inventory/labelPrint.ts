@@ -257,7 +257,7 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
   return parts.join("\n");
 }
 
-function buildZplDocument(
+export function buildZplDocument(
   items: InventoryTagItem[],
   config: InventoryTagPrintConfig,
 ): string {
@@ -385,7 +385,7 @@ function renderEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
   return parts.join("\n");
 }
 
-function buildEplDocument(
+export function buildEplDocument(
   items: InventoryTagItem[],
   config: InventoryTagPrintConfig,
 ): string {
