@@ -124,7 +124,7 @@ export default function PrintersAndScannersPanel({
             ),
           ],
         ]),
-        [TAG_PRINTER_LANGUAGE_KEY, getStored(TAG_PRINTER_LANGUAGE_KEY, "auto")],
+        [TAG_PRINTER_LANGUAGE_KEY, getStored(TAG_PRINTER_LANGUAGE_KEY, "")],
       ]) as Record<string, string>,
     [],
   );
@@ -198,7 +198,9 @@ export default function PrintersAndScannersPanel({
       if (printer.key === "receipt") {
         await checkReceiptPrinterConnection(resolvePrinterTarget("receipt"));
       } else if (printer.key === "tag") {
-        const result = await openInventoryTagsWindow(TEST_TAG_ITEMS);
+        const result = await openInventoryTagsWindow(TEST_TAG_ITEMS, undefined, {
+          allowPreviewFallback: false,
+        });
         if (result.route === "direct") {
           toast(`Test tag ${result.message}`, "success");
         } else {
@@ -452,11 +454,11 @@ export default function PrintersAndScannersPanel({
                     Printer language
                   </span>
                   <select
-                    value={values[TAG_PRINTER_LANGUAGE_KEY] ?? "auto"}
+                    value={values[TAG_PRINTER_LANGUAGE_KEY] ?? ""}
                     onChange={(e) => saveValue(TAG_PRINTER_LANGUAGE_KEY, e.target.value)}
                     className="ui-input mt-2 w-full text-sm font-bold"
                   >
-                    <option value="auto">Auto-detect LP/TLP 2844</option>
+                    <option value="">Choose language</option>
                     <option value="epl">EPL / Zebra LP 2844</option>
                     <option value="zpl">ZPL II / newer Zebra</option>
                   </select>

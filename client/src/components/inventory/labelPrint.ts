@@ -1,9 +1,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import {
   autoRoutePrint,
-  checkMainHubPrintServerTarget,
   describePrinterTarget,
-  listSystemPrinters,
   resolvePrinterTarget,
   TAG_PRINTER_LANGUAGE_KEY,
   type HardwarePrinterTarget,
@@ -394,32 +392,18 @@ function buildEplDocument(
   return items.map((item) => renderEplTag(item, config)).join("\n");
 }
 
-function inferTagPrinterLanguage(target: HardwarePrinterTarget = resolvePrinterTarget("tag")): ThermalPrinterLanguage {
+function readConfiguredTagPrinterLanguage(): ThermalPrinterLanguage {
   const configured = window.localStorage.getItem(TAG_PRINTER_LANGUAGE_KEY);
   if (configured === "zpl" || configured === "epl") return configured;
 
-  if (target.mode === "system") {
-    const name = target.printerName.toLowerCase();
-    const looksLikeClassic2844 =
-      /\b(?:lp|tlp)\s*2844\b/.test(name) || /\bzebra\s+2844\b/.test(name);
-    const explicitlyZpl =
-      name.includes("2844-z") ||
-      name.includes("zpl") ||
-      /\b(?:zd|gk|gx|zt)\d+/.test(name);
-    if (looksLikeClassic2844 && !explicitlyZpl) {
-      return "epl";
-    }
-  }
-
-  // Riverside's standard clothing tag station is the classic Zebra LP/TLP 2844
-  // family, which speaks EPL. Operators can explicitly choose ZPL for newer
-  // Zebra models in Printers & Scanners.
-  return "epl";
+  throw new Error(
+    "Choose a Tag printer language (EPL or ZPL) in Printers & Scanners before printing tags.",
+  );
 }
 
-export function getInventoryTagPrinterLanguage(target?: HardwarePrinterTarget): ThermalPrinterLanguage {
+export function getInventoryTagPrinterLanguage(): ThermalPrinterLanguage {
   if (typeof window === "undefined") return "zpl";
-  return inferTagPrinterLanguage(target);
+  return readConfiguredTagPrinterLanguage();
 }
 
 function readStoredConfig(): Partial<InventoryTagPrintConfig> | null {
@@ -735,69 +719,38 @@ function isDefaultLoopbackTagTarget(target: HardwarePrinterTarget): boolean {
   if (storedIp && !["127.0.0.1", "localhost", "::1", "[::1]"].includes(storedIp)) {
     return false;
   }
-  return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(target.ip);
+  return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(target.ip.trim());
 }
 
-async function resolveDesktopTagPrintTarget(): Promise<HardwarePrinterTarget> {
+function resolveTagPrintTarget(): HardwarePrinterTarget {
   const target = resolvePrinterTarget("tag");
-  if (!isTauri() || !isDefaultLoopbackTagTarget(target)) {
+  if (target.mode === "system") {
+    if (!target.printerName.trim()) {
+      throw new Error("Choose an installed Tag printer in Printers & Scanners before printing tags.");
+    }
     return target;
   }
 
-  const printers = await listSystemPrinters().catch(() => []);
-  const zebraPrinter = printers.find((printer) =>
-    /\b(?:zebra|lp\s*2844|tlp\s*2844|2844)\b/i.test(printer.name),
-  );
-  if (!zebraPrinter) {
-    return target;
+  if (isDefaultLoopbackTagTarget(target)) {
+    throw new Error(
+      "Choose an installed Tag printer or a non-loopback Tag printer address in Printers & Scanners before printing tags.",
+    );
   }
-
-  return {
-    mode: "system",
-    printerName: zebraPrinter.name,
-  };
+  if (!target.ip.trim()) {
+    throw new Error("Choose a Tag printer address in Printers & Scanners before printing tags.");
+  }
+  return target;
 }
 
-function targetFromMainHubCheck(
-  target: HardwarePrinterTarget,
-  result: Awaited<ReturnType<typeof checkMainHubPrintServerTarget>>,
-): HardwarePrinterTarget {
-  if (result.route === "system") {
-    return {
-      mode: "system",
-      printerName: result.target,
-    };
-  }
-
-  const parsed = result.target.match(/^(.+):(\d+)$/);
-  if (!parsed) {
-    return target;
-  }
-  const port = Number.parseInt(parsed[2], 10);
-  if (!Number.isFinite(port) || port <= 0 || port > 65535) {
-    return target;
-  }
-  return {
-    mode: "network",
-    ip: parsed[1],
-    port,
-  };
-}
-
-async function resolveTagPrintTarget(): Promise<HardwarePrinterTarget> {
-  const target = await resolveDesktopTagPrintTarget();
-  if (!isDefaultLoopbackTagTarget(target)) {
-    return target;
-  }
-
-  const result = await checkMainHubPrintServerTarget("tag", target);
-  return targetFromMainHubCheck(target, result);
-}
+type InventoryTagPrintOptions = {
+  allowPreviewFallback?: boolean;
+};
 
 /** Multi-label Zebra/ZPL dispatch using the configured Tag Station. */
 export async function openInventoryTagsWindow(
   items: InventoryTagItem[],
   overrideConfig?: Partial<InventoryTagPrintConfig>,
+  options: InventoryTagPrintOptions = {},
 ): Promise<InventoryTagPrintResult> {
   if (items.length === 0) {
     return {
@@ -812,12 +765,13 @@ export async function openInventoryTagsWindow(
     ...overrideConfig,
   };
 
+  const target = resolveTagPrintTarget();
+  const language = getInventoryTagPrinterLanguage();
+  const payload = language === "epl"
+    ? buildEplDocument(items, config)
+    : buildZplDocument(items, config);
+
   try {
-    const target = await resolveTagPrintTarget();
-    const language = getInventoryTagPrinterLanguage(target);
-    const payload = language === "epl"
-      ? buildEplDocument(items, config)
-      : buildZplDocument(items, config);
     const result = (await autoRoutePrint("tag", payload, language, target)) as
       | { target?: string }
       | undefined;
@@ -828,10 +782,14 @@ export async function openInventoryTagsWindow(
     };
   } catch (directError) {
     const directMessage = directError instanceof Error ? directError.message : String(directError);
+    const allowPreviewFallback = options.allowPreviewFallback ?? !isTauri();
+    if (!allowPreviewFallback) {
+      throw new Error(`Tag print failed: ${directMessage}`);
+    }
     console.warn("Direct Zebra tag print failed; opening print fallback", directError);
     try {
       return await openInventoryTagsPreviewWindow(items, config, {
-        autoPrint: !isTauri(),
+        autoPrint: true,
         directError: directMessage,
       });
     } catch (previewError) {

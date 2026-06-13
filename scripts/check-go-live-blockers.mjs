@@ -224,11 +224,13 @@ function checkDirectPrinterRouting() {
     bridge.includes("/api/hardware/print-station") &&
       bridge.includes("printViaMainHubPrintServer") &&
       bridge.includes('if (type === "tag")') &&
+      bridge.includes("isLoopbackNetworkTarget(target)") &&
+      bridge.includes('if (!isTauri())') &&
       bridge.includes('return printViaMainHubPrintServer(type, payload, target, "text")') &&
-      bridge.includes("isLoopbackNetworkTarget(target)"),
-    "Tag printing routes through the Main Hub station print server",
+      !bridge.includes('if (station === "tag" && isLoopbackNetworkTarget(target)) {\n    return {'),
+    "Browser/PWA tag printing uses the Main Hub station print server only with an explicit target",
     bridgeFile,
-    "Tags must use the server-side station print route so the Main Hub owns Zebra dispatch instead of each Tauri shell deciding locally.",
+    "Tags must not use default loopback to silently ask the Main Hub to pick a printer; Tauri dispatches directly to the configured tag target.",
   );
   const serverHardware = read("server/src/api/hardware.rs");
   assert(
@@ -246,6 +248,10 @@ function checkDirectPrinterRouting() {
 function checkTagDesignerPrintPreviewTruthfulness() {
   const file = "client/src/components/inventory/labelPrint.ts";
   const content = read(file);
+  const tagDesignerFile = "client/src/components/settings/TagDesignerPanel.tsx";
+  const tagDesigner = read(tagDesignerFile);
+  const settingsFile = "client/src/components/settings/PrintersAndScannersPanel.tsx";
+  const settings = read(settingsFile);
   assert(
     content.includes("Tag print preview was blocked") &&
       !/return\s+["']blocked["']/.test(content) &&
@@ -255,28 +261,42 @@ function checkTagDesignerPrintPreviewTruthfulness() {
     "Blocked tag previews must surface as errors so staff do not see a false print/preview success.",
   );
   assert(
-    content.includes("resolveDesktopTagPrintTarget") &&
-      content.includes("listSystemPrinters") &&
-      content.includes('mode: "system"') &&
+    content.includes("Choose an installed Tag printer or a non-loopback Tag printer address") &&
+      !content.includes("resolveDesktopTagPrintTarget") &&
+      !content.includes("listSystemPrinters") &&
+      !content.includes("inferTagPrinterLanguage") &&
       content.includes('autoRoutePrint("tag", payload, language, target)'),
-    "Desktop tag test print can use an installed Zebra when the tag station is still on default loopback",
+    "Desktop tag print requires the explicitly configured Tag printer target",
     file,
-    "A Windows-installed Zebra 2844 should not silently fall through to 127.0.0.1:9100 when that default was never replaced.",
+    "Default 127.0.0.1 tag configuration must block instead of auto-detecting an installed Zebra or asking the Main Hub to choose one.",
   );
   assert(
-    /const\s+target\s*=\s*await\s+resolveDesktopTagPrintTarget\(\)[\s\S]*?const\s+language\s*=\s*getInventoryTagPrinterLanguage\(target\)/.test(content),
-    "Desktop tag print language is inferred from the resolved Zebra target",
+    content.includes("Choose a Tag printer language (EPL or ZPL)") &&
+      content.includes("TAG_PRINTER_LANGUAGE_KEY") &&
+      !/looksLikeClassic2844|explicitlyZpl|Auto-detect/i.test(content),
+    "Tag print language is read only from the explicit Tag printer language setting",
     file,
-    "Auto language selection must happen after the default-loopback desktop target is resolved, otherwise classic LP/TLP 2844 printers can receive ZPL and accept a spool job without printing a usable tag.",
+    "Tag payload generation must not override the selected EPL/ZPL language by printer-name inference.",
   );
   assert(
     content.includes("Print preview also failed") &&
-      content.includes("autoPrint: !isTauri()") &&
+      content.includes("allowPreviewFallback ?? !isTauri()") &&
+      content.includes("autoPrint: true") &&
       content.includes("printExistingWindowAsync(w)") &&
-      content.includes("printDialogOpened: options.autoPrint === true"),
-    "Tag print fallback reports preview failures and uses the right recovery surface by runtime",
+      content.includes("printDialogOpened: options.autoPrint === true") &&
+      tagDesigner.includes("allowPreviewFallback: false") &&
+      settings.includes("allowPreviewFallback: false"),
+    "Tag print fallback reports preview failures and test prints can require real dispatch",
     file,
-    "If direct tag dispatch fails, browser/PWA should open the print dialog and Tauri should open a desktop preview without marking shelf labels printed.",
+    "Tag Designer and printer-settings test tags must not fall back to preview; browser/PWA inventory fallback remains explicit and non-successful.",
+  );
+
+  assert(
+    settings.includes('<option value="">Choose language</option>') &&
+      !settings.includes("Auto-detect LP/TLP 2844"),
+    "Printer settings require an explicit Tag printer language",
+    settingsFile,
+    "Production tag printing must block until staff choose EPL or ZPL.",
   );
 }
 

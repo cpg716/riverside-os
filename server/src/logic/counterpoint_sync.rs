@@ -5146,6 +5146,36 @@ fn counterpoint_raw_proof_rows(
         .collect()
 }
 
+fn unlanded_import_exception_details(
+    entity_key: &str,
+    source_key: &str,
+) -> (&'static str, &'static str, String, &'static str) {
+    let financial_document = matches!(entity_key, "tickets" | "open_docs");
+    let reason_code = if matches!(entity_key, "inventory" | "catalog") {
+        "row_quarantined_or_not_landed"
+    } else {
+        "row_not_landed"
+    };
+    let message = format!(
+        "Counterpoint {entity_key} source row {source_key} did not land in ROS during this import-first batch. The batch continued and this row needs review."
+    );
+    let suggested_fix = if financial_document {
+        "Review the source document and resolve missing customers, variants, tenders, or mapping data before go-live sign-off."
+    } else {
+        "Review the source payload, quarantine records, and sync issues; correct the source data or mapping, then rerun this entity batch."
+    };
+    (
+        if financial_document {
+            "blocked"
+        } else {
+            "warning"
+        },
+        reason_code,
+        message,
+        suggested_fix,
+    )
+}
+
 async fn counterpoint_landed_targets_by_source_key(
     pool: &PgPool,
     entity_key: &str,
@@ -5417,7 +5447,6 @@ pub async fn record_counterpoint_import_batch_success(
     let mut raw_records = 0_i64;
     let mut landed_records = 0_i64;
     let mut provenance_records = 0_i64;
-    let exception_records = 0_i64;
     let mut tx = pool.begin().await?;
 
     for row in &proof_rows {
@@ -5451,6 +5480,42 @@ pub async fn record_counterpoint_import_batch_success(
         raw_records += 1;
         if primary.is_some() {
             landed_records += 1;
+        } else {
+            let (severity, reason_code, message, suggested_fix) =
+                unlanded_import_exception_details(&entity_key, &row.source_key);
+            let source_payload = serde_json::json!({
+                "source_key": row.source_key,
+                "source_row": row.payload,
+                "batch_summary": summary,
+            });
+            sqlx::query(
+                r#"
+                INSERT INTO counterpoint_import_exceptions (
+                    import_run_id, entity_key, source_key, severity, reason_code,
+                    message, suggested_fix, fallback_landed, ros_table, ros_id, source_payload
+                )
+                SELECT $1, $2, $3, $4, $5, $6, $7, FALSE, NULL::text, NULL::uuid, $8
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM counterpoint_import_exceptions
+                    WHERE import_run_id = $1
+                      AND entity_key = $2
+                      AND source_key IS NOT DISTINCT FROM $3
+                      AND reason_code = $5
+                      AND status = 'open'
+                )
+                "#,
+            )
+            .bind(import_run_id)
+            .bind(&entity_key)
+            .bind(&row.source_key)
+            .bind(severity)
+            .bind(reason_code)
+            .bind(message)
+            .bind(suggested_fix)
+            .bind(&source_payload)
+            .execute(&mut *tx)
+            .await?;
         }
 
         for (ros_table, ros_id) in landed_targets {
@@ -5480,6 +5545,22 @@ pub async fn record_counterpoint_import_batch_success(
         }
     }
 
+    let exception_records: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM counterpoint_import_exceptions
+        WHERE import_run_id = $1
+          AND entity_key = $2
+          AND status = 'open'
+          AND (source_key = ANY($3) OR source_key IS NULL)
+        "#,
+    )
+    .bind(import_run_id)
+    .bind(&entity_key)
+    .bind(&source_keys)
+    .fetch_one(&mut *tx)
+    .await?;
+
     sqlx::query(
         r#"
         UPDATE counterpoint_import_runs
@@ -5490,7 +5571,8 @@ pub async fn record_counterpoint_import_batch_success(
                     'raw_records', $3::bigint,
                     'landed_records', $4::bigint,
                     'provenance_records', $5::bigint,
-                    'summary', $6::jsonb,
+                    'exception_records', $6::bigint,
+                    'summary', $7::jsonb,
                     'updated_at', NOW()
                 )
             ),
@@ -5503,6 +5585,7 @@ pub async fn record_counterpoint_import_batch_success(
     .bind(raw_records)
     .bind(landed_records)
     .bind(provenance_records)
+    .bind(exception_records)
     .bind(summary)
     .execute(&mut *tx)
     .await?;
@@ -13865,6 +13948,158 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn counterpoint_import_run_records_unlanded_inventory_exception() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        ensure_counterpoint_import_first_tables(&pool).await;
+        ensure_counterpoint_ingest_quarantine_table(&pool).await;
+        let unique = Uuid::new_v4().to_string();
+        let suffix = &unique[..8];
+        let product_id = Uuid::new_v4();
+        let valid_sku = format!("B-{suffix}10");
+        let valid_key = format!("I-{suffix}10|BLUE|40");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, 10.00, 5.00, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("Counterpoint Proof Inventory {suffix}"))
+        .execute(&pool)
+        .await
+        .expect("insert proof product");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, '{}'::jsonb, 0, $3)
+            "#,
+        )
+        .bind(product_id)
+        .bind(&valid_sku)
+        .bind(&valid_key)
+        .execute(&pool)
+        .await
+        .expect("insert proof variant");
+
+        let preflight = record_counterpoint_import_preflight(
+            &pool,
+            CounterpointImportPreflightPayload {
+                history_start: Some("2018-01-01".into()),
+                bridge_hostname: Some("test-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some(format!("inventory-proof-{unique}")),
+                import_first: true,
+                staging_enabled: false,
+                dry_run: false,
+                startup_issues: vec![],
+                counts: realistic_import_preflight_counts(),
+                metadata: serde_json::json!({ "test": true }),
+            },
+        )
+        .await
+        .expect("record inventory proof preflight");
+        let import_run = start_counterpoint_import_run(
+            &pool,
+            CounterpointImportRunStartPayload {
+                preflight_import_run_id: Some(preflight.import_run_id),
+                run_kind: Some("rehearsal".into()),
+                bridge_hostname: Some("test-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some(format!("inventory-proof-{unique}")),
+            },
+        )
+        .await
+        .expect("start inventory proof import run");
+
+        let payload_json = serde_json::json!({
+            "rows": [
+                {
+                    "sku": valid_sku,
+                    "stock_on_hand": 4,
+                    "counterpoint_item_key": valid_key,
+                    "unit_cost": "5.00"
+                },
+                {
+                    "sku": "",
+                    "stock_on_hand": 8,
+                    "counterpoint_item_key": null,
+                    "unit_cost": "2.00"
+                }
+            ]
+        });
+        let typed_payload: CounterpointInventoryPayload =
+            serde_json::from_value(payload_json.clone()).expect("inventory payload");
+        let summary = execute_counterpoint_inventory_batch(&pool, typed_payload)
+            .await
+            .expect("execute mixed inventory batch");
+        assert_eq!(summary.updated, 1);
+        assert_eq!(summary.quarantined, 1);
+
+        let summary_json = serde_json::to_value(&summary).expect("summary json");
+        let proof = record_counterpoint_import_batch_success(
+            &pool,
+            import_run.import_run_id,
+            "inventory",
+            &payload_json,
+            &summary_json,
+        )
+        .await
+        .expect("record inventory batch proof");
+
+        assert_eq!(proof.raw_records, 2);
+        assert_eq!(proof.landed_records, 1);
+        assert_eq!(proof.exception_records, 1);
+
+        let exception_payload: JsonValue = sqlx::query_scalar(
+            r#"
+            SELECT source_payload
+            FROM counterpoint_import_exceptions
+            WHERE import_run_id = $1
+              AND entity_key = 'inventory'
+              AND reason_code = 'row_quarantined_or_not_landed'
+              AND status = 'open'
+            LIMIT 1
+            "#,
+        )
+        .bind(import_run.import_run_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load inventory unlanded exception");
+        assert_eq!(
+            exception_payload
+                .get("batch_summary")
+                .and_then(|value| value.get("quarantined"))
+                .and_then(JsonValue::as_i64),
+            Some(1)
+        );
+
+        let _ =
+            sqlx::query("DELETE FROM counterpoint_import_exceptions WHERE import_run_id = ANY($1)")
+                .bind(&vec![import_run.import_run_id])
+                .execute(&pool)
+                .await;
+        let _ = sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = ANY($1)")
+            .bind(&vec![preflight.import_run_id, import_run.import_run_id])
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query(
+            "DELETE FROM counterpoint_ingest_quarantine WHERE ingest_type = 'inventory' AND source_row->>'sku' = ''",
+        )
+        .execute(&pool)
+        .await;
+        let _ = sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
     async fn counterpoint_customer_duplicate_email_lands_without_email_exception() {
         let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
@@ -13874,10 +14109,16 @@ mod tests {
         let existing_code = format!("CP-EMAIL-EXIST-{suffix}");
         let duplicate_code = format!("CP-EMAIL-DUPE-{suffix}");
         let clean_code = format!("CP-EMAIL-CLEAN-{suffix}");
+        let same_batch_duplicate_code = format!("CP-EMAIL-BATCH-DUPE-{suffix}");
         let shared_email = format!("cp-shared-{suffix}@example.com");
         let clean_email = format!("cp-clean-{suffix}@example.com");
 
-        for code in [&existing_code, &duplicate_code, &clean_code] {
+        for code in [
+            &existing_code,
+            &duplicate_code,
+            &clean_code,
+            &same_batch_duplicate_code,
+        ] {
             let _ = sqlx::query("DELETE FROM counterpoint_import_exceptions WHERE source_key = $1")
                 .bind(code)
                 .execute(&pool)
@@ -13917,6 +14158,13 @@ mod tests {
                     "last_name": "Email",
                     "email": clean_email.clone(),
                     "loyalty_points": 0
+                },
+                {
+                    "cust_no": same_batch_duplicate_code.clone(),
+                    "first_name": "Same Batch",
+                    "last_name": "Email",
+                    "email": clean_email.clone(),
+                    "loyalty_points": 0
                 }
             ]
         }))
@@ -13926,9 +14174,9 @@ mod tests {
             .await
             .expect("customer import should continue after duplicate email");
 
-        assert_eq!(summary.created, 2);
+        assert_eq!(summary.created, 3);
         assert_eq!(summary.updated, 0);
-        assert_eq!(summary.email_conflicts, 1);
+        assert_eq!(summary.email_conflicts, 2);
 
         let duplicate_email: Option<String> =
             sqlx::query_scalar("SELECT email FROM customers WHERE customer_code = $1")
@@ -13945,6 +14193,33 @@ mod tests {
                 .await
                 .expect("load clean customer email");
         assert_eq!(clean_landed_email.as_deref(), Some(clean_email.as_str()));
+
+        let same_batch_duplicate_email: Option<String> =
+            sqlx::query_scalar("SELECT email FROM customers WHERE customer_code = $1")
+                .bind(&same_batch_duplicate_code)
+                .fetch_one(&pool)
+                .await
+                .expect("load same-batch duplicate customer email");
+        assert!(same_batch_duplicate_email.is_none());
+
+        let exception_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_import_exceptions
+            WHERE entity_key = 'customers'
+              AND source_key = ANY($1)
+              AND reason_code = 'duplicate_customer_email'
+              AND status = 'open'
+            "#,
+        )
+        .bind(vec![
+            duplicate_code.clone(),
+            same_batch_duplicate_code.clone(),
+        ])
+        .fetch_one(&pool)
+        .await
+        .expect("count duplicate email exceptions");
+        assert_eq!(exception_count, 2);
 
         let exception_payload: JsonValue = sqlx::query_scalar(
             r#"
@@ -13975,7 +14250,12 @@ mod tests {
             Some(true)
         );
 
-        for code in [&existing_code, &duplicate_code, &clean_code] {
+        for code in [
+            &existing_code,
+            &duplicate_code,
+            &clean_code,
+            &same_batch_duplicate_code,
+        ] {
             let _ = sqlx::query("DELETE FROM counterpoint_import_exceptions WHERE source_key = $1")
                 .bind(code)
                 .execute(&pool)

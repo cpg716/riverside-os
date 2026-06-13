@@ -368,7 +368,9 @@ export default function TagDesignerPanel() {
   };
   const handlePrint = async () => {
     try {
-      const result = await openInventoryTagsWindow(TEST_PRINT_ITEMS, normalizedDraft);
+      const result = await openInventoryTagsWindow(TEST_PRINT_ITEMS, normalizedDraft, {
+        allowPreviewFallback: false,
+      });
       if (result.route === "direct") {
         toast(`Test tag ${result.message}`, "success");
       } else {

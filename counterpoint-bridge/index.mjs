@@ -770,6 +770,14 @@ function configuredSql(name) {
   return ALLOW_SQL_ENV_OVERRIDES ? process.env[name] ?? "" : "";
 }
 
+function requireImportFirstIngestMode() {
+  if (!IMPORT_FIRST_MODE && !DRY_RUN_MODE) {
+    throw new Error(
+      "CP_IMPORT_FIRST_MODE must remain enabled for Counterpoint go-live import. Legacy direct/staging ingest is disabled for production import runs.",
+    );
+  }
+}
+
 const SYNC_CUSTOMERS = envFlag("SYNC_CUSTOMERS", true);
 const SYNC_INVENTORY = envFlag("SYNC_INVENTORY", true);
 const SYNC_CATALOG = envFlag("SYNC_CATALOG", true);
@@ -2356,6 +2364,7 @@ async function rosPost(entityKey, body) {
     console.info(`[dry-run] Would post entity "${entityKey}" with ${count} records. Preview: ${preview.slice(0, 150)}...`);
     return { success: true, count, dryRun: true };
   }
+  requireImportFirstIngestMode();
   const hdr = bridgeIngestHeaders();
   const directUrl = `/api/sync/counterpoint/${pathSeg}`;
   const importBatchBody = {
@@ -5745,6 +5754,7 @@ async function main() {
     console.error("Set SQL_CONNECTION_STRING");
     process.exit(1);
   }
+  requireImportFirstIngestMode();
   bridgeHostnameCached = os.hostname();
 
   // Start the Bridge Command Dashboard (Port 3002)

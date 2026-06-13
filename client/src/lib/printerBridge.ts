@@ -145,11 +145,9 @@ function stationPrintBody(
   format: PrintHubFormat,
 ) {
   if (station === "tag" && isLoopbackNetworkTarget(target)) {
-    return {
-      station,
-      payload,
-      format,
-    };
+    throw new Error(
+      "Choose an installed Tag printer or a non-loopback Tag printer address before printing tags.",
+    );
   }
 
   if (target.mode === "system") {
@@ -497,13 +495,14 @@ export async function autoRoutePrint(
   }
 
   if (type === "tag") {
-    // In the desktop app, an explicit Zebra target should be tested directly from the Tauri shell.
-    // Keep the Main Hub route only for the unresolved/default loopback tag target so Back Office/PWA
-    // still lets the hub-owned station settings decide where the Zebra job goes.
-    if (isTauri() && !isLoopbackNetworkTarget(target)) {
-      return printRawThermal(payload, target);
+    if (isLoopbackNetworkTarget(target)) {
+      throw new Error(
+        "Choose an installed Tag printer or a non-loopback Tag printer address before printing tags.",
+      );
     }
-    return printViaMainHubPrintServer(type, payload, target, "text");
+    if (!isTauri()) {
+      return printViaMainHubPrintServer(type, payload, target, "text");
+    }
   }
 
   if (format === "zpl" || format === "epl") {

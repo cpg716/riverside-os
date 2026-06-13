@@ -212,6 +212,11 @@ if [[ -z "${RIVERSIDE_LLAMA_UPSTREAM:-}" && ( "$ROSIE_SELECTED_PROVIDER" == "loc
   export RIVERSIDE_LLAMA_UPSTREAM="$LOCAL_LLAMA_URL"
 fi
 
+# `npm run dev` is a local non-production path. Keep production startup strict,
+# but do not make developers discover this flag after a successful compile.
+: "${RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP:=true}"
+export RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP
+
 if ! is_falsey "$ROSIE_AUTOSTART"; then
   if [[ "$ROSIE_SELECTED_PROVIDER" != "local_llm" && "$ROSIE_SELECTED_PROVIDER" != "auto" ]]; then
     echo "[rosie] local Gemma Host autostart skipped for ROSIE_PROVIDER=${ROSIE_SELECTED_PROVIDER}"
