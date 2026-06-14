@@ -1386,6 +1386,146 @@ mod tests {
     }
 
     #[test]
+    fn rosie_tool_planner_chooses_inventory_for_availability() {
+        let plan = plan_rosie_read_tool("Do we have navy suits in 40R in inventory?", None);
+        assert_eq!(plan.decision, RosiePlannerDecisionKind::ExecuteTool);
+        assert_eq!(
+            plan.tool_name.as_deref(),
+            Some("get_inventory_availability")
+        );
+        assert_eq!(plan.domain, "inventory");
+    }
+
+    #[test]
+    fn rosie_tool_planner_chooses_wedding_missing_measurements() {
+        let plan = plan_rosie_read_tool("Who is missing measurements for weddings?", None);
+        assert_eq!(plan.decision, RosiePlannerDecisionKind::ExecuteTool);
+        assert_eq!(
+            plan.tool_name.as_deref(),
+            Some("get_wedding_members_missing_measurements")
+        );
+        assert_eq!(plan.domain, "weddings");
+    }
+
+    #[test]
+    fn rosie_tool_planner_searches_named_wedding_before_readiness_answer() {
+        let plan = plan_rosie_read_tool("Who is missing measurements for the Smith wedding?", None);
+        assert_eq!(plan.decision, RosiePlannerDecisionKind::ExecuteTool);
+        assert_eq!(plan.tool_name.as_deref(), Some("search_weddings_for_rosie"));
+        assert_eq!(plan.arguments["query"], Value::String("smith".to_string()));
+    }
+
+    #[test]
+    fn rosie_tool_planner_chooses_appointments() {
+        let plan = plan_rosie_read_tool("What appointments are today?", None);
+        assert_eq!(plan.decision, RosiePlannerDecisionKind::ExecuteTool);
+        assert_eq!(plan.tool_name.as_deref(), Some("get_appointments_by_date"));
+        assert_eq!(plan.domain, "appointments");
+    }
+
+    #[test]
+    fn rosie_tool_planner_chooses_sales_with_named_month() {
+        let plan = plan_rosie_read_tool("How many tuxes sold in June?", None);
+        assert_eq!(plan.decision, RosiePlannerDecisionKind::ExecuteTool);
+        assert_eq!(
+            plan.tool_name.as_deref(),
+            Some("get_product_sales_by_query")
+        );
+        assert_eq!(plan.domain, "sales");
+        assert_eq!(plan.arguments["query"], Value::String("tuxes".to_string()));
+        assert!(plan.arguments.get("from").is_some());
+        assert!(plan.arguments.get("to").is_some());
+    }
+
+    #[test]
+    fn rosie_tool_planner_chooses_receiving_and_purchase_order_tools() {
+        let receipts = plan_rosie_read_tool("What did we receive this week?", None);
+        assert_eq!(receipts.decision, RosiePlannerDecisionKind::ExecuteTool);
+        assert_eq!(receipts.tool_name.as_deref(), Some("get_recent_receipts"));
+        assert_eq!(receipts.domain, "receiving");
+
+        let pos = plan_rosie_read_tool("What POs are open?", None);
+        assert_eq!(pos.decision, RosiePlannerDecisionKind::ExecuteTool);
+        assert_eq!(pos.tool_name.as_deref(), Some("get_open_purchase_orders"));
+        assert_eq!(pos.domain, "purchasing");
+    }
+
+    #[test]
+    fn rosie_tool_planner_handles_credit_and_gift_card_domains() {
+        let store_credit = plan_rosie_read_tool("Does John have store credit?", None);
+        assert_eq!(store_credit.decision, RosiePlannerDecisionKind::ExecuteTool);
+        assert_eq!(
+            store_credit.tool_name.as_deref(),
+            Some("search_customers_for_rosie")
+        );
+        assert_eq!(
+            store_credit.arguments["query"],
+            Value::String("john".to_string())
+        );
+
+        let gift_cards = plan_rosie_read_tool("What is the gift card balance summary?", None);
+        assert_eq!(gift_cards.decision, RosiePlannerDecisionKind::ExecuteTool);
+        assert_eq!(
+            gift_cards.tool_name.as_deref(),
+            Some("get_gift_card_summary")
+        );
+        assert_eq!(gift_cards.domain, "gift_cards");
+    }
+
+    #[test]
+    fn rosie_tool_planner_searches_named_vendors() {
+        let plan = plan_rosie_read_tool("Find Jim's Formal vendor.", None);
+        assert_eq!(plan.decision, RosiePlannerDecisionKind::ExecuteTool);
+        assert_eq!(plan.tool_name.as_deref(), Some("search_vendors_for_rosie"));
+        assert_eq!(
+            plan.arguments["query"],
+            Value::String("jim's formal".to_string())
+        );
+    }
+
+    #[test]
+    fn rosie_tool_planner_clarifies_ambiguous_order_domain() {
+        let plan = plan_rosie_read_tool("Do you mean open orders or open purchase orders?", None);
+        assert_eq!(
+            plan.decision,
+            RosiePlannerDecisionKind::AskClarifyingQuestion
+        );
+        assert_eq!(plan.reason, Some("order_domain_ambiguous"));
+    }
+
+    #[test]
+    fn rosie_tool_planner_refuses_mutations_and_logs_safe_gaps() {
+        let mutation = plan_rosie_read_tool("Adjust inventory for navy suits.", None);
+        assert_eq!(mutation.decision, RosiePlannerDecisionKind::RefuseMutation);
+        assert!(mutation.tool_name.is_none());
+
+        let gap = plan_rosie_read_tool("Show vendor return history.", None);
+        assert_eq!(gap.decision, RosiePlannerDecisionKind::UnsupportedSafeGap);
+        assert_eq!(gap.suggested_tool, Some("get_vendor_return_history"));
+    }
+
+    #[test]
+    fn rosie_tool_planner_never_returns_sql_or_mutation_tools() {
+        for question in [
+            "Do we have any open orders right now?",
+            "Do we have navy suits in inventory?",
+            "How many tuxes sold in June?",
+            "What did we receive this week?",
+            "Does QBO have errors?",
+        ] {
+            let plan = plan_rosie_read_tool(question, None);
+            if let Some(tool_name) = &plan.tool_name {
+                assert!(!tool_name.contains("sql"));
+                assert!(!tool_name.contains("query_database"));
+                assert!(!rosie_read_tools::mutation_like_tool_name(tool_name));
+            }
+            let serialized = serde_json::to_string(&plan).expect("planner decision serializes");
+            assert!(!serialized.contains("SELECT "));
+            assert!(!serialized.contains("transactions"));
+        }
+    }
+
+    #[test]
     fn rosie_read_tool_inference_handles_wedding_risk_and_stale_pickups() {
         let wedding_requests =
             infer_read_tool_requests("Which weddings need attention this week?", None);
@@ -1828,12 +1968,11 @@ fn question_mentions_inventory_domain(lower: &str) -> bool {
 
 fn rosie_question_asks_mutation(question: &str) -> bool {
     let lower = question.to_ascii_lowercase();
-    [
+    let imperative_terms = [
         "fix ",
         "adjust ",
         "reconcile ",
         "post ",
-        "receive ",
         "refund ",
         "discount ",
         "fulfill ",
@@ -1843,9 +1982,679 @@ fn rosie_question_asks_mutation(question: &str) -> bool {
         "update ",
         "void ",
         "import ",
+        "apply ",
+        "create ",
+        "send ",
+        "redeem ",
+        "issue ",
+    ];
+    if imperative_terms
+        .iter()
+        .any(|term| lower.starts_with(term) || lower.contains(&format!(" {term}")))
+    {
+        return true;
+    }
+    [
+        "receive this item",
+        "receive stock",
+        "close register",
+        "post to qbo",
+        "mark picked up",
+        "mark complete",
+        "create po",
+        "create purchase order",
+        "create appointment",
+        "send message",
+        "redeem gift card",
+        "issue store credit",
     ]
     .iter()
-    .any(|term| lower.starts_with(term) || lower.contains(&format!(" {term}")))
+    .any(|term| lower.contains(term))
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RosiePlannerDecisionKind {
+    ExecuteTool,
+    AskClarifyingQuestion,
+    RefuseMutation,
+    UnsupportedSafeGap,
+    AnswerFromHelpDocs,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct RosieToolPlannerDecision {
+    decision: RosiePlannerDecisionKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_name: Option<String>,
+    confidence: &'static str,
+    domain: &'static str,
+    arguments: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    basis: Option<&'static str>,
+    warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    clarifying_question: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suggested_tool: Option<&'static str>,
+}
+
+fn planner_execute(
+    tool_name: &'static str,
+    domain: &'static str,
+    arguments: Value,
+) -> RosieToolPlannerDecision {
+    let basis = rosie_read_tools::tool_definition(tool_name).map(|def| def.basis);
+    RosieToolPlannerDecision {
+        decision: RosiePlannerDecisionKind::ExecuteTool,
+        tool_name: Some(tool_name.to_string()),
+        confidence: "high",
+        domain,
+        arguments,
+        basis,
+        warnings: Vec::new(),
+        reason: None,
+        clarifying_question: None,
+        suggested_tool: None,
+    }
+}
+
+fn planner_clarify(
+    domain: &'static str,
+    reason: &'static str,
+    question: impl Into<String>,
+) -> RosieToolPlannerDecision {
+    RosieToolPlannerDecision {
+        decision: RosiePlannerDecisionKind::AskClarifyingQuestion,
+        tool_name: None,
+        confidence: "medium",
+        domain,
+        arguments: serde_json::json!({}),
+        basis: None,
+        warnings: Vec::new(),
+        reason: Some(reason),
+        clarifying_question: Some(question.into()),
+        suggested_tool: None,
+    }
+}
+
+fn planner_unsupported(
+    domain: &'static str,
+    reason: &'static str,
+    suggested_tool: &'static str,
+) -> RosieToolPlannerDecision {
+    RosieToolPlannerDecision {
+        decision: RosiePlannerDecisionKind::UnsupportedSafeGap,
+        tool_name: None,
+        confidence: "high",
+        domain,
+        arguments: serde_json::json!({}),
+        basis: None,
+        warnings: Vec::new(),
+        reason: Some(reason),
+        clarifying_question: None,
+        suggested_tool: Some(suggested_tool),
+    }
+}
+
+fn planner_refuse_mutation() -> RosieToolPlannerDecision {
+    RosieToolPlannerDecision {
+        decision: RosiePlannerDecisionKind::RefuseMutation,
+        tool_name: None,
+        confidence: "high",
+        domain: "operations",
+        arguments: serde_json::json!({}),
+        basis: None,
+        warnings: vec![
+            "ROSIE can explain or summarize this, but cannot change Riverside OS data.".to_string(),
+        ],
+        reason: Some("mutation_like_request"),
+        clarifying_question: None,
+        suggested_tool: None,
+    }
+}
+
+fn planner_help_docs(domain: &'static str) -> RosieToolPlannerDecision {
+    RosieToolPlannerDecision {
+        decision: RosiePlannerDecisionKind::AnswerFromHelpDocs,
+        tool_name: None,
+        confidence: "low",
+        domain,
+        arguments: serde_json::json!({}),
+        basis: Some("help_docs"),
+        warnings: Vec::new(),
+        reason: Some("no_live_data_intent_detected"),
+        clarifying_question: None,
+        suggested_tool: None,
+    }
+}
+
+fn planner_extract_limit(question: &str) -> i64 {
+    question
+        .split_whitespace()
+        .filter_map(|token| {
+            token
+                .trim_matches(|c: char| !c.is_ascii_digit())
+                .parse::<i64>()
+                .ok()
+        })
+        .find(|value| (1..=100).contains(value))
+        .unwrap_or(25)
+        .clamp(1, 100)
+}
+
+fn planner_date_range(question: &str) -> (NaiveDate, NaiveDate) {
+    parse_dates_from_question(question).unwrap_or_else(default_reporting_window)
+}
+
+fn question_mentions_customer_identity_without_context(
+    lower: &str,
+    client_context: Option<&RosieClientContextIn>,
+) -> bool {
+    client_context
+        .and_then(|context| context.active_customer_id)
+        .is_none()
+        && (lower.contains("customer")
+            || lower.contains("john")
+            || lower.contains("sarah")
+            || lower.contains("smith")
+            || lower.contains("garcia")
+            || lower.contains("rivera"))
+}
+
+fn planner_candidate_query(question: &str, domain_words: &[&str]) -> Option<String> {
+    let lower = question.to_ascii_lowercase();
+    let cleaned = lower.replace('?', " ").replace('.', " ").replace(',', " ");
+    let noise = [
+        "does", "do", "did", "is", "are", "has", "have", "with", "for", "the", "a", "an", "any",
+        "open", "orders", "order", "customer", "vendor", "wedding", "party", "please", "show",
+        "me", "find", "lookup", "look", "up", "what", "which", "who",
+    ];
+    let mut words = Vec::new();
+    for token in cleaned.split_whitespace() {
+        if noise.contains(&token) || domain_words.contains(&token) {
+            continue;
+        }
+        if token.len() < 2 {
+            continue;
+        }
+        words.push(token);
+    }
+    let query = words.join(" ");
+    if query.len() >= 2 {
+        Some(query)
+    } else {
+        None
+    }
+}
+
+fn plan_rosie_read_tool(
+    question: &str,
+    client_context: Option<&RosieClientContextIn>,
+) -> RosieToolPlannerDecision {
+    let lower = question.to_ascii_lowercase();
+    let limit = planner_extract_limit(question);
+    let order_domain = question_mentions_order_domain(&lower);
+    let inventory_domain = question_mentions_inventory_domain(&lower);
+    let purchase_order_domain = question_mentions_purchase_order_domain(&lower);
+
+    if rosie_question_asks_mutation(question) {
+        return planner_refuse_mutation();
+    }
+
+    if lower.contains("vendor return") || lower.contains("return history from vendor") {
+        return planner_unsupported(
+            "vendors",
+            "No approved read-only tool currently answers vendor return history.",
+            "get_vendor_return_history",
+        );
+    }
+
+    if (order_domain && purchase_order_domain)
+        || (lower.contains("open order") && lower.contains("purchase order"))
+    {
+        return planner_clarify(
+            "orders",
+            "order_domain_ambiguous",
+            "Do you want open customer orders, open purchase orders, or open wedding orders?",
+        );
+    }
+
+    if lower.contains("counterpoint") {
+        return planner_unsupported(
+            "counterpoint",
+            "No approved read-only tool currently answers Counterpoint import issues.",
+            "get_counterpoint_import_issue_summary",
+        );
+    }
+
+    if lower.contains("manager brief")
+        || lower.contains("daily brief")
+        || lower.contains("what should i pay attention")
+        || lower.contains("top risks today")
+    {
+        return planner_execute(
+            "get_daily_manager_brief",
+            "manager_brief",
+            serde_json::json!({}),
+        );
+    }
+    if lower.contains("manager attention")
+        || lower.contains("needs manager attention")
+        || lower.contains("what needs attention")
+        || lower.contains("top 10 risks")
+        || lower.contains("before opening")
+        || lower.contains("before closing")
+    {
+        return planner_execute(
+            "get_manager_attention_queue",
+            "manager_brief",
+            serde_json::json!({ "limit": limit }),
+        );
+    }
+
+    if lower.contains("data quality")
+        || lower.contains("cleanup issues")
+        || lower.contains("bad data")
+        || lower.contains("missing barcode")
+    {
+        return if lower.contains("task") || lower.contains("cleanup") {
+            planner_execute(
+                "get_data_cleanup_tasks",
+                "data_quality",
+                serde_json::json!({ "limit": limit }),
+            )
+        } else {
+            planner_execute(
+                "get_data_quality_summary",
+                "data_quality",
+                serde_json::json!({}),
+            )
+        };
+    }
+
+    if lower.contains("open balance")
+        || lower.contains("balance due")
+        || lower.contains("customers owe")
+    {
+        return planner_execute(
+            "get_customers_with_open_balances",
+            "customers",
+            serde_json::json!({ "limit": limit }),
+        );
+    }
+    if lower.contains("follow-up")
+        || lower.contains("follow up")
+        || lower.contains("need a call")
+        || lower.contains("needs a call")
+        || lower.contains("customers need attention")
+    {
+        return planner_execute(
+            "get_customers_needing_follow_up",
+            "customers",
+            serde_json::json!({ "limit": limit }),
+        );
+    }
+    if lower.contains("stale pickup")
+        || lower.contains("items ready but not picked up")
+        || lower.contains("ready but not picked up")
+    {
+        return planner_execute(
+            "get_customers_with_stale_pickups",
+            "customers",
+            serde_json::json!({ "limit": limit }),
+        );
+    }
+    if lower.contains("missing phone")
+        || lower.contains("missing email")
+        || lower.contains("missing contact")
+    {
+        return planner_execute(
+            "get_customers_with_missing_contact_info",
+            "customers",
+            serde_json::json!({ "limit": limit }),
+        );
+    }
+
+    if lower.contains("best seller")
+        || lower.contains("best selling")
+        || lower.contains("best-selling")
+        || lower.contains("top seller")
+        || lower.contains("sold the most")
+    {
+        let (from, to) = planner_date_range(question);
+        return planner_execute(
+            "get_best_sellers",
+            "sales",
+            serde_json::json!({ "from": from, "to": to, "basis": parse_basis_from_question(question), "limit": limit }),
+        );
+    }
+    if (lower.contains("how many") || lower.contains("units") || lower.contains("sold"))
+        && (lower.contains(" sold") || lower.contains("sell ") || lower.contains("sales of"))
+    {
+        if let Some(query) = rosie_product_query_from_question(question) {
+            let (from, to) = planner_date_range(question);
+            return planner_execute(
+                "get_product_sales_by_query",
+                "sales",
+                serde_json::json!({ "query": query, "from": from, "to": to, "limit": limit }),
+            );
+        }
+        return planner_clarify(
+            "sales",
+            "sales_query_missing_item",
+            "Which item/category should I use for the sales question?",
+        );
+    }
+
+    if (lower.contains("loyalty") || lower.contains("points"))
+        && !lower.contains("store credit")
+        && !lower.contains("gift card")
+    {
+        if let Some(customer_id) = client_context.and_then(|context| context.active_customer_id) {
+            return planner_execute(
+                "get_customer_loyalty_balance",
+                "loyalty",
+                serde_json::json!({ "customer_id": customer_id }),
+            );
+        }
+        if let Some(query) = planner_candidate_query(question, &["loyalty", "points", "balance"]) {
+            return planner_execute(
+                "search_customers_for_rosie",
+                "customers",
+                serde_json::json!({ "query": query, "limit": 10 }),
+            );
+        }
+        return planner_clarify(
+            "loyalty",
+            "customer_identity_required",
+            "Which customer record should I use for the loyalty points check?",
+        );
+    }
+    if lower.contains("store credit") {
+        if let Some(customer_id) = client_context.and_then(|context| context.active_customer_id) {
+            return planner_execute(
+                "get_customer_credit_summary",
+                "store_credit",
+                serde_json::json!({ "customer_id": customer_id }),
+            );
+        }
+        if let Some(query) = planner_candidate_query(question, &["store", "credit", "balance"]) {
+            return planner_execute(
+                "search_customers_for_rosie",
+                "customers",
+                serde_json::json!({ "query": query, "limit": 10 }),
+            );
+        }
+        if question_mentions_customer_identity_without_context(&lower, client_context) {
+            return planner_clarify(
+                "store_credit",
+                "customer_identity_required",
+                "Which customer record should I use for the store credit check?",
+            );
+        }
+        return planner_execute(
+            "get_store_credit_summary",
+            "store_credit",
+            serde_json::json!({ "limit": limit }),
+        );
+    }
+    if lower.contains("gift card") {
+        return if lower.contains("exception") || lower.contains("review") {
+            planner_execute(
+                "get_gift_card_exception_report",
+                "gift_cards",
+                serde_json::json!({ "limit": limit }),
+            )
+        } else {
+            planner_execute("get_gift_card_summary", "gift_cards", serde_json::json!({}))
+        };
+    }
+    if lower.contains("credit liability")
+        || lower.contains("gift card liability")
+        || lower.contains("outstanding credit")
+    {
+        return planner_execute(
+            "get_outstanding_credit_liability_summary",
+            "accounting",
+            serde_json::json!({}),
+        );
+    }
+
+    if lower.contains("qbo") || lower.contains("quickbooks") {
+        if lower.contains("exception")
+            || lower.contains("error")
+            || lower.contains("pending")
+            || lower.contains("review")
+        {
+            return planner_execute(
+                "get_qbo_exception_summary",
+                "qbo",
+                serde_json::json!({ "limit": limit }),
+            );
+        }
+        let (from, to) = planner_date_range(question);
+        return planner_execute(
+            "get_qbo_sync_summary",
+            "qbo",
+            serde_json::json!({ "from": from, "to": to }),
+        );
+    }
+
+    if lower.contains("appointment") || lower.contains("appointments") {
+        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
+            let today = Utc::now().date_naive();
+            if lower.contains("tomorrow") {
+                let tomorrow = today + Duration::days(1);
+                (tomorrow, tomorrow)
+            } else if lower.contains("week") {
+                (today, today + Duration::days(7))
+            } else {
+                (today, today)
+            }
+        });
+        return planner_execute(
+            "get_appointments_by_date",
+            "appointments",
+            serde_json::json!({ "from": from, "to": to, "limit": limit }),
+        );
+    }
+
+    if lower.contains("wedding") || lower.contains("weddings") {
+        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
+            let today = Utc::now().date_naive();
+            if lower.contains("week") {
+                (today, today + Duration::days(7))
+            } else if lower.contains("14 day") || lower.contains("two week") {
+                (today, today + Duration::days(14))
+            } else {
+                (today, today + Duration::days(30))
+            }
+        });
+        if let Some(query) = planner_candidate_query(
+            question,
+            &[
+                "missing",
+                "measurement",
+                "measurements",
+                "fitting",
+                "fittings",
+                "readiness",
+                "ready",
+                "attention",
+                "need",
+                "needs",
+                "this",
+                "week",
+                "month",
+                "weddings",
+            ],
+        ) {
+            return planner_execute(
+                "search_weddings_for_rosie",
+                "weddings",
+                serde_json::json!({ "query": query, "limit": 10 }),
+            );
+        }
+        if lower.contains("missing measurement") || lower.contains("need measurement") {
+            return planner_execute(
+                "get_wedding_members_missing_measurements",
+                "weddings",
+                serde_json::json!({ "from": from, "to": to, "limit": limit }),
+            );
+        }
+        if lower.contains("missing fitting") || lower.contains("need fitting") {
+            return planner_execute(
+                "get_wedding_members_missing_fittings",
+                "weddings",
+                serde_json::json!({ "from": from, "to": to, "limit": limit }),
+            );
+        }
+        if lower.contains("ready for pickup") || lower.contains("ready to pick up") {
+            return planner_execute(
+                "get_wedding_orders_ready_for_pickup",
+                "weddings",
+                serde_json::json!({ "from": from, "to": to, "limit": limit }),
+            );
+        }
+        return planner_execute(
+            "get_upcoming_wedding_risk_report",
+            "weddings",
+            serde_json::json!({ "from": from, "to": to, "limit": limit }),
+        );
+    }
+
+    if lower.contains("alteration") || lower.contains("alterations") {
+        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
+            let today = Utc::now().date_naive();
+            if lower.contains("overdue") {
+                (today - Duration::days(30), today)
+            } else if lower.contains("today") {
+                (today, today)
+            } else {
+                (today, today + Duration::days(7))
+            }
+        });
+        return planner_execute(
+            "get_alterations_due",
+            "alterations",
+            serde_json::json!({ "from": from, "to": to, "limit": limit }),
+        );
+    }
+
+    if lower.contains("received this week")
+        || lower.contains("recent receipt")
+        || lower.contains("recent receiving")
+        || lower.contains("what did we receive")
+    {
+        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
+            let today = Utc::now().date_naive();
+            (today - Duration::days(7), today)
+        });
+        return planner_execute(
+            "get_recent_receipts",
+            "receiving",
+            serde_json::json!({ "from": from, "to": to, "limit": limit }),
+        );
+    }
+    if purchase_order_domain || lower.contains("on order") {
+        return if lower.contains("on order") || lower.contains("what is on order") {
+            planner_execute(
+                "get_items_on_order",
+                "purchasing",
+                serde_json::json!({ "limit": limit }),
+            )
+        } else {
+            planner_execute(
+                "get_open_purchase_orders",
+                "purchasing",
+                serde_json::json!({ "limit": limit }),
+            )
+        };
+    }
+    if lower.contains("vendor") {
+        if let Some(query) = planner_candidate_query(
+            question,
+            &[
+                "vendor",
+                "vendors",
+                "return",
+                "returns",
+                "history",
+                "item",
+                "items",
+                "unmatched",
+                "mapping",
+            ],
+        ) {
+            return planner_execute(
+                "search_vendors_for_rosie",
+                "vendors",
+                serde_json::json!({ "query": query, "limit": 10 }),
+            );
+        }
+    }
+    if lower.contains("vendor item")
+        && (lower.contains("unmatched") || lower.contains("missing mapping"))
+    {
+        return planner_execute(
+            "get_unmatched_vendor_items",
+            "vendors",
+            serde_json::json!({ "limit": limit }),
+        );
+    }
+
+    if lower.contains("reorder")
+        || lower.contains("should we order")
+        || lower.contains("what should we order")
+    {
+        return planner_execute(
+            "get_inventory_reorder_candidates",
+            "inventory",
+            serde_json::json!({ "limit": limit }),
+        );
+    }
+    if ((lower.contains("do we have") && !order_domain && !purchase_order_domain)
+        || lower.contains("in inventory")
+        || lower.contains("in stock")
+        || lower.contains("stock for")
+        || lower.contains("available"))
+        && inventory_domain
+    {
+        if let Some(query) = rosie_inventory_query_from_question(question) {
+            return planner_execute(
+                "get_inventory_availability",
+                "inventory",
+                serde_json::json!({ "query": query, "limit": limit }),
+            );
+        }
+        return planner_clarify(
+            "inventory",
+            "inventory_query_missing_item",
+            "Which item, SKU, barcode, size, or color should I check in inventory?",
+        );
+    }
+
+    if (lower.contains("ready for pickup") || lower.contains("ready to pick up"))
+        && (lower.contains("open order") || lower.contains("order") || lower.contains("items"))
+    {
+        return planner_execute(
+            "get_open_orders_ready_for_pickup",
+            "orders",
+            serde_json::json!({ "limit": limit }),
+        );
+    }
+    if order_domain {
+        return planner_execute(
+            "get_open_orders",
+            "orders",
+            serde_json::json!({ "limit": limit }),
+        );
+    }
+
+    planner_help_docs("help_docs")
 }
 
 fn parse_basis_from_question(question: &str) -> &'static str {
@@ -2082,412 +2891,21 @@ fn infer_read_tool_requests(
     question: &str,
     client_context: Option<&RosieClientContextIn>,
 ) -> Vec<(String, Value)> {
-    let lower = question.to_ascii_lowercase();
-    let mut requests = Vec::new();
-    let order_domain = question_mentions_order_domain(&lower);
-    let inventory_domain = question_mentions_inventory_domain(&lower);
-    let purchase_order_domain = question_mentions_purchase_order_domain(&lower);
-
-    if rosie_question_asks_mutation(question) {
-        return requests;
+    if infer_reporting_request(question).is_some() {
+        return Vec::new();
     }
-
-    if lower.contains("manager brief")
-        || lower.contains("daily brief")
-        || lower.contains("what should i pay attention")
-        || lower.contains("top risks today")
-    {
-        requests.push(("get_daily_manager_brief".to_string(), serde_json::json!({})));
+    let plan = plan_rosie_read_tool(question, client_context);
+    if plan.decision != RosiePlannerDecisionKind::ExecuteTool {
+        return Vec::new();
     }
-
-    if lower.contains("manager attention")
-        || lower.contains("needs manager attention")
-        || lower.contains("what needs attention")
-        || lower.contains("top 10 risks")
-        || lower.contains("before opening")
-        || lower.contains("before closing")
-    {
-        requests.push((
-            "get_manager_attention_queue".to_string(),
-            serde_json::json!({}),
-        ));
+    let Some(tool_name) = plan.tool_name else {
+        return Vec::new();
+    };
+    if rosie_read_tools::mutation_like_tool_name(&tool_name) {
+        return Vec::new();
     }
-
-    if lower.contains("data quality")
-        || lower.contains("cleanup issues")
-        || lower.contains("bad data")
-        || lower.contains("missing barcode")
-        || lower.contains("unmatched vendor")
-    {
-        if lower.contains("cleanup") || lower.contains("needs work") || lower.contains("tasks") {
-            requests.push(("get_data_cleanup_tasks".to_string(), serde_json::json!({})));
-        }
-        requests.push((
-            "get_data_quality_summary".to_string(),
-            serde_json::json!({}),
-        ));
-    }
-
-    if (lower.contains("how many") || lower.contains("units") || lower.contains("sold"))
-        && (lower.contains(" sold") || lower.contains("sell ") || lower.contains("sales of"))
-    {
-        if let Some(query) = rosie_product_query_from_question(question) {
-            let (from, to) =
-                parse_dates_from_question(question).unwrap_or_else(default_reporting_window);
-            requests.push((
-                "get_product_sales_by_query".to_string(),
-                serde_json::json!({ "query": query, "from": from, "to": to, "limit": 25 }),
-            ));
-        }
-    }
-
-    if (lower.contains("ready for pickup") || lower.contains("ready to pick up"))
-        && (lower.contains("open order") || lower.contains("order") || lower.contains("items"))
-    {
-        requests.push((
-            "get_open_orders_ready_for_pickup".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    } else if order_domain {
-        requests.push((
-            "get_open_orders".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if ((lower.contains("do we have") && !order_domain && !purchase_order_domain)
-        || lower.contains("in inventory")
-        || lower.contains("in stock")
-        || lower.contains("stock for")
-        || lower.contains("available"))
-        && !lower.contains("appointment")
-        && !lower.contains("wedding")
-        && !lower.contains("ready for pickup")
-        && !lower.contains("ready to pick up")
-        && (inventory_domain || lower.contains("do we have"))
-    {
-        if let Some(query) = rosie_inventory_query_from_question(question) {
-            requests.push((
-                "get_inventory_availability".to_string(),
-                serde_json::json!({ "query": query, "limit": 25 }),
-            ));
-        }
-    }
-
-    if lower.contains("open balance")
-        || lower.contains("balance due")
-        || lower.contains("customers owe")
-    {
-        requests.push((
-            "get_customers_with_open_balances".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if lower.contains("follow-up")
-        || lower.contains("follow up")
-        || lower.contains("need a call")
-        || lower.contains("needs a call")
-        || lower.contains("customers need attention")
-    {
-        requests.push((
-            "get_customers_needing_follow_up".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if lower.contains("stale pickup")
-        || lower.contains("items ready but not picked up")
-        || lower.contains("ready but not picked up")
-    {
-        requests.push((
-            "get_customers_with_stale_pickups".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if lower.contains("missing phone")
-        || lower.contains("missing email")
-        || lower.contains("missing contact")
-    {
-        requests.push((
-            "get_customers_with_missing_contact_info".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if (lower.contains("purchase history")
-        || lower.contains("buy last")
-        || lower.contains("bought last")
-        || lower.contains("last bought")
-        || lower.contains("last purchase"))
-        && client_context
-            .and_then(|context| context.active_customer_id)
-            .is_some()
-    {
-        let customer_id = client_context
-            .and_then(|context| context.active_customer_id)
-            .expect("checked above");
-        requests.push((
-            "get_customer_purchase_history_summary".to_string(),
-            serde_json::json!({ "customer_id": customer_id }),
-        ));
-    }
-
-    if (lower.contains("size profile")
-        || lower.contains("measurements")
-        || lower.contains("what size")
-        || lower.contains("usually wear"))
-        && client_context
-            .and_then(|context| context.active_customer_id)
-            .is_some()
-    {
-        let customer_id = client_context
-            .and_then(|context| context.active_customer_id)
-            .expect("checked above");
-        requests.push((
-            "get_customer_size_profile_summary".to_string(),
-            serde_json::json!({ "customer_id": customer_id }),
-        ));
-    }
-
-    if lower.contains("appointment") || lower.contains("appointments") {
-        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
-            let today = Utc::now().date_naive();
-            if lower.contains("tomorrow") {
-                let tomorrow = today + Duration::days(1);
-                (tomorrow, tomorrow)
-            } else if lower.contains("week") {
-                (today, today + Duration::days(7))
-            } else {
-                (today, today)
-            }
-        });
-        requests.push((
-            "get_appointments_by_date".to_string(),
-            serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-        ));
-    }
-
-    if (lower.contains("wedding") || lower.contains("weddings")) && !lower.contains("action") {
-        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
-            let today = Utc::now().date_naive();
-            if lower.contains("week") {
-                (today, today + Duration::days(7))
-            } else if lower.contains("14 day") || lower.contains("two week") {
-                (today, today + Duration::days(14))
-            } else {
-                (today, today + Duration::days(30))
-            }
-        });
-        if lower.contains("missing measurement") || lower.contains("need measurement") {
-            requests.push((
-                "get_wedding_members_missing_measurements".to_string(),
-                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-            ));
-        } else if lower.contains("missing fitting")
-            || lower.contains("need fitting")
-            || lower.contains("needs a fitting")
-        {
-            requests.push((
-                "get_wedding_members_missing_fittings".to_string(),
-                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-            ));
-        } else if lower.contains("open balance") || lower.contains("balance issue") {
-            requests.push((
-                "get_wedding_members_with_open_balances".to_string(),
-                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-            ));
-        } else if lower.contains("ready for pickup") || lower.contains("ready to pick up") {
-            requests.push((
-                "get_wedding_orders_ready_for_pickup".to_string(),
-                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-            ));
-        } else if lower.contains("missing item") || lower.contains("unfulfilled") {
-            requests.push((
-                "get_wedding_unfulfilled_items".to_string(),
-                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-            ));
-        } else if lower.contains("follow-up")
-            || lower.contains("follow up")
-            || lower.contains("need a call")
-        {
-            requests.push((
-                "get_wedding_follow_up_list".to_string(),
-                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-            ));
-        } else if lower.contains("ready")
-            || lower.contains("readiness")
-            || lower.contains("need attention")
-            || lower.contains("not ready")
-        {
-            requests.push((
-                "get_upcoming_wedding_risk_report".to_string(),
-                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-            ));
-            requests.push((
-                "get_weddings_by_event_date_range".to_string(),
-                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-            ));
-        }
-    }
-
-    if lower.contains("alteration") || lower.contains("alterations") {
-        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
-            let today = Utc::now().date_naive();
-            if lower.contains("overdue") {
-                (today - Duration::days(30), today)
-            } else if lower.contains("today") {
-                (today, today)
-            } else {
-                (today, today + Duration::days(7))
-            }
-        });
-        requests.push((
-            "get_alterations_due".to_string(),
-            serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-        ));
-    }
-
-    if purchase_order_domain || lower.contains("on order") {
-        if lower.contains("on order") || lower.contains("what is on order") {
-            requests.push((
-                "get_items_on_order".to_string(),
-                serde_json::json!({ "limit": 25 }),
-            ));
-        } else {
-            requests.push((
-                "get_open_purchase_orders".to_string(),
-                serde_json::json!({ "limit": 25 }),
-            ));
-        }
-    }
-
-    if lower.contains("received this week")
-        || lower.contains("recent receipt")
-        || lower.contains("recent receiving")
-        || lower.contains("what did we receive")
-    {
-        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
-            let today = Utc::now().date_naive();
-            (today - Duration::days(7), today)
-        });
-        requests.push((
-            "get_recent_receipts".to_string(),
-            serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-        ));
-    }
-
-    if lower.contains("reorder")
-        || lower.contains("should we order")
-        || lower.contains("what should we order")
-    {
-        requests.push((
-            "get_inventory_reorder_candidates".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if lower.contains("vendor item")
-        && (lower.contains("unmatched") || lower.contains("missing mapping"))
-    {
-        requests.push((
-            "get_unmatched_vendor_items".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if lower.contains("invoice")
-        && (lower.contains("review") || lower.contains("exception") || lower.contains("missing"))
-    {
-        requests.push((
-            "get_po_invoice_exception_report".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if lower.contains("loyalty") || lower.contains("points") || lower.contains("loyalty balance") {
-        if let Some(customer_id) = client_context.and_then(|context| context.active_customer_id) {
-            requests.push((
-                "get_customer_loyalty_balance".to_string(),
-                serde_json::json!({ "customer_id": customer_id }),
-            ));
-        }
-    }
-
-    if lower.contains("store credit") {
-        let mut args = serde_json::json!({ "limit": 25 });
-        if let Some(customer_id) = client_context.and_then(|context| context.active_customer_id) {
-            requests.push((
-                "get_customer_credit_summary".to_string(),
-                serde_json::json!({ "customer_id": customer_id }),
-            ));
-        } else {
-            args["customer_id"] = serde_json::Value::Null;
-            requests.push(("get_store_credit_summary".to_string(), args));
-        }
-    }
-
-    if lower.contains("gift card") && (lower.contains("summary") || lower.contains("balance")) {
-        requests.push(("get_gift_card_summary".to_string(), serde_json::json!({})));
-    }
-
-    if lower.contains("gift card") && (lower.contains("exception") || lower.contains("review")) {
-        requests.push((
-            "get_gift_card_exception_report".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if lower.contains("credit liability")
-        || lower.contains("gift card liability")
-        || lower.contains("outstanding credit")
-    {
-        requests.push((
-            "get_outstanding_credit_liability_summary".to_string(),
-            serde_json::json!({}),
-        ));
-    }
-
-    if lower.contains("qbo")
-        && (lower.contains("exception")
-            || lower.contains("error")
-            || lower.contains("pending")
-            || lower.contains("review"))
-    {
-        requests.push((
-            "get_qbo_exception_summary".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if lower.contains("qbo") && (lower.contains("sync") || lower.contains("status")) {
-        let (from, to) =
-            parse_dates_from_question(question).unwrap_or_else(default_reporting_window);
-        requests.push((
-            "get_qbo_sync_summary".to_string(),
-            serde_json::json!({ "from": from, "to": to }),
-        ));
-    }
-
-    if lower.contains("register close")
-        || lower.contains("drawer")
-        || lower.contains("cash variance")
-        || lower.contains("tender reconciliation")
-    {
-        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
-            let today = Utc::now().date_naive();
-            (today - Duration::days(7), today)
-        });
-        requests.push((
-            "get_register_exception_summary".to_string(),
-            serde_json::json!({ "from": from, "to": to, "limit": 25 }),
-        ));
-    }
-
-    requests
+    vec![(tool_name, plan.arguments)]
 }
-
 fn action(id: &str, label: &str, description: &str, target: &str) -> RosieSuggestedActionOut {
     RosieSuggestedActionOut {
         id: id.to_string(),
@@ -3018,6 +3436,32 @@ async fn audit_rosie_read_tool_call(
     }
 }
 
+async fn log_rosie_tool_gap(
+    state: &AppState,
+    viewer: &HelpViewer,
+    question: &str,
+    decision: &RosieToolPlannerDecision,
+) {
+    let summary = sanitize_excerpt(question, 240);
+    if let Err(error) = sqlx::query(
+        r#"
+        INSERT INTO rosie_tool_gap_log (
+            staff_id, question_summary, detected_domain, suggested_tool
+        )
+        VALUES ($1, $2, $3, $4)
+        "#,
+    )
+    .bind(viewer.staff_id)
+    .bind(summary)
+    .bind(decision.domain)
+    .bind(decision.suggested_tool)
+    .execute(&state.db)
+    .await
+    {
+        tracing::warn!(%error, domain = %decision.domain, "failed to log ROSIE approved-tool gap");
+    }
+}
+
 fn rosie_read_tool_error_response(error: RosieReadToolError) -> (axum::http::StatusCode, Value) {
     match error {
         RosieReadToolError::UnknownTool => (
@@ -3298,6 +3742,7 @@ async fn load_help_reindex_time(pool: &sqlx::PgPool) -> Option<chrono::DateTime<
 struct HelpViewer {
     pos_only_mode: bool,
     is_admin: bool,
+    staff_id: Option<Uuid>,
     staff_perms: HashSet<String>,
 }
 
@@ -3333,6 +3778,7 @@ async fn resolve_help_viewer(
             return Ok(HelpViewer {
                 pos_only_mode: false,
                 is_admin: auth.role == DbStaffRole::Admin,
+                staff_id: Some(auth.id),
                 staff_perms,
             });
         }
@@ -3341,6 +3787,7 @@ async fn resolve_help_viewer(
     Ok(HelpViewer {
         pos_only_mode: true,
         is_admin: false,
+        staff_id: None,
         staff_perms: HashSet::new(),
     })
 }
@@ -4327,6 +4774,21 @@ async fn rosie_tool_context(
                 }
                 _ => {}
             }
+        }
+
+        let planner_decision = plan_rosie_read_tool(question, body.client_context.as_ref());
+        if planner_decision.decision != RosiePlannerDecisionKind::ExecuteTool
+            && planner_decision.decision != RosiePlannerDecisionKind::AnswerFromHelpDocs
+        {
+            if planner_decision.decision == RosiePlannerDecisionKind::UnsupportedSafeGap {
+                log_rosie_tool_gap(&state, &viewer, question, &planner_decision).await;
+            }
+            tool_results.push(RosieToolResultOut {
+                tool_name: "rosie_tool_planner".to_string(),
+                args: serde_json::json!({ "question": question }),
+                result: serde_json::to_value(&planner_decision)
+                    .unwrap_or_else(|_| serde_json::json!({})),
+            });
         }
 
         for (tool_name, args) in infer_read_tool_requests(question, body.client_context.as_ref()) {

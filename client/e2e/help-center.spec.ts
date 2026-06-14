@@ -805,9 +805,176 @@ test("Ask ROSIE refuses wrong-domain inventory result for order question", async
   await page.getByTestId("help-center-ask-rosie-input").fill("Do we have any open orders right now?");
   await page.getByTestId("help-center-ask-rosie-send").click();
 
-  await expect(page.getByText(/returned Inventory Availability for an order question/i)).toBeVisible({
+  await expect(page.getByText(/I found an inventory result, but your question appears to be about open orders/i)).toBeVisible({
     timeout: 15_000,
   });
+  expect(completionCalled).toBe(false);
+});
+
+test("Ask ROSIE displays planner clarification, refusal, and safe gap messages", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
+    const request = route.request().postDataJSON() as { question?: string };
+    const question = request.question ?? "";
+    const lower = question.toLowerCase();
+    let result: Record<string, unknown>;
+    if (lower.includes("store credit")) {
+      result = {
+        decision: "ask_clarifying_question",
+        confidence: "medium",
+        domain: "store_credit",
+        arguments: {},
+        warnings: [],
+        reason: "customer_identity_required",
+        clarifying_question: "Which customer record should I use for the store credit check?",
+      };
+    } else if (lower.includes("adjust")) {
+      result = {
+        decision: "refuse_mutation",
+        confidence: "high",
+        domain: "operations",
+        arguments: {},
+        warnings: ["ROSIE can explain or summarize this, but cannot change Riverside OS data."],
+        reason: "mutation_like_request",
+      };
+    } else {
+      result = {
+        decision: "unsupported_safe_gap",
+        confidence: "high",
+        domain: "vendors",
+        arguments: {},
+        warnings: [],
+        reason: "No approved read-only tool currently answers vendor return history.",
+        suggested_tool: "get_vendor_return_history",
+      };
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question,
+        settings: {
+          enabled: true,
+          response_style: "concise",
+          show_citations: false,
+        },
+        sources: [],
+        tool_results: [
+          {
+            tool_name: "rosie_tool_planner",
+            args: { question },
+            result,
+          },
+        ],
+      }),
+    });
+  });
+  let completionCalled = false;
+  await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    completionCalled = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ choices: [{ message: { role: "assistant", content: "wrong path" } }] }),
+    });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+
+  await page.getByTestId("help-center-ask-rosie-input").fill("Does John have store credit?");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+  await expect(page.getByText(/Which customer record should I use for the store credit check/i)).toBeVisible({
+    timeout: 15_000,
+  });
+
+  await page.getByTestId("help-center-ask-rosie-input").fill("Adjust inventory for navy suits.");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+  await expect(page.getByText(/cannot change Riverside OS data/i)).toBeVisible({
+    timeout: 15_000,
+  });
+
+  await page.getByTestId("help-center-ask-rosie-input").fill("Show vendor return history.");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+  await expect(page.getByText(/No approved read-only tool currently answers vendor return history/i)).toBeVisible({
+    timeout: 15_000,
+  });
+  expect(completionCalled).toBe(false);
+});
+
+test("Ask ROSIE displays customer candidates before sensitive customer answers", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: "Does John have store credit?",
+        settings: {
+          enabled: true,
+          response_style: "concise",
+          show_citations: false,
+        },
+        sources: [],
+        tool_results: [
+          {
+            tool_name: "rosie_read_tool",
+            args: {
+              tool_name: "search_customers_for_rosie",
+              arguments: { query: "john", limit: 10 },
+            },
+            result: {
+              tool_name: "search_customers_for_rosie",
+              basis: "customer_search",
+              filters_applied: { query: "john", limit: 10 },
+              row_count: 2,
+              limited: false,
+              warnings: ["Contact values are minimized to presence flags."],
+              data_freshness: "live",
+              generated_at: "2026-06-14T21:25:00Z",
+              data: [
+                {
+                  first_name: "John",
+                  last_name: "Smith",
+                  customer_code: "C-1001",
+                  email_present: true,
+                  phone_present: false,
+                },
+                {
+                  first_name: "John",
+                  last_name: "Garcia",
+                  customer_code: "C-1002",
+                  email_present: false,
+                  phone_present: true,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+  });
+  let completionCalled = false;
+  await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    completionCalled = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ choices: [{ message: { role: "assistant", content: "wrong path" } }] }),
+    });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+  await page.getByTestId("help-center-ask-rosie-input").fill("Does John have store credit?");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+
+  await expect(page.getByText(/I found 2 matching customers for “john”/i)).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByText(/Select the correct record/i)).toBeVisible();
   expect(completionCalled).toBe(false);
 });
 

@@ -71,7 +71,15 @@ Ask ROSIE and ROSIE Chat use ROSIE's local approved knowledge index for current 
 
 When staff ask who created RiversideOS, ROSIE answers that RiversideOS was designed by Christopher Garcia and released first on June of 2026.
 
-For live store-data questions, ROSIE should answer from approved reports or read-only data tools when they match the question. ROSIE routes by business domain first, so order questions use Orders tools, inventory questions use Inventory tools, sales questions use reporting tools, and customer questions use customer-safe tools. If the question is missing a required customer, item/SKU, date range, or workflow detail, ROSIE should ask for that detail instead of guessing or sending staff to another screen.
+For live store-data questions, ROSIE should answer from approved reports or read-only data tools when they match the question. ROSIE routes by business domain first, so order questions use Orders tools, inventory questions use Inventory tools, sales questions use reporting tools, and customer questions use customer-safe tools. ROSIE does not run arbitrary SQL, inspect unrestricted tables, or write to Riverside OS. Live-data answers stay permission-gated and audited.
+
+ROSIE may ask a clarifying question instead of guessing. This is expected when the question is missing a required customer, wedding party, vendor, item/SKU, date range, or workflow detail, or when a phrase could mean different operational areas. Unsupported questions mean Riverside OS needs a new approved read-only ROSIE tool before ROSIE can answer that data request safely.
+
+When a sensitive question names a customer, wedding party, or vendor but does not identify the exact record, ROSIE should first return approved candidate matches. Staff must select or open the correct record before ROSIE answers balances, loyalty, credit, readiness, or other sensitive details for that record.
+
+ROSIE refuses mutation requests. It can explain or summarize a workflow, but it cannot adjust inventory, post to QBO, reconcile, import, refund, discount, fulfill orders, receive stock, merge customers, redeem gift cards, issue store credit, create appointments, or change Riverside OS records.
+
+Examples ROSIE should handle through approved read-only planning include: "Do we have navy suits in 40R?", "Do we have open orders for John Smith?", "Which weddings need attention this week?", "Who is missing measurements?", "What appointments are today?", "How many tuxes sold in June?", "What POs are open?", "What did we receive this week?", "Does John Smith have store credit?", "Does QBO have errors?", and "What needs manager attention today?"
 
 While ROSIE is answering, the drawer shows visible thinking and then streams the answer into the same message. Ask ROSIE can show source chips for manuals, reports, Store SOP, or operational playbooks when citations are enabled.
 

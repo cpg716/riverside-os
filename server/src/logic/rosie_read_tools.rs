@@ -24,12 +24,29 @@ impl Serialize for RosieReadToolDefinition {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("RosieReadToolDefinition", 14)?;
+        let mut state = serializer.serialize_struct("RosieReadToolDefinition", 26)?;
         state.serialize_field("tool_name", self.tool_name)?;
         state.serialize_field("description", self.description)?;
         state.serialize_field("category", self.category)?;
+        state.serialize_field("domain", planner_domain_for_tool(self))?;
+        state.serialize_field("intent_examples", intent_examples_for_tool(self.tool_name))?;
+        state.serialize_field(
+            "negative_intent_examples",
+            negative_intent_examples_for_tool(self.tool_name),
+        )?;
         state.serialize_field("required_permission", self.required_permission)?;
         state.serialize_field("input_schema", input_schema_for_tool(self.tool_name))?;
+        state.serialize_field(
+            "required_arguments",
+            required_arguments_for_tool(self.tool_name),
+        )?;
+        state.serialize_field(
+            "optional_arguments",
+            optional_arguments_for_tool(self.tool_name),
+        )?;
+        state.serialize_field("default_arguments", &default_arguments_for_tool(self))?;
+        state.serialize_field("date_basis", date_basis_for_tool(self.tool_name))?;
+        state.serialize_field("output_basis", self.basis)?;
         state.serialize_field("basis", self.basis)?;
         state.serialize_field("max_rows", &self.max_rows)?;
         state.serialize_field("default_limit", &DEFAULT_LIMIT.min(self.max_rows))?;
@@ -39,6 +56,20 @@ impl Serialize for RosieReadToolDefinition {
         state.serialize_field("mutation_allowed", &false)?;
         state.serialize_field("mutates_data", &self.mutates_data)?;
         state.serialize_field("sensitive_fields", self.sensitive_fields)?;
+        state.serialize_field(
+            "can_answer_questions",
+            can_answer_questions_for_tool(self.tool_name),
+        )?;
+        state.serialize_field(
+            "cannot_answer_questions",
+            cannot_answer_questions_for_tool(self.tool_name),
+        )?;
+        state.serialize_field("ambiguity_rules", ambiguity_rules_for_tool(self.tool_name))?;
+        state.serialize_field("clarification_prompt", clarification_prompt_for_tool(self))?;
+        state.serialize_field(
+            "wrong_domain_guards",
+            wrong_domain_guards_for_tool(self.tool_name),
+        )?;
         state.end()
     }
 }
@@ -230,6 +261,17 @@ pub const ROSIE_READ_TOOLS: &[RosieReadToolDefinition] = &[
         sensitive_fields: &["balance_due"],
     },
     RosieReadToolDefinition {
+        tool_name: "search_weddings_for_rosie",
+        description: "Find wedding parties by party, groom, bride, venue, or salesperson with minimized fields.",
+        category: "weddings",
+        required_permission: crate::auth::permissions::WEDDINGS_VIEW,
+        basis: "wedding_party_search",
+        max_rows: 25,
+        read_only: true,
+        mutates_data: false,
+        sensitive_fields: &[],
+    },
+    RosieReadToolDefinition {
         tool_name: "get_weddings_by_event_date_range",
         description: "List wedding readiness summaries for parties in a bounded event-date range.",
         category: "weddings",
@@ -327,6 +369,17 @@ pub const ROSIE_READ_TOOLS: &[RosieReadToolDefinition] = &[
         read_only: true,
         mutates_data: false,
         sensitive_fields: &[],
+    },
+    RosieReadToolDefinition {
+        tool_name: "search_vendors_for_rosie",
+        description: "Find vendors by name, code, or account number with minimized contact fields.",
+        category: "vendors",
+        required_permission: crate::auth::permissions::PROCUREMENT_VIEW,
+        basis: "vendor_search",
+        max_rows: 25,
+        read_only: true,
+        mutates_data: false,
+        sensitive_fields: &["email", "phone"],
     },
     RosieReadToolDefinition {
         tool_name: "get_customers_with_stale_pickups",
@@ -613,6 +666,218 @@ fn sensitivity_for_tool(def: &RosieReadToolDefinition) -> &'static str {
     }
 }
 
+fn planner_domain_for_tool(def: &RosieReadToolDefinition) -> &'static str {
+    match def.category {
+        "customer" => "customers",
+        "customer_credit" => "store_credit",
+        "operations" => match def.tool_name {
+            "get_data_quality_summary" | "get_data_cleanup_tasks" => "data_quality",
+            "get_daily_manager_brief" | "get_manager_attention_queue" => "manager_brief",
+            _ => "operations",
+        },
+        "register" => "accounting",
+        "reporting" => match def.tool_name {
+            "get_best_sellers" | "get_sales_summary" => "sales",
+            "get_stale_inventory" => "inventory",
+            _ => "help_docs",
+        },
+        other => other,
+    }
+}
+
+fn intent_examples_for_tool(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "get_open_orders" => &[
+            "Do we have any open orders?",
+            "How many orders are open right now?",
+        ],
+        "get_open_orders_ready_for_pickup" => &[
+            "Do we have orders ready for pickup?",
+            "Which orders are ready to pick up?",
+        ],
+        "get_inventory_availability" => &[
+            "Do we have navy suits in 40R?",
+            "How many of this SKU are available?",
+        ],
+        "get_product_sales_by_query" => &[
+            "How many tuxes sold in June?",
+            "How many Gruppo suits sold last month?",
+        ],
+        "get_appointments_by_date" => &["What appointments are today?"],
+        "get_wedding_members_missing_measurements" => {
+            &["Who is missing measurements for upcoming weddings?"]
+        }
+        "get_upcoming_wedding_risk_report" => &["Which weddings need attention this week?"],
+        "get_recent_receipts" => &["What did we receive this week?"],
+        "get_open_purchase_orders" => &["What purchase orders are open?"],
+        "get_items_on_order" => &["What items are on order?"],
+        "get_customer_credit_summary" => &["Does this customer have store credit?"],
+        "get_store_credit_summary" => &["How much active store credit is outstanding?"],
+        "get_gift_card_summary" => &["What is the gift card balance summary?"],
+        "get_qbo_exception_summary" => &["Does QBO have errors?"],
+        "get_manager_attention_queue" => &["What needs manager attention today?"],
+        _ => &[],
+    }
+}
+
+fn negative_intent_examples_for_tool(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "get_inventory_availability" => &[
+            "Do we have open orders?",
+            "What purchase orders are open?",
+            "Does QBO have errors?",
+        ],
+        "get_open_orders" => &["What POs are open?", "Do we have navy suits in stock?"],
+        "get_customer_loyalty_balance" => &["Does this customer have store credit?"],
+        "get_store_credit_summary" => &["How many loyalty points does this customer have?"],
+        "get_sales_summary" => &[
+            "Does QBO have errors?",
+            "What credit liability is outstanding?",
+        ],
+        _ => &[],
+    }
+}
+
+fn required_arguments_for_tool(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "get_customer_loyalty_balance"
+        | "get_customer_purchase_history_summary"
+        | "get_customer_size_profile_summary"
+        | "get_customer_credit_summary" => &["customer_id"],
+        "get_wedding_readiness" => &["wedding_id"],
+        "search_customers_for_rosie"
+        | "search_weddings_for_rosie"
+        | "search_vendors_for_rosie"
+        | "get_inventory_availability"
+        | "get_product_sales_by_query" => &["query"],
+        _ => &[],
+    }
+}
+
+fn optional_arguments_for_tool(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "get_inventory_availability"
+        | "get_product_sales_by_query"
+        | "get_appointments_by_date"
+        | "get_alterations_due"
+        | "get_weddings_by_event_date_range"
+        | "get_upcoming_wedding_risk_report"
+        | "get_wedding_members_missing_measurements"
+        | "get_wedding_members_missing_fittings"
+        | "get_wedding_members_with_open_balances"
+        | "get_wedding_orders_ready_for_pickup"
+        | "get_wedding_unfulfilled_items"
+        | "get_wedding_follow_up_list"
+        | "get_recent_receipts"
+        | "get_qbo_sync_summary"
+        | "get_register_exception_summary" => &["from", "to", "limit"],
+        _ => &["limit"],
+    }
+}
+
+fn default_arguments_for_tool(def: &RosieReadToolDefinition) -> Value {
+    json!({ "limit": DEFAULT_LIMIT.min(def.max_rows) })
+}
+
+fn date_basis_for_tool(tool_name: &str) -> &'static str {
+    match tool_name {
+        "get_product_sales_by_query" | "get_sales_summary" | "get_best_sellers" => "booked_at",
+        "get_appointments_by_date" => "appointment_date",
+        "get_alterations_due" => "alteration_due_at",
+        "get_weddings_by_event_date_range"
+        | "get_upcoming_wedding_risk_report"
+        | "get_wedding_members_missing_measurements"
+        | "get_wedding_members_missing_fittings"
+        | "get_wedding_members_with_open_balances"
+        | "get_wedding_orders_ready_for_pickup"
+        | "get_wedding_unfulfilled_items"
+        | "get_wedding_follow_up_list" => "event_date",
+        "get_recent_receipts" => "received_at",
+        "get_qbo_sync_summary" => "journal_date",
+        "get_register_exception_summary" => "business_date",
+        _ => "not_date_scoped",
+    }
+}
+
+fn can_answer_questions_for_tool(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "get_inventory_availability" => &["available on-hand/reserved/layaway stock by item query"],
+        "get_open_orders" => &["open Riverside OS order lines by lifecycle status"],
+        "get_product_sales_by_query" => &["units sold for a product query in a bounded date range"],
+        "get_qbo_exception_summary" => &["QBO staging rows that need accounting review"],
+        "get_customer_credit_summary" => {
+            &["selected customer credit, loyalty, and open balance summary"]
+        }
+        _ => &["approved read-only summary for this tool's basis"],
+    }
+}
+
+fn cannot_answer_questions_for_tool(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "get_inventory_availability" => &["open orders", "purchase orders", "sales history"],
+        "get_open_orders" => &["inventory availability", "purchase orders", "QBO state"],
+        "get_customer_loyalty_balance" => &["store credit balance", "gift card liability"],
+        "get_sales_summary" => &["QBO errors", "credit liabilities"],
+        _ => &["write, post, adjust, reconcile, import, refund, fulfill, or mutate Riverside OS"],
+    }
+}
+
+fn ambiguity_rules_for_tool(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "get_customer_loyalty_balance"
+        | "get_customer_purchase_history_summary"
+        | "get_customer_size_profile_summary"
+        | "get_customer_credit_summary" => {
+            &["requires a selected customer_id; do not guess by first name"]
+        }
+        "get_wedding_readiness" => &["requires a selected wedding_id; do not guess by party name"],
+        "get_inventory_availability" => {
+            &["requires a concrete product, SKU, barcode, size, or color query"]
+        }
+        "get_product_sales_by_query" => {
+            &["requires a product/category query; date range defaults must be stated"]
+        }
+        _ => &[],
+    }
+}
+
+fn clarification_prompt_for_tool(def: &RosieReadToolDefinition) -> &'static str {
+    match def.tool_name {
+        "get_inventory_availability" => "Which item, SKU, barcode, size, or color should I check?",
+        "get_product_sales_by_query" => "Which item/category and date range should I use?",
+        "get_customer_loyalty_balance"
+        | "get_customer_credit_summary"
+        | "get_customer_purchase_history_summary"
+        | "get_customer_size_profile_summary" => "Which customer record should I use?",
+        "get_wedding_readiness" => "Which wedding party should I use?",
+        _ => "Which Riverside OS record or filter should I use?",
+    }
+}
+
+fn wrong_domain_guards_for_tool(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "get_inventory_availability" => &[
+            "order/open order questions must not use inventory availability",
+            "receiving/PO questions must not use inventory availability only",
+        ],
+        "get_open_orders" | "get_open_orders_ready_for_pickup" => {
+            &["purchase order questions must use purchasing tools"]
+        }
+        "get_sales_summary" | "get_best_sellers" | "get_product_sales_by_query" => {
+            &["accounting/QBO questions must not use sales summary only"]
+        }
+        "get_customer_loyalty_balance" => {
+            &["store credit/gift card questions must not use loyalty balance only"]
+        }
+        "get_wedding_readiness"
+        | "get_wedding_members_missing_measurements"
+        | "get_upcoming_wedding_risk_report" => {
+            &["wedding readiness questions must not use generic customer search only"]
+        }
+        _ => &[],
+    }
+}
+
 fn input_schema_for_tool(tool_name: &str) -> &'static str {
     match tool_name {
         "get_customer_loyalty_balance"
@@ -621,6 +886,8 @@ fn input_schema_for_tool(tool_name: &str) -> &'static str {
         | "get_customer_credit_summary" => r#"{"customer_id":"uuid"}"#,
         "get_wedding_readiness" => r#"{"wedding_id":"uuid"}"#,
         "search_customers_for_rosie"
+        | "search_weddings_for_rosie"
+        | "search_vendors_for_rosie"
         | "get_inventory_availability"
         | "get_product_sales_by_query" => {
             r#"{"query":"string","from":"YYYY-MM-DD optional","to":"YYYY-MM-DD optional","limit":"number optional"}"#
@@ -780,6 +1047,136 @@ async fn search_customers(
         limit,
         data,
         vec!["Contact values are minimized to presence flags.".to_string()],
+    ))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+struct WeddingSearchRow {
+    wedding_id: Uuid,
+    wedding_name: String,
+    groom_name: String,
+    bride_name: Option<String>,
+    event_date: NaiveDate,
+    party_type: String,
+    venue: Option<String>,
+    salesperson: Option<String>,
+}
+
+async fn search_weddings(
+    pool: &PgPool,
+    def: &RosieReadToolDefinition,
+    args: &Value,
+) -> Result<RosieReadToolResponse, RosieReadToolError> {
+    let query = optional_string(args, "query")
+        .ok_or_else(|| RosieReadToolError::InvalidInput("query is required".to_string()))?;
+    if query.len() < 2 {
+        return Err(RosieReadToolError::InvalidInput(
+            "query must be at least 2 characters".to_string(),
+        ));
+    }
+    let limit = limit_from_args(args, def.max_rows);
+    let pattern = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%"));
+    let rows: Vec<WeddingSearchRow> = sqlx::query_as(
+        r#"
+        SELECT id AS wedding_id,
+               COALESCE(NULLIF(party_name, ''), groom_name) AS wedding_name,
+               groom_name,
+               NULLIF(bride_name, '') AS bride_name,
+               event_date,
+               party_type,
+               NULLIF(venue, '') AS venue,
+               NULLIF(salesperson, '') AS salesperson
+        FROM wedding_parties
+        WHERE COALESCE(is_deleted, false) = false
+          AND (
+              party_name ILIKE $1 ESCAPE '\'
+              OR groom_name ILIKE $1 ESCAPE '\'
+              OR bride_name ILIKE $1 ESCAPE '\'
+              OR venue ILIKE $1 ESCAPE '\'
+              OR salesperson ILIKE $1 ESCAPE '\'
+          )
+        ORDER BY event_date ASC, groom_name ASC
+        LIMIT $2
+        "#,
+    )
+    .bind(&pattern)
+    .bind(limit + 1)
+    .fetch_all(pool)
+    .await?;
+    let data = rows
+        .into_iter()
+        .map(|row| serde_json::to_value(row).unwrap_or_else(|_| json!({})))
+        .collect();
+    Ok(response(
+        def.tool_name,
+        def.basis,
+        json!({ "query": query, "limit": limit }),
+        limit,
+        data,
+        vec![
+            "Wedding search excludes deleted parties and does not expose phone or email."
+                .to_string(),
+        ],
+    ))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+struct VendorSearchRow {
+    vendor_id: Uuid,
+    vendor_name: String,
+    vendor_code: Option<String>,
+    account_number: Option<String>,
+    email_present: bool,
+    phone_present: bool,
+    is_active: bool,
+}
+
+async fn search_vendors(
+    pool: &PgPool,
+    def: &RosieReadToolDefinition,
+    args: &Value,
+) -> Result<RosieReadToolResponse, RosieReadToolError> {
+    let query = optional_string(args, "query")
+        .ok_or_else(|| RosieReadToolError::InvalidInput("query is required".to_string()))?;
+    if query.len() < 2 {
+        return Err(RosieReadToolError::InvalidInput(
+            "query must be at least 2 characters".to_string(),
+        ));
+    }
+    let limit = limit_from_args(args, def.max_rows);
+    let pattern = format!("%{}%", query.replace('\\', "\\\\").replace('%', "\\%"));
+    let rows: Vec<VendorSearchRow> = sqlx::query_as(
+        r#"
+        SELECT id AS vendor_id,
+               name AS vendor_name,
+               NULLIF(vendor_code, '') AS vendor_code,
+               NULLIF(account_number, '') AS account_number,
+               NULLIF(trim(COALESCE(email, '')), '') IS NOT NULL AS email_present,
+               NULLIF(trim(COALESCE(phone, '')), '') IS NOT NULL AS phone_present,
+               is_active
+        FROM vendors
+        WHERE name ILIKE $1 ESCAPE '\'
+           OR vendor_code ILIKE $1 ESCAPE '\'
+           OR account_number ILIKE $1 ESCAPE '\'
+        ORDER BY is_active DESC, name ASC
+        LIMIT $2
+        "#,
+    )
+    .bind(&pattern)
+    .bind(limit + 1)
+    .fetch_all(pool)
+    .await?;
+    let data = rows
+        .into_iter()
+        .map(|row| serde_json::to_value(row).unwrap_or_else(|_| json!({})))
+        .collect();
+    Ok(response(
+        def.tool_name,
+        def.basis,
+        json!({ "query": query, "limit": limit }),
+        limit,
+        data,
+        vec!["Vendor contact values are minimized to presence flags.".to_string()],
     ))
 }
 
@@ -3021,6 +3418,8 @@ pub async fn execute_rosie_read_tool(
     let def = tool_definition(tool_name).ok_or(RosieReadToolError::UnknownTool)?;
     match tool_name {
         "search_customers_for_rosie" => search_customers(pool, def, &args).await,
+        "search_weddings_for_rosie" => search_weddings(pool, def, &args).await,
+        "search_vendors_for_rosie" => search_vendors(pool, def, &args).await,
         "get_customer_loyalty_balance" => customer_loyalty_balance(pool, def, &args).await,
         "get_customers_with_open_balances" => customers_with_open_balances(pool, def, &args).await,
         "get_customers_needing_follow_up" => customers_needing_follow_up(pool, def, &args).await,

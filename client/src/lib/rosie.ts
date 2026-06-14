@@ -133,6 +133,7 @@ export type RosieToolResult = {
     | "wedding_actions"
     | "inventory_variant_intelligence"
     | "rosie_read_tool"
+    | "rosie_tool_planner"
     | "product_catalog_analyze"
     | "product_catalog_suggest";
   args: Record<string, unknown>;
@@ -1558,6 +1559,30 @@ function readReportingRun(tool: RosieToolResult): {
   return { specId, params, data };
 }
 
+function readPlannerDecision(tool: RosieToolResult): Record<string, unknown> | null {
+  if (tool.tool_name !== "rosie_tool_planner") return null;
+  return asRecord(tool.result);
+}
+
+function directPlannerDecisionAnswer(decision: Record<string, unknown>): string | null {
+  const decisionType = asText(decision.decision);
+  const domain = asText(decision.domain) ?? "Riverside OS";
+  const reason = asText(decision.reason);
+  const suggestedTool = asText(decision.suggested_tool);
+  if (decisionType === "ask_clarifying_question") {
+    return asText(decision.clarifying_question) ?? "I need one more detail before I can answer safely.";
+  }
+  if (decisionType === "refuse_mutation") {
+    return "ROSIE can explain or summarize this, but cannot change Riverside OS data. Use the approved Riverside OS workflow for that action.";
+  }
+  if (decisionType === "unsupported_safe_gap") {
+    const gap = reason ?? `No approved read-only tool currently answers this ${domain} question.`;
+    const suggestion = suggestedTool ? ` Suggested future tool: ${labelFromKey(suggestedTool)}.` : "";
+    return `${gap}${suggestion}`;
+  }
+  return null;
+}
+
 function rowsFrom(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value)
     ? value.map(asRecord).filter((row): row is Record<string, unknown> => row !== null)
@@ -1758,6 +1783,28 @@ function directOpenOrdersAnswer(response: RosieReadToolResponseLike): string {
   return `I found ${lineCount} open order line${lineCount === 1 ? "" : "s"} right now, covering ${itemCount || lineCount} item${(itemCount || lineCount) === 1 ? "" : "s"}. ${statusSummary ? `Status summary: ${statusSummary}. ` : ""}${firstRows ? `First matches: ${firstRows}. ` : ""}This uses non-cancelled order lines that are not picked up.${limited}`.trim();
 }
 
+function directCandidateSearchAnswer(toolName: string, response: RosieReadToolResponseLike): string {
+  const rows = rowsFrom(response.data);
+  const filters = asRecord(response.filters_applied) ?? {};
+  const query = asText(filters.query) ?? "that search";
+  const limited = response.limited ? " The result was limited, so narrow the search for the full list." : "";
+  const target =
+    toolName === "search_weddings_for_rosie"
+      ? "wedding parties"
+      : toolName === "search_vendors_for_rosie"
+        ? "vendors"
+        : "customers";
+  if (rows.length === 0) {
+    return `I found no matching ${target} for “${query}”. Try a more specific name, code, phone, or account detail.`;
+  }
+  const examples = rows
+    .slice(0, 5)
+    .map((row) => summarizeRecord(row, 4))
+    .filter(Boolean)
+    .join("; ");
+  return `I found ${rows.length} matching ${target} for “${query}”. ${examples ? `Matches: ${examples}. ` : ""}Select the correct record so I can answer the sensitive question safely.${limited}`.trim();
+}
+
 function directGenericReadToolAnswer(toolName: string, response: RosieReadToolResponseLike): string {
   const rows = rowsFrom(response.data);
   const title = labelFromKey(toolName);
@@ -1785,6 +1832,26 @@ function questionLooksLikeOrderRequest(question: string): boolean {
   return /\b(open orders?|orders? open|orders? ready|ready for pickup|ready to pick up|any orders?|order count)\b/.test(
     lower,
   );
+}
+
+function wrongDomainToolAnswer(question: string, toolName: string): string | null {
+  const lower = question.toLowerCase();
+  if (questionLooksLikeOrderRequest(question) && toolName === "get_inventory_availability") {
+    return "I found an inventory result, but your question appears to be about open orders. I will not answer an order question from inventory data.";
+  }
+  if ((lower.includes("qbo") || lower.includes("quickbooks") || lower.includes("accounting")) && /sales|best_sellers|product_sales/.test(toolName)) {
+    return "I found a sales result, but your question appears to be about accounting or QBO. I will not answer an accounting question from sales data.";
+  }
+  if ((lower.includes("store credit") || lower.includes("gift card")) && toolName === "get_customer_loyalty_balance") {
+    return "I found a loyalty result, but your question appears to be about store credit or gift cards. I will not answer that from loyalty data.";
+  }
+  if ((lower.includes("received") || lower.includes("receiving") || lower.includes("purchase order") || lower.includes(" po ")) && toolName === "get_inventory_availability") {
+    return "I found an inventory availability result, but your question appears to be about receiving or purchase orders. I will not answer a receiving or PO question from inventory data.";
+  }
+  if ((lower.includes("wedding") || lower.includes("measurements")) && toolName === "search_customers_for_rosie") {
+    return "I found a customer search result, but your question appears to be about wedding readiness. I will not answer a wedding readiness question from customer search alone.";
+  }
+  return null;
 }
 
 function hasStructuredDataResult(context: RosieToolContextResponse): boolean {
@@ -1831,8 +1898,17 @@ function directDataAnswer(
   context: RosieToolContextResponse,
 ): string | null {
   for (const tool of context.tool_results) {
+    const decision = readPlannerDecision(tool);
+    if (!decision) continue;
+    const plannerAnswer = directPlannerDecisionAnswer(decision);
+    if (plannerAnswer) return plannerAnswer;
+  }
+
+  for (const tool of context.tool_results) {
     const report = readReportingRun(tool);
     if (!report) continue;
+    const mismatch = wrongDomainToolAnswer(request.question, report.specId);
+    if (mismatch) return mismatch;
     if (report.specId === "best_sellers") {
       return directBestSellersAnswer(report.data, report.params);
     }
@@ -1842,11 +1918,17 @@ function directDataAnswer(
   for (const tool of context.tool_results) {
     const envelope = readToolEnvelope(tool);
     if (!envelope) continue;
-    if (questionLooksLikeOrderRequest(request.question) && envelope.toolName === "get_inventory_availability") {
-      return "I cannot answer that safely because Riverside returned Inventory Availability for an order question. Ask again after refreshing ROSIE so I can use the approved Orders tool.";
-    }
+    const mismatch = wrongDomainToolAnswer(request.question, envelope.toolName);
+    if (mismatch) return mismatch;
     if (envelope.toolName === "get_product_sales_by_query") {
       return directProductSalesAnswer(request, envelope.response);
+    }
+    if (
+      envelope.toolName === "search_customers_for_rosie" ||
+      envelope.toolName === "search_weddings_for_rosie" ||
+      envelope.toolName === "search_vendors_for_rosie"
+    ) {
+      return directCandidateSearchAnswer(envelope.toolName, envelope.response);
     }
     if (envelope.toolName === "get_open_orders") {
       return directOpenOrdersAnswer(envelope.response);
