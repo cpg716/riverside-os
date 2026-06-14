@@ -70,6 +70,7 @@ export type RosieHelpGroundingSource = {
     | "wedding"
     | "inventory"
     | "catalog"
+    | "rosie_read_tool"
     | "workflow";
   title: string;
   excerpt: string;
@@ -251,6 +252,16 @@ export type RosieToolContextResponse = {
   sources: RosieHelpGroundingSource[];
   tool_results: RosieToolResult[];
   suggested_actions: RosieSuggestedAction[];
+};
+
+type RosieReadToolResponseLike = {
+  basis?: string;
+  filters_applied?: Record<string, unknown>;
+  row_count?: number;
+  limited?: boolean;
+  warnings?: string[];
+  data_freshness?: string;
+  data?: unknown[];
 };
 
 export type RosieIntelligenceSourceGroup = {
@@ -1284,6 +1295,9 @@ function buildGroundedHelpSystemPrompt(
     )
       ? "Approved operational/read-only tool results are present. Narrate only those returned JSON fields, include basis/limit caveats when present, and keep the answer operationally grounded."
       : "No approved operational/read-only tool results are present.",
+    context.tool_results.some((tool) => tool.tool_name === "rosie_read_tool")
+      ? "A ROSIE read-only data tool result is present. Do not say ROSIE lacks access to that data category. If row_count is zero, say the approved lookup returned no matching rows for the filters."
+      : "If no ROSIE read-only data tool result is present, do not invent live database facts.",
     request.settings.response_style === "detailed"
       ? "Response style: detailed but practical."
       : "Response style: concise and practical.",
@@ -1472,6 +1486,112 @@ function sanitizeRosieAnswerText(raw: unknown): string {
   return text;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function asText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function formatRosieIsoDate(value: unknown): string | null {
+  const text = asText(value);
+  if (!text) return null;
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return text;
+  const date = new Date(`${text}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatRosieRange(filters: Record<string, unknown>): string {
+  const from = formatRosieIsoDate(filters.from);
+  const to = formatRosieIsoDate(filters.to);
+  if (from && to) return `${from} through ${to}`;
+  if (from) return `starting ${from}`;
+  if (to) return `through ${to}`;
+  return "the selected period";
+}
+
+function readToolEnvelope(tool: RosieToolResult): {
+  toolName: string;
+  response: RosieReadToolResponseLike;
+} | null {
+  if (tool.tool_name !== "rosie_read_tool") return null;
+  const args = asRecord(tool.args);
+  const toolName = asText(args?.tool_name);
+  const response = asRecord(tool.result);
+  if (!toolName || !response) return null;
+  return {
+    toolName,
+    response: response as RosieReadToolResponseLike,
+  };
+}
+
+function directProductSalesAnswer(
+  request: RosieGroundedHelpRequest,
+  response: RosieReadToolResponseLike,
+): string | null {
+  const filters = asRecord(response.filters_applied) ?? {};
+  const query = asText(filters.query) ?? request.question.trim();
+  const rows = Array.isArray(response.data)
+    ? response.data.map(asRecord).filter((row): row is Record<string, unknown> => row !== null)
+    : [];
+  const units = rows.reduce((sum, row) => sum + asNumber(row?.units_sold), 0);
+  const transactions = rows.reduce((sum, row) => sum + asNumber(row?.transaction_count), 0);
+  const range = formatRosieRange(filters);
+  const basis = response.basis === "booked_at_sales_quantity"
+    ? "booked sales quantity"
+    : response.basis?.replace(/_/g, " ") ?? "approved sales data";
+  const caveat = "Cancelled transactions are excluded.";
+  const limited = response.limited ? " The result was limited, so review the report for the full list." : "";
+
+  if (rows.length === 0 || units === 0) {
+    return `I found 0 units sold for “${query}” from ${range}. This uses ${basis}. ${caveat}${limited}`.trim();
+  }
+
+  const topRows = rows
+    .slice(0, 3)
+    .map((row) => {
+      const name = asText(row?.product_name) ?? asText(row?.sku) ?? "matching item";
+      const sku = asText(row?.sku);
+      const label = sku ? `${name} (${sku})` : name;
+      return `${label}: ${asNumber(row?.units_sold)}`;
+    })
+    .join("; ");
+  const transactionText = transactions > 0 ? ` across ${transactions} transaction${transactions === 1 ? "" : "s"}` : "";
+  return `I found ${units} unit${units === 1 ? "" : "s"} sold for “${query}” from ${range}${transactionText}. ${topRows ? `Top matches: ${topRows}. ` : ""}This uses ${basis}. ${caveat}${limited}`.trim();
+}
+
+function directRosieReadToolAnswer(
+  request: RosieGroundedHelpRequest,
+  context: RosieToolContextResponse,
+): string | null {
+  for (const tool of context.tool_results) {
+    const envelope = readToolEnvelope(tool);
+    if (!envelope) continue;
+    if (envelope.toolName === "get_product_sales_by_query") {
+      return directProductSalesAnswer(request, envelope.response);
+    }
+  }
+  return null;
+}
+
 function rosieConversationalGreeting(question: string): string | null {
   const normalized = question.trim().toLowerCase().replace(/[!.?]+$/g, "");
   if (!/^(hi|hello|hey|good morning|good afternoon|good evening|yo|howdy)$/.test(normalized)) {
@@ -1533,6 +1653,16 @@ export async function askRosieGroundedHelp(
   }
 
   const context = await fetchRosieToolContext(request, options);
+  const directAnswer = directRosieReadToolAnswer(request, context);
+  if (directAnswer) {
+    return {
+      answer: directAnswer,
+      sources: context.sources,
+      tool_results: context.tool_results,
+      suggested_actions: context.suggested_actions ?? [],
+      completion: { choices: [{ message: { role: "assistant", content: directAnswer } }] },
+    };
+  }
   const messages: RosieChatMessage[] = [
     {
       role: "system",
@@ -1638,6 +1768,17 @@ export async function askRosieGroundedHelpStream(
 
   const context = await fetchRosieToolContext(request, options);
   options?.on_context?.(context);
+  const directAnswer = directRosieReadToolAnswer(request, context);
+  if (directAnswer) {
+    options?.on_delta?.(directAnswer);
+    return {
+      answer: directAnswer,
+      sources: context.sources,
+      tool_results: context.tool_results,
+      suggested_actions: context.suggested_actions ?? [],
+      completion: { choices: [{ message: { role: "assistant", content: directAnswer } }] },
+    };
+  }
   const messages: RosieChatMessage[] = [
     {
       role: "system",

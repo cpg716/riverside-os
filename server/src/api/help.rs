@@ -1326,6 +1326,16 @@ mod tests {
     }
 
     #[test]
+    fn rosie_read_tool_inference_handles_plain_sold_last_month() {
+        let requests = infer_read_tool_requests("How many Gruppo suits sold last month?", None);
+        let (_, args) = requests
+            .iter()
+            .find(|(tool_name, _)| tool_name == "get_product_sales_by_query")
+            .expect("product sales tool should be inferred");
+        assert_eq!(args["query"], Value::String("gruppo suits".to_string()));
+    }
+
+    #[test]
     fn rosie_read_tool_inference_handles_inventory_lookup() {
         let requests = infer_read_tool_requests("Do we have navy suits in inventory?", None);
         let (_, args) = requests

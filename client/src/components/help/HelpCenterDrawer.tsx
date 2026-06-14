@@ -116,8 +116,8 @@ const DRAWER_MODE_COPY: Record<
   },
   conversation: {
     title: "ROSIE Chat",
-    lead: "Chat with ROSIE about Riverside workflows and store information.",
-    detail: "Best for broader workflow questions, follow-ups, and voice conversations. Sources appear when available.",
+    lead: "",
+    detail: "",
   },
 };
 
@@ -239,6 +239,20 @@ function markdownToSpeechText(markdown: string): string {
     .replace(/#+\s+/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function rosieSpeechTextForMode(markdown: string, mode: "help" | "conversation"): string {
+  const speechText = markdownToSpeechText(markdown);
+  if (mode !== "conversation" || speechText.length <= 420) return speechText;
+
+  const clipped = speechText.slice(0, 420).trim();
+  const sentenceEnd = Math.max(
+    clipped.lastIndexOf("."),
+    clipped.lastIndexOf("!"),
+    clipped.lastIndexOf("?"),
+  );
+  if (sentenceEnd >= 180) return clipped.slice(0, sentenceEnd + 1).trim();
+  return `${clipped.replace(/[,.!?;:\s]+$/g, "")}...`;
 }
 
 function escapePrintHtml(value: string): string {
@@ -1403,8 +1417,8 @@ export default function HelpCenterDrawer({
         mode,
         settings: {
           enabled: rosieSettings.enabled,
-          response_style: rosieSettings.response_style,
-          show_citations: rosieSettings.show_citations,
+          response_style: mode === "conversation" ? "concise" : rosieSettings.response_style,
+          show_citations: mode === "conversation" ? false : rosieSettings.show_citations,
         },
         client_context: buildRosieClientContext(mode),
       };
@@ -1440,11 +1454,7 @@ export default function HelpCenterDrawer({
         rosieSettings.voice_enabled &&
         (mode === "conversation" ? rosieChatSpeechEnabled : rosieSettings.speak_responses);
       if (shouldSpeakResponse) {
-        const speechText = markdownToSpeechText(answer);
-        const spokenText =
-          mode === "conversation" && speechText.length > 700
-            ? `${speechText.slice(0, 520).trim()}...`
-            : speechText;
+        const spokenText = rosieSpeechTextForMode(answer, mode);
         if (spokenText) {
           speechPlaybackRef.current = speakRosieText(spokenText, {
             rate: rosieSettings.speech_rate,
@@ -1645,12 +1655,18 @@ export default function HelpCenterDrawer({
               ROSIE Chat
             </button>
           </div>
-          <div className="space-y-1">
-            <p className="text-sm font-bold text-app-text">{drawerModeCopy.lead}</p>
-            <p className="text-xs font-medium leading-relaxed text-app-text-muted">
-              {drawerModeCopy.detail}
-            </p>
-          </div>
+          {drawerModeCopy.lead || drawerModeCopy.detail ? (
+            <div className="space-y-1">
+              {drawerModeCopy.lead ? (
+                <p className="text-sm font-bold text-app-text">{drawerModeCopy.lead}</p>
+              ) : null}
+              {drawerModeCopy.detail ? (
+                <p className="text-xs font-medium leading-relaxed text-app-text-muted">
+                  {drawerModeCopy.detail}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {drawerMode === "browse" ? (
             <>
           <div className="flex flex-wrap items-center gap-2">
@@ -1781,9 +1797,7 @@ export default function HelpCenterDrawer({
                         : "Ask ROSIE a focused help question."}
                     </p>
                     <p className="mt-2 text-sm text-app-text-muted">
-                      {conversationModeActive
-                        ? "Use chat for follow-up questions, voice input, and broader Riverside workflow context."
-                        : "Use Ask ROSIE for sourced answers from Help Library manuals."}
+                      Ask a question from the field below.
                     </p>
                   </div>
                 ) : (
@@ -1838,14 +1852,10 @@ export default function HelpCenterDrawer({
                             {message.content}
                           </p>
                         )}
-                        {message.role === "assistant" && !message.error && !message.streaming ? (
-                          <p className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[11px] font-medium text-app-text-muted">
-                            {message.transparency === "grounded-conversation"
-                              ? "ROSIE used approved Riverside information when available. Voice follows ROSIE settings."
-                              : "ROSIE used Riverside help content when available. Sources show what was used."}
-                          </p>
-                        ) : null}
-                        {message.sources && message.sources.length > 0 && rosieSettings.show_citations ? (
+                        {message.sources &&
+                        message.sources.length > 0 &&
+                        rosieSettings.show_citations &&
+                        !conversationModeActive ? (
                           <div className="mt-3 space-y-2">
                             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                               Sources
@@ -1980,10 +1990,7 @@ export default function HelpCenterDrawer({
                   </div>
                 ) : null}
                 {conversationModeActive ? (
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-[11px] font-medium text-app-text-muted">
-                      ROSIE can use approved Riverside help, store notes, and available ROS data.
-                    </p>
+                  <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
                     {rosieSettings.voice_enabled && voiceCapabilities.text_to_speech_supported ? (
                       <button
                         type="button"

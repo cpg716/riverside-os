@@ -234,9 +234,12 @@ test("Top Bar ROSIE opens voice-first chat with Riverside context", async ({
     const body = route.request().postDataJSON() as {
       mode?: string;
       question?: string;
+      settings?: { response_style?: string; show_citations?: boolean };
     };
     expect(body.mode).toBe("conversation");
     expect(body.question).toBe("show me today’s sales");
+    expect(body.settings?.response_style).toBe("concise");
+    expect(body.settings?.show_citations).toBe(false);
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -296,7 +299,7 @@ test("Top Bar ROSIE opens voice-first chat with Riverside context", async ({
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-ask-rosie-trigger").click();
   await expect(page.getByTestId("help-center-rosie-conversation-tab")).toBeVisible();
-  await expect(page.getByText(/ROSIE can use approved Riverside help/i)).toBeVisible();
+  await expect(page.getByText(/ROSIE can use approved Riverside help/i)).toHaveCount(0);
   await page
     .getByTestId("help-center-rosie-conversation-input")
     .fill("show me today’s sales");
@@ -307,8 +310,8 @@ test("Top Bar ROSIE opens voice-first chat with Riverside context", async ({
   });
   await expect(
     page.getByText(/ROSIE used approved Riverside information/i),
-  ).toBeVisible();
-  await expect(page.getByText(/Report — sales today/i)).toBeVisible();
+  ).toHaveCount(0);
+  await expect(page.getByText(/Report — sales today/i)).toHaveCount(0);
   expect(toolContextCalled).toBe(true);
 });
 
