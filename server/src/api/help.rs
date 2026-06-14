@@ -1336,6 +1336,24 @@ mod tests {
     }
 
     #[test]
+    fn rosie_reporting_inference_handles_best_selling_item() {
+        let request = infer_reporting_request("What was our best selling item last month?")
+            .expect("best sellers report should be inferred");
+        assert_eq!(request.spec_id, "best_sellers");
+    }
+
+    #[test]
+    fn rosie_read_tool_inference_handles_ready_pickup_order_question() {
+        let requests = infer_read_tool_requests("Do we have any orders ready for pickup?", None);
+        assert!(requests
+            .iter()
+            .any(|(tool_name, _)| tool_name == "get_open_orders_ready_for_pickup"));
+        assert!(!requests
+            .iter()
+            .any(|(tool_name, _)| tool_name == "get_inventory_availability"));
+    }
+
+    #[test]
     fn rosie_read_tool_inference_handles_inventory_lookup() {
         let requests = infer_read_tool_requests("Do we have navy suits in inventory?", None);
         let (_, args) = requests
@@ -1781,10 +1799,14 @@ fn infer_reporting_request(question: &str) -> Option<RosieReportingRunRequest> {
     };
 
     if lower.contains("best seller")
+        || lower.contains("best selling")
         || lower.contains("best-selling")
         || lower.contains("top seller")
+        || lower.contains("top selling")
         || lower.contains("top sku")
         || lower.contains("top product")
+        || lower.contains("sold the most")
+        || lower.contains("most sold")
     {
         return Some(build(
             "best_sellers",
@@ -2027,6 +2049,15 @@ fn infer_read_tool_requests(
         }
     }
 
+    if (lower.contains("ready for pickup") || lower.contains("ready to pick up"))
+        && (lower.contains("open order") || lower.contains("order") || lower.contains("items"))
+    {
+        requests.push((
+            "get_open_orders_ready_for_pickup".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
     if (lower.contains("do we have")
         || lower.contains("in inventory")
         || lower.contains("in stock")
@@ -2034,6 +2065,8 @@ fn infer_read_tool_requests(
         || lower.contains("available"))
         && !lower.contains("appointment")
         && !lower.contains("wedding")
+        && !lower.contains("ready for pickup")
+        && !lower.contains("ready to pick up")
     {
         if let Some(query) = rosie_inventory_query_from_question(question) {
             requests.push((
@@ -2081,15 +2114,6 @@ fn infer_read_tool_requests(
     {
         requests.push((
             "get_customers_with_missing_contact_info".to_string(),
-            serde_json::json!({ "limit": 25 }),
-        ));
-    }
-
-    if (lower.contains("ready for pickup") || lower.contains("ready to pick up"))
-        && (lower.contains("open order") || lower.contains("orders") || lower.contains("items"))
-    {
-        requests.push((
-            "get_open_orders_ready_for_pickup".to_string(),
             serde_json::json!({ "limit": 25 }),
         ));
     }

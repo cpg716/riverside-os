@@ -1543,15 +1543,144 @@ function readToolEnvelope(tool: RosieToolResult): {
   };
 }
 
+function readReportingRun(tool: RosieToolResult): {
+  specId: string;
+  params: Record<string, unknown>;
+  data: Record<string, unknown>;
+} | null {
+  if (tool.tool_name !== "reporting_run") return null;
+  const args = asRecord(tool.args);
+  const result = asRecord(tool.result);
+  const specId = asText(args?.spec_id);
+  const params = asRecord(args?.params) ?? {};
+  const data = asRecord(result?.data);
+  if (!specId || !data) return null;
+  return { specId, params, data };
+}
+
+function rowsFrom(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.map(asRecord).filter((row): row is Record<string, unknown> => row !== null)
+    : [];
+}
+
+function formatBasis(value: unknown): string {
+  const basis = asText(value);
+  if (basis === "completed" || basis === "pickup") return "completed/pickup sales";
+  if (basis === "sale" || basis === "booked") return "booked sales";
+  return basis ? basis.replace(/_/g, " ") : "approved data";
+}
+
+function labelFromKey(value: string): string {
+  return value
+    .replace(/^get_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatScalar(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return null;
+}
+
+function summarizeRecord(record: Record<string, unknown>, maxFields = 4): string {
+  const preferredKeys = [
+    "customer_name",
+    "transaction_display_id",
+    "product_name",
+    "sku",
+    "vendor_name",
+    "wedding_name",
+    "event_date",
+    "status",
+    "quantity",
+    "units_sold",
+    "available_stock",
+    "current_points",
+    "balance",
+    "count",
+    "row_count",
+  ];
+  const pairs: string[] = [];
+  for (const key of preferredKeys) {
+    const value = formatScalar(record[key]);
+    if (value) pairs.push(`${labelFromKey(key)}: ${value}`);
+    if (pairs.length >= maxFields) return pairs.join(", ");
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (key.endsWith("_id") || key === "id") continue;
+    const formatted = formatScalar(value);
+    if (formatted) pairs.push(`${labelFromKey(key)}: ${formatted}`);
+    if (pairs.length >= maxFields) break;
+  }
+  return pairs.join(", ");
+}
+
+function directBestSellersAnswer(data: Record<string, unknown>, params: Record<string, unknown>): string {
+  const rows = rowsFrom(data.rows);
+  const range = formatRosieRange({
+    from: data.from ?? params.from,
+    to: data.to ?? params.to,
+  });
+  const basis = formatBasis(data.reporting_basis ?? params.basis);
+  if (rows.length === 0) {
+    return `I found no best-selling items for ${range} using ${basis}.`;
+  }
+
+  const top = rows[0];
+  const name = asText(top.product_name) ?? asText(top.sku) ?? "the top item";
+  const sku = asText(top.sku);
+  const units = asNumber(top.units_sold);
+  const unitsText = units > 0 ? ` with ${units} unit${units === 1 ? "" : "s"} sold` : "";
+  const skuText = sku ? ` (${sku})` : "";
+  const runnersUp = rows
+    .slice(1, 4)
+    .map((row) => {
+      const runnerName = asText(row.product_name) ?? asText(row.sku) ?? "item";
+      const runnerSku = asText(row.sku);
+      const runnerUnits = asNumber(row.units_sold);
+      return `${runnerName}${runnerSku ? ` (${runnerSku})` : ""}: ${runnerUnits}`;
+    })
+    .join("; ");
+  return `${name}${skuText} was the best-selling item for ${range}${unitsText}. ${runnersUp ? `Next: ${runnersUp}. ` : ""}This uses ${basis}.`.trim();
+}
+
+function directGenericReportAnswer(
+  specId: string,
+  data: Record<string, unknown>,
+  params: Record<string, unknown>,
+): string {
+  const rows = rowsFrom(data.rows);
+  const reportName = labelFromKey(specId);
+  const range = formatRosieRange({
+    from: data.from ?? params.from,
+    to: data.to ?? params.to,
+  });
+  if (rows.length > 0) {
+    const examples = rows
+      .slice(0, 3)
+      .map((row) => summarizeRecord(row))
+      .filter(Boolean)
+      .join("; ");
+    return `I found ${rows.length} ${reportName.toLowerCase()} row${rows.length === 1 ? "" : "s"} for ${range}. ${examples ? `First matches: ${examples}. ` : ""}This uses the approved ${reportName} report.`;
+  }
+
+  const summary = summarizeRecord(data, 5);
+  if (summary) {
+    return `${reportName} for ${range}: ${summary}. This uses the approved report result.`;
+  }
+  return `The approved ${reportName} report returned no rows for ${range}.`;
+}
+
 function directProductSalesAnswer(
   request: RosieGroundedHelpRequest,
   response: RosieReadToolResponseLike,
 ): string | null {
   const filters = asRecord(response.filters_applied) ?? {};
   const query = asText(filters.query) ?? request.question.trim();
-  const rows = Array.isArray(response.data)
-    ? response.data.map(asRecord).filter((row): row is Record<string, unknown> => row !== null)
-    : [];
+  const rows = rowsFrom(response.data);
   const units = rows.reduce((sum, row) => sum + asNumber(row?.units_sold), 0);
   const transactions = rows.reduce((sum, row) => sum + asNumber(row?.transaction_count), 0);
   const range = formatRosieRange(filters);
@@ -1578,18 +1707,110 @@ function directProductSalesAnswer(
   return `I found ${units} unit${units === 1 ? "" : "s"} sold for “${query}” from ${range}${transactionText}. ${topRows ? `Top matches: ${topRows}. ` : ""}This uses ${basis}. ${caveat}${limited}`.trim();
 }
 
-function directRosieReadToolAnswer(
+function directReadyPickupAnswer(response: RosieReadToolResponseLike): string {
+  const rows = rowsFrom(response.data);
+  const lineCount = rows.length;
+  const itemCount = rows.reduce((sum, row) => sum + asNumber(row.quantity), 0);
+  const limited = response.limited ? " The result was limited, so open Orders for the full list." : "";
+  if (lineCount === 0) {
+    return "I found 0 open order lines marked ready for pickup.";
+  }
+
+  const firstRows = rows
+    .slice(0, 3)
+    .map((row) => {
+      const order = asText(row.transaction_display_id) ?? "order";
+      const customer = asText(row.customer_name);
+      const item = asText(row.product_name) ?? asText(row.sku) ?? "item";
+      return `${order}${customer ? ` for ${customer}` : ""}: ${item}`;
+    })
+    .join("; ");
+  return `I found ${lineCount} open order line${lineCount === 1 ? "" : "s"} ready for pickup, covering ${itemCount || lineCount} item${(itemCount || lineCount) === 1 ? "" : "s"}. ${firstRows ? `First matches: ${firstRows}. ` : ""}This uses line-level ready-for-pickup status.${limited}`.trim();
+}
+
+function directGenericReadToolAnswer(toolName: string, response: RosieReadToolResponseLike): string {
+  const rows = rowsFrom(response.data);
+  const title = labelFromKey(toolName);
+  const basis = formatBasis(response.basis);
+  const limited = response.limited ? " The result was limited, so open the owning workspace for the full list." : "";
+  if (rows.length === 0) {
+    return `I found 0 matching rows for ${title}. This uses ${basis}.${limited}`.trim();
+  }
+
+  const examples = rows
+    .slice(0, 3)
+    .map((row) => summarizeRecord(row))
+    .filter(Boolean)
+    .join("; ");
+  return `I found ${rows.length} matching row${rows.length === 1 ? "" : "s"} for ${title}. ${examples ? `First matches: ${examples}. ` : ""}This uses ${basis}.${limited}`.trim();
+}
+
+function questionLooksLikeDataRequest(question: string): boolean {
+  const lower = question.toLowerCase();
+  return /\b(how many|how much|what was|what is|do we have|which|who has|show me|list|count|total|balance|points|sales|sold|best selling|best-selling|inventory|stock|orders?|pickup|appointments?|alterations?|weddings?|customers?|vendors?|purchase orders?|receiving|gift cards?|store credit|qbo|register close)\b/.test(lower);
+}
+
+function hasStructuredDataResult(context: RosieToolContextResponse): boolean {
+  return context.tool_results.some((tool) =>
+    [
+      "reporting_run",
+      "order_summary",
+      "customer_hub_snapshot",
+      "wedding_actions",
+      "inventory_variant_intelligence",
+      "rosie_read_tool",
+    ].includes(tool.tool_name),
+  );
+}
+
+function clarificationForDataQuestion(
   request: RosieGroundedHelpRequest,
   context: RosieToolContextResponse,
 ): string | null {
+  if (!questionLooksLikeDataRequest(request.question) || hasStructuredDataResult(context)) {
+    return null;
+  }
+  const lower = request.question.toLowerCase();
+  if (lower.includes("loyalty") || lower.includes("points")) {
+    return "Which customer record should I use for the loyalty points check? Open or select the customer record so I can use the approved customer lookup.";
+  }
+  if (lower.includes("customer") || lower.includes("balance")) {
+    return "Which customer or account should I check? I need a customer record or clearer search detail before I can answer safely.";
+  }
+  if (lower.includes("inventory") || lower.includes("stock") || lower.includes("do we have")) {
+    return "Which item, SKU, barcode, size, or color should I check in inventory?";
+  }
+  if (lower.includes("sales") || lower.includes("sold") || lower.includes("best")) {
+    return "Which item/category and date range should I use for the sales question?";
+  }
+  return "I need one more detail before I can answer safely. Which customer, item/SKU, date range, or workflow should I use?";
+}
+
+function directDataAnswer(
+  request: RosieGroundedHelpRequest,
+  context: RosieToolContextResponse,
+): string | null {
+  for (const tool of context.tool_results) {
+    const report = readReportingRun(tool);
+    if (!report) continue;
+    if (report.specId === "best_sellers") {
+      return directBestSellersAnswer(report.data, report.params);
+    }
+    return directGenericReportAnswer(report.specId, report.data, report.params);
+  }
+
   for (const tool of context.tool_results) {
     const envelope = readToolEnvelope(tool);
     if (!envelope) continue;
     if (envelope.toolName === "get_product_sales_by_query") {
       return directProductSalesAnswer(request, envelope.response);
     }
+    if (envelope.toolName === "get_open_orders_ready_for_pickup") {
+      return directReadyPickupAnswer(envelope.response);
+    }
+    return directGenericReadToolAnswer(envelope.toolName, envelope.response);
   }
-  return null;
+  return clarificationForDataQuestion(request, context);
 }
 
 function rosieConversationalGreeting(question: string): string | null {
@@ -1653,7 +1874,7 @@ export async function askRosieGroundedHelp(
   }
 
   const context = await fetchRosieToolContext(request, options);
-  const directAnswer = directRosieReadToolAnswer(request, context);
+  const directAnswer = directDataAnswer(request, context);
   if (directAnswer) {
     return {
       answer: directAnswer,
@@ -1768,7 +1989,7 @@ export async function askRosieGroundedHelpStream(
 
   const context = await fetchRosieToolContext(request, options);
   options?.on_context?.(context);
-  const directAnswer = directRosieReadToolAnswer(request, context);
+  const directAnswer = directDataAnswer(request, context);
   if (directAnswer) {
     options?.on_delta?.(directAnswer);
     return {

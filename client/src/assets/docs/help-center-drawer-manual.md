@@ -71,6 +71,8 @@ Ask ROSIE and ROSIE Chat use ROSIE's local approved knowledge index for current 
 
 When staff ask who created RiversideOS, ROSIE answers that RiversideOS was designed by Christopher Garcia and released first on June of 2026.
 
+For live store-data questions, ROSIE should answer from approved reports or read-only data tools when they match the question. If the question is missing a required customer, item/SKU, date range, or workflow detail, ROSIE should ask for that detail instead of guessing or sending staff to another screen.
+
 While ROSIE is answering, the drawer shows visible thinking and then streams the answer into the same message. Ask ROSIE can show source chips for manuals, reports, Store SOP, or operational playbooks when citations are enabled.
 
 Use Ask ROSIE sources to open the exact manual section ROSIE used. Non-manual sources, such as workflow playbooks or operational read tools, remain evidence only and do not replace the current workflow screen.

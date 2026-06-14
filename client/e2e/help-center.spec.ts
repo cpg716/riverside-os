@@ -177,7 +177,9 @@ test("Ask ROSIE sends Help request and renders sources", async ({
       }),
     });
   });
+  let completionCalled = false;
   await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    completionCalled = true;
     const body = route.request().postDataJSON() as {
       messages?: Array<{ role?: string; content?: string }>;
     };
@@ -222,6 +224,7 @@ test("Ask ROSIE sends Help request and renders sources", async ({
   await expect(
     page.getByTestId("help-center-rosie-source-chip").first(),
   ).toBeVisible({ timeout: 15_000 });
+  expect(completionCalled).toBe(true);
 });
 
 test("Top Bar ROSIE opens voice-first chat with Riverside context", async ({
@@ -269,7 +272,9 @@ test("Top Bar ROSIE opens voice-first chat with Riverside context", async ({
       }),
     });
   });
+  let completionCalled = false;
   await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    completionCalled = true;
     const body = route.request().postDataJSON() as {
       messages?: Array<{ role?: string; content?: string }>;
     };
@@ -578,7 +583,9 @@ test("Ask ROSIE narrates approved reporting tool results", async ({ page }) => {
       }),
     });
   });
+  let completionCalled = false;
   await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    completionCalled = true;
     const body = route.request().postDataJSON() as {
       messages?: Array<{ role?: string; content?: string }>;
     };
@@ -611,11 +618,63 @@ test("Ask ROSIE narrates approved reporting tool results", async ({ page }) => {
   await page.getByTestId("help-center-ask-rosie-send").click();
 
   await expect(
-    page.getByText(/Navy Suit is the top best seller/i),
+    page.getByText(/Navy Suit was the best-selling item/i),
   ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/4 units sold/i)).toBeVisible();
   await expect(
     page.getByText(/Report — best sellers/i),
   ).toBeVisible({ timeout: 15_000 });
+  expect(completionCalled).toBe(false);
+});
+
+test("Ask ROSIE asks for details when a data question has no matched tool", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: "How many loyalty points does Sarah have?",
+        settings: {
+          enabled: true,
+          response_style: "concise",
+          show_citations: false,
+        },
+        sources: [],
+        tool_results: [
+          {
+            tool_name: "rosie_knowledge_retrieval",
+            args: { question: "How many loyalty points does Sarah have?" },
+            result: { sections: [] },
+          },
+        ],
+      }),
+    });
+  });
+  let completionCalled = false;
+  await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    completionCalled = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        choices: [{ message: { role: "assistant", content: "wrong path" } }],
+      }),
+    });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+  await page
+    .getByTestId("help-center-ask-rosie-input")
+    .fill("How many loyalty points does Sarah have?");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+
+  await expect(
+    page.getByText(/Which customer record should I use/i),
+  ).toBeVisible({ timeout: 15_000 });
+  expect(completionCalled).toBe(false);
 });
 
 test("Ask ROSIE narrates approved operational tool results", async ({ page }) => {
