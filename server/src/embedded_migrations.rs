@@ -85,4 +85,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("082_loyalty_reward_threshold_floor.sql", include_str!("../../migrations/082_loyalty_reward_threshold_floor.sql")),
     ("083_staff_schedule_requests_and_appointment_identity.sql", include_str!("../../migrations/083_staff_schedule_requests_and_appointment_identity.sql")),
     ("084_staff_birthdays_notifications.sql", include_str!("../../migrations/084_staff_birthdays_notifications.sql")),
+    ("085_rosie_read_tool_audit.sql", include_str!("../../migrations/085_rosie_read_tool_audit.sql")),
 ];

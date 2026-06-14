@@ -336,6 +336,105 @@ interface CounterpointImportExceptionRow {
   updated_at: string;
 }
 
+interface CounterpointSyncWorkbenchStatus {
+  configured: boolean;
+  reachable: boolean;
+  message: string;
+  error?: string;
+  health?: {
+    service?: string;
+    hostname?: string;
+    generated_at?: string;
+    schema_version?: number;
+    store_path?: string;
+    store?: {
+      path?: string;
+      exists?: boolean;
+      backup_exists?: boolean;
+      last_write_at?: string | null;
+      size_bytes?: number;
+      format_version?: number;
+      readable?: boolean;
+      error?: string | null;
+    };
+    last_bridge_heartbeat?: {
+      received_at?: string;
+      bridge_hostname?: string;
+      bridge_version?: string;
+      phase?: string;
+      target_sync_reachable?: boolean;
+    } | null;
+    summary?: {
+      runs_count?: number;
+      ready_sections?: number;
+      imported_sections?: number;
+      blocked_sections?: number;
+      warnings?: number;
+      blockers?: number;
+    };
+  };
+}
+
+interface CounterpointSyncRunSummary {
+  sync_run_id: string;
+  name: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  sections_ready: number;
+  warnings: number;
+  blockers: number;
+  source_batches?: number;
+  imported_status: string;
+}
+
+interface CounterpointSyncRunSection {
+  section: string;
+  label: string;
+  status: string;
+  source_count: number;
+  prepared_count: number;
+  warnings: number;
+  blockers: number;
+  package_fingerprint: string | null;
+  updated_at: string;
+  approved_at: string | null;
+  approved_by: string | null;
+  imported_at?: string | null;
+  ros_import_run_id?: string | null;
+  ai_pending_suggestions?: number;
+  ai_accepted_suggestions?: number;
+  ai_applied_suggestions?: number;
+  ai_manual_review_suggestions?: number;
+}
+
+interface CounterpointSyncPackage {
+  sync_run_id: string;
+  section: string;
+  entity: string;
+  schema_version: number;
+  package_fingerprint: string;
+  generated_at: string;
+  source_counts: {
+    raw: number;
+    prepared: number;
+    warnings: number;
+    blockers: number;
+  };
+  payload: { rows?: unknown[]; [key: string]: unknown };
+  exceptions: unknown[];
+  provenance: unknown[];
+}
+
+interface CounterpointSyncRunDetail {
+  run: CounterpointSyncRunSummary & { sections: CounterpointSyncRunSection[] };
+}
+
+interface PendingSyncImport {
+  section: CounterpointSyncRunSection;
+  pkg: CounterpointSyncPackage;
+}
+
 function fmtNum(n: number | null | undefined): string {
   if (n == null) return "—";
   return n.toLocaleString();
@@ -488,6 +587,13 @@ export default function CounterpointSyncSettingsPanel({
   const [landingVerification, setLandingVerification] = useState<CounterpointLandingVerificationSummary | null>(null);
   const [commandCenter, setCommandCenter] = useState<CounterpointImportCommandCenterSummary | null>(null);
   const [importExceptions, setImportExceptions] = useState<CounterpointImportExceptionRow[]>([]);
+  const [syncWorkbenchStatus, setSyncWorkbenchStatus] = useState<CounterpointSyncWorkbenchStatus | null>(null);
+  const [syncRuns, setSyncRuns] = useState<CounterpointSyncRunSummary[]>([]);
+  const [selectedSyncRunId, setSelectedSyncRunId] = useState<string>("");
+  const [selectedSyncRun, setSelectedSyncRun] = useState<CounterpointSyncRunDetail | null>(null);
+  const [syncPackage, setSyncPackage] = useState<CounterpointSyncPackage | null>(null);
+  const [syncActionBusy, setSyncActionBusy] = useState<string | null>(null);
+  const [pendingSyncImport, setPendingSyncImport] = useState<PendingSyncImport | null>(null);
   const [resetPromptOpen, setResetPromptOpen] = useState(false);
   const [resetPreview, setResetPreview] = useState<CounterpointResetPreviewResponse | null>(null);
 
@@ -523,6 +629,81 @@ export default function CounterpointSyncSettingsPanel({
       setCommandCenter(null);
     }
   }, [baseUrl, headers, hasPermission]);
+
+  const fetchSyncWorkbenchStatus = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/sync-workbench/status`, {
+        headers: headers(),
+      });
+      if (res.ok) {
+        setSyncWorkbenchStatus((await res.json()) as CounterpointSyncWorkbenchStatus);
+      }
+    } catch {
+      setSyncWorkbenchStatus({
+        configured: false,
+        reachable: false,
+        message: "Counterpoint SYNC app is not reachable.",
+      });
+    }
+  }, [baseUrl, headers, hasPermission]);
+
+  const fetchSyncRuns = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/sync-workbench/runs`, {
+        headers: headers(),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { runs?: CounterpointSyncRunSummary[] };
+        const runs = data.runs ?? [];
+        setSyncRuns(runs);
+        setSelectedSyncRunId((current) => current || runs[0]?.sync_run_id || "");
+      }
+    } catch {
+      setSyncRuns([]);
+    }
+  }, [baseUrl, headers, hasPermission]);
+
+  const fetchSelectedSyncRun = useCallback(async (runId?: string) => {
+    const id = runId ?? selectedSyncRunId;
+    if (!id || !hasPermission("settings.admin")) {
+      setSelectedSyncRun(null);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/sync-workbench/runs/${encodeURIComponent(id)}`,
+        { headers: headers() },
+      );
+      if (res.ok) {
+        setSelectedSyncRun((await res.json()) as CounterpointSyncRunDetail);
+      }
+    } catch {
+      setSelectedSyncRun(null);
+    }
+  }, [baseUrl, headers, hasPermission, selectedSyncRunId]);
+
+  const loadSyncPackage = useCallback(async (section: string) => {
+    if (!selectedSyncRunId) return null;
+    setSyncActionBusy(`package:${section}`);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/sync-workbench/runs/${encodeURIComponent(selectedSyncRunId)}/packages/${encodeURIComponent(section)}`,
+        { headers: headers() },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not load SYNC package");
+      const pkg = data as CounterpointSyncPackage;
+      setSyncPackage(pkg);
+      return pkg;
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not load SYNC package", "error");
+      return null;
+    } finally {
+      setSyncActionBusy(null);
+    }
+  }, [baseUrl, headers, selectedSyncRunId, toast]);
 
   const fetchImportExceptions = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
@@ -672,6 +853,8 @@ export default function CounterpointSyncSettingsPanel({
     await Promise.all([
       fetchStatus(),
       fetchCommandCenter(),
+      fetchSyncWorkbenchStatus(),
+      fetchSyncRuns(),
       fetchImportExceptions(),
       fetchBatches(),
       fetchWorkbenchState(),
@@ -686,6 +869,8 @@ export default function CounterpointSyncSettingsPanel({
   }, [
     fetchStatus,
     fetchCommandCenter,
+    fetchSyncWorkbenchStatus,
+    fetchSyncRuns,
     fetchImportExceptions,
     fetchBatches,
     fetchWorkbenchState,
@@ -704,6 +889,10 @@ export default function CounterpointSyncSettingsPanel({
   useEffect(() => {
     void fetchReviewSuggestions(selectedReviewPackId);
   }, [fetchReviewSuggestions, selectedReviewPackId]);
+
+  useEffect(() => {
+    void fetchSelectedSyncRun(selectedSyncRunId);
+  }, [fetchSelectedSyncRun, selectedSyncRunId]);
 
   /* ── Event Handlers ── */
 
@@ -756,6 +945,72 @@ export default function CounterpointSyncSettingsPanel({
       toast(error instanceof Error ? error.message : "Could not resolve import exception", "error");
     }
   }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
+
+  const runSyncPackagePreflight = useCallback(async (section: string) => {
+    if (!selectedSyncRunId) return;
+    setSyncActionBusy(`preflight:${section}`);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/sync-workbench/runs/${encodeURIComponent(selectedSyncRunId)}/sections/${encodeURIComponent(section)}/preflight`,
+        {
+          method: "POST",
+          headers: headers(),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "ROS preflight failed");
+      toast("ROS preflight recorded for selected SYNC package.", "success");
+      void fetchCommandCenter();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "ROS preflight failed", "error");
+    } finally {
+      setSyncActionBusy(null);
+    }
+  }, [baseUrl, fetchCommandCenter, headers, selectedSyncRunId, toast]);
+
+  const importSyncSection = useCallback(async () => {
+    const pending = pendingSyncImport;
+    if (!pending || !selectedSyncRunId) return;
+    setSyncActionBusy(`import:${pending.section.section}`);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/sync-workbench/runs/${encodeURIComponent(selectedSyncRunId)}/sections/${encodeURIComponent(pending.section.section)}/import`,
+        {
+          method: "POST",
+          headers: headers(),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not import selected SYNC package");
+      toast("Selected SYNC package imported through ROS.", "success");
+      if (data.sync_mark_imported_warning) {
+        toast(`ROS import succeeded, but SYNC status was not updated: ${String(data.sync_mark_imported_warning)}`, "error");
+      }
+      setPendingSyncImport(null);
+      void fetchCommandCenter();
+      void fetchImportExceptions();
+      void fetchSelectedSyncRun(selectedSyncRunId);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not import selected SYNC package", "error");
+    } finally {
+      setSyncActionBusy(null);
+    }
+  }, [
+    baseUrl,
+    fetchCommandCenter,
+    fetchImportExceptions,
+    fetchSelectedSyncRun,
+    headers,
+    pendingSyncImport,
+    selectedSyncRunId,
+    toast,
+  ]);
+
+  const prepareSyncImport = useCallback(async (section: CounterpointSyncRunSection) => {
+    const pkg = await loadSyncPackage(section.section);
+    if (!pkg) return;
+    setPendingSyncImport({ section, pkg });
+  }, [loadSyncPackage]);
 
   /* ── CSV Upload ── */
   const handleCsvUpload = async (file: File, type: "lightspeed" | "counterpoint") => {
@@ -1142,6 +1397,49 @@ export default function CounterpointSyncSettingsPanel({
       ? null
       : reviewScopes.find((scope) => scope.scope === selectedReviewPack.scope) ?? null;
   const acceptedReviewSuggestionCount = reviewSuggestions.filter((s) => s.status === "accepted").length;
+  const selectedSyncRunSummary =
+    syncRuns.find((run) => run.sync_run_id === selectedSyncRunId) ?? syncRuns[0] ?? null;
+  const selectedSyncSections = selectedSyncRun?.run.sections ?? [];
+  const selectedSyncReadySections = selectedSyncSections.filter((section) =>
+    ["ready", "ready_with_warnings", "imported"].includes(section.status),
+  ).length;
+  const selectedSyncImportedSections = selectedSyncSections.filter((section) => section.status === "imported").length;
+  const syncHealth = syncWorkbenchStatus?.health;
+  const syncStore = syncHealth?.store;
+  const syncHeartbeat = syncHealth?.last_bridge_heartbeat;
+  const latestPreflightForSelectedRun =
+    commandCenter?.latest_preflight?.ros_base_url === `counterpoint-sync://${selectedSyncRunId}`
+      ? commandCenter.latest_preflight
+      : null;
+  const loadedPackageSection = syncPackage?.section ?? null;
+  const preflightStateForSection = (section: CounterpointSyncRunSection) => {
+    if (!selectedSyncRunId) return { label: "No selected run", ready: false, changed: false };
+    if (!section.package_fingerprint) return { label: "Missing fingerprint", ready: false, changed: false };
+    if (!latestPreflightForSelectedRun?.source_fingerprint) {
+      return { label: "Not run for selected run", ready: false, changed: false };
+    }
+    if (latestPreflightForSelectedRun.source_fingerprint !== section.package_fingerprint) {
+      return { label: "Package changed after preflight", ready: false, changed: true };
+    }
+    if (!latestPreflightForSelectedRun.preflight_passed) {
+      return { label: "Blocked by ROS preflight", ready: false, changed: false };
+    }
+    return { label: "Ready to import", ready: true, changed: false };
+  };
+  const importDisabledReasonForSection = (section: CounterpointSyncRunSection) => {
+    const preflightState = preflightStateForSection(section);
+    if (!selectedSyncRunId) return "Select a SYNC run first.";
+    if (section.blockers > 0 || section.status === "blocked") return "Unresolved SYNC blockers.";
+    if (!section.package_fingerprint) return "Missing package fingerprint.";
+    if (loadedPackageSection === section.section && syncPackage?.schema_version !== 1) return "Unsupported package schema.";
+    if (!preflightState.ready) return preflightState.label;
+    return null;
+  };
+  const syncWorkbenchConnectionClass = syncWorkbenchStatus?.reachable
+    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
+    : syncWorkbenchStatus?.configured
+      ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200"
+      : "border-red-500/25 bg-red-500/10 text-red-600";
 
   const catalogBatches = useMemo(() => batches.filter((b) => b.entity === "catalog"), [batches]);
   const inventoryBatches = useMemo(() => batches.filter((b) => b.entity === "inventory"), [batches]);
@@ -1306,10 +1604,7 @@ export default function CounterpointSyncSettingsPanel({
       };
     });
   }, [commandCenter?.source_counts, commandReconciliationByKey, importExceptionsByEntity]);
-  const commandExpectedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.source_count), 0);
-  const commandSentTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.sentByBridge ?? 0), 0);
   const commandLandedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.landedCount), 0);
-  const commandBlockedRows = commandCenterRows.filter((row) => row.status === "blocked" || row.landedStatus === "Lower").length;
   const counterpointTokenConfigured = status?.token_configured ?? commandCenter?.token_configured ?? false;
   const bridgeRuntimeState = status?.windows_sync_state ?? "offline";
   const bridgeConnectionLabel = !counterpointTokenConfigured
@@ -1381,7 +1676,6 @@ export default function CounterpointSyncSettingsPanel({
               Bridge connection status
             </p>
             <p className="mt-1 text-xs font-semibold">
-              {bridgeRuntimeState === "offline" ? "Browser cannot reach Bridge controls. " : ""}
               {bridgeRuntimeNote}
             </p>
           </div>
@@ -1395,27 +1689,32 @@ export default function CounterpointSyncSettingsPanel({
             <p className="mt-1 font-bold text-app-text">{counterpointTokenConfigured ? "Configured" : "Missing"}</p>
           </div>
           <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Heartbeat</p>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">ROS heartbeat</p>
             <p className="mt-1 font-bold text-app-text">{status?.last_seen_at ? formatDate(status.last_seen_at) : "No accepted heartbeat"}</p>
           </div>
           <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge host</p>
-            <p className="mt-1 font-bold text-app-text">{bridgeHost ?? "Unknown"}</p>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">SYNC heartbeat</p>
+            <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.received_at ? formatDate(syncHeartbeat.received_at) : "No Bridge heartbeat at SYNC"}</p>
           </div>
           <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Phase</p>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge host</p>
+            <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.bridge_hostname ?? bridgeHost ?? "Unknown"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Browser/control API</p>
             <p className="mt-1 font-bold text-app-text">
-              {status?.current_entity ? `${status.bridge_phase} - ${status.current_entity}` : status?.bridge_phase ?? "idle"}
+              {status?.last_seen_at ? "Not required for SYNC handoff" : "Not reachable or not checked"}
             </p>
           </div>
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge version</p>
-            <p className="mt-1 font-bold text-app-text">{bridgeVersion ?? "Not reported"}</p>
+            <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.bridge_version ?? bridgeVersion ?? "Not reported"}</p>
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-app-text">
           <span>Bridge heartbeat: {bridgeRuntimeState === "offline" ? "Offline" : "Online"}</span>
-          <span>Import preflight: {commandCenter?.ready_for_import ? "Passed" : "Blocked"}</span>
+          <span>SYNC Workbench: {syncWorkbenchStatus?.reachable ? "Connected" : "Not reachable"}</span>
+          <span>ROS preflight: {latestPreflightForSelectedRun ? "Run for selected run" : "Not run for selected run"}</span>
           <button
             type="button"
             onClick={() => void fetchAllData()}
@@ -1426,14 +1725,298 @@ export default function CounterpointSyncSettingsPanel({
         </div>
       </div>
 
+      <div
+        className={`rounded-lg border p-3 ${syncWorkbenchConnectionClass}`}
+        data-testid="counterpoint-sync-workbench-status"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest">
+              Counterpoint SYNC app connection
+            </p>
+            <p className="mt-1 text-xs font-semibold">
+              {syncWorkbenchStatus?.message ?? "Counterpoint SYNC app connection has not been checked."}
+            </p>
+            {syncWorkbenchStatus?.error ? (
+              <p className="mt-1 text-[10px] font-bold">{syncWorkbenchStatus.error}</p>
+            ) : null}
+          </div>
+          <span className="ui-pill border border-app-border bg-app-bg/70 text-[10px]">
+            {syncWorkbenchStatus?.reachable ? "SYNC connected" : syncWorkbenchStatus?.configured ? "SYNC unreachable" : "SYNC not configured"}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 text-xs md:grid-cols-4">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">SYNC host</p>
+            <p className="mt-1 font-bold text-app-text">{syncHealth?.hostname ?? "Not reported"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">SYNC schema</p>
+            <p className="mt-1 font-bold text-app-text">{syncStore?.format_version ?? syncHealth?.schema_version ?? "Not connected"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Store backup</p>
+            <p className="mt-1 font-bold text-app-text">{syncStore?.backup_exists ? "Available" : "Not reported"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Store path</p>
+            <p className="mt-1 break-all font-bold text-app-text">{syncStore?.path ?? syncHealth?.store_path ?? "Not reported"}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Import runs from Counterpoint SYNC
+            </p>
+            <p className="mt-1 text-xs font-semibold text-app-text-muted">
+              Select a prepared run, inspect section readiness, then run ROS preflight/import for approved sections.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void fetchSyncWorkbenchStatus();
+              void fetchSyncRuns();
+              void fetchSelectedSyncRun(selectedSyncRunId);
+            }}
+            className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh SYNC Runs
+          </button>
+        </div>
+        <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(260px,0.35fr)_minmax(0,1fr)]">
+          <div className="rounded-lg border border-app-border bg-app-surface-2/40 p-3">
+            <label className="block">
+              <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Prepared run
+              </span>
+              <select
+                className="ui-input mt-1 text-xs"
+                value={selectedSyncRunId}
+                onChange={(event) => {
+                  setSelectedSyncRunId(event.target.value);
+                  setSyncPackage(null);
+                }}
+              >
+                {syncRuns.length === 0 ? (
+                  <option value="">No SYNC runs available</option>
+                ) : null}
+                {syncRuns.map((run) => (
+                  <option key={run.sync_run_id} value={run.sync_run_id}>
+                    {run.name} - {formatEntityLabel(run.status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedSyncRunSummary ? (
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div className="col-span-2 rounded-md border border-app-border bg-app-bg/60 p-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Selected SYNC Run</p>
+                  <p className="mt-1 break-all font-mono text-[10px] font-bold text-app-text">{selectedSyncRunSummary.sync_run_id}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Run status</p>
+                  <p className="font-black text-app-text">{formatEntityLabel(selectedSyncRunSummary.status)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Source batches</p>
+                  <p className="font-black tabular-nums text-app-text">{fmtNum(selectedSyncRunSummary.source_batches ?? 0)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Sections ready</p>
+                  <p className="font-black tabular-nums text-app-text">{fmtNum(selectedSyncReadySections)}/{fmtNum(selectedSyncSections.length)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Imported</p>
+                  <p className="font-black tabular-nums text-app-text">{fmtNum(selectedSyncImportedSections)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Warnings</p>
+                  <p className="font-black tabular-nums text-app-text">{fmtNum(selectedSyncRunSummary.warnings)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Blockers</p>
+                  <p className="font-black tabular-nums text-app-text">{fmtNum(selectedSyncRunSummary.blockers)}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Updated</p>
+                  <p className="font-bold text-app-text">{formatDate(selectedSyncRunSummary.updated_at)}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs font-semibold text-app-text-muted">
+                Start the SYNC Workbench and finalize a run before ROS approval.
+              </p>
+            )}
+          </div>
+          <div className="overflow-auto rounded-lg border border-app-border">
+            <table className="w-full min-w-[1280px] text-left text-xs">
+              <thead className="bg-app-surface-2">
+                <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  <th className="px-3 py-2">Section</th>
+                  <th className="px-3 py-2">SYNC status</th>
+                  <th className="px-3 py-2 text-right">Source</th>
+                  <th className="px-3 py-2 text-right">Prepared</th>
+                  <th className="px-3 py-2 text-right">Warnings</th>
+                  <th className="px-3 py-2 text-right">Blockers</th>
+                  <th className="px-3 py-2">ROS preflight</th>
+                  <th className="px-3 py-2">ROS import</th>
+                  <th className="px-3 py-2">AI review</th>
+                  <th className="px-3 py-2">Package</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-app-border">
+                {selectedSyncSections.map((section) => {
+                  const blocked = section.blockers > 0 || section.status === "blocked";
+                  const preflightState = preflightStateForSection(section);
+                  const importDisabledReason = importDisabledReasonForSection(section);
+                  return (
+                    <tr key={section.section}>
+                      <td className="px-3 py-2 font-bold text-app-text">{section.label ?? formatEntityLabel(section.section)}</td>
+                      <td className="px-3 py-2">
+                        <span className={`ui-pill text-[9px] ${
+                          blocked
+                            ? "bg-red-500/10 text-red-600"
+                            : section.status === "ready_with_warnings"
+                              ? "bg-amber-500/15 text-amber-700 dark:text-amber-200"
+                              : ["ready", "imported"].includes(section.status)
+                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                                : "bg-app-surface-2 text-app-text-muted"
+                        }`}>
+                          {formatEntityLabel(section.status)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(section.source_count)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(section.prepared_count)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(section.warnings)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(section.blockers)}</td>
+                      <td className="px-3 py-2">
+                        <span className={`ui-pill text-[9px] ${
+                          preflightState.ready
+                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                            : preflightState.changed
+                              ? "bg-amber-500/15 text-amber-700 dark:text-amber-200"
+                              : "bg-app-surface-2 text-app-text-muted"
+                        }`}>
+                          {preflightState.label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <p className="font-bold text-app-text">{section.imported_at ? "Imported" : "Not imported"}</p>
+                        <p className="mt-0.5 text-[10px] text-app-text-muted">{section.imported_at ? formatDate(section.imported_at) : "No ROS import run"}</p>
+                        {section.ros_import_run_id ? (
+                          <p className="mt-0.5 break-all font-mono text-[9px] text-app-text-muted">{section.ros_import_run_id}</p>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2 text-[10px] font-semibold text-app-text-muted">
+                        <p>Pending: <span className="font-black text-app-text">{fmtNum(section.ai_pending_suggestions ?? 0)}</span></p>
+                        <p>Accepted: <span className="font-black text-app-text">{fmtNum(section.ai_accepted_suggestions ?? 0)}</span></p>
+                        <p>Applied: <span className="font-black text-app-text">{fmtNum(section.ai_applied_suggestions ?? 0)}</span></p>
+                        {section.ai_manual_review_suggestions ? (
+                          <p className="text-amber-700 dark:text-amber-200">Manual review: {fmtNum(section.ai_manual_review_suggestions)}</p>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2">
+                        <p className="mb-1 break-all font-mono text-[9px] text-app-text-muted">
+                          {section.package_fingerprint ? section.package_fingerprint.slice(0, 16) : "No fingerprint"}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void loadSyncPackage(section.section)}
+                          disabled={!section.package_fingerprint || syncActionBusy === `package:${section.section}`}
+                          className="ui-btn-secondary px-2 py-1 text-[10px] font-bold disabled:opacity-50"
+                        >
+                          Preview package
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void runSyncPackagePreflight(section.section)}
+                            disabled={blocked || !section.package_fingerprint || syncActionBusy != null}
+                            title={blocked ? "Unresolved SYNC blockers." : undefined}
+                            className="ui-btn-secondary px-2 py-1 text-[10px] font-bold disabled:opacity-50"
+                          >
+                            ROS Preflight
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void prepareSyncImport(section)}
+                            disabled={importDisabledReason != null || syncActionBusy != null}
+                            title={importDisabledReason ?? "Import selected section through ROS."}
+                            className="ui-btn-primary px-2 py-1 text-[10px] font-bold disabled:opacity-50"
+                          >
+                            Import Section
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {selectedSyncSections.length === 0 ? (
+              <div className="p-4 text-xs font-semibold text-app-text-muted">
+                No sections are available for the selected SYNC run.
+              </div>
+            ) : null}
+          </div>
+        </div>
+        {syncPackage ? (
+          <div className="mt-3 rounded-lg border border-app-border bg-app-surface-2/40 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Selected package preview
+                </p>
+                <p className="mt-1 text-xs font-bold text-app-text">
+                  {formatEntityLabel(syncPackage.section)} - {syncPackage.package_fingerprint.slice(0, 16)}
+                </p>
+              </div>
+              <span className="ui-pill text-[9px] bg-app-surface text-app-text-muted">
+                Schema v{syncPackage.schema_version}
+              </span>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs md:grid-cols-4">
+              <p>SYNC run: <span className="break-all font-mono font-black text-app-text">{syncPackage.sync_run_id}</span></p>
+              <p>Section: <span className="font-black text-app-text">{syncPackage.section}</span></p>
+              <p>Entity: <span className="font-black text-app-text">{syncPackage.entity}</span></p>
+              <p>Generated: <span className="font-black text-app-text">{formatDate(syncPackage.generated_at)}</span></p>
+              <p>Raw: <span className="font-black text-app-text">{fmtNum(syncPackage.source_counts.raw)}</span></p>
+              <p>Prepared: <span className="font-black text-app-text">{fmtNum(syncPackage.source_counts.prepared)}</span></p>
+              <p>Warnings: <span className="font-black text-app-text">{fmtNum(syncPackage.source_counts.warnings)}</span></p>
+              <p>Blockers: <span className="font-black text-app-text">{fmtNum(syncPackage.source_counts.blockers)}</span></p>
+              <p>Payload rows: <span className="font-black text-app-text">{fmtNum(syncPackage.payload.rows?.length ?? 0)}</span></p>
+              <p>Exceptions: <span className="font-black text-app-text">{fmtNum(syncPackage.exceptions.length)}</span></p>
+              <p>Provenance: <span className="font-black text-app-text">{fmtNum(syncPackage.provenance.length)}</span></p>
+              <p>Fingerprint: <span className="break-all font-mono font-black text-app-text">{syncPackage.package_fingerprint}</span></p>
+            </div>
+            <details className="mt-3 rounded-md border border-app-border bg-app-bg/70 p-3">
+              <summary className="cursor-pointer text-xs font-black uppercase tracking-widest text-app-text-muted">
+                Advanced raw JSON
+              </summary>
+              <pre className="mt-3 max-h-56 overflow-auto rounded-md border border-app-border bg-app-bg/80 p-3 text-[10px] text-app-text-muted">
+                {JSON.stringify(syncPackage, null, 2)}
+              </pre>
+            </details>
+          </div>
+        ) : null}
+      </div>
+
       <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         {[
-          { label: "Expected from Counterpoint", value: fmtNum(commandExpectedTotal) },
-          { label: "Sent by Bridge", value: fmtNum(commandSentTotal) },
-          { label: "Landed in ROS", value: fmtNum(commandLandedTotal) },
-          { label: "Needs review", value: fmtNum(commandCenter?.open_exception_count ?? importExceptions.length) },
-          { label: "Review-landed", value: fmtNum(commandCenter?.fallback_landed_exception_count ?? 0) },
-          { label: "Ready for use", value: commandCenter?.ready_for_go_live_review ? "Yes" : "No" },
+          { label: "Selected run sections", value: fmtNum(selectedSyncSections.length) },
+          { label: "Selected run ready", value: fmtNum(selectedSyncReadySections) },
+          { label: "Selected run imported", value: fmtNum(selectedSyncImportedSections) },
+          { label: "Selected run warnings", value: fmtNum(selectedSyncRunSummary?.warnings ?? 0) },
+          { label: "Selected run blockers", value: fmtNum(selectedSyncRunSummary?.blockers ?? 0) },
+          { label: "Final proof scope", value: selectedSyncRunId ? "Selected run only" : "No run" },
         ].map((stat) => (
           <div key={stat.label} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
             <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{stat.label}</p>
@@ -1446,10 +2029,10 @@ export default function CounterpointSyncSettingsPanel({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Preflight and import readiness
+              ROS preflight and final proof
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              {commandCenter?.recommendation ?? "Run the Bridge source-count preflight before importing."}
+              Selected-run proof is scoped by sync_run_id, ros_import_run_id, section, and package fingerprint. Legacy accumulated counts are below under Advanced Diagnostics.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1489,12 +2072,12 @@ export default function CounterpointSyncSettingsPanel({
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Latest preflight</p>
             <p className="mt-1 font-bold text-app-text">
-              {commandCenter?.latest_preflight ? formatDate(commandCenter.latest_preflight.created_at) : "Not run"}
+              {latestPreflightForSelectedRun ? formatDate(latestPreflightForSelectedRun.created_at) : "Not run for selected run"}
             </p>
           </div>
           <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Bridge host</p>
-            <p className="mt-1 font-bold text-app-text">{commandCenter?.latest_preflight?.bridge_hostname ?? status?.bridge_hostname ?? "Unknown"}</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Preflight fingerprint</p>
+            <p className="mt-1 break-all font-mono text-[10px] font-bold text-app-text">{latestPreflightForSelectedRun?.source_fingerprint ?? "No selected-run preflight"}</p>
           </div>
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Latest import run</p>
@@ -1505,8 +2088,8 @@ export default function CounterpointSyncSettingsPanel({
             </p>
           </div>
           <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Blocked rows</p>
-            <p className="mt-1 font-bold text-app-text">{fmtNum(commandBlockedRows)}</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Selected run id</p>
+            <p className="mt-1 break-all font-mono text-[10px] font-bold text-app-text">{selectedSyncRunId || "No selected run"}</p>
           </div>
         </div>
         <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
@@ -1562,10 +2145,10 @@ export default function CounterpointSyncSettingsPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Staging diagnostics
+              Advanced Diagnostics
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Batches
+              Legacy diagnostic. Accumulated ROS state and staging rows are not scoped to the selected SYNC run. Use for troubleshooting only.
             </p>
           </div>
           <button
@@ -1841,6 +2424,22 @@ export default function CounterpointSyncSettingsPanel({
               ? "Saved - enter only to replace"
               : "Paste the bridge sync token",
             help: "Generate one long random token, save it here, and paste the exact same value into the Bridge .env file on the Counterpoint host.",
+            type: "password",
+          },
+          {
+            key: "sync_workbench_url",
+            label: "SYNC Workbench URL",
+            placeholder: "http://127.0.0.1:3015",
+            help: "Main Hub Counterpoint SYNC Workbench URL. ROS uses this server-side to list prepared runs and pull JSON packages.",
+            type: "text",
+          },
+          {
+            key: "sync_workbench_token",
+            label: "SYNC Workbench token",
+            placeholder: syncWorkbenchStatus?.configured
+              ? "Saved - enter only to replace"
+              : "Paste the SYNC Workbench token",
+            help: "Must match COUNTERPOINT_SYNC_WORKBENCH_TOKEN in the Main Hub SYNC Workbench .env file.",
             type: "password",
           },
         ]}
@@ -2506,6 +3105,20 @@ export default function CounterpointSyncSettingsPanel({
         confirmLabel="Mark failed"
         variant="danger"
         loading={recoveryBusy}
+      />
+      <ConfirmationModal
+        isOpen={pendingSyncImport != null}
+        onClose={() => setPendingSyncImport(null)}
+        onConfirm={() => void importSyncSection()}
+        title="Import SYNC section?"
+        message={
+          pendingSyncImport
+            ? `Import ${pendingSyncImport.section.label ?? formatEntityLabel(pendingSyncImport.section.section)} from selected SYNC run?\n\nRun: ${selectedSyncRunSummary?.name ?? selectedSyncRunId}\nSection: ${pendingSyncImport.section.section}\nRecords: ${fmtNum(pendingSyncImport.pkg.source_counts.prepared)}\nWarnings: ${fmtNum(pendingSyncImport.pkg.source_counts.warnings)}\nBlockers: ${fmtNum(pendingSyncImport.pkg.source_counts.blockers)}\n\nThis will write records into Riverside OS through the ROS Counterpoint import pipeline.`
+            : ""
+        }
+        confirmLabel="Import Section"
+        variant="info"
+        loading={syncActionBusy?.startsWith("import:") ?? false}
       />
     </div>
   );

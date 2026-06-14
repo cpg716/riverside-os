@@ -4339,6 +4339,11 @@ pub async fn record_counterpoint_import_preflight(
     pool: &PgPool,
     payload: CounterpointImportPreflightPayload,
 ) -> Result<CounterpointImportPreflightSummary, CounterpointSyncError> {
+    let sync_package_contract = payload
+        .metadata
+        .get("sync_package_contract")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
     let history_start = payload
         .history_start
         .as_deref()
@@ -4358,7 +4363,7 @@ pub async fn record_counterpoint_import_preflight(
             ),
         );
     }
-    if !payload.import_first {
+    if !sync_package_contract && !payload.import_first {
         push_import_preflight_blocker(
             &mut blockers,
             None,
@@ -4366,7 +4371,7 @@ pub async fn record_counterpoint_import_preflight(
             "Bridge is not running in import-first mode.",
         );
     }
-    if payload.staging_enabled {
+    if !sync_package_contract && payload.staging_enabled {
         push_import_preflight_blocker(
             &mut blockers,
             None,
@@ -4374,12 +4379,13 @@ pub async fn record_counterpoint_import_preflight(
             "Bridge reported staging queue mode; this import workflow must post directly into ROS import endpoints.",
         );
     }
-    if payload
-        .ros_base_url
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or_default()
-        .is_empty()
+    if !sync_package_contract
+        && payload
+            .ros_base_url
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .is_empty()
     {
         push_import_preflight_blocker(
             &mut blockers,
@@ -4554,18 +4560,21 @@ pub async fn record_counterpoint_import_preflight(
         ));
     }
 
-    for required_entity in counterpoint_preflight_required_probe_entities() {
-        if !seen_counts.contains_key(*required_entity) {
-            push_import_preflight_blocker(
-                &mut blockers,
-                Some(required_entity),
-                "missing_required_source_count_probe",
-                format!("Bridge did not send source-count proof for {required_entity}."),
-            );
+    if !sync_package_contract {
+        for required_entity in counterpoint_preflight_required_probe_entities() {
+            if !seen_counts.contains_key(*required_entity) {
+                push_import_preflight_blocker(
+                    &mut blockers,
+                    Some(required_entity),
+                    "missing_required_source_count_probe",
+                    format!("Bridge did not send source-count proof for {required_entity}."),
+                );
+            }
         }
     }
 
-    if seen_counts.get("tickets").copied().unwrap_or_default() > 0
+    if !sync_package_contract
+        && seen_counts.get("tickets").copied().unwrap_or_default() > 0
         && seen_counts.get("ticket_lines").copied().unwrap_or_default() == 0
     {
         push_import_preflight_blocker(
@@ -4575,7 +4584,8 @@ pub async fn record_counterpoint_import_preflight(
             "Tickets exist in Counterpoint but ticket line source count is zero.",
         );
     }
-    if seen_counts.get("open_docs").copied().unwrap_or_default() > 0
+    if !sync_package_contract
+        && seen_counts.get("open_docs").copied().unwrap_or_default() > 0
         && seen_counts
             .get("open_doc_lines")
             .copied()

@@ -155,6 +155,16 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         env_key: "COUNTERPOINT_SYNC_TOKEN",
     },
     IntegrationCredentialMapping {
+        integration_key: "counterpoint",
+        credential_key: "sync_workbench_url",
+        env_key: "COUNTERPOINT_SYNC_WORKBENCH_URL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "counterpoint",
+        credential_key: "sync_workbench_token",
+        env_key: "COUNTERPOINT_SYNC_WORKBENCH_TOKEN",
+    },
+    IntegrationCredentialMapping {
         integration_key: "ops_github",
         credential_key: "repo",
         env_key: "RIVERSIDE_OPS_E2E_GITHUB_REPO",

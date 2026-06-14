@@ -2,7 +2,7 @@
 id: settings-counterpoint-sync-settings-panel
 title: "Counterpoint Sync and Sign-Off"
 order: 1087
-summary: "Monitor the Counterpoint bridge, review imported proof, and understand historical tax semantics."
+summary: "Connect Counterpoint SYNC, select prepared runs, run ROS preflight/import, and review proof."
 source: client/src/components/settings/CounterpointSyncSettingsPanel.tsx
 last_scanned: 2026-05-10
 tags: settings-counterpoint-sync-settings-panel, counterpoint, bridge, sync, signoff
@@ -21,20 +21,20 @@ status: approved
 
 ## What this is
 
-Counterpoint Sync Settings runs the one-time Counterpoint import-first migration, monitors Bridge source-count proof, and shows landed proof for sign-off.
+Counterpoint Sync Settings is the ROS Import Command Center. The Counterpoint Bridge extracts raw data into the Main Hub Counterpoint SYNC Workbench. ROS Back Office connects to SYNC, selects a prepared run, runs ROS preflight, imports approved sections, and shows final proof.
 
 Use this panel to verify facts. ROSIE can explain displayed facts only; it does not approve cutover or sign off reconciliation.
 
 ## How to use it
 
-1. Save the **Counterpoint Bridge Token** at the top of the panel. It must exactly match `COUNTERPOINT_SYNC_TOKEN` in the Windows Bridge `.env` file.
-2. Confirm the Bridge status and workstation reachability.
-3. Use **Command center** to confirm source-count preflight passed for inventory/catalog, customers, sales history, open orders, gift cards/store credit, and loyalty balances.
-4. Use **Reset Baseline** for a clean rehearsal database when needed.
-5. Click **Run Full Import** only after preflight passes.
-6. Review landed proof, rows needing review, and review-landed rows before sign-off reconciliation.
-7. Use support diagnostics only when mapping, quarantine, or review blockers need manual resolution.
-8. Use imported tax semantics to explain historical rows without changing current tax or QBO math.
+1. Save the **Counterpoint Bridge Token**, **SYNC Workbench URL**, and **SYNC Workbench token** at the top of the panel.
+2. Confirm **Counterpoint Bridge heartbeat** for extraction status and **Counterpoint SYNC app connection** for prepared-run access.
+3. In **Import runs from Counterpoint SYNC**, select the prepared run created in the SYNC Workbench.
+4. Review each section's SYNC status, source count, prepared count, warnings, blockers, ROS preflight state, ROS import state, and package fingerprint.
+5. Use **ROS Preflight** for the selected section/package before importing.
+6. Use **Import Section** only after blockers are zero, ROS preflight says the selected package is ready, and the confirmation modal shows the expected run, section, records, warnings, and blockers.
+7. Review ROS Import exceptions and final proof before sign-off reconciliation.
+8. Use Advanced/legacy diagnostics only when mapping, quarantine, or review blockers need manual resolution.
 
 If a failed support-queue batch has been reviewed and successfully replayed into a newer import run, use **Discard** to remove the stale failed row from active blockers while preserving the original audit record.
 
@@ -42,23 +42,37 @@ Some historical tickets or open documents may land with **Historical Counterpoin
 
 Imported Counterpoint open documents are current obligations. Their lines are marked ready for pickup so staff can finish the customer handoff; they do not need the normal new-ROS order lifecycle before go-live review.
 
-## Bridge status
+## Bridge and SYNC status
 
-The bridge status separates three facts: Bridge heartbeat, browser control API reachability, and import preflight receipt. Browser controls only affect Start/Stop buttons from this workstation. They do not prove that the Bridge sent source-count preflight, and they do not replace current import-run proof.
+The status cards separate Bridge heartbeat, SYNC Workbench connection, browser/control API reachability, ROS selected-run preflight, ROS import status, and SYNC callback status. Browser controls only affect Start/Stop buttons from this workstation. They do not prove that SYNC has a ready package, and they do not replace selected-run proof.
 
-The Bridge sync token saved in **Counterpoint Bridge Token** must match `COUNTERPOINT_SYNC_TOKEN` in `C:\counterpoint-bridge\.env` on the Counterpoint host. If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If the bridge console shows `health 401`, paste the exact Bridge `.env` token into this panel and save it again. If it shows `health 503`, Riverside Server does not have a Counterpoint token configured yet.
+The Bridge sync token saved in **Counterpoint Bridge Token** must match `COUNTERPOINT_SYNC_TOKEN` in `C:\counterpoint-bridge\.env` for legacy compatibility. The SYNC Workbench token must match `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` in the Main Hub SYNC Workbench `.env` and the Bridge `.env` when `COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench`.
+
+If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If SYNC is unreachable, confirm the Workbench is running and the saved URL/token match the Workbench `.env`.
+
+For no-hardware rehearsal at home, start the local Workbench with `npm run dev:sync-workbench`, run `npm run sync:simulate-counterpoint`, then select the simulated run in ROS. The simulator creates warning-only sections and a blocked inventory section without requiring the Counterpoint PC. Do not import simulated packages into production ROS unless intentionally testing in a safe environment.
+
+After simulator testing, use `npm run sync:clear-simulation` to remove only simulator-generated SYNC runs from the local Workbench store. This does not reset ROS and does not remove real Bridge/Counterpoint runs.
+
+The SYNC Workbench now uses a local SQLite store on the Main Hub. The Workbench health panel reports store type, store path, backup availability, schema version, and migration status. If an older JSON store exists, SYNC imports it into SQLite on first startup and preserves the JSON file.
 
 ## Command center and post-import verification
 
-The command center appears before sign-off reconciliation. It shows expected Counterpoint rows, Bridge-sent rows, ROS rows landed, missing landed proof, rows needing review, review-landed rows, and readiness.
+The command center appears before sign-off reconciliation. The current workflow is selected SYNC run first: run status, section status, prepared counts, warnings, blockers, package fingerprint, ROS preflight state, ROS import result, and run-scoped proof.
 
 The default **Command center** is the primary one-time migration surface. Do not treat the import as successful while required domains still show zero landed proof, blocked source-count rows, open review rows, or review-landed rows that have not been accepted.
 
-Command center proof is scoped to the latest import-first run when an import run exists. Accumulated verification is support-only: it can include rows from older rehearsals, support-queue diagnostics, or dirty dev data and must not be used as current-run sign-off proof.
+Command center proof is scoped to the selected SYNC run, selected ROS import run, section, and package fingerprint. Accumulated verification is support-only: it can include rows from older rehearsals, support-queue diagnostics, or dirty dev data and must not be used as current-run sign-off proof.
+
+If a package changes after ROS preflight, the section shows **Package changed after preflight** and Import Section is disabled. Run ROS Preflight again for that selected section and package fingerprint.
+
+If ROS import succeeds but the SYNC callback cannot mark the section imported, ROS shows a warning. Treat ROS as the source of truth for database writes, then reconnect to SYNC and reconcile the section status before continuing the rehearsal.
 
 The import is proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If source counts are suspiciously low, such as too few open docs or tickets without line detail, preflight blocks the run before ROS can show a completed import. Receiving/movement history is optional for this cutover because Riverside OS only needs SKU sales history, not receiving history, to support historical customer lookup and returns review.
 
-After preflight passes, the Bridge starts a ROS import run before sending batches. The latest import run tile must show a running, completed, or failed run; blank run proof means the Bridge has not begun the real import path. Each successful batch records raw Counterpoint rows and provenance for landed ROS rows, and failed batches create Import exceptions for review.
+After package preflight passes, ROS can start an import run for the selected SYNC run and section only while the package fingerprint still matches the recorded preflight. Each successful package import records raw Counterpoint rows and provenance for landed ROS rows, and failed imports create ROS Import exceptions for review. SYNC preparation exceptions remain separate from ROS import exceptions.
+
+CSV files can be loaded into SYNC for preparation, review, or debug exports. CSV files are not the SYNC-to-ROS import mechanism. ROS imports JSON packages pulled from the selected SYNC run.
 
 Customer rows with duplicate email addresses do not stop the full import. ROS keeps the unique email constraint, lands the Counterpoint customer without an email address, preserves the original email in the raw payload/provenance trail, and opens an Import exception so staff can merge or correct the duplicate before go-live sign-off.
 
@@ -71,6 +85,10 @@ Counterpoint parent products are scoped to active items plus items with evidence
 ## Counterpoint Data Workbench
 
 Use **Data Workbench** after import when staff need a manual ChatGPT/Codex review of imported Counterpoint rows and CSV references. It is optional and is not the primary import path.
+
+The Main Hub SYNC Workbench also supports AI Review Packages before ROS import. Export a package from SYNC, review it with Codex/ChatGPT, import returned suggestion JSON, then accept, reject, edit, or mark each suggestion for manual review. Accepted suggestions update prepared SYNC data only. Raw Counterpoint source payloads and provenance are preserved. Applying accepted suggestions regenerates the ROS-ready package and changes the package fingerprint when content changes, so ROS preflight must be rerun.
+
+AI suggestions must never auto-merge customers/vendors, invent emails, invent costs or quantities, or change gift card/store credit/tax/payment/refund/balance/accounting values. High-risk sections are manual-review only.
 
 Generate a pack, download the JSON, copy the prompt, and review the file manually outside Riverside OS. Import only the returned JSON result file. Riverside OS validates the source hash, row keys, allowed actions, confidence, reason, category targets, and forbidden fields before saving suggestions for staff review.
 

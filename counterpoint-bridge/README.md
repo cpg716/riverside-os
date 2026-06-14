@@ -1,6 +1,6 @@
 # Counterpoint → Riverside one-time import bridge
 
-Node.js utility for **Windows** (or any OS with Node 18+) on or next to **Counterpoint SQL Server**. For Riverside's NCR Counterpoint POS v8.4 environment, it probes the live company database schema and builds runtime extraction SQL before POSTing batches to Riverside OS at `/api/sync/counterpoint/*`.
+Node.js utility for **Windows** (or any OS with Node 18+) on or next to **Counterpoint SQL Server**. For Riverside's NCR Counterpoint POS v8.4 environment, it probes the live company database schema and builds runtime extraction SQL before POSTing raw batches to the Main Hub **Counterpoint SYNC Workbench**.
 
 Use this bridge for a **controlled one-time migration** into ROS. It is **not** meant to remain as a permanent live POS integration after cutover.
 
@@ -18,7 +18,12 @@ Since v0.7.3, the bridge uses a high-concurrency parallel engine:
 | `SQL_CONNECTION_STRING` | Company database (not `master`); same DB you use in SSMS |
 | `ROS_BASE_URL` | Riverside API, e.g. `http://10.64.70.154:3000` |
 | `COUNTERPOINT_SYNC_TOKEN` | Must match `COUNTERPOINT_SYNC_TOKEN` on the ROS server |
-Normal setup keeps `.env` to these three values only. The bridge derives the entity SQL at runtime from `INFORMATION_SCHEMA`.
+| `COUNTERPOINT_BRIDGE_TARGET_MODE` | Preferred: `sync_workbench`. Legacy direct ROS path: `ros_import_first` |
+| `COUNTERPOINT_SYNC_WORKBENCH_URL` | Main Hub SYNC Workbench API, e.g. `http://10.64.70.154:3015` |
+| `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` | Must match the SYNC Workbench token saved in ROS Back Office |
+Normal setup keeps `.env` to connection and target values only. The bridge derives the entity SQL at runtime from `INFORMATION_SCHEMA`.
+
+In the preferred transition workflow, `COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench` keeps the Bridge focused on extraction. It sends raw batches and heartbeat to the SYNC Workbench. ROS Back Office later pulls a selected prepared JSON package from SYNC and imports through the existing ROS Counterpoint import pipeline. CSV files are still useful as SYNC inputs and review exports, but they are not the SYNC-to-ROS import mechanism.
 
 Run order is **fixed in code** each pass: **staff -> optional sales-rep stubs -> category masters -> vendors -> catalog -> vendor_items -> inventory -> customers -> notes -> tickets/sales history -> optional receiving history -> open docs -> optional store credit -> loyalty balances -> gift cards**. Current loyalty balances are imported through customers as `pts_bal`; loyalty history stays disabled for go-live. Legacy `CP_*_QUERY` overrides are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
 
@@ -44,7 +49,7 @@ Once the migration is accepted:
 
 ## Health
 
-On start, the bridge calls `GET /api/sync/counterpoint/health` on ROS.
+On start in `sync_workbench` mode, the bridge calls `GET /health` on the SYNC Workbench. In legacy `ros_import_first` mode, it calls `GET /api/sync/counterpoint/health` on ROS.
 
 ## Develop on Mac/Linux
 
@@ -75,7 +80,7 @@ Full integration notes: `docs/COUNTERPOINT_SYNC_GUIDE.md` in the Riverside OS re
 
 ## Server side
 
-ROS needs migration **29** plus **84+** Counterpoint tables, and `COUNTERPOINT_SYNC_TOKEN` in the server environment.
+ROS needs migration **29** plus **84+** Counterpoint tables, `COUNTERPOINT_SYNC_TOKEN` for legacy Bridge compatibility, and the Counterpoint SYNC Workbench URL/token saved in Back Office Settings for package handoff.
 
 ## Security
 

@@ -1,6 +1,6 @@
 # Counterpoint SQL Server → Riverside OS: Sync Guide
 
-End-to-end reference for setting up and operating the one-way data ingest from **Counterpoint SQL Server** into **ROS PostgreSQL**. Covers server configuration, Windows bridge installation, entity mapping, monitoring via Settings UI, and provenance tagging.
+End-to-end reference for setting up and operating the one-way Counterpoint transition into **ROS PostgreSQL**. The preferred architecture is **Counterpoint Bridge extracts raw data → Counterpoint SYNC Workbench stages/cleans/packages → ROS Back Office validates and imports approved packages**.
 
 **Companion docs:**
 - [`COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md`](COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) — **operator manual**: direct vs staging, hub, prerequisites, bridge/API updates, troubleshooting
@@ -8,24 +8,27 @@ End-to-end reference for setting up and operating the one-way data ingest from *
 - [`WEDDING_COUNTERPOINT_CUTOVER_LINKING.md`](WEDDING_COUNTERPOINT_CUTOVER_LINKING.md) — how imported wedding parties are reviewed and linked to Counterpoint-synced customers, transactions, and item lifecycle states
 - [`PLAN_COUNTERPOINT_ROS_SYNC.md`](PLAN_COUNTERPOINT_ROS_SYNC.md) — implementation roadmap and schema mapping tables
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
-- [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — three-value connection template
+- [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — Bridge connection and SYNC target template
+- [`counterpoint-sync/README.md`](../counterpoint-sync/README.md) — Main Hub SYNC Workbench API and setup
 
-**Import-First Migration Command Center:**
-The Counterpoint Sync and Migration Inventory Workbench now defaults to a single **Command center** in **Settings → Integrations → Counterpoint**. The operator workflow is source-count preflight, optional reset baseline, full import, import results, exceptions, AI cleanup, and go-live readiness:
+**Import Command Center:**
+The Counterpoint screen in **Settings → Integrations → Counterpoint** is now the ROS final approval surface. The operator workflow is SYNC connection, prepared-run selection, section readiness review, ROS package preflight, explicit section import, import exceptions, final proof, and advanced diagnostics:
 
 The same settings panel also includes the **Counterpoint Data Workbench** for manual ChatGPT/Codex review. ROS generates JSON packs, staff upload those files manually to the external review tool, and ROS validates imported suggestions before any Staff Access review or safe apply action.
 
-1. **Connect & Source Counts** - Bridge reachability, token/base URL check, `CP_IMPORT_SINCE=2018-01-01`, and source-count probes
-2. **Reset/Rehearsal Controls** - guarded reset to a clean rehearsal baseline when needed
-3. **Run Full Import** - import supported Counterpoint rows directly into ROS after preflight passes
-4. **Import Results** - expected source rows, Bridge-sent rows, ROS landed rows, failed rows, and rows needing review
-5. **Exceptions** - failed, quarantined, or review-landed source records requiring staff review
-6. **AI Cleanup** - post-import catalog/customer cleanup suggestions only
-7. **Go-Live Readiness** - deterministic proof and final recommendation
+1. **Bridge heartbeat** - extraction host heartbeat/status only
+2. **SYNC app connection** - Main Hub SYNC Workbench reachability and selected prepared run
+3. **Sections** - SYNC status, source/prepared counts, warnings, blockers, and package fingerprint
+4. **ROS preflight** - ROS validates the selected package contract and records package-scoped count proof
+5. **Import Section** - explicit confirmation writes the selected package through the existing ROS Counterpoint import services
+6. **Exceptions** - SYNC preparation exceptions are separate from ROS import exceptions
+7. **Final proof / diagnostics** - selected-run proof first; legacy accumulated state is labeled as diagnostics
 
 Advancement is proof-gated. Bridge-reported row counts alone do not unlock import or cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, `401 invalid or missing sync token`, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import.
 
-When preflight passes, the Bridge starts a ROS import run before sending entity batches. Each batch writes through the normal Counterpoint ingest path, then ROS records raw source rows and provenance links to the landed ROS rows. The command center's latest import-run status is the operator proof surface; a run that never starts, fails, or has zero landed proof is not complete.
+When a SYNC package preflight passes, ROS records proof for the selected run/section/package fingerprint. Import is allowed only while that selected package fingerprint still matches the latest ROS preflight for that section. If SYNC package content changes after preflight, run ROS preflight again before importing. The package payload must match the existing typed Counterpoint payloads. ROS then writes through the normal Counterpoint ingest path, records raw source rows and provenance links to landed ROS rows, and stores package-scoped proof. A run that never imports, fails, has blockers, or lacks package-scoped proof is not complete.
+
+AI/Codex review happens only in SYNC before ROS preflight. Staff export an AI review package from the Workbench, paste/upload it to Codex or ChatGPT, import returned suggestion JSON, accept/reject/edit suggestions, and then regenerate the ROS-ready package. Accepted suggestions update prepared/normalized SYNC data only; raw source payloads remain unchanged. Any accepted suggestion that changes package content changes the package fingerprint, so ROS preflight must be run again.
 
 **Optional SQL objects:** Gift and loyalty tables (Standard examples: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are Counterpoint-style names from product/schema docs. Local installations can use different names such as **`SY_GFC`** (Gift Cards) or **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 
@@ -36,30 +39,36 @@ When preflight passes, the Bridge starts a ROS import run before sending entity 
 ## 1. Architecture overview
 
 ```
-  ┌────────────────────────┐       HTTP/JSON        ┌──────────────────────────┐
-  │  Counterpoint SQL      │  ◄── poll queries ──   │  counterpoint-bridge     │
-  │  (Windows host)        │                        │  (Node.js on same host)  │
-  └────────────────────────┘                        └────────┬─────────────────┘
-                                                             │ POST /api/sync/counterpoint/*
-                                                             │ (x-ros-sync-token)
+  ┌────────────────────────┐                         ┌──────────────────────────┐
+  │  Counterpoint SQL      │  ◄── poll queries ──    │  counterpoint-bridge     │
+  │  (Counterpoint PC)     │                         │  extractor only          │
+  └────────────────────────┘                         └────────┬─────────────────┘
+                                                              │ POST /api/bridge/batches
+                                                              │ raw JSON batches
+                                                              ▼
+                                                    ┌──────────────────────────┐
+                                                    │ Counterpoint SYNC        │
+                                                    │ Workbench (Main Hub)     │
+                                                    │ staging/review/packages  │
+                                                    └────────┬─────────────────┘
+                                                             │ GET package JSON
                                                              ▼
                                                     ┌──────────────────────────┐
-                                                    │  ROS Axum API            │
-                                                    │  (Rust, port 3000)       │
+                                                    │ ROS Back Office/API      │
+                                                    │ preflight/import/proof   │
                                                     ├──────────────────────────┤
-                                                    │  PostgreSQL              │
-                                                    │  (customers, products,   │
-                                                    │   orders, gift_cards)    │
+                                                    │ PostgreSQL via existing  │
+                                                    │ Rust/sqlx import logic   │
                                                     └──────────────────────────┘
 ```
 
 The bridge is a small Node.js process that:
 1. Polls Counterpoint SQL Server using configurable queries
 2. Maps rows to ROS-compatible JSON payloads
-3. POSTs batches to the ROS API with a shared secret token
-4. Sends periodic **heartbeats** so the ROS admin UI can show bridge status
+3. POSTs raw extraction batches to the SYNC Workbench with a shared secret token
+4. Sends periodic **heartbeats** so the operator can distinguish extraction health from SYNC and ROS import health
 
-All data flows **one way**: Counterpoint → ROS. ROS never writes back to Counterpoint.
+All data flows **one way**: Counterpoint → SYNC → ROS. SYNC never writes directly to ROS PostgreSQL, and ROS never writes back to Counterpoint.
 
 ---
 
@@ -79,21 +88,76 @@ The active migration layout currently runs through **081**. Migration **081** cr
 ./scripts/migration-status-docker.sh | grep "081_counterpoint_import_first_proof"
 ```
 
-### 2b. Set sync token
+### 2b. Set Bridge and SYNC tokens
 
-Generate a strong random value (for example `openssl rand -hex 32`) and save it in **Settings → Integrations → Counterpoint**. The Windows bridge still needs the same value in its local bridge `.env`:
+Generate strong random values (for example `openssl rand -hex 32`) and save them in **Settings → Integrations → Counterpoint**.
+
+Bridge compatibility token:
 
 ```env
 COUNTERPOINT_SYNC_TOKEN=your-long-random-secret-here
 ```
 
-This token authenticates every bridge request. **Never log this token.** Routine ROS-side token updates belong in Backoffice Settings; the bridge host keeps its own `.env` because it runs outside ROS.
+SYNC Workbench connection:
+
+```env
+COUNTERPOINT_SYNC_WORKBENCH_URL=http://main-hub:3015
+COUNTERPOINT_SYNC_WORKBENCH_TOKEN=your-other-long-random-secret-here
+```
+
+The Bridge compatibility token authenticates legacy `/api/sync/counterpoint/*` requests. The SYNC Workbench token authenticates ROS server-side package pulls and Bridge raw-batch posts to SYNC. **Never log either token.** Routine ROS-side token updates belong in Backoffice Settings; the Bridge and SYNC hosts keep their own `.env` files because they run outside ROS.
 
 If Backoffice Settings refuses to save the token with `RIVERSIDE_CREDENTIALS_KEY must be set`, run **`Repair-RiversideCredentialsKey.cmd`** from the Windows deployment package on the Backoffice / Server PC. The repair writes the credential encryption key into the installed server `.env` and Windows machine environment, then restarts the Riverside server task.
 
-The Main Hub uses the encrypted token saved in Settings as the primary source for Bridge health, heartbeat, preflight, and import requests. `COUNTERPOINT_SYNC_TOKEN` in the Main Hub server `.env` is a fallback/bootstrap value; editing that file by hand does not update a running server process until the server restarts.
+The Main Hub uses encrypted values saved in Settings as the primary source for Bridge compatibility health and SYNC Workbench package access. Environment variables are fallback/bootstrap values; editing files by hand does not update a running server process until the server restarts.
 
-### 2c. Verify the health endpoint
+### 2c. Start the SYNC Workbench
+
+On the Main Hub PC:
+
+```bash
+cd counterpoint-sync
+cp env.example .env
+npm start
+```
+
+Set `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` to the same value saved in ROS Back Office. The Workbench stores local transition staging data in SQLite under `counterpoint-sync/data/` by default. That store contains raw payloads, prepared package JSON, provenance, warnings, blockers, AI review packages, AI suggestions, review decisions, and readiness state. It is not ROS PostgreSQL.
+
+Open the local Workbench review UI at `http://127.0.0.1:3015/`. It shows Workbench health, local store path, backup status, latest Bridge heartbeat, prepared runs, section readiness, warnings, blockers, imported status, package previews, exceptions, and the non-mutating AI Review placeholder.
+
+### 2c.1 No-hardware rehearsal simulator
+
+When the Counterpoint PC is not available, use the deterministic simulator to exercise Bridge → SYNC → ROS package selection without touching live Counterpoint:
+
+```bash
+npm run dev:sync-workbench
+npm run sync:simulate-counterpoint
+```
+
+The simulator sends a fake Bridge heartbeat and simulation-only batches for vendors, customers, catalog/products, inventory, and gift cards. It includes duplicate customer email, missing customer email, odd phone formatting, catalog missing barcode, inventory referencing a missing catalog item, vendor optional-contact warning, warning-only sections, and a blocker section.
+
+The simulator writes only to the local SYNC Workbench store. It does not write to ROS. To test the ROS side in a safe dev database:
+
+1. Start the SYNC Workbench.
+2. Run `npm run sync:simulate-counterpoint`.
+3. Open ROS Back Office → Settings → Integrations → Counterpoint.
+4. Save the SYNC Workbench URL and token.
+5. Select the simulated SYNC run.
+6. Preview a section package and confirm the package fingerprint.
+7. Run ROS preflight for a warning-only section such as vendors or customers.
+8. Import only in a dev/safe database after the confirmation modal shows the expected run, section, records, warnings, and zero blockers.
+
+Do not run simulation imports against production ROS unless intentionally testing in a controlled safe environment.
+
+After a no-hardware rehearsal, clear only simulator-generated SYNC data with:
+
+```bash
+npm run sync:clear-simulation
+```
+
+This removes the deterministic simulator run and simulator heartbeat rows from the local Workbench JSON store, writes a `.bak` first, and leaves real Bridge/Counterpoint runs untouched. It does not reset ROS. Use `cd counterpoint-sync && npm run clear:simulation -- --dry-run` to preview the cleanup.
+
+### 2d. Verify health endpoints
 
 ```bash
 curl -H "x-ros-sync-token: your-long-random-secret-here" \
@@ -102,10 +166,27 @@ curl -H "x-ros-sync-token: your-long-random-secret-here" \
 
 Should return `200` with JSON including `"ok": true`, `"service": "counterpoint_sync"`, and `"counterpoint_staging_enabled": true|false`.
 
-### 2d. Bridge Command Center
+```bash
+curl -H "x-counterpoint-sync-token: your-other-long-random-secret-here" \
+     http://127.0.0.1:3015/health
+```
+
+Should return `200` with JSON including `"service": "counterpoint_sync_workbench"`.
+It also reports the local store path, whether the main store and `.bak` backup exist, last write time, size, format version, latest Bridge heartbeat received by SYNC, and run/section summary counts.
+
+Use this before a real rehearsal or go-live import:
+
+```bash
+curl -H "x-counterpoint-sync-token: your-other-long-random-secret-here" \
+     http://127.0.0.1:3015/api/export > counterpoint-sync-export.json
+```
+
+The current local store is SQLite at `counterpoint-sync/data/sync-workbench-store.sqlite` unless `COUNTERPOINT_SYNC_WORKBENCH_DB` overrides it. If an older JSON store exists at `COUNTERPOINT_SYNC_WORKBENCH_STORE` and the SQLite DB does not exist yet, SYNC imports the JSON data into SQLite on startup and preserves the JSON file. Before SQLite rewrites, SYNC keeps a `.sqlite.bak` backup. If recovery is needed, restore from a known export or `.sqlite.bak` before continuing.
+
+### 2e. Bridge Command Center
 The bridge includes a local dashboard for manual triggers and log monitoring. It listens on port **3002** (to avoid collision with Metabase on 3001).
 - **URL**: `http://localhost:3002`
-- **Manual Mode (Default)**: By default, the bridge starts in manual mode. It will poll the ROS health endpoint and respond to targeted triggers or full sync requests, but it will **not** auto-sync on a timer.
+- **Manual Mode (Default)**: By default, the bridge starts in manual mode. In the preferred workflow it checks SYNC Workbench health and sends raw batches there; it does not auto-sync on a timer.
 - **Continuous Sync**: Toggle "Continuous Sync" in the dashboard to enable automatic 15-minute polling. 
 - **Auth**: The dashboard uses an internal proxy to communicate with the ROS API using the `COUNTERPOINT_SYNC_TOKEN`. This allows manual synchronization without requiring a valid staff PIN on the bridge host. 
 
@@ -427,6 +508,11 @@ To handle mixed Counterpoint ID formats (plain integers vs. `C-` prefixed string
 | `POST /api/sync/counterpoint/request/ack` | Ack sync request | M2M |
 | `POST /api/sync/counterpoint/request/complete` | Complete sync request | M2M |
 | `GET /api/settings/counterpoint-sync/status` | Dashboard status | Staff-gated |
+| `GET /api/settings/counterpoint-sync/sync-workbench/status` | Server-side SYNC Workbench connection check | Staff-gated |
+| `GET /api/settings/counterpoint-sync/sync-workbench/runs` | Prepared runs available from SYNC | Staff-gated |
+| `GET /api/settings/counterpoint-sync/sync-workbench/runs/{run_id}/packages/{section}` | Preview selected SYNC package JSON | Staff-gated |
+| `POST /api/settings/counterpoint-sync/sync-workbench/runs/{run_id}/sections/{section}/preflight` | Record ROS preflight for selected SYNC package | Staff-gated |
+| `POST /api/settings/counterpoint-sync/sync-workbench/runs/{run_id}/sections/{section}/import` | Import selected SYNC package through ROS import services | Staff-gated |
 | `POST /api/settings/counterpoint-sync/request-run` | Request sync | Staff-gated |
 | `PATCH /api/settings/counterpoint-sync/issues/{id}/resolve` | Resolve issue | Staff-gated |
 
@@ -590,6 +676,71 @@ The server reset also clears the active ROS import-run pointer and import-first 
 | `GET` | `/api/settings/counterpoint-sync/landing-verification` | Read-only ROS-landed Counterpoint domain counts |
 | `POST` | `/api/settings/counterpoint-sync/request-run` | Enqueue a sync request (bridge polls for it) |
 | `PATCH` | `/api/settings/counterpoint-sync/issues/{id}/resolve` | Mark an issue as resolved |
+| `GET` | `/api/settings/counterpoint-sync/sync-workbench/status` | Check SYNC Workbench configuration/reachability |
+| `GET` | `/api/settings/counterpoint-sync/sync-workbench/runs` | List prepared SYNC runs |
+| `GET` | `/api/settings/counterpoint-sync/sync-workbench/runs/{run_id}` | Load selected SYNC run sections |
+| `GET` | `/api/settings/counterpoint-sync/sync-workbench/runs/{run_id}/packages/{section}` | Validate and view selected package JSON |
+| `POST` | `/api/settings/counterpoint-sync/sync-workbench/runs/{run_id}/sections/{section}/preflight` | Record ROS package preflight |
+| `POST` | `/api/settings/counterpoint-sync/sync-workbench/runs/{run_id}/sections/{section}/import` | Import selected package through existing ROS batch/proof flow |
+
+### SYNC Workbench API endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/health` | SYNC Workbench health |
+| `POST` | `/api/bridge/heartbeat` | Bridge heartbeat/extraction status |
+| `POST` | `/api/bridge/batches` | Raw Bridge batch into local SYNC staging |
+| `POST` | `/api/csv/lightspeed/import` | Lightspeed CSV input for preparation/review |
+| `POST` | `/api/csv/counterpoint/import` | Counterpoint CSV input for preparation/review |
+| `GET` | `/api/runs` | Prepared/rehearsal runs |
+| `GET` | `/api/runs/{run_id}` | Run detail and sections |
+| `GET` | `/api/runs/{run_id}/packages/{section}` | ROS-compatible JSON package |
+| `POST` | `/api/runs/{run_id}/sections/{section}/mark-ready` | Mark a section ready for ROS review |
+| `POST` | `/api/runs/{run_id}/sections/{section}/mark-blocked` | Mark a section blocked for SYNC cleanup |
+| `POST` | `/api/runs/{run_id}/sections/{section}/mark-imported` | Mark section imported after ROS import succeeds |
+| `POST` | `/api/runs/{run_id}/finalize` | Finalize package generation for ROS review |
+| `GET` | `/api/export` | Export the local SYNC store for backup/rehearsal evidence |
+
+### SYNC → ROS package contract
+
+ROS imports from SYNC by pulling JSON packages, not CSV files. CSVs are input/review/debug artifacts inside SYNC only.
+
+Each package must include:
+
+```json
+{
+  "sync_run_id": "uuid",
+  "section": "customers",
+  "entity": "customers",
+  "schema_version": 1,
+  "package_fingerprint": "stable-sha256",
+  "generated_at": "timestamp",
+  "source_counts": {
+    "raw": 200,
+    "prepared": 199,
+    "warnings": 1,
+    "blockers": 0
+  },
+  "payload": { "rows": [] },
+  "exceptions": [],
+  "provenance": []
+}
+```
+
+Rules:
+
+- `payload` must match the existing ROS Counterpoint typed payload for the section.
+- `schema_version` must be `1` until ROS adds explicit support for a newer version.
+- `package_fingerprint` must remain stable when package content is unchanged.
+- ROS rejects packages with unresolved blockers.
+- ROS records preflight/import proof scoped to `sync_run_id`, ROS `import_run_id`, `section`, and `package_fingerprint`.
+- ROS writes through existing Rust/sqlx import functions such as `execute_counterpoint_customer_batch`, `execute_counterpoint_catalog_batch`, `execute_counterpoint_inventory_batch`, and the other existing entity batch executors. SYNC must never write directly to ROS PostgreSQL.
+
+### SYNC Workbench store durability
+
+The foundation Workbench uses a local JSON store by default. It writes through a temporary file, fsyncs the file, atomically renames it into place, and retains the previous store as `.bak`. POST handlers are serialized so simultaneous Bridge/UI requests do not overwrite each other.
+
+Before rehearsal and before final go-live import, capture `GET /api/export` and copy both the active SQLite store and `.sqlite.bak` from the Main Hub PC.
 
 ### API endpoints (M2M, sync token)
 
@@ -717,6 +868,50 @@ Normal operation does not require entity SQL in `.env`. The bridge uses the thre
 - Use the GUI Auto Config action or `node index.mjs auto-config` to confirm runtime mappings before the accepted import.
 
 ---
+
+## 10a. AI/Codex review packages
+
+Use AI review packages for cleanup suggestions only. AI suggestions never import into ROS and never apply automatically.
+
+Allowed safe domains include customer phone/name/email-omit suggestions, customer duplicate clusters, product/description readability, category/vendor suggestions, inventory/catalog mismatch explanations, and vendor optional-info cleanup. High-risk sections such as gift cards, store credits, historical tickets, open docs, loyalty history, tax, payments, refunds, balances, quantities, costs, and accounting mappings are manual-review only.
+
+AI suggestions must use this shape:
+
+```json
+{
+  "review_package_id": "uuid",
+  "sync_run_id": "uuid",
+  "section": "catalog",
+  "package_fingerprint": "abc123",
+  "suggestions": [
+    {
+      "suggestion_type": "description_readability",
+      "source_record_id": "ITEM-123",
+      "target_path": "payload.rows[0].description",
+      "current_value": "BLU SLD SHT",
+      "suggested_value": "Blue Solid Shirt",
+      "reason": "Expanded abbreviations for staff-readable product description.",
+      "confidence": "medium",
+      "risk_level": "low"
+    }
+  ]
+}
+```
+
+Paste-ready prompt:
+
+```text
+Analyze this Counterpoint SYNC AI review package for Riverside OS.
+
+Return only valid JSON using the package's allowed_suggestion_schema.
+Preserve review_package_id, sync_run_id, section, package_fingerprint, and source_record_id.
+Mark confidence and risk_level for every suggestion.
+Do not invent costs, quantities, balances, emails, tax values, payment values, refund values, or accounting mappings.
+Do not auto-merge customers or vendors.
+Do not change gift card, store credit, tax, tender, payment, refund, historical ticket, open-doc, loyalty, quantity, balance, or accounting values.
+For high-risk sections, return manual-review suggestions only.
+Do not say changes were applied. Riverside OS staff will review and accept/reject suggestions in SYNC.
+```
 
 ## 11. Operational checklist
 

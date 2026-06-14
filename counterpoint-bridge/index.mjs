@@ -651,6 +651,13 @@ const DRY_RUN_MODE = process.argv.includes("--dry-run");
 
 const ROS_BASE_URL = (process.env.ROS_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const SYNC_TOKEN = process.env.COUNTERPOINT_SYNC_TOKEN ?? "";
+const SYNC_WORKBENCH_URL = (process.env.COUNTERPOINT_SYNC_WORKBENCH_URL ?? "").replace(/\/$/, "");
+const SYNC_WORKBENCH_TOKEN = process.env.COUNTERPOINT_SYNC_WORKBENCH_TOKEN ?? "";
+const BRIDGE_TARGET_MODE = (
+  process.env.COUNTERPOINT_BRIDGE_TARGET_MODE ??
+  (SYNC_WORKBENCH_URL ? "sync_workbench" : "ros_import_first")
+).trim().toLowerCase();
+const USE_SYNC_WORKBENCH = BRIDGE_TARGET_MODE === "sync_workbench";
 const CONN = process.env.SQL_CONNECTION_STRING ?? "";
 /** mssql default requestTimeout is 15s — large EXISTS / ticket-scoped queries often exceed that on real CP DBs. */
 const SQL_REQUEST_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.SQL_REQUEST_TIMEOUT_MS ?? "600000", 10));
@@ -667,6 +674,7 @@ const ROS_RATE_LIMIT_FALLBACK_WAIT_MS = Math.max(
 );
 let nextRosRequestAt = 0;
 let rosRequestGate = Promise.resolve();
+let activeWorkbenchRunId = null;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -2288,8 +2296,42 @@ async function rosFetch(urlPath, body, method = "POST", extraHeaders = {}) {
   throw lastErr;
 }
 
+async function syncWorkbenchFetch(urlPath, body, method = "POST", extraHeaders = {}) {
+  if (!SYNC_WORKBENCH_URL) {
+    throw new Error("COUNTERPOINT_SYNC_WORKBENCH_URL is required when COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench.");
+  }
+  const url = `${SYNC_WORKBENCH_URL}${urlPath}`;
+  const headers = {
+    "Content-Type": "application/json",
+    "x-counterpoint-sync-token": SYNC_WORKBENCH_TOKEN,
+    ...extraHeaders,
+  };
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), ROS_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body != null ? JSON.stringify(body) : undefined,
+      signal: ac.signal,
+    });
+    const text = await res.text();
+    const json = text.trim() ? JSON.parse(text) : {};
+    if (!res.ok) {
+      throw new Error(`Counterpoint SYNC ${res.status}: ${text.slice(0, 500)}`);
+    }
+    return json;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function rosGetHealth() {
   return rosFetch("/api/sync/counterpoint/health", undefined, "GET");
+}
+
+async function syncWorkbenchGetHealth() {
+  return syncWorkbenchFetch("/health", undefined, "GET");
 }
 
 /** Startup: fails if health unreachable. */
@@ -2363,6 +2405,24 @@ async function rosPost(entityKey, body) {
     }
     console.info(`[dry-run] Would post entity "${entityKey}" with ${count} records. Preview: ${preview.slice(0, 150)}...`);
     return { success: true, count, dryRun: true };
+  }
+  if (USE_SYNC_WORKBENCH) {
+    const response = await syncWorkbenchFetch(
+      "/api/bridge/batches",
+      {
+        sync_run_id: activeWorkbenchRunId,
+        section: entityKey,
+        entity: entityKey,
+        source_system: "counterpoint_bridge",
+        payload: body,
+        bridge_version: BRIDGE_VERSION,
+        bridge_hostname: bridgeHostnameCached || os.hostname(),
+      },
+      "POST",
+      bridgeIngestHeaders(),
+    );
+    activeWorkbenchRunId = response?.sync_run_id ?? activeWorkbenchRunId;
+    return response;
   }
   requireImportFirstIngestMode();
   const hdr = bridgeIngestHeaders();
@@ -3201,7 +3261,11 @@ async function runPreflightCommand() {
     console.error("   or: node index.mjs preflight aliases --csv <path>");
     process.exit(1);
   }
-  if (!SYNC_TOKEN.trim()) {
+  if (USE_SYNC_WORKBENCH && !SYNC_WORKBENCH_TOKEN.trim()) {
+    console.error("Set COUNTERPOINT_SYNC_WORKBENCH_TOKEN");
+    process.exit(1);
+  }
+  if (!USE_SYNC_WORKBENCH && !SYNC_TOKEN.trim()) {
     console.error("Set COUNTERPOINT_SYNC_TOKEN");
     process.exit(1);
   }
@@ -3345,6 +3409,20 @@ async function runLightspeedReferenceCommand() {
 
 async function sendHeartbeat(phase, currentEntity) {
   try {
+    if (USE_SYNC_WORKBENCH) {
+      const resp = await syncWorkbenchFetch("/api/bridge/heartbeat", {
+        phase,
+        current_entity: currentEntity ?? null,
+        version: BRIDGE_VERSION,
+        hostname: os.hostname(),
+        target_mode: "sync_workbench",
+        active_sync_run_id: activeWorkbenchRunId,
+      });
+      if (Math.random() < 0.1) {
+        logToDashboard(`[heartbeat] SYNC Workbench online (bridge ${BRIDGE_VERSION})`);
+      }
+      return resp;
+    }
     const resp = await rosFetch("/api/sync/counterpoint/heartbeat", {
       phase,
       current_entity: currentEntity ?? null,
@@ -3367,6 +3445,7 @@ async function sendHeartbeat(phase, currentEntity) {
 }
 
 async function signalRunStart(entity, cursor = null) {
+  if (USE_SYNC_WORKBENCH) return;
   try {
     await rosFetch(
       "/api/sync/counterpoint/run-start",
@@ -5753,13 +5832,18 @@ async function main() {
     console.error("Set SQL_CONNECTION_STRING");
     process.exit(1);
   }
-  requireImportFirstIngestMode();
+  if (!USE_SYNC_WORKBENCH) {
+    requireImportFirstIngestMode();
+  }
   bridgeHostnameCached = os.hostname();
 
   // Start the Bridge Command Dashboard (Port 3002)
   startLocalServer();
 
-  if (DRY_RUN_MODE) {
+  if (USE_SYNC_WORKBENCH) {
+    await syncWorkbenchGetHealth();
+    rosStagingEnabled = false;
+  } else if (DRY_RUN_MODE) {
     console.info("⚡ DRY-RUN ACTIVE: Bridge will fetch data from Counterpoint but will NOT post updates to Riverside OS.");
     try {
       await refreshRosStagingFromHealth();
@@ -5771,8 +5855,10 @@ async function main() {
     await refreshRosStagingFromHealth();
   }
   console.info(
-    "ROS sync health OK",
-    rosStagingEnabled ? "(counterpoint staging ingest)" : "(direct entity ingest)",
+    USE_SYNC_WORKBENCH ? "Counterpoint SYNC Workbench health OK" : "ROS sync health OK",
+    USE_SYNC_WORKBENCH
+      ? "(raw extraction batches only)"
+      : rosStagingEnabled ? "(counterpoint staging ingest)" : "(direct entity ingest)",
   );
 
   logCanonicalSyncOrder();
@@ -5813,11 +5899,15 @@ async function main() {
 
   await rebuildEffectiveSql(pool);
   validateCounterpointSyncDependencyPlan();
-  await runImportFirstSourcePreflight(pool);
+  if (!USE_SYNC_WORKBENCH) {
+    await runImportFirstSourcePreflight(pool);
+  }
 
   console.info(
     `[ingest] Mode: ${
-      rosStagingEnabled
+      USE_SYNC_WORKBENCH
+        ? "SYNC Workbench — raw batches stage on the Main Hub for review and ROS package handoff"
+        : rosStagingEnabled
         ? "support queue — batches queue in ROS until staff apply them from diagnostics"
         : "import-first direct — each supported batch lands in ROS with proof and exception tracking"
     }`,
@@ -5852,7 +5942,7 @@ async function main() {
       console.warn("[heartbeat] failed", e.message);
     }
 
-    const hasPendingRequest = !!hbResp?.pending_request_id;
+    const hasPendingRequest = !USE_SYNC_WORKBENCH && !!hbResp?.pending_request_id;
     // Only auto-run if Continuous Sync is enabled, or if we are in RUN_ONCE mode
     const isTimeToAutoRun = (BRIDGE_STATE.isContinuous || RUN_ONCE) && (now - lastAutoRunTime) >= AUTO_SYNC_INTERVAL_MS;
 
@@ -5878,20 +5968,22 @@ async function main() {
     }
 
     let preflightSummary = null;
-    try {
-      preflightSummary = await runImportFirstSourcePreflight(pool);
-    } catch (err) {
-      console.error("[preflight] sync blocked:", err.message);
-      if (hasPendingRequest) {
-        try {
-          await rosFetch("/api/sync/counterpoint/request/complete", {
-            request_id: hbResp.pending_request_id,
-            error: err.message,
-          });
-        } catch { /* ignore secondary error */ }
+    if (!USE_SYNC_WORKBENCH) {
+      try {
+        preflightSummary = await runImportFirstSourcePreflight(pool);
+      } catch (err) {
+        console.error("[preflight] sync blocked:", err.message);
+        if (hasPendingRequest) {
+          try {
+            await rosFetch("/api/sync/counterpoint/request/complete", {
+              request_id: hbResp.pending_request_id,
+              error: err.message,
+            });
+          } catch { /* ignore secondary error */ }
+        }
+        isTickRunning = false;
+        return;
       }
-      isTickRunning = false;
-      return;
     }
 
     BRIDGE_STATE.isSyncing = true;
@@ -5904,7 +5996,11 @@ async function main() {
       : null;
 
     try {
-      await startImportFirstRun(preflightSummary);
+      if (USE_SYNC_WORKBENCH) {
+        activeWorkbenchRunId = null;
+      } else {
+        await startImportFirstRun(preflightSummary);
+      }
       for (const step of orderedSyncSteps) {
         if (!step.on) continue;
         if (BRIDGE_STATE.abortRequested) {
@@ -5929,15 +6025,25 @@ async function main() {
       BRIDGE_STATE.lastRunDurationMs = cycleDur;
       BRIDGE_STATE.lastRun = new Date().toISOString();
       pushEvent('complete', null, 'Auto-sync cycle complete', { durationMs: cycleDur });
-      await completeImportFirstRun({
-        failed: BRIDGE_STATE.abortRequested,
-        errorMessage: BRIDGE_STATE.abortRequested ? "Sync aborted by user." : null,
-        totals: {
-          sync_summary: BRIDGE_STATE.syncSummary,
-          duration_ms: cycleDur,
-          requested_entity: hbResp?.pending_request_entity ?? null,
-        },
-      });
+      if (USE_SYNC_WORKBENCH && activeWorkbenchRunId) {
+        await syncWorkbenchFetch(`/api/runs/${activeWorkbenchRunId}/finalize`, {
+          totals: {
+            sync_summary: BRIDGE_STATE.syncSummary,
+            duration_ms: cycleDur,
+            requested_entity: null,
+          },
+        });
+      } else {
+        await completeImportFirstRun({
+          failed: BRIDGE_STATE.abortRequested,
+          errorMessage: BRIDGE_STATE.abortRequested ? "Sync aborted by user." : null,
+          totals: {
+            sync_summary: BRIDGE_STATE.syncSummary,
+            duration_ms: cycleDur,
+            requested_entity: hbResp?.pending_request_entity ?? null,
+          },
+        });
+      }
 
       if (hasPendingRequest) {
         try {
@@ -5950,7 +6056,9 @@ async function main() {
       }
     } catch (err) {
       console.error("[sync] Loop failed:", err.message);
-      await completeImportFirstRun({ failed: true, errorMessage: err.message }).catch(() => null);
+      if (!USE_SYNC_WORKBENCH) {
+        await completeImportFirstRun({ failed: true, errorMessage: err.message }).catch(() => null);
+      }
       if (hasPendingRequest) {
           try {
             await rosFetch("/api/sync/counterpoint/request/complete", {

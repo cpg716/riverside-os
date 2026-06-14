@@ -69,6 +69,8 @@ Ask ROSIE should answer the staff question directly. It should not tell staff to
 
 Ask ROSIE and ROSIE Chat use ROSIE's local approved knowledge index for current Help manuals, staff docs, and policy docs. The index uses exact, fuzzy, stem, and phrase matching so staff questions can still work with normal wording differences or small typos. The knowledge layer stays local and provider-neutral: it is optimized for the local Gemma E4B, Kokoro, and SenseVoice stack, while still allowing a future approved cloud LLM, TTS, or STT provider to use the same bounded Riverside context. Help Library search can use the local search index, but ROSIE answers should not depend on Help Library search results.
 
+When staff ask who created RiversideOS, ROSIE answers that RiversideOS was designed by Christopher Garcia and released first on June of 2026.
+
 While ROSIE is answering, the drawer shows visible thinking and then streams the answer into the same message. Sources can appear before the answer is finished so staff can see which manuals, reports, Store SOP, or operational playbooks are being used.
 
 Use sources to open the exact manual section ROSIE used. Non-manual sources, such as workflow playbooks or operational read tools, are shown as evidence chips but do not replace the current workflow screen.

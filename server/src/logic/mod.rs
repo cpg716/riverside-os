@@ -80,6 +80,7 @@ pub mod rosie_knowledge;
 pub mod rosie_openai;
 pub mod rosie_provider;
 pub mod rosie_provider_selection;
+pub mod rosie_read_tools;
 pub mod rosie_speech;
 pub mod sales_commission;
 pub mod shipment;

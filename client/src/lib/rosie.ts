@@ -131,6 +131,7 @@ export type RosieToolResult = {
     | "customer_hub_snapshot"
     | "wedding_actions"
     | "inventory_variant_intelligence"
+    | "rosie_read_tool"
     | "product_catalog_analyze"
     | "product_catalog_suggest";
   args: Record<string, unknown>;
@@ -1258,8 +1259,8 @@ function buildGroundedHelpSystemPrompt(
     "Use retrieved sections to answer directly; sources are evidence for the UI, not homework for the staff member.",
     "When operational_playbook results are present, use them as the primary recovery checklist for the named workflow.",
     "When client_workflow_context is present, use it only as short-session UI context; it is not a source of business truth.",
-    "Use reporting numbers only when they appear in a reporting_run tool result.",
-    "Use order, customer, wedding, or inventory data only when they appear in the provided operational tool results.",
+    "Use reporting numbers only when they appear in a reporting_run or rosie_read_tool result.",
+    "Use order, customer, wedding, inventory, appointment, alteration, loyalty, or operational data only when they appear in the provided operational/read-only tool results.",
     "Do not use SQL, hidden routes, non-approved tools, or any imaginary data beyond the provided results.",
     "Do not infer missing business data or recompute values that are not explicitly returned.",
     conversationMode
@@ -1278,10 +1279,11 @@ function buildGroundedHelpSystemPrompt(
         "customer_hub_snapshot",
         "wedding_actions",
         "inventory_variant_intelligence",
+        "rosie_read_tool",
       ].includes(tool.tool_name),
     )
-      ? "Approved operational tool results are present. Narrate only those returned JSON fields and keep the answer operationally grounded."
-      : "No approved operational tool results are present.",
+      ? "Approved operational/read-only tool results are present. Narrate only those returned JSON fields, include basis/limit caveats when present, and keep the answer operationally grounded."
+      : "No approved operational/read-only tool results are present.",
     request.settings.response_style === "detailed"
       ? "Response style: detailed but practical."
       : "Response style: concise and practical.",
@@ -1478,12 +1480,45 @@ function rosieConversationalGreeting(question: string): string | null {
   return "Hi, I’m ROSIE. I can help with RiversideOS workflows, store data, reports, customers, inventory, wedding orders, and Help Center guidance. What would you like to work on?";
 }
 
+const RIVERSIDEOS_CREATOR_ANSWER =
+  "RiversideOS was designed by Christopher Garcia and released first on June of 2026.";
+
+function rosieCreatorAnswer(question: string): string | null {
+  const normalized = question
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const asksCreator =
+    /\b(who|whom)\b/.test(normalized) &&
+    /\b(created|made|designed|built|founded|invented|released)\b/.test(normalized);
+  const asksOrigin =
+    /\bcreator|designer|founder|author|origin|history\b/.test(normalized);
+  const namesProduct =
+    /\briversideos\b/.test(normalized) ||
+    /\briverside os\b/.test(normalized) ||
+    /\bros\b/.test(normalized) ||
+    /\brosie\b/.test(normalized);
+  return namesProduct && (asksCreator || asksOrigin) ? RIVERSIDEOS_CREATOR_ANSWER : null;
+}
+
 export async function askRosieGroundedHelp(
   request: RosieGroundedHelpRequest,
   options?: {
     headers?: Record<string, string>;
   },
 ): Promise<RosieGroundedHelpResponse> {
+  const creatorAnswer = rosieCreatorAnswer(request.question);
+  if (creatorAnswer) {
+    return {
+      answer: creatorAnswer,
+      sources: [],
+      tool_results: [],
+      suggested_actions: [],
+      completion: { choices: [{ message: { role: "assistant", content: creatorAnswer } }] },
+    };
+  }
+
   if (request.mode === "conversation") {
     const greeting = rosieConversationalGreeting(request.question);
     if (greeting) {
@@ -1575,6 +1610,18 @@ export async function askRosieGroundedHelpStream(
     on_context?: (context: RosieToolContextResponse) => void;
   },
 ): Promise<RosieGroundedHelpResponse> {
+  const creatorAnswer = rosieCreatorAnswer(request.question);
+  if (creatorAnswer) {
+    options?.on_delta?.(creatorAnswer);
+    return {
+      answer: creatorAnswer,
+      sources: [],
+      tool_results: [],
+      suggested_actions: [],
+      completion: { choices: [{ message: { role: "assistant", content: creatorAnswer } }] },
+    };
+  }
+
   if (request.mode === "conversation") {
     const greeting = rosieConversationalGreeting(request.question);
     if (greeting) {

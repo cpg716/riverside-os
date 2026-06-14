@@ -48,6 +48,53 @@ ROSIE insight buttons do not run automatically when a screen opens. Staff choose
 
 If ROSIE is unavailable, insight panels show a short unavailable note and return control without blocking the underlying workflow. The deterministic screen content stays visible and usable, but ROSIE should be treated as unhealthy until the Host stack is repaired.
 
+## Live data questions
+
+Ask ROSIE can answer approved read-only live data questions through Riverside OS semantic tools. These tools are permission-gated, audited, row-limited, and shaped around business meanings instead of raw database tables.
+
+Useful examples:
+
+- What appointments do we have today?
+- Which alterations are due this week?
+- Which open orders are ready for pickup?
+- Which customers have open balances?
+- Which customers need follow-up today?
+- Which wedding parties need attention this week?
+- Which wedding members are missing measurements?
+- Which wedding members still need fittings?
+- Which wedding orders are ready for pickup?
+- Which wedding members have open balances?
+- What purchase orders are still open?
+- What is on order from this vendor?
+- What did we receive this week?
+- Which vendor items are missing mappings?
+- Which invoices need review?
+- What should we reorder?
+- How many navy suits sold in June?
+- Do we have navy suits in inventory?
+- What are our best sellers this month?
+- Which inventory is stale?
+- Give me a daily manager brief.
+- What needs manager attention today?
+- What data quality issues need cleanup?
+- Are there QBO exceptions to review?
+- What is the QBO sync status?
+- Did yesterday's register close look normal?
+- Are there gift card exceptions to review?
+- How much outstanding credit liability exists?
+- Which customers have store credit?
+- Which customers have stale pickups?
+- Which customers are missing phone or email?
+- How many loyalty points does this selected customer have?
+
+ROSIE may read and analyze approved data, but ROSIE cannot change Riverside OS records. ROSIE cannot adjust inventory, receive stock, fulfill pickup, refund, discount, reconcile a register, post QBO entries, change gift card or store credit balances, import data, merge customers, or edit staff records. Final changes must always happen in the normal Riverside OS workflow with the required Staff Access or Manager Access checks.
+
+When ROSIE answers from live data, pay attention to the basis and limits. Examples include `booked_at`, `booked_at_sales_quantity`, `appointment_date`, `alteration_due_at`, `available_inventory`, `open_balance`, `loyalty_balance`, `wedding_readiness`, `wedding_readiness_event_date`, `wedding_follow_up_signals`, `open_purchase_orders`, `purchase_order_remaining_units`, `po_invoice_review`, `receiving_events`, `store_credit_balance`, `gift_card_liability_summary`, `credit_liability_summary`, `qbo_staging_status`, `qbo_sync_date`, `register_close_date`, `data_quality_counts`, `manager_attention_queue`, `store_local_today`, and `sales_velocity_45_days`. If ROSIE says the result is limited, open the relevant Riverside OS screen or report before acting on the full workload.
+
+All live-data read tools require ROSIE audit logging. If Riverside OS cannot write the audit record, ROSIE blocks the answer instead of returning live operational data.
+
+ROSIE uses approved semantic tools, not arbitrary SQL. If a question is unsupported, add a new approved read-only tool rather than giving ROSIE unrestricted database access. Sensitive tools such as gift card, store credit, QBO, register exception, and credit liability summaries require the existing Manager/Admin-style permissions for those Riverside OS areas.
+
 ## Voice behavior
 
 Voice controls only appear when the workstation supports the approved SenseVoice and Kokoro Host paths. Spoken responses come from the configured Riverside host path, not from browser text-to-speech.

@@ -22,7 +22,9 @@ use uuid::Uuid;
 use crate::api::e2e_gateway;
 use crate::api::insights::{self, RosieReportingRunRequest};
 use crate::api::{customers, inventory, products, transactions, weddings, AppState};
-use crate::auth::permissions::{effective_permissions_for_staff, ALL_PERMISSION_KEYS, HELP_MANAGE};
+use crate::auth::permissions::{
+    effective_permissions_for_staff, staff_has_permission, ALL_PERMISSION_KEYS, HELP_MANAGE,
+};
 use crate::auth::pins::authenticate_pos_staff;
 use crate::auth::pins::AuthenticatedStaff;
 use crate::auth::pos_session::HEADER_POS_SESSION_ID;
@@ -35,6 +37,9 @@ use crate::logic::meilisearch_search::{help_search_hits, HelpSearchHit};
 use crate::logic::rosie_intelligence::{self, RosieIntelligencePack};
 use crate::logic::rosie_knowledge::{search_rosie_knowledge, RosieKnowledgeQuery};
 use crate::logic::rosie_provider_selection::{select_llm_provider, QueryType, RosieProviderConfig};
+use crate::logic::rosie_read_tools::{
+    self, RosieReadToolDefinition, RosieReadToolError, RosieReadToolResponse,
+};
 use crate::logic::rosie_speech;
 use crate::middleware;
 use crate::models::DbStaffRole;
@@ -128,6 +133,82 @@ fn rosie_provider_label_from_completion(body: &Value) -> &'static str {
     } else {
         "local"
     }
+}
+
+const RIVERSIDEOS_CREATOR_ANSWER: &str =
+    "RiversideOS was designed by Christopher Garcia and released first on June of 2026.";
+
+fn normalize_rosie_question_text(question: &str) -> String {
+    question
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace() {
+                ch.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn rosie_creator_answer(question: &str) -> Option<&'static str> {
+    let normalized = normalize_rosie_question_text(question);
+    let names_product = normalized.contains("riversideos")
+        || normalized.contains("riverside os")
+        || normalized
+            .split_whitespace()
+            .any(|token| token == "ros" || token == "rosie");
+    let asks_creator = normalized.split_whitespace().any(|token| token == "who")
+        && [
+            "created", "made", "designed", "built", "founded", "invented", "released",
+        ]
+        .iter()
+        .any(|term| normalized.split_whitespace().any(|token| token == *term));
+    let asks_origin = [
+        "creator", "designer", "founder", "author", "origin", "history",
+    ]
+    .iter()
+    .any(|term| normalized.split_whitespace().any(|token| token == *term));
+    if names_product && (asks_creator || asks_origin) {
+        Some(RIVERSIDEOS_CREATOR_ANSWER)
+    } else {
+        None
+    }
+}
+
+fn rosie_last_user_message(body: &Value) -> Option<String> {
+    body.get("messages")
+        .and_then(Value::as_array)?
+        .iter()
+        .rev()
+        .find(|message| {
+            message
+                .get("role")
+                .and_then(Value::as_str)
+                .is_some_and(|role| role.eq_ignore_ascii_case("user"))
+        })
+        .and_then(|message| message.get("content"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn rosie_static_chat_completion(answer: &str) -> Value {
+    serde_json::json!({
+        "id": "rosie-static-riversideos-creator",
+        "object": "chat.completion",
+        "model": "riverside-rosie-static",
+        "choices": [{
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+                "role": "assistant",
+                "content": answer
+            }
+        }]
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -274,6 +355,42 @@ struct RosieProductCatalogAnalyzeRequest {
 #[derive(Debug, Clone, Deserialize)]
 struct RosieProductCatalogSuggestRequest {
     product_id: Uuid,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RosieReadToolExecuteRequest {
+    tool_name: String,
+    #[serde(default)]
+    arguments: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RosieReadToolExecuteResponse {
+    tool_name: String,
+    basis: String,
+    filters_applied: Value,
+    row_count: usize,
+    limited: bool,
+    warnings: Vec<String>,
+    data_freshness: String,
+    generated_at: chrono::DateTime<Utc>,
+    data: Value,
+}
+
+impl From<RosieReadToolResponse> for RosieReadToolExecuteResponse {
+    fn from(value: RosieReadToolResponse) -> Self {
+        Self {
+            tool_name: value.tool_name,
+            basis: value.basis,
+            filters_applied: value.filters_applied,
+            row_count: value.row_count,
+            limited: value.limited,
+            warnings: value.warnings,
+            data_freshness: value.data_freshness,
+            generated_at: value.generated_at,
+            data: value.data,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1181,6 +1298,69 @@ mod tests {
     }
 
     #[test]
+    fn rosie_creator_answer_matches_riversideos_origin_questions() {
+        assert_eq!(
+            rosie_creator_answer("Who created RiversideOS?"),
+            Some(RIVERSIDEOS_CREATOR_ANSWER)
+        );
+        assert_eq!(
+            rosie_creator_answer("who designed ROS"),
+            Some(RIVERSIDEOS_CREATOR_ANSWER)
+        );
+        assert_eq!(rosie_creator_answer("How do I close the register?"), None);
+    }
+
+    #[test]
+    fn rosie_read_tool_inference_handles_product_sales_by_month() {
+        let range = parse_dates_from_question("How many navy suits sold in June 2025?")
+            .expect("month range should parse");
+        assert_eq!(range.0, NaiveDate::from_ymd_opt(2025, 6, 1).unwrap());
+        assert_eq!(range.1, NaiveDate::from_ymd_opt(2025, 6, 30).unwrap());
+
+        let requests = infer_read_tool_requests("How many navy suits sold in June 2025?", None);
+        let (_, args) = requests
+            .iter()
+            .find(|(tool_name, _)| tool_name == "get_product_sales_by_query")
+            .expect("product sales tool should be inferred");
+        assert_eq!(args["query"], Value::String("navy suits".to_string()));
+    }
+
+    #[test]
+    fn rosie_read_tool_inference_handles_inventory_lookup() {
+        let requests = infer_read_tool_requests("Do we have navy suits in inventory?", None);
+        let (_, args) = requests
+            .iter()
+            .find(|(tool_name, _)| tool_name == "get_inventory_availability")
+            .expect("inventory availability tool should be inferred");
+        assert_eq!(args["query"], Value::String("navy suits".to_string()));
+    }
+
+    #[test]
+    fn rosie_read_tool_inference_handles_wedding_risk_and_stale_pickups() {
+        let wedding_requests =
+            infer_read_tool_requests("Which weddings need attention this week?", None);
+        assert!(wedding_requests
+            .iter()
+            .any(|(tool_name, _)| tool_name == "get_upcoming_wedding_risk_report"));
+
+        let pickup_requests = infer_read_tool_requests("Which customers have stale pickups?", None);
+        assert!(pickup_requests
+            .iter()
+            .any(|(tool_name, _)| tool_name == "get_customers_with_stale_pickups"));
+    }
+
+    #[test]
+    fn rosie_read_tool_inference_handles_manager_attention_and_blocks_mutations() {
+        let requests = infer_read_tool_requests("What needs manager attention today?", None);
+        assert!(requests
+            .iter()
+            .any(|(tool_name, _)| tool_name == "get_manager_attention_queue"));
+
+        let blocked = infer_read_tool_requests("Fix QBO errors and reconcile the drawer.", None);
+        assert!(blocked.is_empty());
+    }
+
+    #[test]
     fn rosie_workflow_playbooks_emit_operational_actions() {
         let playbooks = workflow_playbooks("Register close blocked by offline recovery.");
         assert!(playbooks.iter().any(|playbook| {
@@ -1364,6 +1544,9 @@ fn parse_dates_from_question(question: &str) -> Option<(NaiveDate, NaiveDate)> {
             }
         }
     }
+    if let Some(month_range) = parse_named_month_from_question(question) {
+        return Some(month_range);
+    }
 
     None
 }
@@ -1371,6 +1554,181 @@ fn parse_dates_from_question(question: &str) -> Option<(NaiveDate, NaiveDate)> {
 fn default_reporting_window() -> (NaiveDate, NaiveDate) {
     let today = Utc::now().date_naive();
     (today - Duration::days(29), today)
+}
+
+fn month_number_from_token(token: &str) -> Option<u32> {
+    match token {
+        "jan" | "january" => Some(1),
+        "feb" | "february" => Some(2),
+        "mar" | "march" => Some(3),
+        "apr" | "april" => Some(4),
+        "may" => Some(5),
+        "jun" | "june" => Some(6),
+        "jul" | "july" => Some(7),
+        "aug" | "august" => Some(8),
+        "sep" | "sept" | "september" => Some(9),
+        "oct" | "october" => Some(10),
+        "nov" | "november" => Some(11),
+        "dec" | "december" => Some(12),
+        _ => None,
+    }
+}
+
+fn parse_named_month_from_question(question: &str) -> Option<(NaiveDate, NaiveDate)> {
+    let today = Utc::now().date_naive();
+    let tokens = question_tokens(question).collect::<Vec<_>>();
+    let (index, month) = tokens
+        .iter()
+        .enumerate()
+        .find_map(|(index, token)| month_number_from_token(token).map(|month| (index, month)))?;
+    let year = tokens
+        .get(index + 1)
+        .and_then(|token| {
+            if token.len() == 4 {
+                token.parse::<i32>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| today.year());
+    let start = NaiveDate::from_ymd_opt(year, month, 1)?;
+    let next_month = if month == 12 {
+        NaiveDate::from_ymd_opt(year + 1, 1, 1)?
+    } else {
+        NaiveDate::from_ymd_opt(year, month + 1, 1)?
+    };
+    let month_end = next_month - Duration::days(1);
+    let end = if year == today.year() && month == today.month() {
+        month_end.min(today)
+    } else {
+        month_end
+    };
+    Some((start, end))
+}
+
+fn clean_rosie_item_query(candidate: &str) -> Option<String> {
+    let cleaned = candidate
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch.is_ascii_whitespace() || ch == '-' {
+                ch.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>();
+    let noise = [
+        "how",
+        "many",
+        "of",
+        "did",
+        "do",
+        "we",
+        "sell",
+        "sold",
+        "sales",
+        "unit",
+        "units",
+        "have",
+        "has",
+        "in",
+        "during",
+        "for",
+        "stock",
+        "inventory",
+        "available",
+        "availability",
+        "on",
+        "hand",
+        "left",
+        "any",
+        "the",
+        "a",
+        "an",
+        "this",
+        "last",
+        "today",
+        "yesterday",
+        "month",
+        "week",
+        "period",
+        "time",
+    ];
+    let value = cleaned
+        .split_whitespace()
+        .filter(|token| !noise.contains(token))
+        .filter(|token| month_number_from_token(token).is_none())
+        .filter(|token| {
+            token
+                .parse::<i32>()
+                .map_or(true, |year| !(2000..=2100).contains(&year))
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    if value.len() >= 2 {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+fn rosie_product_query_from_question(question: &str) -> Option<String> {
+    let lower = question.to_ascii_lowercase();
+    for marker in ["sales of ", "units of ", "how many of "] {
+        if let Some((_, tail)) = lower.split_once(marker) {
+            return clean_rosie_item_query(tail);
+        }
+    }
+    if let Some((head, _)) = lower.split_once(" sold") {
+        return clean_rosie_item_query(head);
+    }
+    if let Some((_, tail)) = lower.split_once("sell ") {
+        return clean_rosie_item_query(tail);
+    }
+    None
+}
+
+fn rosie_inventory_query_from_question(question: &str) -> Option<String> {
+    let lower = question.to_ascii_lowercase();
+    for marker in [
+        "do we have ",
+        "stock for ",
+        "inventory for ",
+        "available in ",
+    ] {
+        if let Some((_, tail)) = lower.split_once(marker) {
+            return clean_rosie_item_query(tail);
+        }
+    }
+    if let Some((head, _)) = lower.split_once(" in stock") {
+        return clean_rosie_item_query(head);
+    }
+    if let Some((head, _)) = lower.split_once(" in inventory") {
+        return clean_rosie_item_query(head);
+    }
+    None
+}
+
+fn rosie_question_asks_mutation(question: &str) -> bool {
+    let lower = question.to_ascii_lowercase();
+    [
+        "fix ",
+        "adjust ",
+        "reconcile ",
+        "post ",
+        "receive ",
+        "refund ",
+        "discount ",
+        "fulfill ",
+        "delete ",
+        "merge ",
+        "change ",
+        "update ",
+        "void ",
+        "import ",
+    ]
+    .iter()
+    .any(|term| lower.starts_with(term) || lower.contains(&format!(" {term}")))
 }
 
 fn parse_basis_from_question(question: &str) -> &'static str {
@@ -1594,6 +1952,410 @@ fn infer_operational_tool_requests(question: &str, headers: &HeaderMap) -> Vec<(
                 }),
             ));
         }
+    }
+
+    requests
+}
+
+fn infer_read_tool_requests(
+    question: &str,
+    client_context: Option<&RosieClientContextIn>,
+) -> Vec<(String, Value)> {
+    let lower = question.to_ascii_lowercase();
+    let mut requests = Vec::new();
+
+    if rosie_question_asks_mutation(question) {
+        return requests;
+    }
+
+    if lower.contains("manager brief")
+        || lower.contains("daily brief")
+        || lower.contains("what should i pay attention")
+        || lower.contains("top risks today")
+    {
+        requests.push(("get_daily_manager_brief".to_string(), serde_json::json!({})));
+    }
+
+    if lower.contains("manager attention")
+        || lower.contains("needs manager attention")
+        || lower.contains("what needs attention")
+        || lower.contains("top 10 risks")
+        || lower.contains("before opening")
+        || lower.contains("before closing")
+    {
+        requests.push((
+            "get_manager_attention_queue".to_string(),
+            serde_json::json!({}),
+        ));
+    }
+
+    if lower.contains("data quality")
+        || lower.contains("cleanup issues")
+        || lower.contains("bad data")
+        || lower.contains("missing barcode")
+        || lower.contains("unmatched vendor")
+    {
+        if lower.contains("cleanup") || lower.contains("needs work") || lower.contains("tasks") {
+            requests.push(("get_data_cleanup_tasks".to_string(), serde_json::json!({})));
+        }
+        requests.push((
+            "get_data_quality_summary".to_string(),
+            serde_json::json!({}),
+        ));
+    }
+
+    if (lower.contains("how many") || lower.contains("units") || lower.contains("sold"))
+        && (lower.contains(" sold") || lower.contains("sell ") || lower.contains("sales of"))
+    {
+        if let Some(query) = rosie_product_query_from_question(question) {
+            let (from, to) =
+                parse_dates_from_question(question).unwrap_or_else(default_reporting_window);
+            requests.push((
+                "get_product_sales_by_query".to_string(),
+                serde_json::json!({ "query": query, "from": from, "to": to, "limit": 25 }),
+            ));
+        }
+    }
+
+    if (lower.contains("do we have")
+        || lower.contains("in inventory")
+        || lower.contains("in stock")
+        || lower.contains("stock for")
+        || lower.contains("available"))
+        && !lower.contains("appointment")
+        && !lower.contains("wedding")
+    {
+        if let Some(query) = rosie_inventory_query_from_question(question) {
+            requests.push((
+                "get_inventory_availability".to_string(),
+                serde_json::json!({ "query": query, "limit": 25 }),
+            ));
+        }
+    }
+
+    if lower.contains("open balance")
+        || lower.contains("balance due")
+        || lower.contains("customers owe")
+    {
+        requests.push((
+            "get_customers_with_open_balances".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
+    if lower.contains("follow-up")
+        || lower.contains("follow up")
+        || lower.contains("need a call")
+        || lower.contains("needs a call")
+        || lower.contains("customers need attention")
+    {
+        requests.push((
+            "get_customers_needing_follow_up".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
+    if lower.contains("stale pickup")
+        || lower.contains("items ready but not picked up")
+        || lower.contains("ready but not picked up")
+    {
+        requests.push((
+            "get_customers_with_stale_pickups".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
+    if lower.contains("missing phone")
+        || lower.contains("missing email")
+        || lower.contains("missing contact")
+    {
+        requests.push((
+            "get_customers_with_missing_contact_info".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
+    if (lower.contains("ready for pickup") || lower.contains("ready to pick up"))
+        && (lower.contains("open order") || lower.contains("orders") || lower.contains("items"))
+    {
+        requests.push((
+            "get_open_orders_ready_for_pickup".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
+    if (lower.contains("purchase history")
+        || lower.contains("buy last")
+        || lower.contains("bought last")
+        || lower.contains("last bought")
+        || lower.contains("last purchase"))
+        && client_context
+            .and_then(|context| context.active_customer_id)
+            .is_some()
+    {
+        let customer_id = client_context
+            .and_then(|context| context.active_customer_id)
+            .expect("checked above");
+        requests.push((
+            "get_customer_purchase_history_summary".to_string(),
+            serde_json::json!({ "customer_id": customer_id }),
+        ));
+    }
+
+    if (lower.contains("size profile")
+        || lower.contains("measurements")
+        || lower.contains("what size")
+        || lower.contains("usually wear"))
+        && client_context
+            .and_then(|context| context.active_customer_id)
+            .is_some()
+    {
+        let customer_id = client_context
+            .and_then(|context| context.active_customer_id)
+            .expect("checked above");
+        requests.push((
+            "get_customer_size_profile_summary".to_string(),
+            serde_json::json!({ "customer_id": customer_id }),
+        ));
+    }
+
+    if lower.contains("appointment") || lower.contains("appointments") {
+        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
+            let today = Utc::now().date_naive();
+            if lower.contains("tomorrow") {
+                let tomorrow = today + Duration::days(1);
+                (tomorrow, tomorrow)
+            } else if lower.contains("week") {
+                (today, today + Duration::days(7))
+            } else {
+                (today, today)
+            }
+        });
+        requests.push((
+            "get_appointments_by_date".to_string(),
+            serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+        ));
+    }
+
+    if (lower.contains("wedding") || lower.contains("weddings")) && !lower.contains("action") {
+        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
+            let today = Utc::now().date_naive();
+            if lower.contains("week") {
+                (today, today + Duration::days(7))
+            } else if lower.contains("14 day") || lower.contains("two week") {
+                (today, today + Duration::days(14))
+            } else {
+                (today, today + Duration::days(30))
+            }
+        });
+        if lower.contains("missing measurement") || lower.contains("need measurement") {
+            requests.push((
+                "get_wedding_members_missing_measurements".to_string(),
+                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+            ));
+        } else if lower.contains("missing fitting")
+            || lower.contains("need fitting")
+            || lower.contains("needs a fitting")
+        {
+            requests.push((
+                "get_wedding_members_missing_fittings".to_string(),
+                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+            ));
+        } else if lower.contains("open balance") || lower.contains("balance issue") {
+            requests.push((
+                "get_wedding_members_with_open_balances".to_string(),
+                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+            ));
+        } else if lower.contains("ready for pickup") || lower.contains("ready to pick up") {
+            requests.push((
+                "get_wedding_orders_ready_for_pickup".to_string(),
+                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+            ));
+        } else if lower.contains("missing item") || lower.contains("unfulfilled") {
+            requests.push((
+                "get_wedding_unfulfilled_items".to_string(),
+                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+            ));
+        } else if lower.contains("follow-up")
+            || lower.contains("follow up")
+            || lower.contains("need a call")
+        {
+            requests.push((
+                "get_wedding_follow_up_list".to_string(),
+                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+            ));
+        } else if lower.contains("ready")
+            || lower.contains("readiness")
+            || lower.contains("need attention")
+            || lower.contains("not ready")
+        {
+            requests.push((
+                "get_upcoming_wedding_risk_report".to_string(),
+                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+            ));
+            requests.push((
+                "get_weddings_by_event_date_range".to_string(),
+                serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+            ));
+        }
+    }
+
+    if lower.contains("alteration") || lower.contains("alterations") {
+        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
+            let today = Utc::now().date_naive();
+            if lower.contains("overdue") {
+                (today - Duration::days(30), today)
+            } else if lower.contains("today") {
+                (today, today)
+            } else {
+                (today, today + Duration::days(7))
+            }
+        });
+        requests.push((
+            "get_alterations_due".to_string(),
+            serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+        ));
+    }
+
+    if lower.contains("purchase order")
+        || lower.contains("open po")
+        || lower.contains("what pos are open")
+        || lower.contains("pos are open")
+        || lower.contains("on order")
+    {
+        if lower.contains("on order") || lower.contains("what is on order") {
+            requests.push((
+                "get_items_on_order".to_string(),
+                serde_json::json!({ "limit": 25 }),
+            ));
+        } else {
+            requests.push((
+                "get_open_purchase_orders".to_string(),
+                serde_json::json!({ "limit": 25 }),
+            ));
+        }
+    }
+
+    if lower.contains("received this week")
+        || lower.contains("recent receipt")
+        || lower.contains("recent receiving")
+        || lower.contains("what did we receive")
+    {
+        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
+            let today = Utc::now().date_naive();
+            (today - Duration::days(7), today)
+        });
+        requests.push((
+            "get_recent_receipts".to_string(),
+            serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+        ));
+    }
+
+    if lower.contains("reorder")
+        || lower.contains("should we order")
+        || lower.contains("what should we order")
+    {
+        requests.push((
+            "get_inventory_reorder_candidates".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
+    if lower.contains("vendor item")
+        && (lower.contains("unmatched") || lower.contains("missing mapping"))
+    {
+        requests.push((
+            "get_unmatched_vendor_items".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
+    if lower.contains("invoice")
+        && (lower.contains("review") || lower.contains("exception") || lower.contains("missing"))
+    {
+        requests.push((
+            "get_po_invoice_exception_report".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
+    if lower.contains("loyalty") || lower.contains("points") || lower.contains("loyalty balance") {
+        if let Some(customer_id) = client_context.and_then(|context| context.active_customer_id) {
+            requests.push((
+                "get_customer_loyalty_balance".to_string(),
+                serde_json::json!({ "customer_id": customer_id }),
+            ));
+        }
+    }
+
+    if lower.contains("store credit") {
+        let mut args = serde_json::json!({ "limit": 25 });
+        if let Some(customer_id) = client_context.and_then(|context| context.active_customer_id) {
+            requests.push((
+                "get_customer_credit_summary".to_string(),
+                serde_json::json!({ "customer_id": customer_id }),
+            ));
+        } else {
+            args["customer_id"] = serde_json::Value::Null;
+            requests.push(("get_store_credit_summary".to_string(), args));
+        }
+    }
+
+    if lower.contains("gift card") && (lower.contains("summary") || lower.contains("balance")) {
+        requests.push(("get_gift_card_summary".to_string(), serde_json::json!({})));
+    }
+
+    if lower.contains("gift card") && (lower.contains("exception") || lower.contains("review")) {
+        requests.push((
+            "get_gift_card_exception_report".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
+    if lower.contains("credit liability")
+        || lower.contains("gift card liability")
+        || lower.contains("outstanding credit")
+    {
+        requests.push((
+            "get_outstanding_credit_liability_summary".to_string(),
+            serde_json::json!({}),
+        ));
+    }
+
+    if lower.contains("qbo")
+        && (lower.contains("exception")
+            || lower.contains("error")
+            || lower.contains("pending")
+            || lower.contains("review"))
+    {
+        requests.push((
+            "get_qbo_exception_summary".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
+    }
+
+    if lower.contains("qbo") && (lower.contains("sync") || lower.contains("status")) {
+        let (from, to) =
+            parse_dates_from_question(question).unwrap_or_else(default_reporting_window);
+        requests.push((
+            "get_qbo_sync_summary".to_string(),
+            serde_json::json!({ "from": from, "to": to }),
+        ));
+    }
+
+    if lower.contains("register close")
+        || lower.contains("drawer")
+        || lower.contains("cash variance")
+        || lower.contains("tender reconciliation")
+    {
+        let (from, to) = parse_dates_from_question(question).unwrap_or_else(|| {
+            let today = Utc::now().date_naive();
+            (today - Duration::days(7), today)
+        });
+        requests.push((
+            "get_register_exception_summary".to_string(),
+            serde_json::json!({ "from": from, "to": to, "limit": 25 }),
+        ));
     }
 
     requests
@@ -2023,6 +2785,342 @@ async fn rosie_capabilities(
     ))
 }
 
+async fn rosie_read_tools(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<RosieReadToolDefinition>>, Response> {
+    let (_staff, _perms) = resolve_rosie_tool_staff(&state, &headers).await?;
+    Ok(Json(rosie_read_tools::list_rosie_read_tools().to_vec()))
+}
+
+async fn resolve_rosie_tool_staff(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(AuthenticatedStaff, HashSet<String>), Response> {
+    let code = headers
+        .get("x-riverside-staff-code")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .trim();
+    let pin = headers
+        .get("x-riverside-staff-pin")
+        .and_then(|v| v.to_str().ok());
+
+    let staff = authenticate_pos_staff(&state.db, code, pin).await.map_err(|_| {
+        (
+            axum::http::StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Staff Access is required for ROSIE live data tools" })),
+        )
+            .into_response()
+    })?;
+    let perms = effective_permissions_for_staff(&state.db, staff.id, staff.role)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, staff_id = %staff.id, "resolve ROSIE tool permissions");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "permission resolution failed" })),
+            )
+                .into_response()
+        })?;
+    Ok((staff, perms))
+}
+
+fn rosie_tool_args_summary(args: &Value) -> Value {
+    match args {
+        Value::Object(map) => {
+            let mut redacted = serde_json::Map::new();
+            for (key, value) in map.iter().take(12) {
+                let lower = key.to_ascii_lowercase();
+                if lower.contains("phone")
+                    || lower.contains("email")
+                    || lower.contains("payment")
+                    || lower.contains("token")
+                    || lower.contains("secret")
+                {
+                    redacted.insert(key.clone(), Value::String("[redacted]".to_string()));
+                } else if let Some(s) = value.as_str() {
+                    redacted.insert(
+                        key.clone(),
+                        Value::String(s.chars().take(120).collect::<String>()),
+                    );
+                } else {
+                    redacted.insert(key.clone(), value.clone());
+                }
+            }
+            Value::Object(redacted)
+        }
+        _ => serde_json::json!({}),
+    }
+}
+
+async fn audit_rosie_read_tool_call(
+    state: &AppState,
+    staff_id: Uuid,
+    tool_name: &str,
+    args: &Value,
+    permission_result: &str,
+    row_count: usize,
+    success: bool,
+    error_category: Option<&str>,
+) -> bool {
+    match sqlx::query(
+        r#"
+        INSERT INTO rosie_read_tool_audit (
+            staff_id, tool_name, arguments_summary, permission_result,
+            row_count, success, error_category
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "#,
+    )
+    .bind(staff_id)
+    .bind(tool_name)
+    .bind(rosie_tool_args_summary(args))
+    .bind(permission_result)
+    .bind(row_count as i32)
+    .bind(success)
+    .bind(error_category)
+    .execute(&state.db)
+    .await
+    {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::error!(%error, staff_id = %staff_id, %tool_name, "failed to audit ROSIE read tool call");
+            false
+        }
+    }
+}
+
+fn rosie_read_tool_error_response(error: RosieReadToolError) -> (axum::http::StatusCode, Value) {
+    match error {
+        RosieReadToolError::UnknownTool => (
+            axum::http::StatusCode::NOT_FOUND,
+            serde_json::json!({ "error": "unknown ROSIE read-only tool" }),
+        ),
+        RosieReadToolError::MutationToolRejected => (
+            axum::http::StatusCode::BAD_REQUEST,
+            serde_json::json!({ "error": "ROSIE tools are read-only; mutation-like tool names are rejected" }),
+        ),
+        RosieReadToolError::InvalidInput(message) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            serde_json::json!({ "error": message }),
+        ),
+        RosieReadToolError::Database(error) => {
+            tracing::error!(%error, "ROSIE read-only tool database error");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({ "error": "ROSIE read-only tool failed" }),
+            )
+        }
+    }
+}
+
+fn date_arg(args: &Value, key: &str) -> Option<NaiveDate> {
+    args.get(key)
+        .and_then(Value::as_str)
+        .and_then(|value| NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d").ok())
+}
+
+fn rosie_reporting_request_for_read_tool(
+    tool_name: &str,
+    args: &Value,
+) -> Option<RosieReportingRunRequest> {
+    let (default_from, default_to) = default_reporting_window();
+    let from = date_arg(args, "from").unwrap_or(default_from);
+    let to = date_arg(args, "to").unwrap_or(default_to);
+    let basis = args
+        .get("basis")
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "booked" | "sale" | "completed" | "pickup"))
+        .unwrap_or("booked");
+    let limit = args
+        .get("limit")
+        .and_then(Value::as_i64)
+        .unwrap_or(50)
+        .clamp(1, 100);
+
+    let (spec_id, params) = match tool_name {
+        "get_best_sellers" => (
+            "best_sellers",
+            serde_json::json!({ "from": from, "to": to, "basis": basis, "limit": limit }),
+        ),
+        "get_sales_summary" => (
+            "sales_pivot",
+            serde_json::json!({
+                "from": from,
+                "to": to,
+                "basis": basis,
+                "group_by": args
+                    .get("group_by")
+                    .and_then(Value::as_str)
+                    .unwrap_or("category")
+            }),
+        ),
+        "get_stale_inventory" => (
+            "dead_stock",
+            serde_json::json!({
+                "from": from,
+                "to": to,
+                "basis": basis,
+                "limit": limit,
+                "max_units_sold": args
+                    .get("max_units_sold")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0)
+            }),
+        ),
+        _ => return None,
+    };
+
+    Some(RosieReportingRunRequest {
+        spec_id: spec_id.to_string(),
+        params,
+    })
+}
+
+async fn execute_rosie_read_tool_inner(
+    state: &AppState,
+    headers: &HeaderMap,
+    tool_name: &str,
+    args: Value,
+) -> Result<RosieReadToolResponse, Response> {
+    if rosie_read_tools::mutation_like_tool_name(tool_name) {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "ROSIE tools are read-only; mutation-like tool names are rejected" })),
+        )
+            .into_response());
+    }
+    let def = rosie_read_tools::tool_definition(tool_name).ok_or_else(|| {
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "unknown ROSIE read-only tool" })),
+        )
+            .into_response()
+    })?;
+    let (staff, perms) = resolve_rosie_tool_staff(state, headers).await?;
+    if !staff_has_permission(&perms, def.required_permission) {
+        audit_rosie_read_tool_call(
+            state,
+            staff.id,
+            tool_name,
+            &args,
+            "denied",
+            0,
+            false,
+            Some("permission_denied"),
+        )
+        .await;
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Staff Access does not include this ROSIE read-only tool",
+                "required_permission": def.required_permission,
+            })),
+        )
+            .into_response());
+    }
+
+    let result = if let Some(reporting_request) =
+        rosie_reporting_request_for_read_tool(tool_name, &args)
+    {
+        let report = match insights::rosie_reporting_run(state, headers, reporting_request).await {
+            Ok(report) => report,
+            Err(error) => {
+                audit_rosie_read_tool_call(
+                    state,
+                    staff.id,
+                    tool_name,
+                    &args,
+                    "allowed",
+                    0,
+                    false,
+                    Some("reporting_error"),
+                )
+                .await;
+                return Err(error.into_response());
+            }
+        };
+        Ok(RosieReadToolResponse {
+            tool_name: tool_name.to_string(),
+            basis: def.basis.to_string(),
+            filters_applied: report.params,
+            row_count: 1,
+            limited: false,
+            warnings: vec![format!(
+                "Result came from approved report {} via {}.",
+                report.spec_id, report.route
+            )],
+            data_freshness: "approved_reporting_run".to_string(),
+            generated_at: Utc::now(),
+            data: serde_json::json!({
+                "route": report.route,
+                "required_permission": report.required_permission,
+                "report": report.data
+            }),
+        })
+    } else {
+        rosie_read_tools::execute_rosie_read_tool(&state.db, tool_name, args.clone()).await
+    };
+
+    match result {
+        Ok(response) => {
+            let audited = audit_rosie_read_tool_call(
+                state,
+                staff.id,
+                tool_name,
+                &args,
+                "allowed",
+                response.row_count,
+                true,
+                None,
+            )
+            .await;
+            if !audited && rosie_read_tools::tool_requires_audit_fail_closed(tool_name) {
+                return Err((
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": "ROSIE could not audit this live-data read-only tool call, so the data was not returned"
+                    })),
+                )
+                    .into_response());
+            }
+            Ok(response)
+        }
+        Err(error) => {
+            let error_category = match &error {
+                RosieReadToolError::UnknownTool => "unknown_tool",
+                RosieReadToolError::MutationToolRejected => "mutation_tool_rejected",
+                RosieReadToolError::InvalidInput(_) => "invalid_input",
+                RosieReadToolError::Database(_) => "database_error",
+            };
+            audit_rosie_read_tool_call(
+                state,
+                staff.id,
+                tool_name,
+                &args,
+                "allowed",
+                0,
+                false,
+                Some(error_category),
+            )
+            .await;
+            let (status, body) = rosie_read_tool_error_response(error);
+            Err((status, Json(body)).into_response())
+        }
+    }
+}
+
+async fn rosie_execute_read_tool(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RosieReadToolExecuteRequest>,
+) -> Result<Json<RosieReadToolExecuteResponse>, Response> {
+    let tool_name = body.tool_name.trim();
+    let result = execute_rosie_read_tool_inner(&state, &headers, tool_name, body.arguments).await?;
+    Ok(Json(result.into()))
+}
+
 async fn run_command_capture(mut cmd: Command) -> Result<AdminOpsRunOut, Response> {
     let out = cmd.output().await.map_err(|e| {
         (
@@ -2147,6 +3245,8 @@ pub fn router() -> Router<AppState> {
             post(rosie_intelligence_refresh),
         )
         .route("/rosie/v1/capabilities", get(rosie_capabilities))
+        .route("/rosie/v1/tools", get(rosie_read_tools))
+        .route("/rosie/v1/tools/execute", post(rosie_execute_read_tool))
         .route(
             "/rosie/v1/product-catalog-analyze",
             post(rosie_product_catalog_analysis),
@@ -2327,6 +3427,13 @@ async fn rosie_chat_completions(
 ) -> Result<Response, Response> {
     let _viewer = resolve_help_viewer(&state, &headers).await?;
     let stream_requested = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    if let Some(answer) =
+        rosie_last_user_message(&body).and_then(|question| rosie_creator_answer(&question))
+    {
+        if !stream_requested {
+            return Ok(Json(rosie_static_chat_completion(answer)).into_response());
+        }
+    }
 
     if !stream_requested {
         let payload = send_rosie_provider_chat_request(QueryType::Conversation, &body)
@@ -2635,6 +3742,29 @@ async fn rosie_tool_context(
             Json(serde_json::json!({ "error": "question is required" })),
         )
             .into_response());
+    }
+
+    if let Some(answer) = rosie_creator_answer(question) {
+        sources.push(RosieToolGroundingSourceOut {
+            kind: "workflow".to_string(),
+            title: "RiversideOS origin".to_string(),
+            excerpt: answer.to_string(),
+            content: answer.to_string(),
+            manual_id: None,
+            manual_title: None,
+            section_slug: None,
+            section_heading: None,
+            anchor_id: None,
+            report_spec_id: None,
+            report_route: None,
+            route: None,
+            entity_id: Some("riversideos_origin".to_string()),
+        });
+        tool_results.push(RosieToolResultOut {
+            tool_name: "riversideos_origin".to_string(),
+            args: serde_json::json!({}),
+            result: serde_json::json!({ "answer": answer }),
+        });
     }
 
     if let Some(client_context) = body.client_context.as_ref() {
@@ -3070,6 +4200,40 @@ async fn rosie_tool_context(
                 }
                 _ => {}
             }
+        }
+
+        for (tool_name, args) in infer_read_tool_requests(question, body.client_context.as_ref()) {
+            let result =
+                execute_rosie_read_tool_inner(&state, &headers, tool_name.as_str(), args.clone())
+                    .await?;
+            sources.push(RosieToolGroundingSourceOut {
+                kind: "rosie_read_tool".to_string(),
+                title: format!("ROSIE Read Tool — {}", tool_name.replace('_', " ")),
+                excerpt: format!(
+                    "{} rows, basis {}{}",
+                    result.row_count,
+                    result.basis,
+                    if result.limited { ", limited" } else { "" }
+                ),
+                content: sanitize_excerpt(&result.data.to_string(), source_excerpt_limit),
+                manual_id: None,
+                manual_title: None,
+                section_slug: None,
+                section_heading: None,
+                anchor_id: None,
+                report_spec_id: None,
+                report_route: None,
+                route: Some(format!("/api/help/rosie/v1/tools/execute#{tool_name}")),
+                entity_id: None,
+            });
+            tool_results.push(RosieToolResultOut {
+                tool_name: "rosie_read_tool".to_string(),
+                args: serde_json::json!({
+                    "tool_name": tool_name,
+                    "arguments": args,
+                }),
+                result: serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({})),
+            });
         }
     }
 
