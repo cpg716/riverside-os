@@ -186,6 +186,17 @@ pub const ROSIE_READ_TOOLS: &[RosieReadToolDefinition] = &[
         sensitive_fields: &[],
     },
     RosieReadToolDefinition {
+        tool_name: "get_open_orders",
+        description: "List open transaction lines that have not been picked up or cancelled.",
+        category: "orders",
+        required_permission: crate::auth::permissions::ORDERS_VIEW,
+        basis: "open_order_lines",
+        max_rows: 50,
+        read_only: true,
+        mutates_data: false,
+        sensitive_fields: &[],
+    },
+    RosieReadToolDefinition {
         tool_name: "get_appointments_by_date",
         description: "List scheduled appointments in a bounded date range.",
         category: "appointments",
@@ -1038,6 +1049,71 @@ struct ReadyForPickupRow {
     product_name: Option<String>,
     quantity: i32,
     ready_for_pickup_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+struct OpenOrderRow {
+    transaction_id: Uuid,
+    transaction_display_id: Option<String>,
+    customer_id: Option<Uuid>,
+    customer_name: Option<String>,
+    line_id: Uuid,
+    sku: Option<String>,
+    product_name: Option<String>,
+    quantity: i32,
+    fulfillment: String,
+    order_lifecycle_status: String,
+    need_by_date: Option<NaiveDate>,
+    ready_for_pickup_at: Option<DateTime<Utc>>,
+}
+
+async fn open_orders(
+    pool: &PgPool,
+    def: &RosieReadToolDefinition,
+    args: &Value,
+) -> Result<RosieReadToolResponse, RosieReadToolError> {
+    let limit = limit_from_args(args, def.max_rows);
+    let rows: Vec<OpenOrderRow> = sqlx::query_as(
+        r#"
+        SELECT t.id AS transaction_id, t.display_id AS transaction_display_id,
+               c.id AS customer_id,
+               NULLIF(trim(CONCAT_WS(' ', c.first_name, c.last_name)), '') AS customer_name,
+               tl.id AS line_id, pv.sku, p.name AS product_name, tl.quantity,
+               tl.fulfillment::text AS fulfillment,
+               tl.order_lifecycle_status::text AS order_lifecycle_status,
+               tl.need_by_date,
+               tl.ready_for_pickup_at
+        FROM transaction_lines tl
+        JOIN transactions t ON t.id = tl.transaction_id
+        LEFT JOIN customers c ON c.id = t.customer_id
+        LEFT JOIN product_variants pv ON pv.id = tl.variant_id
+        LEFT JOIN products p ON p.id = tl.product_id
+        WHERE t.status::text <> 'cancelled'
+          AND COALESCE(tl.quantity, 0) > 0
+          AND COALESCE(tl.is_internal, false) = false
+          AND tl.order_lifecycle_status <> 'picked_up'
+          AND tl.fulfillment::text <> 'takeaway'
+        ORDER BY t.booked_at ASC, tl.line_display_id ASC NULLS LAST, tl.id ASC
+        LIMIT $1
+        "#,
+    )
+    .bind(limit + 1)
+    .fetch_all(pool)
+    .await?;
+    let data = rows
+        .into_iter()
+        .map(|row| serde_json::to_value(row).unwrap_or_else(|_| json!({})))
+        .collect();
+    Ok(response(
+        def.tool_name,
+        def.basis,
+        json!({ "limit": limit }),
+        limit,
+        data,
+        vec![
+            "Open orders are non-cancelled, non-internal, non-takeaway transaction lines whose order lifecycle status is not picked_up.".to_string(),
+        ],
+    ))
 }
 
 async fn open_orders_ready_for_pickup(
@@ -2961,6 +3037,7 @@ pub async fn execute_rosie_read_tool(
         "get_inventory_availability" => inventory_availability(pool, def, &args).await,
         "get_inventory_reorder_candidates" => inventory_reorder_candidates(pool, def, &args).await,
         "get_product_sales_by_query" => product_sales_by_query(pool, def, &args).await,
+        "get_open_orders" => open_orders(pool, def, &args).await,
         "get_open_orders_ready_for_pickup" => open_orders_ready_for_pickup(pool, def, &args).await,
         "get_appointments_by_date" => appointments_by_date(pool, def, &args).await,
         "get_alterations_due" => alterations_due(pool, def, &args).await,

@@ -1354,6 +1354,28 @@ mod tests {
     }
 
     #[test]
+    fn rosie_read_tool_inference_handles_open_orders_question() {
+        let requests = infer_read_tool_requests("Do we have any open orders right now?", None);
+        assert!(requests
+            .iter()
+            .any(|(tool_name, _)| tool_name == "get_open_orders"));
+        assert!(!requests
+            .iter()
+            .any(|(tool_name, _)| tool_name == "get_inventory_availability"));
+    }
+
+    #[test]
+    fn rosie_read_tool_inference_does_not_treat_order_language_as_inventory() {
+        let requests = infer_read_tool_requests("I asked about open orders", None);
+        assert!(requests
+            .iter()
+            .any(|(tool_name, _)| tool_name == "get_open_orders"));
+        assert!(!requests
+            .iter()
+            .any(|(tool_name, _)| tool_name == "get_inventory_availability"));
+    }
+
+    #[test]
     fn rosie_read_tool_inference_handles_inventory_lookup() {
         let requests = infer_read_tool_requests("Do we have navy suits in inventory?", None);
         let (_, args) = requests
@@ -1725,6 +1747,9 @@ fn rosie_inventory_query_from_question(question: &str) -> Option<String> {
         "available in ",
     ] {
         if let Some((_, tail)) = lower.split_once(marker) {
+            if rosie_tail_is_non_inventory_domain(tail) {
+                return None;
+            }
             return clean_rosie_item_query(tail);
         }
     }
@@ -1735,6 +1760,70 @@ fn rosie_inventory_query_from_question(question: &str) -> Option<String> {
         return clean_rosie_item_query(head);
     }
     None
+}
+
+fn rosie_tail_is_non_inventory_domain(value: &str) -> bool {
+    [
+        "order",
+        "orders",
+        "customer",
+        "customers",
+        "appointment",
+        "appointments",
+        "alteration",
+        "alterations",
+        "wedding",
+        "weddings",
+        "sales",
+        "sold",
+        "loyalty",
+        "points",
+        "gift card",
+        "store credit",
+        "qbo",
+        "quickbooks",
+        "purchase order",
+        "po ",
+    ]
+    .iter()
+    .any(|term| value.contains(term))
+}
+
+fn question_mentions_purchase_order_domain(lower: &str) -> bool {
+    lower.contains("purchase order")
+        || lower.contains("purchase orders")
+        || lower.contains("open po")
+        || lower.contains("open pos")
+        || lower.contains("what pos are open")
+        || lower.contains("pos are open")
+}
+
+fn question_mentions_order_domain(lower: &str) -> bool {
+    !question_mentions_purchase_order_domain(lower)
+        && (lower.contains("open order")
+            || lower.contains("open orders")
+            || lower.contains("orders open")
+            || lower.contains("order ready")
+            || lower.contains("orders ready")
+            || lower.contains("ready for pickup")
+            || lower.contains("ready to pick up")
+            || (lower.contains("order")
+                && (lower.contains("right now")
+                    || lower.contains("currently")
+                    || lower.contains("any order")
+                    || lower.contains("any orders")
+                    || lower.contains("how many")
+                    || lower.contains("count"))))
+}
+
+fn question_mentions_inventory_domain(lower: &str) -> bool {
+    lower.contains("inventory")
+        || lower.contains("stock")
+        || lower.contains("sku")
+        || lower.contains("barcode")
+        || lower.contains("available")
+        || lower.contains("reorder")
+        || lower.contains("should we order")
 }
 
 fn rosie_question_asks_mutation(question: &str) -> bool {
@@ -1995,6 +2084,9 @@ fn infer_read_tool_requests(
 ) -> Vec<(String, Value)> {
     let lower = question.to_ascii_lowercase();
     let mut requests = Vec::new();
+    let order_domain = question_mentions_order_domain(&lower);
+    let inventory_domain = question_mentions_inventory_domain(&lower);
+    let purchase_order_domain = question_mentions_purchase_order_domain(&lower);
 
     if rosie_question_asks_mutation(question) {
         return requests;
@@ -2056,9 +2148,14 @@ fn infer_read_tool_requests(
             "get_open_orders_ready_for_pickup".to_string(),
             serde_json::json!({ "limit": 25 }),
         ));
+    } else if order_domain {
+        requests.push((
+            "get_open_orders".to_string(),
+            serde_json::json!({ "limit": 25 }),
+        ));
     }
 
-    if (lower.contains("do we have")
+    if ((lower.contains("do we have") && !order_domain && !purchase_order_domain)
         || lower.contains("in inventory")
         || lower.contains("in stock")
         || lower.contains("stock for")
@@ -2067,6 +2164,7 @@ fn infer_read_tool_requests(
         && !lower.contains("wedding")
         && !lower.contains("ready for pickup")
         && !lower.contains("ready to pick up")
+        && (inventory_domain || lower.contains("do we have"))
     {
         if let Some(query) = rosie_inventory_query_from_question(question) {
             requests.push((
@@ -2251,12 +2349,7 @@ fn infer_read_tool_requests(
         ));
     }
 
-    if lower.contains("purchase order")
-        || lower.contains("open po")
-        || lower.contains("what pos are open")
-        || lower.contains("pos are open")
-        || lower.contains("on order")
-    {
+    if purchase_order_domain || lower.contains("on order") {
         if lower.contains("on order") || lower.contains("what is on order") {
             requests.push((
                 "get_items_on_order".to_string(),

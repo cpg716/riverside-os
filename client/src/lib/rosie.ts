@@ -1728,6 +1728,36 @@ function directReadyPickupAnswer(response: RosieReadToolResponseLike): string {
   return `I found ${lineCount} open order line${lineCount === 1 ? "" : "s"} ready for pickup, covering ${itemCount || lineCount} item${(itemCount || lineCount) === 1 ? "" : "s"}. ${firstRows ? `First matches: ${firstRows}. ` : ""}This uses line-level ready-for-pickup status.${limited}`.trim();
 }
 
+function directOpenOrdersAnswer(response: RosieReadToolResponseLike): string {
+  const rows = rowsFrom(response.data);
+  const lineCount = rows.length;
+  const itemCount = rows.reduce((sum, row) => sum + asNumber(row.quantity), 0);
+  const limited = response.limited ? " The result was limited, so open Orders for the full list." : "";
+  if (lineCount === 0) {
+    return "I found 0 open order lines right now.";
+  }
+
+  const statusCounts = rows.reduce<Record<string, number>>((counts, row) => {
+    const status = asText(row.order_lifecycle_status) ?? "unknown";
+    counts[status] = (counts[status] ?? 0) + 1;
+    return counts;
+  }, {});
+  const statusSummary = Object.entries(statusCounts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([status, count]) => `${count} ${labelFromKey(status)}`)
+    .join(", ");
+  const firstRows = rows
+    .slice(0, 3)
+    .map((row) => {
+      const order = asText(row.transaction_display_id) ?? "order";
+      const customer = asText(row.customer_name);
+      const item = asText(row.product_name) ?? asText(row.sku) ?? "item";
+      return `${order}${customer ? ` for ${customer}` : ""}: ${item}`;
+    })
+    .join("; ");
+  return `I found ${lineCount} open order line${lineCount === 1 ? "" : "s"} right now, covering ${itemCount || lineCount} item${(itemCount || lineCount) === 1 ? "" : "s"}. ${statusSummary ? `Status summary: ${statusSummary}. ` : ""}${firstRows ? `First matches: ${firstRows}. ` : ""}This uses non-cancelled order lines that are not picked up.${limited}`.trim();
+}
+
 function directGenericReadToolAnswer(toolName: string, response: RosieReadToolResponseLike): string {
   const rows = rowsFrom(response.data);
   const title = labelFromKey(toolName);
@@ -1748,6 +1778,13 @@ function directGenericReadToolAnswer(toolName: string, response: RosieReadToolRe
 function questionLooksLikeDataRequest(question: string): boolean {
   const lower = question.toLowerCase();
   return /\b(how many|how much|what was|what is|do we have|which|who has|show me|list|count|total|balance|points|sales|sold|best selling|best-selling|inventory|stock|orders?|pickup|appointments?|alterations?|weddings?|customers?|vendors?|purchase orders?|receiving|gift cards?|store credit|qbo|register close)\b/.test(lower);
+}
+
+function questionLooksLikeOrderRequest(question: string): boolean {
+  const lower = question.toLowerCase();
+  return /\b(open orders?|orders? open|orders? ready|ready for pickup|ready to pick up|any orders?|order count)\b/.test(
+    lower,
+  );
 }
 
 function hasStructuredDataResult(context: RosieToolContextResponse): boolean {
@@ -1777,6 +1814,9 @@ function clarificationForDataQuestion(
   if (lower.includes("customer") || lower.includes("balance")) {
     return "Which customer or account should I check? I need a customer record or clearer search detail before I can answer safely.";
   }
+  if (questionLooksLikeOrderRequest(request.question)) {
+    return "Which order view should I check: all open orders, ready-for-pickup orders, or one customer’s orders?";
+  }
   if (lower.includes("inventory") || lower.includes("stock") || lower.includes("do we have")) {
     return "Which item, SKU, barcode, size, or color should I check in inventory?";
   }
@@ -1802,8 +1842,14 @@ function directDataAnswer(
   for (const tool of context.tool_results) {
     const envelope = readToolEnvelope(tool);
     if (!envelope) continue;
+    if (questionLooksLikeOrderRequest(request.question) && envelope.toolName === "get_inventory_availability") {
+      return "I cannot answer that safely because Riverside returned Inventory Availability for an order question. Ask again after refreshing ROSIE so I can use the approved Orders tool.";
+    }
     if (envelope.toolName === "get_product_sales_by_query") {
       return directProductSalesAnswer(request, envelope.response);
+    }
+    if (envelope.toolName === "get_open_orders") {
+      return directOpenOrdersAnswer(envelope.response);
     }
     if (envelope.toolName === "get_open_orders_ready_for_pickup") {
       return directReadyPickupAnswer(envelope.response);

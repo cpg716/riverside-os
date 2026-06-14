@@ -677,6 +677,140 @@ test("Ask ROSIE asks for details when a data question has no matched tool", asyn
   expect(completionCalled).toBe(false);
 });
 
+test("Ask ROSIE answers open orders from approved order tool", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: "Do we have any open orders right now?",
+        settings: {
+          enabled: true,
+          response_style: "concise",
+          show_citations: false,
+        },
+        sources: [],
+        tool_results: [
+          {
+            tool_name: "rosie_read_tool",
+            args: {
+              tool_name: "get_open_orders",
+              arguments: { limit: 25 },
+            },
+            result: {
+              tool_name: "get_open_orders",
+              basis: "open_order_lines",
+              filters_applied: { limit: 25 },
+              row_count: 2,
+              limited: false,
+              warnings: [],
+              data_freshness: "live",
+              generated_at: "2026-06-14T20:25:00Z",
+              data: [
+                {
+                  transaction_display_id: "TXN-1001",
+                  customer_name: "Sarah Rivera",
+                  product_name: "Navy Suit",
+                  quantity: 1,
+                  order_lifecycle_status: "ntbo",
+                },
+                {
+                  transaction_display_id: "TXN-1002",
+                  customer_name: "Luis Garcia",
+                  product_name: "Black Tux",
+                  quantity: 2,
+                  order_lifecycle_status: "ready_for_pickup",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+  });
+  let completionCalled = false;
+  await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    completionCalled = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ choices: [{ message: { role: "assistant", content: "wrong path" } }] }),
+    });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+  await page.getByTestId("help-center-ask-rosie-input").fill("Do we have any open orders right now?");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+
+  await expect(page.getByText(/I found 2 open order lines right now/i)).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByText(/Navy Suit/i)).toBeVisible();
+  expect(completionCalled).toBe(false);
+});
+
+test("Ask ROSIE refuses wrong-domain inventory result for order question", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: "Do we have any open orders right now?",
+        settings: {
+          enabled: true,
+          response_style: "concise",
+          show_citations: false,
+        },
+        sources: [],
+        tool_results: [
+          {
+            tool_name: "rosie_read_tool",
+            args: {
+              tool_name: "get_inventory_availability",
+              arguments: { query: "open orders", limit: 25 },
+            },
+            result: {
+              tool_name: "get_inventory_availability",
+              basis: "available_inventory",
+              filters_applied: { query: "open orders", limit: 25 },
+              row_count: 0,
+              limited: false,
+              warnings: [],
+              data_freshness: "live",
+              generated_at: "2026-06-14T20:25:00Z",
+              data: [],
+            },
+          },
+        ],
+      }),
+    });
+  });
+  let completionCalled = false;
+  await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    completionCalled = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ choices: [{ message: { role: "assistant", content: "wrong path" } }] }),
+    });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+  await page.getByTestId("help-center-ask-rosie-input").fill("Do we have any open orders right now?");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+
+  await expect(page.getByText(/returned Inventory Availability for an order question/i)).toBeVisible({
+    timeout: 15_000,
+  });
+  expect(completionCalled).toBe(false);
+});
+
 test("Ask ROSIE narrates approved operational tool results", async ({ page }) => {
   await signInToBackOffice(page);
   await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
