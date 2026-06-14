@@ -6,7 +6,7 @@
 **Status:** Draft for execution planning  
 **Related docs:**  
 - `docs/PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md`  
-- `ThingsBeforeLaunch.md`  
+- `docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`
 - `docs/ROS_UI_CONSISTENCY_PLAN.md`  
 - `docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`  
 - `docs/STAFF_PERMISSIONS.md`  
@@ -148,7 +148,7 @@ Turn ROS into a daily decision engine, not just a system of record.
 **Objective:** close operational risk before adding major net-new features.
 
 **Scope**
-- Complete open critical items from `ThingsBeforeLaunch.md`.
+- Complete open critical items from `docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`.
 - Formalize launch-readiness scorecard (in-app or runbook-backed).
 - Execute and record:
   - backup restore drill,

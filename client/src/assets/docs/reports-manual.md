@@ -10,13 +10,13 @@ tags: reports, analytics, insights, pivot, margin, rbac, search, categories
 
 ## Screenshots
 
-![Insights dashboard](../images/help/insights/metabase-main.png)
+![Reports catalog](../images/help/reports/catalog.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Loaded Sales By Day report](../images/help/reports/sales-by-day-loaded.png)
+
+![Insights dashboard context](../images/help/insights/metabase-main.png)
 
 **Back Office → Reports** shows a **catalog** of read-only reports. Each card is wired to **Riverside** APIs and **your permissions** (not Metabase’s).
-
-![Reports catalog](../images/help/reports/catalog.png)
 
 ## Who can open it
 
@@ -64,6 +64,7 @@ Each report card shows an icon, category, intended audience, and sensitivity:
 - **Admin restricted**: **Margin pivot** is more restricted than standard sales views.
 - **Basis Accuracy**: Choose the correct **Basis** before exporting or printing; booked and completed answers are not interchangeable.
 - **Runnable cards**: Current catalog cards open live Riverside reports. Do not treat report names as a substitute for the selected date range and basis.
+- **Loaded report state**: Once a report opens, the report title, date filters, refresh action, print action, and result cards/table should all be visible together.
 
 ## Reports vs Insights
 

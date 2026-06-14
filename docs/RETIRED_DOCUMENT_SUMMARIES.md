@@ -16,6 +16,36 @@ When a Markdown file is **removed** from this repository, add an entry here **be
 
 ## Entries
 
+### Root `AI_RULES.md`
+
+| Field | Content |
+|-------|---------|
+| **Former path** | `AI_RULES.md` |
+| **Date retired** | 2026-06-13 |
+| **Why removed** | Superseded and partially incorrect. It duplicated `AGENTS.md` / `.cursorrules` while still referencing obsolete migration baselines and older pre-commit guidance. |
+| **Where content lives now** | [`AGENTS.md`](../AGENTS.md), [`.cursorrules`](../.cursorrules), [`DEVELOPER.md`](../DEVELOPER.md), [`docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`](SCHEMA_CONTRACT_AND_MIGRATIONS.md) |
+| **Summary** | Root-level assistant rules covered money/tax invariants, validation expectations, migration discipline, staff manual reminders, and stack choices. The active agent contract now lives in `AGENTS.md` and `.cursorrules`, while current schema and developer details live in `DEVELOPER.md` and the schema-contract guide. |
+
+### Root `PLAN_HELP_CENTER.md`
+
+| Field | Content |
+|-------|---------|
+| **Former path** | `PLAN_HELP_CENTER.md` |
+| **Date retired** | 2026-06-13 |
+| **Why removed** | Superseded by the shipped Help Center implementation and current maintenance runbooks. |
+| **Where content lives now** | [`docs/MANUAL_CREATION.md`](MANUAL_CREATION.md), [`docs/HELP_CENTER_AUTOMATION.md`](HELP_CENTER_AUTOMATION.md), [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md), [`client/src/assets/docs/help-center-drawer-manual.md`](../client/src/assets/docs/help-center-drawer-manual.md) |
+| **Summary** | Planned the original in-app Help drawer, markdown manifest, Meilisearch `ros_help` search, client fallback search, and manual-authoring workflow. Those pieces are now implemented and documented in the Help Center automation/manual creation guides; ongoing ROSIE Help maintenance should point to those operational docs instead of the old implementation plan. |
+
+### Root `ThingsBeforeLaunch.md`
+
+| Field | Content |
+|-------|---------|
+| **Former path** | `ThingsBeforeLaunch.md` |
+| **Date retired** | 2026-06-13 |
+| **Why removed** | Superseded and stale. It mixed older v0.2-era launch tasks, old migration numbers, and duplicate checklist items with current deployment guidance. |
+| **Where content lives now** | [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md), [`docs/RELEASE_QA_CHECKLIST.md`](RELEASE_QA_CHECKLIST.md), [`docs/RELEASE_OPERATIONAL_SIGNOFF.md`](RELEASE_OPERATIONAL_SIGNOFF.md), [`docs/STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md), [`docs/METABASE_REPORTING.md`](METABASE_REPORTING.md) |
+| **Summary** | Served as a broad pre-launch checklist covering migrations, server settings, station commissioning, hardware, Metabase, integrations, and LLM status. Current launch readiness should use the production go/no-go checklist, release QA checklist, operational signoff, store deployment guide, and focused domain docs rather than this obsolete root list. |
+
 ### Native Insights React workspace (`client/src/components/insights/`)
 
 | Field | Content |

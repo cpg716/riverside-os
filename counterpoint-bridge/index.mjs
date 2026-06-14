@@ -793,7 +793,7 @@ const SYNC_LOYALTY_HIST = false; // Forced false: we only need current loyalty b
 const SYNC_VENDOR_ITEMS = envFlag("SYNC_VENDOR_ITEMS", true);
 const SYNC_STORE_CREDIT_OPENING = envFlag("SYNC_STORE_CREDIT_OPENING", true);
 const SYNC_OPEN_DOCS = envFlag("SYNC_OPEN_DOCS", true);
-const SYNC_RECEIVING_HISTORY = envFlag("SYNC_RECEIVING_HISTORY", true);
+const SYNC_RECEIVING_HISTORY = envFlag("SYNC_RECEIVING_HISTORY", false);
 const SYNC_TICKET_NOTES = envFlag("SYNC_TICKET_NOTES", true);
 const CP_CUSTOMER_STORE_CREDIT_EXISTS_RAW = configuredSql("CP_CUSTOMER_STORE_CREDIT_EXISTS");
 const CP_CUSTOMERS_QUERY = injectStoreCreditCustomerExistsClause(
@@ -2593,7 +2593,7 @@ function importFirstProbePlan() {
     },
     { entityKey: "ticket_lines", label: "Closed ticket lines", queryKey: "ticket_lines", required: true },
     { entityKey: "ticket_payments", label: "Closed ticket payments", queryKey: "ticket_payments", required: false },
-    { entityKey: "receiving_history", label: "Receiving/movement history", queryKey: "receiving_history", required: true },
+    { entityKey: "receiving_history", label: "Receiving/movement history", queryKey: "receiving_history", required: false },
     {
       entityKey: "open_docs",
       label: "Open docs/unfulfilled obligations",
@@ -2623,7 +2623,6 @@ function bridgeStartupIssuesForImportFirst() {
   if (!SYNC_TICKETS) issues.push("SYNC_TICKETS is disabled.");
   if (!SYNC_OPEN_DOCS) issues.push("SYNC_OPEN_DOCS is disabled.");
   if (!SYNC_GIFT_CARDS) issues.push("SYNC_GIFT_CARDS is disabled.");
-  if (!SYNC_RECEIVING_HISTORY) issues.push("SYNC_RECEIVING_HISTORY is disabled.");
   return issues;
 }
 

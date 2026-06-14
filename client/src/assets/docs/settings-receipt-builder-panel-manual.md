@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
+![Receipt settings panel](../images/help/settings-receipt-builder-panel/main.png)
+
 ![Receipt preview](../images/help/pos/receipt-preview.png)
 
 ![Receipt summary](../images/help/pos/receipt-summary.png)
-
-![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
 
 ## What this is
 

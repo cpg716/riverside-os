@@ -36,8 +36,8 @@ Automatic drawer opens happen only for **CASH** and **CHECK** sales when the dra
 ### Fix “tags didn’t print”
 
 1. POS or Back Office → **Settings** → **Printers & Scanners**.
-2. Confirm the Zebra 2844 tag station is selected as an installed printer or saved with the correct network IP.
-3. Leave **Printer language** on **Auto-detect LP/TLP 2844**, or force **EPL / Zebra LP 2844** when a classic LP/TLP 2844 accepts the job but no label comes out.
+2. Confirm the Windows printer queue is named **Zebra LP 2844** on the Main Hub / tag-printing PC.
+3. Tag printing uses **EPL** only. Do not choose ZPL or auto-detect modes for Riverside clothing tags.
 4. Open **Tag Designer → Print test tag** to send a real sample label before retrying the inventory tag action.
 5. If direct dispatch fails, use the tag preview fallback and report the workstation plus SKU to support.
 
@@ -53,7 +53,7 @@ Receipt **template**, logo, header, footer, and section controls live under **Se
 
 ## Helping a coworker
 
-- Ask: **“Are you on browser or desktop app?”** Desktop can use installed printers and local hardware checks. Browser/PWA can use server-side network printing only when the API host can reach that printer.
+- Ask: **“Are you on browser or desktop app?”** Desktop can use installed receipt/report printers and local hardware checks. Tag printing routes through the Main Hub **Zebra LP 2844** queue; browser/PWA tag success still depends on that Main Hub queue working.
 - If **two lanes** show different printers, each device may have **local** POS settings — align per SOP.
 
 ## Common issues and fixes

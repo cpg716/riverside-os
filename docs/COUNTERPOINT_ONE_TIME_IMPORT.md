@@ -12,7 +12,7 @@ The default command center proves the required go-live datasets before import an
 
 1. **Inventory, catalog, and quantities** - products, variants, categories, vendors, SKU/vendor links, stock, cost, and price
 2. **Customers and CRM** - customer profiles, notes, staff attribution, and sales-rep attribution
-3. **Sales and movement history** - closed tickets, payments, lines, receiving history, and movement proof
+3. **Sales history** - closed tickets, payments, lines, and SKU-level sales proof
 4. **Open orders and layaways** - open documents, line items, deposits, and remaining open balances
 5. **Gift cards and store credit** - active gift-card balances and opening store-credit liabilities
 6. **Loyalty balances** - current customer loyalty balance proof; loyalty history is optional for go-live
@@ -37,7 +37,7 @@ Duplicate customer emails are handled row-by-row. ROS keeps the existing `custom
 
 The former 8-step guided pipeline remains available under **Legacy diagnostics** for mapping, quarantine, and exception review. It is not the operator success path:
 
-1. **SQL Bridge Sync** - sync raw staging rows from Counterpoint
+1. **SQL Bridge Sync** - sync raw Counterpoint rows from the Bridge
 2. **Inventory & Catalog Mapping** - map codes, run ROSIE AI only if needed, and fix barcodes
 3. **Customers & CRM** - review staged customer profile proof
 4. **Sales & Ticket History** - review closed ticket proof
@@ -71,10 +71,10 @@ Review **Settings → Counterpoint → Status** while the bridge is running on t
 
 - **`CP_IMPORT_SINCE`** currently in effect
 - whether the bridge is in **single-pass-per-launch** or **repeat-capable** mode
-- whether ROS will land batches through **import-first direct mode** or the legacy **staging queue**
+- whether ROS will land batches through **import-first direct mode**; staging is a deliberate support/debug mode only
 - the exact enabled **`SYNC_*`** entities in the fixed import order
 - explicit rerun warnings when known non-idempotent entities are enabled
-- source-count proof for customers, catalog, variants, inventory, tickets, ticket lines/payments, receiving history, open docs, open-doc lines/payments, gift cards, store credit, and loyalty balances
+- source-count proof for customers, catalog, variants, inventory, tickets, ticket lines/payments, open docs, open-doc lines/payments, gift cards, store credit, and loyalty balances. Receiving/movement history is optional and should not block cutover when disabled.
 
 Treat those values as the real import scope for the migration record. A preflight that returns suspiciously low open-doc counts is a **NO-GO** until the SQL mapping or Bridge configuration is corrected. Closed-ticket header counts can be lower than expected on some Counterpoint v8.4 schemas; ROS allows that as a warning only when substantial `PS_TKT_HIST_LIN` or `PS_TKT_HIST_PMT` proof is present.
 
@@ -158,8 +158,8 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 - Confirm a current ROS database backup exists and is usable before changing import state.
 - Run `RIVERSIDE_DB_NAME=riverside_os bash scripts/validate_schema_contract.sh` and `RIVERSIDE_DB_NAME=riverside_os bash scripts/migration-status-docker.sh`. Do not start final import if the active database is missing Counterpoint staging columns or has unapplied active migrations.
 - Confirm the Counterpoint bridge `.env` points at the correct Counterpoint company database and ROS server.
-- Confirm `COUNTERPOINT_SYNC_TOKEN`, `CP_IMPORT_SINCE`, `RUN_ONCE`, staging mode, and enabled `SYNC_*` entities in the bridge runtime snapshot.
-- Confirm the enabled entities follow the required order: staff / sales-rep stubs, vendors, customers, store credit opening, customer notes, category masters, catalog, inventory, vendor items, gift cards if used, tickets, open docs, receiving history if used, and loyalty history only if deliberately enabled. Keep loyalty history disabled for the current-balance snapshot cutover.
+- Confirm `COUNTERPOINT_SYNC_TOKEN`, `CP_IMPORT_SINCE`, `RUN_ONCE`, direct landing mode, and enabled `SYNC_*` entities in the bridge runtime snapshot.
+- Confirm the enabled entities follow the required order: staff / sales-rep stubs, category masters, vendors, catalog, vendor items, inventory, customers, customer notes, tickets, receiving history only if deliberately enabled, open docs, store credit opening, current loyalty balances, and gift cards. Keep loyalty history disabled for the current-balance snapshot cutover.
 - Confirm gift cards and loyalty are configured as snapshots: leave `CP_GFC_HIST_QUERY` empty, leave `CP_TICKET_GIFT_QUERY` empty, keep `SYNC_LOYALTY_HIST=0`, and ensure `CP_CUSTOMERS_QUERY` selects the current Counterpoint points balance as `pts_bal`.
 - Review **Settings → Counterpoint → Payments** and confirm every active Counterpoint tender code is mapped before importing tickets/open docs. ROS ships common defaults, but unknown tenders import as `counterpoint_unmapped` and create an unresolved sync issue rather than silently reporting as cash.
 - Decide whether to run **Settings → Counterpoint → Status → Fresh baseline reset** before this pass. Use it when you need a clean ROS import baseline while preserving reviewed Counterpoint mapping configuration.
@@ -172,9 +172,9 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 - Start the Counterpoint bridge on the Counterpoint host.
 - Start the selected entities from the bridge dashboard or allow the configured `RUN_ONCE=1` pass to begin.
 - Watch bridge status, current entity, batch counts, and errors in the bridge dashboard.
-- Watch ROS **Settings → Counterpoint → Status** for heartbeat state, staging queue movement, server sync history, and open sync issues.
-- If staging is enabled, apply only the intended staged batches and keep the inbound queue under review.
-- Do not treat Step 2 as complete until ROS shows landed Counterpoint catalog products and variants. If the workbench says **One-time import is still waiting in staging**, open the staging queue and apply the catalog/inventory batches before mapping, ROSIE review, customer import, or sign-off.
+- Watch ROS **Settings → Counterpoint → Status** for heartbeat state, server sync history, landed proof, and open sync issues.
+- If support intentionally enabled staging, apply only the intended staged batches and keep the inbound queue under review.
+- Do not treat Step 2 as complete until ROS shows landed Counterpoint catalog products and variants. If the workbench says **One-time import is still waiting in staging**, staging was enabled and the queued catalog/inventory batches must be applied before mapping, ROSIE review, customer import, or sign-off.
 
 ### Post-run verification
 
@@ -182,7 +182,7 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 - Review **Transaction Reconciliation (Preview)** for imported ticket count, lines, payments, total/payment difference, business-day grouping, and payment-type grouping.
 - Review **Open Docs / Orders Verification** for open-doc transactions, lines, payments, customer links, zero-line docs, zero-payment docs, and staff attribution.
 - Review **Inventory & Catalog Verification** for products, variants, SKU/barcode/cost/price coverage, quantity flags, category mapping, vendor links, and linked vendor count.
-- Confirm the staging queue is empty after all intended batches are applied, or document every intentionally pending/discarded batch.
+- Confirm the staging queue is empty if staging was intentionally enabled, or document every intentionally pending/discarded batch.
 - Confirm open sync issues are empty, resolved, or explicitly documented with an owner and next action.
 
 ### Acceptance criteria
@@ -306,7 +306,7 @@ Find **Landing Verification** in **Settings → Counterpoint → Status**. It is
 What it proves:
 - ROS contains Counterpoint-linked rows for the imported domains.
 - Direct-ingest and staging-applied batches have produced visible rows in the expected ROS tables.
-- Counts are available for customers, staff/map rows, vendors, categories, products, variants, vendor supplier items, gift cards, store credit openings, loyalty history, closed ticket transactions/lines/payments, open-doc transactions/lines, and receiving history.
+- Counts are available for customers, staff/map rows, vendors, categories, products, variants, vendor supplier items, gift cards, store credit openings, loyalty current balances, closed ticket transactions/lines/payments, and open-doc transactions/lines. Receiving/movement history appears only when it was deliberately enabled.
 - Customer, catalog product, catalog variant/SKU, and inventory quantity rows show source-vs-ROS count reconciliation.
 - Vendor master, category master, catalog vendor-link, and catalog category-link rows show source-vs-ROS count reconciliation.
 - Open-doc transaction and line rows show source-vs-ROS count reconciliation.
@@ -379,7 +379,7 @@ Do **not** assume every Counterpoint entity is safe to rerun. Current repeatabil
   - `loyalty_hist`
     Optional historical replay only. Keep disabled for current-balance snapshot migration.
   - `receiving_history`
-    Raw receiving rows now skip duplicate natural-key matches on rerun, but this remains analytics/history support rather than a reconciled procurement engine.
+    Optional only. Keep disabled for the Riverside cutover unless support deliberately needs procurement/movement-history analytics.
 - **Use explicit operator caution / unclear enough to avoid casual reruns**
   - any entity driven by changed SQL scope or a changed `CP_IMPORT_SINCE`
 - Staging mode can make an import appear incomplete until pending batches are manually applied.
@@ -397,7 +397,7 @@ The smallest safe posture is:
   - keep `RUN_ONCE=1`
   - rerun only the entities you are actively validating
   - review sign-off reconciliation and open issues after every pass
-  - if `gift_cards` or `receiving_history` are enabled, verify the historical rows directly instead of assuming perfect replay semantics
+  - if `receiving_history` is deliberately enabled, verify those optional rows directly instead of treating them as cutover-critical
 - **Fresh-baseline reruns**
   - if ROS needs to go back to a clean pre-go-live migration baseline, use **Settings → Counterpoint → Status → Fresh baseline reset**
   - this is the preferred reset for repeat Counterpoint import rehearsals
@@ -435,4 +435,4 @@ Immediately after the migration is accepted:
 
 ## Phase 2 (optional, separate change set)
 
-**PO receiving history**: map Counterpoint **`PO_HDR` / `PO_LIN` / PO receive tables** into ROS **`purchase_orders`**, **`purchase_order_lines`**, and **`receiving_events`**. This is **not** implemented in the bridge or API yet; design and ship in a follow-on PR after CRM, inventory, tickets, and open docs are validated.
+**PO receiving history**: optional analytics/procurement-history support only. It is not required for Riverside returns, exchanges, order pickup, gift cards, loyalty balances, or SKU sales history. Do not make it a cutover blocker unless the business explicitly decides to reconcile procurement history inside ROS.

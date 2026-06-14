@@ -546,7 +546,7 @@ The panel shows:
 
 Find this in **Settings → Integrations → Counterpoint bridge → Status → Landing Verification**. It is a read-only summary of rows that have landed in existing ROS tables after Counterpoint import passes.
 
-Use it after each repeatable pre-go-live import pass to confirm that the expected domains are present in ROS before moving to spot checks or cutover sign-off. The counts prove that ROS tables now contain Counterpoint-linked rows for the listed domains, including customers, staff/map rows, vendors, categories, products, variants, vendor supplier items, gift cards, store credit openings, loyalty history, closed tickets, open docs, and receiving history.
+Use it after each repeatable pre-go-live import pass to confirm that the expected domains are present in ROS before moving to spot checks or cutover sign-off. The counts prove that ROS tables now contain Counterpoint-linked rows for the listed domains, including customers, staff/map rows, vendors, categories, products, variants, vendor supplier items, gift cards, store credit openings, loyalty current balances, closed tickets, and open docs. Receiving/movement history appears only when that optional entity was deliberately enabled.
 
 The counts do **not** prove full business reconciliation. They do not compare financial totals to Counterpoint, prove tender/tax correctness, prove every historical row was imported, or replace staff review of edge cases. Treat them as landed-row proof only.
 

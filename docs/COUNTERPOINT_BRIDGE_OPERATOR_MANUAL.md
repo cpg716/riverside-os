@@ -1,6 +1,6 @@
 # Counterpoint bridge and ingest — operator manual
 
-Full runbook for **NCR Counterpoint (SQL Server) → Riverside OS (PostgreSQL)** using the Windows **Node bridge**, optional **staging queue**, and **Settings → Integrations → Counterpoint** hub. Data flow is **one way**: Counterpoint → ROS.
+Full runbook for **NCR Counterpoint (SQL Server) → Riverside OS (PostgreSQL)** using the Windows **Node bridge**, default full direct ingest, optional support/debug **staging queue**, and **Settings → Integrations → Counterpoint** hub. Data flow is **one way**: Counterpoint → ROS.
 
 For migration planning, treat this as a **one-time import tool**. After a successful cutover, ROS becomes the system of record and the bridge should be retired.
 
@@ -20,7 +20,7 @@ For migration planning, treat this as a **one-time import tool**. After a succes
 | **ROS API** (Rust, usually port **3000**) | Accepts batches from the bridge; writes customers, catalog, orders, etc. |
 | **PostgreSQL** | Store database; must have migrations applied (including **95** for staging/GUI toggle). |
 | **Windows bridge** (`counterpoint-bridge/index.mjs`) | Reads Counterpoint via `SQL_CONNECTION_STRING`; POSTs JSON batches to ROS with `COUNTERPOINT_SYNC_TOKEN`. |
-| **Back Office → Settings → Integrations → Counterpoint** | Bridge status, **Inbound staging** toggle, queue **Apply/Discard**, category/payment/gift **maps**, **staff link** browse (`settings.admin`). |
+| **Back Office → Settings → Integrations → Counterpoint** | Bridge status, default direct import proof, optional **Inbound staging** support queue, category/payment/gift **maps**, **staff link** browse (`settings.admin`). |
 
 Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can be sent on ingest as `x-bridge-version` (0.7.x).
 
@@ -211,7 +211,7 @@ The bridge runs a **fixed** pipeline order (not reorderable via `.env` flags):
 
 Conflicting `SYNC_*` combinations exit with `[sync-plan]` errors unless `SYNC_RELAXED_DEPENDENCIES=1` (expert incremental use only).
 
-**Rerun caution:** `gift_cards` and `receiving_history` now have narrow duplicate-skip guardrails for repeat migration passes, but they still deserve extra review and should not be rerun casually after the final accepted cutover.
+**Rerun caution:** gift-card balance snapshots upsert, but accepted cutover data should not be replayed casually. `receiving_history` is optional and disabled by default; enable it only for a deliberate procurement-history investigation.
 
 ---
 

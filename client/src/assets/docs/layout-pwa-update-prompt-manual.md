@@ -12,11 +12,11 @@ tags: layout-pwa-update-prompt, pwa, updates
 
 ## Screenshots
 
-![Help Center drawer](../images/help/help-center-drawer/example.png)
+![Back Office shell after sign-in](../images/help/operations-operational-home/main.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Help Center drawer for refresh guidance](../images/help/help-center-drawer/example.png)
 
-![Reports catalog](../images/help/reports/catalog.png)
+![Remote access panel for off-site stations](../images/help/remote-access/panel-main.png)
 
 Riverside uses this surface for both parts of the installed PWA contract:
 

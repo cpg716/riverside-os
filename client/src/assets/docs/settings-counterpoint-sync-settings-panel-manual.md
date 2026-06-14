@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Reports catalog](../images/help/reports/catalog.png)
+![Counterpoint command center](../images/help/settings-counterpoint-sync-settings-panel/main.png)
 
-![Insights dashboard](../images/help/insights/metabase-main.png)
+![Inventory control board](../images/help/inventory-control-board/main.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Orders workspace](../images/help/orders-workspace/main.png)
 
 ## What this is
 
@@ -29,7 +29,7 @@ Use this panel to verify facts. ROSIE can explain displayed facts only; it does 
 
 1. Save the **Counterpoint Bridge Token** at the top of the panel. It must exactly match `COUNTERPOINT_SYNC_TOKEN` in the Windows Bridge `.env` file.
 2. Confirm the Bridge status and workstation reachability.
-3. Use **Command center** to confirm source-count preflight passed for inventory/catalog, customers, sales and movement history, open orders, gift cards/store credit, and loyalty balances.
+3. Use **Command center** to confirm source-count preflight passed for inventory/catalog, customers, sales history, open orders, gift cards/store credit, and loyalty balances.
 4. Use **Reset Baseline** for a clean rehearsal database when needed.
 5. Click **Run Full Import** only after preflight passes.
 6. Review landed proof, rows needing review, and review-landed rows before sign-off reconciliation.
@@ -56,7 +56,7 @@ The default **Command center** is the primary one-time migration surface. Do not
 
 Command center proof is scoped to the latest import-first run when an import run exists. Accumulated verification is support-only: it can include rows from older rehearsals, support-queue diagnostics, or dirty dev data and must not be used as current-run sign-off proof.
 
-The import is proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If source counts are suspiciously low, such as too few tickets or open docs, preflight blocks the run before ROS can show a completed import.
+The import is proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If source counts are suspiciously low, such as too few open docs or tickets without line detail, preflight blocks the run before ROS can show a completed import. Receiving/movement history is optional for this cutover because Riverside OS only needs SKU sales history, not receiving history, to support historical customer lookup and returns review.
 
 After preflight passes, the Bridge starts a ROS import run before sending batches. The latest import run tile must show a running, completed, or failed run; blank run proof means the Bridge has not begun the real import path. Each successful batch records raw Counterpoint rows and provenance for landed ROS rows, and failed batches create Import exceptions for review.
 

@@ -346,6 +346,6 @@ The help manifest script **always** runs at the end of **`generate:help:componen
 
 ## Related
 
-- Plan: `PLAN_HELP_CENTER.md`
+- Help automation: `docs/HELP_CENTER_AUTOMATION.md`
 - Meilisearch: `docs/SEARCH_AND_PAGINATION.md`
 - In-app overrides / visibility: **Settings → Help center** (`help.manage`); schema migration **79**

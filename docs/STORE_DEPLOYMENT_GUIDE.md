@@ -340,7 +340,7 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 
 Configure each **Register 1** PC with either the installed **Epson TM-m30III receipt printer** selected by name or the Epson printer network address. Preferred setup for Register #1 receipts is **Network address** with a static/DHCP-reserved Epson IP because it keeps ESC/POS receipts and cash drawer kick on the direct receipt-printer path. Use **Installed printer on this PC** for USB printers, report/label printers that rely on Windows driver sizing, or as a fallback if raw network printing is not available.
 
-Configure the **Tag Station** with the installed Zebra 2844 / LP 2844 printer name or a network IP for raw label printing. Leave printer language on **Auto** for installed LP/TLP 2844 printers so ROS sends EPL, or force ZPL II only for newer Zebra/ZPL printers. Inventory tag actions send the raw label command stream directly to this station when available and open the tag preview only as a fallback.
+Configure the **Tag Station** as the installed Windows printer queue **Zebra LP 2844** on the Main Hub / tag-printing PC. Riverside clothing tags use **EPL only**; do not configure ZPL, auto-detect, or another Zebra model for tag sign-off.
 
 ### 5.1 Station commissioning checklist (go-live required)
 
@@ -365,7 +365,7 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 |---------|--------|----------------------|
 | Register 1 | **Zebra DS2208** | USB **keyboard wedge (HID)**. Focus the POS search / SKU field; scans appear as typed text. No scanner SDK in the app. |
 | Register 2 | **Zebra CS6080** | Pair to iPad as a **Bluetooth keyboard (HID)** so Safari receives scan data as keystrokes. Program a **suffix** (Enter/Tab) if your workflow needs automatic submit. |
-| Back office | **Zebra LP 2844** | **Shelf / inventory tags:** ROS generates EPL for classic LP/TLP 2844 printers or ZPL II for newer Zebra printers at 203 DPI and sends it directly to the configured **Tag Station** by installed printer name or network IP. Browser print preview is a fallback only. |
+| Back office | **Zebra LP 2844** | **Shelf / inventory tags:** ROS generates **EPL** at 203 DPI and sends it to the Windows **Zebra LP 2844** queue. Browser print preview is not proof that tag printing works. |
 | Register 1 | **Epson TM-m30III** (receipts) | Prefer **Network address** with static/DHCP-reserved IP for receipts and cash drawer. Installed-printer mode is available for USB/driver-managed fallback. |
 | Register 2 (iPad) | Receipts | See **subsection 6.2** — current app behavior. |
 | Register lanes using card present | **Helcim Terminal reader(s)** | Used for card-present checkout flow; must be registered to correct location and validated per-lane before go-live. |
@@ -381,8 +381,8 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 #### Report / label printers
 - [ ] Correct Windows/macOS driver installed.
 - [ ] Correct page size/media profile configured.
-- [ ] Zebra 2844 / LP 2844 tag station selected by installed printer name or saved with the correct network IP.
-- [ ] **Tag Designer → Print test tag** reaches the Zebra directly; preview fallback is documented for outages.
+- [ ] Windows printer queue named **Zebra LP 2844** exists on the Main Hub / tag-printing PC.
+- [ ] **Tag Designer → Print test tag** reaches the Zebra LP 2844 directly using EPL; preview fallback is documented for outages only.
 - [ ] Test report print passes with no scaling/cropping issues.
 - [ ] Fallback printer routing documented for busy-day contingencies.
 
@@ -468,9 +468,9 @@ Work with your installer or Epson docs for the TM-m30III static IP/DHCP reservat
 
 **Shelf labels (LP 2844)**
 
-1. Confirm the **LP 2844** is selected as the saved **Tag Station** installed printer or saved with the correct network IP.
-2. Retry from the inventory tag workflow. Direct label dispatch should print without a system dialog. If a classic LP/TLP 2844 accepts the job but produces no label, force **EPL / Zebra LP 2844** in **Settings → Printers & Scanners**.
-3. If direct dispatch is unavailable, use the preview fallback and verify the Zebra driver/media size before printing.
+1. Confirm Windows shows an installed printer queue named **Zebra LP 2844**.
+2. Retry from the inventory tag workflow. Direct label dispatch should print without a system dialog and should use EPL.
+3. If direct dispatch is unavailable, fix the Windows queue/driver/media size before treating tag printing as ready.
 
 ---
 

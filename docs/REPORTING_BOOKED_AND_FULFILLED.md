@@ -45,6 +45,6 @@ Current reporting schema:
 ## Related docs
 
 - **`docs/METABASE_REPORTING.md`** — Phase 2 views, OSS access model.
-- **`ThingsBeforeLaunch.md`** — Metabase + migration **106** checklist.
+- **`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`** — current launch readiness checklist.
 - **`docs/AI_REPORTING_DATA_CATALOG.md`** — Route-level permissions and parameters.
 - **`docs/BOOKED_VS_FULFILLED.md`** — Financial theory and ledger flows.

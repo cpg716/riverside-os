@@ -12,11 +12,11 @@ status: approved
 
 ## Screenshots
 
-![Scheduler workspace](../images/help/scheduler-workspace/main.png)
+![Staff schedule](../images/help/staff-schedule-panel/main.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Staff team workspace](../images/help/staff-workspace/team.png)
 
-![Alterations workspace](../images/help/alterations-workspace/main.png)
+![Appointments scheduler](../images/help/scheduler-workspace/main.png)
 
 The Staff Schedule workspace is the authoritative source for team availability in Riverside OS. It manages when consultants and tailors are working, which in turn controls appointment booking in the Scheduler and task assignments.
 
@@ -114,4 +114,3 @@ When a staff member is sick or on PTO, use the **Individual View** to record the
 - [Scheduler Workspace](manual:scheduler-workspace)
 - [Operations Home](manual:operations-operational-home)
 - [Team Roster](manual:staff-workspace)
-

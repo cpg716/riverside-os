@@ -12,9 +12,9 @@ tags: loyalty, redemption, gift-cards, checkout
 
 ## Screenshots
 
-![Register dashboard](../images/help/pos/register-dashboard.png)
+![Monthly loyalty eligibility](../images/help/loyalty-workspace/eligible.png)
 
-![Cart with lines](../images/help/pos/cart-with-lines.png)
+![Adjust loyalty points](../images/help/loyalty-workspace/adjust-points.png)
 
 ![Checkout drawer](../images/help/pos/nexo-checkout-drawer.png)
 

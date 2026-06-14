@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-13T14:50:00.541Z",
+  "generated_at": "2026-06-14T00:04:40.589Z",
   "standard_version": "help-manual-standard-v2",
   "published_manual_count": 68,
   "draft_manual_count": 0,
@@ -91,23 +91,23 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 1,
-        "reused_unique_local": 3,
+        "manual_folder_unique_local": 2,
+        "reused_unique_local": 2,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/insights/metabase-main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png"
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/reports/sales-by-day-loaded.png",
+          "client/src/assets/images/help/insights/metabase-main.png"
         ],
         "manual_folder_paths": [
-          "client/src/assets/images/help/reports/catalog.png"
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/reports/sales-by-day-loaded.png"
         ],
         "reused_paths": [
-          "client/src/assets/images/help/insights/metabase-main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png"
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/insights/metabase-main.png"
         ]
       },
       "required_buckets": [
@@ -231,15 +231,15 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+          "client/src/assets/images/help/layout-backoffice-sign-in-gate/main.png",
+          "client/src/assets/images/help/staff-workspace/team.png",
+          "client/src/assets/images/help/remote-access/panel-main.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+          "client/src/assets/images/help/layout-backoffice-sign-in-gate/main.png",
+          "client/src/assets/images/help/staff-workspace/team.png",
+          "client/src/assets/images/help/remote-access/panel-main.png"
         ]
       },
       "required_buckets": [
@@ -357,21 +357,22 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
-        "reused_unique_local": 3,
+        "manual_folder_unique_local": 1,
+        "reused_unique_local": 2,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
-          "client/src/assets/images/help/remote-access/panel-main.png"
+          "client/src/assets/images/help/settings-backups/main.png",
+          "client/src/assets/images/help/remote-access/panel-main.png",
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/settings-backups/main.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
-          "client/src/assets/images/help/remote-access/panel-main.png"
+          "client/src/assets/images/help/remote-access/panel-main.png",
+          "client/src/assets/images/help/settings-help-center-settings-panel/example.png"
         ]
       },
       "required_buckets": [
@@ -490,7 +491,7 @@
         "unique_local": 3,
         "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
-        "reused_unique_local": 0,
+        "reused_unique_local": 1,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
@@ -504,7 +505,9 @@
           "client/src/assets/images/help/bug-report-flow/help-settings.png",
           "client/src/assets/images/help/bug-report-flow/rosie-settings.png"
         ],
-        "reused_paths": []
+        "reused_paths": [
+          "client/src/assets/images/help/bug-report-flow/help-drawer.png"
+        ]
       },
       "required_buckets": [
         {
@@ -619,21 +622,23 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 1,
+        "manual_folder_unique_local": 3,
         "reused_unique_local": 1,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/orders-workspace/main.png",
-          "client/src/assets/images/help/pos/wedding-lookup-drawer.png",
-          "client/src/assets/images/help/customers-workspace/main.png"
+          "client/src/assets/images/help/customers-workspace/main.png",
+          "client/src/assets/images/help/customers-workspace/add-customer.png",
+          "client/src/assets/images/help/customers-workspace/duplicate-review.png"
         ],
         "manual_folder_paths": [
-          "client/src/assets/images/help/customers-workspace/main.png"
+          "client/src/assets/images/help/customers-workspace/main.png",
+          "client/src/assets/images/help/customers-workspace/add-customer.png",
+          "client/src/assets/images/help/customers-workspace/duplicate-review.png"
         ],
         "reused_paths": [
-          "client/src/assets/images/help/orders-workspace/main.png"
+          "client/src/assets/images/help/customers-workspace/main.png"
         ]
       },
       "required_buckets": [
@@ -670,7 +675,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 6,
+      "numbered_steps": 8,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -1667,21 +1672,23 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
+        "manual_folder_unique_local": 1,
         "reused_unique_local": 3,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/layout-backoffice-sign-in-gate/main.png",
           "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png"
+          "client/src/assets/images/help/help-center-drawer/example.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/layout-backoffice-sign-in-gate/main.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/layout-backoffice-sign-in-gate/main.png",
           "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png"
+          "client/src/assets/images/help/help-center-drawer/example.png"
         ]
       },
       "required_buckets": [
@@ -1803,15 +1810,15 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png"
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png"
+          "client/src/assets/images/help/pos/register-dashboard.png",
+          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
         ]
       },
       "required_buckets": [
@@ -1868,15 +1875,15 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
           "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png"
+          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/remote-access/panel-main.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
           "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png"
+          "client/src/assets/images/help/help-center-drawer/example.png",
+          "client/src/assets/images/help/remote-access/panel-main.png"
         ]
       },
       "required_buckets": [
@@ -1927,20 +1934,23 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
+        "manual_folder_unique_local": 2,
         "reused_unique_local": 3,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/pos/register-dashboard.png",
-          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/loyalty-workspace/eligible.png",
+          "client/src/assets/images/help/loyalty-workspace/adjust-points.png",
           "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/loyalty-workspace/eligible.png",
+          "client/src/assets/images/help/loyalty-workspace/adjust-points.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/pos/register-dashboard.png",
-          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/loyalty-workspace/eligible.png",
+          "client/src/assets/images/help/loyalty-workspace/adjust-points.png",
           "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
         ]
       },
@@ -1998,14 +2008,14 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/pos/register-dashboard.png",
-          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/loyalty-workspace/eligible.png",
+          "client/src/assets/images/help/loyalty-workspace/adjust-points.png",
           "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
-          "client/src/assets/images/help/pos/register-dashboard.png",
-          "client/src/assets/images/help/pos/cart-with-lines.png",
+          "client/src/assets/images/help/loyalty-workspace/eligible.png",
+          "client/src/assets/images/help/loyalty-workspace/adjust-points.png",
           "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
         ]
       },
@@ -2063,14 +2073,14 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/notifications-notification-center-drawer/main.png",
+          "client/src/assets/images/help/operations-operational-home/customer-notifications.png",
           "client/src/assets/images/help/orders-workspace/main.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/notifications-notification-center-drawer/main.png",
+          "client/src/assets/images/help/operations-operational-home/customer-notifications.png",
           "client/src/assets/images/help/orders-workspace/main.png"
         ]
       },
@@ -2122,20 +2132,22 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
+        "manual_folder_unique_local": 1,
         "reused_unique_local": 3,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/notifications-notification-center-drawer/main.png",
+          "client/src/assets/images/help/operations-operational-home/customer-notifications.png",
           "client/src/assets/images/help/orders-workspace/main.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/notifications-notification-center-drawer/main.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/notifications-notification-center-drawer/main.png",
+          "client/src/assets/images/help/operations-operational-home/customer-notifications.png",
           "client/src/assets/images/help/orders-workspace/main.png"
         ]
       },
@@ -2187,23 +2199,25 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 1,
+        "manual_folder_unique_local": 3,
         "reused_unique_local": 3,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
           "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png",
-          "client/src/assets/images/help/orders-workspace/main.png"
+          "client/src/assets/images/help/operations-operational-home/timeline.png",
+          "client/src/assets/images/help/operations-operational-home/customer-notifications.png"
         ],
         "manual_folder_paths": [
-          "client/src/assets/images/help/operations-operational-home/main.png"
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/operations-operational-home/timeline.png",
+          "client/src/assets/images/help/operations-operational-home/customer-notifications.png"
         ],
         "reused_paths": [
           "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/reports/catalog.png",
-          "client/src/assets/images/help/orders-workspace/main.png"
+          "client/src/assets/images/help/operations-operational-home/timeline.png",
+          "client/src/assets/images/help/operations-operational-home/customer-notifications.png"
         ]
       },
       "required_buckets": [
@@ -2260,17 +2274,17 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/orders-workspace/main.png",
           "client/src/assets/images/help/pos/receipt-summary.png",
-          "client/src/assets/images/help/orders-workspace/main.png"
+          "client/src/assets/images/help/operations-operational-home/main.png"
         ],
         "manual_folder_paths": [
           "client/src/assets/images/help/orders-workspace/main.png"
         ],
         "reused_paths": [
-          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/orders-workspace/main.png",
           "client/src/assets/images/help/pos/receipt-summary.png",
-          "client/src/assets/images/help/orders-workspace/main.png"
+          "client/src/assets/images/help/operations-operational-home/main.png"
         ]
       },
       "required_buckets": [
@@ -2392,15 +2406,15 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png",
+          "client/src/assets/images/help/settings-printers-and-scanners-panel/main.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+          "client/src/assets/images/help/operations-operational-home/main.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png",
+          "client/src/assets/images/help/settings-printers-and-scanners-panel/main.png"
         ]
       },
       "required_buckets": [
@@ -2457,15 +2471,15 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/orders-workspace/main.png",
           "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/pos/receipt-summary.png"
+          "client/src/assets/images/help/operations-operational-home/timeline.png",
+          "client/src/assets/images/help/orders-workspace/main.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
-          "client/src/assets/images/help/orders-workspace/main.png",
           "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/pos/receipt-summary.png"
+          "client/src/assets/images/help/operations-operational-home/timeline.png",
+          "client/src/assets/images/help/orders-workspace/main.png"
         ]
       },
       "required_buckets": [
@@ -3302,15 +3316,15 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/reports/catalog.png",
-          "client/src/assets/images/help/insights/metabase-main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png"
+          "client/src/assets/images/help/qbo-workspace/mappings.png",
+          "client/src/assets/images/help/qbo-workspace/connection.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
-          "client/src/assets/images/help/reports/catalog.png",
-          "client/src/assets/images/help/insights/metabase-main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png"
+          "client/src/assets/images/help/qbo-workspace/mappings.png",
+          "client/src/assets/images/help/qbo-workspace/connection.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png"
         ]
       },
       "required_buckets": [
@@ -3361,21 +3375,25 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
+        "manual_folder_unique_local": 3,
         "reused_unique_local": 3,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/reports/catalog.png",
-          "client/src/assets/images/help/insights/metabase-main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png"
+          "client/src/assets/images/help/qbo-workspace/connection.png",
+          "client/src/assets/images/help/qbo-workspace/mappings.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/qbo-workspace/connection.png",
+          "client/src/assets/images/help/qbo-workspace/mappings.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/reports/catalog.png",
-          "client/src/assets/images/help/insights/metabase-main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png"
+          "client/src/assets/images/help/qbo-workspace/connection.png",
+          "client/src/assets/images/help/qbo-workspace/mappings.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png"
         ]
       },
       "required_buckets": [
@@ -3558,21 +3576,22 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
-        "reused_unique_local": 3,
+        "manual_folder_unique_local": 1,
+        "reused_unique_local": 2,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+          "client/src/assets/images/help/settings-bug-reports-settings-panel/main.png",
+          "client/src/assets/images/help/bug-report-flow/help-drawer.png",
+          "client/src/assets/images/help/settings-ros-dev-center-panel/main.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/settings-bug-reports-settings-panel/main.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/help-center-drawer/example.png",
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
+          "client/src/assets/images/help/bug-report-flow/help-drawer.png",
+          "client/src/assets/images/help/settings-ros-dev-center-panel/main.png"
         ]
       },
       "required_buckets": [
@@ -3623,21 +3642,22 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
-        "reused_unique_local": 3,
+        "manual_folder_unique_local": 1,
+        "reused_unique_local": 2,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/reports/catalog.png",
-          "client/src/assets/images/help/insights/metabase-main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png"
+          "client/src/assets/images/help/settings-counterpoint-sync-settings-panel/main.png",
+          "client/src/assets/images/help/inventory-control-board/main.png",
+          "client/src/assets/images/help/orders-workspace/main.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/settings-counterpoint-sync-settings-panel/main.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/reports/catalog.png",
-          "client/src/assets/images/help/insights/metabase-main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png"
+          "client/src/assets/images/help/inventory-control-board/main.png",
+          "client/src/assets/images/help/orders-workspace/main.png"
         ]
       },
       "required_buckets": [
@@ -3688,21 +3708,22 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
-        "reused_unique_local": 3,
+        "manual_folder_unique_local": 1,
+        "reused_unique_local": 2,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
-          "client/src/assets/images/help/remote-access/panel-main.png"
+          "client/src/assets/images/help/settings-helcim-settings-panel/main.png",
+          "client/src/assets/images/help/remote-access/panel-main.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/settings-helcim-settings-panel/main.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
-          "client/src/assets/images/help/remote-access/panel-main.png"
+          "client/src/assets/images/help/remote-access/panel-main.png",
+          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
         ]
       },
       "required_buckets": [
@@ -3753,21 +3774,22 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
-        "reused_unique_local": 3,
+        "manual_folder_unique_local": 1,
+        "reused_unique_local": 2,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
+          "client/src/assets/images/help/settings-meilisearch-settings-panel/main.png",
           "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
-          "client/src/assets/images/help/remote-access/panel-main.png"
+          "client/src/assets/images/help/customers-workspace/main.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/settings-meilisearch-settings-panel/main.png"
+        ],
         "reused_paths": [
           "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
-          "client/src/assets/images/help/remote-access/panel-main.png"
+          "client/src/assets/images/help/customers-workspace/main.png"
         ]
       },
       "required_buckets": [
@@ -3818,21 +3840,22 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
-        "reused_unique_local": 3,
+        "manual_folder_unique_local": 1,
+        "reused_unique_local": 2,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
+          "client/src/assets/images/help/settings-receipt-builder-panel/main.png",
           "client/src/assets/images/help/pos/receipt-preview.png",
-          "client/src/assets/images/help/pos/receipt-summary.png",
-          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+          "client/src/assets/images/help/pos/receipt-summary.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/settings-receipt-builder-panel/main.png"
+        ],
         "reused_paths": [
           "client/src/assets/images/help/pos/receipt-preview.png",
-          "client/src/assets/images/help/pos/receipt-summary.png",
-          "client/src/assets/images/help/pos/nexo-checkout-drawer.png"
+          "client/src/assets/images/help/pos/receipt-summary.png"
         ]
       },
       "required_buckets": [
@@ -3954,15 +3977,15 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/scheduler-workspace/main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/alterations-workspace/main.png"
+          "client/src/assets/images/help/staff-workspace/commissions.png",
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
-          "client/src/assets/images/help/scheduler-workspace/main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/alterations-workspace/main.png"
+          "client/src/assets/images/help/staff-workspace/commissions.png",
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png"
         ]
       },
       "required_buckets": [
@@ -4013,21 +4036,23 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
+        "manual_folder_unique_local": 1,
         "reused_unique_local": 3,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/scheduler-workspace/main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/alterations-workspace/main.png"
+          "client/src/assets/images/help/staff-schedule-panel/main.png",
+          "client/src/assets/images/help/staff-workspace/team.png",
+          "client/src/assets/images/help/scheduler-workspace/main.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/staff-schedule-panel/main.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/scheduler-workspace/main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/alterations-workspace/main.png"
+          "client/src/assets/images/help/staff-schedule-panel/main.png",
+          "client/src/assets/images/help/staff-workspace/team.png",
+          "client/src/assets/images/help/scheduler-workspace/main.png"
         ]
       },
       "required_buckets": [
@@ -4078,21 +4103,23 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
-        "reused_unique_local": 3,
+        "manual_folder_unique_local": 2,
+        "reused_unique_local": 2,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/pos/receipt-summary.png",
-          "client/src/assets/images/help/pos/receipt-preview.png",
-          "client/src/assets/images/help/remote-access/panel-main.png"
+          "client/src/assets/images/help/settings-printers-and-scanners-panel/main.png",
+          "client/src/assets/images/help/settings-printers-and-scanners-panel/tag-designer.png",
+          "client/src/assets/images/help/pos/receipt-summary.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/settings-printers-and-scanners-panel/main.png",
+          "client/src/assets/images/help/settings-printers-and-scanners-panel/tag-designer.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/pos/receipt-summary.png",
-          "client/src/assets/images/help/pos/receipt-preview.png",
-          "client/src/assets/images/help/remote-access/panel-main.png"
+          "client/src/assets/images/help/settings-printers-and-scanners-panel/main.png",
+          "client/src/assets/images/help/pos/receipt-summary.png"
         ]
       },
       "required_buckets": [
@@ -4149,15 +4176,15 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/scheduler-workspace/main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/alterations-workspace/main.png"
+          "client/src/assets/images/help/staff-workspace/commissions.png",
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
-          "client/src/assets/images/help/scheduler-workspace/main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/alterations-workspace/main.png"
+          "client/src/assets/images/help/staff-workspace/commissions.png",
+          "client/src/assets/images/help/reports/catalog.png",
+          "client/src/assets/images/help/qbo-workspace/staging.png"
         ]
       },
       "required_buckets": [
@@ -4208,21 +4235,24 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
+        "manual_folder_unique_local": 2,
         "reused_unique_local": 3,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/scheduler-workspace/main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/alterations-workspace/main.png"
+          "client/src/assets/images/help/staff-workspace/team.png",
+          "client/src/assets/images/help/staff-schedule-panel/main.png",
+          "client/src/assets/images/help/staff-workspace/commissions.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/staff-workspace/team.png",
+          "client/src/assets/images/help/staff-workspace/commissions.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/scheduler-workspace/main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
-          "client/src/assets/images/help/alterations-workspace/main.png"
+          "client/src/assets/images/help/staff-workspace/team.png",
+          "client/src/assets/images/help/staff-schedule-panel/main.png",
+          "client/src/assets/images/help/staff-workspace/commissions.png"
         ]
       },
       "required_buckets": [
@@ -4273,21 +4303,23 @@
         "local_refs": 3,
         "unique_local": 3,
         "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 0,
+        "manual_folder_unique_local": 1,
         "reused_unique_local": 3,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
-          "client/src/assets/images/help/remote-access/panel-main.png"
+          "client/src/assets/images/help/settings-ros-dev-center-panel/main.png",
+          "client/src/assets/images/help/bug-report-flow/help-drawer.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
         ],
-        "manual_folder_paths": [],
+        "manual_folder_paths": [
+          "client/src/assets/images/help/settings-ros-dev-center-panel/main.png"
+        ],
         "reused_paths": [
-          "client/src/assets/images/help/settings-help-center-settings-panel/example.png",
-          "client/src/assets/images/help/settings-rosie-settings-panel/example.png",
-          "client/src/assets/images/help/remote-access/panel-main.png"
+          "client/src/assets/images/help/settings-ros-dev-center-panel/main.png",
+          "client/src/assets/images/help/bug-report-flow/help-drawer.png",
+          "client/src/assets/images/help/settings-rosie-settings-panel/example.png"
         ]
       },
       "required_buckets": [
@@ -4324,7 +4356,7 @@
           "present": false
         }
       ],
-      "numbered_steps": 4,
+      "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -4411,14 +4443,14 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
+          "client/src/assets/images/help/staff-schedule-panel/main.png",
           "client/src/assets/images/help/scheduler-workspace/main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
           "client/src/assets/images/help/alterations-workspace/main.png"
         ],
         "manual_folder_paths": [],
         "reused_paths": [
+          "client/src/assets/images/help/staff-schedule-panel/main.png",
           "client/src/assets/images/help/scheduler-workspace/main.png",
-          "client/src/assets/images/help/operations-operational-home/main.png",
           "client/src/assets/images/help/alterations-workspace/main.png"
         ]
       },

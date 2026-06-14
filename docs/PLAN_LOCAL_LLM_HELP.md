@@ -53,7 +53,7 @@ Treat these Markdown files as a **versioned policy bundle**. Changing any one wi
 | **[`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md)** | **Tool & API allowlist** — §0 route inventory, Curated Reports **`report_id` → GET**, §15 NL/time semantics | Executor maps model output **only** to routes/params documented here; **§15** trains **`basis`** / dates. |
 | **This file (`PLAN_LOCAL_LLM_HELP.md`)** | **Architecture & product** — sidecar, Tauri, voice/vision phases, privacy, Windows 11, Help UI integration | Engineers implement **trust boundary** (Axum = data); PM/ops use **phasing** and **hardware** expectations. |
 
-**Companion (shipped product context):** [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md), [`PLAN_HELP_CENTER.md`](../PLAN_HELP_CENTER.md), [`MANUAL_CREATION.md`](MANUAL_CREATION.md).
+**Companion (shipped product context):** [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md), [`MANUAL_CREATION.md`](MANUAL_CREATION.md), [`HELP_CENTER_AUTOMATION.md`](HELP_CENTER_AUTOMATION.md).
 
 **Grounding corpus (RAG allowlist, minimum):** `docs/staff/*` per [`staff/CORPUS.manifest.json`](staff/CORPUS.manifest.json), `client/src/assets/docs/*-manual.md`, the **three documents** above (chunk by `##` / §), and [`AGENTS.md`](../AGENTS.md) excerpts for **developer-mode** ROSIE only — **never** customer rows or production chat logs in embedding stores.
 
@@ -79,7 +79,7 @@ Treat these Markdown files as a **versioned policy bundle**. Changing any one wi
 
 ## Context in ROS today
 
-- **Shipped help path:** Help Center (`client/src/lib/help/`), manuals under `client/src/assets/docs/*-manual.md`, search via `GET /api/help/search` (`server/src/api/help.rs`) + optional Meilisearch (`ros_help`). See [`MANUAL_CREATION.md`](MANUAL_CREATION.md), [`PLAN_HELP_CENTER.md`](PLAN_HELP_CENTER.md).
+- **Shipped help path:** Help Center (`client/src/lib/help/`), manuals under `client/src/assets/docs/*-manual.md`, search via `GET /api/help/search` (`server/src/api/help.rs`) + optional Meilisearch (`ros_help`). See [`MANUAL_CREATION.md`](MANUAL_CREATION.md), [`HELP_CENTER_AUTOMATION.md`](HELP_CENTER_AUTOMATION.md), and [`ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
 - **Retired in-app AI platform:** Migration **78** dropped `ai_doc_chunk`, pgvector-driven RAG tables, and `POST /api/ai/*`. Any new LLM work should be a **new** architecture—not a revival of old tables without an explicit migration story.
 - **Reporting / NL safety:** [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) requires **whitelisted** specs and **no arbitrary SQL** from models; money stays server-computed (`rust_decimal`). The same discipline applies to any `ros_db_query`-style tool: **parametric, read-only, permission-gated** calls into existing Axum handlers or small `logic/*` query modules—not raw `sqlx` strings built from model text.
 
@@ -148,7 +148,7 @@ Policy pack: {POLICY_PACK_VERSION}. If a tool returns 403, explain Missing permi
 - [ ] Bump **`POLICY_PACK_VERSION`** (or git SHA label) in server config / build.
 - [ ] Re-embed or re-chunk RAG for changed sections.
 - [ ] Regression: sample tool calls for **`margin_pivot`** (403 for non-Admin), **`sales-pivot`** (`basis` fork), **`help_search`** (empty Meilisearch).
-- [ ] Update [`ThingsBeforeLaunch.md`](../ThingsBeforeLaunch.md) § LLM if go-live behavior changes.
+- [ ] Update [`PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md) and current release signoff docs if go-live behavior changes.
 
 ## Reality checks on common hardware claims
 
@@ -504,11 +504,11 @@ Pick the **inference backend** first (llama.cpp vs candle/mistral.rs vs external
   - **Settings:** **Help Center** or **Settings → Integrations**: voice on/off, mic permission hint, **no always-listening** on shared lanes unless policy allows.
 - **Visuals:** On-brand **data-theme** tokens only ([`ROS_UI_CONSISTENCY_PLAN.md`](ROS_UI_CONSISTENCY_PLAN.md)); distinct **ROSIE** identity (wordmark **ROSIE**, expand **RiversideOS Intelligence Engine** where space allows).
 - **Flags / API:** Prefer **`VITE_ROSIE_HELP_ENABLED`** (client gate) and a **`POST /api/help/rosie/*`** (or `/api/rosie/*`) BFF **once implemented** — must mirror **help viewer** auth or stricter staff-only policy; **verify** routes in [`server/src/api/mod.rs`](../server/src/api/mod.rs) before docs claim ship. Phase A may **search-fuse** text only; **UI chrome** for voice (mic/speaker/disabled stub) should land early per **§ Phased roadmap**.
-- **Pairing doc:** Shipped Help Center plan + drawer behavior: [`PLAN_HELP_CENTER.md`](../PLAN_HELP_CENTER.md); staff-facing manual workflow: [`MANUAL_CREATION.md`](MANUAL_CREATION.md).
+- **Pairing docs:** shipped Help Center behavior and maintenance: [`MANUAL_CREATION.md`](MANUAL_CREATION.md), [`HELP_CENTER_AUTOMATION.md`](HELP_CENTER_AUTOMATION.md), and [`ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
 
 ## Authoring new Help manuals: AIDOCS, Playwright, and governed learning
 
-**Scope — the only thing ROSIE autonomously builds:** The **in-app Help Center** via the **AIDOCS + Playwright** manual pipeline ([`MANUAL_CREATION.md`](MANUAL_CREATION.md), [`PLAN_HELP_CENTER.md`](../PLAN_HELP_CENTER.md)). **Nothing else** in the repo is an autonomous **write** target — not **`docs/staff/*`**, not **constitution/catalog** Markdown, not **Rust/SQL/TS** product code.
+**Scope — the only thing ROSIE autonomously builds:** The **in-app Help Center** via the **AIDOCS + Playwright** manual pipeline ([`MANUAL_CREATION.md`](MANUAL_CREATION.md), [`HELP_CENTER_AUTOMATION.md`](HELP_CENTER_AUTOMATION.md)). **Nothing else** in the repo is an autonomous **write** target — not **`docs/staff/*`**, not **constitution/catalog** Markdown, not **Rust/SQL/TS** product code.
 
 **Posture — current, not deferred:** ROSIE runs **on her own** **nightly** (and on demand after large merges) to keep that **Help** corpus aligned with the UI: **`client/src/assets/docs/*-manual.md`**, **`client/src/assets/images/help/<id>/`**, **`npm run generate:help`**, **`ros_help`** reindex, and **help-scoped** retrieval artifacts — so **Browse**, **Search**, and **Ask ROSIE** share one **grounded** Help source.
 
@@ -529,7 +529,7 @@ Each run should be **idempotent**, **logged**, and **redaction-safe**:
 
 ### AIDOCS (mechanical layer)
 
-**[aidocs-cli](https://github.com/BinarCode/aidocs-cli)** and [`MANUAL_CREATION.md`](MANUAL_CREATION.md) / [`PLAN_HELP_CENTER.md`](../PLAN_HELP_CENTER.md) remain the **human-facing** procedure; ROSIE **wraps** them in the nightly job so **captures and Markdown stay in sync** without waiting for a human to remember.
+**[aidocs-cli](https://github.com/BinarCode/aidocs-cli)**, [`MANUAL_CREATION.md`](MANUAL_CREATION.md), and [`HELP_CENTER_AUTOMATION.md`](HELP_CENTER_AUTOMATION.md) remain the **human-facing** procedure; ROSIE **wraps** them in the nightly job so **captures and Markdown stay in sync** without waiting for a human to remember.
 
 ### Playwright (authoring and QA — not production “eyes”)
 

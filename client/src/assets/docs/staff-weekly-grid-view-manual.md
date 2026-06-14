@@ -12,9 +12,9 @@ status: approved
 
 ## Screenshots
 
-![Scheduler workspace](../images/help/scheduler-workspace/main.png)
+![Staff schedule](../images/help/staff-schedule-panel/main.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Appointments scheduler](../images/help/scheduler-workspace/main.png)
 
 ![Alterations workspace](../images/help/alterations-workspace/main.png)
 
@@ -59,4 +59,3 @@ Use the **Store Events** row at the top of the grid to manage shared activities:
 
 - [Staff Workspace](manual:staff-workspace)
 - [Staff Schedule Panel](manual:staff-schedule-panel)
-

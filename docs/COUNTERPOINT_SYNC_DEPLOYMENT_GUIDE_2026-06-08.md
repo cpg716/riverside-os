@@ -297,13 +297,14 @@ COUNTERPOINT_SYNC_TOKEN=<matching ROS token>
 SQL_CONNECTION_STRING=<Counterpoint company database connection>
 ```
 
-The bridge is built for Riverside's NCR Counterpoint POS v8.4 environment and generates the extraction SQL at runtime from `INFORMATION_SCHEMA`. The default runtime posture imports the full supported go-live set when the corresponding Counterpoint tables are visible: staff/sales reps, vendors/vendor items, customers/notes/current loyalty balance, category/catalog/matrix/inventory, gift cards/store credit, closed ticket history/payments/notes, open documents, and receiving history.
+The bridge is built for Riverside's NCR Counterpoint POS v8.4 environment and generates the extraction SQL at runtime from `INFORMATION_SCHEMA`. The default runtime posture imports the full supported go-live set when the corresponding Counterpoint tables are visible: staff/sales reps, vendors/vendor items, customers/notes/current loyalty balance, category/catalog/matrix/inventory, gift cards/store credit, closed ticket history/payments/notes, and open documents. Receiving/movement history is optional and disabled by default; Riverside needs SKU sales history from closed tickets, not purchase receiving history, for the cutover.
 
 Important:
 
 - Keep the normal `.env` connection-only. Do not paste `CP_*_QUERY` SQL into `.env` unless an expert override is explicitly approved.
 - Current loyalty balances come from `AR_CUST`; historical loyalty replay remains disabled for go-live.
 - Historical gift-card activity remains disabled for cutover. Current card balances are the cutover source.
+- Keep `SYNC_RECEIVING_HISTORY=0` unless support deliberately enables it for procurement-history research.
 - If an optional module table is absent, the runtime mapper skips that entity and the cutover record should document the excluded domain.
 
 ## Fixed Import Order
@@ -322,8 +323,11 @@ The bridge always runs entities in this order:
 10. Vendor items
 11. Gift cards
 12. Closed tickets
-13. Open docs
-14. Receiving history
+13. Receiving history, only when `SYNC_RECEIVING_HISTORY=1`
+14. Open docs
+15. Store credit opening
+16. Loyalty balances
+17. Gift cards
 
 Do not try to control import behavior by reordering `.env` lines. The bridge uses a fixed, dependency-safe import order.
 
@@ -338,7 +342,7 @@ Complete this before each rehearsal or final run.
 - Main Hub API is reachable at `http://<MAIN_HUB_LAN_IP>:3000`.
 - Migrations and schema contract are current.
 - `COUNTERPOINT_SYNC_TOKEN` is saved in Settings.
-- Inbound staging is OFF for bulk direct import, unless staging is intentionally selected.
+- Inbound staging is OFF for the full import. Use staging only when support intentionally needs a review/debug queue.
 - Payment/category/gift maps are reviewed.
 - Fresh baseline reset is performed if this is a repeat rehearsal that needs a clean ROS import baseline.
 
@@ -385,7 +389,7 @@ The bridge runs one full pass through runtime-mapped entities and stops. Run the
 
 On the Counterpoint PC:
 
-- Bridge console should show `[ingest] Mode: direct` or `[ingest] Mode: staging`.
+- Bridge console should normally show `[ingest] Mode: direct`. `[ingest] Mode: staging` is a deliberate support/debug posture and requires applying queued batches before proof can pass.
 - Dashboard is available at `http://localhost:3002`.
 - Watch current entity, batch counts, slow statement warnings, and failures.
 
@@ -400,7 +404,7 @@ Watch:
 - Bridge online/offline state
 - Bridge version and hostname
 - Current entity / phase
-- Direct vs staging mode
+- Direct import mode
 - Enabled entities and import floor
 - Sync run history
 - Landing Verification
@@ -410,7 +414,7 @@ Watch:
 - Quarantine summary
 - Open sync issues
 
-If staging is enabled, also watch:
+If support intentionally enabled staging, also watch:
 
 ```text
 Settings -> Integrations -> Counterpoint -> Inbound queue

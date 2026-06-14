@@ -116,7 +116,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 
 | Method | Path | Permission / notes |
 |--------|------|---------------------|
-| GET | `/api/help/search` | **`require_help_viewer`**: authenticated **staff headers** **or** **valid open register session** (POS token headers). Query **`q`** (required text), **`limit`** (default 12). Returns **`{ "hits": [] }`** when **Meilisearch** is not configured on the server. Hits filtered by **`help_manual_policy`** and POS-only mode — see [`PLAN_HELP_CENTER.md`](../PLAN_HELP_CENTER.md). |
+| GET | `/api/help/search` | **`require_help_viewer`**: authenticated **staff headers** **or** **valid open register session** (POS token headers). Query **`q`** (required text), **`limit`** (default 12). Returns **`{ "hits": [] }`** when **Meilisearch** is not configured on the server. Hits filtered by **`help_manual_policy`** and POS-only mode — see [`MANUAL_CREATION.md`](MANUAL_CREATION.md) and [`HELP_CENTER_AUTOMATION.md`](HELP_CENTER_AUTOMATION.md). |
 | GET | `/api/help/manuals` | Same viewer — visible manual list for the drawer. |
 | GET | `/api/help/manuals/{manual_id}` | Same viewer — one manual body for display. |
 | GET | `/api/help/admin/manuals` | **`help.manage`** — catalog for Settings overrides. |
@@ -779,7 +779,7 @@ Prefix each with a **system** reminder: “Only use Riverside APIs and documents
 **A:** “**Booked** uses the sale/checkout business date. **Fulfillment** (often called fulfilled/pickup in APIs) moves revenue to **pickup** (`fulfilled_at`) or **ship** events. Pivots take a **`basis`** parameter; **NYS tax audit** is fulfillment-only. See [**`REPORTING_BOOKED_AND_FULFILLED.md`**](REPORTING_BOOKED_AND_FULFILLED.md).“
 
 **Q2:** “Why does margin say 403?”  
-**A:** “**`GET /api/insights/margin-pivot`** is **Admin-only** in Riverside, not merely **`insights.view`**. Metabase margin may also need **admin-class** Metabase accounts — see [**`METABASE_REPORTING.md`**](METABASE_REPORTING.md) and **`ThingsBeforeLaunch.md`**.“
+**A:** “**`GET /api/insights/margin-pivot`** is **Admin-only** in Riverside, not merely **`insights.view`**. Metabase margin may also need **admin-class** Metabase accounts — see [**`METABASE_REPORTING.md`**](METABASE_REPORTING.md).“
 
 **Q3:** “How do I answer “sales last week” precisely?”  
 **A:** “Confirm whether “last week” means **booked** or **fulfilled**, pick **`from`/`to`**, call **`sales-pivot`** with matching **`basis`**, and respect **200-row truncation** if present.”
@@ -794,8 +794,8 @@ Prefix each with a **system** reminder: “Only use Riverside APIs and documents
 - [**`AI_CONTEXT_FOR_ASSISTANTS.md`**](AI_CONTEXT_FOR_ASSISTANTS.md) — routing: procedures vs §15; **ROSIE** **§13** runtime contract; training §9–§12
 - [**`PLAN_LOCAL_LLM_HELP.md`**](PLAN_LOCAL_LLM_HELP.md) — **three-document bundle**, tool **“Hands”** table, system prompt stub, architecture (**ROSIE** not shipped by default)
 - [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) — Pillar 4 saved reports + narrate + RBAC parity; retired **`/api/ai`** (**migration 78**)
-- [`ThingsBeforeLaunch.md`](../ThingsBeforeLaunch.md) — Metabase Staff vs Admin, **migration 107**, LLM go-live checklist
-- [**`PLAN_HELP_CENTER.md`**](../PLAN_HELP_CENTER.md), [**`docs/MANUAL_CREATION.md`**](MANUAL_CREATION.md) — **`ros_help`**, manual ingest, **`help.manage`**
+- [`PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md) — current production go/no-go checklist
+- [**`docs/MANUAL_CREATION.md`**](MANUAL_CREATION.md), [**`docs/HELP_CENTER_AUTOMATION.md`**](HELP_CENTER_AUTOMATION.md) — **`ros_help`**, manual ingest, **`help.manage`**
 - [**`docs/STAFF_PERMISSIONS.md`**](STAFF_PERMISSIONS.md) — role × permission matrix and middleware patterns
 - [**`docs/AI_INTEGRATION_OUTLOOK.md`**](AI_INTEGRATION_OUTLOOK.md) — product intent
 - [**`docs/METABASE_REPORTING.md`**](METABASE_REPORTING.md), [**`docs/REPORTING_BOOKED_AND_FULFILLED.md`**](REPORTING_BOOKED_AND_FULFILLED.md) — Phase 1 proxy vs Phase 2 **`reporting.*`** / booked vs fulfillment

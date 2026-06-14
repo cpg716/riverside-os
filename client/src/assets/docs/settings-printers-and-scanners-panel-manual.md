@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Receipt summary](../images/help/pos/receipt-summary.png)
+![Printers and Scanners settings](../images/help/settings-printers-and-scanners-panel/main.png)
 
-![Receipt preview](../images/help/pos/receipt-preview.png)
+![Tag Designer context](../images/help/settings-printers-and-scanners-panel/tag-designer.png)
 
-![Remote access panel](../images/help/remote-access/panel-main.png)
+![Sale complete receipt actions](../images/help/pos/receipt-summary.png)
 
 ## What this is
 
@@ -39,7 +39,7 @@ Use this panel when opening a new lane, replacing a printer, checking scanner in
 6. Use **Print test tag** on the Clothing Tag Station card, or open **Tag Designer → Print test tag**, to send an actual EPL test label using the current saved tag layout. The success message appears only after ROS dispatches to the Zebra LP 2844 queue.
 7. In POS, use **Print test** to send a short Epson test receipt.
 8. Use **Open drawer** only when you need a manual drawer open. Enter a reason and the acting staff member's **Access PIN** so the event is recorded for the Z-report.
-9. Use **Check connection** for the receipt and Reports printers. The desktop app checks installed printers directly; PWA/browser mode asks the Riverside server to check receipt/tag network printer IP and port.
+9. Use **Check connection** for the receipt and Reports printers. The desktop app checks installed printers directly; PWA/browser mode asks the Riverside server to check the receipt network path and Main Hub tag route.
 10. Focus the scanner test field and scan a barcode to confirm HID keyboard input is reaching ROS.
 
 ## Recovery and escalation

@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+![ROS Dev Center overview](../images/help/settings-ros-dev-center-panel/main.png)
+
+![Bug report dialog](../images/help/bug-report-flow/help-drawer.png)
 
 ![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
-
-![Remote access panel](../images/help/remote-access/panel-main.png)
 
 ## What this is
 
@@ -29,8 +29,9 @@ Use it to review health, recent incidents, guarded operations, and diagnostic hi
 
 1. Open ROS Dev Center from the protected settings area.
 2. Review available diagnostics and any degraded feed indicators.
-3. Share report IDs, routes, or correlation IDs with support.
-4. Run protected actions only when a manager or developer asks for them.
+3. Check the connection pool, server environment, E2E regression lane, and guarded action cards before escalating.
+4. Share report IDs, routes, or correlation IDs with support.
+5. Run protected actions only when a manager or developer asks for them.
 
 ## When to use it
 

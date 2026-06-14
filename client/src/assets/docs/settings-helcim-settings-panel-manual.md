@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+![Helcim settings](../images/help/settings-helcim-settings-panel/main.png)
 
-![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+![Remote access panel for webhook setup](../images/help/remote-access/panel-main.png)
 
-![Remote access panel](../images/help/remote-access/panel-main.png)
+![Checkout drawer for payment context](../images/help/pos/nexo-checkout-drawer.png)
 
 <!-- help:component-source -->
 _Linked component: `client/src/components/settings/HelcimSettingsPanel.tsx`._

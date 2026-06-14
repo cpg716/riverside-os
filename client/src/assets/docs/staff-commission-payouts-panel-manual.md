@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Scheduler workspace](../images/help/scheduler-workspace/main.png)
+![Staff commissions workspace](../images/help/staff-workspace/commissions.png)
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Reports catalog for payroll review](../images/help/reports/catalog.png)
 
-![Alterations workspace](../images/help/alterations-workspace/main.png)
+![QBO staging queue](../images/help/qbo-workspace/staging.png)
 
 ## What This Is
 

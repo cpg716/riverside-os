@@ -12,11 +12,11 @@ tags: customers, support, relationships, duplicate-review
 
 ## Screenshots
 
-![Orders workspace](../images/help/orders-workspace/main.png)
-
-![Wedding lookup drawer](../images/help/pos/wedding-lookup-drawer.png)
-
 ![Customers workspace](../images/help/customers-workspace/main.png)
+
+![Add Customer drawer](../images/help/customers-workspace/add-customer.png)
+
+![Duplicate Review queue](../images/help/customers-workspace/duplicate-review.png)
 ## What this is
 
 Use this workspace to:
@@ -64,11 +64,13 @@ The relationship hub supports customer review. The RMS workspace supports financ
 ## How to use it
 
 1. Search for the correct customer first.
-2. Use the lifecycle filter when you need to isolate new customers, active follow-up, ready pickups, completed history, or issues.
-3. Open the customer row to review the relationship hub.
-4. Use the relationship hub tabs for profile, orders, messages, measurements, weddings, and shipments.
-5. Return to the main workspace if you need a different customer.
-6. Move to `RMS Charge` only when the question is about RMS financing accounts or RMS support follow-up.
+2. Use **Add Customer** when the person is not already in Riverside. Enter name and contact details first, then address, notes, and preferences.
+3. Use the lifecycle filter when you need to isolate new customers, active follow-up, ready pickups, completed history, or issues.
+4. Open the customer row to review the relationship hub.
+5. Use the relationship hub tabs for profile, orders, messages, measurements, weddings, and shipments.
+6. Use **Duplicate Review** when Riverside flags likely duplicate customer records.
+7. Return to the main workspace if you need a different customer.
+8. Move to `RMS Charge` only when the question is about RMS financing accounts or RMS support follow-up.
 
 ## Related sections
 
@@ -81,5 +83,6 @@ The relationship hub supports customer review. The RMS workspace supports financ
 
 - Start with the active Riverside customer profile, not a name-only match.
 - Use phone, customer code, and wedding context to confirm the right record before taking action.
+- When adding a customer, keep the required identity/contact fields complete before moving to optional preferences.
 - If the issue is financing-specific, do not try to solve it from the relationship hub alone. Open `RMS Charge`.
 - A `Profile incomplete` chip on the browse row means the record is missing either phone or email, even if the rest of the account looks active.

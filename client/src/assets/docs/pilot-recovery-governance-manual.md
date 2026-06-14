@@ -11,11 +11,11 @@ status: approved
 
 ## Screenshots
 
-![Help Center drawer](../images/help/help-center-drawer/example.png)
+![Operations Home](../images/help/operations-operational-home/main.png)
 
-![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+![QBO staging review](../images/help/qbo-workspace/staging.png)
 
-![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+![Printers and scanners](../images/help/settings-printers-and-scanners-panel/main.png)
 
 ## What this is
 

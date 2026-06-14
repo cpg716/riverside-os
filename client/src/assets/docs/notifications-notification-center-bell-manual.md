@@ -13,9 +13,9 @@ status: approved
 
 ## Screenshots
 
-![Operational home](../images/help/operations-operational-home/main.png)
+![Notification drawer](../images/help/notifications-notification-center-drawer/main.png)
 
-![Reports catalog](../images/help/reports/catalog.png)
+![Operations notification queue](../images/help/operations-operational-home/customer-notifications.png)
 
 ![Orders workspace](../images/help/orders-workspace/main.png)
 

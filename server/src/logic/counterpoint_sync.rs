@@ -4299,7 +4299,6 @@ fn counterpoint_preflight_required_probe_entities() -> &'static [&'static str] {
         "tickets",
         "ticket_lines",
         "ticket_payments",
-        "receiving_history",
         "open_docs",
         "open_doc_lines",
         "open_doc_payments",
@@ -4316,7 +4315,6 @@ fn counterpoint_preflight_zero_block_entities() -> &'static [&'static str] {
         "inventory_quantity_rows",
         "tickets",
         "ticket_lines",
-        "receiving_history",
         "open_docs",
         "open_doc_lines",
         "gift_cards",
@@ -4411,6 +4409,16 @@ pub async fn record_counterpoint_import_preflight(
     }
 
     let mut seen_counts: HashMap<String, i64> = HashMap::new();
+    let incoming_counts: HashMap<String, i64> = payload
+        .counts
+        .iter()
+        .map(|row| {
+            (
+                normalize_import_entity_key(&row.entity_key),
+                row.source_count,
+            )
+        })
+        .collect();
     let mut count_rows = Vec::with_capacity(payload.counts.len());
     let mut insert_rows = Vec::with_capacity(payload.counts.len());
 
@@ -4442,8 +4450,19 @@ pub async fn record_counterpoint_import_preflight(
             .or_else(|| default_suspicious_min_for_import_entity(&entity_key));
         let mut status = normalize_import_count_status(row.status.as_deref()).to_string();
         let mut message = row.message.as_ref().map(|value| value.trim().to_string());
+        let effective_required = row.required && entity_key != "receiving_history";
 
-        if row.required && status == "missing_mapping" {
+        if entity_key == "receiving_history"
+            && matches!(status.as_str(), "blocked" | "missing_mapping")
+        {
+            status = "warning".into();
+            message.get_or_insert_with(|| {
+                "Receiving/movement history is optional for the Counterpoint cutover import."
+                    .to_string()
+            });
+        }
+
+        if effective_required && status == "missing_mapping" {
             push_import_preflight_blocker(
                 &mut blockers,
                 Some(&entity_key),
@@ -4452,7 +4471,7 @@ pub async fn record_counterpoint_import_preflight(
             );
             status = "blocked".into();
         }
-        if row.required
+        if effective_required
             && row.source_count == 0
             && counterpoint_preflight_zero_block_entities().contains(&entity_key.as_str())
         {
@@ -4472,13 +4491,23 @@ pub async fn record_counterpoint_import_preflight(
                     "{label} returned {} source rows, below the suspicious minimum of {min_count}.",
                     row.source_count
                 );
-                push_import_preflight_blocker(
-                    &mut blockers,
-                    Some(&entity_key),
-                    "suspicious_low_source_count",
-                    msg.clone(),
-                );
-                status = "blocked".into();
+                let has_detail_proof = entity_key == "tickets"
+                    && incoming_counts
+                        .get("ticket_lines")
+                        .copied()
+                        .unwrap_or_default()
+                        > 0;
+                if has_detail_proof {
+                    status = "warning".into();
+                } else {
+                    push_import_preflight_blocker(
+                        &mut blockers,
+                        Some(&entity_key),
+                        "suspicious_low_source_count",
+                        msg.clone(),
+                    );
+                    status = "blocked".into();
+                }
                 message.get_or_insert(msg);
             }
         }
@@ -13775,6 +13804,72 @@ mod tests {
             .find(|row| row.entity_key == "tickets")
             .expect("ticket count row");
         assert_eq!(ticket_row.status, "warning");
+
+        sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = $1")
+            .bind(summary.import_run_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup preflight run");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_import_preflight_allows_optional_receiving_history_gap() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        ensure_counterpoint_import_first_tables(&pool).await;
+        let mut counts = realistic_import_preflight_counts();
+        for row in &mut counts {
+            match row.entity_key.as_str() {
+                "tickets" => row.source_count = 186,
+                "ticket_lines" => row.source_count = 109_093,
+                "ticket_payments" => row.source_count = 71_708,
+                "receiving_history" => {
+                    row.source_count = 0;
+                    row.required = false;
+                    row.status = Some("ok".into());
+                    row.message =
+                        Some("Receiving/movement history returned zero source rows.".into());
+                }
+                "open_docs" => row.source_count = 2_123,
+                "open_doc_lines" => row.source_count = 3_167,
+                "open_doc_payments" => row.source_count = 2_198,
+                _ => {}
+            }
+        }
+
+        let summary = record_counterpoint_import_preflight(
+            &pool,
+            CounterpointImportPreflightPayload {
+                history_start: Some("2018-01-01".into()),
+                bridge_hostname: Some("test-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some("test-zero-receiving-history".into()),
+                import_first: true,
+                staging_enabled: false,
+                dry_run: false,
+                startup_issues: vec![],
+                counts,
+                metadata: serde_json::json!({ "test": true }),
+            },
+        )
+        .await
+        .expect("record preflight");
+
+        assert!(summary.preflight_passed);
+        assert!(summary.blockers.is_empty());
+        let ticket_row = summary
+            .counts
+            .iter()
+            .find(|row| row.entity_key == "tickets")
+            .expect("ticket count row");
+        assert_eq!(ticket_row.status, "warning");
+        let receiving_row = summary
+            .counts
+            .iter()
+            .find(|row| row.entity_key == "receiving_history")
+            .expect("receiving count row");
+        assert_eq!(receiving_row.status, "ok");
 
         sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = $1")
             .bind(summary.import_run_id)

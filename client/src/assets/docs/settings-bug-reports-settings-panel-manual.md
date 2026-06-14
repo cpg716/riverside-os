@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Help Center drawer](../images/help/help-center-drawer/example.png)
+![Bug reports support center](../images/help/settings-bug-reports-settings-panel/main.png)
 
-![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
+![Bug report dialog](../images/help/bug-report-flow/help-drawer.png)
 
-![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
+![ROS Dev Center](../images/help/settings-ros-dev-center-panel/main.png)
 
 ## What this is
 

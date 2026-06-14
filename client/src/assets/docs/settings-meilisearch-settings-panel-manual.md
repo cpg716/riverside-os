@@ -13,11 +13,11 @@ status: published
 
 ## Screenshots
 
+![Meilisearch settings](../images/help/settings-meilisearch-settings-panel/main.png)
+
 ![Help Center settings](../images/help/settings-help-center-settings-panel/example.png)
 
-![ROSIE settings](../images/help/settings-rosie-settings-panel/example.png)
-
-![Remote access panel](../images/help/remote-access/panel-main.png)
+![Customers workspace search context](../images/help/customers-workspace/main.png)
 
 <!-- help:component-source -->
 _Linked component: `client/src/components/settings/MeilisearchSettingsPanel.tsx`._

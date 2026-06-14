@@ -13,11 +13,11 @@ status: approved
 
 ## Screenshots
 
-![Reports catalog for accounting context](../images/help/reports/catalog.png)
+![QBO connection health](../images/help/qbo-workspace/connection.png)
 
-![Insights dashboard for accounting review](../images/help/insights/metabase-main.png)
+![QBO mapping review](../images/help/qbo-workspace/mappings.png)
 
-![Operational home for daily review](../images/help/operations-operational-home/main.png)
+![QBO staging queue](../images/help/qbo-workspace/staging.png)
 
 ## What this is
 

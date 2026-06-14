@@ -20,7 +20,7 @@ Since v0.7.3, the bridge uses a high-concurrency parallel engine:
 | `COUNTERPOINT_SYNC_TOKEN` | Must match `COUNTERPOINT_SYNC_TOKEN` on the ROS server |
 Normal setup keeps `.env` to these three values only. The bridge derives the entity SQL at runtime from `INFORMATION_SCHEMA`.
 
-Run order is **fixed in code** each pass: **staff -> optional sales-rep stubs -> vendors -> customers -> optional store credit -> notes -> catalog -> inventory -> vendor_items -> gift cards -> tickets -> optional open docs -> receiving history**. Current loyalty balances are imported through customers as `pts_bal`; loyalty history stays disabled for go-live. Legacy `CP_*_QUERY` overrides are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
+Run order is **fixed in code** each pass: **staff -> optional sales-rep stubs -> category masters -> vendors -> catalog -> vendor_items -> inventory -> customers -> notes -> tickets/sales history -> optional receiving history -> open docs -> optional store credit -> loyalty balances -> gift cards**. Current loyalty balances are imported through customers as `pts_bal`; loyalty history stays disabled for go-live. Legacy `CP_*_QUERY` overrides are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
 
 ## One-time migration posture
 
@@ -30,7 +30,7 @@ Run order is **fixed in code** each pass: **staff -> optional sales-rep stubs ->
 - After customer and gift-card syncs, the bridge posts source count/sum proof to ROS. In **Settings → Counterpoint → Status → Landing Verification**, gift-card current balances and loyalty current points should show **Pass** before cutover sign-off.
 - The migration floor is expected to stay at the approved cutover date unless you are deliberately running a narrower test cut.
 - Review the ROS **Settings → Counterpoint → Status** panel before running. It now shows the active import floor, enabled entities, landing mode, and rerun warnings based on the bridge process that is actually running.
-- If **`receiving_history`** is enabled, assume that entity is **not safe to rerun blindly**. Gift-card current balance snapshots upsert, but historical gift-card activity should stay disabled for cutover.
+- Receiving/movement history is **disabled by default** and is not required for the Riverside cutover. SKU sales history comes from closed ticket headers, lines, and payments. Enable `SYNC_RECEIVING_HISTORY=1` only for a deliberate analytics/procurement-history investigation.
 - After a successful migration, stop the bridge and retire it from the Counterpoint host.
 
 ## After sign-off: retire the bridge

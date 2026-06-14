@@ -45,7 +45,7 @@ Inspected the Counterpoint machine-to-machine bridge routes under `/api/sync/cou
 
 ## Mutation / Side Effect Notes
 
-- Critical imports include customers, catalog, inventory, tickets, gift cards, store credit opening balances, open docs, staff, and receiving history.
+- Critical imports include customers, catalog, inventory, tickets, gift cards, store credit opening balances, open docs, and staff. Receiving/movement history is optional support data and is not a cutover blocker when disabled.
 - Settings staging apply/reset/map edits can change go-live data quality and import outcomes.
 
 ## Transaction / Idempotency Notes

@@ -15,9 +15,9 @@ status: approved
 
 ![Operational home](../images/help/operations-operational-home/main.png)
 
-![Reports catalog](../images/help/reports/catalog.png)
+![Operational timeline](../images/help/operations-operational-home/timeline.png)
 
-![Orders workspace](../images/help/orders-workspace/main.png)
+![Customer Notifications center](../images/help/operations-operational-home/customer-notifications.png)
 
 ## What this is
 

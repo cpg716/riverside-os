@@ -597,6 +597,30 @@ async function runSpec(page, api, spec, opts) {
       });
       return capture(page, spec);
     }
+    case "sign-in-gate": {
+      await waitForApp(page);
+      await page.goto("/", { waitUntil: "domcontentloaded" });
+      await page.evaluate((key) => sessionStorage.removeItem(key), SESSION_KEY);
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.getByRole("heading", { name: /^sign in$/i }).waitFor({
+        state: "visible",
+        timeout: 30000,
+      });
+      return capture(page, spec);
+    }
+    case "notification-drawer": {
+      await prepareBase(page, opts);
+      await page.getByRole("button", { name: /^notifications(?:, \d+ unread)?$/i }).click();
+      await page.getByText("Communications & Alerts").waitFor({
+        state: "visible",
+        timeout: 20000,
+      });
+      await page.getByText(/checking for alerts/i).waitFor({
+        state: "hidden",
+        timeout: 20000,
+      }).catch(() => {});
+      return capture(page, spec);
+    }
     case "settings-panel": {
       await prepareBase(page, opts);
       await openSettingsSection(page, spec.sectionButton);
@@ -691,7 +715,27 @@ async function runSpec(page, api, spec, opts) {
           }
         }
       }
-      await page.waitForTimeout(1000);
+      if (spec.tab === "loyalty") {
+        await page.getByText(/loading loyalty workspace/i).waitFor({
+          state: "hidden",
+          timeout: 25000,
+        }).catch(() => {});
+      }
+      await page.waitForTimeout(1200);
+      return capture(page, spec);
+    }
+    case "reports-loaded": {
+      await prepareBase(page, opts);
+      await openBackofficeSidebarTab(page, /^reports$/i);
+      const card = page.getByTestId(`reports-catalog-card-${spec.reportId}`);
+      await card.waitFor({ state: "visible", timeout: 20000 });
+      await card.scrollIntoViewIfNeeded().catch(() => {});
+      await card.click();
+      await page.getByTestId("reports-detail-filters").waitFor({
+        state: "visible",
+        timeout: 20000,
+      });
+      await page.waitForTimeout(1200);
       return capture(page, spec);
     }
     default:
