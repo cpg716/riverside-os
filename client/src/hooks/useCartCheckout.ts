@@ -108,6 +108,14 @@ function hasProviderBackedPayment(applied: AppliedPaymentLine[]): boolean {
   });
 }
 
+export function maxCollectableTenderCents(
+  collectTotalCents: number,
+  depositCents: number,
+  roundingAdjustmentCents = 0,
+): number {
+  return Math.max(collectTotalCents, Math.max(0, depositCents)) + roundingAdjustmentCents;
+}
+
 export function useCartCheckout({
   sessionId,
   baseUrl,
@@ -198,7 +206,11 @@ export function useCartCheckout({
 
       const tenderPaidCents = applied.reduce((s, p) => s + p.amountCents, 0);
       const ledgerCents = Math.max(0, ledgerSignals.appliedDepositAmountCents);
-      const maxPaidAgainstSaleCents = checkoutTotals.collectTotalCents + (ledgerSignals.roundingAdjustmentCents ?? 0);
+      const maxPaidAgainstSaleCents = maxCollectableTenderCents(
+        checkoutTotals.collectTotalCents,
+        ledgerCents,
+        ledgerSignals.roundingAdjustmentCents ?? 0,
+      );
       const providerBackedPayment = hasProviderBackedPayment(applied);
 
       const isZeroBalancePickup =

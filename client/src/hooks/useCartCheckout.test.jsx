@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCheckoutPaymentSplits } from "./useCartCheckout";
+import { buildCheckoutPaymentSplits, maxCollectableTenderCents } from "./useCartCheckout";
 
 function payment(amountCents, overrides = {}) {
   return {
@@ -47,5 +47,15 @@ describe("buildCheckoutPaymentSplits", () => {
 
     expect(paymentSplits[0]?.applied_deposit_amount).toBe("44.00");
     expect(unallocatedDepositCents).toBe(4400);
+  });
+});
+
+describe("maxCollectableTenderCents", () => {
+  it("allows a cash tender that matches the deposit being collected today", () => {
+    expect(maxCollectableTenderCents(0, 12500)).toBe(12500);
+  });
+
+  it("keeps normal sale collection as the upper bound when it exceeds the deposit", () => {
+    expect(maxCollectableTenderCents(20000, 12500)).toBe(20000);
   });
 });

@@ -1,5 +1,4 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { openDesktopTextPreview } from "./desktopFileBridge";
 
 export function printExistingWindowAsync(targetWindow: Window): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -64,14 +63,49 @@ export function writeAndPrintDocumentWindow(
   printExistingWindow(targetWindow);
 }
 
+async function printHtmlInFrameAsync(html: string, title: string): Promise<void> {
+  const frame = document.createElement("iframe");
+  frame.title = title;
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "1px";
+  frame.style.height = "1px";
+  frame.style.border = "0";
+  frame.style.opacity = "0";
+  frame.style.pointerEvents = "none";
+
+  const cleanup = () => {
+    window.setTimeout(() => frame.remove(), 1000);
+  };
+
+  try {
+    document.body.appendChild(frame);
+
+    const frameDocument = frame.contentDocument;
+    const targetWindow = frame.contentWindow;
+    if (!frameDocument || !targetWindow) {
+      throw new Error("Could not create the print frame.");
+    }
+
+    frameDocument.open();
+    frameDocument.write(html);
+    frameDocument.close();
+    await printExistingWindowAsync(targetWindow);
+  } finally {
+    cleanup();
+  }
+}
+
 export async function openPrintableHtml(
   html: string,
   title: string,
   options?: { filename?: string; width?: number; height?: number },
-): Promise<"tauri-preview" | "browser-print"> {
+): Promise<"tauri-print-dialog" | "browser-print"> {
   if (isTauri()) {
-    await openDesktopTextPreview(options?.filename ?? `${title}.html`, html);
-    return "tauri-preview";
+    await printHtmlInFrameAsync(html, title);
+    return "tauri-print-dialog";
   }
 
   const width = options?.width ?? 900;
@@ -89,7 +123,7 @@ export async function openPrintableHtml(
 
 export function writeAndPrintHtmlFrame(html: string, title: string): void {
   if (isTauri()) {
-    void openDesktopTextPreview(`${title}.html`, html).catch((error) => {
+    void printHtmlInFrameAsync(html, title).catch((error) => {
       console.error("Desktop print preview failed", error);
     });
     return;
