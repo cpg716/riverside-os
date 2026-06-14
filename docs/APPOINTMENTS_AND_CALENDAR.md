@@ -48,7 +48,9 @@ Optional query params: **`limit`** (default **25**, max **100**), **`offset`** �
 
 ## Salesperson dropdown
 
-The shared appointment modal loads **`GET /api/staff/list-for-pos`** (active staff only) and filters appointment choices to **`role === "salesperson"`** or **`role === "sales_support"`** (PostgreSQL enum `staff_role`, serialized as `salesperson` / `sales_support` in JSON). Staff assignment uses the same avatar mini-selector pattern as Register. Labels use **`full_name`**; the appointment row stores that string in **`salesperson`**. If a selected salesperson is not scheduled for that date/time, staff may still book by checking **Schedule anyway** under the warning; no manager approval is required.
+The shared appointment modal loads **`GET /api/staff/list-for-pos`** (active staff only) and filters appointment choices to **`role === "salesperson"`** or **`role === "sales_support"`** (PostgreSQL enum `staff_role`, serialized as `salesperson` / `sales_support` in JSON). Staff assignment uses the same avatar mini-selector pattern as Register. Labels use **`full_name`**; new ROS bookings also store **`salesperson_staff_id`** while preserving the historical **`salesperson`** display string. Legacy name-only appointments still load, but duplicate staff names are not silently resolved.
+
+If a selected salesperson is not scheduled for that date/time, normal save is blocked. A Manager Access override can be recorded with a required reason; the server audits the appointment, staff id/name, override reason, validation message, manager, and timestamp.
 
 When Wedding Manager is embedded in ROS, appointment create/update/delete audit attribution uses the authenticated staff display name from the Back Office session. Staff should not see a separate "who is recording this?" identity picker in normal ROS use.
 
@@ -60,7 +62,7 @@ Form fields use the shared **`ui-input`** class so borders match the rest of ROS
 
 - `searchCustomers(q, opts?)` — passes **`limit`/`offset`** to `/api/customers/search` when supplied
 - `getAppointmentStaff()` / `getSalespeople()` — **salesperson** and **sales_support** staff for the appointment staff picker (aligned with **Staff → Schedule**; bookings are warned against **`staff_effective_working_day`** when the name matches roster schedule-eligible staff — see **`docs/STAFF_SCHEDULE_AND_CALENDAR.md`**).
-- `getAppointments` / `addAppointment` / `updateAppointment` — payloads use **snake_case** keys expected by the server (`wedding_member_id`, `customer_id`, `customer_display_name`, `starts_at`, etc.).
+- `getAppointments` / `addAppointment` / `updateAppointment` — payloads use **snake_case** keys expected by the server (`wedding_member_id`, `customer_id`, `customer_display_name`, `starts_at`, `salesperson_staff_id`, etc.).
 
 Wedding Manager’s `api.js` maps the same fields for `addAppointment`.
 

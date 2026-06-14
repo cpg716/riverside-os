@@ -32,6 +32,7 @@ Apply the schema-contract baseline, then apply **`scripts/seeds/seed_rbac.sql`**
 | `staff_permission_override` | Legacy `(staff_id, permission_key, allow|deny)` — **not** used for runtime enforcement. |
 | `staff.max_discount_percent` | **Per-person** register discount cap (enforced at checkout). Copied from **`staff_role_pricing_limits`** when applying role defaults. **Admin** still treated as **100%** in code if needed. |
 | `staff.employment_start_date`, `staff.employment_end_date` | Optional HR-style dates; archive UX may set **end** when deactivating. |
+| `staff.birthday_month`, `staff.birthday_day` | Optional birthday month/day only. Riverside OS does not store birth year or age. Feb. 29 is valid and observed on Feb. 28 in non-leap years for greetings. |
 | `staff.employee_customer_id` | Optional FK to **`customers`**: links the staff member’s CRM profile for **employee pricing** on the POS and sets **`orders.is_employee_purchase`** at checkout (partial unique: one customer ↔ one staff). |
 
 The active schema-contract baseline creates contacts, role/override tables, staff permission tables, pricing limits, employment columns, employee-customer linkage, and **`staff.max_discount_percent`**. Role template rows are seeded by **`scripts/seeds/seed_rbac.sql`**. **Admin** is still **full catalog in app code**; template rows for admin support Settings UI visibility and operational review.
@@ -86,6 +87,8 @@ Lazy materialization and HTTP surface: **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md
 | `notifications.broadcast` | **`POST /api/notifications/broadcast`** — admin-seeded only; writes **`notification_broadcast`** access log metadata. |
 
 **Morning digest:** Admin-only fan-out uses **bundled** kinds **`morning_low_stock_bundle`**, **`morning_wedding_today_bundle`**, **`morning_po_expected_bundle`**, **`morning_alteration_due_bundle`** (each one inbox row, **`notification_bundle`** payload with per-item deep links). Catalog opt-in: **`products.track_low_stock`** and **`product_variants.track_low_stock`** (both default false). Refund queue items stay in the Transactions workflow and do not generate a daily bell alert. **Task due reminders:** hourly **`task_due_soon_bundle`** (one row per assignee per store-local day; nested links may use **`staff_tasks`** + **`instance_id`**). See **`docs/PLAN_NOTIFICATION_CENTER.md`**.
+
+**Staff birthdays:** Managers may store optional birthday month/day on the Team Roster profile. Birthday notifications are in-app only, deduped per birthday staff member and store-local date, and are generated only when that staff member is active and effectively scheduled to work that date. No SMS, email, Podium, Constant Contact, or customer notification is sent.
 
 Role defaults: **admin** = all **true**; **salesperson** = narrow (e.g. `catalog.view`, `procurement.view`, `weddings.view`, most admin keys **false**); **sales_support** = broad **true** — see **`scripts/seeds/seed_rbac.sql`** for the exact matrix.
 
@@ -204,6 +207,13 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `tasks.manage` | Staff task templates, assignments, admin history / team views; complete others’ instances. |
 | `tasks.view_team` | Open team board of peers’ open task instances. |
 | `tasks.complete` | Own recurring task instances; **Staff → Tasks** / Operations **My tasks** / POS **Tasks** tab. |
+
+### Staff schedule and request-off workflow
+
+- `staff.view` can read Staff → Schedule rosters, effective schedules, exceptions, events, and request history.
+- Authenticated Staff Access may submit request-off/time-away requests for themselves without direct schedule edit permission.
+- `tasks.manage` or `staff.manage_access` can edit published schedules, enter effective manager exceptions, mark absences/call-outs, and approve/deny/cancel request-off records.
+- Appointment booking outside a selected staff member’s published availability requires Manager Access through `tasks.manage` or `staff.manage_access` plus a required override reason. The override is audited.
 | `online_store.manage` | **Settings → Online store**: CMS pages (raw HTML + GrapesJS Studio), coupons, **`GET`/`PATCH` `/api/admin/store/*`**. **`settings.admin`** also allows the same admin store routes. Seeded by **`seed_rbac.sql`** — **`docs/ONLINE_STORE.md`**, **`docs/PLAN_ONLINE_STORE_MODULE.md`**. |
 | `ops.dev_center.view` | **Settings → ROS Dev Center** read-only operational visibility. |
 | `ops.dev_center.actions` | Run Dev Center guarded actions/mutations with reason + dual confirmation semantics. |

@@ -16,6 +16,23 @@ type ExceptionRow = {
   kind: string;
   notes: string | null;
 };
+type TimeOffRequestRow = {
+  id: string;
+  staff_id: string;
+  full_name: string;
+  requested_by_name: string;
+  kind: string;
+  start_date: string;
+  end_date: string;
+  partial_start_time: string | null;
+  partial_end_time: string | null;
+  staff_note: string | null;
+  status: string;
+  reviewed_by_name: string | null;
+  reviewed_at: string | null;
+  manager_note: string | null;
+  created_at: string;
+};
 type EffectiveDay = { date: string; working: boolean; is_highlighted?: boolean };
 type WeeklyViewDay = { date: string; working: boolean; shift_label: string | null; is_highlighted?: boolean };
 type WeeklyViewStaff = {
@@ -98,6 +115,7 @@ export default function StaffSchedulePanel() {
   const [monthCursor, setMonthCursor] = useState(() => new Date());
   const [effective, setEffective] = useState<EffectiveDay[]>([]);
   const [exceptions, setExceptions] = useState<ExceptionRow[]>([]);
+  const [requests, setRequests] = useState<TimeOffRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingWeekly, setSavingWeekly] = useState(false);
 
@@ -105,6 +123,13 @@ export default function StaffSchedulePanel() {
   const [excKind, setExcKind] = useState<string>("sick");
   const [excShiftLabel, setExcShiftLabel] = useState("");
   const [excNotes, setExcNotes] = useState("");
+
+  const [requestStartDate, setRequestStartDate] = useState(() => toYmdLocal(new Date()));
+  const [requestEndDate, setRequestEndDate] = useState(() => toYmdLocal(new Date()));
+  const [requestKind, setRequestKind] = useState<string>("pto");
+  const [requestNote, setRequestNote] = useState("");
+  const [requestManagerNote, setRequestManagerNote] = useState("");
+  const [requestBusy, setRequestBusy] = useState(false);
 
   const [absDate, setAbsDate] = useState(() => toYmdLocal(new Date()));
 	const [absKind, setAbsKind] = useState<string>("sick");
@@ -162,12 +187,13 @@ export default function StaffSchedulePanel() {
     if (!staffId) {
       setEffective([]);
       setExceptions([]);
+      setRequests([]);
       return;
     }
     const { from, to } = monthBounds(monthCursor);
     setLoading(true);
     try {
-      const [wRes, eRes, xRes] = await Promise.all([
+      const [wRes, eRes, xRes, rRes] = await Promise.all([
         fetch(`${baseUrl}/api/staff/schedule/weekly/${staffId}`, { headers }),
         fetch(
           `${baseUrl}/api/staff/schedule/effective?staff_id=${encodeURIComponent(staffId)}&from=${from}&to=${to}`,
@@ -175,6 +201,10 @@ export default function StaffSchedulePanel() {
         ),
         fetch(
           `${baseUrl}/api/staff/schedule/exceptions?staff_id=${encodeURIComponent(staffId)}&from=${from}&to=${to}`,
+          { headers },
+        ),
+        fetch(
+          `${baseUrl}/api/staff/schedule/requests?staff_id=${encodeURIComponent(staffId)}&from=${from}&to=${to}`,
           { headers },
         ),
       ]);
@@ -201,6 +231,11 @@ export default function StaffSchedulePanel() {
         setExceptions(await xRes.json());
       } else {
         setExceptions([]);
+      }
+      if (rRes.ok) {
+        setRequests(await rRes.json());
+      } else {
+        setRequests([]);
       }
     } finally {
       setLoading(false);
@@ -292,6 +327,60 @@ export default function StaffSchedulePanel() {
     toast("Day exception saved.", "success");
     setExcNotes("");
     await loadStaffData();
+  };
+
+  const submitRequest = async () => {
+    if (!staffId) return;
+    setRequestBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/staff/schedule/requests`, {
+        method: "POST",
+        headers: { ...Object.fromEntries(headers.entries()), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          staff_id: staffId,
+          kind: requestKind,
+          start_date: requestStartDate,
+          end_date: requestEndDate,
+          staff_note: requestNote.trim() || null,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast(body.error ?? "Could not submit request.", "error");
+        return;
+      }
+      toast("Request submitted for Manager Access review.", "success");
+      setRequestNote("");
+      await loadStaffData();
+    } finally {
+      setRequestBusy(false);
+    }
+  };
+
+  const reviewRequest = async (requestId: string, action: "approve" | "deny" | "withdraw") => {
+    const note = requestManagerNote.trim();
+    if (action === "deny" && !note) {
+      toast("Denial requires a manager note.", "error");
+      return;
+    }
+    setRequestBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/staff/schedule/requests/${requestId}/${action}`, {
+        method: "POST",
+        headers: { ...Object.fromEntries(headers.entries()), "Content-Type": "application/json" },
+        body: JSON.stringify({ manager_note: note || null }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast(body.error ?? `Could not ${action} request.`, "error");
+        return;
+      }
+      toast(`Request ${action === "approve" ? "approved" : action === "deny" ? "denied" : "withdrawn"}.`, "success");
+      setRequestManagerNote("");
+      await loadStaffData();
+    } finally {
+      setRequestBusy(false);
+    }
   };
 
   const removeException = async (exceptionDate: string) => {
@@ -657,9 +746,72 @@ export default function StaffSchedulePanel() {
               </div>
 
               <div className="ui-card space-y-4 p-4">
-                <h4 className="text-sm font-black text-app-text">Time off requests</h4>
+                <h4 className="text-sm font-black text-app-text">Request time away</h4>
                 <p className="text-xs text-app-text-muted">
-                  Record planned time away. These will be highlighted in the <strong>Scheduler</strong> to prevent double-booking.
+                  Staff-submitted requests stay pending until Manager Access approval. Pending requests do not change published availability.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <label className="text-[10px] font-black uppercase text-app-text-muted">
+                    Start
+                    <input
+                      type="date"
+                      className="ui-input mt-1 w-full text-sm font-bold"
+                      value={requestStartDate}
+                      onChange={(e) => {
+                        setRequestStartDate(e.target.value);
+                        if (requestEndDate < e.target.value) setRequestEndDate(e.target.value);
+                      }}
+                    />
+                  </label>
+                  <label className="text-[10px] font-black uppercase text-app-text-muted">
+                    End
+                    <input
+                      type="date"
+                      className="ui-input mt-1 w-full text-sm font-bold"
+                      value={requestEndDate}
+                      onChange={(e) => setRequestEndDate(e.target.value)}
+                    />
+                  </label>
+                  <label className="text-[10px] font-black uppercase text-app-text-muted">
+                    Type
+                    <select
+                      className="ui-input mt-1 w-full text-sm font-bold"
+                      value={requestKind}
+                      onChange={(e) => setRequestKind(e.target.value)}
+                    >
+                      {EXCEPTION_KINDS.map((k) => (
+                        <option key={k.value} value={k.value}>
+                          {k.label}
+                        </option>
+                      ))}
+                      <option value="sick">Sick</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="block text-[10px] font-black uppercase text-app-text-muted">
+                  Staff note
+                  <input
+                    type="text"
+                    className="ui-input mt-1 w-full text-sm"
+                    value={requestNote}
+                    onChange={(e) => setRequestNote(e.target.value)}
+                    placeholder="Reason or coverage note"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={!staffId || requestBusy}
+                  onClick={() => void submitRequest()}
+                  className="ui-btn-primary px-4 py-2 text-sm disabled:opacity-50"
+                >
+                  Submit request
+                </button>
+              </div>
+
+              <div className="ui-card space-y-4 p-4">
+                <h4 className="text-sm font-black text-app-text">Manager effective exception</h4>
+                <p className="text-xs text-app-text-muted">
+                  Manager-entered exceptions are effective immediately and affect appointment availability.
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="text-[10px] font-black uppercase text-app-text-muted">
@@ -718,8 +870,81 @@ export default function StaffSchedulePanel() {
                   onClick={() => void addException()}
                   className="ui-btn-primary px-4 py-2 text-sm disabled:opacity-50"
                 >
-                  Save request
+                  Save effective exception
                 </button>
+              </div>
+
+              <div className="ui-card space-y-4 p-4">
+                <div>
+                  <h4 className="text-sm font-black text-app-text">Request history</h4>
+                  <p className="text-xs text-app-text-muted">Pending, approved, denied, and withdrawn requests for this staff member.</p>
+                </div>
+                {requests.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-app-border p-4 text-sm text-app-text-muted">
+                    No request-off history for this date range.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {requests.map((request) => (
+                      <div key={request.id} className="rounded-xl border border-app-border bg-app-surface-2 p-3 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="font-black text-app-text">
+                              {kindLabel(request.kind)}: {request.start_date}
+                              {request.end_date !== request.start_date ? ` to ${request.end_date}` : ""}
+                            </p>
+                            <p className="text-xs text-app-text-muted">
+                              Requested by {request.requested_by_name}
+                              {request.staff_note ? ` - ${request.staff_note}` : ""}
+                            </p>
+                          </div>
+                          <span className="rounded-full border border-app-border px-2 py-1 text-[10px] font-black uppercase text-app-text-muted">
+                            {request.status}
+                          </span>
+                        </div>
+                        {request.manager_note ? (
+                          <p className="mt-2 text-xs text-app-text-muted">Manager note: {request.manager_note}</p>
+                        ) : null}
+                        {canEdit && request.status === "pending" ? (
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <input
+                              className="ui-input min-w-[14rem] flex-1 px-3 py-2 text-xs"
+                              value={requestManagerNote}
+                              onChange={(e) => setRequestManagerNote(e.target.value)}
+                              placeholder="Manager note for approval or denial"
+                            />
+                            <button
+                              type="button"
+                              disabled={requestBusy}
+                              className="ui-btn-primary px-3 py-2 text-xs"
+                              onClick={() => void reviewRequest(request.id, "approve")}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={requestBusy}
+                              className="ui-btn-secondary px-3 py-2 text-xs"
+                              onClick={() => void reviewRequest(request.id, "deny")}
+                            >
+                              Deny
+                            </button>
+                          </div>
+                        ) : null}
+                        {request.status === "pending" ? (
+                          <button
+                            type="button"
+                            disabled={requestBusy}
+                            className="mt-2 text-xs font-black uppercase text-app-text-muted hover:text-app-text"
+                            onClick={() => void reviewRequest(request.id, "withdraw")}
+                          >
+                            Withdraw request
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="ui-card space-y-4 p-4">

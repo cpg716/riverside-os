@@ -146,6 +146,8 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "rms_r2s_charge",
     "special_order_ready_to_stage",
     "staff_bug_report",
+    "staff_birthday_self",
+    "staff_birthday_team",
     "store_email_inbound",
     "task_due_soon",
     "update_available",
@@ -177,6 +179,9 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
 
     match semantic_kind {
         "admin_broadcast" | "update_available" => {
+            Some(Handling::Configurable(Category::Announcements))
+        }
+        "staff_birthday_self" | "staff_birthday_team" => {
             Some(Handling::Configurable(Category::Announcements))
         }
         "alteration_due"

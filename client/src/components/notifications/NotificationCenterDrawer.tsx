@@ -16,6 +16,7 @@ import {
   Bell,
   CheckCircle2,
   Search,
+  Gift,
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -70,6 +71,8 @@ function parseBroadcastSender(
 
 function formatKindLabel(kind: string): string {
   if (kind === "admin_broadcast") return "Team Announcement";
+  if (kind === "staff_birthday_self") return "Birthday Greeting";
+  if (kind === "staff_birthday_team") return "Staff Birthday";
   const k = kind
     .replace(/_/g, " ")
     .replace(/\bsms\b/gi, "SMS")
@@ -86,6 +89,7 @@ function KindIcon({ kind, size = 16, className = "" }: { kind: string; size?: nu
   const k = kind.toLowerCase();
   if (k.startsWith("podium_")) return <MessageSquare size={size} className={className} />;
   if (k.startsWith("review_")) return <Star size={size} className={className} />;
+  if (k.startsWith("staff_birthday")) return <Gift size={size} className={className} />;
   if (k.includes("inventory") || k.includes("stock") || k.includes("po_")) return <Package size={size} className={className} />;
   if (k.includes("order") || k.includes("task") || k.includes("alteration")) return <ClipboardList size={size} className={className} />;
   if (k.includes("failed") || k.includes("error") || k.includes("discrepancy")) return <AlertTriangle size={size} className={className} />;

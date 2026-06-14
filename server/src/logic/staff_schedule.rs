@@ -1,10 +1,10 @@
 //! Weekly availability and day-level exceptions for schedule-eligible operational staff.
 //! `staff_effective_working_day` in PostgreSQL is the source of truth; Rust calls it via `is_working_day`.
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc};
 use chrono_tz::Tz;
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -31,6 +31,10 @@ pub struct EligibleStaffRow {
     pub id: Uuid,
     pub full_name: String,
     pub role: crate::models::DbStaffRole,
+}
+
+fn is_closed_appointment_status_sql() -> &'static str {
+    "lower(trim(COALESCE(wa.status, ''))) IN ('attended', 'missed', 'cancelled', 'canceled')"
 }
 
 /// Operational staff working on a given **store-local** date — e.g. morning dashboard.
@@ -120,6 +124,7 @@ pub async fn appointment_local_date(
 }
 
 /// Match active schedule-eligible staff by trimmed case-insensitive full name.
+/// Ambiguous duplicate names deliberately do not resolve.
 pub async fn resolve_floor_staff_id_by_name(
     pool: &PgPool,
     name: &str,
@@ -128,20 +133,40 @@ pub async fn resolve_floor_staff_id_by_name(
     if trimmed.is_empty() {
         return Ok(None);
     }
-    let id: Option<Uuid> = sqlx::query_scalar(
+    let rows: Vec<Uuid> = sqlx::query_scalar(
         r#"
         SELECT id FROM staff
         WHERE is_active = TRUE
           AND role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
           AND lower(trim(full_name)) = lower(trim($1::text))
         ORDER BY id ASC
-        LIMIT 1
         "#,
     )
     .bind(trimmed)
-    .fetch_optional(pool)
+    .fetch_all(pool)
     .await?;
-    Ok(id)
+    Ok(if rows.len() == 1 {
+        rows.first().copied()
+    } else {
+        None
+    })
+}
+
+pub async fn resolve_floor_staff_name_by_id(
+    pool: &PgPool,
+    staff_id: Uuid,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT full_name FROM staff
+        WHERE id = $1
+          AND is_active = TRUE
+          AND role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
+        "#,
+    )
+    .bind(staff_id)
+    .fetch_optional(pool)
+    .await
 }
 
 /// When the name does not match roster schedule-eligible staff, booking is allowed (legacy free-text).
@@ -165,6 +190,42 @@ pub async fn ensure_salesperson_booking_allowed(
         )));
     }
     Ok(())
+}
+
+pub async fn appointment_staff_booking_check(
+    pool: &PgPool,
+    salesperson_staff_id: Option<Uuid>,
+    salesperson: Option<&str>,
+    starts_at: DateTime<Utc>,
+) -> Result<Option<String>, StaffScheduleError> {
+    let sid = if let Some(id) = salesperson_staff_id {
+        let exists = resolve_floor_staff_name_by_id(pool, id).await?.is_some();
+        if !exists {
+            return Err(StaffScheduleError::BadRequest(
+                "Selected appointment staff member is not active schedule-eligible staff.".into(),
+            ));
+        }
+        Some(id)
+    } else if let Some(name) = salesperson.map(str::trim).filter(|s| !s.is_empty()) {
+        resolve_floor_staff_id_by_name(pool, name).await?
+    } else {
+        None
+    };
+
+    let Some(sid) = sid else {
+        return Ok(None);
+    };
+    let d = appointment_local_date(pool, starts_at).await?;
+    if is_working_day(pool, sid, d).await? {
+        Ok(None)
+    } else {
+        let name = resolve_floor_staff_name_by_id(pool, sid)
+            .await?
+            .unwrap_or_else(|| salesperson.unwrap_or("Selected staff").to_string());
+        Ok(Some(format!(
+            "{name} is not scheduled to work on {d} (store calendar). Choose another teammate, another date, or record a Manager Access override reason."
+        )))
+    }
 }
 
 pub async fn list_eligible_staff(pool: &PgPool) -> Result<Vec<EligibleStaffRow>, sqlx::Error> {
@@ -561,6 +622,204 @@ pub struct ExceptionRow {
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct TimeOffRequestRow {
+    pub id: Uuid,
+    pub staff_id: Uuid,
+    pub full_name: String,
+    pub requested_by_staff_id: Uuid,
+    pub requested_by_name: String,
+    pub kind: DbStaffScheduleExceptionKind,
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    pub partial_start_time: Option<NaiveTime>,
+    pub partial_end_time: Option<NaiveTime>,
+    pub staff_note: Option<String>,
+    pub status: String,
+    pub reviewed_by_staff_id: Option<Uuid>,
+    pub reviewed_by_name: Option<String>,
+    pub reviewed_at: Option<DateTime<Utc>>,
+    pub manager_note: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+pub async fn list_time_off_requests(
+    pool: &PgPool,
+    staff_id: Option<Uuid>,
+    status: Option<&str>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+) -> Result<Vec<TimeOffRequestRow>, sqlx::Error> {
+    sqlx::query_as::<_, TimeOffRequestRow>(
+        r#"
+        SELECT r.id, r.staff_id, s.full_name,
+               r.requested_by_staff_id, req.full_name AS requested_by_name,
+               r.kind, r.start_date, r.end_date, r.partial_start_time, r.partial_end_time,
+               r.staff_note, r.status, r.reviewed_by_staff_id,
+               reviewer.full_name AS reviewed_by_name, r.reviewed_at, r.manager_note,
+               r.created_at, r.updated_at
+        FROM staff_time_off_request r
+        JOIN staff s ON s.id = r.staff_id
+        JOIN staff req ON req.id = r.requested_by_staff_id
+        LEFT JOIN staff reviewer ON reviewer.id = r.reviewed_by_staff_id
+        WHERE ($1::uuid IS NULL OR r.staff_id = $1)
+          AND ($2::text IS NULL OR r.status = $2)
+          AND ($3::date IS NULL OR r.end_date >= $3)
+          AND ($4::date IS NULL OR r.start_date <= $4)
+        ORDER BY r.created_at DESC
+        "#,
+    )
+    .bind(staff_id)
+    .bind(status.map(str::trim).filter(|s| !s.is_empty()))
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn create_time_off_request(
+    pool: &PgPool,
+    staff_id: Uuid,
+    requested_by: Uuid,
+    kind: DbStaffScheduleExceptionKind,
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+    partial_start_time: Option<NaiveTime>,
+    partial_end_time: Option<NaiveTime>,
+    staff_note: Option<&str>,
+) -> Result<Uuid, StaffScheduleError> {
+    assert_floor_staff(pool, staff_id).await?;
+    if start_date > end_date {
+        return Err(StaffScheduleError::BadRequest(
+            "request start date must not be after end date".into(),
+        ));
+    }
+    if partial_start_time.is_some() != partial_end_time.is_some() {
+        return Err(StaffScheduleError::BadRequest(
+            "partial-day requests require both start and end time".into(),
+        ));
+    }
+    if let (Some(start), Some(end)) = (partial_start_time, partial_end_time) {
+        if start >= end {
+            return Err(StaffScheduleError::BadRequest(
+                "partial-day start time must be before end time".into(),
+            ));
+        }
+    }
+
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO staff_time_off_request (
+            staff_id, requested_by_staff_id, kind, start_date, end_date,
+            partial_start_time, partial_end_time, staff_note
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id
+        "#,
+    )
+    .bind(staff_id)
+    .bind(requested_by)
+    .bind(kind)
+    .bind(start_date)
+    .bind(end_date)
+    .bind(partial_start_time)
+    .bind(partial_end_time)
+    .bind(staff_note.map(str::trim).filter(|s| !s.is_empty()))
+    .fetch_one(pool)
+    .await
+    .map_err(StaffScheduleError::Database)
+}
+
+pub async fn set_time_off_request_status(
+    pool: &PgPool,
+    request_id: Uuid,
+    actor: Uuid,
+    status: &str,
+    manager_note: Option<&str>,
+) -> Result<(), StaffScheduleError> {
+    if !matches!(status, "approved" | "denied" | "withdrawn") {
+        return Err(StaffScheduleError::BadRequest(
+            "request status must be approved, denied, or withdrawn".into(),
+        ));
+    }
+
+    let mut tx = pool.begin().await?;
+    let row = sqlx::query(
+        r#"
+        SELECT staff_id, kind, start_date, end_date, status
+        FROM staff_time_off_request
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(request_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(StaffScheduleError::NotFound)?;
+
+    let staff_id: Uuid = row.get("staff_id");
+    let kind: DbStaffScheduleExceptionKind = row.get("kind");
+    let start_date: NaiveDate = row.get("start_date");
+    let end_date: NaiveDate = row.get("end_date");
+
+    sqlx::query(
+        r#"
+        UPDATE staff_time_off_request
+        SET status = $2,
+            reviewed_by_staff_id = $3,
+            reviewed_at = NOW(),
+            manager_note = $4,
+            updated_at = NOW()
+        WHERE id = $1
+        "#,
+    )
+    .bind(request_id)
+    .bind(status)
+    .bind(actor)
+    .bind(manager_note.map(str::trim).filter(|s| !s.is_empty()))
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("DELETE FROM staff_day_exception WHERE source_request_id = $1")
+        .bind(request_id)
+        .execute(&mut *tx)
+        .await?;
+
+    if status == "approved" {
+        let days = (end_date.signed_duration_since(start_date)).num_days();
+        for offset in 0..=days {
+            let d = start_date + Duration::days(offset);
+            sqlx::query(
+                r#"
+                INSERT INTO staff_day_exception (
+                    staff_id, exception_date, kind, notes, created_by_staff_id, source_request_id
+                )
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (staff_id, exception_date) DO UPDATE SET
+                    kind = EXCLUDED.kind,
+                    notes = EXCLUDED.notes,
+                    created_by_staff_id = EXCLUDED.created_by_staff_id,
+                    source_request_id = EXCLUDED.source_request_id,
+                    created_at = now()
+                "#,
+            )
+            .bind(staff_id)
+            .bind(d)
+            .bind(kind)
+            .bind(manager_note.map(str::trim).filter(|s| !s.is_empty()))
+            .bind(actor)
+            .bind(request_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct ScheduleEventRow {
     pub id: Uuid,
     pub event_date: NaiveDate,
@@ -742,13 +1001,23 @@ pub async fn mark_absence_and_handle_appointments(
     .await?
     .rows_affected();
 
-    let appt_ids: Vec<Uuid> = sqlx::query_scalar(
+    let appt_rows = sqlx::query(
         r#"
-        SELECT wa.id
+        SELECT wa.id, wa.salesperson_staff_id, wa.salesperson
         FROM wedding_appointments wa
-        JOIN staff s ON lower(trim(COALESCE(wa.salesperson, ''))) = lower(trim(s.full_name))
-        WHERE s.id = $1
+        WHERE (
+            wa.salesperson_staff_id = $1
+            OR (
+                wa.salesperson_staff_id IS NULL
+                AND EXISTS (
+                    SELECT 1 FROM staff s
+                    WHERE s.id = $1
+                      AND lower(trim(COALESCE(wa.salesperson, ''))) = lower(trim(s.full_name))
+                )
+            )
+          )
           AND (wa.starts_at AT TIME ZONE $2::text)::date = $3
+          AND NOT (lower(trim(COALESCE(wa.status, ''))) IN ('attended', 'missed', 'cancelled', 'canceled'))
         "#,
     )
     .bind(staff_id)
@@ -756,19 +1025,25 @@ pub async fn mark_absence_and_handle_appointments(
     .bind(absence_date)
     .fetch_all(&mut *tx)
     .await?;
+    let appt_ids: Vec<Uuid> = appt_rows.iter().map(|row| row.get("id")).collect();
 
     let mut appointments_updated: u64 = 0;
 
     if !appt_ids.is_empty() {
         if let Some(new_id) = reassign_to_staff_id {
             let new_name: String = sqlx::query_scalar(
-                "SELECT full_name FROM staff WHERE id = $1 AND is_active = TRUE",
+                r#"
+                SELECT full_name FROM staff
+                WHERE id = $1
+                  AND is_active = TRUE
+                  AND role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
+                "#,
             )
             .bind(new_id)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| {
-                StaffScheduleError::BadRequest("reassign target not found or inactive".into())
+                StaffScheduleError::BadRequest("reassign target not found, inactive, or not schedule-eligible".into())
             })?;
 
             let works: bool = sqlx::query_scalar("SELECT staff_effective_working_day($1, $2)")
@@ -783,22 +1058,67 @@ pub async fn mark_absence_and_handle_appointments(
             }
 
             let n = sqlx::query(
-                r#"UPDATE wedding_appointments SET salesperson = $1 WHERE id = ANY($2)"#,
+                r#"UPDATE wedding_appointments SET salesperson = $1, salesperson_staff_id = $2 WHERE id = ANY($3)"#,
             )
-            .bind(new_name)
+            .bind(&new_name)
+            .bind(new_id)
             .bind(&appt_ids)
             .execute(&mut *tx)
             .await?
             .rows_affected();
+            for row in &appt_rows {
+                sqlx::query(
+                    r#"
+                    INSERT INTO appointment_assignment_audit (
+                        appointment_id, action, old_salesperson_staff_id, old_salesperson_name,
+                        new_salesperson_staff_id, new_salesperson_name, reason, acted_by_staff_id
+                    )
+                    VALUES ($1, 'reassigned_for_absence', $2, $3, $4, $5, $6, $7)
+                    "#,
+                )
+                .bind(row.get::<Uuid, _>("id"))
+                .bind(
+                    row.get::<Option<Uuid>, _>("salesperson_staff_id")
+                        .or(Some(staff_id)),
+                )
+                .bind(row.get::<Option<String>, _>("salesperson"))
+                .bind(new_id)
+                .bind(&new_name)
+                .bind(notes.map(str::trim).filter(|s| !s.is_empty()))
+                .bind(created_by)
+                .execute(&mut *tx)
+                .await?;
+            }
             appointments_updated = n;
         } else if unassign_appointments {
             let n = sqlx::query(
-                r#"UPDATE wedding_appointments SET salesperson = NULL WHERE id = ANY($1)"#,
+                r#"UPDATE wedding_appointments SET salesperson = NULL, salesperson_staff_id = NULL WHERE id = ANY($1)"#,
             )
             .bind(&appt_ids)
             .execute(&mut *tx)
             .await?
             .rows_affected();
+            for row in &appt_rows {
+                sqlx::query(
+                    r#"
+                    INSERT INTO appointment_assignment_audit (
+                        appointment_id, action, old_salesperson_staff_id, old_salesperson_name,
+                        reason, acted_by_staff_id
+                    )
+                    VALUES ($1, 'unassigned_for_absence', $2, $3, $4, $5)
+                    "#,
+                )
+                .bind(row.get::<Uuid, _>("id"))
+                .bind(
+                    row.get::<Option<Uuid>, _>("salesperson_staff_id")
+                        .or(Some(staff_id)),
+                )
+                .bind(row.get::<Option<String>, _>("salesperson"))
+                .bind(notes.map(str::trim).filter(|s| !s.is_empty()))
+                .bind(created_by)
+                .execute(&mut *tx)
+                .await?;
+            }
             appointments_updated = n;
         }
     }

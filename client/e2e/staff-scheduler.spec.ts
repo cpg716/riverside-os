@@ -108,6 +108,35 @@ test.describe("Staff Scheduler E2E", () => {
             });
         });
 
+        await page.route(`**/api/staff/schedule/requests?staff_id=staff-1*`, async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify([
+                    {
+                        id: "request-1",
+                        staff_id: "staff-1",
+                        full_name: "Alice Admin",
+                        requested_by_staff_id: "staff-1",
+                        requested_by_name: "Alice Admin",
+                        kind: "pto",
+                        start_date: "2026-04-28",
+                        end_date: "2026-04-28",
+                        partial_start_time: null,
+                        partial_end_time: null,
+                        staff_note: "Family appointment",
+                        status: "pending",
+                        reviewed_by_staff_id: null,
+                        reviewed_by_name: null,
+                        reviewed_at: null,
+                        manager_note: null,
+                        created_at: "2026-04-20T12:00:00Z",
+                        updated_at: "2026-04-20T12:00:00Z",
+                    },
+                ]),
+            });
+        });
+
         await signInToBackOffice(page);
     });
 
@@ -142,6 +171,8 @@ test.describe("Staff Scheduler E2E", () => {
 
         // Verify pattern is loaded
         await expect(page.getByPlaceholder("Shift").first()).toHaveValue("Pattern 9-5");
+        await expect(page.getByText("Request history")).toBeVisible();
+        await expect(page.getByText("Family appointment")).toBeVisible();
     });
 
     test("can access master scheduler and see published status", async ({ page }) => {

@@ -116,7 +116,37 @@ pub struct StaffWeeklySchedule {
 #[derive(Debug, Deserialize)]
 pub struct ValidateBookingQuery {
     pub full_name: String,
+    pub staff_id: Option<Uuid>,
     pub starts_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListRequestsQuery {
+    pub staff_id: Option<Uuid>,
+    pub status: Option<String>,
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateRequestBody {
+    #[serde(default)]
+    pub staff_id: Option<Uuid>,
+    pub kind: DbStaffScheduleExceptionKind,
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
+    #[serde(default)]
+    pub partial_start_time: Option<chrono::NaiveTime>,
+    #[serde(default)]
+    pub partial_end_time: Option<chrono::NaiveTime>,
+    #[serde(default)]
+    pub staff_note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReviewRequestBody {
+    #[serde(default)]
+    pub manager_note: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,6 +260,10 @@ pub fn router() -> Router<AppState> {
         .route("/effective", get(get_effective))
         .route("/mark-absence", post(post_mark_absence))
         .route("/validate-booking", get(get_validate_booking))
+        .route("/requests", get(list_requests).post(post_request))
+        .route("/requests/{request_id}/approve", post(approve_request))
+        .route("/requests/{request_id}/deny", post(deny_request))
+        .route("/requests/{request_id}/withdraw", post(withdraw_request))
         .route(
             "/events",
             get(list_events).post(post_event).delete(delete_event_route),
@@ -618,9 +652,161 @@ async fn get_validate_booking(
     middleware::require_staff_with_permission(&state, &headers, WEDDINGS_VIEW)
         .await
         .map_err(map_gate)?;
-    staff_schedule::ensure_salesperson_booking_allowed(&state.db, Some(&q.full_name), q.starts_at)
+    if let Some(message) = staff_schedule::appointment_staff_booking_check(
+        &state.db,
+        q.staff_id,
+        Some(&q.full_name),
+        q.starts_at,
+    )
+    .await
+    .map_err(map_err)?
+    {
+        return Err(map_err(StaffScheduleError::BadRequest(message)));
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn list_requests(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ListRequestsQuery>,
+) -> Result<Json<Vec<staff_schedule::TimeOffRequestRow>>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, STAFF_VIEW)
         .await
+        .map_err(map_gate)?;
+    let rows = staff_schedule::list_time_off_requests(
+        &state.db,
+        q.staff_id,
+        q.status.as_deref(),
+        q.from,
+        q.to,
+    )
+    .await
+    .map_err(StaffScheduleError::Database)
+    .map_err(map_err)?;
+    Ok(Json(rows))
+}
+
+async fn post_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateRequestBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let actor = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(map_gate)?;
+    let target_staff_id = body.staff_id.unwrap_or(actor.id);
+    if target_staff_id != actor.id {
+        require_editor(&state, &headers).await?;
+    }
+    let id = staff_schedule::create_time_off_request(
+        &state.db,
+        target_staff_id,
+        actor.id,
+        body.kind,
+        body.start_date,
+        body.end_date,
+        body.partial_start_time,
+        body.partial_end_time,
+        body.staff_note.as_deref(),
+    )
+    .await
+    .map_err(map_err)?;
+    Ok(Json(json!({ "ok": true, "id": id })))
+}
+
+async fn approve_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(request_id): Path<Uuid>,
+    Json(body): Json<ReviewRequestBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let actor = require_editor(&state, &headers).await?;
+    staff_schedule::set_time_off_request_status(
+        &state.db,
+        request_id,
+        actor,
+        "approved",
+        body.manager_note.as_deref(),
+    )
+    .await
+    .map_err(map_err)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn deny_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(request_id): Path<Uuid>,
+    Json(body): Json<ReviewRequestBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let actor = require_editor(&state, &headers).await?;
+    if body
+        .manager_note
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        return Err(map_err(StaffScheduleError::BadRequest(
+            "denial requires a manager note".into(),
+        )));
+    }
+    staff_schedule::set_time_off_request_status(
+        &state.db,
+        request_id,
+        actor,
+        "denied",
+        body.manager_note.as_deref(),
+    )
+    .await
+    .map_err(map_err)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn withdraw_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(request_id): Path<Uuid>,
+    Json(body): Json<ReviewRequestBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let actor = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(map_gate)?;
+    if !may_edit_schedule(&state.db, actor.id).await {
+        let owns_request: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM staff_time_off_request
+                WHERE id = $1
+                  AND status = 'pending'
+                  AND (staff_id = $2 OR requested_by_staff_id = $2)
+            )
+            "#,
+        )
+        .bind(request_id)
+        .bind(actor.id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(StaffScheduleError::Database)
         .map_err(map_err)?;
+        if !owns_request {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "Manager Access required to cancel this request" })),
+            )
+                .into_response());
+        }
+    }
+    staff_schedule::set_time_off_request_status(
+        &state.db,
+        request_id,
+        actor.id,
+        "withdrawn",
+        body.manager_note.as_deref(),
+    )
+    .await
+    .map_err(map_err)?;
     Ok(Json(json!({ "ok": true })))
 }
 async fn get_weekly_template(

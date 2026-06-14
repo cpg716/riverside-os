@@ -252,6 +252,7 @@ pub struct AppointmentRow {
     pub notes: Option<String>,
     pub status: String,
     pub salesperson: Option<String>,
+    pub salesperson_staff_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, FromRow)]

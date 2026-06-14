@@ -27,7 +27,10 @@ use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 use crate::api::AppState;
-use crate::auth::permissions::{WEDDINGS_MUTATE, WEDDINGS_VIEW};
+use crate::auth::permissions::{
+    effective_permissions_for_staff, staff_has_permission, STAFF_MANAGE_ACCESS, TASKS_MANAGE,
+    WEDDINGS_MUTATE, WEDDINGS_VIEW,
+};
 use crate::logic::customers::{insert_customer, InsertCustomerParams};
 use crate::logic::messaging::MessagingService;
 use crate::logic::staff_schedule;
@@ -39,6 +42,7 @@ use crate::logic::wedding_queries::{
 };
 use crate::logic::weddings as wedding_logic;
 use crate::middleware;
+use crate::middleware::require_authenticated_staff_headers;
 use crate::models::DbOrderItemLifecycleStatus;
 use crate::services::inventory::resolve_variant_by_id;
 use crate::services::ResolvedSkuItem;
@@ -205,6 +209,27 @@ async fn require_weddings_mutate(
         .await
         .map(|_| ())
         .map_err(map_wed_perm)
+}
+
+async fn require_schedule_override_actor(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Uuid, WeddingError> {
+    let staff = require_authenticated_staff_headers(state, headers)
+        .await
+        .map_err(map_wed_perm)?;
+    let permissions = effective_permissions_for_staff(&state.db, staff.id, staff.role)
+        .await
+        .map_err(WeddingError::Database)?;
+    if staff_has_permission(&permissions, STAFF_MANAGE_ACCESS)
+        || staff_has_permission(&permissions, TASKS_MANAGE)
+    {
+        Ok(staff.id)
+    } else {
+        Err(WeddingError::Forbidden(
+            "Manager Access required for appointment schedule override".to_string(),
+        ))
+    }
 }
 
 impl IntoResponse for WeddingError {
@@ -555,6 +580,10 @@ pub struct CreateAppointmentRequest {
     pub notes: Option<String>,
     pub status: Option<String>,
     pub salesperson: Option<String>,
+    #[serde(default)]
+    pub salesperson_staff_id: Option<Uuid>,
+    #[serde(default)]
+    pub schedule_override_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -570,6 +599,10 @@ pub struct UpdateAppointmentRequest {
     pub notes: Option<String>,
     pub status: Option<String>,
     pub salesperson: Option<String>,
+    #[serde(default)]
+    pub salesperson_staff_id: Option<Uuid>,
+    #[serde(default)]
+    pub schedule_override_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1926,7 +1959,7 @@ async fn get_appointment(
     let row = sqlx::query_as(
         r#"
         SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-               appointment_type, starts_at, notes, status, salesperson
+               appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
         FROM wedding_appointments
         WHERE id = $1
         "#,
@@ -1980,9 +2013,18 @@ async fn create_appointment(
         .to_string();
     let status = body.status.as_deref().unwrap_or("Scheduled").to_string();
 
-    staff_schedule::ensure_salesperson_booking_allowed(
+    let resolved_salesperson = if let Some(staff_id) = body.salesperson_staff_id {
+        staff_schedule::resolve_floor_staff_name_by_id(&state.db, staff_id)
+            .await?
+            .or_else(|| body.salesperson.clone())
+    } else {
+        body.salesperson.clone()
+    };
+
+    let schedule_warning = staff_schedule::appointment_staff_booking_check(
         &state.db,
-        body.salesperson.as_deref(),
+        body.salesperson_staff_id,
+        resolved_salesperson.as_deref(),
         body.starts_at,
     )
     .await
@@ -1994,13 +2036,29 @@ async fn create_appointment(
         }
     })?;
 
+    let override_actor = if let Some(message) = schedule_warning.as_deref() {
+        let reason = body
+            .schedule_override_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| WeddingError::BadRequest(message.to_string()))?;
+        Some((
+            require_schedule_override_actor(&state, &headers).await?,
+            reason.to_string(),
+            message.to_string(),
+        ))
+    } else {
+        None
+    };
+
     let id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO wedding_appointments (
             wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-            appointment_type, starts_at, notes, status, salesperson
+            appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         RETURNING id
         "#,
     )
@@ -2013,14 +2071,35 @@ async fn create_appointment(
     .bind(body.starts_at)
     .bind(&body.notes)
     .bind(&status)
-    .bind(&body.salesperson)
+    .bind(&resolved_salesperson)
+    .bind(body.salesperson_staff_id)
     .fetch_one(&state.db)
     .await?;
+
+    if let Some((actor_id, reason, message)) = override_actor {
+        sqlx::query(
+            r#"
+            INSERT INTO appointment_schedule_override_audit (
+                appointment_id, salesperson_staff_id, salesperson_name, override_reason,
+                validation_message, overridden_by_staff_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(id)
+        .bind(body.salesperson_staff_id)
+        .bind(&resolved_salesperson)
+        .bind(reason)
+        .bind(message)
+        .bind(actor_id)
+        .execute(&state.db)
+        .await?;
+    }
 
     let appt: AppointmentRow = sqlx::query_as(
         r#"
         SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-               appointment_type, starts_at, notes, status, salesperson
+               appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
         FROM wedding_appointments WHERE id = $1
         "#,
     )
@@ -2061,7 +2140,7 @@ async fn update_appointment(
     let current: AppointmentRow = sqlx::query_as(
         r#"
         SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-               appointment_type, starts_at, notes, status, salesperson
+               appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
         FROM wedding_appointments WHERE id = $1
         "#,
     )
@@ -2071,13 +2150,23 @@ async fn update_appointment(
     .ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
 
     let merged_starts = body.starts_at.unwrap_or(current.starts_at);
-    let merged_salesperson = body
-        .salesperson
-        .clone()
-        .or_else(|| current.salesperson.clone());
-    staff_schedule::ensure_salesperson_booking_allowed(
+    let merged_salesperson_staff_id = body.salesperson_staff_id.or(current.salesperson_staff_id);
+    let merged_salesperson = body.salesperson.clone().or_else(|| {
+        merged_salesperson_staff_id
+            .and_then(|_| None)
+            .or_else(|| current.salesperson.clone())
+    });
+    let resolved_salesperson = if let Some(staff_id) = body.salesperson_staff_id {
+        staff_schedule::resolve_floor_staff_name_by_id(&state.db, staff_id)
+            .await?
+            .or(merged_salesperson)
+    } else {
+        merged_salesperson
+    };
+    let schedule_warning = staff_schedule::appointment_staff_booking_check(
         &state.db,
-        merged_salesperson.as_deref(),
+        merged_salesperson_staff_id,
+        resolved_salesperson.as_deref(),
         merged_starts,
     )
     .await
@@ -2088,6 +2177,22 @@ async fn update_appointment(
             WeddingError::BadRequest("Schedule check failed".to_string())
         }
     })?;
+
+    let override_actor = if let Some(message) = schedule_warning.as_deref() {
+        let reason = body
+            .schedule_override_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| WeddingError::BadRequest(message.to_string()))?;
+        Some((
+            require_schedule_override_actor(&state, &headers).await?,
+            reason.to_string(),
+            message.to_string(),
+        ))
+    } else {
+        None
+    };
 
     let mut qb: QueryBuilder<'_, sqlx::Postgres> =
         QueryBuilder::new("UPDATE wedding_appointments SET ");
@@ -2124,7 +2229,20 @@ async fn update_appointment(
     set_opt!("starts_at", body.starts_at);
     set_opt!("notes", body.notes);
     set_opt!("status", body.status);
-    set_opt!("salesperson", body.salesperson);
+    if let Some(staff_id) = body.salesperson_staff_id {
+        sep.push("salesperson_staff_id = ")
+            .push_bind_unseparated(staff_id);
+        sep.push("salesperson = ")
+            .push_bind_unseparated(resolved_salesperson.clone());
+        has_updates = true;
+    } else {
+        if let Some(salesperson) = body.salesperson {
+            sep.push("salesperson = ")
+                .push_bind_unseparated(salesperson);
+            sep.push("salesperson_staff_id = NULL");
+            has_updates = true;
+        }
+    }
 
     if has_updates {
         qb.push(" WHERE id = ").push_bind(appointment_id);
@@ -2141,10 +2259,30 @@ async fn update_appointment(
         spawn_meilisearch_appointment_upsert(&state, appointment_id);
     }
 
+    if let Some((actor_id, reason, message)) = override_actor {
+        sqlx::query(
+            r#"
+            INSERT INTO appointment_schedule_override_audit (
+                appointment_id, salesperson_staff_id, salesperson_name, override_reason,
+                validation_message, overridden_by_staff_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(appointment_id)
+        .bind(merged_salesperson_staff_id)
+        .bind(&resolved_salesperson)
+        .bind(reason)
+        .bind(message)
+        .bind(actor_id)
+        .execute(&state.db)
+        .await?;
+    }
+
     let appt: AppointmentRow = sqlx::query_as(
         r#"
         SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-               appointment_type, starts_at, notes, status, salesperson
+               appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
         FROM wedding_appointments WHERE id = $1
         "#,
     )
@@ -2166,7 +2304,7 @@ async fn delete_appointment(
     let existing: Option<AppointmentRow> = sqlx::query_as(
         r#"
         SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name,
-               phone, appointment_type, starts_at, notes, status, salesperson
+               phone, appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
         FROM wedding_appointments WHERE id = $1
         "#,
     )

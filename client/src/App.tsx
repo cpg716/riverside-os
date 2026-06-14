@@ -83,6 +83,7 @@ import { applyDocumentTheme, resolveThemeMode } from "./lib/rosDocumentTheme";
 import { ShellBackdropProvider } from "./components/layout/ShellBackdropContext";
 import { useShellBackdropDepth } from "./components/layout/ShellBackdropContextLogic";
 import BackofficeSignInGate from "./components/layout/BackofficeSignInGate";
+import StaffBirthdayGreetingModal from "./components/staff/StaffBirthdayGreetingModal";
 import RegisterSessionBootstrap from "./components/layout/RegisterSessionBootstrap";
 import HelpCenterDrawer, {
   type HelpCenterInitialTarget,
@@ -1066,6 +1067,7 @@ function App() {
           </div>
         ) : (
         <NotificationCenterProvider onNavigate={handleNotificationNavigate}>
+          <StaffBirthdayGreetingModal />
           <WeddingManagerAuthBridge />
           <InsightsAccessSync
             insightsMode={insightsMode}

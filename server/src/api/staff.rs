@@ -7,7 +7,7 @@ use axum::{
     routing::{delete, get, patch, post},
     Json, Router,
 };
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -24,7 +24,8 @@ use crate::auth::permissions::{
 use crate::auth::pins::{self, hash_pin, is_valid_staff_credential, log_staff_access};
 use crate::auth::staff_avatar;
 use crate::logic::{
-    notifications, pricing_limits, register_staff_metrics, staff_avatar_processor, tasks,
+    notifications, pricing_limits, register_staff_metrics, staff_avatar_processor, staff_schedule,
+    tasks,
 };
 use crate::middleware::{require_authenticated_staff_headers, require_staff_with_permission};
 use crate::models::DbStaffRole;
@@ -99,6 +100,8 @@ pub struct StaffHubRow {
     pub max_discount_percent: Decimal,
     pub employment_start_date: Option<NaiveDate>,
     pub employment_end_date: Option<NaiveDate>,
+    pub birthday_month: Option<i16>,
+    pub birthday_day: Option<i16>,
     pub employee_customer_id: Option<Uuid>,
     pub employee_customer_code: Option<String>,
     pub notification_preferences: serde_json::Value,
@@ -153,6 +156,12 @@ pub struct PatchStaffRequest {
     #[serde(default)]
     pub employment_end_date: Option<NaiveDate>,
     #[serde(default)]
+    pub birthday_month: Option<i16>,
+    #[serde(default)]
+    pub birthday_day: Option<i16>,
+    #[serde(default)]
+    pub clear_birthday: bool,
+    #[serde(default)]
     pub employee_customer_id: Option<Uuid>,
     /// When true, clear `employee_customer_id` (wins over `employee_customer_id`).
     #[serde(default)]
@@ -169,6 +178,14 @@ pub struct PatchStaffRequest {
 pub struct PatchStaffPermissionsBody {
     /// Permission keys this staff member is allowed (full replace for non-admin).
     pub granted: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StaffBirthdayGreetingResponse {
+    pub show: bool,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub birthday_local_date: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -274,6 +291,14 @@ pub fn router() -> Router<AppState> {
         .route("/effective-permissions", get(effective_permissions_self))
         .route("/verify-pin", post(legacy_verify_pin))
         .route("/avatar/{id}", get(get_staff_avatar))
+        .route(
+            "/birthday-greeting/today",
+            get(get_staff_birthday_greeting_today),
+        )
+        .route(
+            "/birthday-greeting/seen",
+            post(mark_staff_birthday_greeting_seen),
+        )
         .route("/self", get(self_get_profile).patch(self_patch_profile))
         .route("/self/avatar", patch(self_patch_staff_avatar))
         .route("/self/set-pin", post(self_set_pin))
@@ -523,6 +548,8 @@ async fn self_get_profile(
             s.max_discount_percent,
             s.employment_start_date,
             s.employment_end_date,
+            s.birthday_month,
+            s.birthday_day,
             s.employee_customer_id,
             NULLIF(trim(c.customer_code), '') AS employee_customer_code,
             COALESCE(s.notification_preferences, '{}'::jsonb) AS notification_preferences,
@@ -777,6 +804,121 @@ async fn list_for_pos(
     Ok(Json(rows))
 }
 
+async fn current_staff_birthday_greeting(
+    state: &AppState,
+    staff_id: Uuid,
+) -> Result<Option<StaffBirthdayGreetingResponse>, StaffApiError> {
+    let tz_name = tasks::load_store_timezone_name(&state.db).await?;
+    let today = tasks::store_local_date(&tz_name);
+    let Some((full_name, birthday_month, birthday_day)) =
+        sqlx::query_as::<_, (String, Option<i16>, Option<i16>)>(
+            r#"
+        SELECT full_name, birthday_month, birthday_day
+        FROM staff
+        WHERE id = $1
+          AND is_active = TRUE
+          AND (employment_end_date IS NULL OR employment_end_date >= $2)
+        "#,
+        )
+        .bind(staff_id)
+        .bind(today)
+        .fetch_optional(&state.db)
+        .await?
+    else {
+        return Ok(None);
+    };
+
+    let (Some(month), Some(day)) = (birthday_month, birthday_day) else {
+        return Ok(None);
+    };
+    if !birthday_observed_on(today, month, day) {
+        return Ok(None);
+    }
+    if !staff_schedule::is_working_day(&state.db, staff_id, today).await? {
+        return Ok(None);
+    }
+
+    let already_seen: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM staff_birthday_popup_seen
+            WHERE staff_id = $1
+              AND birthday_local_date = $2
+        )
+        "#,
+    )
+    .bind(staff_id)
+    .bind(today)
+    .fetch_one(&state.db)
+    .await?;
+    if already_seen {
+        return Ok(None);
+    }
+
+    let first_name = full_name
+        .split_whitespace()
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(full_name.as_str());
+
+    Ok(Some(StaffBirthdayGreetingResponse {
+        show: true,
+        title: Some(format!("Happy Birthday, {first_name}")),
+        body: Some("Your Riverside crew is glad you are here today. Hope your shift has a little extra sparkle.".to_string()),
+        birthday_local_date: today.format("%Y-%m-%d").to_string(),
+    }))
+}
+
+async fn get_staff_birthday_greeting_today(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<StaffBirthdayGreetingResponse>, StaffApiError> {
+    let staff = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+    let tz_name = tasks::load_store_timezone_name(&state.db).await?;
+    let today = tasks::store_local_date(&tz_name);
+    let fallback = StaffBirthdayGreetingResponse {
+        show: false,
+        title: None,
+        body: None,
+        birthday_local_date: today.format("%Y-%m-%d").to_string(),
+    };
+    Ok(Json(
+        current_staff_birthday_greeting(&state, staff.id)
+            .await?
+            .unwrap_or(fallback),
+    ))
+}
+
+async fn mark_staff_birthday_greeting_seen(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let staff = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+    let Some(greeting) = current_staff_birthday_greeting(&state, staff.id).await? else {
+        return Ok(Json(json!({ "status": "not_applicable" })));
+    };
+    let parsed_date = NaiveDate::parse_from_str(&greeting.birthday_local_date, "%Y-%m-%d")
+        .map_err(|_| StaffApiError::InvalidPayload("invalid local date".to_string()))?;
+    sqlx::query(
+        r#"
+        INSERT INTO staff_birthday_popup_seen (staff_id, birthday_local_date)
+        VALUES ($1, $2)
+        ON CONFLICT (staff_id, birthday_local_date) DO UPDATE
+        SET seen_at = now()
+        "#,
+    )
+    .bind(staff.id)
+    .bind(parsed_date)
+    .execute(&state.db)
+    .await?;
+    Ok(Json(json!({ "status": "seen" })))
+}
+
 async fn verify_cashier_code(
     State(state): State<AppState>,
     Json(body): Json<VerifyCashierRequest>,
@@ -920,6 +1062,8 @@ async fn admin_roster(
             s.max_discount_percent,
             s.employment_start_date,
             s.employment_end_date,
+            s.birthday_month,
+            s.birthday_day,
             s.employee_customer_id,
             NULLIF(trim(c.customer_code), '') AS employee_customer_code,
             COALESCE(s.notification_preferences, '{}'::jsonb) AS notification_preferences,
@@ -950,6 +1094,49 @@ fn validate_phone(phone: &str) -> bool {
         return true;
     }
     t.len() <= 40
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+fn valid_birthday_month_day(month: i16, day: i16) -> bool {
+    if !(1..=12).contains(&month) {
+        return false;
+    }
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => 29,
+        _ => 0,
+    };
+    (1..=max_day).contains(&day)
+}
+
+fn validate_birthday_pair(month: Option<i16>, day: Option<i16>) -> Result<(), StaffApiError> {
+    match (month, day) {
+        (None, None) => Ok(()),
+        (Some(m), Some(d)) if valid_birthday_month_day(m, d) => Ok(()),
+        (Some(_), Some(_)) => Err(StaffApiError::InvalidPayload(
+            "birthday must be a valid month/day".to_string(),
+        )),
+        _ => Err(StaffApiError::InvalidPayload(
+            "birthday month and day must be saved together".to_string(),
+        )),
+    }
+}
+
+fn birthday_observed_on(local_date: NaiveDate, month: i16, day: i16) -> bool {
+    let observed_month = local_date.month() as i16;
+    let observed_day = local_date.day() as i16;
+    if month == observed_month && day == observed_day {
+        return true;
+    }
+    month == 2
+        && day == 29
+        && observed_month == 2
+        && observed_day == 28
+        && !is_leap_year(local_date.year())
 }
 
 fn spawn_meilisearch_staff_upsert(state: &AppState, staff_id: Uuid) {
@@ -984,6 +1171,9 @@ async fn admin_patch_staff(
         && body.max_discount_percent.is_none()
         && body.employment_start_date.is_none()
         && body.employment_end_date.is_none()
+        && body.birthday_month.is_none()
+        && body.birthday_day.is_none()
+        && !body.clear_birthday
         && !ec_touch
     {
         return Err(StaffApiError::InvalidPayload(
@@ -1006,6 +1196,14 @@ async fn admin_patch_staff(
         if !validate_phone(p) {
             return Err(StaffApiError::InvalidPayload("invalid phone".to_string()));
         }
+    }
+    if body.clear_birthday && (body.birthday_month.is_some() || body.birthday_day.is_some()) {
+        return Err(StaffApiError::InvalidPayload(
+            "cannot clear and set birthday together".to_string(),
+        ));
+    }
+    if !body.clear_birthday {
+        validate_birthday_pair(body.birthday_month, body.birthday_day)?;
     }
 
     if let Some(ref code) = body.cashier_code {
@@ -1228,7 +1426,9 @@ async fn admin_patch_staff(
             employment_end_date = COALESCE($12, employment_end_date),
             employee_customer_id = CASE WHEN $13 THEN $14 ELSE employee_customer_id END,
             podium_user_uid = CASE WHEN $15 THEN $16 ELSE podium_user_uid END,
-            podium_display_name = CASE WHEN $17 THEN $18 ELSE podium_display_name END
+            podium_display_name = CASE WHEN $17 THEN $18 ELSE podium_display_name END,
+            birthday_month = CASE WHEN $19 THEN NULL ELSE COALESCE($20, birthday_month) END,
+            birthday_day = CASE WHEN $19 THEN NULL ELSE COALESCE($21, birthday_day) END
         WHERE id = $1
         "#,
     )
@@ -1250,6 +1450,9 @@ async fn admin_patch_staff(
     .bind(podium_uid_bind.flatten())
     .bind(body.podium_display_name.is_some())
     .bind(podium_name_bind.flatten())
+    .bind(body.clear_birthday)
+    .bind(body.birthday_month)
+    .bind(body.birthday_day)
     .execute(&mut *tx)
     .await?;
 
@@ -2257,6 +2460,7 @@ async fn admin_create_staff(
             "Custom Staff ID must be exactly 4 digits".to_string(),
         ));
     }
+    validate_birthday_pair(body.birthday_month, body.birthday_day)?;
 
     let initial_pin = body
         .cashier_code
@@ -2289,9 +2493,9 @@ async fn admin_create_staff(
             full_name, cashier_code, pin_hash, role, is_active,
             base_commission_rate, phone, email, avatar_key, max_discount_percent,
             employment_start_date, employment_end_date, employee_customer_id,
-            podium_user_uid, podium_display_name
+            podium_user_uid, podium_display_name, birthday_month, birthday_day
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         RETURNING id
         "#,
     )
@@ -2336,6 +2540,8 @@ async fn admin_create_staff(
             .map(|s| s.trim())
             .filter(|s| !s.is_empty()),
     )
+    .bind(body.birthday_month)
+    .bind(body.birthday_day)
     .fetch_one(&mut *tx)
     .await?;
 

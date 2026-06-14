@@ -488,7 +488,7 @@ pub async fn query_wedding_actions(
     let upcoming_appts = sqlx::query_as::<_, AppointmentRow>(
         r#"
         SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name,
-               phone, appointment_type, starts_at, notes, status, salesperson
+               phone, appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
         FROM wedding_appointments
         WHERE status = 'Scheduled'
           AND starts_at >= NOW()
@@ -505,7 +505,7 @@ pub async fn query_wedding_actions(
     let missed_appts = sqlx::query_as::<_, AppointmentRow>(
         r#"
         SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name,
-               phone, appointment_type, starts_at, notes, status, salesperson
+               phone, appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
         FROM wedding_appointments
         WHERE status = 'Scheduled'
           AND starts_at < NOW() - INTERVAL '15 minutes'
@@ -829,7 +829,7 @@ pub async fn list_appointments_filtered(
 ) -> Result<Vec<AppointmentRow>, sqlx::Error> {
     let mut qb: QueryBuilder<'_, sqlx::Postgres> = QueryBuilder::new(
         "SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone, \
-         appointment_type, starts_at, notes, status, salesperson \
+         appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id \
          FROM wedding_appointments WHERE 1=1 ",
     );
     if let Some(from) = from {
@@ -872,7 +872,7 @@ pub async fn search_appointments_hybrid(
         let rows = sqlx::query_as::<_, AppointmentRow>(
             r#"
             SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-                   appointment_type, starts_at, notes, status, salesperson
+                   appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
             FROM UNNEST($1::uuid[]) WITH ORDINALITY AS t(id, ord)
             JOIN wedding_appointments wa ON wa.id = t.id
             ORDER BY t.ord
@@ -889,7 +889,7 @@ pub async fn search_appointments_hybrid(
         let rows = sqlx::query_as::<_, AppointmentRow>(
             r#"
             SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-                   appointment_type, starts_at, notes, status, salesperson
+                   appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
             FROM wedding_appointments
             WHERE (
                 LOWER(customer_display_name) LIKE $1

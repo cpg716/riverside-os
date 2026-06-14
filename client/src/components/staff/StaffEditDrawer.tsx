@@ -49,6 +49,8 @@ export interface HubRow {
   max_discount_percent: string | number;
   employment_start_date?: string | null;
   employment_end_date?: string | null;
+  birthday_month?: number | null;
+  birthday_day?: number | null;
   employee_customer_id?: string | null;
   employee_customer_code?: string | null;
   podium_user_uid?: string | null;
@@ -105,6 +107,28 @@ function todayYmd(): string {
   return `${y}-${m}-${d}`;
 }
 
+const birthdayMonths = [
+  { value: 1, label: "January" },
+  { value: 2, label: "February" },
+  { value: 3, label: "March" },
+  { value: 4, label: "April" },
+  { value: 5, label: "May" },
+  { value: 6, label: "June" },
+  { value: 7, label: "July" },
+  { value: 8, label: "August" },
+  { value: 9, label: "September" },
+  { value: 10, label: "October" },
+  { value: 11, label: "November" },
+  { value: 12, label: "December" },
+];
+
+function birthdayDayLimit(month: string): number {
+  const m = Number.parseInt(month, 10);
+  if ([4, 6, 9, 11].includes(m)) return 30;
+  if (m === 2) return 29;
+  return 31;
+}
+
 export default function StaffEditDrawer({
   staff,
   open,
@@ -142,6 +166,8 @@ export default function StaffEditDrawer({
 
   const [employmentStart, setEmploymentStart] = useState("");
   const [employmentEnd, setEmploymentEnd] = useState("");
+  const [birthdayMonth, setBirthdayMonth] = useState("");
+  const [birthdayDay, setBirthdayDay] = useState("");
   const [employeeCustomerId, setEmployeeCustomerId] = useState<string | null>(
     null,
   );
@@ -231,6 +257,17 @@ export default function StaffEditDrawer({
     }
     return list;
   }, [podiumUsers, podiumUserUid, podiumDisplayName]);
+  const birthdayDays = useMemo(
+    () => Array.from({ length: birthdayDayLimit(birthdayMonth) }, (_, i) => i + 1),
+    [birthdayMonth],
+  );
+
+  useEffect(() => {
+    if (!birthdayDay) return;
+    if (Number.parseInt(birthdayDay, 10) > birthdayDayLimit(birthdayMonth)) {
+      setBirthdayDay("");
+    }
+  }, [birthdayDay, birthdayMonth]);
 
   // Initialize form
   useEffect(() => {
@@ -249,6 +286,8 @@ export default function StaffEditDrawer({
     setRecalculateEligibleCommission(true);
     setEmploymentStart(staff.employment_start_date?.slice(0, 10) ?? "");
     setEmploymentEnd(staff.employment_end_date?.slice(0, 10) ?? "");
+    setBirthdayMonth(staff.birthday_month ? String(staff.birthday_month) : "");
+    setBirthdayDay(staff.birthday_day ? String(staff.birthday_day) : "");
     setEmployeeCustomerId(staff.employee_customer_id ?? null);
     setEmployeeCustomerCode(staff.employee_customer_code ?? "");
     setDetachEmployeeCustomer(false);
@@ -280,6 +319,20 @@ export default function StaffEditDrawer({
       const disc = Number.parseFloat(maxDiscountPct.trim());
       if (!Number.isFinite(disc) || disc < 0 || disc > 100)
         throw new Error("Max discount % must be 0–100.");
+      const hasBirthdayMonth = birthdayMonth.trim().length > 0;
+      const hasBirthdayDay = birthdayDay.trim().length > 0;
+      if (hasBirthdayMonth !== hasBirthdayDay) {
+        throw new Error("Birthday month and day must be saved together.");
+      }
+      const birthdayMonthValue = hasBirthdayMonth ? Number.parseInt(birthdayMonth, 10) : null;
+      const birthdayDayValue = hasBirthdayDay ? Number.parseInt(birthdayDay, 10) : null;
+      if (
+        birthdayMonthValue !== null &&
+        birthdayDayValue !== null &&
+        (birthdayDayValue < 1 || birthdayDayValue > birthdayDayLimit(String(birthdayMonthValue)))
+      ) {
+        throw new Error("Birthday must be a valid month and day.");
+      }
 
       const payload: Record<string, unknown> = {
         full_name: name.trim(),
@@ -295,6 +348,12 @@ export default function StaffEditDrawer({
         podium_user_uid: podiumUserUid.trim() || "",
         podium_display_name: podiumDisplayName.trim() || "",
       };
+      if (birthdayMonthValue !== null && birthdayDayValue !== null) {
+        payload.birthday_month = birthdayMonthValue;
+        payload.birthday_day = birthdayDayValue;
+      } else if (staff.birthday_month || staff.birthday_day) {
+        payload.clear_birthday = true;
+      }
 
       const baseChanged =
         base !== decimalFromPctInput(pctFromDecimal(staff.base_commission_rate));
@@ -632,6 +691,40 @@ export default function StaffEditDrawer({
                       className="ui-input w-full text-xs"
                       placeholder="Optional"
                     />
+                  </label>
+                  <label className="block">
+                    <span className="text-[9px] font-black uppercase text-app-text-muted mb-1 block">
+                      Birthday Month
+                    </span>
+                    <select
+                      value={birthdayMonth}
+                      onChange={(e) => setBirthdayMonth(e.target.value)}
+                      className="ui-input w-full text-xs"
+                    >
+                      <option value="">Optional</option>
+                      {birthdayMonths.map((month) => (
+                        <option key={month.value} value={month.value}>
+                          {month.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-[9px] font-black uppercase text-app-text-muted mb-1 block">
+                      Birthday Day
+                    </span>
+                    <select
+                      value={birthdayDay}
+                      onChange={(e) => setBirthdayDay(e.target.value)}
+                      className="ui-input w-full text-xs"
+                    >
+                      <option value="">Optional</option>
+                      {birthdayDays.map((day) => (
+                        <option key={day} value={day}>
+                          {day}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label className="block sm:col-span-2">
                     <span className="text-[9px] font-black uppercase text-app-text-muted mb-1 block">

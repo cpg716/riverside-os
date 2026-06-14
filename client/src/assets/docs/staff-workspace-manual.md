@@ -36,6 +36,7 @@ This workspace handles the administrative lifecycle of your team. It is divided 
 
 When you select a staff member, their profile is organized for clarity:
 - **Left Column (Identity)**: Contains the staff member's full name, display name, employment dates, and their 4-digit **Access PIN**.
+- **Birthday**: Managers can save optional month/day only. Riverside does not store the year or age. If the staff member is active and scheduled to work on their birthday, Riverside shows in-app birthday greetings and team notifications.
 - **Right Column (Access & Earnings)**: Manages **Role** (Admin, Salesperson, etc.), **Commissions** (Base % and Category overrides), and granular **Permissions**.
 
 ## Managing Access PINs

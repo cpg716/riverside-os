@@ -41,6 +41,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
     partyId: '',
     memberId: '',
     customerId: '',
+    salespersonStaffId: '',
     salesperson: '',
     status: 'Scheduled'
   });
@@ -54,21 +55,25 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
     partyLabel?: string;
   } | null>(null);
   const { toast } = useToast();
-  const { backofficeHeaders } = useBackofficeAuth();
+  const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const wmHeaders = useMemo(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
   const [confirmStatus, setConfirmStatus] = useState<{ status: string, statusKey: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [scheduleWarning, setScheduleWarning] = useState<string | null>(null);
   const [overrideScheduleWarning, setOverrideScheduleWarning] = useState(false);
+  const [scheduleOverrideReason, setScheduleOverrideReason] = useState("");
+  const canOverrideSchedule = hasPermission("staff.manage_access") || hasPermission("tasks.manage");
 
   const selectedSalespersonId = useMemo(() => {
+    if (formData.salespersonStaffId) return formData.salespersonStaffId;
     const current = formData.salesperson.trim().toLowerCase();
     if (!current) return "";
     return salespeople.find((sp) => sp.full_name.trim().toLowerCase() === current)?.id ?? "";
-  }, [formData.salesperson, salespeople]);
+  }, [formData.salesperson, formData.salespersonStaffId, salespeople]);
 
   useEffect(() => {
     setOverrideScheduleWarning(false);
+    setScheduleOverrideReason("");
   }, [formData.salesperson, formData.date, formData.time]);
 
   useEffect(() => {
@@ -77,7 +82,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
       return;
     }
     const sp = formData.salesperson.trim();
-    if (!sp) {
+    if (!sp && !formData.salespersonStaffId) {
       setScheduleWarning(null);
       return;
     }
@@ -86,6 +91,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
       void (async () => {
         try {
           const q = new URLSearchParams({ full_name: sp, starts_at: iso });
+          if (formData.salespersonStaffId) q.set("staff_id", formData.salespersonStaffId);
           const res = await fetch(`${apiBase}/api/staff/schedule/validate-booking?${q}`, {
             headers: wmHeaders,
           });
@@ -101,7 +107,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
       })();
     }, 400);
     return () => window.clearTimeout(t);
-  }, [isOpen, formData.salesperson, formData.date, formData.time, wmHeaders]);
+  }, [isOpen, formData.salesperson, formData.salespersonStaffId, formData.date, formData.time, wmHeaders]);
 
   useEffect(() => {
     const fetchSalespeople = async () => {
@@ -138,6 +144,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
         partyId: initialData.partyId || '',
         memberId: initialData.memberId || '',
         customerId: initialData.customerId || '',
+        salespersonStaffId: initialData.salespersonStaffId || '',
         salesperson: initialData.salesperson || '',
         status: initialData.status || 'Scheduled'
       });
@@ -155,6 +162,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
         partyId: '',
         memberId: '',
         customerId: '',
+        salespersonStaffId: '',
         salesperson: '',
         status: 'Scheduled'
       });
@@ -165,7 +173,16 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (scheduleWarning && !overrideScheduleWarning) {
-      toast("Check the schedule override box to book this salesperson outside their published schedule.", "error");
+      toast(
+        canOverrideSchedule
+          ? "Confirm the Manager Access override and enter a reason before saving."
+          : "This staff member is not scheduled. Update the schedule or choose another teammate.",
+        "error",
+      );
+      return;
+    }
+    if (scheduleWarning && overrideScheduleWarning && !scheduleOverrideReason.trim()) {
+      toast("Manager Access override requires a reason.", "error");
       return;
     }
     const datetime = `${formData.date}T${formData.time}:00`;
@@ -184,6 +201,8 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
             notes: formData.notes,
             status: formData.status,
             salesperson: formData.salesperson,
+            salespersonStaffId: formData.salespersonStaffId || null,
+            scheduleOverrideReason: scheduleWarning && overrideScheduleWarning ? scheduleOverrideReason : null,
           },
           { headers: wmHeaders },
         );
@@ -199,6 +218,8 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
             notes: formData.notes,
             status: formData.status,
             salesperson: formData.salesperson,
+            salespersonStaffId: formData.salespersonStaffId || null,
+            scheduleOverrideReason: scheduleWarning && overrideScheduleWarning ? scheduleOverrideReason : null,
           },
           { headers: wmHeaders },
         );
@@ -377,7 +398,11 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
                 selectedId={selectedSalespersonId}
                 onSelect={(id) => {
                   const selected = salespeople.find((sp) => sp.id === id);
-                  setFormData({ ...formData, salesperson: selected?.full_name ?? "" });
+                  setFormData({
+                    ...formData,
+                    salesperson: selected?.full_name ?? "",
+                    salespersonStaffId: selected?.id ?? "",
+                  });
                 }}
                 placeholder="Any / Unassigned"
                 displayLabel={formData.salesperson || undefined}
@@ -387,15 +412,26 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
               {scheduleWarning ? (
                 <div className="mt-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800 dark:text-amber-200">
                   <p>{scheduleWarning}</p>
-                  <label className="mt-2 flex items-start gap-2 text-[11px] font-black uppercase tracking-widest text-amber-900 dark:text-amber-100">
+                  <label className={`mt-2 flex items-start gap-2 text-[11px] font-black uppercase tracking-widest ${
+                    canOverrideSchedule ? "text-amber-900 dark:text-amber-100" : "text-app-text-muted"
+                  }`}>
                     <input
                       type="checkbox"
                       className="mt-0.5 h-4 w-4 rounded border-amber-500"
                       checked={overrideScheduleWarning}
+                      disabled={!canOverrideSchedule}
                       onChange={(e) => setOverrideScheduleWarning(e.target.checked)}
                     />
-                    Schedule anyway
+                    Manager Access override
                   </label>
+                  {overrideScheduleWarning && canOverrideSchedule ? (
+                    <textarea
+                      className="ui-input mt-2 min-h-[4rem] w-full px-3 py-2 text-xs font-semibold"
+                      value={scheduleOverrideReason}
+                      onChange={(e) => setScheduleOverrideReason(e.target.value)}
+                      placeholder="Required reason for booking outside the published schedule"
+                    />
+                  ) : null}
                 </div>
               ) : null}
             </div>

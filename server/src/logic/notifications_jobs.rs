@@ -21,7 +21,7 @@ use crate::logic::podium::PodiumTokenCache;
 use crate::logic::tasks;
 use crate::logic::wedding_api_types::AppointmentRow;
 use crate::models::DbStaffRole;
-use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Timelike, Utc};
+use chrono::{DateTime, Datelike, Duration as ChronoDuration, NaiveDate, Timelike, Utc};
 use chrono_tz::Tz;
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
@@ -57,6 +57,23 @@ fn env_purge_hours() -> i64 {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(24 * 400)
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+fn birthday_observed_on(local_date: NaiveDate, month: i16, day: i16) -> bool {
+    let observed_month = local_date.month() as i16;
+    let observed_day = local_date.day() as i16;
+    if month == observed_month && day == observed_day {
+        return true;
+    }
+    month == 2
+        && day == 29
+        && observed_month == 2
+        && observed_day == 28
+        && !is_leap_year(local_date.year())
 }
 
 fn short_entity_label(prefix: &str, id: Uuid) -> String {
@@ -378,6 +395,7 @@ pub async fn run_notification_generators(pool: &PgPool) -> Result<(), sqlx::Erro
     }
 
     run_generator!("morning_admin_digest", run_morning_admin_digest(pool));
+    run_generator!("staff_birthdays", run_staff_birthday_notifications(pool));
     run_generator!("task_due_reminders", run_task_due_reminders(pool));
     run_generator!("wedding_soon", run_wedding_soon(pool));
     run_generator!("stale_open_orders", run_stale_open_orders(pool));
@@ -1142,6 +1160,108 @@ async fn store_local_day_key(pool: &PgPool) -> Result<String, sqlx::Error> {
         .date_naive()
         .format("%Y-%m-%d")
         .to_string())
+}
+
+async fn run_staff_birthday_notifications(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let tz_name = load_store_timezone_name(pool).await?;
+    let tz: Tz = tz_name.parse().unwrap_or(Tz::UTC);
+    let store_day = Utc::now().with_timezone(&tz).date_naive();
+    let day_key = store_day.format("%Y-%m-%d").to_string();
+
+    let birthday_staff: Vec<(Uuid, String, i16, i16)> = sqlx::query_as(
+        r#"
+        SELECT id, full_name, birthday_month, birthday_day
+        FROM staff
+        WHERE is_active = TRUE
+          AND birthday_month IS NOT NULL
+          AND birthday_day IS NOT NULL
+          AND (employment_end_date IS NULL OR employment_end_date >= $1)
+          AND staff_effective_working_day(id, $1)
+        ORDER BY full_name ASC
+        "#,
+    )
+    .bind(store_day)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .filter(|(_, _, month, day)| birthday_observed_on(store_day, *month, *day))
+    .collect();
+
+    if birthday_staff.is_empty() {
+        return Ok(());
+    }
+
+    let active_staff: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM staff
+        WHERE is_active = TRUE
+          AND (employment_end_date IS NULL OR employment_end_date >= $1)
+        "#,
+    )
+    .bind(store_day)
+    .fetch_all(pool)
+    .await?;
+
+    for (birthday_staff_id, full_name, _, _) in birthday_staff {
+        let first_name = full_name
+            .split_whitespace()
+            .next()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(full_name.as_str());
+        let self_dedupe = format!("staff_birthday:self:{birthday_staff_id}:{day_key}");
+        let self_id = upsert_app_notification_by_dedupe(
+            pool,
+            "staff_birthday_self",
+            &format!("Happy Birthday, {first_name}"),
+            "Your Riverside crew is glad you are here today. Hope your shift has a little extra sparkle.",
+            json!({
+                "type": "staff",
+                "section": "profile",
+                "staff_id": birthday_staff_id.to_string(),
+                "birthday_local_date": day_key,
+            }),
+            "generator",
+            json!({ "mode": "staff_ids", "staff_ids": [birthday_staff_id] }),
+            &self_dedupe,
+        )
+        .await?;
+        fan_out_notification_to_staff_ids(pool, self_id, &[birthday_staff_id]).await?;
+
+        let teammates: Vec<Uuid> = active_staff
+            .iter()
+            .copied()
+            .filter(|id| *id != birthday_staff_id)
+            .collect();
+        if teammates.is_empty() {
+            continue;
+        }
+        let team_dedupe = format!("staff_birthday:team:{birthday_staff_id}:{day_key}");
+        let team_id = upsert_app_notification_by_dedupe(
+            pool,
+            "staff_birthday_team",
+            &format!("Today is {first_name}'s Birthday"),
+            "Give them a warm birthday hello when you see them today.",
+            json!({
+                "type": "staff",
+                "section": "profile",
+                "staff_id": birthday_staff_id.to_string(),
+                "birthday_local_date": day_key,
+            }),
+            "generator",
+            json!({ "mode": "staff_ids", "staff_ids": teammates }),
+            &team_dedupe,
+        )
+        .await?;
+        let team_targets: Vec<Uuid> = active_staff
+            .iter()
+            .copied()
+            .filter(|id| *id != birthday_staff_id)
+            .collect();
+        fan_out_notification_to_staff_ids(pool, team_id, &team_targets).await?;
+    }
+
+    Ok(())
 }
 
 /// Admin-only digest: low stock (per tracked variant), weddings today, POs expected today,

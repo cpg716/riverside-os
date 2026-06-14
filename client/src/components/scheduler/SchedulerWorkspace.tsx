@@ -89,6 +89,12 @@ const normalizeAppointmentRow = (row: Record<string, unknown>): Appointment => (
     null,
   phone: (row.phone as string | null | undefined) ?? null,
   salesperson: (row.salesperson as string | null | undefined) ?? null,
+  salespersonStaffId:
+    row.salespersonStaffId != null
+      ? String(row.salespersonStaffId)
+      : row.salesperson_staff_id != null
+        ? String(row.salesperson_staff_id)
+        : null,
   notes: (row.notes as string | null | undefined) ?? null,
   partyId:
     row.partyId != null
@@ -120,6 +126,7 @@ export interface Appointment {
   customerName?: string | null;
   phone?: string | null;
   salesperson?: string | null;
+  salespersonStaffId?: string | null;
   notes?: string | null;
   partyId?: string | null;
   memberId?: string | null;

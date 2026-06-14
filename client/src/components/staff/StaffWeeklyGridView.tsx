@@ -118,6 +118,21 @@ const excludedStaffNames = new Set(["chris garcia"]);
 
 const DAY_LABEL_BLACKLIST = new Set(["master", "note change"]);
 
+const NON_WORKING_IMPORT_LABELS = new Set([
+  "",
+  "off",
+  "vac",
+  "vacation",
+  "req off",
+  "request off",
+  "pto",
+  "sick",
+  "call out",
+  "callout",
+]);
+
+const SHIFT_IMPORT_PATTERN = /^\d{1,2}(?::\d{2})?\s*-\s*\d{1,2}(?::\d{2})?$/;
+
 const DAY_HEADER_MAP: Record<string, number> = {
   sun: 0,
   sunday: 0,
@@ -185,6 +200,20 @@ const normalizeHeader = (v: unknown): string =>
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+
+const classifyImportedShift = (
+  value: string,
+): { works: boolean; shift_label: string | null; ambiguous: boolean } => {
+  const raw = String(value ?? "").trim();
+  const normalized = normalizeHeader(raw);
+  if (NON_WORKING_IMPORT_LABELS.has(normalized)) {
+    return { works: false, shift_label: null, ambiguous: false };
+  }
+  if (SHIFT_IMPORT_PATTERN.test(raw)) {
+    return { works: true, shift_label: raw, ambiguous: false };
+  }
+  return { works: false, shift_label: null, ambiguous: true };
+};
 
 const normalizeName = (name: string): string =>
   String(name ?? "")
@@ -1501,6 +1530,7 @@ export default function StaffWeeklyGridView() {
       const nameLookup = buildNameLookup(eligible);
       const nextSchedules = [...schedules];
       const missingNames = new Set<string>();
+      const ambiguousImportCells: string[] = [];
       const unresolvedRows: UnresolvedImportRow[] = [];
       const matchedStaffIds = new Set<string>();
       const appliedStaffIds = new Set<string>();
@@ -1530,14 +1560,17 @@ export default function StaffWeeklyGridView() {
 
         // Apply parsed shifts from Excel
         parsedDays.forEach(({ weekday, shiftVal }) => {
-          const hasShift = shiftVal !== "";
-          const normalized = normalizeHeader(shiftVal);
-          const works = hasShift && normalized !== "off";
+          const classified = classifyImportedShift(shiftVal);
+          if (classified.ambiguous) {
+            ambiguousImportCells.push(
+              `${formatStaffName(staff.full_name)} ${WEEKDAY_LABELS[weekday]}: "${shiftVal}"`,
+            );
+          }
           if (weekday >= 0 && weekday <= 6) {
             fullWeekdays[weekday] = {
               weekday,
-              works,
-              shift_label: hasShift && works ? shiftVal : null,
+              works: classified.works,
+              shift_label: classified.shift_label,
               base_works: false,
               base_shift_label: null,
               is_highlighted: false,
@@ -1628,13 +1661,16 @@ export default function StaffWeeklyGridView() {
             // Build a full 7-day schedule for the background week
             const fullWeekdays = WEEKDAY_LABELS.map((_, i) => {
               const ds = row.daySchedule.find(d => d.weekday === i);
-              const hasShift = Boolean(ds && ds.shiftVal !== "");
-              const normalized = ds ? normalizeHeader(ds.shiftVal) : "";
-              const works = hasShift && normalized !== "off";
+              const classified = classifyImportedShift(ds?.shiftVal ?? "");
+              if (ds && classified.ambiguous) {
+                ambiguousImportCells.push(
+                  `${formatStaffName(row.staff.full_name)} ${WEEKDAY_LABELS[i]}: "${ds.shiftVal}"`,
+                );
+              }
               return {
                 weekday: i,
-                works,
-                shift_label: hasShift && works ? (ds?.shiftVal ?? null) : null,
+                works: classified.works,
+                shift_label: classified.shift_label,
                 is_highlighted: false,
               };
             });
@@ -1647,6 +1683,13 @@ export default function StaffWeeklyGridView() {
           }
 
           if (bulkSchedules.length > 0) {
+            if (ambiguousImportCells.length > 0) {
+              throw new Error(
+                `Excel import needs review before publishing. Correct these ambiguous cells: ${ambiguousImportCells
+                  .slice(0, 12)
+                  .join("; ")}${ambiguousImportCells.length > 12 ? "..." : ""}`,
+              );
+            }
             const weekStr = toYmdLocal(sundayStart(targetWeekStart));
             await fetch(`${baseUrl}/api/staff/schedule/weeks/${weekStr}`, {
               method: "PUT",
@@ -1697,6 +1740,14 @@ export default function StaffWeeklyGridView() {
 
       if (totalParsedRows === 0) {
         throw new Error(`No schedule rows were found across "${file.name}".`);
+      }
+
+      if (ambiguousImportCells.length > 0) {
+        throw new Error(
+          `Excel import needs review before saving. Correct these ambiguous cells: ${ambiguousImportCells
+            .slice(0, 12)
+            .join("; ")}${ambiguousImportCells.length > 12 ? "..." : ""}`,
+        );
       }
 
       // Sort final results to ensure Natalie is at bottom

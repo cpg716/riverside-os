@@ -117,7 +117,14 @@ pub async fn ensure_task_instances(pool: &PgPool, staff_id: Uuid) -> Result<(), 
         .await?
         .ok_or(TaskError::NotFound)?;
 
-    if matches!(role, DbStaffRole::Salesperson | DbStaffRole::SalesSupport) {
+    if matches!(
+        role,
+        DbStaffRole::Admin
+            | DbStaffRole::Salesperson
+            | DbStaffRole::SalesSupport
+            | DbStaffRole::StaffSupport
+            | DbStaffRole::Alterations
+    ) {
         let working = crate::logic::staff_schedule::is_working_day(pool, staff_id, today)
             .await
             .map_err(TaskError::Database)?;
@@ -280,7 +287,14 @@ pub async fn materialize_due_task_instances_between(
             if due_date < from_d || due_date > to_d {
                 continue;
             }
-            if matches!(role, DbStaffRole::Salesperson | DbStaffRole::SalesSupport) {
+            if matches!(
+                role,
+                DbStaffRole::Admin
+                    | DbStaffRole::Salesperson
+                    | DbStaffRole::SalesSupport
+                    | DbStaffRole::StaffSupport
+                    | DbStaffRole::Alterations
+            ) {
                 let working =
                     crate::logic::staff_schedule::is_working_day(pool, staff_id, due_date)
                         .await

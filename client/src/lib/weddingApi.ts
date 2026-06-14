@@ -10,6 +10,7 @@ export type WeddingAppointmentClient = {
   type: string;
   status: string;
   salesperson?: string | null;
+  salespersonStaffId?: string | null;
   memberId?: string | null;
   partyId?: string | null;
   customerId?: string | null;
@@ -25,6 +26,7 @@ function mapAppointmentRow(a: Record<string, unknown>): WeddingAppointmentClient
     type: String(a.appointment_type ?? a.type ?? "Measurement"),
     status: String(a.status ?? "Scheduled"),
     salesperson: (a.salesperson as string) ?? null,
+    salespersonStaffId: a.salesperson_staff_id != null ? String(a.salesperson_staff_id) : null,
     memberId: a.wedding_member_id != null ? String(a.wedding_member_id) : null,
     partyId: a.wedding_party_id != null ? String(a.wedding_party_id) : null,
     customerId: a.customer_id != null ? String(a.customer_id) : null,
@@ -114,6 +116,8 @@ export const weddingApi = {
       notes?: string | null;
       status?: string;
       salesperson?: string | null;
+      salespersonStaffId?: string | null;
+      scheduleOverrideReason?: string | null;
     },
     opts?: WeddingApiFetchOpts,
   ) {
@@ -127,6 +131,8 @@ export const weddingApi = {
       notes: data.notes?.trim() || null,
       status: data.status || "Scheduled",
       salesperson: data.salesperson?.trim() || null,
+      salesperson_staff_id: data.salespersonStaffId?.trim() || null,
+      schedule_override_reason: data.scheduleOverrideReason?.trim() || null,
     };
     const headers = new Headers(opts?.headers ?? undefined);
     headers.set("Content-Type", "application/json");
@@ -154,6 +160,8 @@ export const weddingApi = {
       notes?: string | null;
       status?: string;
       salesperson?: string | null;
+      salespersonStaffId?: string | null;
+      scheduleOverrideReason?: string | null;
     },
     opts?: WeddingApiFetchOpts,
   ) {
@@ -166,6 +174,8 @@ export const weddingApi = {
       notes: data.notes?.trim() ?? undefined,
       status: data.status,
       salesperson: data.salesperson?.trim() ?? undefined,
+      salesperson_staff_id: data.salespersonStaffId?.trim() || undefined,
+      schedule_override_reason: data.scheduleOverrideReason?.trim() || undefined,
     };
     if (data.datetime) {
       payload.starts_at = new Date(data.datetime).toISOString();
