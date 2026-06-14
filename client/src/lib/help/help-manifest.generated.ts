@@ -459,7 +459,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "settings-counterpoint-sync-settings-panel",
     title: "Counterpoint Sync and Sign-Off",
-    summary: "Monitor the Counterpoint bridge, review imported proof, and understand historical tax semantics.",
+    summary: "Connect Counterpoint SYNC, select prepared runs, run ROS preflight/import, and review proof.",
     markdown: manual_55_raw,
     tags: ["settings-counterpoint-sync-settings-panel","counterpoint","bridge","sync","signoff"],
   },

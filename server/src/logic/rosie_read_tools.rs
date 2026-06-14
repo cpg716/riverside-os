@@ -899,7 +899,6 @@ async fn inventory_availability(
         FROM product_variants pv
         JOIN products p ON p.id = pv.product_id
         WHERE p.is_active = TRUE
-          AND pv.is_active = TRUE
           AND (
               p.name ILIKE $1 ESCAPE '\'
               OR pv.sku ILIKE $1 ESCAPE '\'
@@ -2786,8 +2785,9 @@ async fn data_cleanup_tasks(
              WHERE NULLIF(trim(COALESCE(email, '')), '') IS NULL
                AND NULLIF(trim(COALESCE(phone, '')), '') IS NULL) AS customers_missing_contact,
             (SELECT COUNT(*)::bigint FROM product_variants pv
+             JOIN products p ON p.id = pv.product_id
              LEFT JOIN product_variant_barcode_aliases ba ON ba.variant_id = pv.id
-             WHERE pv.is_active = TRUE
+             WHERE p.is_active = TRUE
                AND NULLIF(trim(COALESCE(pv.vendor_upc, '')), '') IS NULL
                AND ba.id IS NULL) AS active_variants_missing_barcode,
             (SELECT COUNT(*)::bigint FROM vendor_supplier_item
@@ -2894,14 +2894,14 @@ async fn data_quality_summary(
              WHERE NULLIF(trim(COALESCE(email, '')), '') IS NULL
                AND NULLIF(trim(COALESCE(phone, '')), '') IS NULL) AS customers_missing_contact,
             (SELECT COUNT(*)::bigint FROM product_variants pv
+             JOIN products p ON p.id = pv.product_id
              LEFT JOIN product_variant_barcode_aliases ba ON ba.variant_id = pv.id
-             WHERE pv.is_active = TRUE
+             WHERE p.is_active = TRUE
                AND NULLIF(trim(COALESCE(pv.vendor_upc, '')), '') IS NULL
                AND ba.id IS NULL) AS active_variants_missing_barcode,
             (SELECT COUNT(*)::bigint FROM product_variants pv
              JOIN products p ON p.id = pv.product_id
-             WHERE pv.is_active = TRUE
-               AND p.is_active = TRUE
+             WHERE p.is_active = TRUE
                AND COALESCE(pv.stock_on_hand, 0) < 0) AS negative_stock_variants,
             (SELECT COUNT(*)::bigint FROM vendor_supplier_item
              WHERE variant_id IS NULL) AS unmatched_vendor_items,
