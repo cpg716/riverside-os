@@ -1,7 +1,9 @@
 /**
- * POS offline checkout queue (localforage).
+ * POS checkout recovery queue (localforage).
  *
  * **Queued:** completed checkout payloads when `navigator.onLine` is false (see `Cart`).
+ * **Blocked recovery:** online checkout outcomes that are unconfirmed, or paid
+ * pickup follow-up work that did not complete. These rows do not auto-replay.
  * **Not queued:** cart edits, session open/close, back-office mutations — those require API access.
  * **Flush:** on `online` event, `flushCheckoutQueue` POSTs each item to `/api/transactions/checkout`.
  * Header shows **Offline Mode** / **Pending Syncs** via `useOfflineSync`.
@@ -25,6 +27,9 @@ export interface QueuedCheckout {
   blockedAt?: number;
   lastErrorStatus?: number;
   lastErrorMessage?: string;
+  recoveryKind?: "offline_replay" | "online_unconfirmed" | "pickup_after_payment";
+  recoveryKey?: string;
+  recoveryTransactionId?: string;
   /** Snapshot at enqueue time (PIN and other secrets stripped — replay merges live headers). */
   authHeaders?: Record<string, string>;
 }
@@ -58,6 +63,73 @@ export async function enqueueCheckout(
   await checkoutStore.setItem(id, item);
   window.dispatchEvent(new Event("queue_changed")); // Notify React listeners
   return id;
+}
+
+/** Record a manager-visible recovery blocker without auto-replaying it. */
+export async function enqueueBlockedCheckoutRecovery(
+  payload: CheckoutPayload,
+  status: number,
+  message: string,
+  options: {
+    recoveryKind: NonNullable<QueuedCheckout["recoveryKind"]>;
+    recoveryKey?: string | null;
+    recoveryTransactionId?: string | null;
+    authHeaders?: Record<string, string>;
+  },
+): Promise<string> {
+  const normalizedKey =
+    options.recoveryKey?.trim() ||
+    payload.checkout_client_id?.trim() ||
+    options.recoveryTransactionId?.trim() ||
+    crypto.randomUUID();
+  const id = `recovery:${options.recoveryKind}:${normalizedKey}`;
+  const existing = await checkoutStore.getItem<QueuedCheckout>(id);
+  const item: QueuedCheckout = {
+    ...(existing ?? {}),
+    id,
+    payload,
+    timestamp: existing?.timestamp ?? Date.now(),
+    status: "blocked",
+    attemptCount: existing?.attemptCount ?? 0,
+    lastAttemptAt: Date.now(),
+    blockedAt: existing?.blockedAt ?? Date.now(),
+    lastErrorStatus: status,
+    lastErrorMessage: message.trim().slice(0, 1000),
+    recoveryKind: options.recoveryKind,
+    recoveryKey: normalizedKey,
+    recoveryTransactionId: options.recoveryTransactionId?.trim() || undefined,
+    authHeaders: headersSafeForOfflinePersist(options.authHeaders),
+  };
+  await checkoutStore.setItem(id, item);
+  window.dispatchEvent(new Event("queue_changed"));
+  return id;
+}
+
+export async function clearBlockedCheckoutRecovery(match: {
+  checkoutClientId?: string | null;
+  recoveryKey?: string | null;
+  recoveryTransactionId?: string | null;
+}): Promise<void> {
+  const checkoutClientId = match.checkoutClientId?.trim();
+  const recoveryKey = match.recoveryKey?.trim();
+  const recoveryTransactionId = match.recoveryTransactionId?.trim();
+  if (!checkoutClientId && !recoveryKey && !recoveryTransactionId) return;
+
+  const items = await getCheckoutQueue();
+  let changed = false;
+  for (const item of items) {
+    if ((item.status ?? "pending") !== "blocked") continue;
+    const itemCheckoutClientId = item.payload.checkout_client_id?.trim();
+    const matched =
+      (checkoutClientId && itemCheckoutClientId === checkoutClientId) ||
+      (recoveryKey && item.recoveryKey === recoveryKey) ||
+      (recoveryTransactionId && item.recoveryTransactionId === recoveryTransactionId);
+    if (matched) {
+      await checkoutStore.removeItem(item.id);
+      changed = true;
+    }
+  }
+  if (changed) window.dispatchEvent(new Event("queue_changed"));
 }
 
 /** Retrieve all queued items sorted by timestamp */

@@ -2306,7 +2306,7 @@ export default function Cart({
                 <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-black uppercase tracking-widest ${offlineBlockedCount > 0 ? "border-app-danger/25 bg-app-danger/10 text-app-danger" : "border-app-warning/25 bg-app-warning/10 text-app-warning"}`}>
                   <AlertTriangle size={12} aria-hidden />
                   {offlineBlockedCount > 0
-                    ? `${offlineBlockedCount} offline sale${offlineBlockedCount === 1 ? "" : "s"} need recovery`
+                    ? `${offlineBlockedCount} checkout recovery item${offlineBlockedCount === 1 ? "" : "s"}`
                     : `${offlineQueueCount} syncing`}
                 </span>
               ) : null}

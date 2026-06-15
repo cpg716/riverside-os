@@ -15,7 +15,11 @@ import {
 } from "../components/pos/types";
 import { parseMoneyToCents, centsToFixed2 } from "../lib/money";
 import { newCheckoutClientId, normalizeGiftCardSubType } from "../lib/posUtils";
-import { enqueueCheckout } from "../lib/offlineQueue";
+import {
+  clearBlockedCheckoutRecovery,
+  enqueueBlockedCheckoutRecovery,
+  enqueueCheckout,
+} from "../lib/offlineQueue";
 import { playPosScanError } from "../lib/posAudio";
 
 interface UseCartCheckoutProps {
@@ -106,6 +110,31 @@ function hasProviderBackedPayment(applied: AppliedPaymentLine[]): boolean {
     const provider = payment.metadata?.payment_provider;
     return typeof provider === "string" && provider.trim().length > 0;
   });
+}
+
+async function checkoutResponseError(response: Response): Promise<string> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const body = (await response.json().catch(() => ({}))) as { error?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) {
+      return body.error;
+    }
+  }
+  const text = await response.text().catch(() => "");
+  return text.trim() || `Checkout failed (${response.status})`;
+}
+
+async function recordBlockedCheckoutRecovery(
+  payload: CheckoutPayload,
+  status: number,
+  message: string,
+  options: Parameters<typeof enqueueBlockedCheckoutRecovery>[3],
+): Promise<void> {
+  try {
+    await enqueueBlockedCheckoutRecovery(payload, status, message, options);
+  } catch (err) {
+    console.error("Checkout recovery record could not be saved", err);
+  }
 }
 
 export function maxCollectableTenderCents(
@@ -258,6 +287,7 @@ export function useCartCheckout({
 
         toast("Pickup completed successfully.", "success");
         setLastTransactionId(pickupTransactionId);
+        void clearBlockedCheckoutRecovery({ recoveryTransactionId: pickupTransactionId });
 
         if (execution?.clearAfterCheckout !== false) {
           clearCart();
@@ -507,50 +537,32 @@ export function useCartCheckout({
         return null;
       }
 
-      let res = await fetch(`${baseUrl}/api/transactions/checkout`, {
+      const res = await fetch(`${baseUrl}/api/transactions/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...apiAuth() },
         body: JSON.stringify(payload),
       });
 
-      // Retry once on server errors; if still failing, treat as offline emergency.
-      if (!res.ok && res.status >= 500) {
-        await new Promise((r) => setTimeout(r, 1000));
-        res = await fetch(`${baseUrl}/api/transactions/checkout`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...apiAuth() },
-          body: JSON.stringify(payload),
-        });
-      }
-
       if (!res.ok) {
-        // 5xx after retry => emergency offline fallback so the register never bricks
         if (res.status >= 500) {
-          if (providerBackedPayment) {
-            throw new Error("Server could not confirm the card-provider checkout. Keep this payment open and retry Record Sale; do not run the card again.");
-          }
-          await enqueueCheckout(payload, apiAuth());
-          toast("Server error — sale saved for sync. Print receipt for customer.", "error");
-          if (execution?.clearAfterCheckout !== false) {
-            clearCart();
-            setCheckoutClientId(newCheckoutClientId());
-          }
-          if (execution?.emitSaleCompleted !== false) {
-            onSaleCompleted?.();
-          }
-          return null;
+          const detail = await checkoutResponseError(res);
+          await recordBlockedCheckoutRecovery(payload, res.status, detail, {
+            recoveryKind: "online_unconfirmed",
+            recoveryKey: checkoutClientId,
+            authHeaders: apiAuth(),
+          });
+          const tenderText = providerBackedPayment
+            ? "Do not run the card again."
+            : "Do not re-enter or queue this sale blindly.";
+          throw new Error(
+            `Riverside OS could not confirm whether this checkout saved. ${tenderText} Keep the cart open and retry Record Sale after checking recovery.`,
+          );
         }
-        let b: { error?: string } = {};
-        try {
-          b = await res.json() as { error?: string };
-        } catch {
-          const text = await res.text().catch(() => "");
-          b = { error: text || `Checkout failed (${res.status})` };
-        }
-        throw new Error(b.error || `Checkout failed (${res.status})`);
+        throw new Error(await checkoutResponseError(res));
       }
 
       const data = await res.json() as { transaction_id: string; warnings?: string[] };
+      void clearBlockedCheckoutRecovery({ checkoutClientId });
       let receiptTransactionId = data.transaction_id;
       if (execution?.showSuccessToast !== false) {
         toast("Checkout complete", "success");
@@ -598,10 +610,24 @@ export function useCartCheckout({
             receiptTransactionId = pickupTransactionId;
           } else {
             const body = await pickupRes.json().catch(() => ({})) as { error?: string };
-            toast(body.error ?? "Pickup could not be completed after checkout.", "error");
+            const message = body.error ?? "Pickup could not be completed after checkout.";
+            await recordBlockedCheckoutRecovery(payload, pickupRes.status, message, {
+              recoveryKind: "pickup_after_payment",
+              recoveryKey: pickupTransactionId,
+              recoveryTransactionId: pickupTransactionId,
+              authHeaders: apiAuth(),
+            });
+            toast(`Payment saved, but pickup is not complete. ${message}`, "error");
           }
-        } catch {
-          toast("Pickup API call failed after checkout.", "error");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Pickup API call failed after checkout.";
+          await recordBlockedCheckoutRecovery(payload, 0, message, {
+            recoveryKind: "pickup_after_payment",
+            recoveryKey: pickupTransactionId,
+            recoveryTransactionId: pickupTransactionId,
+            authHeaders: apiAuth(),
+          });
+          toast("Payment saved, but pickup is not complete. Review checkout recovery before closing.", "error");
         }
       }
 

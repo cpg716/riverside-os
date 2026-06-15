@@ -381,7 +381,7 @@ export default function GlobalTopBar({
               )}
               title={
                 blockedCount > 0
-                  ? `${blockedCount} completed POS checkout${blockedCount === 1 ? "" : "s"} need manager recovery. ${pendingCount} still pending sync.`
+                  ? `${blockedCount} checkout recovery item${blockedCount === 1 ? "" : "s"} need manager review. ${pendingCount} still pending sync.`
                   : `${pendingCount} completed POS checkout${pendingCount === 1 ? "" : "s"} waiting to sync when connectivity returns.`
               }
             >
@@ -391,7 +391,7 @@ export default function GlobalTopBar({
               </span>
               <span className="hidden lg:inline">
                 {blockedCount > 0
-                  ? `${blockedCount} blocked checkout${blockedCount === 1 ? "" : "s"}`
+                  ? `${blockedCount} checkout recovery`
                   : `${pendingCount} pending sync${pendingCount === 1 ? "" : "s"}`}
               </span>
               <span className="hidden sm:inline lg:hidden">

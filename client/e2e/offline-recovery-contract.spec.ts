@@ -162,6 +162,8 @@ test.describe("offline checkout recovery contract", () => {
       attemptCount: 1,
       lastErrorStatus: 400,
       lastErrorMessage: "E2E blocked checkout recovery item",
+      recoveryKind: "online_unconfirmed",
+      recoveryKey: "e2e-unconfirmed-checkout",
       payload: {
         checkout_client_id: crypto.randomUUID(),
       },

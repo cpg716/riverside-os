@@ -2882,6 +2882,7 @@ pub async fn execute_checkout(
 
     let mut alteration_order_ids = Vec::new();
     let mut negative_stock_alerts: Vec<String> = Vec::new();
+    let mut checkout_recovery_alerts: Vec<String> = Vec::new();
 
     if !is_completing_processing {
         if order_fulfillment_method == DbOrderFulfillmentMethod::Ship {
@@ -3573,6 +3574,14 @@ pub async fn execute_checkout(
                 .execute(&mut *tx)
                 .await?;
             } else {
+                let alert_msg = format!(
+                    "Inventory Reconciliation Required: checkout {transaction_display_id} could not decrement stock for variant {variant_id} by {qty}; sale completed and needs review"
+                );
+                checkout_recovery_alerts.push(alert_msg);
+                checkout_warnings.push(
+                    "Inventory reconciliation required — sale completed but one stock movement needs review."
+                        .to_string(),
+                );
                 tracing::warn!(
                     variant_id = %variant_id,
                     qty,
@@ -4209,6 +4218,13 @@ pub async fn execute_checkout(
         }
     }
 
+    for alert_msg in checkout_recovery_alerts {
+        if let Err(e) = crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
+        {
+            tracing::error!(error = %e, "Failed to broadcast system alert for checkout recovery");
+        }
+    }
+
     // Post-commit: commission events are non-critical back-office concerns.
     // If this fails, the sale is already committed; log and warn only.
     if let Err(e) = crate::logic::commission_events::upsert_fulfilled_transaction_events_pool(
@@ -4223,6 +4239,18 @@ pub async fn execute_checkout(
             transaction_id = %transaction_id,
             "Commission event upsert failed after checkout commit"
         );
+        let alert_msg = format!(
+            "Checkout Support Follow-up Required: commission calculation delayed for {transaction_display_id}; sale completed"
+        );
+        if let Err(alert_err) =
+            crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
+        {
+            tracing::error!(
+                error = %alert_err,
+                transaction_id = %transaction_id,
+                "Failed to broadcast commission recovery alert"
+            );
+        }
         checkout_warnings.push("Commission calculation delayed — sale completed.".to_string());
     }
 
@@ -4245,6 +4273,18 @@ pub async fn execute_checkout(
                 party_id = %activity.party_id,
                 "Wedding activity log failed after checkout commit"
             );
+            let alert_msg = format!(
+                "Checkout Support Follow-up Required: wedding timeline update delayed for {transaction_display_id}; sale completed"
+            );
+            if let Err(alert_err) =
+                crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
+            {
+                tracing::error!(
+                    error = %alert_err,
+                    transaction_id = %transaction_id,
+                    "Failed to broadcast wedding timeline recovery alert"
+                );
+            }
             checkout_warnings.push("Wedding timeline update delayed — sale completed.".to_string());
         }
     }
@@ -4267,6 +4307,20 @@ pub async fn execute_checkout(
                 transaction_id = %transaction_id,
                 "RMS sales_support notification fan-out failed after checkout"
             );
+            let alert_msg = format!(
+                "Checkout Support Follow-up Required: RMS sales-support notification failed for {transaction_display_id}; sale completed"
+            );
+            if let Err(alert_err) =
+                crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
+            {
+                tracing::error!(
+                    error = %alert_err,
+                    transaction_id = %transaction_id,
+                    "Failed to broadcast RMS notification recovery alert"
+                );
+            }
+            checkout_warnings
+                .push("RMS sales-support notification delayed — sale completed.".to_string());
         }
     }
 
@@ -4289,6 +4343,20 @@ pub async fn execute_checkout(
                     transaction_id = %transaction_id,
                     "RMS payment ad-hoc task creation failed"
                 );
+                let alert_msg = format!(
+                    "Checkout Support Follow-up Required: RMS payment follow-up task failed for {transaction_display_id}; sale completed"
+                );
+                if let Err(alert_err) =
+                    crate::logic::notifications::broadcast_system_alert(pool, &alert_msg).await
+                {
+                    tracing::error!(
+                        error = %alert_err,
+                        transaction_id = %transaction_id,
+                        "Failed to broadcast RMS task recovery alert"
+                    );
+                }
+                checkout_warnings
+                    .push("RMS payment follow-up task delayed — sale completed.".to_string());
             }
         }
     }

@@ -35,6 +35,8 @@ Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** au
 
 If a card terminal outcome blocks close, use **Review** in the closing workflow or **POS → Payments** to record the outcome before continuing.
 
+If **Checkout recovery** appears, do not close the register yet. This means Riverside OS has a checkout that needs manager review, such as an offline sale waiting to sync, an online checkout where the server result was not confirmed, or a payment that posted before pickup could be completed. Confirm the transaction, pickup, or recovery item before retrying or closing.
+
 ## ✨ Register close explainer
 
 The Z-Report step includes a ROSIE explainer for visible close facts: expected cash, actual counted cash, Daily Cash Deposit, cash over/short, card review blockers, check review, and checkout recovery blockers.
@@ -52,7 +54,7 @@ Upon closing, a professional, full-page **Z-Audit Report** is generated.
 
 ## Recovery and escalation
 
-Register close is final for the till group. If cash, card, gift card, or RMS/R2S totals do not match expected evidence, stop before closing and review the daily sales and terminal reports. A manager should decide whether the variance is explained, needs a note, or should block close until support/accounting reviews it.
+Register close is final for the till group. If cash, card, gift card, pickup completion, checkout recovery, or RMS/R2S totals do not match expected evidence, stop before closing and review the daily sales and terminal reports. A manager should decide whether the variance is explained, needs a note, or should block close until support/accounting reviews it.
 
 
 ## Tips
