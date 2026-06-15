@@ -201,7 +201,7 @@ On first launch, the Tauri app imports `station-config.json` and saves:
 
 - API base: `ros_api_base_override`
 - Receipt printer mode/address/name
-- Fixed tag printer queue name: **Zebra LP 2844**
+- Expected tag printer queue name: **Zebra LP 2844**; select the exact installed queue in Riverside Printers & Scanners
 - Report printer mode/address/name
 - Cash drawer setting
 
@@ -240,7 +240,7 @@ Use installed-printer mode for USB printers, report/label printers that need Win
 }
 ```
 
-For clothing tags, Windows must expose the installed printer queue as **Zebra LP 2844**. Inventory tag actions send **EPL** directly to that queue; a failed hardware route must be corrected before relying on tag printing.
+For clothing tags, Windows must expose the installed LP 2844 printer queue and Riverside Printers & Scanners must select that exact queue. Inventory tag actions send **EPL2** directly to the saved Tag Station target; a failed hardware route must be corrected before relying on tag printing.
 
 For **iPad/PWA receipts**, Riverside does not use the browser print dialog for receipts. The PWA sends the print request to the Riverside Server API, and the server dispatches directly to the Epson IP/port. If the server cannot reach the printer, fix the printer IP, port, firewall, or network before using the lane.
 

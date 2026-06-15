@@ -3,6 +3,7 @@ import {
   autoRoutePrint,
   describePrinterTarget,
   RIVERSIDE_TAG_PRINTER_LANGUAGE,
+  RIVERSIDE_TAG_PRINTER_LANGUAGE_LABEL,
   resolvePrinterTarget,
   type HardwarePrinterTarget,
   type ThermalPrinterLanguage,
@@ -111,6 +112,9 @@ function escapeZplField(value: string): string {
 
 function escapeEplField(value: string): string {
   return value
+    .replace(/\u00b7/g, " - ")
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]/g, " ")
     .replace(/["\r\n]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -340,7 +344,7 @@ function renderEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     eplPriceBlock(parts, textX, y, height - 30, item, config);
     if (config.showBarcode && sku) {
       parts.push(eplText(m, m, 1, 1, 1, 1, sku));
-      parts.push(`B${m + 18},${m},1,1A,2,2,44,B,"${sku}"`);
+      parts.push(`B${m + 18},${m},1,1,2,2,44,B,"${sku}"`);
     }
   } else if (layout === "barcode-right") {
     const bcZone = config.showBarcode ? Math.round(width * 0.18) : 0;
@@ -350,7 +354,7 @@ function renderEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     if (config.showBarcode && sku) {
       const bcX = width - bcZone;
       parts.push(eplText(bcX, m, 1, 1, 1, 1, sku));
-      parts.push(`B${bcX + 18},${m},1,1A,2,2,44,B,"${sku}"`);
+      parts.push(`B${bcX + 18},${m},1,1,2,2,44,B,"${sku}"`);
     }
   } else if (layout === "price-hero") {
     let y = m;
@@ -360,21 +364,21 @@ function renderEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     }
     eplTextBlock(parts, m, y, item, config, Math.max(14, Math.floor((width - m * 2) / 17)));
     if (config.showBarcode && sku) {
-      parts.push(`B${m},${height - 72},0,1A,2,2,44,B,"${sku}"`);
+      parts.push(`B${m},${height - 72},0,1,2,2,44,B,"${sku}"`);
     }
   } else if (layout === "compact") {
     const rightX = Math.round(width * 0.56);
     eplTextBlock(parts, m, m, item, config, Math.max(10, Math.floor((rightX - m) / 17)));
     eplPriceBlock(parts, rightX, m, height - 30, item, config);
     if (config.showBarcode && sku) {
-      parts.push(`B${rightX},${height - 72},0,1A,2,2,38,B,"${sku}"`);
+      parts.push(`B${rightX},${height - 72},0,1,2,2,38,B,"${sku}"`);
     }
   } else {
     const y = eplTextBlock(parts, m, m, item, config, Math.max(14, Math.floor((width - m * 2) / 17)));
     const barcodeReserve = config.showBarcode ? 74 : 0;
     eplPriceBlock(parts, m, y, height - barcodeReserve - 18, item, config);
     if (config.showBarcode && sku) {
-      parts.push(`B${m},${height - 72},0,1A,2,2,44,B,"${sku}"`);
+      parts.push(`B${m},${height - 72},0,1,2,2,44,B,"${sku}"`);
     }
   }
 
@@ -382,14 +386,14 @@ function renderEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     parts.push(eplText(m, height - 20, 0, 1, 1, 1, footer));
   }
   parts.push("P1");
-  return parts.join("\n");
+  return `${parts.join("\r\n")}\r\n`;
 }
 
 export function buildEplDocument(
   items: InventoryTagItem[],
   config: InventoryTagPrintConfig,
 ): string {
-  return items.map((item) => renderEplTag(item, config)).join("\n");
+  return items.map((item) => renderEplTag(item, config)).join("");
 }
 
 function readConfiguredTagPrinterLanguage(): ThermalPrinterLanguage {
@@ -397,7 +401,6 @@ function readConfiguredTagPrinterLanguage(): ThermalPrinterLanguage {
 }
 
 export function getInventoryTagPrinterLanguage(): ThermalPrinterLanguage {
-  if (typeof window === "undefined") return "zpl";
   return readConfiguredTagPrinterLanguage();
 }
 
@@ -773,7 +776,7 @@ export async function openInventoryTagsWindow(
     return {
       route: "direct",
       markShelfLabeled: true,
-      message: `queued to ${result?.target ?? describePrinterTarget(target)} using ${language.toUpperCase()}.`,
+      message: `sent to ${result?.target ?? describePrinterTarget(target)} using ${RIVERSIDE_TAG_PRINTER_LANGUAGE_LABEL}.`,
     };
   } catch (directError) {
     const directMessage = directError instanceof Error ? directError.message : String(directError);

@@ -340,7 +340,7 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 
 Configure each **Register 1** PC with either the installed **Epson TM-m30III receipt printer** selected by name or the Epson printer network address. Preferred setup for Register #1 receipts is **Network address** with a static/DHCP-reserved Epson IP because it keeps ESC/POS receipts and cash drawer kick on the direct receipt-printer path. Use **Installed printer on this PC** for USB printers, report/label printers that rely on Windows driver sizing, or as a fallback if raw network printing is not available.
 
-Configure the **Tag Station** as the installed Windows printer queue **Zebra LP 2844** on the Main Hub / tag-printing PC. Riverside clothing tags use **EPL only**; do not configure ZPL, auto-detect, or another Zebra model for tag sign-off.
+Configure the **Tag Station** to the installed Windows printer queue for the LP 2844 on the Main Hub / tag-printing PC, normally **Zebra LP 2844**. Riverside clothing tags use **EPL2 only**; do not configure ZPL, auto-detect, or another Zebra model for tag sign-off.
 
 ### 5.1 Station commissioning checklist (go-live required)
 
@@ -365,7 +365,7 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 |---------|--------|----------------------|
 | Register 1 | **Zebra DS2208** | USB **keyboard wedge (HID)**. Focus the POS search / SKU field; scans appear as typed text. No scanner SDK in the app. |
 | Register 2 | **Zebra CS6080** | Pair to iPad as a **Bluetooth keyboard (HID)** so Safari receives scan data as keystrokes. Program a **suffix** (Enter/Tab) if your workflow needs automatic submit. |
-| Back office | **Zebra LP 2844** | **Shelf / inventory tags:** ROS generates **EPL** at 203 DPI and sends it to the Windows **Zebra LP 2844** queue. Browser print preview is not proof that tag printing works. |
+| Back office | **Zebra LP 2844** | **Shelf / inventory tags:** ROS generates **EPL2** at 203 DPI and sends it to the saved Tag Station target. Browser print preview is not proof that tag printing works. |
 | Register 1 | **Epson TM-m30III** (receipts) | Prefer **Network address** with static/DHCP-reserved IP for receipts and cash drawer. Installed-printer mode is available for USB/driver-managed fallback. |
 | Register 2 (iPad) | Receipts | See **subsection 6.2** — current app behavior. |
 | Register lanes using card present | **Helcim Terminal reader(s)** | Used for card-present checkout flow; must be registered to correct location and validated per-lane before go-live. |
@@ -381,8 +381,8 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 #### Report / label printers
 - [ ] Correct Windows/macOS driver installed.
 - [ ] Correct page size/media profile configured.
-- [ ] Windows printer queue named **Zebra LP 2844** exists on the Main Hub / tag-printing PC.
-- [ ] **Tag Designer → Print test tag** reaches the Zebra LP 2844 directly using EPL; preview fallback is documented for outages only.
+- [ ] Windows printer queue for the LP 2844 exists on the Main Hub / tag-printing PC, and Printers & Scanners has that exact queue selected.
+- [ ] **Tag Designer → Print test tag** reaches the Zebra LP 2844 directly using EPL2; preview fallback is documented for outages only.
 - [ ] Test report print passes with no scaling/cropping issues.
 - [ ] Fallback printer routing documented for busy-day contingencies.
 
@@ -468,8 +468,8 @@ Work with your installer or Epson docs for the TM-m30III static IP/DHCP reservat
 
 **Shelf labels (LP 2844)**
 
-1. Confirm Windows shows an installed printer queue named **Zebra LP 2844**.
-2. Retry from the inventory tag workflow. Direct label dispatch should print without a system dialog and should use EPL.
+1. Confirm Windows shows the installed LP 2844 printer queue and that Riverside has that exact queue selected.
+2. Retry from the inventory tag workflow. Direct label dispatch should print without a system dialog and should use EPL2.
 3. If direct dispatch is unavailable, fix the Windows queue/driver/media size before treating tag printing as ready.
 
 ---

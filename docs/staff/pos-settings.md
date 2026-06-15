@@ -37,7 +37,7 @@ Automatic drawer opens happen only for **CASH** and **CHECK** sales when the dra
 
 1. POS or Back Office → **Settings** → **Printers & Scanners**.
 2. Confirm the Windows printer queue is named **Zebra LP 2844** on the Main Hub / tag-printing PC.
-3. Tag printing uses **EPL** only. Do not choose ZPL or auto-detect modes for Riverside clothing tags.
+3. Tag printing uses **EPL2** only. Do not choose ZPL or auto-detect modes for Riverside clothing tags.
 4. Open **Tag Designer → Print test tag** to send a real sample label before retrying the inventory tag action.
 5. If direct dispatch fails, use the tag preview fallback and report the workstation plus SKU to support.
 

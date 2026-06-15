@@ -22,7 +22,7 @@ Use this log to validate each store device after install, update, or release rol
 
 | Workstation | Device Model | Firmware/Software Version | Test Scenario | Expected Result | Pass/Fail | Evidence Captured | Operator Notes | Escalation Required |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-|  | Zebra LP 2844 |  | Print inventory retail tag | Tag prints directly from Riverside through the Windows **Zebra LP 2844** queue using EPL with readable SKU, barcode, and price. |  |  |  |  |  |
+|  | Zebra LP 2844 |  | Print inventory retail tag | Tag prints directly from Riverside through the Windows **Zebra LP 2844** queue using EPL2 with readable SKU, barcode, and price. |  |  |  |  |  |
 |  | Zebra LP 2844 |  | Direct dispatch unavailable | Riverside reports the printer failure clearly; staff do not mark tag printing ready from preview alone. |  |  |  |  |  |
 
 ## Reports Printer

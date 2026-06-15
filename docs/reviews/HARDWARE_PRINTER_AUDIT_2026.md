@@ -32,9 +32,9 @@ Riverside OS uses a mature, tiered approach for hardware communication, specific
 - **Command Set**: Standard ESC/POS with `ESC @` initialization and `GS V A 0` (Full Cut).
 - **Raster Support**: `print_escpos_binary_b64` allows for high-quality PNG-to-Raster conversions for logos and complex layouts.
 
-### 3.2 EPL (Clothing Tags)
+### 3.2 EPL2 (Clothing Tags)
 - **Device**: Zebra LP 2844.
-- **Command Set**: Raw EPL dispatch to the Windows `Zebra LP 2844` queue. This is the only supported Riverside clothing tag path; ZPL/newer-Zebra modes are not part of the current tag-printing contract.
+- **Command Set**: Raw EPL2 dispatch to the Windows `Zebra LP 2844` queue. This is the only supported Riverside clothing tag path; ZPL/newer-Zebra modes are not part of the current tag-printing contract.
 
 ## 4. Operational Features
 - **Diagnostics**: A `check_printer_connection` handshake allows staff to test the printer path from Settings without wasting paper.

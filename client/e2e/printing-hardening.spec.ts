@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("printing hardening contracts", () => {
-  test("inventory tag payloads use fixed LP 2844 EPL without hardware", async ({ page }) => {
+  test("inventory tag payloads use fixed LP 2844 EPL2 without hardware", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
 
     const payloads = await page.evaluate(async () => {
@@ -47,9 +47,11 @@ test.describe("printing hardening contracts", () => {
     expect(payloads.zpl).toContain("SKU ONE BAD");
     expect(payloads.zpl).not.toContain("SKU^ONE~BAD");
 
-    expect(payloads.epl).toContain("N\nq");
-    expect(payloads.epl).toContain("\nP1\nN\n");
-    expect(payloads.epl.match(/\nP1/g)).toHaveLength(2);
+    expect(payloads.epl).toContain("N\r\nq");
+    expect(payloads.epl).toContain("\r\nP1\r\nN\r\n");
+    expect(payloads.epl.match(/\r\nP1/g)).toHaveLength(2);
+    expect(payloads.epl).toMatch(/B\d+,\d+,[0-3],1,/);
+    expect(payloads.epl).not.toContain(",1A,");
     expect(payloads.epl).toContain("SKU^ONE~BAD");
     expect(payloads.epl).not.toContain('"Quoted"');
   });

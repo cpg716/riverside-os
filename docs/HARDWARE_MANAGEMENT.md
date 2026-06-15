@@ -15,12 +15,12 @@ The core logic resides in `client/src/lib/printerBridge.ts` via the `autoRoutePr
 
 ## 1. Unified Printer Model
 
-Riverside OS tracks three distinct printer stations per workstation. Receipts and reports can use their configured station targets. Clothing tags are fixed to Riverside's single tag printer: the Windows **Zebra LP 2844** queue using **EPL**.
+Riverside OS tracks three distinct printer stations per workstation. Receipts, reports, and clothing tags use their configured station targets. Clothing tags should target Riverside's single tag printer: the Windows **Zebra LP 2844** queue using **EPL2**.
 
 | Station Type | Modes | Storage Keys | Description |
 |--------------|-------|--------------|-------------|
 | **Receipt Station** | Installed Windows printer or ESC/POS TCP | `ros.hardware.printer.receipt.mode`, `.systemName`, `.ip`, `.port` | Primary Epson customer thermal printer. Handles sales records, gift receipts, and the attached Register #1 cash drawer. |
-| **Tag Station** | Fixed Windows printer queue | `Zebra LP 2844` + EPL | Riverside's only clothing tag printer. Handles SKU/inventory tags. |
+| **Tag Station** | Configured Windows printer queue or non-loopback network target | `Zebra LP 2844` + EPL2 | Riverside's only clothing tag printer. Handles SKU/inventory tags. |
 | **Reporting Station** | Installed Windows printer or network target | `ros.hardware.printer.report.mode`, `.systemName`, `.ip`, `.port` | Full-page document printer. Handles audit logs, shift summaries, and manifest reports. |
 
 ---
@@ -56,9 +56,9 @@ Browser/PWA network printing is allowlisted by the saved station configuration. 
 The previous HTML receipt designer is no longer exposed in the active Settings UI. Receipt view, email, and text delivery use the standard receipt renderer when no saved HTML template exists.
 
 ### Item Tags
-Inventory tag actions generate raw **EPL** tag commands for the fixed **Zebra LP 2844** Windows queue. Riverside does not support choosing other Zebra label-printer languages for clothing tags.
+Inventory tag actions generate raw **EPL2** tag commands for the configured Tag Station target, normally the **Zebra LP 2844** Windows queue. Riverside does not support choosing other Zebra label-printer languages for clothing tags.
 
-In the desktop app and Main Hub print path, tag printing dispatches raw EPL bytes to the `Zebra LP 2844` queue. The old `127.0.0.1` tag address path is not accepted as a production target. Browser/PWA sessions depend on the Main Hub print hub reaching that same Windows queue. If the Zebra queue cannot accept the job, ROS reports the printer error and leaves shelf-label status unchanged.
+In the desktop app and Main Hub print path, tag printing dispatches raw EPL2 bytes to the saved Tag Station target. The old `127.0.0.1` tag address path is not accepted as a production target. Browser/PWA sessions depend on the Main Hub print hub reaching that same saved target. If the Zebra queue cannot accept the job, ROS reports the printer error and leaves shelf-label status unchanged.
 
 ### Document Auto-Routing
 The `printerBridge.ts` module includes an intelligent dispatcher that resolves the correct station based on document metadata:
@@ -68,7 +68,7 @@ await printRawEscPosBase64(escposBase64);
 await autoRoutePrint("tag", thermalPayload, "epl");
 ```
 
-`autoRoutePrint("tag", ...)` sends the EPL payload to the fixed `Zebra LP 2844` queue through the desktop/Main Hub print bridge.
+`autoRoutePrint("tag", ...)` sends the EPL2 payload to the configured Tag Station target through the desktop/Main Hub print bridge.
 
 ### Pre-Build Print Route Gate
 
@@ -98,5 +98,5 @@ When setting up a new lane:
 6. Save or sync the lane printer settings so browser/PWA print dispatch is allowlisted.
 7. Run **Check connection** for the receipt printer from the desktop app, or confirm the saved target from browser/POS mode.
 8. In POS Register Hardware, run **Print test** for the Epson receipt station and use **Open drawer** with an Access PIN and reason to verify the audited drawer path.
-9. Print a sample inventory tag and confirm the success message names the **Zebra LP 2844** target and EPL. Tag Designer test prints should report an error instead of opening preview when direct dispatch fails.
+9. Print a sample inventory tag and confirm the success message names the **Zebra LP 2844** target and EPL2. Tag Designer test prints should report an error instead of opening preview when direct dispatch fails.
 10. In the POS, verify that **Auto-Print** toggles are set according to staff preference.
