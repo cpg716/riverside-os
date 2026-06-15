@@ -19,6 +19,7 @@ use crate::auth::permissions::{
 };
 use crate::logic::physical_inventory::{resolve_scan_code, ScanResolveResult};
 use crate::middleware::{self, StaffOrPosSession};
+use crate::services::inventory::available_stock_units;
 use crate::services::{resolve_sku, InventoryError, ResolvedSkuItem};
 
 // ── InventoryError → HTTP ─────────────────────────────────────────────────────
@@ -306,6 +307,7 @@ async fn fetch_product_intelligence(
         Option<String>,
         i32,
         i32,
+        i32,
         Decimal,
         Decimal,
         Uuid,
@@ -319,6 +321,7 @@ async fn fetch_product_intelligence(
             v.variation_label, 
             v.stock_on_hand, 
             v.reserved_stock,
+            v.on_layaway,
             COALESCE(v.retail_price_override, p.base_retail_price) as retail_price,
             COALESCE(v.cost_override, p.base_cost) as unit_cost,
             p.id as product_id
@@ -332,7 +335,7 @@ async fn fetch_product_intelligence(
     .await
     .unwrap_or(None);
 
-    let Some((name, sku, label, soh, res, retail, cost, product_id)) = basic else {
+    let Some((name, sku, label, soh, res, layaway, retail, cost, product_id)) = basic else {
         return Err(StatusCode::NOT_FOUND.into_response());
     };
 
@@ -433,11 +436,12 @@ async fn fetch_product_intelligence(
     .await
     .unwrap_or(0);
 
-    let parent_stock: (i32, i32) = sqlx::query_as(
+    let parent_stock: (i32, i32, i32) = sqlx::query_as(
         r#"
         SELECT
             COALESCE(SUM(stock_on_hand), 0)::int4,
-            COALESCE(SUM(reserved_stock), 0)::int4
+            COALESCE(SUM(reserved_stock), 0)::int4,
+            COALESCE(SUM(on_layaway), 0)::int4
         FROM product_variants
         WHERE product_id = $1
           AND is_active = TRUE
@@ -446,7 +450,7 @@ async fn fetch_product_intelligence(
     .bind(product_id)
     .fetch_one(&state.db)
     .await
-    .unwrap_or((soh, res));
+    .unwrap_or((soh, res, layaway));
 
     async fn fetch_order_counts(
         db: &sqlx::PgPool,
@@ -491,6 +495,9 @@ async fn fetch_product_intelligence(
     let product_orders = fetch_order_counts(&state.db, None, Some(product_id)).await;
     let parent_soh = parent_stock.0;
     let parent_reserved = parent_stock.1;
+    let parent_layaway = parent_stock.2;
+    let variation_available = available_stock_units(soh, res, layaway);
+    let parent_available = available_stock_units(parent_soh, parent_reserved, parent_layaway);
 
     Ok(ProductIntelligence {
         variant_id,
@@ -500,7 +507,7 @@ async fn fetch_product_intelligence(
         variation_label: label,
         stock_on_hand: soh,
         reserved_stock: res,
-        available_stock: (soh - res).max(0),
+        available_stock: variation_available,
         qty_on_order,
         unit_cost: if show_cost { Some(cost) } else { None },
         retail_price: retail,
@@ -511,14 +518,14 @@ async fn fetch_product_intelligence(
         variation: ProductScopeMetrics {
             stock_on_hand: soh,
             reserved_stock: res,
-            available_stock: (soh - res).max(0),
+            available_stock: variation_available,
             recent_sold_30: recent_sold_30_variant,
             open_orders: variation_orders,
         },
         all_variations: ProductScopeMetrics {
             stock_on_hand: parent_soh,
             reserved_stock: parent_reserved,
-            available_stock: (parent_soh - parent_reserved).max(0),
+            available_stock: parent_available,
             recent_sold_30: recent_sold_30_product,
             open_orders: product_orders,
         },

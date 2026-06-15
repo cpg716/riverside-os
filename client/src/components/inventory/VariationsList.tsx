@@ -15,7 +15,7 @@ import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import type { HubVariant } from "./VariationsWorkspace";
 
 type VariantPatch =
-  | { quantity_delta: number }
+  | { quantity_delta: number; notes: string }
   | { web_published: boolean }
   | { track_low_stock: boolean }
   | { retail_price_override: string | null }
@@ -33,6 +33,7 @@ export interface VariationsListProps {
     sku: string,
     type: "damaged" | "return_to_vendor",
   ) => void;
+  onShowCountCorrection: (id: string, sku: string, delta: number) => void;
 }
 
 const ROW_HEIGHT = 84;
@@ -47,6 +48,7 @@ interface RowData {
     sku: string,
     type: "damaged" | "return_to_vendor",
   ) => void;
+  onShowCountCorrection: (id: string, sku: string, delta: number) => void;
 }
 
 const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
@@ -112,18 +114,14 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
 
           <div className="flex items-center gap-1 rounded-xl bg-app-surface-2/80 p-1 transition-all duration-300">
             <button
-              onClick={() =>
-                void rowProps.onUpdateVariant(v.id, { quantity_delta: 1 })
-              }
+              onClick={() => rowProps.onShowCountCorrection(v.id, v.sku, 1)}
               className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-emerald-500/10 hover:text-emerald-500 text-app-text-muted"
               title="Count correction: add 1 unit"
             >
               <ChevronUp size={16} strokeWidth={3} />
             </button>
             <button
-              onClick={() =>
-                void rowProps.onUpdateVariant(v.id, { quantity_delta: -1 })
-              }
+              onClick={() => rowProps.onShowCountCorrection(v.id, v.sku, -1)}
               className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-500 text-app-text-muted"
               title="Count correction: subtract 1 unit"
             >
@@ -205,6 +203,7 @@ export const VariationsList: React.FC<VariationsListProps> = ({
   onDeselectAll,
   onUpdateVariant,
   onShowMaintenance,
+  onShowCountCorrection,
 }) => {
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<
@@ -258,6 +257,7 @@ export const VariationsList: React.FC<VariationsListProps> = ({
     onToggleSelect,
     onUpdateVariant,
     onShowMaintenance,
+    onShowCountCorrection,
   };
 
   return (

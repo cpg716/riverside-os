@@ -2658,7 +2658,7 @@ async fn negative_stock_report(
             v.name AS vendor_name,
             pv.stock_on_hand,
             COALESCE(pv.reserved_stock, 0) AS reserved_stock,
-            (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0)) AS available_stock,
+            (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0) - COALESCE(pv.on_layaway, 0)) AS available_stock,
             COALESCE(pv.cost_override, p.base_cost, 0) AS unit_cost,
             (COALESCE(pv.cost_override, p.base_cost, 0) * pv.stock_on_hand)::numeric(14,2) AS extended_value,
             COALESCE(pv.reorder_point, 0) AS reorder_point,

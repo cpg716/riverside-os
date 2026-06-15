@@ -296,8 +296,15 @@ async fn add_count(
     }
 
     // Verify session is open
-    let (status, started_at): (String, chrono::DateTime<chrono::Utc>) =
-        sqlx::query_as("SELECT status, started_at FROM physical_inventory_sessions WHERE id = $1")
+    let (status, started_at, exclude_reserved, exclude_layaway): (
+        String,
+        chrono::DateTime<chrono::Utc>,
+        bool,
+        bool,
+    ) =
+        sqlx::query_as(
+            "SELECT status, started_at, exclude_reserved, exclude_layaway FROM physical_inventory_sessions WHERE id = $1",
+        )
             .bind(id)
             .fetch_one(&state.db)
             .await
@@ -311,12 +318,21 @@ async fn add_count(
     sqlx::query(
         r#"
         INSERT INTO physical_inventory_snapshots (session_id, variant_id, stock_at_start)
-        SELECT $1, pv.id, pv.stock_on_hand FROM product_variants pv WHERE pv.id = $2
+        SELECT
+            $1,
+            pv.id,
+            pv.stock_on_hand
+              - CASE WHEN $3 THEN COALESCE(pv.reserved_stock, 0) ELSE 0 END
+              - CASE WHEN $4 THEN COALESCE(pv.on_layaway, 0) ELSE 0 END
+        FROM product_variants pv
+        WHERE pv.id = $2
         ON CONFLICT (session_id, variant_id) DO NOTHING
         "#,
     )
     .bind(id)
     .bind(payload.variant_id)
+    .bind(exclude_reserved)
+    .bind(exclude_layaway)
     .execute(&state.db)
     .await?;
 

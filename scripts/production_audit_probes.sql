@@ -68,6 +68,58 @@ WHERE (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway) < 0
   AND COALESCE(p.pos_line_kind, '') = ''
 ORDER BY available_stock ASC, pv.sku;
 
+\echo 'P1 probe: inactive products that still carry inventory commitments'
+SELECT
+    p.id AS product_id,
+    p.name AS product_name,
+    COALESCE(SUM(pv.stock_on_hand), 0)::int4 AS stock_on_hand,
+    COALESCE(SUM(pv.reserved_stock), 0)::int4 AS reserved_stock,
+    COALESCE(SUM(pv.on_layaway), 0)::int4 AS on_layaway
+FROM products p
+JOIN product_variants pv ON pv.product_id = p.id
+WHERE COALESCE(p.is_active, true) = false
+GROUP BY p.id, p.name
+HAVING COALESCE(SUM(pv.stock_on_hand), 0) <> 0
+    OR COALESCE(SUM(pv.reserved_stock), 0) <> 0
+    OR COALESCE(SUM(pv.on_layaway), 0) <> 0
+ORDER BY p.name;
+
+\echo 'P1 probe: manual inventory movements missing meaningful notes'
+SELECT
+    it.id,
+    it.variant_id,
+    pv.sku,
+    it.tx_type,
+    it.quantity_delta,
+    it.created_at,
+    it.created_by
+FROM inventory_transactions it
+JOIN product_variants pv ON pv.id = it.variant_id
+WHERE it.tx_type::text IN ('adjustment', 'damaged', 'return_to_vendor')
+  AND NULLIF(TRIM(COALESCE(it.notes, '')), '') IS NULL
+ORDER BY it.created_at DESC;
+
+\echo 'P1 probe: Counterpoint-linked variants with stock but no inventory movement ledger'
+SELECT
+    pv.id AS variant_id,
+    pv.sku,
+    pv.counterpoint_item_key,
+    pv.stock_on_hand,
+    pv.reserved_stock,
+    pv.on_layaway
+FROM product_variants pv
+JOIN products p ON p.id = pv.product_id
+WHERE pv.counterpoint_item_key IS NOT NULL
+  AND COALESCE(pv.stock_on_hand, 0) <> 0
+  AND NOT EXISTS (
+      SELECT 1
+      FROM inventory_transactions it
+      WHERE it.variant_id = pv.id
+  )
+  AND COALESCE(p.pos_line_kind, '') = ''
+ORDER BY pv.sku
+LIMIT 500;
+
 \echo 'P1 probe: order-style checkout lines that decremented stock at booking'
 SELECT it.id, it.variant_id, it.reference_table, it.reference_id, it.tx_type, it.quantity_delta, it.created_at
 FROM inventory_transactions it

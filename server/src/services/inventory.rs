@@ -36,7 +36,7 @@ pub struct ResolvedSkuItem {
     pub stock_on_hand: i32,
     /// Units in store promised to open special/custom orders (Reserved).
     pub reserved_stock: i32,
-    /// Units available for walk-in sale: stock_on_hand - reserved_stock.
+    /// Units available for walk-in sale: stock_on_hand - reserved_stock - on_layaway.
     pub available_stock: i32,
 
     pub standard_retail_price: Decimal,
@@ -68,6 +68,7 @@ struct SkuJoinRow {
     variation_label: Option<String>,
     stock_on_hand: i32,
     reserved_stock: i32,
+    on_layaway: i32,
     retail_price_override: Option<Decimal>,
     cost_override: Option<Decimal>,
 
@@ -93,6 +94,7 @@ const SKU_JOIN_FROM: &str = r#"
             v.variation_label,
             v.stock_on_hand,
             v.reserved_stock,
+            v.on_layaway,
             v.retail_price_override,
             v.cost_override,
             p.name AS product_name,
@@ -218,7 +220,11 @@ fn join_row_to_resolved(
         variation_label: row.variation_label,
         stock_on_hand: row.stock_on_hand,
         reserved_stock: row.reserved_stock,
-        available_stock: (row.stock_on_hand - row.reserved_stock).max(0),
+        available_stock: available_stock_units(
+            row.stock_on_hand,
+            row.reserved_stock,
+            row.on_layaway,
+        ),
         standard_retail_price: effective_retail,
         employee_price,
         unit_cost: effective_cost,
@@ -228,6 +234,25 @@ fn join_row_to_resolved(
         state_tax,
         local_tax,
         pos_line_kind: row.pos_line_kind.clone(),
+    }
+}
+
+pub fn available_stock_units(stock_on_hand: i32, reserved_stock: i32, on_layaway: i32) -> i32 {
+    (stock_on_hand - reserved_stock - on_layaway).max(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::available_stock_units;
+
+    #[test]
+    fn available_stock_subtracts_reserved_and_layaway() {
+        assert_eq!(available_stock_units(10, 3, 2), 5);
+    }
+
+    #[test]
+    fn available_stock_never_reports_negative_sellable_units() {
+        assert_eq!(available_stock_units(2, 3, 4), 0);
     }
 }
 

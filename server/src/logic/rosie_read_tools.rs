@@ -1302,7 +1302,7 @@ async fn inventory_availability(
                pv.variation_label,
                COALESCE(pv.stock_on_hand, 0)::int4 AS stock_on_hand,
                COALESCE(pv.reserved_stock, 0)::int4 AS reserved_stock,
-               GREATEST(COALESCE(pv.stock_on_hand, 0) - COALESCE(pv.reserved_stock, 0), 0)::int4 AS available_stock,
+               GREATEST(COALESCE(pv.stock_on_hand, 0) - COALESCE(pv.reserved_stock, 0) - COALESCE(pv.on_layaway, 0), 0)::int4 AS available_stock,
                pv.reorder_point
         FROM product_variants pv
         JOIN products p ON p.id = pv.product_id
@@ -1332,7 +1332,7 @@ async fn inventory_availability(
         json!({ "query": query, "limit": limit }),
         limit,
         data,
-        vec!["Available stock is stock_on_hand minus reserved_stock, floored at zero.".to_string()],
+        vec!["Available stock is stock_on_hand minus reserved_stock minus on_layaway, floored at zero.".to_string()],
     ))
 }
 

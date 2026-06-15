@@ -20,6 +20,7 @@ Pick the area that matches the **job**, not the person:
 | **Order Stock** | Build vendor orders and review buying guidance | Purchase Orders, Stock Guidance |
 | **Receive Stock** | Post arrived merchandise from vendor paperwork | Receiving, direct invoice receiving |
 | **Correct Stock** | Review damaged/lost stock and return-to-vendor movements | Damaged / Loss, Return to Vendor |
+| **Reports** | Review receiving paperwork and store-wide inventory reconciliation findings | Receiving history, Inventory reconciliation |
 | **Physical Inventory** | Run physical counts and publish reviewed variances | Physical count |
 
 Old deep links and saved shortcuts still open the same tools. The labels above are the staff-facing mental model for deciding where to start.
@@ -38,6 +39,8 @@ To edit an existing item, always start in **Find Item**. Search for the SKU or s
 6. Use **SKUs & Stock** for SKU-level price, web status, tags, low-stock alerts, small count corrections, damage, and vendor returns.
 
 **Common pitfall:** Do not use Product Hub count corrections for vendor shipments. Vendor shipments belong in **Receive Stock** so PO, receiving, reserved stock, and financial staging stay connected.
+
+**Availability rule:** Available stock is **on hand minus reserved minus layaway**. Layaway units are physically present, but ROS does not treat them as sellable for another customer or the online store.
 
 ## Add/Edit Catalog
 
@@ -78,8 +81,9 @@ When "Publish to Web" is enabled, the catalog wizard inserts a dedicated **Web L
 1. **Inventory** → **Add/Edit Catalog** → **Categories**.
 2. **Add** or **rename** nodes per SOP; avoid duplicate names that confuse receivers.
 3. Set up to three default option types, such as **Size**, **Color**, and **Fit**. Add Item loads these defaults when that category is selected.
-4. **Drag** to reparent only when **buying** and **reporting** agree — large moves need **manager** sign-off.
-5. After big changes, spot-check **Find Item** filters and one **Insights** slice if your role can.
+4. Tax classification is item-level: categories or product overrides should identify **Clothing / footwear** items versus standard taxable merchandise/services.
+5. **Drag** to reparent only when **buying** and **reporting** agree — large moves need **manager** sign-off.
+6. After big changes, spot-check **Find Item** filters and one **Insights** slice if your role can.
 
 ## Promotions
 
@@ -172,6 +176,8 @@ Choose the correction path by the real-world reason:
 
 The **Damage/Loss History** and **Vendor Return History** sections under **Correct Stock** are review/report sections. They show prior movements; they are not the starting point for a new correction.
 
+Every count correction needs a short reason. Stock decreases, damage/loss, and return-to-vendor adjustments require Manager Access. If a physical inventory session is open or reviewing, use the physical count workflow instead of ad hoc corrections.
+
 ## Product Hub variation modes
 
 Open **Product Hub** from **Find Item**. The **SKUs & Stock** tab supports three views:
@@ -181,6 +187,15 @@ Open **Product Hub** from **Find Item**. The **SKUs & Stock** tab supports three
 - **List:** dense table for long SKU lists and bulk edits.
 
 All views should represent the same filtered SKUs. Used Counterpoint SKUs and new ROS SKUs must both remain searchable, editable, sellable, and usable in receiving and order workflows.
+
+## Inventory Reports
+
+Use **Reports** for store-wide inventory proof that is larger than one Product Hub record:
+
+- **Inventory Reconciliation** shows negative available stock, inactive products that still carry stock or commitments, manual inventory movements missing notes, and Counterpoint-linked SKUs that have stock without movement-ledger proof.
+- **PO, Invoice & Receiving History** searches posted receiving paperwork by vendor, invoice, PO, item, SKU, or received date.
+
+The reconciliation checks are read-only. Fix the underlying item from **Find Item → Product Hub**, **Receive Stock**, or **Physical Inventory**, depending on the issue.
 
 ## Physical Inventory
 

@@ -1789,7 +1789,7 @@ async fn admin_seo_health(State(state): State<AppState>, headers: HeaderMap) -> 
                 WHERE pv.product_id = p.id
                   AND pv.web_published = true
                 GROUP BY pv.product_id
-                HAVING SUM(GREATEST(0, pv.stock_on_hand - pv.reserved_stock)) <= 0
+                HAVING SUM(GREATEST(0, pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)) <= 0
             )
         ) issues
         ORDER BY issue_kind, label

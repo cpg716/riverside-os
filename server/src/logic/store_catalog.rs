@@ -231,7 +231,7 @@ pub async fn get_store_product_by_slug(
             pv.variation_label,
             pv.stock_on_hand,
             pv.reserved_stock,
-            GREATEST(0, pv.stock_on_hand - pv.reserved_stock)::integer AS available_stock,
+            GREATEST(0, pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::integer AS available_stock,
             COALESCE(pv.web_price_override, pv.retail_price_override, p.base_retail_price) AS unit_price,
             COALESCE(pv.images, '{}'::text[]) AS images
         FROM product_variants pv
@@ -288,7 +288,7 @@ pub async fn map_web_variants_by_id(
             p.name AS product_name,
             pv.sku,
             pv.variation_label,
-            GREATEST(0, pv.stock_on_hand - pv.reserved_stock)::integer AS available_stock,
+            GREATEST(0, pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::integer AS available_stock,
             COALESCE(pv.web_price_override, pv.retail_price_override, p.base_retail_price) AS unit_price,
             p.base_cost AS unit_cost,
             CASE

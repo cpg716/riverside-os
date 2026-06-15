@@ -1296,7 +1296,7 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
             p.id,
             pv.sku,
             p.name,
-            (pv.stock_on_hand - pv.reserved_stock),
+            (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway),
             pv.reorder_point
         FROM product_variants pv
         INNER JOIN products p ON p.id = pv.product_id
@@ -1304,7 +1304,7 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
           AND p.track_low_stock = TRUE
           AND pv.track_low_stock = TRUE
           AND pv.reorder_point > 0
-          AND (pv.stock_on_hand - pv.reserved_stock) <= pv.reorder_point
+          AND (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway) <= pv.reorder_point
         ORDER BY p.name, pv.sku
         LIMIT 500
         "#,
@@ -2752,12 +2752,12 @@ async fn run_negative_available_stock_admin(pool: &PgPool) -> Result<(), sqlx::E
     let rows: Vec<(Uuid, Uuid, String, String, i32, i32)> = sqlx::query_as(
         r#"
         SELECT pv.id, p.id, pv.sku, p.name,
-               (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0)),
+               (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0) - COALESCE(pv.on_layaway, 0)),
                pv.stock_on_hand
         FROM product_variants pv
         INNER JOIN products p ON p.id = pv.product_id
         WHERE COALESCE(p.is_active, TRUE)
-          AND (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0)) < 0
+          AND (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0) - COALESCE(pv.on_layaway, 0)) < 0
         ORDER BY p.name, pv.sku
         LIMIT 500
         "#,
@@ -3017,7 +3017,7 @@ async fn run_special_order_ready_to_stage(pool: &PgPool) -> Result<(), sqlx::Err
         WHERE oi.is_fulfilled = FALSE
           AND o.status IN ('open', 'pending_measurement')
           AND oi.fulfillment IN ('special_order', 'wedding_order', 'custom')
-          AND (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0)) >= oi.quantity
+          AND (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0) - COALESCE(pv.on_layaway, 0)) >= oi.quantity
         GROUP BY o.id
         ORDER BY o.booked_at DESC
         LIMIT 60

@@ -173,7 +173,7 @@ Do not embed live PINs or session tokens in prompts sent to third-party models.
 
 **Money:** All **canonical** currency is **`rust_decimal::Decimal`** on the server. JSON often carries decimals as **strings**. The model must **never** “do the math” for store totals from memory — it cites **API output** or says it **does not have live numbers**.
 
-**Inventory invariants (do not contradict):** Checkout does **not** decrement **`stock_on_hand`** for **`special_order` / `wedding_order`** lines the way it does for stock picks; **available** is derived (**`stock_on_hand - reserved_stock`** with reservation rules). See **`AGENTS.md`** / **`INVENTORY_GUIDE.md`**. Wrong stock advice breaks trust.
+**Inventory invariants (do not contradict):** Checkout does **not** decrement **`stock_on_hand`** for **`special_order` / `wedding_order`** lines the way it does for stock picks; **available** is derived as **`stock_on_hand - reserved_stock - on_layaway`**. Layaway units are not sellable availability. See **`AGENTS.md`** / **`INVENTORY_GUIDE.md`**. Wrong stock advice breaks trust.
 
 **Wedding group pay:** Disbursements on checkout are modeled explicitly; **do not** tell staff to manually “move” party balances without using the normal checkout / allocation flows — **`WEDDING_GROUP_PAY_AND_RETURNS.md`**.
 

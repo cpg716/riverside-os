@@ -117,6 +117,9 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   const [batchPriceSubmitting, setBatchPriceSubmitting] = useState(false);
   const [batchStockOpen, setBatchStockOpen] = useState(false);
   const [batchStockInput, setBatchStockInput] = useState("");
+  const [batchStockReason, setBatchStockReason] = useState("");
+  const [stockCorrectionTargetIds, setStockCorrectionTargetIds] = useState<string[]>([]);
+  const [stockCorrectionLabel, setStockCorrectionLabel] = useState("");
   const [batchStockSubmitting, setBatchStockSubmitting] = useState(false);
   const [reprintPrompt, setReprintPrompt] = useState<VariantReprintPrompt | null>(null);
   const [batchReprintPrompt, setBatchReprintPrompt] = useState<VariantReprintPrompt[] | null>(null);
@@ -230,8 +233,8 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
       patch:
         | {
             quantity_delta: number;
+            notes: string;
             tx_type?: "damaged" | "return_to_vendor";
-            notes?: string;
           }
         | { retail_price_override: string | null }
         | { cost_override: string | null }
@@ -276,20 +279,15 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     [baseUrl, apiAuth, onVariantUpdated, variants],
   );
 
-  const adjustStock = useCallback(
-    async (variantId: string, delta: number) => {
-      const res = await fetch(
-        `${baseUrl}/api/products/variants/${variantId}/stock-adjust`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", ...apiAuth() },
-          body: JSON.stringify({ quantity_delta: delta }),
-        },
-      );
-      if (!res.ok) throw new Error("Stock update failed");
-      onVariantUpdated();
+  const openStockCorrection = useCallback(
+    (variantIds: string[], label: string, defaultDelta = "") => {
+      setStockCorrectionTargetIds(variantIds);
+      setStockCorrectionLabel(label);
+      setBatchStockInput(defaultDelta);
+      setBatchStockReason("");
+      setBatchStockOpen(true);
     },
-    [baseUrl, apiAuth, onVariantUpdated],
+    [],
   );
 
   // Batch Handlers
@@ -566,10 +564,10 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => void adjustStock(v.id, 1)}
+                  onClick={() => openStockCorrection([v.id], v.sku, "1")}
                   className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-emerald-300 hover:text-emerald-700`}
                 >
-                  Adjust +1
+                  Count Fix
                 </button>
                 <button
                   type="button"
@@ -669,7 +667,11 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                             v.stock_on_hand <= v.reorder_point
                           }
                           hasPriceOverride={!!v.retail_price_override}
-                          onUpdateStock={(delta) => adjustStock(v.id, delta)}
+                          onUpdateStock={(delta) =>
+                            Promise.resolve(
+                              openStockCorrection([v.id], v.sku, String(delta)),
+                            )
+                          }
                           onUpdatePrice={(cents) =>
                             patchVariant(v.id, {
                               retail_price_override: cents
@@ -718,6 +720,9 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           }
           onShowMaintenance={(id, sku, type) =>
             setMaintenanceTarget({ variantId: id, sku, type })
+          }
+          onShowCountCorrection={(id, sku, delta) =>
+            openStockCorrection([id], sku, String(delta))
           }
         />
       )}
@@ -806,45 +811,116 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         document.getElementById("drawer-root") || document.body
       )}
 
-      {/* Batch Pricing Modal */}
-      {batchStockOpen && (
-        <ConfirmationModal
-          isOpen={batchStockOpen}
-          title="Batch count correction"
-          message={`Enter a signed integer (for example: +5 or -2) to apply to all selected SKUs.\nUse this for count corrections only. Vendor shipments belong in Receive Stock.\nCurrent value: ${batchStockInput || "(empty)"}`}
-          confirmLabel={batchStockSubmitting ? "Applying..." : "Apply"}
-          onConfirm={async () => {
-            const delta = parseInt(batchStockInput, 10);
-            if (isNaN(delta) || delta === 0) {
-              toast("Enter a non-zero integer", "error");
-              return;
-            }
-            setBatchStockSubmitting(true);
-            try {
-              toast(
-                `Applying count correction ${delta} to ${selectedIds.size} SKUs...`,
-                "info",
-              );
-              await Promise.all(
-                [...selectedIds].map((id) =>
-                  patchVariant(id, { quantity_delta: delta }),
-                ),
-              );
-              toast("Batch count correction complete", "success");
-              setSelectedIds(new Set());
-              setBatchStockOpen(false);
-              setBatchStockInput("");
-            } catch {
-              toast("Batch stock update failed", "error");
-            } finally {
-              setBatchStockSubmitting(false);
-            }
-          }}
-          onClose={() => {
-            if (batchStockSubmitting) return;
-            setBatchStockOpen(false);
-          }}
-        />
+      {/* Count correction modal */}
+      {batchStockOpen && createPortal(
+        <div className="ui-overlay-backdrop animate-in fade-in duration-300">
+          <div className="ui-modal w-full max-w-md p-8 animate-in zoom-in-95 duration-300">
+            <div className="mb-6">
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-app-text-muted">
+                Count Correction
+              </p>
+              <h3 className="mt-1 text-xl font-black italic uppercase tracking-tight text-app-text">
+                {stockCorrectionLabel || `${stockCorrectionTargetIds.length} selected SKUs`}
+              </h3>
+              <p className="mt-2 text-xs font-semibold leading-relaxed text-app-text-muted">
+                Use this only for verified count corrections. Vendor shipments belong in Receive Stock.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                  Signed Quantity Change
+                </label>
+                <input
+                  type="number"
+                  value={batchStockInput}
+                  onChange={(e) => setBatchStockInput(e.target.value)}
+                  className="ui-input h-12 w-full text-lg font-bold"
+                  placeholder="+1 or -1"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                  Reason
+                </label>
+                <textarea
+                  value={batchStockReason}
+                  onChange={(e) => setBatchStockReason(e.target.value)}
+                  className="ui-input min-h-[96px] w-full p-4 text-sm"
+                  placeholder="Explain the count correction."
+                />
+              </div>
+            </div>
+
+            <div className="mt-8 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (batchStockSubmitting) return;
+                  setBatchStockOpen(false);
+                  setStockCorrectionTargetIds([]);
+                  setStockCorrectionLabel("");
+                }}
+                className="flex-1 rounded-2xl bg-app-surface-2 py-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-3 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={batchStockSubmitting || batchStockReason.trim().length < 3}
+                onClick={async () => {
+                  const delta = parseInt(batchStockInput, 10);
+                  if (isNaN(delta) || delta === 0) {
+                    toast("Enter a non-zero integer", "error");
+                    return;
+                  }
+                  if (batchStockReason.trim().length < 3) {
+                    toast("Enter a count correction reason", "error");
+                    return;
+                  }
+                  const targetIds = stockCorrectionTargetIds.length > 0
+                    ? stockCorrectionTargetIds
+                    : [...selectedIds];
+                  if (targetIds.length === 0) {
+                    toast("Select at least one SKU", "error");
+                    return;
+                  }
+                  setBatchStockSubmitting(true);
+                  try {
+                    toast(
+                      `Applying count correction ${delta} to ${targetIds.length} SKU${targetIds.length === 1 ? "" : "s"}...`,
+                      "info",
+                    );
+                    await Promise.all(
+                      targetIds.map((id) =>
+                        patchVariant(id, {
+                          quantity_delta: delta,
+                          notes: batchStockReason.trim(),
+                        }),
+                      ),
+                    );
+                    toast("Count correction complete", "success");
+                    setSelectedIds(new Set());
+                    setBatchStockOpen(false);
+                    setBatchStockInput("");
+                    setBatchStockReason("");
+                    setStockCorrectionTargetIds([]);
+                    setStockCorrectionLabel("");
+                  } catch (error) {
+                    toast(error instanceof Error ? error.message : "Count correction failed", "error");
+                  } finally {
+                    setBatchStockSubmitting(false);
+                  }
+                }}
+                className="flex-1 rounded-2xl bg-app-accent py-4 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/20 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {batchStockSubmitting ? "Applying..." : "Apply"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body
       )}
 
       {showBatchPriceModal && createPortal(
@@ -1087,8 +1163,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         onBatchPrice={() => setShowBatchPriceModal(true)}
         onBatchWeb={handleBatchWeb}
         onBatchStock={() => {
-          setBatchStockOpen(true);
-          setBatchStockInput("");
+          openStockCorrection([...selectedIds], `${selectedIds.size} selected SKUs`);
         }}
         onBatchTrackLow={handleBatchTrackLow}
         onBatchTags={handleBulkLabels}

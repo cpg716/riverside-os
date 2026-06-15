@@ -25,6 +25,7 @@ use crate::logic::product_catalog_analysis::{
 };
 use crate::logic::template_variant_pricing::effective_retail_usd;
 use crate::middleware;
+use crate::models::DbStaffRole;
 
 #[derive(Debug, Error)]
 pub enum ProductError {
@@ -859,6 +860,31 @@ pub struct ProductTimelineResponse {
     pub events: Vec<ProductTimelineEvent>,
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct InventoryReconciliationFinding {
+    pub issue_kind: String,
+    pub severity: String,
+    pub product_id: Option<Uuid>,
+    pub variant_id: Option<Uuid>,
+    pub sku: Option<String>,
+    pub product_name: Option<String>,
+    pub stock_on_hand: Option<i32>,
+    pub reserved_stock: Option<i32>,
+    pub on_layaway: Option<i32>,
+    pub available_stock: Option<i32>,
+    pub quantity_delta: Option<i32>,
+    pub tx_type: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub detail: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct InventoryReconciliationResponse {
+    pub generated_at: DateTime<Utc>,
+    pub total_findings: usize,
+    pub findings: Vec<InventoryReconciliationFinding>,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/maintenance", get(get_maintenance_ledger))
@@ -866,6 +892,7 @@ pub fn router() -> Router<AppState> {
         .route("/next-ros-skus", get(next_ros_skus))
         .route("/control-board", get(list_control_board))
         .route("/cleanup-summary", get(get_cleanup_summary))
+        .route("/reconciliation", get(get_inventory_reconciliation))
         .route("/bulk-update", post(bulk_update_product_model))
         .route("/bulk-set-model", post(bulk_set_product_model))
         .route("/bulk-archive", post(bulk_archive_products))
@@ -1268,7 +1295,7 @@ pub async fn list_control_board(
             c.name AS category_name,
             c.is_clothing_footwear,
             pv.stock_on_hand,
-            GREATEST(0, pv.stock_on_hand - pv.reserved_stock)::integer AS available_stock,
+            GREATEST(0, pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::integer AS available_stock,
             COALESCE(pv.retail_price_override, p.base_retail_price) AS retail_price,
             COALESCE(pv.cost_override, p.base_cost) AS cost_price,
             p.base_retail_price,
@@ -2366,6 +2393,64 @@ async fn bulk_archive_products(
         ));
     }
 
+    let blocked: Vec<(String, i64, i64, i64, i64, i64)> = sqlx::query_as(
+        r#"
+        SELECT
+            p.name,
+            COALESCE(SUM(pv.stock_on_hand), 0)::bigint AS stock_on_hand,
+            COALESCE(SUM(pv.reserved_stock), 0)::bigint AS reserved_stock,
+            COALESCE(SUM(pv.on_layaway), 0)::bigint AS on_layaway,
+            COALESCE(open_po.open_po_units, 0)::bigint AS open_po_units,
+            COALESCE(open_orders.open_order_units, 0)::bigint AS open_order_units
+        FROM products p
+        LEFT JOIN product_variants pv ON pv.product_id = p.id
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(pol.quantity_ordered - pol.quantity_received), 0)::bigint AS open_po_units
+            FROM purchase_order_lines pol
+            INNER JOIN purchase_orders po ON po.id = pol.purchase_order_id
+            INNER JOIN product_variants pov ON pov.id = pol.variant_id
+            WHERE pov.product_id = p.id
+              AND po.status IN ('draft', 'submitted', 'partially_received', 'direct_invoice')
+              AND pol.quantity_received < pol.quantity_ordered
+        ) open_po ON true
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(tl.quantity), 0)::bigint AS open_order_units
+            FROM transaction_lines tl
+            WHERE tl.product_id = p.id
+              AND tl.quantity > 0
+              AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order', 'layaway')
+              AND COALESCE(tl.order_lifecycle_status::text, '') <> 'picked_up'
+              AND tl.fulfilled_at IS NULL
+        ) open_orders ON true
+        WHERE p.id = ANY($1)
+        GROUP BY p.id, p.name, open_po.open_po_units, open_orders.open_order_units
+        HAVING COALESCE(SUM(pv.stock_on_hand), 0) <> 0
+            OR COALESCE(SUM(pv.reserved_stock), 0) <> 0
+            OR COALESCE(SUM(pv.on_layaway), 0) <> 0
+            OR COALESCE(open_po.open_po_units, 0) <> 0
+            OR COALESCE(open_orders.open_order_units, 0) <> 0
+        ORDER BY p.name
+        LIMIT 5
+        "#,
+    )
+    .bind(&body.product_ids[..])
+    .fetch_all(&state.db)
+    .await?;
+    if !blocked.is_empty() {
+        let labels = blocked
+            .iter()
+            .map(|(name, stock, reserved, layaway, po, orders)| {
+                format!(
+                    "{name} (on hand {stock}, reserved {reserved}, layaway {layaway}, open PO {po}, open orders {orders})"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(ProductError::InvalidPayload(format!(
+            "Cannot archive products with inventory or open obligations: {labels}"
+        )));
+    }
+
     sqlx::query("UPDATE products SET is_active = FALSE WHERE id = ANY($1)")
         .bind(&body.product_ids[..])
         .execute(&state.db)
@@ -2948,7 +3033,7 @@ async fn fetch_product_hub(
         SELECT
             COALESCE(SUM(stock_on_hand), 0)::bigint AS total_units_on_hand,
             COALESCE(SUM(reserved_stock), 0)::bigint AS total_reserved_units,
-            COALESCE(SUM(GREATEST(0, stock_on_hand - reserved_stock)), 0)::bigint AS total_available_units
+            COALESCE(SUM(GREATEST(0, stock_on_hand - reserved_stock - on_layaway)), 0)::bigint AS total_available_units
         FROM product_variants
         WHERE product_id = $1
         "#,
@@ -3022,7 +3107,7 @@ async fn fetch_product_hub(
             pv.vendor_upc,
             pv.stock_on_hand,
             pv.reserved_stock,
-            GREATEST(0, pv.stock_on_hand - pv.reserved_stock)::integer AS available_stock,
+            GREATEST(0, pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::integer AS available_stock,
             COALESCE(po_open.qty_on_order, 0)::int4 AS qty_on_order,
             physical.last_physical_count_at,
             pv.reorder_point,
@@ -3671,34 +3756,112 @@ async fn adjust_variant_stock(
     Json(body): Json<AdjustVariantStockRequest>,
 ) -> Result<Json<Value>, ProductError> {
     let staff = require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
+    let tx_type_str = body.tx_type.unwrap_or_else(|| "adjustment".to_string());
+    if !matches!(
+        tx_type_str.as_str(),
+        "adjustment" | "damaged" | "return_to_vendor"
+    ) {
+        return Err(ProductError::InvalidPayload(
+            "stock-adjust supports only adjustment, damaged, or return_to_vendor".to_string(),
+        ));
+    }
+    if body.quantity_delta == 0 {
+        return Err(ProductError::InvalidPayload(
+            "quantity_delta must not be zero".to_string(),
+        ));
+    }
+    if matches!(tx_type_str.as_str(), "damaged" | "return_to_vendor") && body.quantity_delta > 0 {
+        return Err(ProductError::InvalidPayload(
+            "damage/loss and return-to-vendor adjustments must decrease stock".to_string(),
+        ));
+    }
+    let note = body.notes.as_deref().unwrap_or("").trim();
+    if note.len() < 3 {
+        return Err(ProductError::InvalidPayload(
+            "stock adjustment reason is required".to_string(),
+        ));
+    }
+    let destructive =
+        body.quantity_delta < 0 || matches!(tx_type_str.as_str(), "damaged" | "return_to_vendor");
+    if destructive && staff.role != DbStaffRole::Admin {
+        return Err(ProductError::Forbidden(
+            "Manager Access is required for stock decreases, damage/loss, and return-to-vendor adjustments".to_string(),
+        ));
+    }
 
     let mut tx = state.db.begin().await?;
 
-    let row = sqlx::query(
+    let active_physical_session: Option<String> = sqlx::query_scalar(
         r#"
-        UPDATE product_variants
-        SET stock_on_hand = stock_on_hand + $1
-        WHERE id = $2
-        RETURNING stock_on_hand, cost_override, (SELECT base_cost FROM products p WHERE p.id = product_id) as base_cost
+        SELECT session_number
+        FROM physical_inventory_sessions
+        WHERE status IN ('open', 'reviewing')
+        LIMIT 1
         "#,
     )
-    .bind(body.quantity_delta)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(session_number) = active_physical_session {
+        return Err(ProductError::InvalidPayload(format!(
+            "Stock adjustments are blocked while physical inventory session {session_number} is open or reviewing"
+        )));
+    }
+
+    let current = sqlx::query(
+        r#"
+        SELECT
+            stock_on_hand,
+            reserved_stock,
+            on_layaway,
+            cost_override,
+            (SELECT base_cost FROM products p WHERE p.id = product_id) AS base_cost
+        FROM product_variants
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
     .bind(variant_id)
     .fetch_optional(&mut *tx)
     .await?;
 
     use sqlx::Row;
-    let (new_stock, unit_cost) = match row {
-        Some(r) => (
-            r.get::<i32, _>("stock_on_hand"),
-            r.get::<Option<Decimal>, _>("cost_override")
-                .or(r.get::<Option<Decimal>, _>("base_cost"))
-                .unwrap_or_default(),
-        ),
-        None => return Err(ProductError::VariantNotFound),
+    let Some(current) = current else {
+        return Err(ProductError::VariantNotFound);
     };
+    let stock_on_hand = current.get::<i32, _>("stock_on_hand");
+    let reserved_stock = current.get::<i32, _>("reserved_stock");
+    let on_layaway = current.get::<i32, _>("on_layaway");
+    let new_stock = stock_on_hand + body.quantity_delta;
+    if new_stock < 0 {
+        return Err(ProductError::InvalidPayload(
+            "Stock adjustment cannot make stock on hand negative".to_string(),
+        ));
+    }
+    if destructive {
+        let available = (stock_on_hand - reserved_stock - on_layaway).max(0);
+        if body.quantity_delta.abs() > available {
+            return Err(ProductError::InvalidPayload(
+                "Stock decrease exceeds available units after reserved and layaway commitments"
+                    .to_string(),
+            ));
+        }
+    }
+    let unit_cost = current
+        .get::<Option<Decimal>, _>("cost_override")
+        .or(current.get::<Option<Decimal>, _>("base_cost"))
+        .unwrap_or_default();
 
-    let tx_type_str = body.tx_type.unwrap_or_else(|| "adjustment".to_string());
+    sqlx::query(
+        r#"
+        UPDATE product_variants
+        SET stock_on_hand = stock_on_hand + $1
+        WHERE id = $2
+        "#,
+    )
+    .bind(body.quantity_delta)
+    .bind(variant_id)
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query(
         r#"
@@ -3711,7 +3874,7 @@ async fn adjust_variant_stock(
     .bind(tx_type_str)
     .bind(body.quantity_delta)
     .bind(unit_cost)
-    .bind(body.notes)
+    .bind(note)
     .bind(staff.id)
     .execute(&mut *tx)
     .await?;
@@ -3793,6 +3956,143 @@ async fn get_maintenance_ledger(
     .await?;
 
     Ok(Json(rows))
+}
+
+async fn get_inventory_reconciliation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<InventoryReconciliationResponse>, ProductError> {
+    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
+
+    let findings = sqlx::query_as::<_, InventoryReconciliationFinding>(
+        r#"
+        WITH negative_available AS (
+            SELECT
+                'negative_available_stock'::text AS issue_kind,
+                'high'::text AS severity,
+                p.id AS product_id,
+                pv.id AS variant_id,
+                pv.sku,
+                p.name AS product_name,
+                pv.stock_on_hand::int4 AS stock_on_hand,
+                pv.reserved_stock::int4 AS reserved_stock,
+                pv.on_layaway::int4 AS on_layaway,
+                (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::int4 AS available_stock,
+                NULL::int4 AS quantity_delta,
+                NULL::text AS tx_type,
+                NULL::timestamptz AS created_at,
+                'Available stock is below zero after reserved and layaway commitments.'::text AS detail
+            FROM product_variants pv
+            INNER JOIN products p ON p.id = pv.product_id
+            WHERE (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway) < 0
+              AND COALESCE(p.pos_line_kind, '') = ''
+            ORDER BY available_stock ASC, pv.sku
+            LIMIT 100
+        ),
+        inactive_commitments AS (
+            SELECT
+                'inactive_product_with_inventory'::text AS issue_kind,
+                'medium'::text AS severity,
+                p.id AS product_id,
+                NULL::uuid AS variant_id,
+                NULL::text AS sku,
+                p.name AS product_name,
+                COALESCE(SUM(pv.stock_on_hand), 0)::int4 AS stock_on_hand,
+                COALESCE(SUM(pv.reserved_stock), 0)::int4 AS reserved_stock,
+                COALESCE(SUM(pv.on_layaway), 0)::int4 AS on_layaway,
+                (COALESCE(SUM(pv.stock_on_hand), 0) - COALESCE(SUM(pv.reserved_stock), 0) - COALESCE(SUM(pv.on_layaway), 0))::int4 AS available_stock,
+                NULL::int4 AS quantity_delta,
+                NULL::text AS tx_type,
+                NULL::timestamptz AS created_at,
+                'Inactive product still has on-hand, reserved, or layaway units.'::text AS detail
+            FROM products p
+            INNER JOIN product_variants pv ON pv.product_id = p.id
+            WHERE COALESCE(p.is_active, true) = false
+            GROUP BY p.id, p.name
+            HAVING COALESCE(SUM(pv.stock_on_hand), 0) <> 0
+                OR COALESCE(SUM(pv.reserved_stock), 0) <> 0
+                OR COALESCE(SUM(pv.on_layaway), 0) <> 0
+            ORDER BY p.name
+            LIMIT 100
+        ),
+        manual_missing_notes AS (
+            SELECT
+                'manual_movement_missing_note'::text AS issue_kind,
+                'medium'::text AS severity,
+                p.id AS product_id,
+                pv.id AS variant_id,
+                pv.sku,
+                p.name AS product_name,
+                pv.stock_on_hand::int4 AS stock_on_hand,
+                pv.reserved_stock::int4 AS reserved_stock,
+                pv.on_layaway::int4 AS on_layaway,
+                (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::int4 AS available_stock,
+                it.quantity_delta::int4 AS quantity_delta,
+                it.tx_type::text AS tx_type,
+                it.created_at,
+                'Manual inventory movement is missing a meaningful note.'::text AS detail
+            FROM inventory_transactions it
+            INNER JOIN product_variants pv ON pv.id = it.variant_id
+            INNER JOIN products p ON p.id = pv.product_id
+            WHERE it.tx_type::text IN ('adjustment', 'damaged', 'return_to_vendor')
+              AND NULLIF(TRIM(COALESCE(it.notes, '')), '') IS NULL
+            ORDER BY it.created_at DESC
+            LIMIT 100
+        ),
+        counterpoint_without_ledger AS (
+            SELECT
+                'counterpoint_stock_without_ledger'::text AS issue_kind,
+                'medium'::text AS severity,
+                p.id AS product_id,
+                pv.id AS variant_id,
+                pv.sku,
+                p.name AS product_name,
+                pv.stock_on_hand::int4 AS stock_on_hand,
+                pv.reserved_stock::int4 AS reserved_stock,
+                pv.on_layaway::int4 AS on_layaway,
+                (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::int4 AS available_stock,
+                NULL::int4 AS quantity_delta,
+                NULL::text AS tx_type,
+                NULL::timestamptz AS created_at,
+                'Counterpoint-linked SKU has stock but no inventory movement ledger rows.'::text AS detail
+            FROM product_variants pv
+            INNER JOIN products p ON p.id = pv.product_id
+            WHERE pv.counterpoint_item_key IS NOT NULL
+              AND COALESCE(pv.stock_on_hand, 0) <> 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM inventory_transactions it
+                  WHERE it.variant_id = pv.id
+              )
+              AND COALESCE(p.pos_line_kind, '') = ''
+            ORDER BY pv.sku
+            LIMIT 100
+        ),
+        all_findings AS (
+            SELECT * FROM negative_available
+            UNION ALL
+            SELECT * FROM inactive_commitments
+            UNION ALL
+            SELECT * FROM manual_missing_notes
+            UNION ALL
+            SELECT * FROM counterpoint_without_ledger
+        )
+        SELECT * FROM all_findings
+        ORDER BY
+            CASE severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+            issue_kind,
+            product_name NULLS LAST,
+            sku NULLS LAST
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(InventoryReconciliationResponse {
+        generated_at: Utc::now(),
+        total_findings: findings.len(),
+        findings,
+    }))
 }
 
 async fn get_variant(

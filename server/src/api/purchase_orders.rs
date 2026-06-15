@@ -446,11 +446,11 @@ async fn list_reorder_suggestions(
             pv.sku,
             p.name AS product_name,
             pv.variation_label,
-            GREATEST(0, pv.stock_on_hand - pv.reserved_stock)::int4 AS available_stock,
+            GREATEST(0, pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::int4 AS available_stock,
             pv.reorder_point,
             COALESCE(open_po.qty_on_order, 0)::int4 AS qty_on_order,
             GREATEST(
-                pv.reorder_point - GREATEST(0, pv.stock_on_hand - pv.reserved_stock) - COALESCE(open_po.qty_on_order, 0),
+                pv.reorder_point - GREATEST(0, pv.stock_on_hand - pv.reserved_stock - pv.on_layaway) - COALESCE(open_po.qty_on_order, 0),
                 0
             )::int4 AS suggested_quantity,
             COALESCE(pv.cost_override, p.base_cost) AS unit_cost
@@ -462,7 +462,7 @@ async fn list_reorder_suggestions(
           AND pv.track_low_stock = TRUE
           AND p.primary_vendor_id = $1
           AND GREATEST(
-                pv.reorder_point - GREATEST(0, pv.stock_on_hand - pv.reserved_stock) - COALESCE(open_po.qty_on_order, 0),
+                pv.reorder_point - GREATEST(0, pv.stock_on_hand - pv.reserved_stock - pv.on_layaway) - COALESCE(open_po.qty_on_order, 0),
                 0
               ) > 0
         ORDER BY p.name, pv.sku
