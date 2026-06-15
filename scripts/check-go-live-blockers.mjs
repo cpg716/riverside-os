@@ -227,7 +227,7 @@ function checkDirectPrinterRouting() {
       bridge.includes('if (type === "tag")') &&
       bridge.includes("isLoopbackNetworkTarget(target)") &&
       bridge.includes('if (!isTauri())') &&
-      bridge.includes('return printViaMainHubPrintServer(type, payload, target, "text")') &&
+      bridge.includes('return printViaMainHubPrintServer(type, asciiToBase64(payload), target, "raw_base64")') &&
       !bridge.includes('if (station === "tag" && isLoopbackNetworkTarget(target)) {\n    return {'),
     "Browser/PWA tag printing uses the Main Hub station print server only with an explicit target",
     bridgeFile,
