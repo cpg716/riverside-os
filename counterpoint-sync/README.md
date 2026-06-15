@@ -6,6 +6,16 @@ The Workbench receives raw batches from the Counterpoint Bridge, stores source p
 
 ## Run
 
+Packaged Windows Main Hub deployment:
+
+```text
+Start-CounterpointSYNCWorkbench.cmd
+```
+
+The deployment ZIP includes this Workbench under `counterpoint-sync-workbench\` and the launcher at the package root. The launcher creates `.env` from `env.example` on first run, verifies Node.js 22.5+, stores data under `counterpoint-sync-workbench\data\`, and opens `http://127.0.0.1:3015/`.
+
+Repo/dev run:
+
 ```bash
 cd counterpoint-sync
 cp env.example .env

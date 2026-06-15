@@ -2,7 +2,6 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   RefreshCw,
-  Play,
   CheckCircle2,
   AlertTriangle,
   Loader2,
@@ -551,15 +550,8 @@ export default function CounterpointSyncSettingsPanel({
   const [workspaceView, setWorkspaceView] = useState<"overview" | "pipeline" | "inbound" | "details" | "ai_review" | "customer_duplicates">(() => {
     if (typeof window === "undefined") return "overview";
     const saved = window.localStorage.getItem("counterpoint.statusSection");
-    return saved === "ai_review" ||
-      saved === "customer_duplicates" ||
-      saved === "details" ||
-      saved === "inbound"
-      ? saved
-      : "overview";
+    return saved === "details" ? saved : "overview";
   });
-
-  const [runRequestBusy, setRunRequestBusy] = useState(false);
 
   const [workbenchState, setWorkbenchState] = useState<WorkbenchState | null>(null);
 
@@ -895,35 +887,6 @@ export default function CounterpointSyncSettingsPanel({
   }, [fetchSelectedSyncRun, selectedSyncRunId]);
 
   /* ── Event Handlers ── */
-
-  const triggerBridgeSync = useCallback(async (entity?: string) => {
-    setRunRequestBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/request-run`, {
-        method: "POST",
-        headers: {
-          ...headers(),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ entity: entity ?? null }),
-      });
-      if (!res.ok) throw new Error();
-      toast(
-        entity
-          ? `Queued ${entity.replace(/_/g, " ")} sync sequence.`
-          : "Queued full Counterpoint SQL sync sequence.",
-        "success",
-      );
-      setTimeout(() => void fetchStatus(), 1000);
-      setTimeout(() => void fetchCommandCenter(), 1200);
-      setTimeout(() => void fetchImportExceptions(), 1200);
-      setTimeout(() => void fetchBatches(), 1500);
-    } catch {
-      toast("Could not contact Windows Bridge.", "error");
-    } finally {
-      setRunRequestBusy(false);
-    }
-  }, [baseUrl, headers, toast, fetchStatus, fetchCommandCenter, fetchImportExceptions, fetchBatches]);
 
   const resolveImportException = useCallback(async (exceptionId: string) => {
     try {
@@ -1644,13 +1607,13 @@ export default function CounterpointSyncSettingsPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
-            Counterpoint Import Command Center
+            ROS Import Command Center
           </h4>
           <p className="mt-1 max-w-4xl text-xs text-app-text-muted">
-            Source counts are proved first, then supported data lands in ROS. Only rows that need review and cleanup suggestions appear after import.
+            Connect to the standalone Counterpoint SYNC Workbench, select a prepared run, run ROS preflight, import approved sections, and review final proof.
           </p>
           <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Import proof and advanced controls
+            Final validation and PostgreSQL import only
           </p>
           <p className="mt-2 text-xs font-semibold text-app-text-muted">
             Proof scope: <span className="text-app-text">{proofScopeLabel}</span>
@@ -1720,7 +1683,7 @@ export default function CounterpointSyncSettingsPanel({
             onClick={() => void fetchAllData()}
             className="ui-btn-secondary px-3 py-1.5 text-[10px] font-bold"
           >
-            Reconnect to Bridge
+            Refresh statuses
           </button>
         </div>
       </div>
@@ -1762,6 +1725,58 @@ export default function CounterpointSyncSettingsPanel({
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Store path</p>
             <p className="mt-1 break-all font-bold text-app-text">{syncStore?.path ?? syncHealth?.store_path ?? "Not reported"}</p>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Direct SYNC to ROS ingest path
+            </p>
+            <p className="mt-1 text-xs font-semibold text-app-text-muted">
+              Each area is imported only after ROS pulls the selected SYNC JSON package, runs preflight, and the operator confirms the section import.
+            </p>
+          </div>
+          <span className="ui-pill bg-app-surface-2 text-[9px] text-app-text-muted">
+            No CSV handoff into ROS
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 text-xs md:grid-cols-2 xl:grid-cols-3">
+          {[
+            { label: "Customers", section: "customers", path: "Customer package -> customer import batch -> PostgreSQL" },
+            { label: "Inventory", section: "inventory", path: "Inventory package -> inventory import batch -> PostgreSQL" },
+            { label: "Ticket History / Sales Movement", section: "tickets", path: "Ticket package -> sales history import batch -> PostgreSQL" },
+            { label: "Open Orders", section: "open_docs", path: "Open order package -> open-doc import batch -> PostgreSQL" },
+            { label: "Gift Cards", section: "gift_cards", path: "Gift card package -> gift-card import batch -> PostgreSQL" },
+            { label: "Loyalty Points", section: "loyalty_hist", path: "Loyalty package -> loyalty history import batch -> PostgreSQL" },
+          ].map((item) => {
+            const section = selectedSyncSections.find((row) => row.section === item.section);
+            return (
+              <div key={item.section} className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-black text-app-text">{item.label}</p>
+                  <span className={`ui-pill text-[9px] ${
+                    section?.status === "blocked"
+                      ? "bg-red-500/10 text-red-600"
+                      : section?.status === "ready" || section?.status === "ready_with_warnings" || section?.status === "imported"
+                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                        : "bg-app-bg text-app-text-muted"
+                  }`}>
+                    {section ? formatEntityLabel(section.status) : "No selected package"}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] font-semibold text-app-text-muted">{item.path}</p>
+                <p className="mt-2 text-[10px] font-bold text-app-text-muted">
+                  Prepared: <span className="text-app-text">{fmtNum(section?.prepared_count ?? 0)}</span>
+                  {" | "}
+                  Warnings: <span className="text-app-text">{fmtNum(section?.warnings ?? 0)}</span>
+                  {" | "}
+                  Blockers: <span className="text-app-text">{fmtNum(section?.blockers ?? 0)}</span>
+                </p>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -1849,7 +1864,7 @@ export default function CounterpointSyncSettingsPanel({
               </div>
             ) : (
               <p className="mt-3 text-xs font-semibold text-app-text-muted">
-                Start the SYNC Workbench and finalize a run before ROS approval.
+                Start the standalone Counterpoint SYNC Workbench on the Main Hub and prepare a run before ROS approval.
               </p>
             )}
           </div>
@@ -2032,7 +2047,7 @@ export default function CounterpointSyncSettingsPanel({
               ROS preflight and final proof
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Selected-run proof is scoped by sync_run_id, ros_import_run_id, section, and package fingerprint. Legacy accumulated counts are below under Advanced Diagnostics.
+              Selected-run proof is scoped by sync_run_id, ros_import_run_id, section, and package fingerprint. General diagnostics are below under Advanced Diagnostics.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -2044,23 +2059,6 @@ export default function CounterpointSyncSettingsPanel({
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
               Refresh Proof
-            </button>
-            <button
-              type="button"
-              onClick={() => void triggerBridgeSync()}
-              disabled={runRequestBusy || commandCenter?.ready_for_import !== true}
-              className="ui-btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold disabled:opacity-50"
-            >
-              {runRequestBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              Run Full Import
-            </button>
-            <button
-              type="button"
-              onClick={() => setResetPromptOpen(true)}
-              className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Reset Baseline
             </button>
           </div>
         </div>
@@ -2148,7 +2146,7 @@ export default function CounterpointSyncSettingsPanel({
               Advanced Diagnostics
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Legacy diagnostic. Accumulated ROS state and staging rows are not scoped to the selected SYNC run. Use for troubleshooting only.
+              Support-only diagnostics. Accumulated ROS state and staging rows are not scoped to the selected SYNC run. Use selected-run proof above for import sign-off.
             </p>
           </div>
           <button
@@ -2332,10 +2330,10 @@ export default function CounterpointSyncSettingsPanel({
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-app-border pb-4">
         <div>
           <h3 className="text-2xl font-black italic tracking-tighter uppercase text-app-text">
-            Counterpoint Import-First Go-Live
+            Counterpoint Import Command Center
           </h3>
           <p className="mt-1 text-xs text-app-text-muted max-w-3xl">
-            Prove NCR Counterpoint source counts, reset rehearsal data when needed, import supported rows into ROS, then review only exceptions and cleanup suggestions.
+            ROS connects to the standalone Counterpoint SYNC Workbench, selects a prepared run, runs preflight, imports approved sections, and shows final proof.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2346,16 +2344,7 @@ export default function CounterpointSyncSettingsPanel({
               workspaceView === "overview" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
-            Command center
-          </button>
-          <button
-            type="button"
-            onClick={() => setWorkspaceView("inbound")}
-            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
-              workspaceView === "inbound" ? "ring-2 ring-app-accent/30" : ""
-            }`}
-          >
-            Inbound queue
+            Import Command Center
           </button>
           <button
             type="button"
@@ -2364,32 +2353,7 @@ export default function CounterpointSyncSettingsPanel({
               workspaceView === "details" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
-            Legacy diagnostics
-          </button>
-          <button
-            type="button"
-            onClick={() => setWorkspaceView("ai_review")}
-            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
-              workspaceView === "ai_review" ? "ring-2 ring-app-accent/30" : ""
-            }`}
-          >
-            Data workbench
-          </button>
-          <button
-            type="button"
-            onClick={() => setWorkspaceView("ai_review")}
-            className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold"
-          >
-            AI review packs
-          </button>
-          <button
-            type="button"
-            onClick={() => setWorkspaceView("customer_duplicates")}
-            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
-              workspaceView === "customer_duplicates" ? "ring-2 ring-app-accent/30" : ""
-            }`}
-          >
-            Customer duplicates
+            Advanced Diagnostics
           </button>
           <button
             type="button"
@@ -2400,22 +2364,14 @@ export default function CounterpointSyncSettingsPanel({
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh State
           </button>
-          <button
-            type="button"
-            onClick={() => setResetPromptOpen(true)}
-            className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Reset Baseline
-          </button>
         </div>
       </div>
 
       <IntegrationCredentialsCard
         baseUrl={baseUrl}
         integrationKey="counterpoint"
-        title="Counterpoint Bridge Token"
-        description="Save the ROS sync token used by the Windows Counterpoint Bridge. The same value must be set as COUNTERPOINT_SYNC_TOKEN in the Bridge .env file."
+        title="Counterpoint SYNC Connection"
+        description="Save the Main Hub SYNC Workbench URL/token and the Bridge token needed for the extractor to reach the preparation Workbench."
         fields={[
           {
             key: "sync_token",
@@ -2456,22 +2412,32 @@ export default function CounterpointSyncSettingsPanel({
                 Support diagnostics center
               </h4>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                Deployment visibility
+                Deployment and recovery visibility
               </p>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                Recovery and replay posture
+                These diagnostics are not selected-run import proof.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                const text = JSON.stringify({ status, commandCenter, batches }, null, 2);
-                void navigator.clipboard?.writeText(text).catch(() => undefined);
-              }}
-              className="ui-btn-secondary px-3 py-2 text-xs font-bold"
-            >
-              Copy support report
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const text = JSON.stringify({ status, commandCenter, batches }, null, 2);
+                  void navigator.clipboard?.writeText(text).catch(() => undefined);
+                }}
+                className="ui-btn-secondary px-3 py-2 text-xs font-bold"
+              >
+                Copy support report
+              </button>
+              <button
+                type="button"
+                onClick={() => setResetPromptOpen(true)}
+                className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset rehearsal data
+              </button>
+            </div>
           </div>
 
           <div className="rounded-lg border border-app-border bg-app-bg/60 p-3 text-xs">
@@ -2486,14 +2452,14 @@ export default function CounterpointSyncSettingsPanel({
             </div>
           </div>
 
-          <div className="space-y-3">
+            <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Legacy accumulated verification
+                  Accumulated verification
                 </p>
                 <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                  Accumulated sign-off reconciliation
+                  Support-only reconciliation across ROS staging/import state. Use selected-run proof in the Import Command Center for sign-off.
                 </p>
               </div>
               <button
@@ -2642,7 +2608,7 @@ export default function CounterpointSyncSettingsPanel({
               Counterpoint Transition Review Packs
             </h4>
             <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Counterpoint Data Workbench
+              Counterpoint SYNC Review References
             </h4>
             <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
               Build Codex review packages from imported ROS data plus Lightspeed and Counterpoint CSV references. Riverside OS validates returned suggestions and only applies staff-approved catalog cleanup.
@@ -2660,7 +2626,7 @@ export default function CounterpointSyncSettingsPanel({
                 CSV reference sources
               </p>
               <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
-                Load the Lightspeed CSV and Counterpoint CSV after the full import. These files enrich names, categories, vendors, supplier numbers, barcodes, and SKU cleanup suggestions.
+                CSV review and preparation belongs in the standalone Counterpoint SYNC Workbench. ROS only imports approved JSON packages after preflight.
               </p>
             </div>
             <button

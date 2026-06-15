@@ -158,6 +158,37 @@ assertIncludes(
   "deployment config example must carry the Riverside LP 2844 EPL tag-printer default",
 );
 
+const deploymentPackageBuilder = "deployment/windows/build-deployment-package.ps1";
+for (const copy of [
+  "CounterpointSyncSourcePath",
+  "Copy-CounterpointSyncWorkbench",
+  "counterpoint-sync-workbench",
+  "counterpoint-bridge-gui",
+  "Start-CounterpointSYNCWorkbench.ps1",
+  "Start-CounterpointSYNCWorkbench.cmd",
+]) {
+  assertIncludes(
+    deploymentPackageBuilder,
+    copy,
+    "Windows deployment package must include the Main Hub Counterpoint SYNC Workbench separately from the Bridge GUI",
+  );
+}
+assertNotIncludes(
+  deploymentPackageBuilder,
+  "counterpoint-sync-bridge",
+  "Bridge GUI assets must not be placed in a misleading SYNC Workbench folder",
+);
+assertIncludes(
+  "deployment/windows/Start-CounterpointSYNCWorkbench.ps1",
+  "node:sqlite",
+  "SYNC Workbench launcher must explain the Node 22.5+ runtime requirement",
+);
+assertIncludes(
+  "deployment/windows/Start-CounterpointSYNCWorkbench.cmd",
+  "Start-CounterpointSYNCWorkbench.ps1",
+  "SYNC Workbench command wrapper must launch the PowerShell starter",
+);
+
 const mainHubInstaller = "deployment/windows/install-server.ps1";
 for (const copy of [
   "function Repair-PublicSerialSequences",

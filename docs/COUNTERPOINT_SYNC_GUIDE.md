@@ -14,7 +14,7 @@ End-to-end reference for setting up and operating the one-way Counterpoint trans
 **Import Command Center:**
 The Counterpoint screen in **Settings → Integrations → Counterpoint** is now the ROS final approval surface. The operator workflow is SYNC connection, prepared-run selection, section readiness review, ROS package preflight, explicit section import, import exceptions, final proof, and advanced diagnostics:
 
-The same settings panel also includes the **Counterpoint Data Workbench** for manual ChatGPT/Codex review. ROS generates JSON packs, staff upload those files manually to the external review tool, and ROS validates imported suggestions before any Staff Access review or safe apply action.
+Preparation, cleanup, CSV input, and AI/Codex review packages live in the standalone **Counterpoint SYNC Workbench** on the Main Hub. ROS does not host that cleanup workspace. ROS only pulls selected SYNC package JSON, validates it, imports approved sections, and records proof.
 
 1. **Bridge heartbeat** - extraction host heartbeat/status only
 2. **SYNC app connection** - Main Hub SYNC Workbench reachability and selected prepared run
@@ -22,7 +22,9 @@ The same settings panel also includes the **Counterpoint Data Workbench** for ma
 4. **ROS preflight** - ROS validates the selected package contract and records package-scoped count proof
 5. **Import Section** - explicit confirmation writes the selected package through the existing ROS Counterpoint import services
 6. **Exceptions** - SYNC preparation exceptions are separate from ROS import exceptions
-7. **Final proof / diagnostics** - selected-run proof first; legacy accumulated state is labeled as diagnostics
+7. **Final proof / diagnostics** - selected-run proof first; accumulated ROS state is diagnostics only
+
+The Command Center also shows a direct business-area ingest path for Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points. Each one follows the same control pattern: selected SYNC JSON package → ROS preflight → explicit section import → existing backend import batch → PostgreSQL.
 
 Advancement is proof-gated. Bridge-reported row counts alone do not unlock import or cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, `401 invalid or missing sync token`, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import.
 
@@ -32,7 +34,7 @@ AI/Codex review happens only in SYNC before ROS preflight. Staff export an AI re
 
 **Optional SQL objects:** Gift and loyalty tables (Standard examples: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are Counterpoint-style names from product/schema docs. Local installations can use different names such as **`SY_GFC`** (Gift Cards) or **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 
-**Migrations:** active baseline migration `081_counterpoint_import_first_proof.sql` adds `counterpoint_import_runs`, `counterpoint_import_source_counts`, `counterpoint_import_raw_records`, `counterpoint_import_provenance`, and `counterpoint_import_exceptions` for import-first proof. Earlier Counterpoint migrations add item keys, sync runs/issues, mapping tables, staff/customer/catalog provenance, vendor supplier items, optional staging, transition review packs, and payment-method aliases.
+**Migrations:** active baseline migration `081_counterpoint_import_first_proof.sql` adds `counterpoint_import_runs`, `counterpoint_import_source_counts`, `counterpoint_import_raw_records`, `counterpoint_import_provenance`, and `counterpoint_import_exceptions` for ROS import proof. Earlier Counterpoint migrations add item keys, sync runs/issues, mapping tables, staff/customer/catalog provenance, vendor supplier items, optional staging, transition review packs, and payment-method aliases.
 
 ---
 
@@ -82,7 +84,7 @@ From the repo root (Postgres must be running via `docker compose up -d`):
 ./scripts/apply-migrations-docker.sh
 ```
 
-The active migration layout currently runs through **081**. Migration **081** creates the import-first run, source-count, raw-record, provenance, and exception proof tables. Verify:
+The active migration layout currently runs through **081**. Migration **081** creates the ROS import run, source-count, raw-record, provenance, and exception proof tables. Verify:
 
 ```bash
 ./scripts/migration-status-docker.sh | grep "081_counterpoint_import_first_proof"
@@ -105,7 +107,7 @@ COUNTERPOINT_SYNC_WORKBENCH_URL=http://main-hub:3015
 COUNTERPOINT_SYNC_WORKBENCH_TOKEN=your-other-long-random-secret-here
 ```
 
-The Bridge compatibility token authenticates legacy `/api/sync/counterpoint/*` requests. The SYNC Workbench token authenticates ROS server-side package pulls and Bridge raw-batch posts to SYNC. **Never log either token.** Routine ROS-side token updates belong in Backoffice Settings; the Bridge and SYNC hosts keep their own `.env` files because they run outside ROS.
+The Bridge token authenticates `/api/sync/counterpoint/*` compatibility requests. The SYNC Workbench token authenticates ROS server-side package pulls and Bridge raw-batch posts to SYNC. **Never log either token.** Routine ROS-side token updates belong in Backoffice Settings; the Bridge and SYNC hosts keep their own `.env` files because they run outside ROS.
 
 If Backoffice Settings refuses to save the token with `RIVERSIDE_CREDENTIALS_KEY must be set`, run **`Repair-RiversideCredentialsKey.cmd`** from the Windows deployment package on the Backoffice / Server PC. The repair writes the credential encryption key into the installed server `.env` and Windows machine environment, then restarts the Riverside server task.
 
@@ -113,7 +115,21 @@ The Main Hub uses encrypted values saved in Settings as the primary source for B
 
 ### 2c. Start the SYNC Workbench
 
-On the Main Hub PC:
+On a packaged Windows Main Hub deployment, open the deployment package root and run:
+
+```text
+Start-CounterpointSYNCWorkbench.cmd
+```
+
+The Windows package includes the Workbench under:
+
+```text
+counterpoint-sync-workbench\
+```
+
+The starter creates `counterpoint-sync-workbench\.env` from `env.example` on first run, verifies Node.js 22.5+ for `node:sqlite`, stores local staging data under `counterpoint-sync-workbench\data\`, and opens the local review UI.
+
+For repo/dev runs on the Main Hub PC:
 
 ```bash
 cd counterpoint-sync
@@ -121,7 +137,7 @@ cp env.example .env
 npm start
 ```
 
-Set `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` to the same value saved in ROS Back Office. The Workbench stores local transition staging data in SQLite under `counterpoint-sync/data/` by default. That store contains raw payloads, prepared package JSON, provenance, warnings, blockers, AI review packages, AI suggestions, review decisions, and readiness state. It is not ROS PostgreSQL.
+Set `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` to the same value saved in ROS Back Office. The Workbench stores local transition staging data in SQLite under `counterpoint-sync-workbench\data\` in the packaged Windows deployment, or `counterpoint-sync/data/` in repo/dev runs. That store contains raw payloads, prepared package JSON, provenance, warnings, blockers, AI review packages, AI suggestions, review decisions, and readiness state. It is not ROS PostgreSQL.
 
 Open the local Workbench review UI at `http://127.0.0.1:3015/`. It shows Workbench health, local store path, backup status, latest Bridge heartbeat, prepared runs, section readiness, warnings, blockers, imported status, package previews, exceptions, and the non-mutating AI Review placeholder.
 
@@ -575,7 +591,7 @@ ROS stores this in the `counterpoint_bridge_heartbeat` singleton table and deriv
 
 The Main Hub **Counterpoint → Command center** shows a dedicated **Bridge connection status** block for this status. It separates the Bridge app listening on the Counterpoint workstation from ROS accepting that Bridge. If the Bridge console says the local API is listening but Main Hub shows **Token missing** or **No accepted heartbeat**, save the Counterpoint sync token in Back Office Settings and make sure the same value is in the Bridge `.env` for the exact `ROS_BASE_URL` shown on the Bridge host.
 
-**Polling Stability:** To prevent console spam when the shop is closed (bridge unreachable), the Back Office Settings UI will stop automatic polling after **3 consecutive failures**. Use the **"Reconnect to Bridge"** button to resume monitoring once you are back in the store.
+**Polling Stability:** To prevent console spam when the shop is closed (bridge unreachable), the Back Office Settings UI will stop automatic polling after **3 consecutive failures**. Use **Refresh statuses** to resume monitoring once you are back in the store.
 
 ---
 
@@ -647,7 +663,7 @@ Weak or approximate domains are explicitly marked in the section:
 Use Landing Verification with the other proof surfaces:
 - **Bridge counts** show what the bridge attempted and successfully posted for the latest run.
 - **Landing Verification** shows what is currently present in ROS tables after direct ingest or staging apply.
-- **Inbound queue / staging** must be empty after all intended staged batches are applied.
+- **Support staging diagnostics** must be clear after all intended staged batches are applied.
 - **Open sync issues** must be empty or explicitly triaged before sign-off.
 - **Inventory & Catalog Verification** uses live bridge/source metrics and ROS landed values for catalog, variant, SKU, barcode, quantity, unresolved-row proof, and aggregate checksum proof for cost, price, category, vendor, and variant labels. A checksum failure means the field group differs and must be investigated before cutover; it does not identify the exact row without a later diagnostic comparison.
 - **Category/vendor mapping proof** compares live vendor/category master counts to ROS `vendors.vendor_code` and `counterpoint_category_map` rows, and compares catalog items that carried `vendor_no` or `category` to products with resolved `primary_vendor_id` or `category_id`.
@@ -666,7 +682,7 @@ The Fresh baseline reset preserves reviewed Counterpoint mapping configuration s
 
 Do not use `scripts/ros-wipe-business-data-keep-bootstrap-admin.sql` as the normal Counterpoint rehearsal reset. That script is a broad operational/business-data wipe; it may clear more operational setup and does not preserve the same Counterpoint rehearsal state.
 
-The server reset also clears the active ROS import-run pointer and import-first proof rows. It does not touch bridge-local cursor files. Delete or reset `.counterpoint-bridge-state.json` on the Counterpoint PC before the next run if you need a true full replay instead of continuing from saved bridge cursors.
+The server reset also clears the active ROS import-run pointer and import proof rows. It does not touch bridge-local cursor files. Delete or reset `.counterpoint-bridge-state.json` on the Counterpoint PC before the next run if you need a true full replay instead of continuing from saved bridge cursors.
 
 ### API endpoints (staff-gated, `settings.admin`)
 
@@ -871,7 +887,7 @@ Normal operation does not require entity SQL in `.env`. The bridge uses the thre
 
 ## 10a. AI/Codex review packages
 
-Use AI review packages for cleanup suggestions only. AI suggestions never import into ROS and never apply automatically.
+Use AI review packages in the standalone SYNC Workbench for preparation suggestions only. AI suggestions never import into ROS and never apply automatically.
 
 Allowed safe domains include customer phone/name/email-omit suggestions, customer duplicate clusters, product/description readability, category/vendor suggestions, inventory/catalog mismatch explanations, and vendor optional-info cleanup. High-risk sections such as gift cards, store credits, historical tickets, open docs, loyalty history, tax, payments, refunds, balances, quantities, costs, and accounting mappings are manual-review only.
 
@@ -922,11 +938,12 @@ Do not say changes were applied. Riverside OS staff will review and accept/rejec
 3. Apply migrations 84–86 (`./scripts/apply-migrations-docker.sh`)
 4. Restart the ROS Rust server
 5. Verify health endpoint from the bridge host
-6. Install Node.js on the Counterpoint Windows host
-7. Copy `counterpoint-bridge/` folder, run `npm install`, configure `.env`
-8. Run GUI Auto Config or `node index.mjs auto-config` to confirm runtime mappings for staff, customers, catalog, inventory, gift cards, tickets, and related data.
-9. Run the bridge once, then verify data appears in ROS Landing Verification before any accepted import.
-10. Monitor progress in **Settings → Integrations → Counterpoint bridge**
+6. On the Main Hub, run `Start-CounterpointSYNCWorkbench.cmd` from the Windows deployment package and configure `counterpoint-sync-workbench\.env`
+7. Install Node.js on the Counterpoint Windows host
+8. Copy `counterpoint-bridge/` folder, run `npm install`, configure `.env`
+9. Run GUI Auto Config or `node index.mjs auto-config` to confirm runtime mappings for staff, customers, catalog, inventory, gift cards, tickets, and related data.
+10. Run the bridge once, then verify batches appear in the SYNC Workbench before ROS preflight/import.
+11. Monitor progress in **Settings → Integrations → Counterpoint bridge** and the ROS Import Command Center
 
 ### Ongoing monitoring
 

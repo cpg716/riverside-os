@@ -10,6 +10,7 @@ param(
   [string]$ServerManagerBinaryPath = "$PSScriptRoot\..\..\target\release\ros-server-manager.exe",
   [string]$ManagerBundlePath = "$PSScriptRoot\..\..\target\release\deployment-manager-bundle",
   [string]$ServerManagerBundlePath = "$PSScriptRoot\..\..\target\release\server-manager-bundle",
+  [string]$CounterpointSyncSourcePath = "$PSScriptRoot\..\..\counterpoint-sync",
   [switch]$AllowMissingRegisterBundle,
   [switch]$AllowMissingManagerBinary,
   [switch]$AllowMissingServerManagerBinary
@@ -276,6 +277,7 @@ New-Item -ItemType Directory -Force -Path "$packageRoot\docs" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\release-docs" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\deployment-app" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\server-manager-app" | Out-Null
+New-Item -ItemType Directory -Force -Path "$packageRoot\counterpoint-sync-workbench" | Out-Null
 
 Copy-Item "$PSScriptRoot\install-server.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\install-register.ps1" $packageRoot -Force
@@ -302,6 +304,8 @@ Copy-Item "$PSScriptRoot\Export-IntegrationCredentials.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Import-IntegrationCredentials.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Install-ROSDeploymentApps.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Install-ROSDeploymentApps.cmd" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Start-CounterpointSYNCWorkbench.ps1" $packageRoot -Force
+Copy-Item "$PSScriptRoot\Start-CounterpointSYNCWorkbench.cmd" $packageRoot -Force
 
 # Include encrypted integration credentials if they were exported and committed
 $integrationCredsSource = Join-Path $repoRoot "integration-credentials.sql"
@@ -372,6 +376,7 @@ $manifest = @{
   builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
   clientDistPath = (Resolve-FullPath $ClientDistPath)
   serverBinaryPath = (Resolve-FullPath $ServerBinaryPath)
+  counterpointSyncWorkbenchPath = "counterpoint-sync-workbench"
 } | ConvertTo-Json -Depth 4
 Set-Content -Path "$packageRoot\deployment-package.manifest.json" -Value $manifest -Encoding UTF8
 
@@ -390,13 +395,62 @@ foreach ($doc in @(
   }
 }
 
+function Copy-CounterpointSyncWorkbench([string]$PackageRoot, [string]$SourcePath) {
+  if (-not (Test-Path $SourcePath)) {
+    throw "Counterpoint SYNC Workbench source not found: $SourcePath"
+  }
+
+  $dest = Join-Path $PackageRoot "counterpoint-sync-workbench"
+  New-Item -ItemType Directory -Force -Path $dest | Out-Null
+
+  foreach ($file in @("README.md", "env.example", "index.mjs", "package.json")) {
+    $sourceFile = Join-Path $SourcePath $file
+    if (-not (Test-Path $sourceFile)) {
+      throw "Counterpoint SYNC Workbench package file missing: $sourceFile"
+    }
+    Copy-Item $sourceFile $dest -Force
+  }
+
+  $scriptsSource = Join-Path $SourcePath "scripts"
+  if (Test-Path $scriptsSource) {
+    Copy-Item $scriptsSource (Join-Path $dest "scripts") -Recurse -Force
+  }
+
+  $startHere = @"
+# Counterpoint SYNC Workbench - Windows Start Here
+
+This is the Main Hub Counterpoint SYNC Workbench package.
+
+Run from the deployment package root:
+
+  Start-CounterpointSYNCWorkbench.cmd
+
+The Workbench listens on http://127.0.0.1:3015 by default.
+
+Important:
+- This is the staging/preparation app on the Main Hub PC.
+- It receives raw Counterpoint Bridge batches.
+- It stores local staging data under counterpoint-sync-workbench\data by default.
+- It exposes ROS-ready JSON packages.
+- It does not write directly to ROS PostgreSQL.
+
+First run:
+1. Install Node.js 22.5+ if Windows does not already have it.
+2. Edit counterpoint-sync-workbench\.env after the starter creates it.
+3. Set COUNTERPOINT_SYNC_WORKBENCH_TOKEN to the same token saved in ROS Back Office.
+4. Start the Workbench and open http://127.0.0.1:3015.
+"@
+  Set-Content -Path (Join-Path $dest "WINDOWS_START_HERE.md") -Value $startHere -Encoding UTF8
+  Write-Host "Packaged Counterpoint SYNC Workbench"
+}
+
 if (Test-Path $RegisterBundlePath) {
   Copy-Item "$RegisterBundlePath\*" "$packageRoot\register" -Recurse -Force
   
-  # Copy bridge installer files to its own clean directory
-  New-Item -ItemType Directory -Force -Path "$packageRoot\counterpoint-sync-bridge" | Out-Null
+  # Copy bridge GUI installer files to their own clean directory.
+  New-Item -ItemType Directory -Force -Path "$packageRoot\counterpoint-bridge-gui" | Out-Null
   Get-ChildItem "$packageRoot\register" -Recurse -Filter "*counterpoint-bridge-gui*" | ForEach-Object {
-    Copy-Item $_.FullName "$packageRoot\counterpoint-sync-bridge\" -Force
+    Copy-Item $_.FullName "$packageRoot\counterpoint-bridge-gui\" -Force
     Remove-Item $_.FullName -Force
   }
 
@@ -404,6 +458,8 @@ if (Test-Path $RegisterBundlePath) {
   Get-ChildItem "$packageRoot\register" -Recurse -Filter "*deployment*" -ErrorAction SilentlyContinue | Remove-Item -Force
   Get-ChildItem "$packageRoot\register" -Recurse -Filter "*manager*" -ErrorAction SilentlyContinue | Remove-Item -Force
 }
+
+Copy-CounterpointSyncWorkbench $packageRoot (Resolve-FullPath $CounterpointSyncSourcePath)
 
 if (Test-Path $UpdaterDistPath) {
   Copy-Item "$UpdaterDistPath\*" "$packageRoot\updater" -Recurse -Force
@@ -428,6 +484,8 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "- Station settings are written automatically for Register and Back Office workstation installs.`n" +
   "- A deployment-manager.log file is written next to the installer for support.`n" +
   "- ROS-ServerManager.exe runs locally and does not require the Riverside API to be online.`n" +
+  "- Counterpoint SYNC Workbench is included in counterpoint-sync-workbench and starts with Start-CounterpointSYNCWorkbench.cmd on the Main Hub.`n" +
+  "- Counterpoint Bridge GUI installers are separated under counterpoint-bridge-gui.`n" +
   "`nUninstall behavior:`n" +
   "`n- Workstation uninstall removes the Riverside desktop app and station settings.`n" +
   "- Server uninstall removes the Riverside server service, firewall rule, and app files.`n" +

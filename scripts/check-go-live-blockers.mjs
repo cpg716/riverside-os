@@ -521,6 +521,34 @@ function checkCounterpointBridgeGuiUpdateWiring() {
   );
 }
 
+function checkCounterpointSyncWorkbenchDeploymentPackaging() {
+  const builderFile = "deployment/windows/build-deployment-package.ps1";
+  const builder = read(builderFile);
+  assert(
+    builder.includes("Copy-CounterpointSyncWorkbench") &&
+      builder.includes("counterpoint-sync-workbench") &&
+      builder.includes("Start-CounterpointSYNCWorkbench.ps1") &&
+      builder.includes("Start-CounterpointSYNCWorkbench.cmd") &&
+      builder.includes("counterpoint-bridge-gui") &&
+      !builder.includes("counterpoint-sync-bridge"),
+    "Windows deployment package includes Counterpoint SYNC Workbench as a distinct Main Hub tool",
+    builderFile,
+    "The SYNC Workbench must be visible in the Windows deployment separately from the Counterpoint Bridge GUI.",
+  );
+
+  const launcherFile = "deployment/windows/Start-CounterpointSYNCWorkbench.ps1";
+  const launcher = read(launcherFile);
+  assert(
+    launcher.includes("Node.js 22.5+") &&
+      launcher.includes("counterpoint-sync-workbench") &&
+      launcher.includes("COUNTERPOINT_SYNC_WORKBENCH_DB") &&
+      launcher.includes("http://127.0.0.1:3015"),
+    "Counterpoint SYNC Workbench has a packaged Windows launcher",
+    launcherFile,
+    "Operators need a visible way to start the Main Hub SYNC Workbench from the deployment ZIP.",
+  );
+}
+
 function checkCounterpointRateLimitBypass() {
   const file = "server/src/middleware/rate_limit.rs";
   const content = read(file);
@@ -962,6 +990,7 @@ checkPrintRoutingManifest();
 checkCounterpointBridgeQueryTesterEntityParity();
 checkCounterpointSyncStagingVisibility();
 checkCounterpointBridgeGuiUpdateWiring();
+checkCounterpointSyncWorkbenchDeploymentPackaging();
 checkCounterpointRateLimitBypass();
 checkCounterpointWorkbenchSql();
 checkPackagedHelpManuals();

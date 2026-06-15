@@ -27,14 +27,15 @@ Use this panel to verify facts. ROSIE can explain displayed facts only; it does 
 
 ## How to use it
 
-1. Save the **Counterpoint Bridge Token**, **SYNC Workbench URL**, and **SYNC Workbench token** at the top of the panel.
+1. Save the **Counterpoint SYNC Connection** credentials at the top of the panel: Bridge token, SYNC Workbench URL, and SYNC Workbench token.
 2. Confirm **Counterpoint Bridge heartbeat** for extraction status and **Counterpoint SYNC app connection** for prepared-run access.
 3. In **Import runs from Counterpoint SYNC**, select the prepared run created in the SYNC Workbench.
-4. Review each section's SYNC status, source count, prepared count, warnings, blockers, ROS preflight state, ROS import state, and package fingerprint.
-5. Use **ROS Preflight** for the selected section/package before importing.
-6. Use **Import Section** only after blockers are zero, ROS preflight says the selected package is ready, and the confirmation modal shows the expected run, section, records, warnings, and blockers.
-7. Review ROS Import exceptions and final proof before sign-off reconciliation.
-8. Use Advanced/legacy diagnostics only when mapping, quarantine, or review blockers need manual resolution.
+4. Use **Direct SYNC to ROS ingest path** to confirm the selected run includes the expected business areas: Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points.
+5. Review each section's SYNC status, source count, prepared count, warnings, blockers, ROS preflight state, ROS import state, and package fingerprint.
+6. Use **ROS Preflight** for the selected section/package before importing.
+7. Use **Import Section** only after blockers are zero, ROS preflight says the selected package is ready, and the confirmation modal shows the expected run, section, records, warnings, and blockers.
+8. Review ROS Import exceptions and final proof before sign-off reconciliation.
+9. Use **Advanced Diagnostics** only when mapping, quarantine, or review blockers need manual resolution.
 
 If a failed support-queue batch has been reviewed and successfully replayed into a newer import run, use **Discard** to remove the stale failed row from active blockers while preserving the original audit record.
 
@@ -46,7 +47,7 @@ Imported Counterpoint open documents are current obligations. Their lines are ma
 
 The status cards separate Bridge heartbeat, SYNC Workbench connection, browser/control API reachability, ROS selected-run preflight, ROS import status, and SYNC callback status. Browser controls only affect Start/Stop buttons from this workstation. They do not prove that SYNC has a ready package, and they do not replace selected-run proof.
 
-The Bridge sync token saved in **Counterpoint Bridge Token** must match `COUNTERPOINT_SYNC_TOKEN` in `C:\counterpoint-bridge\.env` for legacy compatibility. The SYNC Workbench token must match `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` in the Main Hub SYNC Workbench `.env` and the Bridge `.env` when `COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench`.
+The Bridge sync token saved in **Counterpoint SYNC Connection** must match `COUNTERPOINT_SYNC_TOKEN` in `C:\counterpoint-bridge\.env`. The SYNC Workbench token must match `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` in the Main Hub SYNC Workbench `.env` and the Bridge `.env` when `COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench`.
 
 If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If SYNC is unreachable, confirm the Workbench is running and the saved URL/token match the Workbench `.env`.
 
@@ -74,7 +75,9 @@ After package preflight passes, ROS can start an import run for the selected SYN
 
 CSV files can be loaded into SYNC for preparation, review, or debug exports. CSV files are not the SYNC-to-ROS import mechanism. ROS imports JSON packages pulled from the selected SYNC run.
 
-Customer rows with duplicate email addresses do not stop the full import. ROS keeps the unique email constraint, lands the Counterpoint customer without an email address, preserves the original email in the raw payload/provenance trail, and opens an Import exception so staff can merge or correct the duplicate before go-live sign-off.
+The visible ingest path is business-area based: Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points each move from selected SYNC JSON package to ROS preflight to explicit ROS section import to PostgreSQL through the existing backend import services.
+
+Customer rows with duplicate email addresses do not stop the customer section import. ROS keeps the unique email constraint, lands the Counterpoint customer without an email address, preserves the original email in the raw payload/provenance trail, and opens an Import exception so staff can merge or correct the duplicate before go-live sign-off.
 
 Use **Reset Baseline** before a rehearsal when you need to start over from a clean migrated/seeded ROS database. Reset clears imported Counterpoint rows, import-run proof, exceptions, support-queue state, and the active ROS import-run pointer while keeping staff access, store settings, register/printer configuration, and reviewed mappings.
 
@@ -82,17 +85,15 @@ Catalog cleanup approval is valid only when Counterpoint catalog parent products
 
 Counterpoint parent products are scoped to active items plus items with evidence since January 1, 2018. Matrix/cell variants remain attached under those parent products, including large variation sets.
 
-## Counterpoint Data Workbench
-
-Use **Data Workbench** after import when staff need a manual ChatGPT/Codex review of imported Counterpoint rows and CSV references. It is optional and is not the primary import path.
+## Counterpoint SYNC Workbench Review
 
 The Main Hub SYNC Workbench also supports AI Review Packages before ROS import. Export a package from SYNC, review it with Codex/ChatGPT, import returned suggestion JSON, then accept, reject, edit, or mark each suggestion for manual review. Accepted suggestions update prepared SYNC data only. Raw Counterpoint source payloads and provenance are preserved. Applying accepted suggestions regenerates the ROS-ready package and changes the package fingerprint when content changes, so ROS preflight must be rerun.
 
 AI suggestions must never auto-merge customers/vendors, invent emails, invent costs or quantities, or change gift card/store credit/tax/payment/refund/balance/accounting values. High-risk sections are manual-review only.
 
-Generate a pack, download the JSON, copy the prompt, and review the file manually outside Riverside OS. Import only the returned JSON result file. Riverside OS validates the source hash, row keys, allowed actions, confidence, reason, category targets, and forbidden fields before saving suggestions for staff review.
+Generate the review pack from the standalone SYNC Workbench, download the JSON, copy the prompt, and review the file manually outside Riverside OS. Import only the returned JSON result file back into SYNC. Riverside OS validates the final prepared package during ROS preflight before any database import.
 
-Imported suggestions never apply automatically. Staff must accept, reject, edit, or block each suggestion. **Apply Approved** is available only for safe inventory catalog name/category cleanup. Financial totals, tax, tenders, gift card balances, store credit balances, deposits, quantities, costs, dates, original Counterpoint IDs, customer merge targets, and QBO/accounting mappings remain review-only.
+Imported suggestions never apply automatically. Staff must accept, reject, edit, or block each suggestion in SYNC. Financial totals, tax, tenders, gift card balances, store credit balances, deposits, quantities, costs, dates, original Counterpoint IDs, customer merge targets, and QBO/accounting mappings remain review-only.
 
 For returns/exchanges, use the returns readiness scope to flag whether historical Counterpoint purchases resolve to current ROS items and original tender evidence. It preserves original Counterpoint ticket and line identity.
 
