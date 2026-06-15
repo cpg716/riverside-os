@@ -56,6 +56,9 @@ const TEST_PRINT_ITEMS: InventoryTagItem[] = [
   },
 ];
 
+const LP_2844_RETAIL_TAG_WIDTH = 2.25;
+const LP_2844_RETAIL_TAG_HEIGHT = 1.25;
+
 function normalizeConfig(config: InventoryTagPrintConfig): InventoryTagPrintConfig {
   const widthInches = Number.isFinite(config.widthInches)
     ? Math.min(6, Math.max(2, config.widthInches))
@@ -347,9 +350,19 @@ export default function TagDesignerPanel() {
 
   const hasChanges = JSON.stringify(normalizedDraft) !== JSON.stringify(baselineConfig);
   const desktopApp = isTauri();
+  const possibleTwoTagHeight =
+    normalizedDraft.widthInches <= 2.5 && normalizedDraft.heightInches > 1.5;
 
   const updateDraft = <K extends keyof InventoryTagPrintConfig>(key: K, value: InventoryTagPrintConfig[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const useRetailTagSize = () => {
+    setDraft((prev) => ({
+      ...prev,
+      widthInches: LP_2844_RETAIL_TAG_WIDTH,
+      heightInches: LP_2844_RETAIL_TAG_HEIGHT,
+    }));
   };
 
   const handleSave = () => { const next = saveInventoryTagPrintConfig(draft); setDraft(next); setBaselineConfig(next); toast("Tag layout saved.", "success"); };
@@ -464,6 +477,17 @@ export default function TagDesignerPanel() {
                 <input type="number" min="1.25" max="4" step="0.25" value={draft.heightInches} onChange={(e) => updateDraft("heightInches", parseDimensionInput(e.target.value, draft.heightInches))} className="ui-input w-full" />
               </label>
             </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" onClick={useRetailTagSize} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-black uppercase tracking-[0.14em] text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2">
+                <Tag size={14} /> Use LP 2844 retail tag
+              </button>
+              <span className="text-xs font-semibold text-app-text-muted">Sets 2.25 in x 1.25 in.</span>
+            </div>
+            {possibleTwoTagHeight ? (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+                This height is taller than the common Riverside retail tag stock and may feed more than one physical tag. Use the LP 2844 retail tag size unless the Zebra is loaded with taller stock.
+              </div>
+            ) : null}
           </section>
 
           {/* ── 3. What to show ── */}

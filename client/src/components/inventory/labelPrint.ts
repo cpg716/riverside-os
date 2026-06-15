@@ -280,36 +280,48 @@ function eplText(
   return `A${x},${y},${rotation},${font},${xMul},${yMul},N,"${escapeEplField(value)}"`;
 }
 
-function eplTextBlock(
+const EPL_MARGIN_DOTS = 12;
+const EPL_FOOTER_HEIGHT_DOTS = 16;
+const EPL_TEXT_GAP_DOTS = 2;
+const EPL_HORIZONTAL_BARCODE_HEIGHT_DOTS = 34;
+const EPL_COMPACT_BARCODE_HEIGHT_DOTS = 30;
+const EPL_BARCODE_GAP_DOTS = 8;
+
+function eplTextHeight(font: 1 | 2 | 3 | 4 | 5, yMul: number): number {
+  const base = font === 1 ? 16 : font === 2 ? 22 : font === 3 ? 28 : font === 4 ? 32 : 28;
+  return base * Math.max(1, yMul);
+}
+
+function appendBoundedEplText(
   parts: string[],
   x: number,
   y: number,
-  item: InventoryTagItem,
-  config: InventoryTagPrintConfig,
-  textChars: number,
+  maxY: number,
+  font: 1 | 2 | 3 | 4 | 5,
+  xMul: number,
+  yMul: number,
+  value: string | null | undefined,
 ): number {
-  const nameLines = config.showProductName ? wrapText(item.productName || item.sku, textChars, 2) : [];
-  const variation = item.variation?.trim() || "Standard";
-  if (config.showSku) {
-    parts.push(eplText(x, y, 0, 2, 1, 1, item.sku));
-    y += 24;
-  }
-  for (const line of nameLines) {
-    parts.push(eplText(x, y, 0, 3, 1, 1, line));
-    y += 28;
-  }
-  if (config.showVariation) {
-    parts.push(eplText(x, y, 0, 2, 1, 1, variation));
-    y += 24;
-  }
-  if (config.showBrand && item.brand) {
-    parts.push(eplText(x, y, 0, 1, 1, 1, item.brand));
-    y += 20;
-  }
-  return y;
+  const clean = value?.trim();
+  if (!clean) return y;
+  const lineHeight = eplTextHeight(font, yMul);
+  if (y + lineHeight > maxY) return y;
+  parts.push(eplText(x, y, 0, font, xMul, yMul, clean));
+  return y + lineHeight + EPL_TEXT_GAP_DOTS;
 }
 
-function eplPriceBlock(
+function eplPriceBlockHeight(
+  item: InventoryTagItem,
+  config: InventoryTagPrintConfig,
+): number {
+  if (!config.showPrice) return 0;
+  const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
+  if (!isPromo && !item.price?.trim()) return 0;
+  const saleHeight = eplTextHeight(5, config.priceSize === "large" ? 2 : 1);
+  return isPromo ? eplTextHeight(1, 1) + EPL_TEXT_GAP_DOTS + saleHeight : saleHeight;
+}
+
+function appendEplPriceBlockAt(
   parts: string[],
   x: number,
   y: number,
@@ -318,20 +330,58 @@ function eplPriceBlock(
   config: InventoryTagPrintConfig,
 ) {
   if (!config.showPrice) return;
+  const blockHeight = eplPriceBlockHeight(item, config);
+  if (blockHeight <= 0 || y + blockHeight > maxY) return;
   const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
-  const pY = Math.max(y + 4, maxY - 48);
   if (isPromo) {
-    parts.push(eplText(x, Math.max(y, pY - 22), 0, 1, 1, 1, `Reg ${item.regularPrice!}`));
-    parts.push(eplText(x, pY, 0, 5, 1, config.priceSize === "large" ? 2 : 1, item.salePrice!));
+    parts.push(eplText(x, y, 0, 1, 1, 1, `Reg ${item.regularPrice!}`));
+    parts.push(eplText(x, y + eplTextHeight(1, 1) + EPL_TEXT_GAP_DOTS, 0, 5, 1, config.priceSize === "large" ? 2 : 1, item.salePrice!));
   } else if (item.price) {
-    parts.push(eplText(x, pY, 0, 5, 1, config.priceSize === "large" ? 2 : 1, item.price));
+    parts.push(eplText(x, y, 0, 5, 1, config.priceSize === "large" ? 2 : 1, item.price));
   }
+}
+
+function appendEplFooterAt(
+  parts: string[],
+  x: number,
+  y: number,
+  maxY: number,
+  footer: string,
+) {
+  if (!footer || y + EPL_FOOTER_HEIGHT_DOTS > maxY) return;
+  parts.push(eplText(x, y, 0, 1, 1, 1, footer));
+}
+
+function eplTextBlock(
+  parts: string[],
+  x: number,
+  y: number,
+  item: InventoryTagItem,
+  config: InventoryTagPrintConfig,
+  textChars: number,
+  maxY: number,
+): number {
+  const nameLines = config.showProductName ? wrapText(item.productName || item.sku, textChars, 2) : [];
+  const variation = item.variation?.trim() || "Standard";
+  if (config.showSku) {
+    y = appendBoundedEplText(parts, x, y, maxY, 2, 1, 1, item.sku);
+  }
+  for (const line of nameLines) {
+    y = appendBoundedEplText(parts, x, y, maxY, 3, 1, 1, line);
+  }
+  if (config.showVariation) {
+    y = appendBoundedEplText(parts, x, y, maxY, 2, 1, 1, variation);
+  }
+  if (config.showBrand && item.brand) {
+    y = appendBoundedEplText(parts, x, y, maxY, 1, 1, 1, item.brand);
+  }
+  return y;
 }
 
 function renderEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
   const width = Math.round(clampDimension(config.widthInches, 2, 6, 4) * ZEBRA_2844_DPI);
   const height = Math.round(clampDimension(config.heightInches, 1.25, 4, 2.5) * ZEBRA_2844_DPI);
-  const m = Math.max(12, Math.round(width * 0.03));
+  const m = Math.max(EPL_MARGIN_DOTS, Math.round(width * 0.03));
   const footer = buildInventoryTagFooterLine(config.footerText);
   const layout = config.tagLayout || "standard";
   const sku = escapeEplField(item.sku);
@@ -340,50 +390,65 @@ function renderEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
   if (layout === "barcode-left") {
     const bcZone = config.showBarcode ? Math.round(width * 0.18) : 0;
     const textX = m + bcZone;
-    const y = eplTextBlock(parts, textX, m, item, config, Math.max(14, Math.floor((width - textX - m) / 17)));
-    eplPriceBlock(parts, textX, y, height - 30, item, config);
+    const footerY = height - m - EPL_FOOTER_HEIGHT_DOTS;
+    const priceHeight = eplPriceBlockHeight(item, config);
+    const priceY = Math.max(m, footerY - EPL_TEXT_GAP_DOTS - priceHeight);
+    eplTextBlock(parts, textX, m, item, config, Math.max(14, Math.floor((width - textX - m) / 17)), priceY - EPL_BARCODE_GAP_DOTS);
+    appendEplPriceBlockAt(parts, textX, priceY, footerY - EPL_TEXT_GAP_DOTS, item, config);
+    appendEplFooterAt(parts, textX, footerY, height - m, footer);
     if (config.showBarcode && sku) {
       parts.push(eplText(m, m, 1, 1, 1, 1, sku));
-      parts.push(`B${m + 18},${m},1,1,2,2,44,B,"${sku}"`);
+      parts.push(`B${m + 18},${m},1,1,2,2,44,N,"${sku}"`);
     }
   } else if (layout === "barcode-right") {
     const bcZone = config.showBarcode ? Math.round(width * 0.18) : 0;
     const bodyW = width - m * 2 - bcZone;
-    const y = eplTextBlock(parts, m, m, item, config, Math.max(14, Math.floor(bodyW / 17)));
-    eplPriceBlock(parts, m, y, height - 30, item, config);
+    const footerY = height - m - EPL_FOOTER_HEIGHT_DOTS;
+    const priceHeight = eplPriceBlockHeight(item, config);
+    const priceY = Math.max(m, footerY - EPL_TEXT_GAP_DOTS - priceHeight);
+    eplTextBlock(parts, m, m, item, config, Math.max(14, Math.floor(bodyW / 17)), priceY - EPL_BARCODE_GAP_DOTS);
+    appendEplPriceBlockAt(parts, m, priceY, footerY - EPL_TEXT_GAP_DOTS, item, config);
+    appendEplFooterAt(parts, m, footerY, height - m, footer);
     if (config.showBarcode && sku) {
       const bcX = width - bcZone;
       parts.push(eplText(bcX, m, 1, 1, 1, 1, sku));
-      parts.push(`B${bcX + 18},${m},1,1,2,2,44,B,"${sku}"`);
+      parts.push(`B${bcX + 18},${m},1,1,2,2,44,N,"${sku}"`);
     }
   } else if (layout === "price-hero") {
+    const barcodeReserve = config.showBarcode ? EPL_HORIZONTAL_BARCODE_HEIGHT_DOTS + EPL_BARCODE_GAP_DOTS : 0;
+    const footerY = height - m - barcodeReserve - EPL_FOOTER_HEIGHT_DOTS;
+    const priceHeight = eplPriceBlockHeight(item, config);
     let y = m;
-    if (config.showPrice) {
-      eplPriceBlock(parts, m, y, m + 58, item, config);
-      y += 76;
-    }
-    eplTextBlock(parts, m, y, item, config, Math.max(14, Math.floor((width - m * 2) / 17)));
+    appendEplPriceBlockAt(parts, m, y, height - m, item, config);
+    if (config.showPrice) y += priceHeight + EPL_BARCODE_GAP_DOTS;
+    eplTextBlock(parts, m, y, item, config, Math.max(14, Math.floor((width - m * 2) / 17)), footerY - EPL_BARCODE_GAP_DOTS);
+    appendEplFooterAt(parts, m, footerY, height - m - barcodeReserve, footer);
     if (config.showBarcode && sku) {
-      parts.push(`B${m},${height - 72},0,1,2,2,44,B,"${sku}"`);
+      const barcodeY = height - m - EPL_HORIZONTAL_BARCODE_HEIGHT_DOTS;
+      parts.push(`B${m},${barcodeY},0,1,2,2,${EPL_HORIZONTAL_BARCODE_HEIGHT_DOTS},N,"${sku}"`);
     }
   } else if (layout === "compact") {
     const rightX = Math.round(width * 0.56);
-    eplTextBlock(parts, m, m, item, config, Math.max(10, Math.floor((rightX - m) / 17)));
-    eplPriceBlock(parts, rightX, m, height - 30, item, config);
+    const footerY = height - m - EPL_FOOTER_HEIGHT_DOTS;
+    eplTextBlock(parts, m, m, item, config, Math.max(10, Math.floor((rightX - m) / 17)), footerY - EPL_BARCODE_GAP_DOTS);
+    appendEplFooterAt(parts, m, footerY, height - m, footer);
+    appendEplPriceBlockAt(parts, rightX, m, height - m, item, config);
     if (config.showBarcode && sku) {
-      parts.push(`B${rightX},${height - 72},0,1,2,2,38,B,"${sku}"`);
+      const barcodeY = height - m - EPL_COMPACT_BARCODE_HEIGHT_DOTS;
+      parts.push(`B${rightX},${barcodeY},0,1,2,2,${EPL_COMPACT_BARCODE_HEIGHT_DOTS},N,"${sku}"`);
     }
   } else {
-    const y = eplTextBlock(parts, m, m, item, config, Math.max(14, Math.floor((width - m * 2) / 17)));
-    const barcodeReserve = config.showBarcode ? 74 : 0;
-    eplPriceBlock(parts, m, y, height - barcodeReserve - 18, item, config);
+    const barcodeReserve = config.showBarcode ? EPL_HORIZONTAL_BARCODE_HEIGHT_DOTS + EPL_BARCODE_GAP_DOTS : 0;
+    const footerY = height - m - barcodeReserve - EPL_FOOTER_HEIGHT_DOTS;
+    const priceHeight = eplPriceBlockHeight(item, config);
+    const priceY = Math.max(m, footerY - EPL_TEXT_GAP_DOTS - priceHeight);
+    eplTextBlock(parts, m, m, item, config, Math.max(14, Math.floor((width - m * 2) / 17)), priceY - EPL_BARCODE_GAP_DOTS);
+    appendEplPriceBlockAt(parts, m, priceY, footerY - EPL_TEXT_GAP_DOTS, item, config);
+    appendEplFooterAt(parts, m, footerY, height - m - barcodeReserve, footer);
     if (config.showBarcode && sku) {
-      parts.push(`B${m},${height - 72},0,1,2,2,44,B,"${sku}"`);
+      const barcodeY = height - m - EPL_HORIZONTAL_BARCODE_HEIGHT_DOTS;
+      parts.push(`B${m},${barcodeY},0,1,2,2,${EPL_HORIZONTAL_BARCODE_HEIGHT_DOTS},N,"${sku}"`);
     }
-  }
-
-  if (footer) {
-    parts.push(eplText(m, height - 20, 0, 1, 1, 1, footer));
   }
   parts.push("P1");
   return `${parts.join("\r\n")}\r\n`;
