@@ -9337,6 +9337,21 @@ async fn perform_counterpoint_baseline_reset_targets(
     }
 
     if !targets.counterpoint_variant_ids.is_empty() {
+        sqlx::query(
+            r#"
+            UPDATE transaction_lines
+            SET variant_id = NULL
+            WHERE variant_id = ANY($1)
+              AND (
+                  transaction_id IS NULL
+                  OR NOT (transaction_id = ANY($2))
+              )
+            "#,
+        )
+        .bind(&targets.counterpoint_variant_ids)
+        .bind(&targets.counterpoint_transaction_ids)
+        .execute(&mut **tx)
+        .await?;
         sqlx::query("DELETE FROM discount_event_usage WHERE variant_id = ANY($1)")
             .bind(&targets.counterpoint_variant_ids)
             .execute(&mut **tx)
@@ -9404,6 +9419,21 @@ async fn perform_counterpoint_baseline_reset_targets(
     }
 
     if !targets.counterpoint_product_ids.is_empty() {
+        sqlx::query(
+            r#"
+            UPDATE transaction_lines
+            SET product_id = NULL
+            WHERE product_id = ANY($1)
+              AND (
+                  transaction_id IS NULL
+                  OR NOT (transaction_id = ANY($2))
+              )
+            "#,
+        )
+        .bind(&targets.counterpoint_product_ids)
+        .bind(&targets.counterpoint_transaction_ids)
+        .execute(&mut **tx)
+        .await?;
         sqlx::query("DELETE FROM products WHERE id = ANY($1)")
             .bind(&targets.counterpoint_product_ids)
             .execute(&mut **tx)
@@ -18531,6 +18561,9 @@ mod tests {
 
             let imported_transaction_id = Uuid::new_v4();
             let manual_transaction_id = Uuid::new_v4();
+            let preserved_customer_id = Uuid::new_v4();
+            let preserved_transaction_id = Uuid::new_v4();
+            let preserved_line_id = Uuid::new_v4();
             sqlx::query(
                 r#"
                 INSERT INTO transactions (
@@ -18561,6 +18594,58 @@ mod tests {
             .execute(&mut *tx)
             .await
             .expect("insert customer-linked manual transaction");
+            sqlx::query(
+                r#"
+                INSERT INTO customers (
+                    id, customer_code, first_name, last_name, email, customer_created_source
+                )
+                VALUES ($1, $2, $3, $4, $5, 'store')
+                "#,
+            )
+            .bind(preserved_customer_id)
+            .bind(format!("ROS-CUST-{}", Uuid::new_v4().simple()))
+            .bind("ROS")
+            .bind("Keeper")
+            .bind(format!(
+                "counterpoint-reset-keeper-{}@example.com",
+                Uuid::new_v4().simple()
+            ))
+            .execute(&mut *tx)
+            .await
+            .expect("insert preserved customer");
+            sqlx::query(
+                r#"
+                INSERT INTO transactions (
+                    id, customer_id, status, total_price, balance_due, is_counterpoint_import
+                )
+                VALUES ($1, $2, 'open', $3, $4, FALSE)
+                "#,
+            )
+            .bind(preserved_transaction_id)
+            .bind(preserved_customer_id)
+            .bind(Decimal::new(12999, 2))
+            .bind(Decimal::new(0, 2))
+            .execute(&mut *tx)
+            .await
+            .expect("insert preserved transaction");
+            sqlx::query(
+                r#"
+                INSERT INTO transaction_lines (
+                    id, transaction_id, product_id, variant_id, fulfillment, quantity,
+                    unit_price, unit_cost
+                )
+                VALUES ($1, $2, $3, $4, 'takeaway', 1, $5, $6)
+                "#,
+            )
+            .bind(preserved_line_id)
+            .bind(preserved_transaction_id)
+            .bind(imported_product_id)
+            .bind(imported_variant_id)
+            .bind(Decimal::new(12999, 2))
+            .bind(Decimal::new(4599, 2))
+            .execute(&mut *tx)
+            .await
+            .expect("insert preserved transaction line with imported variant");
 
             let payment_transaction_id = Uuid::new_v4();
             sqlx::query(
@@ -18870,6 +18955,16 @@ mod tests {
             .await
             .expect("count transactions after reset");
             assert_eq!(imported_transactions_remaining, 0);
+
+            let preserved_line_refs: (Option<Uuid>, Option<Uuid>) = sqlx::query_as(
+                "SELECT product_id, variant_id FROM transaction_lines WHERE id = $1",
+            )
+            .bind(preserved_line_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("load preserved transaction line after reset");
+            assert!(preserved_line_refs.0.is_none());
+            assert!(preserved_line_refs.1.is_none());
 
             let payment_transaction_exists: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM payment_transactions WHERE id = $1)",
