@@ -18,7 +18,7 @@ const item = {
 };
 
 const retailItem = {
-  sku: "110",
+  sku: "B-123456",
   productName: "HSM SLACKS (Custom)",
   variation: "Standard",
   brand: "Hart Schaffner Marx",
@@ -54,7 +54,7 @@ describe("LP 2844 EPL2 tag payloads", () => {
     expect(epl).toMatch(/^B.*?,N,"/m);
   });
 
-  it("uses one-label-safe retail EPL for every Tag Designer layout", () => {
+  it("preserves selected retail EPL layouts and configured content", () => {
     for (const layout of TAG_LAYOUTS) {
       const epl = buildEplDocument(
         [retailItem],
@@ -71,10 +71,14 @@ describe("LP 2844 EPL2 tag payloads", () => {
       );
 
       expect(epl.match(/^P1$/gm), layout.id).toHaveLength(1);
-      expect(epl, `${layout.id} rotated text`).not.toMatch(/^A\d+,\d+,1,/m);
-      expect(epl, `${layout.id} rotated barcode`).not.toMatch(/^B\d+,\d+,1,/m);
-      expect(epl, `${layout.id} double-height retail price`).not.toMatch(/^A\d+,\d+,0,5,1,2,N,/m);
-      expect(epl, `${layout.id} collision-prone footer`).not.toContain("Riverside Men's Shop");
+      expect(epl, `${layout.id} footer`).toContain("Riverside Men's Shop");
+      expect(epl, `${layout.id} price`).toContain('"$0.00"');
+      expect(epl, `${layout.id} barcode`).toContain('"B-123456"');
+      if (layout.id === "barcode-left" || layout.id === "barcode-right") {
+        expect(epl, `${layout.id} rotated barcode`).toMatch(/^B\d+,\d+,1,/m);
+      } else {
+        expect(epl, `${layout.id} horizontal barcode`).toMatch(/^B\d+,\d+,0,/m);
+      }
     }
   });
 
@@ -129,6 +133,35 @@ describe("LP 2844 EPL2 tag payloads", () => {
           expect(y, `${layout.id} rotated barcode y`).toBeLessThan(height);
         }
       }
+    }
+  });
+
+  it("keeps small-tag prices clear of horizontal barcode bands", () => {
+    for (const layout of TAG_LAYOUTS.filter((layout) => layout.id !== "barcode-left" && layout.id !== "barcode-right")) {
+      const epl = buildEplDocument(
+        [retailItem],
+        {
+          ...getInventoryTagPrintConfig(),
+          tagLayout: layout.id,
+          widthInches: 2.25,
+          heightInches: 1.25,
+          showBarcode: true,
+          showPrice: true,
+          priceSize: "large",
+        },
+      );
+      const priceMatch = epl.match(/^A(\d+),(\d+),0,5,1,(\d+),N,"\$0\.00"/m);
+      const barcodeMatch = epl.match(/^B(\d+),(\d+),0,1,\d+,\d+,(\d+),N,"B-123456"/m);
+
+      expect(priceMatch, `${layout.id} price command`).not.toBeNull();
+      expect(barcodeMatch, `${layout.id} barcode command`).not.toBeNull();
+
+      const priceY = Number(priceMatch?.[2]);
+      const priceYMul = Number(priceMatch?.[3]);
+      const priceBottom = priceY + 28 * Math.max(1, priceYMul);
+      const barcodeY = Number(barcodeMatch?.[2]);
+
+      expect(priceBottom + 12, `${layout.id} price/barcode gap`).toBeLessThanOrEqual(barcodeY);
     }
   });
 

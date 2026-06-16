@@ -2232,9 +2232,11 @@ async function syncWorkbenchFetch(urlPath, body, method = "POST", extraHeaders =
   const url = `${SYNC_WORKBENCH_URL}${urlPath}`;
   const headers = {
     "Content-Type": "application/json",
-    "x-counterpoint-sync-token": SYNC_WORKBENCH_TOKEN,
     ...extraHeaders,
   };
+  if (SYNC_WORKBENCH_TOKEN.trim()) {
+    headers["x-counterpoint-sync-token"] = SYNC_WORKBENCH_TOKEN;
+  }
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), ROS_FETCH_TIMEOUT_MS);
   try {
@@ -3190,10 +3192,6 @@ async function runPreflightCommand() {
     console.error("   or: node index.mjs preflight aliases --csv <path>");
     process.exit(1);
   }
-  if (USE_SYNC_WORKBENCH && !SYNC_WORKBENCH_TOKEN.trim()) {
-    console.error("Set COUNTERPOINT_SYNC_WORKBENCH_TOKEN");
-    process.exit(1);
-  }
   if (!USE_SYNC_WORKBENCH && !SYNC_TOKEN.trim()) {
     console.error("Set COUNTERPOINT_SYNC_TOKEN");
     process.exit(1);
@@ -3238,12 +3236,7 @@ async function runNormalizationCommand() {
     console.error('Usage: node index.mjs normalization preview --lightspeed-csv "product-export (5).csv"');
     process.exit(1);
   }
-  if (USE_SYNC_WORKBENCH) {
-    if (!SYNC_WORKBENCH_TOKEN.trim()) {
-      console.error("Set COUNTERPOINT_SYNC_WORKBENCH_TOKEN");
-      process.exit(1);
-    }
-  } else if (!SYNC_TOKEN.trim()) {
+  if (!USE_SYNC_WORKBENCH && !SYNC_TOKEN.trim()) {
     console.error("Set COUNTERPOINT_SYNC_TOKEN");
     process.exit(1);
   }
@@ -3275,12 +3268,7 @@ async function runAliasesCommand() {
     console.error("Usage: node index.mjs aliases persist --csv <path> [--replace] [--dry-run]");
     process.exit(1);
   }
-  if (USE_SYNC_WORKBENCH) {
-    if (!SYNC_WORKBENCH_TOKEN.trim()) {
-      console.error("Set COUNTERPOINT_SYNC_WORKBENCH_TOKEN");
-      process.exit(1);
-    }
-  } else if (!SYNC_TOKEN.trim()) {
+  if (!USE_SYNC_WORKBENCH && !SYNC_TOKEN.trim()) {
     console.error("Set COUNTERPOINT_SYNC_TOKEN");
     process.exit(1);
   }

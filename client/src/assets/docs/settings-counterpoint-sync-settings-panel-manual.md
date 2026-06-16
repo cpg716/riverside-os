@@ -27,7 +27,7 @@ Use this panel to verify facts. ROSIE can explain displayed facts only; it does 
 
 ## How to use it
 
-1. Save the **Counterpoint SYNC Connection** credentials at the top of the panel: Bridge token, SYNC Workbench URL, and SYNC Workbench token.
+1. Save the **Counterpoint SYNC Connection** URL at the top of the panel: the Main Hub SYNC Workbench URL.
 2. Confirm **Counterpoint Bridge heartbeat** for extraction status and **Counterpoint SYNC app connection** for prepared-run access.
 3. In **Import runs from Counterpoint SYNC**, select the prepared run created in the SYNC Workbench.
 4. Use **Approved package handoff into ROS** to confirm the selected run includes the expected business areas: Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points.
@@ -47,9 +47,9 @@ Imported Counterpoint open documents are current obligations. Their lines are ma
 
 The status cards separate Bridge heartbeat, SYNC Workbench connection, browser/control API reachability, ROS selected-run preflight, ROS import status, and SYNC callback status. Browser controls only affect Start/Stop buttons from this workstation. They do not prove that SYNC has a ready package, and they do not replace selected-run proof.
 
-The Bridge sync token saved in **Counterpoint SYNC Connection** must match `COUNTERPOINT_SYNC_TOKEN` in `C:\counterpoint-bridge\.env`. The SYNC Workbench token must match `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` in the Main Hub SYNC Workbench `.env` and the Bridge `.env` when `COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench`.
+The normal closed-store workflow does not require Bridge or SYNC Workbench tokens. The Bridge sends raw data to the SYNC Workbench, and ROS pulls prepared packages from that Workbench URL. Tokens are optional advanced compatibility settings only.
 
-If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If SYNC is unreachable, confirm the Workbench is running and the saved URL/token match the Workbench `.env`.
+If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If SYNC is unreachable, confirm the Workbench is running and the saved URL matches the Workbench address.
 
 For no-hardware rehearsal at home, start the local Workbench with `npm run dev:sync-workbench`, run `npm run sync:simulate-counterpoint`, then select the simulated run in ROS. The simulator creates warning-only sections and a blocked inventory section without requiring the Counterpoint PC. Do not import simulated packages into production ROS unless intentionally testing in a safe environment.
 
@@ -73,7 +73,7 @@ The import is proof-gated. Bridge row counts do not by themselves prove that ROS
 
 After package preflight passes, ROS can start an import run for the selected SYNC run and section only while the package fingerprint still matches the recorded preflight. Each successful package import records raw Counterpoint rows and provenance for landed ROS rows, and failed imports create ROS Import exceptions for review. SYNC preparation exceptions remain separate from ROS import exceptions.
 
-CSV files can be loaded into SYNC for preparation, review, or debug exports. CSV files are not the SYNC-to-ROS import mechanism. ROS imports JSON packages pulled from the selected SYNC run.
+Only the Lightspeed inventory CSV and Counterpoint inventory CSV belong in the SYNC Workbench CSV input area. They are product/SKU/item-number/variation cleanup references for inventory preparation; inventory quantities come from Counterpoint SQL unless SQL has no usable value. CSV files are not the SYNC-to-ROS import mechanism. ROS imports JSON packages pulled from the selected SYNC run.
 
 The visible ingest path is business-area based: Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points each move from selected SYNC JSON package to ROS preflight to explicit ROS section import to PostgreSQL through the existing backend import services.
 

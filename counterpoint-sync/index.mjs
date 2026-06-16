@@ -1013,8 +1013,10 @@ function dashboardHtml() {
         <p class="muted">Main Hub preparation, review, package generation, and ROS handoff. No data is written to ROS here.</p>
       </div>
       <div class="token">
+        ${TOKEN.trim() ? `
         <input id="token" type="password" placeholder="SYNC token" autocomplete="off" />
         <button id="saveToken">Save Token</button>
+        ` : ""}
         <button id="refresh">Refresh</button>
         <button id="export">Export Store</button>
       </div>
@@ -1024,7 +1026,7 @@ function dashboardHtml() {
 	      <h2>Preparation Pipeline</h2>
 	      <div class="stepgrid" style="margin-top:10px">
 	        <div class="step"><strong>1. Receive</strong><span class="muted">Bridge raw extraction batches land here.</span></div>
-	        <div class="step"><strong>2. Add CSV context</strong><span class="muted">Lightspeed or Counterpoint CSVs help review and cleanup.</span></div>
+	        <div class="step"><strong>2. Add inventory CSV context</strong><span class="muted">One Lightspeed CSV and one Counterpoint CSV help clean product, SKU, item number, and variation data.</span></div>
 	        <div class="step"><strong>3. Review and fix</strong><span class="muted">Warnings, blockers, duplicates, and AI suggestions stay in SYNC.</span></div>
 	        <div class="step"><strong>4. Mark ready</strong><span class="muted">Approved sections become ROS-ready JSON packages.</span></div>
 	        <div class="step"><strong>5. ROS imports</strong><span class="muted">ROS pulls selected packages and writes through its importer.</span></div>
@@ -1033,27 +1035,20 @@ function dashboardHtml() {
 	    <section class="section card">
 	      <div class="toolbar" style="margin-bottom:8px">
 	        <div>
-	          <h2>CSV Inputs</h2>
-	          <p class="muted">CSV files are review and cleanup inputs only. ROS imports JSON packages from selected SYNC runs.</p>
+	          <h2>Inventory CSV Inputs</h2>
+	          <p class="muted">Only two CSV files belong here: the Lightspeed inventory export and the Counterpoint inventory export. They are cleanup/reference inputs for product names, SKUs, item numbers, categories, and variations. Inventory quantities come from Counterpoint SQL unless SQL has no usable value.</p>
 	        </div>
-	        <select id="csvSection">
-	          <option value="catalog">Catalog / products</option>
-	          <option value="inventory">Inventory quantities</option>
-	          <option value="customers">Customers</option>
-	          <option value="vendors">Vendors</option>
-	          <option value="vendor_items">Vendor items</option>
-	          <option value="gift_cards">Gift cards</option>
-	        </select>
+	        <span class="pill">Inventory reference only</span>
 	      </div>
 	      <div class="filegrid">
 	        <div class="filebox">
 	          <strong>Lightspeed CSV</strong>
-	          <p class="muted">Use for titles, categories, SKUs, item numbers, and inventory cross-checks.</p>
+	          <p class="muted">Use the Lightspeed inventory export for product titles, categories, SKUs, item numbers, and variation cleanup.</p>
 	          <input id="lightspeedCsv" type="file" accept=".csv,text/csv" style="margin-top:8px;width:100%;box-sizing:border-box" />
 	        </div>
 	        <div class="filebox">
 	          <strong>Counterpoint CSV</strong>
-	          <p class="muted">Use exported Counterpoint sheets as extra source proof or cleanup references.</p>
+	          <p class="muted">Use the Counterpoint inventory export as source proof and cleanup reference. Counterpoint SQL remains the primary quantity source.</p>
 	          <input id="counterpointCsv" type="file" accept=".csv,text/csv" style="margin-top:8px;width:100%;box-sizing:border-box" />
 	        </div>
 	      </div>
@@ -1093,9 +1088,11 @@ function dashboardHtml() {
   <script>
     const tokenInput = document.getElementById("token");
     const savedToken = localStorage.getItem("counterpointSyncToken") || "";
-    tokenInput.value = savedToken;
+    if (tokenInput) tokenInput.value = savedToken;
     let selectedRunId = "";
-    const authHeaders = () => ({ "x-counterpoint-sync-token": tokenInput.value, "authorization": "Bearer " + tokenInput.value });
+    const authHeaders = () => tokenInput?.value
+      ? { "x-counterpoint-sync-token": tokenInput.value, "authorization": "Bearer " + tokenInput.value }
+      : {};
     async function api(path, options = {}) {
       const res = await fetch(path, { ...options, headers: { ...authHeaders(), ...(options.headers || {}) } });
       const data = await res.json().catch(() => ({}));
@@ -1257,7 +1254,7 @@ function dashboardHtml() {
 	    }
 	    async function importCsvFile(kind, file) {
 	      if (!file) return;
-	      const section = document.getElementById("csvSection").value || "catalog";
+	      const section = "catalog";
 	      document.getElementById("csvStatus").textContent = "Reading " + file.name + "...";
 	      const text = await file.text();
 	      const rows = parseCsv(text);
@@ -1265,13 +1262,13 @@ function dashboardHtml() {
 	      const result = await api(path, {
 	        method: "POST",
 	        headers: { "Content-Type": "application/json" },
-	        body: JSON.stringify({ sync_run_id: selectedRunId || undefined, section, file_name: file.name, rows })
+	        body: JSON.stringify({ sync_run_id: selectedRunId || undefined, section, file_name: file.name, rows, csv_role: "inventory_product_reference" })
 	      });
 	      selectedRunId = result.sync_run_id || selectedRunId;
-	      document.getElementById("csvStatus").textContent = "Imported " + rows.length + " " + kind + " row(s) into " + section + ".";
+	      document.getElementById("csvStatus").textContent = "Imported " + rows.length + " " + kind + " inventory reference row(s).";
 	      await refresh();
 	    }
-    document.getElementById("saveToken").addEventListener("click", () => { localStorage.setItem("counterpointSyncToken", tokenInput.value); refresh().catch(showError); });
+    document.getElementById("saveToken")?.addEventListener("click", () => { localStorage.setItem("counterpointSyncToken", tokenInput?.value || ""); refresh().catch(showError); });
     document.getElementById("refresh").addEventListener("click", () => refresh().catch(showError));
     document.getElementById("export").addEventListener("click", async () => {
       const data = await api("/api/export");
@@ -1330,7 +1327,7 @@ function sendHtml(res, status, body) {
 }
 
 function authorized(req) {
-  if (!TOKEN.trim()) return false;
+  if (!TOKEN.trim()) return true;
   const headerToken = req.headers["x-counterpoint-sync-token"];
   const auth = String(req.headers.authorization ?? "");
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -1367,6 +1364,7 @@ async function route(req, res) {
       store_type: "sqlite",
       schema_version: SCHEMA_VERSION,
       token_configured: TOKEN.trim().length > 0,
+      token_required: TOKEN.trim().length > 0,
       hostname: os.hostname(),
       store_path: STORE_PATH,
       store: storeHealth(),
@@ -1375,7 +1373,7 @@ async function route(req, res) {
       generated_at: nowIso(),
     });
   }
-  if (!authorized(req)) return send(res, 401, { error: "invalid or missing SYNC Workbench token" });
+  if (!authorized(req)) return send(res, 401, { error: "invalid or missing optional SYNC Workbench token" });
 
   const url = new URL(req.url, `http://${req.headers.host}`);
   const parts = url.pathname.split("/").filter(Boolean);
@@ -1444,8 +1442,9 @@ async function route(req, res) {
 
   if (req.method === "POST" && (url.pathname === "/api/csv/lightspeed/import" || url.pathname === "/api/csv/counterpoint/import")) {
     const body = await readBody(req);
-    const section = normalizeSection(body.section ?? "catalog");
+    const section = "catalog";
     const source = url.pathname.includes("lightspeed") ? "lightspeed_csv" : "counterpoint_csv";
+    const rows = Array.isArray(body.rows) ? body.rows : [];
     const run = activeRun(store, body.sync_run_id);
     run.source_batches.push({
       source_batch_id: body.source_batch_id ?? newId("csv"),
@@ -1453,10 +1452,10 @@ async function route(req, res) {
       entity: section,
       source_system: source,
       source_record_id: null,
-      original_payload: body,
-      normalized_payload: { rows: body.rows ?? [] },
-      payload: { rows: body.rows ?? [] },
-      row_count: Array.isArray(body.rows) ? body.rows.length : 0,
+      original_payload: { ...body, section, csv_role: "inventory_product_reference" },
+      normalized_payload: { csv_role: "inventory_product_reference", rows },
+      payload: { csv_role: "inventory_product_reference", rows },
+      row_count: rows.length,
       bridge_version: null,
       bridge_hostname: null,
       created_at: nowIso(),
@@ -1464,7 +1463,7 @@ async function route(req, res) {
     sectionFor(run, section).status = "in_review";
     packageFor(run, section);
     run.updated_at = nowIso();
-    statusEvent(store, run, "csv_imported", { section, source });
+    statusEvent(store, run, "csv_imported", { section, source, csv_role: "inventory_product_reference" });
     saveStore(store);
     return send(res, 200, { ok: true, sync_run_id: run.sync_run_id });
   }

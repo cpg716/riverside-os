@@ -460,13 +460,16 @@ function checkCounterpointSyncStagingVisibility() {
   assert(
     panel.includes('data-testid="counterpoint-bridge-connection-status"') &&
       panel.includes("Bridge connection status") &&
-      panel.includes("counterpointTokenConfigured") &&
+      panel.includes("SYNC Workbench handoff") &&
       panel.includes("status?.last_seen_at") &&
       panel.includes("No accepted heartbeat") &&
-      panel.includes("Counterpoint sync token is not configured in Back Office Settings"),
+      panel.includes("syncHeartbeat?.received_at") &&
+      panel.includes("No Bridge heartbeat at SYNC") &&
+      panel.includes("syncHeartbeat?.bridge_hostname ?? bridgeHost") &&
+      panel.includes("syncHeartbeat?.bridge_version ?? bridgeVersion"),
     "Main Hub Counterpoint Sync screen shows explicit Bridge connection health",
     panelFile,
-    "Operators must be able to distinguish local Bridge API listening from ROS-accepted token, heartbeat, host, phase, and version status.",
+    "Operators must be able to distinguish Bridge mode, ROS heartbeat, SYNC heartbeat, host, phase, and version status without requiring tokens for the normal closed-store handoff.",
   );
 
   const apiFile = "server/src/api/counterpoint_sync.rs";

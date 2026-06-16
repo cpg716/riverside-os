@@ -46,11 +46,11 @@ const SAMPLE_ITEMS: InventoryTagItem[] = [
 
 const TEST_PRINT_ITEMS: InventoryTagItem[] = [
   {
-    sku: "ROS-TEST-TAG",
-    productName: "Riverside test tag",
-    variation: "Printer check",
-    brand: "RIVERSIDE",
-    price: "$1.00",
+    sku: "B-123456",
+    productName: "HSM SLACKS (Custom)",
+    variation: "Standard",
+    brand: "Hart Schaffner Marx",
+    price: "$0.00",
     regularPrice: null,
     salePrice: null,
   },
@@ -183,8 +183,9 @@ function FooterLine({ text }: { text: string }) {
 
 function HBarcodeRow({ sku }: { sku: string }) {
   return (
-    <div className="flex items-center border-t border-black/20 px-2 py-0.5" style={{ height: 32 }}>
+    <div className="flex items-center gap-1 border-t border-black/20 px-2 py-0.5" style={{ height: 32 }}>
       <BarcodeSvg text={sku} className="h-[22px] flex-1 text-black" />
+      <span className="shrink-0 text-[10px] font-bold text-black">{sku}</span>
     </div>
   );
 }
@@ -298,6 +299,7 @@ function TagPreviewCompact({ item, config, footer }: { item: InventoryTagItem; c
         {config.showBarcode && (
           <div>
             <BarcodeSvg text={item.sku} className="h-[22px] w-full text-black" />
+            <div className="text-[9px] font-bold text-black">{item.sku}</div>
           </div>
         )}
       </div>
@@ -306,12 +308,7 @@ function TagPreviewCompact({ item, config, footer }: { item: InventoryTagItem; c
 }
 
 function TagPreview({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
-  const retailLp2844 = config.widthInches <= LP_2844_RETAIL_TAG_WIDTH + 0.01
-    && config.heightInches <= LP_2844_RETAIL_TAG_HEIGHT + 0.01;
-  const layout = retailLp2844 && (config.tagLayout === "barcode-left" || config.tagLayout === "barcode-right" || config.tagLayout === "barcode-bottom")
-    ? "standard"
-    : config.tagLayout;
-  switch (layout) {
+  switch (config.tagLayout) {
     case "price-hero": return <TagPreviewPriceHero item={item} config={config} footer={footer} />;
     case "barcode-left": return <TagPreviewBarcodeLeft item={item} config={config} footer={footer} />;
     case "barcode-right": return <TagPreviewBarcodeRight item={item} config={config} footer={footer} />;
@@ -356,10 +353,6 @@ export default function TagDesignerPanel() {
   const desktopApp = isTauri();
   const possibleTwoTagHeight =
     normalizedDraft.widthInches <= 2.5 && normalizedDraft.heightInches > 1.5;
-  const retailLp2844Preview =
-    normalizedDraft.widthInches <= LP_2844_RETAIL_TAG_WIDTH + 0.01
-    && normalizedDraft.heightInches <= LP_2844_RETAIL_TAG_HEIGHT + 0.01;
-  const retailOmitsFooter = retailLp2844Preview && normalizedDraft.showBarcode && normalizedDraft.showPrice;
 
   const updateDraft = <K extends keyof InventoryTagPrintConfig>(key: K, value: InventoryTagPrintConfig[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -405,7 +398,7 @@ export default function TagDesignerPanel() {
     }
   };
 
-  const previewFooterLine = retailOmitsFooter ? "" : buildInventoryTagFooterLine(normalizedDraft.footerText);
+  const previewFooterLine = buildInventoryTagFooterLine(normalizedDraft.footerText);
 
   return (
     <section className="space-y-6 p-6">
@@ -467,11 +460,6 @@ export default function TagDesignerPanel() {
                 );
               })}
             </div>
-            {retailLp2844Preview ? (
-              <p className="text-xs font-semibold text-app-text-muted">
-                LP 2844 retail tags print side-bar barcode layouts as a safe horizontal barcode so text, price, and barcode stay on one tag.
-              </p>
-            ) : null}
           </section>
 
           {/* ── 2. Tag dimensions ── */}

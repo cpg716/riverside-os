@@ -9,7 +9,7 @@ const rootDir = path.resolve(__dirname, "..");
 loadEnv(path.join(rootDir, ".env"));
 
 const BASE_URL = (process.env.COUNTERPOINT_SYNC_WORKBENCH_URL ?? "http://127.0.0.1:3015").replace(/\/+$/u, "");
-const TOKEN = process.env.COUNTERPOINT_SYNC_WORKBENCH_TOKEN ?? "change-me-long-random";
+const TOKEN = process.env.COUNTERPOINT_SYNC_WORKBENCH_TOKEN ?? "";
 const RUN_ID = process.env.COUNTERPOINT_SYNC_SIM_RUN_ID ?? deterministicUuid("riverside-counterpoint-sync-simulation-v1");
 const SIM_TS = "2026-01-15T12:00:00.000Z";
 const SOURCE_SYSTEM = "counterpoint_bridge_simulator";
@@ -33,13 +33,14 @@ function deterministicUuid(seed) {
 }
 
 async function post(pathname, body) {
+  const headers = { "Content-Type": "application/json" };
+  if (TOKEN.trim()) {
+    headers.Authorization = `Bearer ${TOKEN}`;
+    headers["x-counterpoint-sync-token"] = TOKEN;
+  }
   const res = await fetch(`${BASE_URL}${pathname}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${TOKEN}`,
-      "x-counterpoint-sync-token": TOKEN,
-    },
+    headers,
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
@@ -50,11 +51,13 @@ async function post(pathname, body) {
 }
 
 async function get(pathname) {
+  const headers = {};
+  if (TOKEN.trim()) {
+    headers.Authorization = `Bearer ${TOKEN}`;
+    headers["x-counterpoint-sync-token"] = TOKEN;
+  }
   const res = await fetch(`${BASE_URL}${pathname}`, {
-    headers: {
-      "Authorization": `Bearer ${TOKEN}`,
-      "x-counterpoint-sync-token": TOKEN,
-    },
+    headers,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

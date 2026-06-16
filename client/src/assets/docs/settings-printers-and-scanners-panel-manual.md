@@ -58,7 +58,7 @@ If a printer test fails, do not keep retrying sale completion from the cart. Con
 - In the desktop app, direct tag printing must reach the configured Zebra station. If that fails, Riverside shows the printer error and does not mark variants as shelf-labeled.
 - Tag Designer shows the live tag preview in the panel. **Save & print test tag** saves the draft first, then uses the same direct tag route as inventory tag buttons. It does not fall back to preview when the selected printer path fails.
 - Use **LP 2844 retail tag** in Tag Designer when the Zebra is loaded with Riverside's standard 2.25 in x 1.25 in clothing tags. A taller saved height can feed blank extra tag stock.
-- On Zebra LP 2844 EPL2 retail tags, Riverside uses a one-label-safe physical layout. Side-bar barcode layouts print as a horizontal barcode, large prices are constrained, barcode captions are suppressed, and the footer is omitted when price plus barcode would collide.
+- On Zebra LP 2844 EPL2 retail tags, Riverside preserves the selected Tag Designer layout and configured fields. Small retail tags reserve extra barcode clearance so prices do not print inside the barcode band. **Save & print test tag** uses a normal `B-XXXXXX` barcode sample so the physical barcode footprint matches regular Riverside item tags.
 - Browser/PWA mode can save the same receipt settings. Tag printing still routes through the Main Hub saved Tag Station target when the API host is the Windows Main Hub. Receipt checks in PWA/browser mode verify the server-to-printer TCP path; installed-printer dropdowns and Windows printer checks run in the desktop app.
 - USB scanner hardware on PC and Bluetooth scanner hardware on iPad/phone should be configured as HID keyboard input with an Enter suffix.
 

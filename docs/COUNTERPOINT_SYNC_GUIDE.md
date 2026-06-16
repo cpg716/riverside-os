@@ -90,26 +90,19 @@ The active migration layout currently runs through **081**. Migration **081** cr
 ./scripts/migration-status-docker.sh | grep "081_counterpoint_import_first_proof"
 ```
 
-### 2b. Set Bridge and SYNC tokens
+### 2b. Set the SYNC Workbench URL
 
-Generate strong random values (for example `openssl rand -hex 32`) and save them in **Settings → Integrations → Counterpoint**.
-
-Bridge compatibility token:
-
-```env
-COUNTERPOINT_SYNC_TOKEN=your-long-random-secret-here
-```
+Save the Main Hub SYNC Workbench URL in **Settings → Integrations → Counterpoint**.
 
 SYNC Workbench connection:
 
 ```env
 COUNTERPOINT_SYNC_WORKBENCH_URL=http://main-hub:3015
-COUNTERPOINT_SYNC_WORKBENCH_TOKEN=your-other-long-random-secret-here
 ```
 
-The Bridge token authenticates `/api/sync/counterpoint/*` compatibility requests. The SYNC Workbench token authenticates ROS server-side package pulls and Bridge raw-batch posts to SYNC. **Never log either token.** Routine ROS-side token updates belong in Backoffice Settings; the Bridge and SYNC hosts keep their own `.env` files because they run outside ROS.
+The normal closed-store Bridge -> SYNC Workbench -> ROS workflow does not require tokens. `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` and `COUNTERPOINT_SYNC_TOKEN` are optional advanced compatibility settings only. Use a token only if you deliberately expose the Workbench beyond the trusted store LAN or explicitly run the direct ROS compatibility path.
 
-If Backoffice Settings refuses to save the token with `RIVERSIDE_CREDENTIALS_KEY must be set`, run **`Repair-RiversideCredentialsKey.cmd`** from the Windows deployment package on the Backoffice / Server PC. The repair writes the credential encryption key into the installed server `.env` and Windows machine environment, then restarts the Riverside server task.
+If Backoffice Settings refuses to save credentials with `RIVERSIDE_CREDENTIALS_KEY must be set`, run **`Repair-RiversideCredentialsKey.cmd`** from the Windows deployment package on the Backoffice / Server PC. The repair writes the credential encryption key into the installed server `.env` and Windows machine environment, then restarts the Riverside server task.
 
 The Main Hub uses encrypted values saved in Settings as the primary source for Bridge compatibility health and SYNC Workbench package access. Environment variables are fallback/bootstrap values; editing files by hand does not update a running server process until the server restarts.
 
@@ -137,7 +130,7 @@ cp env.example .env
 npm start
 ```
 
-Set `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` to the same value saved in ROS Back Office. The Workbench stores local transition staging data in SQLite under `counterpoint-sync-workbench\data\` in the packaged Windows deployment, or `counterpoint-sync/data/` in repo/dev runs. That store contains raw payloads, prepared package JSON, provenance, warnings, blockers, AI review packages, AI suggestions, review decisions, and readiness state. It is not ROS PostgreSQL.
+Leave `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` blank for the normal closed-store workflow. The Workbench stores local transition staging data in SQLite under `counterpoint-sync-workbench\data\` in the packaged Windows deployment, or `counterpoint-sync/data/` in repo/dev runs. That store contains raw payloads, prepared package JSON, provenance, warnings, blockers, AI review packages, AI suggestions, review decisions, and readiness state. It is not ROS PostgreSQL.
 
 Open the local Workbench review UI at `http://127.0.0.1:3015/`. It shows Workbench health, local store path, backup status, latest Bridge heartbeat, prepared runs, section readiness, warnings, blockers, imported status, package previews, exceptions, and the non-mutating AI Review placeholder.
 
@@ -585,11 +578,11 @@ ROS stores this in the `counterpoint_bridge_heartbeat` singleton table and deriv
 
 | State | Meaning |
 |-------|---------|
-| **ONLINE** | Token configured, heartbeat fresh, phase = `idle` |
-| **SYNCING** | Token configured, heartbeat fresh, phase = `syncing` (shows current entity) |
-| **OFFLINE** | Token not configured **or** no heartbeat in the last 2 minutes |
+| **ONLINE** | Bridge heartbeat fresh, phase = `idle` |
+| **SYNCING** | Bridge heartbeat fresh, phase = `syncing` (shows current entity) |
+| **OFFLINE** | No heartbeat in the last 2 minutes or the Bridge process is not reachable |
 
-The Main Hub **Counterpoint → Command center** shows a dedicated **Bridge connection status** block for this status. It separates the Bridge app listening on the Counterpoint workstation from ROS accepting that Bridge. If the Bridge console says the local API is listening but Main Hub shows **Token missing** or **No accepted heartbeat**, save the Counterpoint sync token in Back Office Settings and make sure the same value is in the Bridge `.env` for the exact `ROS_BASE_URL` shown on the Bridge host.
+The Main Hub **Counterpoint → Command center** shows a dedicated **Bridge connection status** block for this status. It separates the Bridge app listening on the Counterpoint workstation from SYNC Workbench package readiness. If the Bridge console says the local API is listening but Main Hub shows **No accepted heartbeat**, confirm the Bridge is targeting the correct `COUNTERPOINT_SYNC_WORKBENCH_URL` and that the Workbench is running.
 
 **Polling Stability:** To prevent console spam when the shop is closed (bridge unreachable), the Back Office Settings UI will stop automatic polling after **3 consecutive failures**. Use **Refresh statuses** to resume monitoring once you are back in the store.
 
@@ -706,8 +699,8 @@ The server reset also clears the active ROS import-run pointer and import proof 
 | `GET` | `/health` | SYNC Workbench health |
 | `POST` | `/api/bridge/heartbeat` | Bridge heartbeat/extraction status |
 | `POST` | `/api/bridge/batches` | Raw Bridge batch into local SYNC staging |
-| `POST` | `/api/csv/lightspeed/import` | Lightspeed CSV input for preparation/review |
-| `POST` | `/api/csv/counterpoint/import` | Counterpoint CSV input for preparation/review |
+| `POST` | `/api/csv/lightspeed/import` | Lightspeed inventory CSV input for product/SKU/item-number/variation cleanup reference |
+| `POST` | `/api/csv/counterpoint/import` | Counterpoint inventory CSV input for product/SKU/item-number/variation cleanup reference |
 | `GET` | `/api/runs` | Prepared/rehearsal runs |
 | `GET` | `/api/runs/{run_id}` | Run detail and sections |
 | `GET` | `/api/runs/{run_id}/packages/{section}` | ROS-compatible JSON package |
@@ -719,7 +712,7 @@ The server reset also clears the active ROS import-run pointer and import proof 
 
 ### SYNC → ROS package contract
 
-ROS imports from SYNC by pulling JSON packages, not CSV files. CSVs are input/review/debug artifacts inside SYNC only.
+ROS imports from SYNC by pulling JSON packages, not CSV files. CSV inputs are limited to the Lightspeed inventory export and Counterpoint inventory export as inventory preparation references; they are not customer/vendor/gift-card inputs.
 
 Each package must include:
 
@@ -933,17 +926,15 @@ Do not say changes were applied. Riverside OS staff will review and accept/rejec
 
 ### First-time setup
 
-1. Generate a secure sync token (e.g. `openssl rand -hex 32`)
-2. Save `COUNTERPOINT_SYNC_TOKEN` in **Settings → Integrations → Counterpoint** and put the same value in the bridge `.env`
-3. Apply migrations 84–86 (`./scripts/apply-migrations-docker.sh`)
-4. Restart the ROS Rust server
-5. Verify health endpoint from the bridge host
-6. On the Main Hub, run `Start-CounterpointSYNCWorkbench.cmd` from the Windows deployment package and configure `counterpoint-sync-workbench\.env`
-7. Install Node.js on the Counterpoint Windows host
-8. Copy `counterpoint-bridge/` folder, run `npm install`, configure `.env`
-9. Run GUI Auto Config or `node index.mjs auto-config` to confirm runtime mappings for staff, customers, catalog, inventory, gift cards, tickets, and related data.
-10. Run the bridge once, then verify batches appear in the SYNC Workbench before ROS preflight/import.
-11. Monitor progress in **Settings → Integrations → Counterpoint bridge** and the ROS Import Command Center
+1. Apply migrations 84–86 (`./scripts/apply-migrations-docker.sh`)
+2. Restart the ROS Rust server
+3. On the Main Hub, run `Start-CounterpointSYNCWorkbench.cmd` from the Windows deployment package and confirm the Workbench URL.
+4. Save that SYNC Workbench URL in **Settings → Integrations → Counterpoint**.
+5. Install or open the Bridge GUI on the Counterpoint Windows host.
+6. Enter the Counterpoint SQL connection string and SYNC Workbench URL.
+7. Run GUI Auto Config or `node index.mjs auto-config` to confirm runtime mappings for staff, customers, catalog, inventory, gift cards, tickets, and related data.
+8. Run the bridge once, then verify batches appear in the SYNC Workbench before ROS preflight/import.
+9. Monitor progress in the SYNC Workbench and the ROS Import Command Center.
 
 ### Ongoing monitoring
 
@@ -957,8 +948,8 @@ Do not say changes were applied. Riverside OS staff will review and accept/rejec
 | Symptom | Check |
 |---------|-------|
 | Bridge shows **OFFLINE** in Settings | Is the Node.js process running on the CP host? Is the network path open (firewall on port 3000)? |
-| `health 503` from bridge startup | Riverside Server does not have `COUNTERPOINT_SYNC_TOKEN` configured. Save the token in Settings or run `Repair-RiversideCredentialsKey.cmd` on the server PC. |
-| `health 401` or `invalid or missing sync token` | Token in bridge `.env` must **exactly** match the Counterpoint sync token loaded by Riverside. Run `Set-CounterpointBridgeToken.cmd` on the server PC and paste the exact token from `C:\counterpoint-bridge\.env`. |
+| `health 503` from Bridge startup | The configured SYNC Workbench URL is not reachable from the Bridge host, or the Workbench is not running. |
+| `health 401` or `invalid or missing sync token` | This should only appear in direct ROS compatibility mode or if an optional Workbench token was deliberately configured. Clear the optional token fields or make the Bridge/Workbench/ROS values match. |
 | `Connection refused` from bridge | ROS server not running, or firewall blocking port 3000 from the CP host |
 | `invalid object name` on SQL | Check `Database=` in `SQL_CONNECTION_STRING` — must be the Counterpoint company DB, not `master` |
 | Customers sync but email is missing | Email was on another customer in ROS (unique constraint); check `email_conflicts` in the response |

@@ -1567,23 +1567,19 @@ export default function CounterpointSyncSettingsPanel({
     });
   }, [commandCenter?.source_counts, commandReconciliationByKey, importExceptionsByEntity]);
   const commandLandedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.landedCount), 0);
-  const counterpointTokenConfigured = status?.token_configured ?? commandCenter?.token_configured ?? false;
   const bridgeRuntimeState = status?.windows_sync_state ?? "offline";
-  const bridgeConnectionLabel = !counterpointTokenConfigured
-    ? "Token missing"
-    : bridgeRuntimeState === "online"
+  const bridgeConnectionLabel = bridgeRuntimeState === "online"
       ? "Bridge online"
       : bridgeRuntimeState === "syncing"
         ? "Bridge syncing"
         : "Bridge offline";
-  const bridgeConnectionClass = counterpointTokenConfigured && bridgeRuntimeState !== "offline"
+  const bridgeConnectionClass = bridgeRuntimeState !== "offline"
     ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
     : "border-red-500/25 bg-red-500/10 text-red-600";
   const bridgeHost = status?.bridge_hostname ?? commandCenter?.latest_preflight?.bridge_hostname ?? null;
   const bridgeVersion = status?.bridge_version ?? commandCenter?.latest_preflight?.bridge_version ?? null;
-  const bridgeRuntimeNote = !counterpointTokenConfigured
-    ? "NO-GO - Counterpoint sync token is not configured in Back Office Settings. The Bridge can listen locally, but ROS will reject health, heartbeat, preflight, and import requests until the saved ROS token matches the Bridge .env token."
-    : status?.offline_reason ?? "ROS has accepted a recent Counterpoint Bridge heartbeat.";
+  const bridgeRuntimeNote =
+    status?.offline_reason ?? "Bridge status is tracked separately from SYNC Workbench package handoff.";
   const stagingSummaryRows = [...stagingCountsByEntity.values()]
     .filter((row) => row.pending_rows > 0 || row.applying_rows > 0 || row.applied_rows > 0)
     .sort((a, b) => a.entity.localeCompare(b.entity));
@@ -1647,8 +1643,8 @@ export default function CounterpointSyncSettingsPanel({
         </div>
         <div className="mt-3 grid gap-2 text-xs md:grid-cols-5">
           <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Token</p>
-            <p className="mt-1 font-bold text-app-text">{counterpointTokenConfigured ? "Configured" : "Missing"}</p>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Mode</p>
+            <p className="mt-1 font-bold text-app-text">SYNC Workbench handoff</p>
           </div>
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">ROS heartbeat</p>
@@ -2370,32 +2366,14 @@ export default function CounterpointSyncSettingsPanel({
         baseUrl={baseUrl}
         integrationKey="counterpoint"
         title="Counterpoint SYNC Connection"
-        description="Save the Main Hub SYNC Workbench URL/token and the Bridge token needed for the extractor to reach the preparation Workbench."
+        description="Save the Main Hub SYNC Workbench URL. Tokens are optional advanced compatibility settings and are not required for the normal closed-store handoff."
         fields={[
-          {
-            key: "sync_token",
-            label: "Sync token",
-            placeholder: counterpointTokenConfigured
-              ? "Saved - enter only to replace"
-              : "Paste the bridge sync token",
-            help: "Generate one long random token, save it here, and paste the exact same value into the Bridge .env file on the Counterpoint host.",
-            type: "password",
-          },
           {
             key: "sync_workbench_url",
             label: "SYNC Workbench URL",
             placeholder: "http://127.0.0.1:3015",
             help: "Main Hub Counterpoint SYNC Workbench URL. ROS uses this server-side to list prepared runs and pull JSON packages.",
             type: "text",
-          },
-          {
-            key: "sync_workbench_token",
-            label: "SYNC Workbench token",
-            placeholder: syncWorkbenchStatus?.configured
-              ? "Saved - enter only to replace"
-              : "Paste the SYNC Workbench token",
-            help: "Must match COUNTERPOINT_SYNC_WORKBENCH_TOKEN in the Main Hub SYNC Workbench .env file.",
-            type: "password",
           },
         ]}
         onSaved={fetchAllData}

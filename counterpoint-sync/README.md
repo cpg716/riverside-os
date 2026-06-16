@@ -24,10 +24,7 @@ npm start
 
 The Workbench requires Node with built-in `node:sqlite` support. Use Node 22.5+; current development validation used Node 25.
 
-Use the same `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` in:
-
-- Counterpoint Bridge: `COUNTERPOINT_SYNC_WORKBENCH_TOKEN`
-- ROS Back Office integration credentials: Counterpoint SYNC Workbench token
+The normal closed-store workflow does not require a Workbench token. Configure the Workbench URL in the Bridge and ROS Back Office. `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` is optional; only set it if you deliberately want the local Workbench API to reject unauthenticated LAN requests.
 
 Open the local review UI at:
 
@@ -35,7 +32,7 @@ Open the local review UI at:
 http://127.0.0.1:3015/
 ```
 
-The UI is the local preparation workbench for the Main Hub PC. It shows the Bridge heartbeat, local store path, backup status, runs, section readiness, warnings, blockers, imported status, package previews, exceptions, CSV inputs, and AI review controls. Operators can import Lightspeed or Counterpoint CSVs as review sources, preview ROS-ready JSON packages, mark sections ready, or block sections that still need cleanup. The AI Review panel is non-mutating until a human accepts suggestions; no records are changed automatically.
+The UI is the local preparation workbench for the Main Hub PC. It shows the Bridge heartbeat, local store path, backup status, runs, section readiness, warnings, blockers, imported status, package previews, exceptions, inventory CSV inputs, and AI review controls. Operators can import the one Lightspeed inventory CSV and one Counterpoint inventory CSV as product/SKU/item-number/variation cleanup references, preview ROS-ready JSON packages, mark sections ready, or block sections that still need cleanup. Inventory quantities come from Counterpoint SQL unless SQL has no usable value. The AI Review panel is non-mutating until a human accepts suggestions; no records are changed automatically.
 
 ## No-hardware rehearsal simulator
 
@@ -86,7 +83,7 @@ The cleanup command removes the deterministic simulator run and simulator heartb
 - `POST /api/csv/counterpoint/import`
 - `GET /api/export`
 
-CSV endpoints are for input/review/debug staging only. ROS handoff uses the package JSON endpoints.
+CSV endpoints are for the two inventory cleanup/reference files only: Lightspeed inventory export and Counterpoint inventory export. ROS handoff uses the package JSON endpoints, not CSV files.
 
 ## Local Store
 
@@ -108,7 +105,7 @@ The SQLite schema stores runs, sections, source batches, prepared packages, exce
 
 Before each SQLite rewrite, the previous database file is copied to `sync-workbench-store.sqlite.bak`. `GET /health` reports store type, path, whether the main store and backup exist, last write time, size, format version, migration status, latest Bridge heartbeat, and run/section summary counts.
 
-Use `GET /api/export` with the Workbench token to capture a portable backup before rehearsal or go-live import. The export includes `schema_version`, `exported_at`, `store_path`, and the complete store payload.
+Use `GET /api/export` to capture a portable backup before rehearsal or go-live import. The export includes `schema_version`, `exported_at`, `store_path`, and the complete store payload.
 
 The export remains JSON so it can be copied, backed up, and reviewed with Codex/ChatGPT without giving the AI database access.
 

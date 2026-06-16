@@ -116,12 +116,9 @@ function App() {
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
   const hasRequiredBridgeSettings = useCallback((settings: BridgeSettings) => {
-    const token = settings.sync_workbench_token.trim();
     return (
       settings.sql_conn.trim().length > 0 &&
-      settings.sync_workbench_url.trim().length > 0 &&
-      token.length > 0 &&
-      token !== "change-me-long-random"
+      settings.sync_workbench_url.trim().length > 0
     );
   }, []);
 
@@ -164,7 +161,7 @@ function App() {
     try {
       const nextSettings = { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken, sync_workbench_url: syncWorkbenchUrl, sync_workbench_token: syncWorkbenchToken };
       if (!hasRequiredBridgeSettings(nextSettings)) {
-        setStatusMessage("Enter SQL connection, SYNC Workbench URL, and real SYNC Workbench token before starting the bridge.");
+        setStatusMessage("Enter the SQL connection and SYNC Workbench URL before starting the bridge.");
         return;
       }
       setStatusMessage("Saving bridge connection settings...");
@@ -192,7 +189,7 @@ function App() {
       if (settings && hasRequiredBridgeSettings(settings)) {
         setStatusMessage("Bridge configuration loaded. Click Start Engine when ready.");
       } else {
-        setStatusMessage("Bridge configuration is incomplete. Enter the SQL connection, SYNC Workbench URL, and SYNC Workbench token, then Save Configuration.");
+        setStatusMessage("Bridge configuration is incomplete. Enter the SQL connection and SYNC Workbench URL, then Save Configuration.");
       }
     })();
     return () => {
@@ -274,7 +271,7 @@ function App() {
       const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken, sync_workbench_url: syncWorkbenchUrl, sync_workbench_token: syncWorkbenchToken };
       if (!hasRequiredBridgeSettings(nextSettings)) {
         setActiveTab("settings");
-        setStatusMessage("Enter SQL connection, SYNC Workbench URL, and real SYNC Workbench token before starting the bridge.");
+        setStatusMessage("Enter the SQL connection and SYNC Workbench URL before starting the bridge.");
         return;
       }
       setStatusMessage("Starting background sync engine...");
@@ -764,20 +761,7 @@ function App() {
 	                    />
 	                  </div>
 	                  <div className="flex flex-col gap-1">
-	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">SYNC Workbench Token</label>
-	                    <input
-	                      type="password"
-	                      value={syncWorkbenchToken}
-	                      placeholder="COUNTERPOINT_SYNC_WORKBENCH_TOKEN"
-	                      onChange={(e) => setSyncWorkbenchToken(e.target.value)}
-	                      className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
-	                    />
-	                  </div>
-	                </div>
-
-	                <div className="grid grid-cols-2 gap-4">
-	                  <div className="flex flex-col gap-1">
-	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">ROS Base URL (final importer link)</label>
+	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">ROS Base URL (optional)</label>
 	                    <input
 	                      type="text"
 	                      value={rosUrl}
@@ -785,16 +769,6 @@ function App() {
                       onChange={(e) => setRosUrl(e.target.value)}
                       className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
                     />
-	                  </div>
-	                  <div className="flex flex-col gap-1">
-	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">ROS Sync Token (compatibility only)</label>
-	                    <input
-	                      type="password"
-	                      value={syncToken}
-	                      placeholder="Optional direct ROS compatibility token"
-	                      onChange={(e) => setSyncToken(e.target.value)}
-	                      className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
-	                    />
 	                  </div>
 	                </div>
 

@@ -1159,7 +1159,7 @@ async fn settings_command_center(
 
 async fn sync_workbench_credentials(
     state: &AppState,
-) -> Result<Option<(String, String)>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Option<(String, Option<String>)>, (StatusCode, Json<serde_json::Value>)> {
     let values = integration_credentials::load_integration_credentials(
         &state.db,
         "counterpoint",
@@ -1184,10 +1184,7 @@ async fn sync_workbench_credentials(
         .or_else(|| std::env::var("COUNTERPOINT_SYNC_WORKBENCH_TOKEN").ok())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    Ok(match (url, token) {
-        (Some(url), Some(token)) => Some((url, token)),
-        _ => None,
-    })
+    Ok(url.map(|url| (url, token)))
 }
 
 fn sync_workbench_error(
@@ -1204,23 +1201,22 @@ async fn sync_workbench_get(
     let Some((base_url, token)) = sync_workbench_credentials(state).await? else {
         return Err(sync_workbench_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "Counterpoint SYNC Workbench URL/token is not configured in Back Office Settings.",
+            "Counterpoint SYNC Workbench URL is not configured in Back Office Settings.",
         ));
     };
     let url = format!("{base_url}{path}");
-    let response = state
-        .http_client
-        .get(&url)
-        .bearer_auth(&token)
-        .header("x-counterpoint-sync-token", token)
-        .send()
-        .await
-        .map_err(|error| {
-            sync_workbench_error(
-                StatusCode::BAD_GATEWAY,
-                format!("Counterpoint SYNC Workbench is not reachable: {error}"),
-            )
-        })?;
+    let mut request = state.http_client.get(&url);
+    if let Some(token) = token {
+        request = request
+            .bearer_auth(&token)
+            .header("x-counterpoint-sync-token", token);
+    }
+    let response = request.send().await.map_err(|error| {
+        sync_workbench_error(
+            StatusCode::BAD_GATEWAY,
+            format!("Counterpoint SYNC Workbench is not reachable: {error}"),
+        )
+    })?;
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
     if !status.is_success() {
@@ -1245,24 +1241,22 @@ async fn sync_workbench_post(
     let Some((base_url, token)) = sync_workbench_credentials(state).await? else {
         return Err(sync_workbench_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "Counterpoint SYNC Workbench URL/token is not configured in Back Office Settings.",
+            "Counterpoint SYNC Workbench URL is not configured in Back Office Settings.",
         ));
     };
     let url = format!("{base_url}{path}");
-    let response = state
-        .http_client
-        .post(&url)
-        .bearer_auth(&token)
-        .header("x-counterpoint-sync-token", token)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|error| {
-            sync_workbench_error(
-                StatusCode::BAD_GATEWAY,
-                format!("Counterpoint SYNC Workbench is not reachable: {error}"),
-            )
-        })?;
+    let mut request = state.http_client.post(&url);
+    if let Some(token) = token {
+        request = request
+            .bearer_auth(&token)
+            .header("x-counterpoint-sync-token", token);
+    }
+    let response = request.json(&body).send().await.map_err(|error| {
+        sync_workbench_error(
+            StatusCode::BAD_GATEWAY,
+            format!("Counterpoint SYNC Workbench is not reachable: {error}"),
+        )
+    })?;
     let status = response.status();
     let body_text = response.text().await.unwrap_or_default();
     if !status.is_success() {
@@ -1548,7 +1542,7 @@ async fn settings_sync_workbench_status(
         return Ok(Json(json!({
             "configured": false,
             "reachable": false,
-            "message": "Counterpoint SYNC Workbench URL/token is not configured."
+            "message": "Counterpoint SYNC Workbench URL is not configured."
         })));
     }
     match sync_workbench_get(&state, "/health").await {

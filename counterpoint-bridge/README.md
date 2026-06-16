@@ -18,7 +18,7 @@ Since v0.7.3, the bridge uses a high-concurrency parallel engine:
 | `SQL_CONNECTION_STRING` | Company database (not `master`); same DB you use in SSMS |
 | `COUNTERPOINT_BRIDGE_TARGET_MODE` | Preferred: `sync_workbench`. Explicit direct ROS compatibility path: `ros_import_first` |
 | `COUNTERPOINT_SYNC_WORKBENCH_URL` | Main Hub SYNC Workbench API, e.g. `http://10.64.70.154:3015` |
-| `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` | Must match the SYNC Workbench token saved in ROS Back Office |
+| `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` | Optional. Leave blank for the normal closed-store workflow unless the Workbench was deliberately configured to require a token |
 | `ROS_BASE_URL` | Optional direct ROS compatibility target, e.g. `http://10.64.70.154:3000` |
 | `COUNTERPOINT_SYNC_TOKEN` | Optional direct ROS compatibility token |
 Normal setup keeps `.env` to connection and target values only. The bridge derives the entity SQL at runtime from `INFORMATION_SCHEMA`.
@@ -44,7 +44,7 @@ Once the migration is accepted:
 
 1. Stop the running bridge process on the Counterpoint PC.
 2. Remove any startup shortcut, Windows Task Scheduler entry, or operator habit that launches `START_BRIDGE.cmd`.
-3. Remove the unpacked bridge folder and old zip package, or rotate `COUNTERPOINT_SYNC_TOKEN` so that old bridge copies cannot post again.
+3. Remove the unpacked bridge folder and old zip package so old bridge copies are not relaunched.
 4. Keep the ROS status/proof artifacts as migration evidence, but do not continue treating this bridge as a supported live integration.
 
 ## Health
@@ -80,8 +80,8 @@ Full integration notes: `docs/COUNTERPOINT_SYNC_GUIDE.md` in the Riverside OS re
 
 ## Server side
 
-ROS needs migration **29** plus **84+** Counterpoint tables and the Counterpoint SYNC Workbench URL/token saved in Back Office Settings for package handoff. `COUNTERPOINT_SYNC_TOKEN` is only needed when explicitly running the direct ROS compatibility path.
+ROS needs migration **29** plus **84+** Counterpoint tables and the Counterpoint SYNC Workbench URL saved in Back Office Settings for package handoff. `COUNTERPOINT_SYNC_TOKEN` is only needed when explicitly running the direct ROS compatibility path.
 
 ## Security
 
-Use a long random token; never commit `.env` or log the token. Prefer HTTPS to ROS when not on a trusted LAN.
+Keep the Workbench on the trusted store LAN. Tokens are optional for the normal closed-store workflow; if you enable one for a wider network, use a long random value and never commit `.env` or log the token.
