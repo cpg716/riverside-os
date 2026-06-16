@@ -2227,6 +2227,18 @@ async function rosFetch(urlPath, body, method = "POST", extraHeaders = {}) {
 
 const SYNC_WORKBENCH_FETCH_MAX_ATTEMPTS = Math.max(1, Number.parseInt(process.env.COUNTERPOINT_SYNC_WORKBENCH_FETCH_ATTEMPTS || "4", 10));
 
+function syncWorkbenchReachabilityHint() {
+  try {
+    const parsed = new URL(SYNC_WORKBENCH_URL);
+    if (["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsed.hostname.toLowerCase())) {
+      return " 127.0.0.1 means this Counterpoint PC. If SYNC runs on the Main Hub, set COUNTERPOINT_SYNC_WORKBENCH_URL to the Main Hub LAN URL, for example http://10.64.70.196:3015.";
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
 async function syncWorkbenchFetch(urlPath, body, method = "POST", extraHeaders = {}) {
   if (!SYNC_WORKBENCH_URL) {
     throw new Error("COUNTERPOINT_SYNC_WORKBENCH_URL is required when COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench.");
@@ -2266,7 +2278,7 @@ async function syncWorkbenchFetch(urlPath, body, method = "POST", extraHeaders =
     }
   }
   const message = lastErr instanceof Error ? lastErr.message : String(lastErr);
-  throw new Error(`Counterpoint SYNC Workbench is not reachable at ${SYNC_WORKBENCH_URL}. Start the Workbench and confirm ${SYNC_WORKBENCH_URL}/health opens from this Bridge PC. Last error: ${message}`);
+  throw new Error(`Counterpoint SYNC Workbench is not reachable at ${SYNC_WORKBENCH_URL}. Start the Workbench and confirm ${SYNC_WORKBENCH_URL}/health opens from this Bridge PC.${syncWorkbenchReachabilityHint()} Last error: ${message}`);
 }
 
 async function rosGetHealth() {

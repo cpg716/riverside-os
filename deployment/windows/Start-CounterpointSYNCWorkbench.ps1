@@ -34,7 +34,7 @@ if (-not (Test-Path $envPath)) {
     throw "Missing env.example for Counterpoint SYNC Workbench."
   }
   Copy-Item $envExamplePath $envPath -Force
-  Write-Host "Created counterpoint-sync-workbench\.env from env.example. Review the token before live Bridge use." -ForegroundColor Yellow
+  Write-Host "Created counterpoint-sync-workbench\.env from env.example. Bridge PCs should use this Main Hub LAN address with port 3015." -ForegroundColor Yellow
 }
 
 New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
@@ -43,8 +43,11 @@ Push-Location $workbenchDir
 try {
   $env:COUNTERPOINT_SYNC_WORKBENCH_DB = ".\data\sync-workbench-store.sqlite"
   $env:COUNTERPOINT_SYNC_WORKBENCH_STORE = ".\data\sync-workbench-store.json"
+  if (-not $env:COUNTERPOINT_SYNC_WORKBENCH_HOST) {
+    $env:COUNTERPOINT_SYNC_WORKBENCH_HOST = "0.0.0.0"
+  }
   $url = "http://127.0.0.1:3015"
-  Write-Host "Starting Counterpoint SYNC Workbench on $url ..." -ForegroundColor Cyan
+  Write-Host "Starting Counterpoint SYNC Workbench on $url locally and port 3015 on the Main Hub LAN ..." -ForegroundColor Cyan
   Write-Host "Use Ctrl+C in this window to stop the Workbench." -ForegroundColor DarkGray
   if (-not $NoBrowser) {
     Start-Process $url | Out-Null

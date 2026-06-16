@@ -19,7 +19,8 @@ import {
 
 const BRIDGE_API = "http://localhost:3002";
 const ROS_BASE_URL = "http://localhost:3000";
-const SYNC_WORKBENCH_BASE_URL = "http://127.0.0.1:3015";
+const SYNC_WORKBENCH_PORT = "3015";
+const SYNC_WORKBENCH_PLACEHOLDER = "http://<Main-Hub-LAN-IP>:3015";
 
 interface BridgeSettings {
   sql_conn: string;
@@ -73,6 +74,40 @@ interface SyncWorkbenchCheck {
   ok: boolean;
   message: string;
   checkedAt: string;
+}
+
+function stripTrailingSlash(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function parseHttpUrl(value: string): URL | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed.startsWith("http") ? trimmed : `http://${trimmed}`);
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(hostname.toLowerCase());
+}
+
+function deriveSyncWorkbenchUrlFromRosUrl(value: string): string {
+  const parsed = parseHttpUrl(value);
+  if (!parsed || isLoopbackHost(parsed.hostname)) return "";
+  parsed.port = SYNC_WORKBENCH_PORT;
+  parsed.pathname = "";
+  parsed.search = "";
+  parsed.hash = "";
+  return stripTrailingSlash(parsed.toString());
+}
+
+function loopbackSyncWarning(url: string): string {
+  const parsed = parseHttpUrl(url);
+  if (!parsed || !isLoopbackHost(parsed.hostname)) return "";
+  return "127.0.0.1 means this Counterpoint PC. If the Workbench is on the Main Hub, use the Main Hub LAN URL, for example http://10.64.70.196:3015.";
 }
 
 const ENTITIES = [
@@ -132,16 +167,24 @@ function App() {
 
   const normalizedRosUrl = useMemo(() => {
     const value = rosUrl.trim() || ROS_BASE_URL;
-    return value.replace(/\/+$/, "");
+    return stripTrailingSlash(value);
   }, [rosUrl]);
 
+  const suggestedSyncWorkbenchUrl = useMemo(() => {
+    return deriveSyncWorkbenchUrlFromRosUrl(normalizedRosUrl) || SYNC_WORKBENCH_PLACEHOLDER;
+  }, [normalizedRosUrl]);
+
   const normalizedSyncWorkbenchUrl = useMemo(() => {
-    const value = syncWorkbenchUrl.trim() || SYNC_WORKBENCH_BASE_URL;
-    return value.replace(/\/+$/, "");
-  }, [syncWorkbenchUrl]);
+    const value = syncWorkbenchUrl.trim() || deriveSyncWorkbenchUrlFromRosUrl(normalizedRosUrl);
+    return stripTrailingSlash(value);
+  }, [normalizedRosUrl, syncWorkbenchUrl]);
 
   const openSyncWorkbench = useCallback(async () => {
     const url = normalizedSyncWorkbenchUrl;
+    if (!url) {
+      setStatusMessage("Enter the Main Hub SYNC Workbench URL first.");
+      return;
+    }
     try {
       await openUrl(url);
     } catch (e: any) {
@@ -151,6 +194,12 @@ function App() {
 
   const checkSyncWorkbenchReachability = useCallback(async (): Promise<boolean> => {
     const url = normalizedSyncWorkbenchUrl;
+    if (!url) {
+      const message = `Enter the Main Hub SYNC Workbench URL before extraction. Use the Main Hub LAN address, for example http://10.64.70.196:3015.`;
+      setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
+      setStatusMessage(message);
+      return false;
+    }
     setSyncWorkbenchChecking(true);
     try {
       const controller = new AbortController();
@@ -166,7 +215,16 @@ function App() {
       });
       window.clearTimeout(timer);
       if (!response.ok) {
-        const message = `SYNC Workbench answered ${response.status} at ${url}/health.`;
+        const hint = loopbackSyncWarning(url);
+        const message = `SYNC Workbench answered ${response.status} at ${url}/health.${hint ? ` ${hint}` : ""}`;
+        setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
+        setStatusMessage(message);
+        return false;
+      }
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        const hint = loopbackSyncWarning(url);
+        const message = `SYNC Workbench check reached ${url}/health but it did not return JSON. This is usually the wrong service or wrong machine.${hint ? ` ${hint}` : ""}`;
         setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
@@ -178,7 +236,8 @@ function App() {
       setStatusMessage(message);
       return true;
     } catch (e: any) {
-      const message = `SYNC Workbench is not reachable at ${url}. Open the Workbench and confirm ${url}/health loads before starting extraction. ${e?.message ?? String(e)}`;
+      const hint = loopbackSyncWarning(url);
+      const message = `SYNC Workbench is not reachable at ${url}. Open the Workbench on the Main Hub and confirm ${url}/health loads from this Counterpoint PC before extraction.${hint ? ` ${hint}` : ""} ${e?.message ?? String(e)}`;
       setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return false;
@@ -193,9 +252,10 @@ function App() {
       setSqlConn(data.sql_conn);
       setRosUrl(data.ros_url);
       setSyncToken(data.sync_token);
-      setSyncWorkbenchUrl(data.sync_workbench_url);
+      const derivedSyncUrl = data.sync_workbench_url || deriveSyncWorkbenchUrlFromRosUrl(data.ros_url);
+      setSyncWorkbenchUrl(derivedSyncUrl);
       setSyncWorkbenchToken(data.sync_workbench_token);
-      return data;
+      return { ...data, sync_workbench_url: derivedSyncUrl };
     } catch (e: any) {
       console.error("Failed to load settings:", e);
       setStatusMessage(`Failed to load bridge settings: ${e}`);
@@ -205,7 +265,7 @@ function App() {
 
   const handleSaveSettings = async () => {
     try {
-      const nextSettings = { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken, sync_workbench_url: syncWorkbenchUrl, sync_workbench_token: syncWorkbenchToken };
+      const nextSettings = { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken, sync_workbench_url: normalizedSyncWorkbenchUrl, sync_workbench_token: syncWorkbenchToken };
       if (!hasRequiredBridgeSettings(nextSettings)) {
         setStatusMessage("Enter the SQL connection and SYNC Workbench URL before starting the bridge.");
         return;
@@ -215,7 +275,7 @@ function App() {
         sqlConn,
         rosUrl,
         syncToken,
-        syncWorkbenchUrl,
+        syncWorkbenchUrl: normalizedSyncWorkbenchUrl,
         syncWorkbenchToken
       });
       setStatusMessage(result);
@@ -314,7 +374,7 @@ function App() {
 
   const handleStartBridge = async (isDry = dryRun, settingsOverride?: BridgeSettings) => {
     try {
-      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken, sync_workbench_url: syncWorkbenchUrl, sync_workbench_token: syncWorkbenchToken };
+      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken, sync_workbench_url: normalizedSyncWorkbenchUrl, sync_workbench_token: syncWorkbenchToken };
       if (!hasRequiredBridgeSettings(nextSettings)) {
         setActiveTab("settings");
         setStatusMessage("Enter the SQL connection and SYNC Workbench URL before starting the bridge.");
@@ -822,10 +882,13 @@ function App() {
 	                    <input
 	                      type="text"
 	                      value={syncWorkbenchUrl}
-	                      placeholder="http://127.0.0.1:3015"
+	                      placeholder={suggestedSyncWorkbenchUrl}
 	                      onChange={(e) => setSyncWorkbenchUrl(e.target.value)}
 	                      className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
 	                    />
+                      <p className="text-[10px] font-semibold text-gray-500">
+                        Use the Main Hub LAN URL from the Counterpoint PC. Do not use 127.0.0.1 unless SYNC runs on this same PC.
+                      </p>
 	                  </div>
 	                  <div className="flex flex-col gap-1">
 	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">ROS Base URL (optional)</label>

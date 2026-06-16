@@ -12,7 +12,7 @@ Packaged Windows Main Hub deployment:
 Start-CounterpointSYNCWorkbench.cmd
 ```
 
-The deployment ZIP includes this Workbench under `counterpoint-sync-workbench\` and the launcher at the package root. The launcher creates `.env` from `env.example` on first run, verifies Node.js 22.5+, stores data under `counterpoint-sync-workbench\data\`, and opens `http://127.0.0.1:3015/`.
+The deployment ZIP includes this Workbench under `counterpoint-sync-workbench\` and the launcher at the package root. The launcher creates `.env` from `env.example` on first run, verifies Node.js 22.5+, stores data under `counterpoint-sync-workbench\data\`, listens on the Main Hub LAN, and opens `http://127.0.0.1:3015/` locally on the Main Hub.
 
 Repo/dev run:
 
@@ -26,11 +26,19 @@ The Workbench requires Node with built-in `node:sqlite` support. Use Node 22.5+;
 
 The normal closed-store workflow does not require a Workbench token. Configure the Workbench URL in the Bridge and ROS Back Office. `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` is optional; only set it if you deliberately want the local Workbench API to reject unauthenticated LAN requests.
 
-Open the local review UI at:
+Open the local review UI on the Main Hub at:
 
 ```text
 http://127.0.0.1:3015/
 ```
+
+From the Counterpoint PC, the Bridge must use the Main Hub LAN URL, not `127.0.0.1`. For example:
+
+```text
+http://10.64.70.196:3015/
+```
+
+`127.0.0.1` always means the same machine you are typing on. In the Bridge GUI, `127.0.0.1:3015` means the Counterpoint PC, so it will fail unless the SYNC Workbench is also running on that same Counterpoint PC.
 
 The UI is the local preparation workbench for the Main Hub PC. It shows the Bridge heartbeat, local store path, backup status, runs, section readiness, warnings, blockers, imported status, package previews, exceptions, inventory CSV inputs, and AI review controls. Operators can import the one Lightspeed inventory CSV and one Counterpoint inventory CSV as product/SKU/item-number/variation cleanup references, preview ROS-ready JSON packages, mark sections ready, or block sections that still need cleanup. Inventory quantities come from Counterpoint SQL unless SQL has no usable value. The AI Review panel is non-mutating until a human accepts suggestions; no records are changed automatically.
 

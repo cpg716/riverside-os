@@ -14,7 +14,7 @@ Tauri desktop control panel for the Counterpoint SQL → Riverside OS migration 
 ## Operator flow
 
 1. Open the GUI on the Counterpoint host or a machine with SQL Server access.
-2. Enter the Counterpoint SQL connection string and Main Hub SYNC Workbench URL.
+2. Enter the Counterpoint SQL connection string and Main Hub SYNC Workbench URL. From the Counterpoint PC, this must be the Main Hub LAN address, such as `http://10.64.70.196:3015`; `127.0.0.1` points back to the Counterpoint PC.
 3. Save configuration.
 4. Start with Dry Run enabled and review the Process Console.
 5. Open the Counterpoint SYNC Workbench from the sidebar and verify received runs before ROS final import.

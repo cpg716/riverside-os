@@ -105,6 +105,43 @@ describe("LP 2844 EPL2 tag payloads", () => {
     expect(epl).toContain('"B-123456"');
   });
 
+  it("shrinks large sale prices to stay inside the builder price box", () => {
+    const config = {
+      ...getInventoryTagPrintConfig(),
+      widthInches: 2.25,
+      heightInches: 1.25,
+      showBarcode: true,
+      showPrice: true,
+      showPromoPrice: true,
+      priceSize: "large",
+      footerText: "Riverside Men's Shop",
+      saleCustomLayout: defaultSaleCustomTagLayout(),
+    };
+    const epl = buildEplDocument([saleRetailItem], config);
+
+    expect(epl).toMatch(/^A\d+,\d+,0,[1-4],1,\d+,N,"\$119\.00"/m);
+    expect(epl).not.toMatch(/^A\d+,\d+,0,5,1,\d+,N,"\$119\.00"/m);
+  });
+
+  it("honors per-field text size from the tag builder", () => {
+    const customLayout = defaultCustomTagLayout();
+    customLayout.elements.productName = {
+      ...customLayout.elements.productName,
+      fontSize: "xs",
+    };
+    const epl = buildEplDocument(
+      [retailItem],
+      {
+        ...getInventoryTagPrintConfig(),
+        widthInches: 2.25,
+        heightInches: 1.25,
+        customLayout,
+      },
+    );
+
+    expect(epl).toMatch(/^A\d+,\d+,0,1,1,\d+,N,"HSM SLACKS"/m);
+  });
+
   it("keeps regular and sale builder layouts independent", () => {
     const regularLayout = defaultCustomTagLayout();
     const saleLayout = defaultSaleCustomTagLayout();

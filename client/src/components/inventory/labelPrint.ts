@@ -76,6 +76,7 @@ export type TagElementId =
   | "footer";
 
 export type TagElementDirection = "normal" | "rotated-left" | "rotated-right";
+export type TagElementFontSize = "xs" | "sm" | "md" | "lg" | "xl";
 
 export interface TagElementLayout {
   id: TagElementId;
@@ -84,6 +85,7 @@ export interface TagElementLayout {
   wPct: number;
   hPct: number;
   direction: TagElementDirection;
+  fontSize?: TagElementFontSize;
 }
 
 export interface CustomTagLayout {
@@ -133,18 +135,35 @@ export const TAG_ELEMENT_ORDER: TagElementId[] = [
   "footer",
 ];
 
+export const TAG_ELEMENT_FONT_SIZE_LABELS: Record<TagElementFontSize, string> = {
+  xs: "XS",
+  sm: "Small",
+  md: "Medium",
+  lg: "Large",
+  xl: "XL",
+};
+
+export const TAG_ELEMENT_FONT_SIZES: TagElementFontSize[] = ["xs", "sm", "md", "lg", "xl"];
+
+function defaultFontSizeForElement(id: TagElementId): TagElementFontSize {
+  if (id === "price") return "xl";
+  if (id === "productName") return "lg";
+  if (id === "sku" || id === "variation") return "md";
+  return "sm";
+}
+
 export function defaultCustomTagLayout(): CustomTagLayout {
   return {
     elements: {
-      sku: { id: "sku", xPct: 6, yPct: 7, wPct: 28, hPct: 12, direction: "normal" },
-      productName: { id: "productName", xPct: 6, yPct: 21, wPct: 68, hPct: 18, direction: "normal" },
-      variation: { id: "variation", xPct: 6, yPct: 42, wPct: 52, hPct: 12, direction: "normal" },
-      brand: { id: "brand", xPct: 6, yPct: 56, wPct: 56, hPct: 10, direction: "normal" },
-      regularPrice: { id: "regularPrice", xPct: 6, yPct: 66, wPct: 32, hPct: 8, direction: "normal" },
-      price: { id: "price", xPct: 6, yPct: 75, wPct: 35, hPct: 18, direction: "normal" },
-      savings: { id: "savings", xPct: 42, yPct: 66, wPct: 24, hPct: 8, direction: "normal" },
+      sku: { id: "sku", xPct: 6, yPct: 7, wPct: 28, hPct: 12, direction: "normal", fontSize: "md" },
+      productName: { id: "productName", xPct: 6, yPct: 21, wPct: 68, hPct: 18, direction: "normal", fontSize: "lg" },
+      variation: { id: "variation", xPct: 6, yPct: 42, wPct: 52, hPct: 12, direction: "normal", fontSize: "md" },
+      brand: { id: "brand", xPct: 6, yPct: 56, wPct: 56, hPct: 10, direction: "normal", fontSize: "sm" },
+      regularPrice: { id: "regularPrice", xPct: 6, yPct: 66, wPct: 32, hPct: 8, direction: "normal", fontSize: "sm" },
+      price: { id: "price", xPct: 6, yPct: 75, wPct: 35, hPct: 18, direction: "normal", fontSize: "xl" },
+      savings: { id: "savings", xPct: 42, yPct: 66, wPct: 24, hPct: 8, direction: "normal", fontSize: "sm" },
       barcode: { id: "barcode", xPct: 48, yPct: 72, wPct: 46, hPct: 16, direction: "normal" },
-      footer: { id: "footer", xPct: 48, yPct: 91, wPct: 46, hPct: 7, direction: "normal" },
+      footer: { id: "footer", xPct: 48, yPct: 91, wPct: 46, hPct: 7, direction: "normal", fontSize: "sm" },
     },
   };
 }
@@ -152,15 +171,15 @@ export function defaultCustomTagLayout(): CustomTagLayout {
 export function defaultSaleCustomTagLayout(): CustomTagLayout {
   return {
     elements: {
-      sku: { id: "sku", xPct: 6, yPct: 6, wPct: 28, hPct: 10, direction: "normal" },
-      productName: { id: "productName", xPct: 6, yPct: 18, wPct: 72, hPct: 18, direction: "normal" },
-      variation: { id: "variation", xPct: 6, yPct: 39, wPct: 52, hPct: 10, direction: "normal" },
-      brand: { id: "brand", xPct: 6, yPct: 51, wPct: 56, hPct: 9, direction: "normal" },
-      regularPrice: { id: "regularPrice", xPct: 6, yPct: 64, wPct: 30, hPct: 8, direction: "normal" },
-      price: { id: "price", xPct: 6, yPct: 73, wPct: 36, hPct: 19, direction: "normal" },
-      savings: { id: "savings", xPct: 41, yPct: 64, wPct: 26, hPct: 8, direction: "normal" },
+      sku: { id: "sku", xPct: 6, yPct: 6, wPct: 28, hPct: 10, direction: "normal", fontSize: "md" },
+      productName: { id: "productName", xPct: 6, yPct: 18, wPct: 72, hPct: 18, direction: "normal", fontSize: "lg" },
+      variation: { id: "variation", xPct: 6, yPct: 39, wPct: 52, hPct: 10, direction: "normal", fontSize: "md" },
+      brand: { id: "brand", xPct: 6, yPct: 51, wPct: 56, hPct: 9, direction: "normal", fontSize: "sm" },
+      regularPrice: { id: "regularPrice", xPct: 6, yPct: 64, wPct: 30, hPct: 8, direction: "normal", fontSize: "sm" },
+      price: { id: "price", xPct: 6, yPct: 73, wPct: 36, hPct: 19, direction: "normal", fontSize: "xl" },
+      savings: { id: "savings", xPct: 41, yPct: 64, wPct: 26, hPct: 8, direction: "normal", fontSize: "sm" },
       barcode: { id: "barcode", xPct: 49, yPct: 74, wPct: 45, hPct: 15, direction: "normal" },
-      footer: { id: "footer", xPct: 49, yPct: 91, wPct: 45, hPct: 7, direction: "normal" },
+      footer: { id: "footer", xPct: 49, yPct: 91, wPct: 45, hPct: 7, direction: "normal", fontSize: "sm" },
     },
   };
 }
@@ -387,6 +406,55 @@ function customElementBox(layout: CustomTagLayout, id: TagElementId, width: numb
   return { element, x, y, w, h };
 }
 
+type EplTextFont = {
+  font: 1 | 2 | 3 | 4 | 5;
+  xMul: number;
+  yMul: number;
+  charWidth: number;
+  charHeight: number;
+};
+
+function eplFontForSize(size: TagElementFontSize): EplTextFont {
+  switch (size) {
+    case "xs":
+      return { font: 1, xMul: 1, yMul: 1, charWidth: 8, charHeight: 12 };
+    case "sm":
+      return { font: 2, xMul: 1, yMul: 1, charWidth: 10, charHeight: 16 };
+    case "md":
+      return { font: 3, xMul: 1, yMul: 1, charWidth: 14, charHeight: 20 };
+    case "lg":
+      return { font: 4, xMul: 1, yMul: 1, charWidth: 18, charHeight: 28 };
+    case "xl":
+      return { font: 5, xMul: 1, yMul: 1, charWidth: 32, charHeight: 40 };
+  }
+}
+
+function fontSizeRank(size: TagElementFontSize): number {
+  return TAG_ELEMENT_FONT_SIZES.indexOf(size);
+}
+
+function fitEplTextFont(
+  requested: TagElementFontSize,
+  value: string,
+  availableWidth: number,
+  availableHeight: number,
+  direction: TagElementDirection,
+): EplTextFont {
+  const text = escapeEplField(value);
+  const sizeIndex = Math.max(0, fontSizeRank(requested));
+  const printableWidth = Math.max(8, direction === "normal" ? availableWidth : availableHeight);
+  const printableHeight = Math.max(8, direction === "normal" ? availableHeight : availableWidth);
+  for (let i = sizeIndex; i >= 0; i -= 1) {
+    const candidate = TAG_ELEMENT_FONT_SIZES[i] ?? "xs";
+    const font = eplFontForSize(candidate);
+    const estimatedWidth = Math.max(1, text.length) * font.charWidth;
+    if (estimatedWidth <= printableWidth && font.charHeight <= printableHeight + 12) {
+      return font;
+    }
+  }
+  return eplFontForSize("xs");
+}
+
 function customTextValue(id: TagElementId, item: InventoryTagItem, config: InventoryTagPrintConfig, footer: string): string {
   switch (id) {
     case "sku":
@@ -421,15 +489,20 @@ function customTextValue(id: TagElementId, item: InventoryTagItem, config: Inven
   }
 }
 
-function customTextFont(id: TagElementId, config: InventoryTagPrintConfig): { font: 1 | 2 | 3 | 4 | 5; xMul: number; yMul: number } {
+function customTextFont(
+  id: TagElementId,
+  element: TagElementLayout,
+  config: InventoryTagPrintConfig,
+  value: string,
+  boxWidth: number,
+  boxHeight: number,
+): EplTextFont {
+  const requested = element.fontSize ?? defaultFontSizeForElement(id);
   if (id === "price") {
-    return config.priceSize === "large"
-      ? { font: 5, xMul: 1, yMul: 1 }
-      : { font: 2, xMul: 1, yMul: 1 };
+    const priceRequested = config.priceSize === "large" ? requested : "md";
+    return fitEplTextFont(priceRequested, value, boxWidth, boxHeight, element.direction);
   }
-  if (id === "productName") return { font: 3, xMul: 1, yMul: 1 };
-  if (id === "footer" || id === "brand" || id === "regularPrice" || id === "savings") return { font: 1, xMul: 1, yMul: 1 };
-  return { font: 2, xMul: 1, yMul: 1 };
+  return fitEplTextFont(requested, value, boxWidth, boxHeight, element.direction);
 }
 
 function isPromoTag(item: InventoryTagItem, config: InventoryTagPrintConfig): boolean {
@@ -461,11 +534,11 @@ function renderCustomEplTag(item: InventoryTagItem, config: InventoryTagPrintCon
       parts.push(`B${x},${y},${rotation},1,${narrowBar},2,${barcodeHeight},N,"${escapeEplField(value)}"`);
       continue;
     }
-    const font = customTextFont(id, config);
     const clean = id === "productName"
       ? wrapText(value, Math.max(8, Math.floor(w / 17)), 1)[0] ?? ""
       : value;
     if (!clean) continue;
+    const font = customTextFont(id, element, config, clean, w, h);
     parts.push(eplText(x, y, rotation, font.font, font.xMul, font.yMul, clean));
   }
   parts.push("P1");
@@ -519,7 +592,12 @@ function normalizeCustomLayout(layout?: CustomTagLayout, fallback: CustomTagLayo
     const direction: TagElementDirection = raw.direction === "rotated-left" || raw.direction === "rotated-right"
       ? raw.direction
       : "normal";
-    elements[id] = { id, xPct, yPct, wPct, hPct, direction };
+    const fontSize: TagElementFontSize = TAG_ELEMENT_FONT_SIZES.includes(raw.fontSize as TagElementFontSize)
+      ? raw.fontSize as TagElementFontSize
+      : fallback.elements[id].fontSize ?? defaultFontSizeForElement(id);
+    elements[id] = id === "barcode"
+      ? { id, xPct, yPct, wPct, hPct, direction }
+      : { id, xPct, yPct, wPct, hPct, direction, fontSize };
   }
   return {
     elements,
@@ -579,6 +657,19 @@ function barcodeHtml(sku: string, orient: "h" | "v"): string {
   return `<div class="t-bc t-bc-h"><svg class="t-bc-svg" data-sku="${escapeHtml(sku)}"></svg><div class="t-bc-lbl">${escapeHtml(sku)}</div></div>`;
 }
 
+function htmlFontSizeForElement(id: TagElementId, element: TagElementLayout, config: InventoryTagPrintConfig): string {
+  const requested = id === "price" && config.priceSize === "standard"
+    ? "md"
+    : element.fontSize ?? defaultFontSizeForElement(id);
+  switch (requested) {
+    case "xs": return "9px";
+    case "sm": return "10px";
+    case "md": return "12px";
+    case "lg": return "16px";
+    case "xl": return "24px";
+  }
+}
+
 function customHtmlElement(id: TagElementId, item: InventoryTagItem, config: InventoryTagPrintConfig, footer: string): string {
   const layout = layoutForItem(item, config);
   const el = layout.elements[id];
@@ -589,7 +680,8 @@ function customHtmlElement(id: TagElementId, item: InventoryTagItem, config: Inv
     : el.direction === "rotated-right"
       ? "rotate(90deg)"
       : "none";
-  const style = `left:${el.xPct}%;top:${el.yPct}%;width:${el.wPct}%;height:${el.hPct}%;transform:${rotate};`;
+  const fontSize = id === "barcode" ? "" : `font-size:${htmlFontSizeForElement(id, el, config)};`;
+  const style = `left:${el.xPct}%;top:${el.yPct}%;width:${el.wPct}%;height:${el.hPct}%;transform:${rotate};${fontSize}`;
   if (id === "barcode") {
     return `<div class="t-custom-el t-custom-barcode" style="${style}">${barcodeHtml(value, "h")}</div>`;
   }

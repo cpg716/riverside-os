@@ -67,7 +67,7 @@ AI/Codex review happens only in SYNC before ROS preflight. Staff export an AI re
 The bridge is a small Node.js process that:
 1. Polls Counterpoint SQL Server using configurable queries
 2. Maps rows to ROS-compatible JSON payloads
-3. POSTs raw extraction batches to the SYNC Workbench with a shared secret token
+3. POSTs raw extraction batches to the SYNC Workbench; a token is optional for the normal closed-store LAN workflow
 4. Sends periodic **heartbeats** so the operator can distinguish extraction health from SYNC and ROS import health
 
 All data flows **one way**: Counterpoint → SYNC → ROS. SYNC never writes directly to ROS PostgreSQL, and ROS never writes back to Counterpoint.
@@ -132,7 +132,7 @@ npm start
 
 Leave `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` blank for the normal closed-store workflow. The Workbench stores local transition staging data in SQLite under `counterpoint-sync-workbench\data\` in the packaged Windows deployment, or `counterpoint-sync/data/` in repo/dev runs. That store contains raw payloads, prepared package JSON, provenance, warnings, blockers, AI review packages, AI suggestions, review decisions, and readiness state. It is not ROS PostgreSQL.
 
-Open the local Workbench review UI at `http://127.0.0.1:3015/`. It shows Workbench health, local store path, backup status, latest Bridge heartbeat, prepared runs, section readiness, warnings, blockers, imported status, package previews, exceptions, and the non-mutating AI Review placeholder.
+Open the local Workbench review UI on the Main Hub at `http://127.0.0.1:3015/`. Bridge PCs must use the Main Hub LAN address instead, for example `http://10.64.70.196:3015/`. `127.0.0.1` always means the machine you are typing on, so it is wrong in the Bridge GUI unless the Workbench is running on the Counterpoint PC. The Workbench shows health, local store path, backup status, latest Bridge heartbeat, prepared runs, section readiness, warnings, blockers, imported status, package previews, exceptions, and the non-mutating AI Review placeholder.
 
 ### 2c.1 No-hardware rehearsal simulator
 
@@ -176,8 +176,7 @@ curl -H "x-ros-sync-token: your-long-random-secret-here" \
 Should return `200` with JSON including `"ok": true`, `"service": "counterpoint_sync"`, and `"counterpoint_staging_enabled": true|false`.
 
 ```bash
-curl -H "x-counterpoint-sync-token: your-other-long-random-secret-here" \
-     http://127.0.0.1:3015/health
+curl http://127.0.0.1:3015/health
 ```
 
 Should return `200` with JSON including `"service": "counterpoint_sync_workbench"`.
@@ -186,8 +185,7 @@ It also reports the local store path, whether the main store and `.bak` backup e
 Use this before a real rehearsal or go-live import:
 
 ```bash
-curl -H "x-counterpoint-sync-token: your-other-long-random-secret-here" \
-     http://127.0.0.1:3015/api/export > counterpoint-sync-export.json
+curl http://127.0.0.1:3015/api/export > counterpoint-sync-export.json
 ```
 
 The current local store is SQLite at `counterpoint-sync/data/sync-workbench-store.sqlite` unless `COUNTERPOINT_SYNC_WORKBENCH_DB` overrides it. If an older JSON store exists at `COUNTERPOINT_SYNC_WORKBENCH_STORE` and the SQLite DB does not exist yet, SYNC imports the JSON data into SQLite on startup and preserves the JSON file. Before SQLite rewrites, SYNC keeps a `.sqlite.bak` backup. If recovery is needed, restore from a known export or `.sqlite.bak` before continuing.

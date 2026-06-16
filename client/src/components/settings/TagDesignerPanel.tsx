@@ -23,9 +23,12 @@ import {
   type InventoryTagItem,
   type InventoryTagPrintConfig,
   type TagElementDirection,
+  type TagElementFontSize,
   type TagElementId,
   type TagElementLayout,
   TAG_ELEMENT_LABELS,
+  TAG_ELEMENT_FONT_SIZE_LABELS,
+  TAG_ELEMENT_FONT_SIZES,
   TAG_ELEMENT_ORDER,
   buildInventoryTagFooterLine,
   defaultCustomTagLayout,
@@ -178,16 +181,31 @@ function elementStyle(element: TagElementLayout): CSSProperties {
   };
 }
 
-function elementClass(id: TagElementId, config: InventoryTagPrintConfig): string {
+function fontSizePx(id: TagElementId, element: TagElementLayout, config: InventoryTagPrintConfig): string {
+  const fontSize = id === "price" && config.priceSize === "standard"
+    ? "md"
+    : element.fontSize ?? (id === "price" ? "xl" : id === "productName" ? "lg" : "md");
+  if (fontSize === "xs") return "10px";
+  if (fontSize === "sm") return "12px";
+  if (fontSize === "md") return "14px";
+  if (fontSize === "lg") return "18px";
+  return "30px";
+}
+
+function elementTextStyle(id: TagElementId, element: TagElementLayout, config: InventoryTagPrintConfig): CSSProperties {
+  if (id === "barcode") return {};
+  return {
+    fontSize: fontSizePx(id, element, config),
+  };
+}
+
+function elementClass(id: TagElementId): string {
   if (id === "price") {
-    return config.priceSize === "large"
-      ? "text-[34px] font-black leading-none"
-      : "text-[22px] font-black leading-none";
+    return "font-black leading-none";
   }
-  if (id === "productName") return "text-[16px] font-black leading-tight";
-  if (id === "regularPrice" || id === "savings") return "text-[10px] font-black uppercase leading-tight";
-  if (id === "brand" || id === "footer") return "text-[10px] font-extrabold leading-tight";
-  return "text-[12px] font-extrabold leading-tight";
+  if (id === "productName") return "font-black leading-tight";
+  if (id === "regularPrice" || id === "savings") return "font-black uppercase leading-tight";
+  return "font-extrabold leading-tight";
 }
 
 type DragState = {
@@ -260,6 +278,12 @@ export default function TagDesignerPanel() {
       : { ...prev, customLayout: defaultCustomTagLayout() });
     setSelectedId("price");
     toast(`${previewMode === "sale" ? "Sale" : "Regular"} tag layout reset to the starter arrangement.`, "info");
+  };
+
+  const defaultElementForMode = (id: TagElementId): TagElementLayout => {
+    return previewMode === "sale"
+      ? defaultSaleCustomTagLayout().elements[id]
+      : defaultCustomTagLayout().elements[id];
   };
 
   const useRetailTagSize = () => {
@@ -425,8 +449,8 @@ export default function TagDesignerPanel() {
                       type="button"
                       onPointerDown={(event) => onElementPointerDown(event, id)}
                       onClick={() => setSelectedId(id)}
-                      className={`absolute overflow-hidden border text-left ${active ? "border-app-accent bg-app-accent/10" : "border-dashed border-slate-300 bg-transparent"} ${id === "barcode" ? "p-0.5" : "px-1 py-0.5"} ${elementClass(id, normalizedDraft)}`}
-                      style={elementStyle(element)}
+                      className={`absolute overflow-hidden border text-left ${active ? "border-app-accent bg-app-accent/10" : "border-dashed border-slate-300 bg-transparent"} ${id === "barcode" ? "p-0.5" : "px-1 py-0.5"} ${elementClass(id)}`}
+                      style={{ ...elementStyle(element), ...elementTextStyle(id, element, normalizedDraft) }}
                     >
                       {id === "barcode" ? <BarcodeSvg text={value} /> : value}
                     </button>
@@ -527,12 +551,30 @@ export default function TagDesignerPanel() {
                 <option value="rotated-right">Rotate right</option>
               </select>
             </label>
+            {selectedId !== "barcode" ? (
+              <label className="mt-3 block space-y-1">
+                <span className="text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">Text size</span>
+                <select
+                  value={selectedElement.fontSize ?? defaultElementForMode(selectedId).fontSize ?? "md"}
+                  onChange={(event) => updateElement(selectedId, { fontSize: event.target.value as TagElementFontSize })}
+                  className="ui-input w-full"
+                >
+                  {TAG_ELEMENT_FONT_SIZES.map((size) => (
+                    <option key={size} value={size}>{TAG_ELEMENT_FONT_SIZE_LABELS[size]}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p className="mt-3 rounded-lg border border-app-border bg-app-bg/70 px-3 py-2 text-xs font-semibold text-app-text-muted">
+                Barcode size uses Width and Height.
+              </p>
+            )}
             <div className="mt-3 grid grid-cols-3 gap-2">
               <span />
               <button type="button" onClick={() => moveElement(selectedId, 0, -1)} className="rounded-lg border border-app-border bg-app-surface p-2 text-app-text hover:bg-app-surface"><ArrowUp size={16} className="mx-auto" /></button>
               <span />
               <button type="button" onClick={() => moveElement(selectedId, -1, 0)} className="rounded-lg border border-app-border bg-app-surface p-2 text-app-text hover:bg-app-surface"><ArrowLeft size={16} className="mx-auto" /></button>
-              <button type="button" onClick={() => updateElement(selectedId, defaultCustomTagLayout().elements[selectedId])} className="rounded-lg border border-app-border bg-app-surface px-2 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-app-text hover:bg-app-surface">Reset</button>
+              <button type="button" onClick={() => updateElement(selectedId, defaultElementForMode(selectedId))} className="rounded-lg border border-app-border bg-app-surface px-2 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-app-text hover:bg-app-surface">Reset</button>
               <button type="button" onClick={() => moveElement(selectedId, 1, 0)} className="rounded-lg border border-app-border bg-app-surface p-2 text-app-text hover:bg-app-surface"><ArrowRight size={16} className="mx-auto" /></button>
               <span />
               <button type="button" onClick={() => moveElement(selectedId, 0, 1)} className="rounded-lg border border-app-border bg-app-surface p-2 text-app-text hover:bg-app-surface"><ArrowDown size={16} className="mx-auto" /></button>

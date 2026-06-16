@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadEnv(path.join(__dirname, ".env"));
 
-const HOST = process.env.COUNTERPOINT_SYNC_WORKBENCH_HOST ?? "127.0.0.1";
+const HOST = process.env.COUNTERPOINT_SYNC_WORKBENCH_HOST ?? "0.0.0.0";
 const PORT = Number.parseInt(process.env.COUNTERPOINT_SYNC_WORKBENCH_PORT ?? "3015", 10);
 const TOKEN = process.env.COUNTERPOINT_SYNC_WORKBENCH_TOKEN ?? "";
 const JSON_STORE_PATH = path.resolve(

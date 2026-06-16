@@ -86,6 +86,14 @@ function sourceLabel(source: string): string {
   }
 }
 
+function mainHubLanApiUrl(networkInfo: NetworkInfo | null): string {
+  const lanUrl = networkInfo?.urls.find((entry) => entry.kind === "lan")?.url;
+  if (lanUrl) return lanUrl.replace(/\/$/, "");
+  const lanIp = networkInfo?.lan_ips[0];
+  if (!lanIp) return "";
+  return `http://${lanIp}:${networkInfo.server_port || 3000}`;
+}
+
 async function probeApiStatus(targetBaseUrl: string) {
   const start = performance.now();
   const [healthRes, versionRes] = await Promise.all([
@@ -135,6 +143,7 @@ export default function StationNetworkPanel() {
 
   const stationLabel =
     stationConfig?.register?.stationLabel?.trim() || browserStationLabel;
+  const displayStationLabel = stationLabel || (localServerStatus?.is_local ? "Main Hub" : "Not set");
 
   const localInstallLabel = localServerStatus?.is_local
     ? "Main Hub detected"
@@ -143,6 +152,17 @@ export default function StationNetworkPanel() {
       : "Not checked";
 
   const installedApiBase = stationConfig?.register?.apiBase?.trim();
+  const mainHubLanApi = mainHubLanApiUrl(networkInfo);
+  const mainHubFileStatus = localServerStatus
+    ? localServerStatus.config_exists || localServerStatus.server_binary_exists
+      ? [
+          localServerStatus.config_exists ? "config" : "no config",
+          localServerStatus.server_binary_exists ? "server app" : "no server app",
+        ].join(" / ")
+      : localServerStatus.is_local
+        ? "API reachable / installer metadata not found"
+        : "no config / server app"
+    : "Not checked";
 
   /* ── Fetch network info from server ── */
 
@@ -291,10 +311,10 @@ export default function StationNetworkPanel() {
         </div>
         <div className="p-5 space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <InfoTile label="Station Label" value={stationLabel || "Not set"} muted={!stationLabel} />
-            <InfoTile label="API Host" value={diagnostics.resolved} mono />
+            <InfoTile label="Station Label" value={displayStationLabel} muted={!stationLabel && !localServerStatus?.is_local} />
+            <InfoTile label="Current API Host" value={diagnostics.resolved} mono />
             <InfoTile label="Installed Role" value={localInstallLabel} muted={!localServerStatus} />
-            <InfoTile label="Installed API" value={installedApiBase || "Not set"} mono muted={!installedApiBase} />
+            <InfoTile label="Main Hub LAN API" value={mainHubLanApi || installedApiBase || "Not reported"} mono muted={!mainHubLanApi && !installedApiBase} />
             <div className="rounded-xl border border-app-border bg-app-bg/60 p-3">
               <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Connection</p>
               {healthLoading ? (
@@ -330,15 +350,8 @@ export default function StationNetworkPanel() {
             <InfoTile label="Selected Source" value={sourceLabel(diagnostics.source)} />
             <InfoTile
               label="Main Hub Files"
-              value={
-                localServerStatus
-                  ? [
-                      localServerStatus.config_exists ? "config" : "no config",
-                      localServerStatus.server_binary_exists ? "server app" : "no server app",
-                    ].join(" / ")
-                  : "Not checked"
-              }
-              muted={!localServerStatus?.config_exists && !localServerStatus?.server_binary_exists}
+              value={mainHubFileStatus}
+              muted={!localServerStatus || (!localServerStatus.config_exists && !localServerStatus.server_binary_exists && !localServerStatus.is_local)}
             />
           </div>
 
