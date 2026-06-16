@@ -450,12 +450,12 @@ function checkCounterpointSyncStagingVisibility() {
     panel.includes("staging_entity_counts?: StagingEntityCountRow[]") &&
       panel.includes("for (const count of status?.staging_entity_counts ?? [])") &&
       panel.includes("rows.set(count.entity") &&
-      panel.includes("Queued in staging") &&
-      panel.includes("Applied from staging") &&
+      panel.includes("Queued in ROS support queue") &&
+      panel.includes("Applied from ROS support queue") &&
       panel.includes("No live write has happened yet."),
-    "Main Hub Counterpoint Sync screen shows staged rows even before live apply",
+    "Main Hub Counterpoint Sync screen shows queued rows even before live apply",
     panelFile,
-    "Bridge-extracted rows must not appear as No Data just because they are still in review staging.",
+    "Bridge-extracted rows must not appear as No Data just because they are still in a support queue.",
   );
   assert(
     panel.includes('data-testid="counterpoint-bridge-connection-status"') &&

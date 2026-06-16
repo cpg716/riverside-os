@@ -17,6 +17,16 @@ const item = {
   salePrice: null,
 };
 
+const retailItem = {
+  sku: "110",
+  productName: "HSM SLACKS (Custom)",
+  variation: "Standard",
+  brand: "Hart Schaffner Marx",
+  price: "$0.00",
+  regularPrice: null,
+  salePrice: null,
+};
+
 describe("LP 2844 EPL2 tag payloads", () => {
   it("terminates the final print command with a newline", () => {
     const epl = buildEplDocument([item], getInventoryTagPrintConfig());
@@ -42,6 +52,30 @@ describe("LP 2844 EPL2 tag payloads", () => {
 
     expect(epl).not.toMatch(/^B.*?,B,"/m);
     expect(epl).toMatch(/^B.*?,N,"/m);
+  });
+
+  it("uses one-label-safe retail EPL for every Tag Designer layout", () => {
+    for (const layout of TAG_LAYOUTS) {
+      const epl = buildEplDocument(
+        [retailItem],
+        {
+          ...getInventoryTagPrintConfig(),
+          tagLayout: layout.id,
+          widthInches: 2.25,
+          heightInches: 1.25,
+          showBarcode: true,
+          showPrice: true,
+          priceSize: "large",
+          footerText: "Riverside Men's Shop",
+        },
+      );
+
+      expect(epl.match(/^P1$/gm), layout.id).toHaveLength(1);
+      expect(epl, `${layout.id} rotated text`).not.toMatch(/^A\d+,\d+,1,/m);
+      expect(epl, `${layout.id} rotated barcode`).not.toMatch(/^B\d+,\d+,1,/m);
+      expect(epl, `${layout.id} double-height retail price`).not.toMatch(/^A\d+,\d+,0,5,1,2,N,/m);
+      expect(epl, `${layout.id} collision-prone footer`).not.toContain("Riverside Men's Shop");
+    }
   });
 
   it("keeps every supported EPL layout inside one physical label", () => {

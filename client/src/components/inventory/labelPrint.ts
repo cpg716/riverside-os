@@ -287,6 +287,10 @@ const EPL_HORIZONTAL_BARCODE_HEIGHT_DOTS = 34;
 const EPL_COMPACT_BARCODE_HEIGHT_DOTS = 30;
 const EPL_BARCODE_GAP_DOTS = 8;
 
+function isRetailLp2844Tag(config: InventoryTagPrintConfig): boolean {
+  return config.widthInches <= 2.5 && config.heightInches <= 1.5;
+}
+
 function eplTextHeight(font: 1 | 2 | 3 | 4 | 5, yMul: number): number {
   const base = font === 1 ? 16 : font === 2 ? 22 : font === 3 ? 28 : font === 4 ? 32 : 28;
   return base * Math.max(1, yMul);
@@ -313,11 +317,12 @@ function appendBoundedEplText(
 function eplPriceBlockHeight(
   item: InventoryTagItem,
   config: InventoryTagPrintConfig,
+  retailTag = false,
 ): number {
   if (!config.showPrice) return 0;
   const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
   if (!isPromo && !item.price?.trim()) return 0;
-  const saleHeight = eplTextHeight(5, config.priceSize === "large" ? 2 : 1);
+  const saleHeight = eplTextHeight(5, retailTag ? 1 : config.priceSize === "large" ? 2 : 1);
   return isPromo ? eplTextHeight(1, 1) + EPL_TEXT_GAP_DOTS + saleHeight : saleHeight;
 }
 
@@ -328,16 +333,18 @@ function appendEplPriceBlockAt(
   maxY: number,
   item: InventoryTagItem,
   config: InventoryTagPrintConfig,
+  retailTag = false,
 ) {
   if (!config.showPrice) return;
-  const blockHeight = eplPriceBlockHeight(item, config);
+  const blockHeight = eplPriceBlockHeight(item, config, retailTag);
   if (blockHeight <= 0 || y + blockHeight > maxY) return;
   const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
+  const priceYMul = retailTag ? 1 : config.priceSize === "large" ? 2 : 1;
   if (isPromo) {
     parts.push(eplText(x, y, 0, 1, 1, 1, `Reg ${item.regularPrice!}`));
-    parts.push(eplText(x, y + eplTextHeight(1, 1) + EPL_TEXT_GAP_DOTS, 0, 5, 1, config.priceSize === "large" ? 2 : 1, item.salePrice!));
+    parts.push(eplText(x, y + eplTextHeight(1, 1) + EPL_TEXT_GAP_DOTS, 0, 5, 1, priceYMul, item.salePrice!));
   } else if (item.price) {
-    parts.push(eplText(x, y, 0, 5, 1, config.priceSize === "large" ? 2 : 1, item.price));
+    parts.push(eplText(x, y, 0, 5, 1, priceYMul, item.price));
   }
 }
 
@@ -378,10 +385,85 @@ function eplTextBlock(
   return y;
 }
 
+function renderRetailEplTag(
+  item: InventoryTagItem,
+  config: InventoryTagPrintConfig,
+  width: number,
+  height: number,
+  margin: number,
+): string {
+  const sku = escapeEplField(item.sku);
+  const footer = buildInventoryTagFooterLine(config.footerText);
+  const parts = ["N", `q${width}`, `Q${height},24`, "D7", "S2"];
+  const hasBarcode = config.showBarcode && !!sku;
+  const priceHeight = eplPriceBlockHeight(item, config, true);
+  const hasPrice = priceHeight > 0;
+  const barcodeHeight = EPL_COMPACT_BARCODE_HEIGHT_DOTS;
+  const barcodeY = hasBarcode ? height - margin - barcodeHeight : height;
+  const safeBottom = hasBarcode ? barcodeY - EPL_BARCODE_GAP_DOTS : height - margin;
+  const printFooter = !!footer && (!hasBarcode || !hasPrice);
+  const footerY = printFooter ? safeBottom - EPL_FOOTER_HEIGHT_DOTS : safeBottom;
+  const bodyBottom = printFooter ? footerY - EPL_TEXT_GAP_DOTS : safeBottom;
+  const layout = config.tagLayout === "price-hero" || config.tagLayout === "compact"
+    ? config.tagLayout
+    : "standard";
+
+  if (layout === "price-hero") {
+    let y = margin;
+    appendEplPriceBlockAt(parts, margin, y, bodyBottom, item, config, true);
+    if (hasPrice) y += priceHeight + EPL_BARCODE_GAP_DOTS;
+    eplTextBlock(
+      parts,
+      margin,
+      y,
+      item,
+      config,
+      Math.max(14, Math.floor((width - margin * 2) / 17)),
+      bodyBottom,
+    );
+  } else if (layout === "compact") {
+    const rightX = Math.round(width * 0.58);
+    eplTextBlock(
+      parts,
+      margin,
+      margin,
+      item,
+      config,
+      Math.max(10, Math.floor((rightX - margin * 2) / 17)),
+      bodyBottom,
+    );
+    appendEplPriceBlockAt(parts, rightX, margin, bodyBottom, item, config, true);
+  } else {
+    const priceY = hasPrice ? Math.max(margin, bodyBottom - priceHeight) : bodyBottom;
+    eplTextBlock(
+      parts,
+      margin,
+      margin,
+      item,
+      config,
+      Math.max(14, Math.floor((width - margin * 2) / 17)),
+      priceY - EPL_BARCODE_GAP_DOTS,
+    );
+    appendEplPriceBlockAt(parts, margin, priceY, bodyBottom, item, config, true);
+  }
+
+  if (printFooter) {
+    appendEplFooterAt(parts, margin, footerY, safeBottom, footer);
+  }
+  if (hasBarcode) {
+    parts.push(`B${margin},${barcodeY},0,1,2,2,${barcodeHeight},N,"${sku}"`);
+  }
+  parts.push("P1");
+  return `${parts.join("\r\n")}\r\n`;
+}
+
 function renderEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
   const width = Math.round(clampDimension(config.widthInches, 2, 6, 4) * ZEBRA_2844_DPI);
   const height = Math.round(clampDimension(config.heightInches, 1.25, 4, 2.5) * ZEBRA_2844_DPI);
   const m = Math.max(EPL_MARGIN_DOTS, Math.round(width * 0.03));
+  if (isRetailLp2844Tag(config)) {
+    return renderRetailEplTag(item, config, width, height, m);
+  }
   const footer = buildInventoryTagFooterLine(config.footerText);
   const layout = config.tagLayout || "standard";
   const sku = escapeEplField(item.sku);
@@ -529,7 +611,7 @@ function computeSavings(regular: string, sale: string): string {
 function priceHtml(item: InventoryTagItem, config: InventoryTagPrintConfig, sizeOverride?: string): string {
   if (!config.showPrice) return "";
   const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
-  const sz = sizeOverride ?? (config.priceSize === "large" ? "28px" : "16px");
+  const sz = sizeOverride ?? (config.priceSize === "large" ? (isRetailLp2844Tag(config) ? "22px" : "28px") : "16px");
   if (isPromo) {
     const savings = computeSavings(item.regularPrice!, item.salePrice!);
     return `<div class="t-price-block"><div class="t-price-reg"><s>${escapeHtml(item.regularPrice!)}</s></div><div class="t-price-sale" style="font-size:${sz}">${escapeHtml(item.salePrice!)}</div>${savings ? `<div class="t-savings">You save ${escapeHtml(savings)}</div>` : ""}</div>`;
@@ -543,7 +625,7 @@ function barcodeHtml(sku: string, orient: "h" | "v"): string {
   if (orient === "v") {
     return `<div class="t-bc t-bc-v"><div class="t-bc-v-lbl">${escapeHtml(sku)}</div><div class="t-bc-v-bars"><svg class="t-bc-svg" data-sku="${escapeHtml(sku)}"></svg></div></div>`;
   }
-  return `<div class="t-bc t-bc-h"><svg class="t-bc-svg" data-sku="${escapeHtml(sku)}"></svg><div class="t-bc-lbl">${escapeHtml(sku)}</div></div>`;
+  return `<div class="t-bc t-bc-h"><svg class="t-bc-svg" data-sku="${escapeHtml(sku)}"></svg></div>`;
 }
 
 function skuHtml(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
@@ -560,6 +642,7 @@ function brandHtml(item: InventoryTagItem, config: InventoryTagPrintConfig): str
   return config.showBrand && b ? `<div class="t-brand">${escapeHtml(b)}</div>` : "";
 }
 function footerHtml(config: InventoryTagPrintConfig): string {
+  if (isRetailLp2844Tag(config) && config.showBarcode && config.showPrice) return "";
   return `<div class="t-footer">${escapeHtml(buildInventoryTagFooterLine(config.footerText))}</div>`;
 }
 
@@ -608,7 +691,11 @@ function renderTagCompact(item: InventoryTagItem, config: InventoryTagPrintConfi
 }
 
 function renderTag(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  switch (config.tagLayout) {
+  const layout = isRetailLp2844Tag(config)
+    && (config.tagLayout === "barcode-left" || config.tagLayout === "barcode-right" || config.tagLayout === "barcode-bottom")
+    ? "standard"
+    : config.tagLayout;
+  switch (layout) {
     case "price-hero": return renderTagPriceHero(item, config);
     case "barcode-left": return renderTagBarcodeLeft(item, config);
     case "barcode-right": return renderTagBarcodeRight(item, config);

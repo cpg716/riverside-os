@@ -177,14 +177,14 @@ function PriceLines({ item, config, sizeOverride }: { item: InventoryTagItem; co
 }
 
 function FooterLine({ text }: { text: string }) {
+  if (!text.trim()) return null;
   return <TagLine className="text-[8px] font-bold uppercase tracking-widest text-black">{text}</TagLine>;
 }
 
 function HBarcodeRow({ sku }: { sku: string }) {
   return (
-    <div className="flex items-center gap-1 border-t border-black/20 px-2 py-0.5" style={{ height: 32 }}>
+    <div className="flex items-center border-t border-black/20 px-2 py-0.5" style={{ height: 32 }}>
       <BarcodeSvg text={sku} className="h-[22px] flex-1 text-black" />
-      <span className="shrink-0 text-[10px] font-bold text-black">{sku}</span>
     </div>
   );
 }
@@ -298,7 +298,6 @@ function TagPreviewCompact({ item, config, footer }: { item: InventoryTagItem; c
         {config.showBarcode && (
           <div>
             <BarcodeSvg text={item.sku} className="h-[22px] w-full text-black" />
-            <div className="text-[9px] font-bold text-black">{item.sku}</div>
           </div>
         )}
       </div>
@@ -307,7 +306,12 @@ function TagPreviewCompact({ item, config, footer }: { item: InventoryTagItem; c
 }
 
 function TagPreview({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
-  switch (config.tagLayout) {
+  const retailLp2844 = config.widthInches <= LP_2844_RETAIL_TAG_WIDTH + 0.01
+    && config.heightInches <= LP_2844_RETAIL_TAG_HEIGHT + 0.01;
+  const layout = retailLp2844 && (config.tagLayout === "barcode-left" || config.tagLayout === "barcode-right" || config.tagLayout === "barcode-bottom")
+    ? "standard"
+    : config.tagLayout;
+  switch (layout) {
     case "price-hero": return <TagPreviewPriceHero item={item} config={config} footer={footer} />;
     case "barcode-left": return <TagPreviewBarcodeLeft item={item} config={config} footer={footer} />;
     case "barcode-right": return <TagPreviewBarcodeRight item={item} config={config} footer={footer} />;
@@ -352,6 +356,10 @@ export default function TagDesignerPanel() {
   const desktopApp = isTauri();
   const possibleTwoTagHeight =
     normalizedDraft.widthInches <= 2.5 && normalizedDraft.heightInches > 1.5;
+  const retailLp2844Preview =
+    normalizedDraft.widthInches <= LP_2844_RETAIL_TAG_WIDTH + 0.01
+    && normalizedDraft.heightInches <= LP_2844_RETAIL_TAG_HEIGHT + 0.01;
+  const retailOmitsFooter = retailLp2844Preview && normalizedDraft.showBarcode && normalizedDraft.showPrice;
 
   const updateDraft = <K extends keyof InventoryTagPrintConfig>(key: K, value: InventoryTagPrintConfig[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -381,11 +389,14 @@ export default function TagDesignerPanel() {
   };
   const handlePrint = async () => {
     try {
-      const result = await openInventoryTagsWindow(TEST_PRINT_ITEMS, normalizedDraft, {
+      const saved = saveInventoryTagPrintConfig(normalizedDraft);
+      setDraft(saved);
+      setBaselineConfig(saved);
+      const result = await openInventoryTagsWindow(TEST_PRINT_ITEMS, saved, {
         allowPreviewFallback: false,
       });
       if (result.route === "direct") {
-        toast(`Test tag ${result.message}`, "success");
+        toast(`Layout saved. Test tag ${result.message}`, "success");
       } else {
         toast(result.message, "info");
       }
@@ -394,7 +405,7 @@ export default function TagDesignerPanel() {
     }
   };
 
-  const previewFooterLine = buildInventoryTagFooterLine(normalizedDraft.footerText);
+  const previewFooterLine = retailOmitsFooter ? "" : buildInventoryTagFooterLine(normalizedDraft.footerText);
 
   return (
     <section className="space-y-6 p-6">
@@ -412,7 +423,7 @@ export default function TagDesignerPanel() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => void handlePrint()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Printer size={16} /> Print test tag</button>
+            <button type="button" onClick={() => void handlePrint()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Printer size={16} /> Save & print test tag</button>
             {!desktopApp ? (
               <button type="button" onClick={() => void handlePreview()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Eye size={16} /> Print preview</button>
             ) : null}
@@ -456,6 +467,11 @@ export default function TagDesignerPanel() {
                 );
               })}
             </div>
+            {retailLp2844Preview ? (
+              <p className="text-xs font-semibold text-app-text-muted">
+                LP 2844 retail tags print side-bar barcode layouts as a safe horizontal barcode so text, price, and barcode stay on one tag.
+              </p>
+            ) : null}
           </section>
 
           {/* ── 2. Tag dimensions ── */}
@@ -556,7 +572,7 @@ export default function TagDesignerPanel() {
           <div>
             <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">Live preview</h3>
             <p className="mt-1 text-sm text-app-text-muted">
-              Exactly how your tags will look on the Zebra 2844. Changes update instantly.
+              Printer-safe preview for the saved Zebra layout. Use Save &amp; print test tag for physical proof.
             </p>
           </div>
 
@@ -571,8 +587,8 @@ export default function TagDesignerPanel() {
           <div className="rounded-xl border border-app-border bg-app-surface-2 p-3 text-sm text-app-text-muted">
             <p className="font-bold text-app-text">How this works</p>
             <p className="mt-1.5 text-[12px]">
-              Every tag printed from inventory screens, control boards, and quick-print buttons uses this layout.
-              Saving here updates all future prints without changing receipt or hardware settings.
+              Every inventory tag uses the saved layout. Save &amp; print test tag saves first, then sends the same saved
+              layout that inventory screens, control boards, and quick-print buttons use.
             </p>
           </div>
         </aside>

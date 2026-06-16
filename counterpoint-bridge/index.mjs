@@ -359,105 +359,34 @@ const startLocalServer = () => {
             res.end(JSON.stringify({ ok: true }));
         } else if (req.url.startsWith('/api/trigger-entity')) {
             const url = new URL(req.url, `http://${req.headers.host}`);
-            const entity = url.searchParams.get('name');
-            logToDashboard(`Manual trigger: Targeted pull for [${entity}] requested`);
-
-            if (entity === 'full') {
-                (async () => {
-                    BRIDGE_STATE.isSyncing = true;
-                    BRIDGE_STATE.abortRequested = false;
-                    pushEvent('start', null, 'Full sync started (manual)');
-                    logToDashboard("[sync] Starting full sync sequence...");
-                    const preflightSummary = await runImportFirstSourcePreflight(pool);
-                    await startImportFirstRun(preflightSummary);
-                    const steps = getOrderedSyncSteps();
-                    try {
-                        for (const step of steps) {
-                            if (!step.on) continue;
-                            if (BRIDGE_STATE.abortRequested) {
-                                logToDashboard('[sync] Aborted by user');
-                                pushEvent('abort', step.label, 'Sync aborted before this entity');
-                                break;
-                            }
-                            BRIDGE_STATE.currentEntity = step.label;
-                            logToDashboard(`[${step.label}] starting sync...`);
-                            await sendHeartbeat("syncing", step.hb);
-                            await runSyncEntity(step.label, step.run);
-                            BRIDGE_STATE.syncSummary[step.label] = new Date().toISOString();
-                            logToDashboard(`[${step.label}] ok`);
-                        }
-                        await completeImportFirstRun({
-                            failed: BRIDGE_STATE.abortRequested,
-                            errorMessage: BRIDGE_STATE.abortRequested ? "Manual sync aborted by user." : null,
-                            totals: { sync_summary: BRIDGE_STATE.syncSummary },
-                        });
-                    } catch (err) {
-                        await completeImportFirstRun({ failed: true, errorMessage: err.message });
-                        throw err;
-                    }
-                    BRIDGE_STATE.isSyncing = false;
-                    BRIDGE_STATE.currentEntity = null;
-                    BRIDGE_STATE.abortRequested = false;
-                    logToDashboard("[sync] Full sync sequence completed.");
-                })().catch(err => {
-                    BRIDGE_STATE.isSyncing = false;
-                    BRIDGE_STATE.abortRequested = false;
-                    pushEvent('error', null, err.message);
-                    logToDashboard(`Sync error: ${err.message}`);
-                });
-                res.end(JSON.stringify({ status: 'triggered', queue: 'all' }));
+            const entity = url.searchParams.get('name') || 'full';
+            if (BRIDGE_STATE.isSyncing) {
+                res.writeHead(409, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: "Bridge extraction is already running." }));
                 return;
             }
+            const targetQueue = resolveManualExtractionQueue(entity);
+            if (!targetQueue) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: `Unknown or disabled Counterpoint entity: ${entity}` }));
+                return;
+            }
+            logToDashboard(`Manual trigger: Counterpoint extraction for [${entity}] requested`);
+            if (entity !== 'full') {
+                logToDashboard(`[dependency-check] To complete [${entity}], we will run: ${targetQueue.join(' -> ')}`);
+            }
 
-            // Resolve dependencies
-            const deps = ENTITY_DEPENDENCIES[entity] || [];
-            const toRun = [...deps, entity];
-
-            logToDashboard(`[dependency-check] To complete [${entity}], we will run: ${toRun.join(' -> ')}`);
-
-            (async () => {
-                BRIDGE_STATE.isSyncing = true;
-                BRIDGE_STATE.abortRequested = false;
-                const preflightSummary = await runImportFirstSourcePreflight(pool);
-                await startImportFirstRun(preflightSummary);
-                const steps = getOrderedSyncSteps();
-                try {
-                    for (const target of toRun) {
-                        if (BRIDGE_STATE.abortRequested) {
-                            logToDashboard('[sync] Aborted by user');
-                            break;
-                        }
-                        const step = steps.find(s => s.label === target);
-                        if (step) {
-                            BRIDGE_STATE.currentEntity = step.label;
-                            logToDashboard(`[${target}] starting targeted sync...`);
-                            await sendHeartbeat("syncing", step.hb);
-                            await runSyncEntity(step.label, step.run);
-                            BRIDGE_STATE.syncSummary[target] = new Date().toISOString();
-                            logToDashboard(`[${target}] ok`);
-                        }
-                    }
-                    await completeImportFirstRun({
-                        failed: BRIDGE_STATE.abortRequested,
-                        errorMessage: BRIDGE_STATE.abortRequested ? "Manual targeted sync aborted by user." : null,
-                        totals: { sync_summary: BRIDGE_STATE.syncSummary, targeted_entity: entity },
-                    });
-                } catch (err) {
-                    await completeImportFirstRun({ failed: true, errorMessage: err.message });
-                    throw err;
-                }
-                BRIDGE_STATE.isSyncing = false;
-                BRIDGE_STATE.currentEntity = null;
-                BRIDGE_STATE.abortRequested = false;
-                logToDashboard(`[sync] Targeted pull for ${entity} finished.`);
-            })().catch(err => {
-                BRIDGE_STATE.isSyncing = false;
-                BRIDGE_STATE.abortRequested = false;
+            runManualBridgeExtraction(entity).catch(err => {
                 pushEvent('error', entity, err.message);
                 logToDashboard(`Sync error: ${err.message}`);
             });
 
-            res.end(JSON.stringify({ status: 'triggered', queue: toRun }));
+            res.writeHead(202, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                status: 'triggered',
+                target_mode: USE_SYNC_WORKBENCH ? 'sync_workbench' : 'ros_import_first',
+                queue: entity === 'full' ? 'all' : targetQueue,
+            }));
         } else if (req.url === '/') {
             const htmlPath = path.join(__dirname, 'dashboard.html');
             if (fs.existsSync(htmlPath)) {
@@ -655,7 +584,7 @@ const SYNC_WORKBENCH_URL = (process.env.COUNTERPOINT_SYNC_WORKBENCH_URL ?? "").r
 const SYNC_WORKBENCH_TOKEN = process.env.COUNTERPOINT_SYNC_WORKBENCH_TOKEN ?? "";
 const BRIDGE_TARGET_MODE = (
   process.env.COUNTERPOINT_BRIDGE_TARGET_MODE ??
-  (SYNC_WORKBENCH_URL ? "sync_workbench" : "ros_import_first")
+  "sync_workbench"
 ).trim().toLowerCase();
 const USE_SYNC_WORKBENCH = BRIDGE_TARGET_MODE === "sync_workbench";
 const CONN = process.env.SQL_CONNECTION_STRING ?? "";
@@ -781,7 +710,7 @@ function configuredSql(name) {
 function requireImportFirstIngestMode() {
   if (!IMPORT_FIRST_MODE && !DRY_RUN_MODE) {
     throw new Error(
-      "CP_IMPORT_FIRST_MODE must remain enabled for Counterpoint go-live import. Legacy direct/staging ingest is disabled for production import runs.",
+      "CP_IMPORT_FIRST_MODE must remain enabled for direct ROS compatibility import runs. Direct/staging ingest is not the preferred Bridge-to-SYNC workflow.",
     );
   }
 }
@@ -3309,7 +3238,12 @@ async function runNormalizationCommand() {
     console.error('Usage: node index.mjs normalization preview --lightspeed-csv "product-export (5).csv"');
     process.exit(1);
   }
-  if (!SYNC_TOKEN.trim()) {
+  if (USE_SYNC_WORKBENCH) {
+    if (!SYNC_WORKBENCH_TOKEN.trim()) {
+      console.error("Set COUNTERPOINT_SYNC_WORKBENCH_TOKEN");
+      process.exit(1);
+    }
+  } else if (!SYNC_TOKEN.trim()) {
     console.error("Set COUNTERPOINT_SYNC_TOKEN");
     process.exit(1);
   }
@@ -3341,7 +3275,12 @@ async function runAliasesCommand() {
     console.error("Usage: node index.mjs aliases persist --csv <path> [--replace] [--dry-run]");
     process.exit(1);
   }
-  if (!SYNC_TOKEN.trim()) {
+  if (USE_SYNC_WORKBENCH) {
+    if (!SYNC_WORKBENCH_TOKEN.trim()) {
+      console.error("Set COUNTERPOINT_SYNC_WORKBENCH_TOKEN");
+      process.exit(1);
+    }
+  } else if (!SYNC_TOKEN.trim()) {
     console.error("Set COUNTERPOINT_SYNC_TOKEN");
     process.exit(1);
   }
@@ -5746,6 +5685,100 @@ function getOrderedSyncSteps(poolOverride) {
   ];
 }
 
+function resolveManualExtractionQueue(entity) {
+  const steps = getOrderedSyncSteps(ACTIVE_POOL).filter((step) => step.on);
+  if (!steps.length) return null;
+  if (entity === "full") return steps.map((step) => step.label);
+  const labels = new Set(steps.map((step) => step.label));
+  if (!labels.has(entity)) return null;
+  return [...(ENTITY_DEPENDENCIES[entity] || []), entity].filter((label) => labels.has(label));
+}
+
+async function runManualBridgeExtraction(entity = "full") {
+  const pool = ACTIVE_POOL;
+  if (!pool) {
+    throw new Error("SQL connection is not ready. Wait for SQL Server connected before extracting.");
+  }
+  const queue = resolveManualExtractionQueue(entity);
+  if (!queue) {
+    throw new Error(`Unknown or disabled Counterpoint entity: ${entity}`);
+  }
+
+  BRIDGE_STATE.isSyncing = true;
+  BRIDGE_STATE.abortRequested = false;
+  BRIDGE_STATE.totalRecordsLastRun = 0;
+  const tStart = Date.now();
+  pushEvent("start", entity === "full" ? null : entity, entity === "full" ? "Full extraction started" : `${entity} extraction started`);
+
+  let preflightSummary = null;
+  try {
+    if (USE_SYNC_WORKBENCH) {
+      activeWorkbenchRunId = null;
+      logToDashboard("[sync] Starting Counterpoint extraction to SYNC Workbench...");
+    } else {
+      logToDashboard("[sync] Starting compatibility direct ROS extraction...");
+      preflightSummary = await runImportFirstSourcePreflight(pool);
+      await startImportFirstRun(preflightSummary);
+    }
+
+    const steps = getOrderedSyncSteps(pool);
+    for (const target of queue) {
+      if (BRIDGE_STATE.abortRequested) {
+        logToDashboard("[sync] Aborted by user");
+        pushEvent("abort", target, "Extraction aborted before this entity");
+        break;
+      }
+      const step = steps.find((candidate) => candidate.label === target);
+      if (!step?.on) continue;
+      BRIDGE_STATE.currentEntity = step.label;
+      logToDashboard(`[${target}] starting extraction...`);
+      await sendHeartbeat("syncing", step.hb);
+      await runSyncEntity(step.label, step.run);
+      BRIDGE_STATE.syncSummary[target] = new Date().toISOString();
+      logToDashboard(`[${target}] ok`);
+    }
+
+    const durationMs = Date.now() - tStart;
+    BRIDGE_STATE.lastRunDurationMs = durationMs;
+    BRIDGE_STATE.lastRun = new Date().toISOString();
+    pushEvent("complete", entity === "full" ? null : entity, "Extraction pass complete", { durationMs });
+
+    if (USE_SYNC_WORKBENCH) {
+      if (activeWorkbenchRunId) {
+        await syncWorkbenchFetch(`/api/runs/${activeWorkbenchRunId}/finalize`, {
+          totals: {
+            sync_summary: BRIDGE_STATE.syncSummary,
+            duration_ms: durationMs,
+            requested_entity: entity === "full" ? null : entity,
+          },
+        });
+      }
+    } else {
+      await completeImportFirstRun({
+        failed: BRIDGE_STATE.abortRequested,
+        errorMessage: BRIDGE_STATE.abortRequested ? "Manual extraction aborted by user." : null,
+        totals: {
+          sync_summary: BRIDGE_STATE.syncSummary,
+          duration_ms: durationMs,
+          targeted_entity: entity === "full" ? null : entity,
+        },
+      });
+    }
+
+    logToDashboard(`[sync] ${entity === "full" ? "Full extraction" : `Targeted extraction for ${entity}`} finished.`);
+  } catch (err) {
+    if (!USE_SYNC_WORKBENCH) {
+      await completeImportFirstRun({ failed: true, errorMessage: err.message }).catch(() => null);
+    }
+    throw err;
+  } finally {
+    BRIDGE_STATE.isSyncing = false;
+    BRIDGE_STATE.currentEntity = null;
+    BRIDGE_STATE.abortRequested = false;
+    await sendHeartbeat("idle", null).catch(() => null);
+  }
+}
+
 async function main() {
   if (PREFLIGHT_MODE) {
     await runPreflightCommand();
@@ -5858,7 +5891,7 @@ async function main() {
     USE_SYNC_WORKBENCH ? "Counterpoint SYNC Workbench health OK" : "ROS sync health OK",
     USE_SYNC_WORKBENCH
       ? "(raw extraction batches only)"
-      : rosStagingEnabled ? "(counterpoint staging ingest)" : "(direct entity ingest)",
+      : rosStagingEnabled ? "(ROS support queue ingest)" : "(direct ROS compatibility ingest)",
   );
 
   logCanonicalSyncOrder();
@@ -6090,7 +6123,9 @@ async function main() {
   }
 
   console.info(
-    `Polling for manual ROS requests every ${POLL_MS} ms. Scheduled sync runs only when Continuous Sync is enabled.`,
+    USE_SYNC_WORKBENCH
+      ? `Polling for local extraction requests every ${POLL_MS} ms. Scheduled extraction runs only when Continuous Sync is enabled.`
+      : `Polling for manual ROS requests every ${POLL_MS} ms. Scheduled sync runs only when Continuous Sync is enabled.`,
   );
   setInterval(tick, POLL_MS);
 }

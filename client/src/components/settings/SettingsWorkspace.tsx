@@ -1334,11 +1334,11 @@ export default function SettingsWorkspace({
                           Counterpoint
                         </h2>
                         <p className="text-sm font-medium text-app-text-muted leading-relaxed max-w-3xl">
-                          The Windows bridge on your Counterpoint SQL host posts
-                          catalog, customers, gift cards, and ticket history
-                          into Riverside. Manage bridge health, staging and
-                          apply queues, and Counterpoint-to-ROS code maps here —
-                          not mixed in with unrelated integrations.
+                          The Windows bridge extracts raw Counterpoint SQL data
+                          into the Main Hub Counterpoint SYNC Workbench. ROS
+                          Back Office only connects to approved SYNC packages,
+                          runs preflight, imports selected sections, and shows
+                          final proof.
                         </p>
                         <p className="text-xs text-app-text-muted leading-relaxed max-w-3xl">
                           Install and operate the bridge per{" "}

@@ -411,6 +411,8 @@ struct BridgeSettings {
     sql_conn: String,
     ros_url: String,
     sync_token: String,
+    sync_workbench_url: String,
+    sync_workbench_token: String,
 }
 
 #[tauri::command]
@@ -423,6 +425,8 @@ fn load_settings(app: tauri::AppHandle) -> Result<BridgeSettings, String> {
             sql_conn: "".into(),
             ros_url: "".into(),
             sync_token: "".into(),
+            sync_workbench_url: "".into(),
+            sync_workbench_token: "".into(),
         });
     }
 
@@ -430,6 +434,8 @@ fn load_settings(app: tauri::AppHandle) -> Result<BridgeSettings, String> {
     let mut sql_conn = String::new();
     let mut ros_url = String::new();
     let mut sync_token = String::new();
+    let mut sync_workbench_url = String::new();
+    let mut sync_workbench_token = String::new();
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -443,6 +449,8 @@ fn load_settings(app: tauri::AppHandle) -> Result<BridgeSettings, String> {
                 "SQL_CONNECTION_STRING" => sql_conn = strip_quotes(value),
                 "ROS_BASE_URL" => ros_url = strip_quotes(value),
                 "COUNTERPOINT_SYNC_TOKEN" => sync_token = strip_quotes(value),
+                "COUNTERPOINT_SYNC_WORKBENCH_URL" => sync_workbench_url = strip_quotes(value),
+                "COUNTERPOINT_SYNC_WORKBENCH_TOKEN" => sync_workbench_token = strip_quotes(value),
                 _ => {}
             }
         }
@@ -452,6 +460,8 @@ fn load_settings(app: tauri::AppHandle) -> Result<BridgeSettings, String> {
         sql_conn,
         ros_url,
         sync_token,
+        sync_workbench_url,
+        sync_workbench_token,
     })
 }
 
@@ -461,20 +471,25 @@ fn save_settings(
     sql_conn: String,
     ros_url: String,
     sync_token: String,
+    sync_workbench_url: String,
+    sync_workbench_token: String,
 ) -> Result<String, String> {
     let bridge_dir = settings_bridge_directory(&app)?;
     std::fs::create_dir_all(&bridge_dir).map_err(|e| e.to_string())?;
 
     let env_path = bridge_dir.join(".env");
     let content = [
+        format!("SQL_CONNECTION_STRING={sql_conn}"),
+        "COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench".to_string(),
+        format!("COUNTERPOINT_SYNC_WORKBENCH_URL={sync_workbench_url}"),
+        format!("COUNTERPOINT_SYNC_WORKBENCH_TOKEN={sync_workbench_token}"),
         format!("ROS_BASE_URL={ros_url}"),
         format!("COUNTERPOINT_SYNC_TOKEN={sync_token}"),
-        format!("SQL_CONNECTION_STRING={sql_conn}"),
     ]
     .join("\n");
     std::fs::write(env_path, content).map_err(|e| e.to_string())?;
 
-    Ok("Bridge connection settings saved.".into())
+    Ok("Bridge connection settings saved for Counterpoint SYNC Workbench.".into())
 }
 
 #[tauri::command]

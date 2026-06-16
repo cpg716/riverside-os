@@ -978,21 +978,31 @@ function dashboardHtml() {
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
     th, td { border-bottom: 1px solid #e5e7eb; padding: 9px 8px; text-align: left; vertical-align: top; }
     th { color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
-    .pill { display: inline-flex; border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 900; background: #eef2ff; color: #3730a3; }
-    .ok { background: #dcfce7; color: #166534; }
-    .warn { background: #fef3c7; color: #92400e; }
-    .bad { background: #fee2e2; color: #991b1b; }
-    .split { display: grid; grid-template-columns: minmax(260px,.35fr) minmax(0,1fr); gap: 12px; }
+	    .pill { display: inline-flex; border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 900; background: #eef2ff; color: #3730a3; }
+	    .ok { background: #dcfce7; color: #166534; }
+	    .warn { background: #fef3c7; color: #92400e; }
+	    .bad { background: #fee2e2; color: #991b1b; }
+	    .primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+	    .danger { color: #991b1b; border-color: #fecaca; background: #fff7f7; }
+	    .stepgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+	    .step { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; background: #fff; }
+	    .step strong { display:block; font-size: 12px; }
+	    .actions { display:flex; flex-wrap:wrap; gap:6px; }
+	    .filegrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:10px; }
+	    .filebox { border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px; background: #f8fafc; }
+	    .split { display: grid; grid-template-columns: minmax(260px,.35fr) minmax(0,1fr); gap: 12px; }
     pre { max-height: 340px; overflow: auto; white-space: pre-wrap; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; background: #0f172a; color: #e5e7eb; font-size: 11px; }
     details { margin-top: 10px; }
     summary { cursor: pointer; font-weight: 800; font-size: 12px; }
     @media (max-width: 820px) { main { padding: 14px; } .split { grid-template-columns: 1fr; } }
     @media (prefers-color-scheme: dark) {
-      body { background: #0b1220; color: #e5e7eb; }
-      input, select, button, .card { background: #111827; color: #e5e7eb; border-color: #374151; }
-      th, td { border-color: #263244; }
-      h2, .muted { color: #9ca3af; }
-    }
+	      body { background: #0b1220; color: #e5e7eb; }
+	      input, select, button, .card, .step, .filebox { background: #111827; color: #e5e7eb; border-color: #374151; }
+	      th, td { border-color: #263244; }
+	      h2, .muted { color: #9ca3af; }
+	      .primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+	      .danger { color: #fecaca; border-color: #7f1d1d; background: #1f1111; }
+	    }
   </style>
 </head>
 <body>
@@ -1008,9 +1018,48 @@ function dashboardHtml() {
         <button id="refresh">Refresh</button>
         <button id="export">Export Store</button>
       </div>
-    </div>
-    <section class="grid stats" id="stats"></section>
-    <section class="section split">
+	    </div>
+	    <section class="grid stats" id="stats"></section>
+	    <section class="section card">
+	      <h2>Preparation Pipeline</h2>
+	      <div class="stepgrid" style="margin-top:10px">
+	        <div class="step"><strong>1. Receive</strong><span class="muted">Bridge raw extraction batches land here.</span></div>
+	        <div class="step"><strong>2. Add CSV context</strong><span class="muted">Lightspeed or Counterpoint CSVs help review and cleanup.</span></div>
+	        <div class="step"><strong>3. Review and fix</strong><span class="muted">Warnings, blockers, duplicates, and AI suggestions stay in SYNC.</span></div>
+	        <div class="step"><strong>4. Mark ready</strong><span class="muted">Approved sections become ROS-ready JSON packages.</span></div>
+	        <div class="step"><strong>5. ROS imports</strong><span class="muted">ROS pulls selected packages and writes through its importer.</span></div>
+	      </div>
+	    </section>
+	    <section class="section card">
+	      <div class="toolbar" style="margin-bottom:8px">
+	        <div>
+	          <h2>CSV Inputs</h2>
+	          <p class="muted">CSV files are review and cleanup inputs only. ROS imports JSON packages from selected SYNC runs.</p>
+	        </div>
+	        <select id="csvSection">
+	          <option value="catalog">Catalog / products</option>
+	          <option value="inventory">Inventory quantities</option>
+	          <option value="customers">Customers</option>
+	          <option value="vendors">Vendors</option>
+	          <option value="vendor_items">Vendor items</option>
+	          <option value="gift_cards">Gift cards</option>
+	        </select>
+	      </div>
+	      <div class="filegrid">
+	        <div class="filebox">
+	          <strong>Lightspeed CSV</strong>
+	          <p class="muted">Use for titles, categories, SKUs, item numbers, and inventory cross-checks.</p>
+	          <input id="lightspeedCsv" type="file" accept=".csv,text/csv" style="margin-top:8px;width:100%;box-sizing:border-box" />
+	        </div>
+	        <div class="filebox">
+	          <strong>Counterpoint CSV</strong>
+	          <p class="muted">Use exported Counterpoint sheets as extra source proof or cleanup references.</p>
+	          <input id="counterpointCsv" type="file" accept=".csv,text/csv" style="margin-top:8px;width:100%;box-sizing:border-box" />
+	        </div>
+	      </div>
+	      <div id="csvStatus" class="muted" style="margin-top:8px">No CSV imported in this browser session.</div>
+	    </section>
+	    <section class="section split">
       <div class="card">
         <h2>Runs</h2>
         <div id="runs"></div>
@@ -1089,10 +1138,12 @@ function dashboardHtml() {
           '<td>' + section.source_count + ' source / ' + section.prepared_count + ' prepared</td><td>' + section.warnings + '</td><td>' + section.blockers + '</td>' +
           '<td>' + fmt(section.imported_at) + '<br><span class="muted">' + fmt(section.ros_import_run_id) + '</span></td>' +
           '<td><code>' + fmt(section.package_fingerprint).slice(0, 16) + '</code></td>' +
-          '<td><button data-package="' + section.section + '">Preview package</button> <button data-ai-export="' + section.section + '">Export AI Review Package</button> <button data-ai-apply="' + section.section + '">Apply Accepted Suggestions</button></td></tr>').join("") + '</tbody></table>';
-      document.querySelectorAll("[data-package]").forEach((button) => button.addEventListener("click", () => previewPackage(button.dataset.package || "")));
-      document.querySelectorAll("[data-ai-export]").forEach((button) => button.addEventListener("click", () => exportAiReviewPackage(button.dataset.aiExport || "")));
-      document.querySelectorAll("[data-ai-apply]").forEach((button) => button.addEventListener("click", () => applyAcceptedSuggestions(button.dataset.aiApply || "")));
+	        '<td><div class="actions"><button data-package="' + section.section + '">Preview</button><button class="primary" data-ready="' + section.section + '">Mark ready</button><button class="danger" data-block="' + section.section + '">Block</button><button data-ai-export="' + section.section + '">AI pack</button><button data-ai-apply="' + section.section + '">Apply AI</button></div></td></tr>').join("") + '</tbody></table>';
+	      document.querySelectorAll("[data-package]").forEach((button) => button.addEventListener("click", () => previewPackage(button.dataset.package || "")));
+	      document.querySelectorAll("[data-ready]").forEach((button) => button.addEventListener("click", () => markSectionReady(button.dataset.ready || "")));
+	      document.querySelectorAll("[data-block]").forEach((button) => button.addEventListener("click", () => markSectionBlocked(button.dataset.block || "")));
+	      document.querySelectorAll("[data-ai-export]").forEach((button) => button.addEventListener("click", () => exportAiReviewPackage(button.dataset.aiExport || "")));
+	      document.querySelectorAll("[data-ai-apply]").forEach((button) => button.addEventListener("click", () => applyAcceptedSuggestions(button.dataset.aiApply || "")));
       const exceptions = await api("/api/runs/" + encodeURIComponent(selectedRunId) + "/exceptions");
       document.getElementById("exceptions").innerHTML = renderExceptions(exceptions.exceptions || []);
       await loadSuggestions();
@@ -1106,7 +1157,7 @@ function dashboardHtml() {
         group("Warnings", (row) => row.severity === "warning" && row.status !== "resolved") +
         group("Resolved", (row) => row.status === "resolved") + '</tbody></table>';
     }
-    async function previewPackage(section) {
+	    async function previewPackage(section) {
       const pkg = await api("/api/runs/" + encodeURIComponent(selectedRunId) + "/packages/" + encodeURIComponent(section));
       const rowCount = Array.isArray(pkg.payload?.rows) ? pkg.payload.rows.length : 0;
       document.getElementById("packagePreview").innerHTML =
@@ -1118,9 +1169,27 @@ function dashboardHtml() {
         stat("Fingerprint", pkg.package_fingerprint.slice(0, 16)) +
         stat("Generated", pkg.generated_at) +
         stat("Payload rows", rowCount) +
-        stat("Exceptions / provenance", pkg.exceptions.length + " / " + pkg.provenance.length) +
-        '</div><details><summary>View raw JSON</summary><pre>' + JSON.stringify(pkg, null, 2).replace(/[<>&]/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[ch])) + '</pre></details>';
-    }
+	        stat("Exceptions / provenance", pkg.exceptions.length + " / " + pkg.provenance.length) +
+	        '</div><details><summary>View raw JSON</summary><pre>' + JSON.stringify(pkg, null, 2).replace(/[<>&]/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[ch])) + '</pre></details>';
+	    }
+	    async function markSectionReady(section) {
+	      if (!selectedRunId || !section) return;
+	      await api("/api/runs/" + encodeURIComponent(selectedRunId) + "/sections/" + encodeURIComponent(section) + "/mark-ready", {
+	        method: "POST",
+	        headers: { "Content-Type": "application/json" },
+	        body: JSON.stringify({ approved_by: "operator" })
+	      });
+	      await loadRun();
+	    }
+	    async function markSectionBlocked(section) {
+	      if (!selectedRunId || !section) return;
+	      await api("/api/runs/" + encodeURIComponent(selectedRunId) + "/sections/" + encodeURIComponent(section) + "/mark-blocked", {
+	        method: "POST",
+	        headers: { "Content-Type": "application/json" },
+	        body: JSON.stringify({ blocked_by: "operator" })
+	      });
+	      await loadRun();
+	    }
     async function exportAiReviewPackage(section) {
       const data = await api("/api/runs/" + encodeURIComponent(selectedRunId) + "/sections/" + encodeURIComponent(section) + "/ai-review/export", {
         method: "POST",
@@ -1157,9 +1226,51 @@ function dashboardHtml() {
       await api("/api/runs/" + encodeURIComponent(selectedRunId) + "/sections/" + encodeURIComponent(section) + "/ai-review/apply-accepted", { method: "POST" });
       await loadRun();
     }
-    function showError(error) {
-      document.getElementById("stats").innerHTML = '<div class="card"><p class="value">Workbench request failed</p><p class="muted">' + String(error.message || error) + '</p></div>';
-    }
+	    function showError(error) {
+	      document.getElementById("stats").innerHTML = '<div class="card"><p class="value">Workbench request failed</p><p class="muted">' + String(error.message || error) + '</p></div>';
+	    }
+	    function parseCsv(text) {
+	      const rows = [];
+	      let row = [];
+	      let cell = "";
+	      let quoted = false;
+	      for (let i = 0; i < text.length; i++) {
+	        const ch = text[i];
+	        const next = text[i + 1];
+	        if (quoted && ch === '"' && next === '"') { cell += '"'; i++; continue; }
+	        if (ch === '"') { quoted = !quoted; continue; }
+	        if (!quoted && ch === ",") { row.push(cell); cell = ""; continue; }
+	        if (!quoted && (ch === "\\n" || ch === "\\r")) {
+	          if (ch === "\\r" && next === "\\n") i++;
+	          row.push(cell);
+	          if (row.some((value) => value.trim() !== "")) rows.push(row);
+	          row = [];
+	          cell = "";
+	          continue;
+	        }
+	        cell += ch;
+	      }
+	      row.push(cell);
+	      if (row.some((value) => value.trim() !== "")) rows.push(row);
+	      const headers = (rows.shift() || []).map((value) => value.trim());
+	      return rows.map((values) => Object.fromEntries(headers.map((header, index) => [header || "column_" + index, values[index] ?? ""])));
+	    }
+	    async function importCsvFile(kind, file) {
+	      if (!file) return;
+	      const section = document.getElementById("csvSection").value || "catalog";
+	      document.getElementById("csvStatus").textContent = "Reading " + file.name + "...";
+	      const text = await file.text();
+	      const rows = parseCsv(text);
+	      const path = kind === "lightspeed" ? "/api/csv/lightspeed/import" : "/api/csv/counterpoint/import";
+	      const result = await api(path, {
+	        method: "POST",
+	        headers: { "Content-Type": "application/json" },
+	        body: JSON.stringify({ sync_run_id: selectedRunId || undefined, section, file_name: file.name, rows })
+	      });
+	      selectedRunId = result.sync_run_id || selectedRunId;
+	      document.getElementById("csvStatus").textContent = "Imported " + rows.length + " " + kind + " row(s) into " + section + ".";
+	      await refresh();
+	    }
     document.getElementById("saveToken").addEventListener("click", () => { localStorage.setItem("counterpointSyncToken", tokenInput.value); refresh().catch(showError); });
     document.getElementById("refresh").addEventListener("click", () => refresh().catch(showError));
     document.getElementById("export").addEventListener("click", async () => {
@@ -1183,8 +1294,10 @@ function dashboardHtml() {
       document.getElementById("suggestionImport").value = "";
       await loadSuggestions();
     });
-    document.getElementById("reloadSuggestions").addEventListener("click", () => loadSuggestions().catch(showError));
-    refresh().catch((error) => { document.getElementById("stats").innerHTML = '<div class="card"><p class="value">Token required</p><p class="muted">' + error.message + '</p></div>'; });
+	    document.getElementById("reloadSuggestions").addEventListener("click", () => loadSuggestions().catch(showError));
+	    document.getElementById("lightspeedCsv").addEventListener("change", (event) => importCsvFile("lightspeed", event.target.files?.[0]).catch(showError));
+	    document.getElementById("counterpointCsv").addEventListener("change", (event) => importCsvFile("counterpoint", event.target.files?.[0]).catch(showError));
+	    refresh().catch((error) => { document.getElementById("stats").innerHTML = '<div class="card"><p class="value">Token required</p><p class="muted">' + error.message + '</p></div>'; });
   </script>
 </body>
 </html>`;

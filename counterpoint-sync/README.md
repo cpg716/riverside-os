@@ -35,7 +35,7 @@ Open the local review UI at:
 http://127.0.0.1:3015/
 ```
 
-The UI is a local operational dashboard for the Main Hub PC. It shows Workbench health, local store path, backup status, latest Bridge heartbeat, runs, section readiness, warnings, blockers, imported status, package previews, exceptions, and an AI Review placeholder. The AI Review panel is non-mutating; no records are changed automatically.
+The UI is the local preparation workbench for the Main Hub PC. It shows the Bridge heartbeat, local store path, backup status, runs, section readiness, warnings, blockers, imported status, package previews, exceptions, CSV inputs, and AI review controls. Operators can import Lightspeed or Counterpoint CSVs as review sources, preview ROS-ready JSON packages, mark sections ready, or block sections that still need cleanup. The AI Review panel is non-mutating until a human accepts suggestions; no records are changed automatically.
 
 ## No-hardware rehearsal simulator
 

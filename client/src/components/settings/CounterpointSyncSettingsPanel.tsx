@@ -546,7 +546,6 @@ export default function CounterpointSyncSettingsPanel({
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [recoverBatch, setRecoverBatch] = useState<StagingBatchRow | null>(null);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
-  const [inventoryAdvanceAttempted, setInventoryAdvanceAttempted] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<"overview" | "pipeline" | "inbound" | "details" | "ai_review" | "customer_duplicates">(() => {
     if (typeof window === "undefined") return "overview";
     const saved = window.localStorage.getItem("counterpoint.statusSection");
@@ -1732,7 +1731,7 @@ export default function CounterpointSyncSettingsPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Direct SYNC to ROS ingest path
+              Approved package handoff into ROS
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
               Each area is imported only after ROS pulls the selected SYNC JSON package, runs preflight, and the operator confirms the section import.
@@ -1744,12 +1743,12 @@ export default function CounterpointSyncSettingsPanel({
         </div>
         <div className="mt-3 grid gap-2 text-xs md:grid-cols-2 xl:grid-cols-3">
           {[
-            { label: "Customers", section: "customers", path: "Customer package -> customer import batch -> PostgreSQL" },
-            { label: "Inventory", section: "inventory", path: "Inventory package -> inventory import batch -> PostgreSQL" },
-            { label: "Ticket History / Sales Movement", section: "tickets", path: "Ticket package -> sales history import batch -> PostgreSQL" },
-            { label: "Open Orders", section: "open_docs", path: "Open order package -> open-doc import batch -> PostgreSQL" },
-            { label: "Gift Cards", section: "gift_cards", path: "Gift card package -> gift-card import batch -> PostgreSQL" },
-            { label: "Loyalty Points", section: "loyalty_hist", path: "Loyalty package -> loyalty history import batch -> PostgreSQL" },
+            { label: "Customers", section: "customers", path: "SYNC customer package -> ROS customer import batch -> PostgreSQL" },
+            { label: "Inventory", section: "inventory", path: "SYNC inventory package -> ROS inventory import batch -> PostgreSQL" },
+            { label: "Ticket History / Sales Movement", section: "tickets", path: "SYNC ticket package -> ROS sales history import batch -> PostgreSQL" },
+            { label: "Open Orders", section: "open_docs", path: "SYNC open order package -> ROS open-doc import batch -> PostgreSQL" },
+            { label: "Gift Cards", section: "gift_cards", path: "SYNC gift card package -> ROS gift-card import batch -> PostgreSQL" },
+            { label: "Loyalty Points", section: "loyalty_hist", path: "SYNC loyalty package -> ROS loyalty history import batch -> PostgreSQL" },
           ].map((item) => {
             const section = selectedSyncSections.find((row) => row.section === item.section);
             return (
@@ -2047,7 +2046,7 @@ export default function CounterpointSyncSettingsPanel({
               ROS preflight and final proof
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Selected-run proof is scoped by sync_run_id, ros_import_run_id, section, and package fingerprint. General diagnostics are below under Advanced Diagnostics.
+              Selected-run proof is scoped by sync_run_id, ros_import_run_id, section, and package fingerprint. Support diagnostics are below the command center.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -2105,7 +2104,7 @@ export default function CounterpointSyncSettingsPanel({
       {stagingSummaryRows.length > 0 ? (
         <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-200">
-            Staging review
+            ROS support queue diagnostics
           </p>
           <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {stagingSummaryRows.map((row) => {
@@ -2116,13 +2115,13 @@ export default function CounterpointSyncSettingsPanel({
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <div>
                       <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        Queued in staging
+                        Queued in ROS support queue
                       </p>
                       <p className="mt-1 font-black tabular-nums text-app-text">{fmtNum(queuedRows)}</p>
                     </div>
                     <div>
                       <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        Applied from staging
+                        Applied from ROS support queue
                       </p>
                       <p className="mt-1 font-black tabular-nums text-app-text">{fmtNum(row.applied_rows)}</p>
                     </div>
@@ -2143,10 +2142,10 @@ export default function CounterpointSyncSettingsPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Advanced Diagnostics
+              Support Diagnostics
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Support-only diagnostics. Accumulated ROS state and staging rows are not scoped to the selected SYNC run. Use selected-run proof above for import sign-off.
+              Support-only diagnostics. Accumulated ROS state and support queue rows are not scoped to the selected SYNC run. Use selected-run proof above for import sign-off.
             </p>
           </div>
           <button
@@ -2353,7 +2352,7 @@ export default function CounterpointSyncSettingsPanel({
               workspaceView === "details" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
-            Advanced Diagnostics
+            Support Diagnostics
           </button>
           <button
             type="button"
@@ -2459,24 +2458,16 @@ export default function CounterpointSyncSettingsPanel({
                   Accumulated verification
                 </p>
                 <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                  Support-only reconciliation across ROS staging/import state. Use selected-run proof in the Import Command Center for sign-off.
+                  Support-only reconciliation across ROS support/import state. Use selected-run proof in the Import Command Center for sign-off.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setInventoryAdvanceAttempted(true)}
-                disabled={bridgeRowsWithoutReviewSurface}
-                className="ui-btn-primary px-3 py-2 text-xs font-bold disabled:opacity-50"
-              >
-                Advance to inventory mapping
-              </button>
             </div>
 
             {(status?.staging_pending_count ?? 0) > 0 || recentIssueCount > 0 || bridgeRowsWithoutReviewSurface ? (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs font-semibold text-amber-700 dark:text-amber-200">
                 <p className="font-black">Sign-off blockers present</p>
                 {(status?.staging_pending_count ?? 0) > 0 ? (
-                  <p>{fmtNum(status?.staging_pending_count ?? 0)} staging batch(es) are pending review.</p>
+                  <p>{fmtNum(status?.staging_pending_count ?? 0)} ROS support queue batch(es) are pending review.</p>
                 ) : null}
                 {recentIssueCount > 0 ? <p>{fmtNum(recentIssueCount)} unresolved sync issue(s) remain.</p> : null}
                 {missingProofEntityCount > 0 ? (
@@ -2485,15 +2476,6 @@ export default function CounterpointSyncSettingsPanel({
                 {status?.entity_runs?.some((row) => row.last_error) || recentIssueCount > 0 ? (
                   <p>At least one bridge entity still shows an error in the latest visible run.</p>
                 ) : null}
-              </div>
-            ) : null}
-
-            {inventoryAdvanceAttempted && (status?.staging_pending_count ?? batches.length) > 0 && !hasLandedInventory ? (
-              <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-xs font-semibold text-red-600">
-                <p>One-time import is still waiting in staging</p>
-                <p>Nothing has been loaded into ROS catalog tables yet.</p>
-                <p>Previous catalog approval is stale.</p>
-                <p>Previous inventory approval is stale.</p>
               </div>
             ) : null}
 
@@ -2558,7 +2540,7 @@ export default function CounterpointSyncSettingsPanel({
                 bullets: [
                   { id: "bridge_rows", label: `${fmtNum(bridgeReportedRows)} bridge rows sent`, severity: "info" },
                   { id: "ros_landed", label: `${fmtNum(commandLandedTotal)} ROS rows landed`, severity: "info" },
-                  { id: "pending", label: `${fmtNum(status?.staging_pending_count ?? 0)} staging batch(es) pending`, severity: "warning" },
+                  { id: "pending", label: `${fmtNum(status?.staging_pending_count ?? 0)} ROS support queue batch(es) pending`, severity: "warning" },
                 ],
                 disclaimers: [
                   "Do not approve sign-off or declare cutover safe from ROSIE output. Staff must use deterministic proof first.",

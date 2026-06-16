@@ -19,11 +19,14 @@ import {
 
 const BRIDGE_API = "http://localhost:3002";
 const ROS_BASE_URL = "http://localhost:3000";
+const SYNC_WORKBENCH_BASE_URL = "http://127.0.0.1:3015";
 
 interface BridgeSettings {
   sql_conn: string;
   ros_url: string;
   sync_token: string;
+  sync_workbench_url: string;
+  sync_workbench_token: string;
 }
 
 interface EntityStat {
@@ -107,14 +110,16 @@ function App() {
   const [sqlConn, setSqlConn] = useState("");
   const [rosUrl, setRosUrl] = useState("");
   const [syncToken, setSyncToken] = useState("");
+  const [syncWorkbenchUrl, setSyncWorkbenchUrl] = useState("");
+  const [syncWorkbenchToken, setSyncWorkbenchToken] = useState("");
 
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
   const hasRequiredBridgeSettings = useCallback((settings: BridgeSettings) => {
-    const token = settings.sync_token.trim();
+    const token = settings.sync_workbench_token.trim();
     return (
       settings.sql_conn.trim().length > 0 &&
-      settings.ros_url.trim().length > 0 &&
+      settings.sync_workbench_url.trim().length > 0 &&
       token.length > 0 &&
       token !== "change-me-long-random"
     );
@@ -125,14 +130,19 @@ function App() {
     return value.replace(/\/+$/, "");
   }, [rosUrl]);
 
-  const openRosSyncWorkflow = useCallback(async () => {
-    const url = `${normalizedRosUrl}/settings/integrations/counterpoint-sync`;
+  const normalizedSyncWorkbenchUrl = useMemo(() => {
+    const value = syncWorkbenchUrl.trim() || SYNC_WORKBENCH_BASE_URL;
+    return value.replace(/\/+$/, "");
+  }, [syncWorkbenchUrl]);
+
+  const openSyncWorkbench = useCallback(async () => {
+    const url = normalizedSyncWorkbenchUrl;
     try {
       await openUrl(url);
     } catch (e: any) {
-      setStatusMessage(`Could not open Riverside OS Sync Workflow: ${e?.message ?? String(e)}`);
+      setStatusMessage(`Could not open Counterpoint SYNC Workbench: ${e?.message ?? String(e)}`);
     }
-  }, [normalizedRosUrl]);
+  }, [normalizedSyncWorkbenchUrl]);
 
   const loadEnvSettings = useCallback(async (): Promise<BridgeSettings | null> => {
     try {
@@ -140,6 +150,8 @@ function App() {
       setSqlConn(data.sql_conn);
       setRosUrl(data.ros_url);
       setSyncToken(data.sync_token);
+      setSyncWorkbenchUrl(data.sync_workbench_url);
+      setSyncWorkbenchToken(data.sync_workbench_token);
       return data;
     } catch (e: any) {
       console.error("Failed to load settings:", e);
@@ -150,16 +162,18 @@ function App() {
 
   const handleSaveSettings = async () => {
     try {
-      const nextSettings = { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken };
+      const nextSettings = { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken, sync_workbench_url: syncWorkbenchUrl, sync_workbench_token: syncWorkbenchToken };
       if (!hasRequiredBridgeSettings(nextSettings)) {
-        setStatusMessage("Enter SQL connection, Main Hub URL, and real sync token before starting the bridge.");
+        setStatusMessage("Enter SQL connection, SYNC Workbench URL, and real SYNC Workbench token before starting the bridge.");
         return;
       }
       setStatusMessage("Saving bridge connection settings...");
       const result = await invoke<string>("save_settings", {
         sqlConn,
         rosUrl,
-        syncToken
+        syncToken,
+        syncWorkbenchUrl,
+        syncWorkbenchToken
       });
       setStatusMessage(result);
       // Restart the bridge to pick up new config
@@ -178,7 +192,7 @@ function App() {
       if (settings && hasRequiredBridgeSettings(settings)) {
         setStatusMessage("Bridge configuration loaded. Click Start Engine when ready.");
       } else {
-        setStatusMessage("Bridge configuration is incomplete. Enter the SQL connection, Main Hub URL, and sync token, then Save Configuration.");
+        setStatusMessage("Bridge configuration is incomplete. Enter the SQL connection, SYNC Workbench URL, and SYNC Workbench token, then Save Configuration.");
       }
     })();
     return () => {
@@ -257,10 +271,10 @@ function App() {
 
   const handleStartBridge = async (isDry = dryRun, settingsOverride?: BridgeSettings) => {
     try {
-      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken };
+      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken, sync_workbench_url: syncWorkbenchUrl, sync_workbench_token: syncWorkbenchToken };
       if (!hasRequiredBridgeSettings(nextSettings)) {
         setActiveTab("settings");
-        setStatusMessage("Enter SQL connection, Main Hub URL, and real sync token before starting the bridge.");
+        setStatusMessage("Enter SQL connection, SYNC Workbench URL, and real SYNC Workbench token before starting the bridge.");
         return;
       }
       setStatusMessage("Starting background sync engine...");
@@ -326,7 +340,9 @@ function App() {
       setStatusMessage("Starting full Counterpoint extraction...");
       setSyncProgress(0);
       const res = await fetch(`${BRIDGE_API}/api/trigger-entity?name=full`);
-      if (!res.ok) throw new Error('Failed to trigger sync');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to trigger extraction');
+      setStatusMessage("Counterpoint extraction started. Raw batches will land in the SYNC Workbench.");
     } catch (e: any) {
       setStatusMessage(`Failed to trigger sync: ${e.message}`);
     }
@@ -338,7 +354,9 @@ function App() {
       setStatusMessage(`Extracting ${key}...`);
       setSyncProgress(0);
       const res = await fetch(`${BRIDGE_API}/api/trigger-entity?name=${key}`);
-      if (!res.ok) throw new Error('Failed to trigger sync');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to trigger extraction');
+      setStatusMessage(`${key} extraction started. Raw batches will land in the SYNC Workbench.`);
     } catch (e: any) {
       setStatusMessage(`Failed to trigger ${key} sync: ${e.message}`);
     }
@@ -440,7 +458,7 @@ function App() {
           </div>
           <div>
             <h1 className="text-sm font-extrabold tracking-wider uppercase text-white">Riverside Countersync</h1>
-            <p className="text-[10px] text-gray-500 font-medium">Counterpoint SQL → ROS Extraction Bridge</p>
+            <p className="text-[10px] text-gray-500 font-medium">Counterpoint SQL → SYNC Workbench Extractor</p>
           </div>
         </div>
 
@@ -539,18 +557,20 @@ function App() {
 
           <div className="mt-auto flex flex-col gap-3">
             <button
-              onClick={() => void openRosSyncWorkflow()}
+              onClick={() => void openSyncWorkbench()}
               className="flex items-center justify-center gap-2 px-4 py-3 bg-linear-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-xs font-bold uppercase rounded-xl transition-all shadow-lg shadow-orange-500/20"
             >
               <ArrowUpRight className="w-4 h-4" />
-              Open Riverside OS Sync Workflow
+              Open Counterpoint SYNC Workbench
             </button>
             <div className="p-4 rounded-xl bg-[#161922] border border-white/5 text-[10px] text-gray-500">
               <div className="font-semibold text-gray-400 mb-1">Local Bridge API</div>
               <div>Listening on:</div>
               <div className="font-mono text-[#f97316] mt-0.5">{BRIDGE_API}</div>
-              <div className="font-semibold text-gray-400 mt-3 mb-1">Main Hub Workflow</div>
-              <div className="font-mono text-[#f97316] mt-0.5 break-all">{normalizedRosUrl}</div>
+              <div className="font-semibold text-gray-400 mt-3 mb-1">SYNC Workbench</div>
+              <div className="font-mono text-[#f97316] mt-0.5 break-all">{normalizedSyncWorkbenchUrl}</div>
+              <div className="font-semibold text-gray-400 mt-3 mb-1">ROS Final Importer</div>
+              <div className="font-mono text-gray-400 mt-0.5 break-all">{normalizedRosUrl}</div>
             </div>
             <div className="p-4 rounded-xl bg-[#161922] border border-white/5 text-[10px] text-gray-500">
               <div className="font-semibold text-gray-400 mb-1">Bridge GUI Update</div>
@@ -588,12 +608,12 @@ function App() {
               {/* Stats Bar */}
               <div className="grid grid-cols-4 gap-4">
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Sync State</div>
+	                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Extraction State</div>
                   <div className="text-lg font-bold text-white mt-1 flex items-center gap-2">
                     {bridgeState?.isSyncing ? (
                       <>
                         <RefreshCw className="w-4 h-4 text-orange-500 animate-spin" />
-                        Syncing
+	                        Extracting
                       </>
                     ) : (
                       <>
@@ -604,13 +624,13 @@ function App() {
                   </div>
                 </div>
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Records Last Sync</div>
+	                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Records Last Extraction</div>
                   <div className="text-lg font-bold text-orange-500 mt-1">
                     {bridgeState?.totalRecordsLastRun?.toLocaleString() ?? "—"}
                   </div>
                 </div>
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Sync Duration</div>
+	                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Extraction Duration</div>
                   <div className="text-lg font-bold text-white mt-1">
                     {fmtDuration(bridgeState?.lastRunDurationMs ?? 0)}
                   </div>
@@ -618,7 +638,7 @@ function App() {
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl flex items-center justify-between">
                   <div>
                     <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Run Full Extraction</div>
-                    <div className="text-[10px] text-gray-400 mt-0.5">Iterates all entities</div>
+	                    <div className="text-[10px] text-gray-400 mt-0.5">Sends raw batches to SYNC</div>
                   </div>
                   <button
                     onClick={triggerFullSync}
@@ -680,7 +700,7 @@ function App() {
               {/* Entity Breakdown Table */}
               <div className="bg-[#0f1117] border border-white/5 rounded-xl overflow-hidden">
                 <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
-                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-white">Sync Schema Entities</h3>
+	                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-white">Counterpoint Extraction Entities</h3>
                   {dryRun && <span className="text-[10px] text-amber-400 font-bold uppercase tracking-widest bg-amber-500/10 px-2 py-0.5 rounded">DRY RUN PREVENTING WRITES</span>}
                 </div>
                 <div className="divide-y divide-white/5 max-h-[500px] overflow-y-auto">
@@ -719,7 +739,7 @@ function App() {
           {activeTab === "settings" && (
             <div className="flex flex-col gap-6 max-w-3xl">
               <div className="bg-[#0f1117] border border-white/5 rounded-xl p-6 flex flex-col gap-4">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-white border-b border-white/5 pb-3">Bridge Config & Schema Alignment</h3>
+	                <h3 className="text-xs font-extrabold uppercase tracking-wider text-white border-b border-white/5 pb-3">Bridge Config & SYNC Workbench Target</h3>
 
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">SQL Server Connection String</label>
@@ -732,28 +752,51 @@ function App() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Riverside OS Base URL</label>
-                    <input
-                      type="text"
-                      value={rosUrl}
+	                <div className="grid grid-cols-2 gap-4">
+	                  <div className="flex flex-col gap-1">
+	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Main Hub SYNC Workbench URL</label>
+	                    <input
+	                      type="text"
+	                      value={syncWorkbenchUrl}
+	                      placeholder="http://127.0.0.1:3015"
+	                      onChange={(e) => setSyncWorkbenchUrl(e.target.value)}
+	                      className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
+	                    />
+	                  </div>
+	                  <div className="flex flex-col gap-1">
+	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">SYNC Workbench Token</label>
+	                    <input
+	                      type="password"
+	                      value={syncWorkbenchToken}
+	                      placeholder="COUNTERPOINT_SYNC_WORKBENCH_TOKEN"
+	                      onChange={(e) => setSyncWorkbenchToken(e.target.value)}
+	                      className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
+	                    />
+	                  </div>
+	                </div>
+
+	                <div className="grid grid-cols-2 gap-4">
+	                  <div className="flex flex-col gap-1">
+	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">ROS Base URL (final importer link)</label>
+	                    <input
+	                      type="text"
+	                      value={rosUrl}
                       placeholder="http://localhost:3000"
                       onChange={(e) => setRosUrl(e.target.value)}
                       className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
                     />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Sync Security Token</label>
-                    <input
-                      type="password"
-                      value={syncToken}
-                      placeholder="x-ros-sync-token"
-                      onChange={(e) => setSyncToken(e.target.value)}
-                      className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
-                    />
-                  </div>
-                </div>
+	                  </div>
+	                  <div className="flex flex-col gap-1">
+	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">ROS Sync Token (compatibility only)</label>
+	                    <input
+	                      type="password"
+	                      value={syncToken}
+	                      placeholder="Optional direct ROS compatibility token"
+	                      onChange={(e) => setSyncToken(e.target.value)}
+	                      className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
+	                    />
+	                  </div>
+	                </div>
 
                 <div className="flex gap-3 justify-end mt-4">
                   <button

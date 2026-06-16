@@ -30,12 +30,12 @@ Use this panel to verify facts. ROSIE can explain displayed facts only; it does 
 1. Save the **Counterpoint SYNC Connection** credentials at the top of the panel: Bridge token, SYNC Workbench URL, and SYNC Workbench token.
 2. Confirm **Counterpoint Bridge heartbeat** for extraction status and **Counterpoint SYNC app connection** for prepared-run access.
 3. In **Import runs from Counterpoint SYNC**, select the prepared run created in the SYNC Workbench.
-4. Use **Direct SYNC to ROS ingest path** to confirm the selected run includes the expected business areas: Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points.
+4. Use **Approved package handoff into ROS** to confirm the selected run includes the expected business areas: Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points.
 5. Review each section's SYNC status, source count, prepared count, warnings, blockers, ROS preflight state, ROS import state, and package fingerprint.
 6. Use **ROS Preflight** for the selected section/package before importing.
 7. Use **Import Section** only after blockers are zero, ROS preflight says the selected package is ready, and the confirmation modal shows the expected run, section, records, warnings, and blockers.
 8. Review ROS Import exceptions and final proof before sign-off reconciliation.
-9. Use **Advanced Diagnostics** only when mapping, quarantine, or review blockers need manual resolution.
+9. Use **Support Diagnostics** only when deployment or recovery blockers need manual resolution.
 
 If a failed support-queue batch has been reviewed and successfully replayed into a newer import run, use **Discard** to remove the stale failed row from active blockers while preserving the original audit record.
 
