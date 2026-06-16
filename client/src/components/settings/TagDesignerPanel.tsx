@@ -1,21 +1,35 @@
-import { useMemo, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   Eye,
-  LayoutTemplate,
+  Move,
+  Printer,
   RotateCcw,
   Save,
   Tag,
-  DollarSign,
-  Type,
-  Printer,
 } from "lucide-react";
 import {
+  type CSSProperties,
+  type PointerEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  type CustomTagLayout,
   type InventoryTagItem,
   type InventoryTagPrintConfig,
-  type TagLayoutId,
-  TAG_LAYOUTS,
+  type TagElementDirection,
+  type TagElementId,
+  type TagElementLayout,
+  TAG_ELEMENT_LABELS,
+  TAG_ELEMENT_ORDER,
   buildInventoryTagFooterLine,
+  defaultCustomTagLayout,
+  defaultSaleCustomTagLayout,
   getInventoryTagPrintConfig,
   openInventoryTagsPreviewWindow,
   openInventoryTagsWindow,
@@ -23,54 +37,47 @@ import {
 } from "../inventory/labelPrint";
 import { useToast } from "../ui/ToastProviderLogic";
 
-const SAMPLE_ITEMS: InventoryTagItem[] = [
-  {
-    sku: "SUIT-4402-NVY-40R",
-    productName: "Hudson Peak Stretch Suit",
-    variation: "Navy / 40R",
-    brand: "Riverside Black",
-    price: "$249.00",
-    regularPrice: null,
-    salePrice: null,
-  },
-  {
-    sku: "SHOE-220-BLK-11",
-    productName: "Cap Toe Oxford",
-    variation: "Black / 11",
-    brand: "Riverside Formal",
-    price: "$119.00",
-    regularPrice: "$149.00",
-    salePrice: "$119.00",
-  },
-];
+const TEST_PRINT_ITEM: InventoryTagItem = {
+  sku: "B-123456",
+  productName: "HSM SLACKS (Custom)",
+  variation: "Standard",
+  brand: "Hart Schaffner Marx",
+  price: "$0.00",
+  regularPrice: null,
+  salePrice: null,
+};
 
-const TEST_PRINT_ITEMS: InventoryTagItem[] = [
-  {
-    sku: "B-123456",
-    productName: "HSM SLACKS (Custom)",
-    variation: "Standard",
-    brand: "Hart Schaffner Marx",
-    price: "$0.00",
-    regularPrice: null,
-    salePrice: null,
-  },
-];
+const SALE_TEST_PRINT_ITEM: InventoryTagItem = {
+  ...TEST_PRINT_ITEM,
+  price: "$119.00",
+  regularPrice: "$149.00",
+  salePrice: "$119.00",
+};
 
 const LP_2844_RETAIL_TAG_WIDTH = 2.25;
 const LP_2844_RETAIL_TAG_HEIGHT = 1.25;
 
+const CODE128: Record<number, string> = {32:"212222",33:"222122",34:"222221",35:"121223",36:"121322",37:"131222",38:"122213",39:"122312",40:"132212",41:"221213",42:"221312",43:"231212",44:"112232",45:"122132",46:"122231",47:"113222",48:"123122",49:"123221",50:"223211",51:"221132",52:"221231",53:"213212",54:"223112",55:"312131",56:"311222",57:"312212",58:"322112",59:"322211",60:"212123",61:"212321",62:"232121",63:"111323",64:"131123",65:"131321",66:"112313",67:"132113",68:"132311",69:"211313",70:"231113",71:"231311",72:"112133",73:"112331",74:"132131",75:"113123",76:"113321",77:"133121",78:"313121",79:"211331",80:"231131",81:"213113",82:"213311",83:"213131",84:"311123",85:"311321",86:"331121",87:"312113",88:"312311",89:"332111",90:"314111",91:"221411",92:"431111",93:"111224",94:"111422",95:"121124",96:"121421",97:"141122",98:"141221",99:"112214",100:"112412",101:"122114",102:"122411",103:"142112",104:"142211",105:"241211",106:"221114",107:"413111",108:"241112",109:"134111",110:"111242",111:"121142",112:"121241",113:"114212",114:"124112",115:"124211",116:"411212",117:"421112",118:"421211",119:"212141",120:"214121",121:"412121",122:"111143",123:"111341",124:"131141",125:"114113",126:"114311",127:"411113",128:"411311"};
+
+function clampPct(value: number, min = 0, max = 100): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
 function normalizeConfig(config: InventoryTagPrintConfig): InventoryTagPrintConfig {
   const widthInches = Number.isFinite(config.widthInches)
     ? Math.min(6, Math.max(2, config.widthInches))
-    : 4;
+    : LP_2844_RETAIL_TAG_WIDTH;
   const heightInches = Number.isFinite(config.heightInches)
     ? Math.min(4, Math.max(1.25, config.heightInches))
-    : 2.5;
+    : LP_2844_RETAIL_TAG_HEIGHT;
   return {
     ...config,
     widthInches,
     heightInches,
     footerText: config.footerText.trim() || "Riverside Men's Shop",
+    customLayout: config.customLayout ?? defaultCustomTagLayout(),
+    saleCustomLayout: config.saleCustomLayout ?? defaultSaleCustomTagLayout(),
   };
 }
 
@@ -79,283 +86,180 @@ function parseDimensionInput(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-/* ── Code 128-B barcode SVG (deterministic, proper encoding) ── */
-const CODE128: Record<number, string> = {32:"212222",33:"222122",34:"222221",35:"121223",36:"121322",37:"131222",38:"122213",39:"122312",40:"132212",41:"221213",42:"221312",43:"231212",44:"112232",45:"122132",46:"122231",47:"113222",48:"123122",49:"123221",50:"223211",51:"221132",52:"221231",53:"213212",54:"223112",55:"312131",56:"311222",57:"312212",58:"322112",59:"322211",60:"212123",61:"212321",62:"232121",63:"111323",64:"131123",65:"131321",66:"112313",67:"132113",68:"132311",69:"211313",70:"231113",71:"231311",72:"112133",73:"112331",74:"132131",75:"113123",76:"113321",77:"133121",78:"313121",79:"211331",80:"231131",81:"213113",82:"213311",83:"213131",84:"311123",85:"311321",86:"331121",87:"312113",88:"312311",89:"332111",90:"314111",91:"221411",92:"431111",93:"111224",94:"111422",95:"121124",96:"121421",97:"141122",98:"141221",99:"112214",100:"112412",101:"122114",102:"122411",103:"142112",104:"142211",105:"241211",106:"221114",107:"413111",108:"241112",109:"134111",110:"111242",111:"121142",112:"121241",113:"114212",114:"124112",115:"124211",116:"411212",117:"421112",118:"421211",119:"212141",120:"214121",121:"412121",122:"111143",123:"111341",124:"131141",125:"114113",126:"114311",127:"411113",128:"411311"};
+function getLayout(config: InventoryTagPrintConfig, mode: "regular" | "sale"): CustomTagLayout {
+  return mode === "sale"
+    ? config.saleCustomLayout ?? defaultSaleCustomTagLayout()
+    : config.customLayout ?? defaultCustomTagLayout();
+}
+
+function visibleField(id: TagElementId, config: InventoryTagPrintConfig): boolean {
+  if (id === "sku") return config.showSku;
+  if (id === "productName") return config.showProductName;
+  if (id === "variation") return config.showVariation;
+  if (id === "brand") return config.showBrand;
+  if (id === "price") return config.showPrice;
+  if (id === "regularPrice" || id === "savings") return config.showPrice && config.showPromoPrice;
+  if (id === "barcode") return config.showBarcode;
+  return true;
+}
+
+function fieldValue(
+  id: TagElementId,
+  item: InventoryTagItem,
+  config: InventoryTagPrintConfig,
+  footer: string,
+): string {
+  if (!visibleField(id, config)) return "";
+  if (id === "sku") return item.sku;
+  if (id === "productName") return item.productName;
+  if (id === "variation") return item.variation?.trim() || "Standard";
+  if (id === "brand") return item.brand?.trim() || "";
+  if (id === "price") return item.salePrice?.trim() || item.price?.trim() || "";
+  if (id === "regularPrice") return item.salePrice && item.regularPrice ? `Reg ${item.regularPrice}` : "";
+  if (id === "savings") {
+    if (!item.salePrice || !item.regularPrice) return "";
+    const regular = Number.parseFloat(item.regularPrice.replace(/[^0-9.]/g, ""));
+    const sale = Number.parseFloat(item.salePrice.replace(/[^0-9.]/g, ""));
+    if (!Number.isFinite(regular) || !Number.isFinite(sale) || regular <= sale) return "";
+    return `Save $${(regular - sale).toFixed(2)}`;
+  }
+  if (id === "barcode") return item.sku;
+  return footer;
+}
 
 function encodeCode128(text: string): string {
   const startCode = 104;
   let checksum = startCode;
-  let bars = CODE128[startCode];
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i) - 32;
-    checksum += (i + 1) * c;
-    bars += CODE128[c + 32];
+  let bars = CODE128[startCode] ?? "";
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    const normalized = code >= 32 && code <= 128 ? code : 32;
+    const value = normalized - 32;
+    checksum += (i + 1) * value;
+    bars += CODE128[value + 32] ?? CODE128[32];
   }
-  bars += CODE128[checksum % 103];
-  bars += CODE128[106];
+  bars += CODE128[checksum % 103] ?? "";
+  bars += CODE128[106] ?? "";
   return bars;
 }
 
-function BarcodeSvg({ text, className, style }: { text: string; className?: string; style?: React.CSSProperties }) {
+function BarcodeSvg({ text }: { text: string }) {
   const bars = encodeCode128(text);
   let totalWidth = 0;
-  for (let i = 0; i < bars.length; i++) totalWidth += parseInt(bars[i]);
+  for (let i = 0; i < bars.length; i += 1) totalWidth += Number.parseInt(bars[i] ?? "0", 10);
 
   let x = 0;
   let d = "";
-  for (let i = 0; i < bars.length; i++) {
-    const w = parseInt(bars[i]);
+  for (let i = 0; i < bars.length; i += 1) {
+    const w = Number.parseInt(bars[i] ?? "0", 10);
     if (i % 2 === 0) d += `M${x} 0h${w}v50h-${w}z`;
     x += w;
   }
 
   return (
-    <svg viewBox={`0 0 ${totalWidth} 50`} preserveAspectRatio="none" className={className} style={{ width: "100%", height: "100%", ...style }}>
+    <svg viewBox={`0 0 ${totalWidth} 50`} preserveAspectRatio="none" className="h-full w-full text-black">
       <path d={d} fill="currentColor" />
     </svg>
   );
 }
 
-/* ── Preview sub-components ── */
-
-/*
- * ── Tag preview architecture ──
- *
- * Every tag preview is a simple stacked list of lines inside a fixed-height box.
- * No flex tricks, no absolute positioning, no spacers.
- * Each line is a plain div with overflow-hidden and text-ellipsis.
- * The outer box clips anything that overflows.
- *
- * For layouts with a horizontal barcode (standard, price-hero, barcode-bottom):
- *   [content area] + [barcode strip at bottom]
- *
- * For layouts with a vertical barcode (barcode-left, barcode-right):
- *   [barcode column] + [content area]   (or reversed)
- *
- * Compact: two columns side by side.
- */
-
-const TAG_PX = 300;
-function tagH(c: InventoryTagPrintConfig): number {
-  return Math.round(TAG_PX * (Math.max(1, c.heightInches || 2.5) / Math.max(2, c.widthInches || 4)));
+function elementStyle(element: TagElementLayout): CSSProperties {
+  const rotate = element.direction === "rotated-left"
+    ? "rotate(-90deg)"
+    : element.direction === "rotated-right"
+      ? "rotate(90deg)"
+      : undefined;
+  return {
+    left: `${element.xPct}%`,
+    top: `${element.yPct}%`,
+    width: `${element.wPct}%`,
+    height: `${element.hPct}%`,
+    transform: rotate,
+  };
 }
 
-function TagLine({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={`truncate ${className ?? ""}`}>{children}</div>;
-}
-
-function InfoLines({ item, config }: { item: InventoryTagItem; config: InventoryTagPrintConfig }) {
-  return (
-    <>
-      {config.showSku && <TagLine className="text-[11px] font-extrabold uppercase tracking-wide text-black">{item.sku}</TagLine>}
-      {config.showProductName && <TagLine className="text-[14px] font-black leading-snug text-black">{item.productName}</TagLine>}
-      {config.showVariation && <TagLine className="text-[11px] font-bold text-black">{item.variation}</TagLine>}
-      {config.showBrand && item.brand && <TagLine className="text-[10px] font-bold uppercase tracking-wide text-black">{item.brand}</TagLine>}
-    </>
-  );
-}
-
-function PriceLines({ item, config, sizeOverride }: { item: InventoryTagItem; config: InventoryTagPrintConfig; sizeOverride?: string }) {
-  if (!config.showPrice) return null;
-  const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
-  const sz = sizeOverride ?? (config.priceSize === "large" ? "text-[24px]" : "text-[16px]");
-  if (isPromo) {
-    const rn = parseFloat(item.regularPrice!.replace(/[^0-9.]/g, ""));
-    const sn = parseFloat(item.salePrice!.replace(/[^0-9.]/g, ""));
-    const sav = isFinite(rn) && isFinite(sn) && rn > sn ? `$${(rn - sn).toFixed(2)}` : "";
-    return (
-      <div className="truncate">
-        <span className="text-[10px] font-bold text-black line-through">Reg {item.regularPrice}</span>
-        {sav && <span className="ml-1 text-[10px] font-bold text-black">You save {sav}</span>}
-        <div className={`${sz} font-black text-black leading-none`}>{item.salePrice}</div>
-      </div>
-    );
+function elementClass(id: TagElementId, config: InventoryTagPrintConfig): string {
+  if (id === "price") {
+    return config.priceSize === "large"
+      ? "text-[34px] font-black leading-none"
+      : "text-[22px] font-black leading-none";
   }
-  const p = item.price?.trim();
-  if (!p) return null;
-  return <TagLine className={`${sz} font-black text-black`}>{p}</TagLine>;
+  if (id === "productName") return "text-[16px] font-black leading-tight";
+  if (id === "regularPrice" || id === "savings") return "text-[10px] font-black uppercase leading-tight";
+  if (id === "brand" || id === "footer") return "text-[10px] font-extrabold leading-tight";
+  return "text-[12px] font-extrabold leading-tight";
 }
 
-function FooterLine({ text }: { text: string }) {
-  if (!text.trim()) return null;
-  return <TagLine className="text-[8px] font-bold uppercase tracking-widest text-black">{text}</TagLine>;
-}
-
-function HBarcodeRow({ sku }: { sku: string }) {
-  return (
-    <div className="flex items-center gap-1 border-t border-black/20 px-2 py-0.5" style={{ height: 32 }}>
-      <BarcodeSvg text={sku} className="h-[22px] flex-1 text-black" />
-      <span className="shrink-0 text-[10px] font-bold text-black">{sku}</span>
-    </div>
-  );
-}
-
-function VBarcodeCol({ sku, side }: { sku: string; side: "left" | "right" }) {
-  const border = side === "left" ? "border-r" : "border-l";
-  return (
-    <div className={`flex ${border} border-black/20 bg-white`} style={{ width: 56 }}>
-      <div className="flex w-[16px] items-center justify-center">
-        <span className="text-[8px] font-extrabold tracking-wider text-black whitespace-nowrap" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>{sku}</span>
-      </div>
-      <div className="relative flex-1 overflow-hidden">
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div style={{ width: "140%", transform: "rotate(90deg)" }}>
-            <BarcodeSvg text={sku} className="text-black" style={{ height: 36 }} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── 6 layout renderers ── */
-
-const tagCls = "rounded border border-black bg-white overflow-hidden";
-
-/** Standard: info top, price+footer bottom, barcode strip at very bottom */
-function TagPreviewStandard({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
-  return (
-    <div className={tagCls} style={{ height: tagH(config) }}>
-      <div className="flex h-full flex-col">
-        <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
-          <div><InfoLines item={item} config={config} /></div>
-          <div><PriceLines item={item} config={config} /><FooterLine text={footer} /></div>
-        </div>
-        {config.showBarcode && <HBarcodeRow sku={item.sku} />}
-      </div>
-    </div>
-  );
-}
-
-/** Price Hero: price banner at top, info+footer fill rest, barcode at bottom */
-function TagPreviewPriceHero({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
-  return (
-    <div className={tagCls} style={{ height: tagH(config) }}>
-      <div className="flex h-full flex-col">
-        <div className="shrink-0 border-b border-black/10 px-1.5 py-1">
-          <PriceLines item={item} config={config} sizeOverride={config.priceSize === "large" ? "text-[24px]" : "text-[16px]"} />
-        </div>
-        <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
-          <div><InfoLines item={item} config={config} /></div>
-          <FooterLine text={footer} />
-        </div>
-        {config.showBarcode && <HBarcodeRow sku={item.sku} />}
-      </div>
-    </div>
-  );
-}
-
-/** Barcode Left: vertical barcode on left, content fills rest */
-function TagPreviewBarcodeLeft({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
-  return (
-    <div className={`flex ${tagCls}`} style={{ height: tagH(config) }}>
-      {config.showBarcode && <VBarcodeCol sku={item.sku} side="left" />}
-      <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
-        <div><InfoLines item={item} config={config} /></div>
-        <div><PriceLines item={item} config={config} /><FooterLine text={footer} /></div>
-      </div>
-    </div>
-  );
-}
-
-/** Barcode Right: content on left, vertical barcode on right */
-function TagPreviewBarcodeRight({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
-  return (
-    <div className={`flex ${tagCls}`} style={{ height: tagH(config) }}>
-      <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
-        <div><InfoLines item={item} config={config} /></div>
-        <div><PriceLines item={item} config={config} /><FooterLine text={footer} /></div>
-      </div>
-      {config.showBarcode && <VBarcodeCol sku={item.sku} side="right" />}
-    </div>
-  );
-}
-
-/** Barcode Bottom: like standard but barcode strip is full-width at bottom */
-function TagPreviewBarcodeBottom({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
-  return (
-    <div className={tagCls} style={{ height: tagH(config) }}>
-      <div className="flex h-full flex-col">
-        <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
-          <div><InfoLines item={item} config={config} /></div>
-          <div><PriceLines item={item} config={config} /><FooterLine text={footer} /></div>
-        </div>
-        {config.showBarcode && <HBarcodeRow sku={item.sku} />}
-      </div>
-    </div>
-  );
-}
-
-/** Compact: two-column, info left, price+barcode right */
-function TagPreviewCompact({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
-  return (
-    <div className={`flex ${tagCls}`} style={{ height: tagH(config) }}>
-      <div className="flex flex-1 flex-col justify-between overflow-hidden p-1.5">
-        <div><InfoLines item={item} config={config} /></div>
-        <FooterLine text={footer} />
-      </div>
-      <div className="flex flex-col justify-between overflow-hidden border-l border-black/20 p-1.5 text-right" style={{ width: "40%" }}>
-        <PriceLines item={item} config={config} />
-        {config.showBarcode && (
-          <div>
-            <BarcodeSvg text={item.sku} className="h-[22px] w-full text-black" />
-            <div className="text-[9px] font-bold text-black">{item.sku}</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function TagPreview({ item, config, footer }: { item: InventoryTagItem; config: InventoryTagPrintConfig; footer: string }) {
-  switch (config.tagLayout) {
-    case "price-hero": return <TagPreviewPriceHero item={item} config={config} footer={footer} />;
-    case "barcode-left": return <TagPreviewBarcodeLeft item={item} config={config} footer={footer} />;
-    case "barcode-right": return <TagPreviewBarcodeRight item={item} config={config} footer={footer} />;
-    case "barcode-bottom": return <TagPreviewBarcodeBottom item={item} config={config} footer={footer} />;
-    case "compact": return <TagPreviewCompact item={item} config={config} footer={footer} />;
-    default: return <TagPreviewStandard item={item} config={config} footer={footer} />;
-  }
-}
-
-/* ── Layout picker thumbnails ── */
-
-function LayoutThumb({ id }: { id: TagLayoutId }) {
-  const bar = <div className="h-[6px] rounded-sm bg-slate-300" />;
-  const bc = <div className="flex gap-px">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-[8px] bg-slate-400" style={{ width: i % 2 === 0 ? 2 : 1 }} />)}</div>;
-  switch (id) {
-    case "standard":
-      return <div className="flex h-full flex-col justify-between gap-1 p-1.5"><div className="space-y-1">{bar}<div className="h-[4px] w-3/4 rounded-sm bg-slate-200" />{bar}</div><div className="mt-auto">{bc}</div></div>;
-    case "price-hero":
-      return <div className="flex h-full flex-col gap-1 p-1.5"><div className="h-[10px] w-2/3 rounded-sm bg-slate-500" /><div className="space-y-1">{bar}<div className="h-[4px] w-3/4 rounded-sm bg-slate-200" /></div><div className="mt-auto">{bc}</div></div>;
-    case "barcode-left":
-      return <div className="flex h-full gap-1 p-1.5"><div className="flex w-3 flex-col items-center gap-px py-0.5">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="w-full bg-slate-400" style={{ height: i % 2 === 0 ? 2 : 1 }} />)}</div><div className="flex flex-1 flex-col gap-1">{bar}{bar}<div className="h-[4px] w-2/3 rounded-sm bg-slate-200" /></div></div>;
-    case "barcode-right":
-      return <div className="flex h-full gap-1 p-1.5"><div className="flex flex-1 flex-col gap-1">{bar}{bar}<div className="h-[4px] w-2/3 rounded-sm bg-slate-200" /></div><div className="flex w-3 flex-col items-center gap-px py-0.5">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="w-full bg-slate-400" style={{ height: i % 2 === 0 ? 2 : 1 }} />)}</div></div>;
-    case "barcode-bottom":
-      return <div className="flex h-full flex-col gap-1 p-1.5"><div className="flex-1 space-y-1">{bar}{bar}<div className="h-[4px] w-2/3 rounded-sm bg-slate-200" /></div><div className="mt-auto border-t border-slate-200 pt-1">{bc}</div></div>;
-    case "compact":
-      return <div className="flex h-full gap-1 p-1.5"><div className="flex flex-1 flex-col gap-1">{bar}<div className="h-[4px] w-3/4 rounded-sm bg-slate-200" /></div><div className="flex w-[40%] flex-col items-end gap-1 border-l border-slate-200 pl-1"><div className="h-[8px] w-full rounded-sm bg-slate-400" />{bc}</div></div>;
-  }
-}
-
-/* ── Main panel ── */
+type DragState = {
+  id: TagElementId;
+  startX: number;
+  startY: number;
+  start: TagElementLayout;
+  rect: DOMRect;
+};
 
 export default function TagDesignerPanel() {
   const { toast } = useToast();
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const [selectedId, setSelectedId] = useState<TagElementId>("price");
+  const [previewMode, setPreviewMode] = useState<"regular" | "sale">("regular");
   const [draft, setDraft] = useState<InventoryTagPrintConfig>(() => getInventoryTagPrintConfig());
-
-  const normalizedDraft = useMemo(() => normalizeConfig(draft), [draft]);
   const savedConfig = useMemo(() => getInventoryTagPrintConfig(), []);
   const [baselineConfig, setBaselineConfig] = useState<InventoryTagPrintConfig>(savedConfig);
 
+  const normalizedDraft = useMemo(() => normalizeConfig(draft), [draft]);
+  const layout = getLayout(normalizedDraft, previewMode);
+  const selectedElement = layout.elements[selectedId];
+  const footerLine = buildInventoryTagFooterLine(normalizedDraft.footerText);
+  const previewItem = previewMode === "sale" ? SALE_TEST_PRINT_ITEM : TEST_PRINT_ITEM;
   const hasChanges = JSON.stringify(normalizedDraft) !== JSON.stringify(baselineConfig);
   const desktopApp = isTauri();
-  const possibleTwoTagHeight =
-    normalizedDraft.widthInches <= 2.5 && normalizedDraft.heightInches > 1.5;
 
   const updateDraft = <K extends keyof InventoryTagPrintConfig>(key: K, value: InventoryTagPrintConfig[K]) => {
     setDraft((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateElement = (id: TagElementId, patch: Partial<TagElementLayout>) => {
+    setDraft((prev) => {
+      const layoutKey = previewMode === "sale" ? "saleCustomLayout" : "customLayout";
+      const current = getLayout(prev, previewMode);
+      const existing = current.elements[id];
+      const nextX = clampPct(patch.xPct ?? existing.xPct);
+      const nextY = clampPct(patch.yPct ?? existing.yPct);
+      const nextW = Math.min(100 - nextX, Math.max(3, clampPct(patch.wPct ?? existing.wPct)));
+      const nextH = Math.min(100 - nextY, Math.max(3, clampPct(patch.hPct ?? existing.hPct)));
+      return {
+        ...prev,
+        [layoutKey]: {
+          elements: {
+            ...current.elements,
+            [id]: {
+              ...existing,
+              ...patch,
+              id,
+              xPct: nextX,
+              yPct: nextY,
+              wPct: nextW,
+              hPct: nextH,
+            },
+          },
+        },
+      };
+    });
+  };
+
+  const moveElement = (id: TagElementId, dx: number, dy: number) => {
+    const element = getLayout(normalizedDraft, previewMode).elements[id];
+    updateElement(id, { xPct: element.xPct + dx, yPct: element.yPct + dy });
+  };
+
+  const resetBuilder = () => {
+    setDraft((prev) => previewMode === "sale"
+      ? { ...prev, saleCustomLayout: defaultSaleCustomTagLayout() }
+      : { ...prev, customLayout: defaultCustomTagLayout() });
+    setSelectedId("price");
+    toast(`${previewMode === "sale" ? "Sale" : "Regular"} tag layout reset to the starter arrangement.`, "info");
   };
 
   const useRetailTagSize = () => {
@@ -366,218 +270,286 @@ export default function TagDesignerPanel() {
     }));
   };
 
-  const handleSave = () => { const next = saveInventoryTagPrintConfig(draft); setDraft(next); setBaselineConfig(next); toast("Tag layout saved.", "success"); };
-  const handleReset = () => { const r = getInventoryTagPrintConfig(); setDraft(r); setBaselineConfig(r); toast("Restored to your last saved layout.", "info"); };
+  const handleSave = () => {
+    const next = saveInventoryTagPrintConfig(normalizedDraft);
+    setDraft(next);
+    setBaselineConfig(next);
+    toast("Tag layout saved.", "success");
+  };
+
+  const handleResetSaved = () => {
+    const restored = getInventoryTagPrintConfig();
+    setDraft(restored);
+    setBaselineConfig(restored);
+    toast("Restored to your last saved tag layout.", "info");
+  };
+
   const handlePreview = async () => {
     if (desktopApp) {
-      toast("Use the live preview here; Print test tag sends the saved layout to the Zebra station.", "info");
+      toast("The live preview is shown here. Print test tag sends this exact saved builder layout to the tag printer.", "info");
       return;
     }
     try {
-      await openInventoryTagsPreviewWindow(SAMPLE_ITEMS, normalizedDraft);
+      await openInventoryTagsPreviewWindow([previewItem], normalizedDraft);
       toast("Print preview opened.", "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error || "Print preview failed."), "error");
     }
   };
+
   const handlePrint = async () => {
     try {
       const saved = saveInventoryTagPrintConfig(normalizedDraft);
       setDraft(saved);
       setBaselineConfig(saved);
-      const result = await openInventoryTagsWindow(TEST_PRINT_ITEMS, saved, {
+      const result = await openInventoryTagsWindow([previewItem], saved, {
         allowPreviewFallback: false,
       });
-      if (result.route === "direct") {
-        toast(`Layout saved. Test tag ${result.message}`, "success");
-      } else {
-        toast(result.message, "info");
-      }
+      toast(result.route === "direct" ? `Layout saved. Test tag ${result.message}` : result.message, result.route === "direct" ? "success" : "info");
     } catch (error) {
       toast(error instanceof Error ? error.message : "Test tag print failed.", "error");
     }
   };
 
-  const previewFooterLine = buildInventoryTagFooterLine(normalizedDraft.footerText);
+  const onElementPointerDown = (event: PointerEvent<HTMLButtonElement>, id: TagElementId) => {
+    const rect = previewRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSelectedId(id);
+    dragRef.current = {
+      id,
+      startX: event.clientX,
+      startY: event.clientY,
+      start: getLayout(normalizedDraft, previewMode).elements[id],
+      rect,
+    };
+  };
+
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dxPct = ((event.clientX - drag.startX) / drag.rect.width) * 100;
+    const dyPct = ((event.clientY - drag.startY) / drag.rect.height) * 100;
+    updateElement(drag.id, {
+      xPct: drag.start.xPct + dxPct,
+      yPct: drag.start.yPct + dyPct,
+    });
+  };
+
+  const stopDrag = () => {
+    dragRef.current = null;
+  };
+
+  const previewStyle: CSSProperties = {
+    aspectRatio: `${normalizedDraft.widthInches} / ${normalizedDraft.heightInches}`,
+  };
 
   return (
     <section className="space-y-6 p-6">
-      {/* Header */}
       <header className="space-y-3">
         <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-900">
-          <Tag size={14} /> Tag designer
+          <Tag size={14} /> Tag builder
         </div>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl space-y-2">
-            <h2 className="text-3xl font-black uppercase tracking-tight text-app-text">Price tag layout</h2>
+            <h2 className="text-3xl font-black uppercase tracking-tight text-app-text">Price tag builder</h2>
             <p className="text-sm font-medium text-app-text-muted">
-              Design your price tags here. Changes apply everywhere tags are printed &mdash; inventory lists,
-              control boards, and quick-print buttons. Optimized for Zebra 2844 thermal printers.
+              Move each field exactly where it should print. This builder layout is the tag print layout.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => void handlePrint()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Printer size={16} /> Save & print test tag</button>
+            <button type="button" onClick={() => void handlePrint()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text hover:border-app-input-border hover:bg-app-surface-2">
+              <Printer size={16} /> Save & print test tag
+            </button>
             {!desktopApp ? (
-              <button type="button" onClick={() => void handlePreview()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><Eye size={16} /> Print preview</button>
+              <button type="button" onClick={() => void handlePreview()} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text hover:border-app-input-border hover:bg-app-surface-2">
+                <Eye size={16} /> Print preview
+              </button>
             ) : null}
-            <button type="button" onClick={handleReset} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2"><RotateCcw size={16} /> Undo changes</button>
-            <button type="button" onClick={handleSave} className="inline-flex items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-sm font-black text-white shadow-sm transition-colors hover:brightness-110"><Save size={16} /> Save layout</button>
+            <button type="button" onClick={handleResetSaved} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-bold text-app-text hover:border-app-input-border hover:bg-app-surface-2">
+              <RotateCcw size={16} /> Undo changes
+            </button>
+            <button type="button" onClick={handleSave} className="inline-flex items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-sm font-black text-white shadow-sm hover:brightness-110">
+              <Save size={16} /> Save layout
+            </button>
           </div>
         </div>
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-app-text-muted">
-          {hasChanges ? "You have unsaved changes. Save to apply them to all future prints." : "Your saved layout is active for all tag printing."}
+          {hasChanges ? "Unsaved changes. Save before printing real item tags." : "Saved builder layout is active for tag printing."}
         </p>
       </header>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
-
-          {/* ── 1. Tag layout picker ── */}
           <section className="ui-card space-y-4 p-5">
-            <div className="flex items-center gap-2">
-              <LayoutTemplate size={18} className="text-app-accent" />
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">Choose a layout</h3>
-                <p className="text-sm text-app-text-muted">Pick how the information and barcode are arranged on each tag.</p>
+                <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">Live tag canvas</h3>
+                <p className="mt-1 text-sm text-app-text-muted">Click a field, drag it, then fine-tune position and size on the right.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => setPreviewMode("regular")} className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-[0.14em] ${previewMode === "regular" ? "border-app-accent bg-app-accent text-white" : "border-app-border bg-app-surface text-app-text hover:bg-app-surface-2"}`}>
+                  Regular tag
+                </button>
+                <button type="button" onClick={() => setPreviewMode("sale")} className={`rounded-xl border px-3 py-2 text-xs font-black uppercase tracking-[0.14em] ${previewMode === "sale" ? "border-app-accent bg-app-accent text-white" : "border-app-border bg-app-surface text-app-text hover:bg-app-surface-2"}`}>
+                  Sale tag
+                </button>
+                <button type="button" onClick={useRetailTagSize} className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-black uppercase tracking-[0.14em] text-app-text hover:bg-app-surface-2">
+                  LP 2844 size
+                </button>
+                <button type="button" onClick={resetBuilder} className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-black uppercase tracking-[0.14em] text-app-text hover:bg-app-surface-2">
+                  Reset starter
+                </button>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-2 lg:grid-cols-6">
-              {TAG_LAYOUTS.map((lo) => {
-                const active = normalizedDraft.tagLayout === lo.id;
-                return (
-                  <button
-                    key={lo.id}
-                    type="button"
-                    onClick={() => updateDraft("tagLayout", lo.id)}
-                    className={`group rounded-xl border p-1 text-left transition-all ${active ? "border-app-accent bg-app-surface-2 shadow ring-1 ring-app-accent/30" : "border-app-border bg-app-surface hover:border-app-input-border"}`}
-                  >
-                    <div className={`mb-1.5 h-[52px] overflow-hidden rounded-lg border ${active ? "border-app-accent/40 bg-app-surface" : "border-slate-200 bg-slate-50"}`}>
-                      <LayoutThumb id={lo.id} />
-                    </div>
-                    <p className="px-0.5 text-[10px] font-bold text-app-text">{lo.label}</p>
-                    <p className="px-0.5 text-[9px] leading-snug text-app-text-muted">{lo.description}</p>
-                  </button>
-                );
-              })}
+
+            <div className="rounded-2xl border border-app-border bg-slate-100 p-4">
+              <div
+                ref={previewRef}
+                role="application"
+                aria-label="Editable tag preview"
+                className="relative mx-auto w-full max-w-[760px] overflow-hidden rounded border border-black bg-white text-black shadow-sm"
+                style={previewStyle}
+                onPointerMove={onPointerMove}
+                onPointerUp={stopDrag}
+                onPointerLeave={stopDrag}
+              >
+                {TAG_ELEMENT_ORDER.map((id) => {
+                  const value = fieldValue(id, previewItem, normalizedDraft, footerLine);
+                  if (!value) return null;
+                  const element = layout.elements[id];
+                  const active = selectedId === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onPointerDown={(event) => onElementPointerDown(event, id)}
+                      onClick={() => setSelectedId(id)}
+                      className={`absolute overflow-hidden border text-left ${active ? "border-app-accent bg-app-accent/10" : "border-dashed border-slate-300 bg-transparent"} ${id === "barcode" ? "p-0.5" : "px-1 py-0.5"} ${elementClass(id, normalizedDraft)}`}
+                      style={elementStyle(element)}
+                    >
+                      {id === "barcode" ? <BarcodeSvg text={value} /> : value}
+                    </button>
+                  );
+                })}
+                <div className="pointer-events-none absolute inset-0 border border-dashed border-black/15" />
+              </div>
             </div>
           </section>
 
-          {/* ── 2. Tag dimensions ── */}
           <section className="ui-card space-y-4 p-5">
-            <div className="flex items-center gap-2">
-              <Tag size={18} className="text-app-accent" />
-              <div>
-                <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">Tag size</h3>
-                <p className="text-sm text-app-text-muted">Set the physical dimensions of your label stock.</p>
-              </div>
-            </div>
+            <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">Tag size</h3>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1.5">
-                <span className="text-[11px] font-black uppercase tracking-[0.14em] text-app-text-muted">Width (inches)</span>
-                <input type="number" min="2" max="6" step="0.25" value={draft.widthInches} onChange={(e) => updateDraft("widthInches", parseDimensionInput(e.target.value, draft.widthInches))} className="ui-input w-full" />
+                <span className="text-[11px] font-black uppercase tracking-[0.14em] text-app-text-muted">Width inches</span>
+                <input type="number" min="2" max="6" step="0.05" value={draft.widthInches} onChange={(e) => updateDraft("widthInches", parseDimensionInput(e.target.value, draft.widthInches))} className="ui-input w-full" />
               </label>
               <label className="space-y-1.5">
-                <span className="text-[11px] font-black uppercase tracking-[0.14em] text-app-text-muted">Height (inches)</span>
-                <input type="number" min="1.25" max="4" step="0.25" value={draft.heightInches} onChange={(e) => updateDraft("heightInches", parseDimensionInput(e.target.value, draft.heightInches))} className="ui-input w-full" />
+                <span className="text-[11px] font-black uppercase tracking-[0.14em] text-app-text-muted">Height inches</span>
+                <input type="number" min="1.25" max="4" step="0.05" value={draft.heightInches} onChange={(e) => updateDraft("heightInches", parseDimensionInput(e.target.value, draft.heightInches))} className="ui-input w-full" />
               </label>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="button" onClick={useRetailTagSize} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-black uppercase tracking-[0.14em] text-app-text transition-colors hover:border-app-input-border hover:bg-app-surface-2">
-                <Tag size={14} /> Use LP 2844 retail tag
-              </button>
-              <span className="text-xs font-semibold text-app-text-muted">Sets 2.25 in x 1.25 in.</span>
-            </div>
-            {possibleTwoTagHeight ? (
+            {normalizedDraft.widthInches <= 2.5 && normalizedDraft.heightInches > 1.5 ? (
               <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-                This height is taller than the common Riverside retail tag stock and may feed more than one physical tag. Use the LP 2844 retail tag size unless the Zebra is loaded with taller stock.
+                This height can feed more than one physical tag on common Riverside stock.
               </div>
             ) : null}
           </section>
 
-          {/* ── 3. What to show ── */}
           <section className="ui-card space-y-4 p-5">
-            <div className="flex items-center gap-2">
-              <Type size={18} className="text-app-accent" />
-              <div>
-                <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">What to print</h3>
-                <p className="text-sm text-app-text-muted">Toggle the information that appears on every label.</p>
-              </div>
-            </div>
+            <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">Printed fields</h3>
             <div className="grid gap-2 md:grid-cols-2">
               {([
-                ["showSku", "SKU code", "Item identifier for searching and rack finding."],
-                ["showProductName", "Product name", "The main title of the item."],
-                ["showVariation", "Size & color", "Specific variant like color and size."],
-                ["showBrand", "Brand name", "Vendor or collection name."],
-                ["showPrice", "Price", "Retail price of the item."],
-                ["showBarcode", "Scannable barcode", "Code 128 barcode for handheld scanners."],
-                ["showPromoPrice", "Sale pricing", "Shows regular price, sale price, and savings."],
-              ] as [keyof InventoryTagPrintConfig, string, string][]).map(([key, label, hint]) => (
+                ["showSku", "SKU"],
+                ["showProductName", "Product name"],
+                ["showVariation", "Variation"],
+                ["showBrand", "Brand"],
+                ["showPrice", "Price"],
+                ["showBarcode", "Barcode"],
+                ["showPromoPrice", "Sale pricing"],
+              ] as [keyof InventoryTagPrintConfig, string][]).map(([key, label]) => (
                 <label key={key} className="flex items-center justify-between rounded-xl border border-app-border bg-app-surface px-3 py-2.5">
-                  <div><p className="text-sm font-bold text-app-text">{label}</p><p className="text-[11px] text-app-text-muted">{hint}</p></div>
+                  <span className="text-sm font-bold text-app-text">{label}</span>
                   <input type="checkbox" checked={!!draft[key]} onChange={(e) => updateDraft(key, e.target.checked as never)} className="h-4 w-4 rounded border-app-input-border text-app-accent" />
                 </label>
               ))}
             </div>
           </section>
+        </div>
 
-          {/* ── 4. Price display ── */}
-          <section className="ui-card space-y-4 p-5">
-            <div className="flex items-center gap-2">
-              <DollarSign size={18} className="text-app-accent" />
-              <div>
-                <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">Price size</h3>
-                <p className="text-sm text-app-text-muted">How big should the price appear?</p>
-              </div>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {([["large", "Large & bold", "$249.00", "text-2xl", "Easy to read at a glance — great for the sales floor."], ["standard", "Standard", "$249.00", "text-base", "Price blends with the rest of the tag info."]] as const).map(([val, title, ex, sz, desc]) => (
-                <button key={val} type="button" onClick={() => updateDraft("priceSize", val)} className={`rounded-xl border p-3 text-left transition-all ${draft.priceSize === val ? "border-app-accent bg-app-surface-2 shadow-sm" : "border-app-border bg-app-surface hover:border-app-input-border"}`}>
-                  <p className={`${sz} font-black text-slate-900`}>{ex}</p>
-                  <p className="mt-1.5 text-sm font-bold text-app-text">{title}</p>
-                  <p className="text-[11px] text-app-text-muted">{desc}</p>
+        <aside className="ui-card sticky top-6 space-y-5 p-5">
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">Selected field</h3>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {TAG_ELEMENT_ORDER.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setSelectedId(id)}
+                  className={`rounded-xl border px-3 py-2 text-left text-xs font-black uppercase tracking-[0.12em] ${selectedId === id ? "border-app-accent bg-app-accent text-white" : "border-app-border bg-app-surface text-app-text hover:bg-app-surface-2"}`}
+                >
+                  {TAG_ELEMENT_LABELS[id]}
                 </button>
               ))}
             </div>
-          </section>
-
-          {/* ── 5. Footer ── */}
-          <section className="ui-card space-y-4 p-5">
-            <div>
-              <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">Footer &amp; branding</h3>
-              <p className="mt-1 text-sm text-app-text-muted">The small text printed at the bottom of every tag.</p>
-            </div>
-            <label className="space-y-1.5">
-              <span className="text-[11px] font-black uppercase tracking-[0.14em] text-app-text-muted">Shop name or message</span>
-              <input type="text" value={draft.footerText} onChange={(e) => updateDraft("footerText", e.target.value)} className="ui-input w-full" placeholder="Riverside Men's Shop" />
-              <p className="text-[11px] text-app-text-muted">Today's date is automatically added after this text on every printed tag.</p>
-            </label>
-          </section>
-        </div>
-
-        {/* ── Live preview sidebar ── */}
-        <aside className="ui-card sticky top-6 space-y-4 p-5">
-          <div>
-            <h3 className="text-sm font-black uppercase tracking-[0.16em] text-app-text">Live preview</h3>
-            <p className="mt-1 text-sm text-app-text-muted">
-              Printer-safe preview for the saved Zebra layout. Use Save &amp; print test tag for physical proof.
-            </p>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
-            <div className="grid gap-2.5">
-              {SAMPLE_ITEMS.map((item) => (
-                <TagPreview key={item.sku} item={item} config={normalizedDraft} footer={previewFooterLine} />
+          <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+            <div className="mb-3 flex items-center gap-2 text-sm font-black text-app-text">
+              <Move size={16} /> {TAG_ELEMENT_LABELS[selectedId]}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                ["xPct", "X"],
+                ["yPct", "Y"],
+                ["wPct", "Width"],
+                ["hPct", "Height"],
+              ] as [keyof TagElementLayout, string][]).map(([key, label]) => (
+                <label key={key} className="space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">{label} %</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={Number(selectedElement[key])}
+                    onChange={(event) => updateElement(selectedId, { [key]: Number.parseFloat(event.target.value) } as Partial<TagElementLayout>)}
+                    className="ui-input w-full"
+                  />
+                </label>
               ))}
             </div>
+            <label className="mt-3 block space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">Direction</span>
+              <select value={selectedElement.direction} onChange={(event) => updateElement(selectedId, { direction: event.target.value as TagElementDirection })} className="ui-input w-full">
+                <option value="normal">Normal</option>
+                <option value="rotated-left">Rotate left</option>
+                <option value="rotated-right">Rotate right</option>
+              </select>
+            </label>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <span />
+              <button type="button" onClick={() => moveElement(selectedId, 0, -1)} className="rounded-lg border border-app-border bg-app-surface p-2 text-app-text hover:bg-app-surface"><ArrowUp size={16} className="mx-auto" /></button>
+              <span />
+              <button type="button" onClick={() => moveElement(selectedId, -1, 0)} className="rounded-lg border border-app-border bg-app-surface p-2 text-app-text hover:bg-app-surface"><ArrowLeft size={16} className="mx-auto" /></button>
+              <button type="button" onClick={() => updateElement(selectedId, defaultCustomTagLayout().elements[selectedId])} className="rounded-lg border border-app-border bg-app-surface px-2 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-app-text hover:bg-app-surface">Reset</button>
+              <button type="button" onClick={() => moveElement(selectedId, 1, 0)} className="rounded-lg border border-app-border bg-app-surface p-2 text-app-text hover:bg-app-surface"><ArrowRight size={16} className="mx-auto" /></button>
+              <span />
+              <button type="button" onClick={() => moveElement(selectedId, 0, 1)} className="rounded-lg border border-app-border bg-app-surface p-2 text-app-text hover:bg-app-surface"><ArrowDown size={16} className="mx-auto" /></button>
+              <span />
+            </div>
           </div>
 
-          <div className="rounded-xl border border-app-border bg-app-surface-2 p-3 text-sm text-app-text-muted">
-            <p className="font-bold text-app-text">How this works</p>
-            <p className="mt-1.5 text-[12px]">
-              Every inventory tag uses the saved layout. Save &amp; print test tag saves first, then sends the same saved
-              layout that inventory screens, control boards, and quick-print buttons use.
-            </p>
+          <div className="space-y-3 rounded-xl border border-app-border bg-app-surface-2 p-3">
+            <h4 className="text-xs font-black uppercase tracking-[0.16em] text-app-text">Price and footer</h4>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => updateDraft("priceSize", "large")} className={`rounded-xl border px-3 py-2 text-sm font-black ${draft.priceSize === "large" ? "border-app-accent bg-app-accent text-white" : "border-app-border bg-app-surface text-app-text"}`}>Large</button>
+              <button type="button" onClick={() => updateDraft("priceSize", "standard")} className={`rounded-xl border px-3 py-2 text-sm font-black ${draft.priceSize === "standard" ? "border-app-accent bg-app-accent text-white" : "border-app-border bg-app-surface text-app-text"}`}>Standard</button>
+            </div>
+            <label className="block space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">Footer</span>
+              <input type="text" value={draft.footerText} onChange={(e) => updateDraft("footerText", e.target.value)} className="ui-input w-full" placeholder="Riverside Men's Shop" />
+            </label>
           </div>
         </aside>
       </div>

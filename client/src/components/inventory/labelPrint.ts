@@ -58,6 +58,36 @@ export interface InventoryTagPrintConfig {
   footerText: string;
   /** Saved-layout compatibility field; no longer rendered. */
   accentStyle?: "classic" | "bold" | "minimal";
+  /** Freeform field positions used by the Tag Builder. */
+  customLayout?: CustomTagLayout;
+  /** Separate freeform field positions used when sale/promo pricing is printed. */
+  saleCustomLayout?: CustomTagLayout;
+}
+
+export type TagElementId =
+  | "sku"
+  | "productName"
+  | "variation"
+  | "brand"
+  | "price"
+  | "regularPrice"
+  | "savings"
+  | "barcode"
+  | "footer";
+
+export type TagElementDirection = "normal" | "rotated-left" | "rotated-right";
+
+export interface TagElementLayout {
+  id: TagElementId;
+  xPct: number;
+  yPct: number;
+  wPct: number;
+  hPct: number;
+  direction: TagElementDirection;
+}
+
+export interface CustomTagLayout {
+  elements: Record<TagElementId, TagElementLayout>;
 }
 
 const STORAGE_KEY = "ros.inventory.tagPrintConfig";
@@ -75,7 +105,65 @@ const DEFAULT_CONFIG: InventoryTagPrintConfig = {
   priceSize: "large",
   tagLayout: "standard",
   footerText: "Riverside Men's Shop",
+  customLayout: defaultCustomTagLayout(),
+  saleCustomLayout: defaultSaleCustomTagLayout(),
 };
+
+export const TAG_ELEMENT_LABELS: Record<TagElementId, string> = {
+  sku: "SKU",
+  productName: "Product name",
+  variation: "Variation",
+  brand: "Brand",
+  price: "Price",
+  regularPrice: "Regular price",
+  savings: "Savings",
+  barcode: "Barcode",
+  footer: "Footer",
+};
+
+export const TAG_ELEMENT_ORDER: TagElementId[] = [
+  "sku",
+  "productName",
+  "variation",
+  "brand",
+  "regularPrice",
+  "price",
+  "savings",
+  "barcode",
+  "footer",
+];
+
+export function defaultCustomTagLayout(): CustomTagLayout {
+  return {
+    elements: {
+      sku: { id: "sku", xPct: 6, yPct: 7, wPct: 28, hPct: 12, direction: "normal" },
+      productName: { id: "productName", xPct: 6, yPct: 21, wPct: 68, hPct: 18, direction: "normal" },
+      variation: { id: "variation", xPct: 6, yPct: 42, wPct: 52, hPct: 12, direction: "normal" },
+      brand: { id: "brand", xPct: 6, yPct: 56, wPct: 56, hPct: 10, direction: "normal" },
+      regularPrice: { id: "regularPrice", xPct: 6, yPct: 66, wPct: 32, hPct: 8, direction: "normal" },
+      price: { id: "price", xPct: 6, yPct: 75, wPct: 35, hPct: 18, direction: "normal" },
+      savings: { id: "savings", xPct: 42, yPct: 66, wPct: 24, hPct: 8, direction: "normal" },
+      barcode: { id: "barcode", xPct: 48, yPct: 72, wPct: 46, hPct: 16, direction: "normal" },
+      footer: { id: "footer", xPct: 48, yPct: 91, wPct: 46, hPct: 7, direction: "normal" },
+    },
+  };
+}
+
+export function defaultSaleCustomTagLayout(): CustomTagLayout {
+  return {
+    elements: {
+      sku: { id: "sku", xPct: 6, yPct: 6, wPct: 28, hPct: 10, direction: "normal" },
+      productName: { id: "productName", xPct: 6, yPct: 18, wPct: 72, hPct: 18, direction: "normal" },
+      variation: { id: "variation", xPct: 6, yPct: 39, wPct: 52, hPct: 10, direction: "normal" },
+      brand: { id: "brand", xPct: 6, yPct: 51, wPct: 56, hPct: 9, direction: "normal" },
+      regularPrice: { id: "regularPrice", xPct: 6, yPct: 64, wPct: 30, hPct: 8, direction: "normal" },
+      price: { id: "price", xPct: 6, yPct: 73, wPct: 36, hPct: 19, direction: "normal" },
+      savings: { id: "savings", xPct: 41, yPct: 64, wPct: 26, hPct: 8, direction: "normal" },
+      barcode: { id: "barcode", xPct: 49, yPct: 74, wPct: 45, hPct: 15, direction: "normal" },
+      footer: { id: "footer", xPct: 49, yPct: 91, wPct: 45, hPct: 7, direction: "normal" },
+    },
+  };
+}
 
 const ZEBRA_2844_DPI = 203;
 /** Store-local calendar date stamped on every tag at print time. */
@@ -280,196 +368,112 @@ function eplText(
   return `A${x},${y},${rotation},${font},${xMul},${yMul},N,"${escapeEplField(value)}"`;
 }
 
-const EPL_MARGIN_DOTS = 12;
-const EPL_FOOTER_HEIGHT_DOTS = 16;
-const EPL_TEXT_GAP_DOTS = 2;
-const EPL_HORIZONTAL_BARCODE_HEIGHT_DOTS = 34;
-const EPL_COMPACT_BARCODE_HEIGHT_DOTS = 30;
-const EPL_BARCODE_GAP_DOTS = 8;
-const EPL_SMALL_TAG_BARCODE_GAP_DOTS = 28;
-
-function isSmallEplTag(config: InventoryTagPrintConfig): boolean {
-  return config.widthInches <= 2.5 && config.heightInches <= 1.5;
+function pctToDots(value: number, total: number): number {
+  return Math.round((value / 100) * total);
 }
 
-function eplBarcodeGap(config: InventoryTagPrintConfig): number {
-  return isSmallEplTag(config) ? EPL_SMALL_TAG_BARCODE_GAP_DOTS : EPL_BARCODE_GAP_DOTS;
+function eplRotation(direction: TagElementDirection): 0 | 1 | 2 | 3 {
+  if (direction === "rotated-left") return 3;
+  if (direction === "rotated-right") return 1;
+  return 0;
 }
 
-function eplHorizontalBarcodeHeight(config: InventoryTagPrintConfig): number {
-  return isSmallEplTag(config) ? 26 : EPL_HORIZONTAL_BARCODE_HEIGHT_DOTS;
+function customElementBox(layout: CustomTagLayout, id: TagElementId, width: number, height: number) {
+  const element = layout.elements[id];
+  const x = pctToDots(element.xPct, width);
+  const y = pctToDots(element.yPct, height);
+  const w = Math.max(8, pctToDots(element.wPct, width));
+  const h = Math.max(8, pctToDots(element.hPct, height));
+  return { element, x, y, w, h };
 }
 
-function eplCompactBarcodeHeight(config: InventoryTagPrintConfig): number {
-  return isSmallEplTag(config) ? 24 : EPL_COMPACT_BARCODE_HEIGHT_DOTS;
-}
-
-function eplTextHeight(font: 1 | 2 | 3 | 4 | 5, yMul: number): number {
-  const base = font === 1 ? 16 : font === 2 ? 22 : font === 3 ? 28 : font === 4 ? 32 : 28;
-  return base * Math.max(1, yMul);
-}
-
-function appendBoundedEplText(
-  parts: string[],
-  x: number,
-  y: number,
-  maxY: number,
-  font: 1 | 2 | 3 | 4 | 5,
-  xMul: number,
-  yMul: number,
-  value: string | null | undefined,
-): number {
-  const clean = value?.trim();
-  if (!clean) return y;
-  const lineHeight = eplTextHeight(font, yMul);
-  if (y + lineHeight > maxY) return y;
-  parts.push(eplText(x, y, 0, font, xMul, yMul, clean));
-  return y + lineHeight + EPL_TEXT_GAP_DOTS;
-}
-
-function eplPriceBlockHeight(item: InventoryTagItem, config: InventoryTagPrintConfig): number {
-  if (!config.showPrice) return 0;
-  const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
-  if (!isPromo && !item.price?.trim()) return 0;
-  const saleHeight = eplTextHeight(5, config.priceSize === "large" && !isSmallEplTag(config) ? 2 : 1);
-  return isPromo ? eplTextHeight(1, 1) + EPL_TEXT_GAP_DOTS + saleHeight : saleHeight;
-}
-
-function appendEplPriceBlockAt(
-  parts: string[],
-  x: number,
-  y: number,
-  maxY: number,
-  item: InventoryTagItem,
-  config: InventoryTagPrintConfig,
-) {
-  if (!config.showPrice) return;
-  const blockHeight = eplPriceBlockHeight(item, config);
-  if (blockHeight <= 0 || y + blockHeight > maxY) return;
-  const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
-  const priceYMul = config.priceSize === "large" && !isSmallEplTag(config) ? 2 : 1;
-  if (isPromo) {
-    parts.push(eplText(x, y, 0, 1, 1, 1, `Reg ${item.regularPrice!}`));
-    parts.push(eplText(x, y + eplTextHeight(1, 1) + EPL_TEXT_GAP_DOTS, 0, 5, 1, priceYMul, item.salePrice!));
-  } else if (item.price) {
-    parts.push(eplText(x, y, 0, 5, 1, priceYMul, item.price));
+function customTextValue(id: TagElementId, item: InventoryTagItem, config: InventoryTagPrintConfig, footer: string): string {
+  switch (id) {
+    case "sku":
+      return config.showSku ? item.sku : "";
+    case "productName":
+      return config.showProductName ? item.productName : "";
+    case "variation":
+      return config.showVariation ? item.variation?.trim() || "Standard" : "";
+    case "brand":
+      return config.showBrand ? item.brand?.trim() || "" : "";
+    case "price": {
+      if (!config.showPrice) return "";
+      const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
+      return isPromo ? item.salePrice ?? "" : item.price?.trim() ?? "";
+    }
+    case "regularPrice": {
+      const isPromo = config.showPrice && config.showPromoPrice && item.salePrice && item.regularPrice;
+      return isPromo ? `Reg ${item.regularPrice}` : "";
+    }
+    case "savings": {
+      const isPromo = config.showPrice && config.showPromoPrice && item.salePrice && item.regularPrice;
+      if (!isPromo) return "";
+      const regular = Number.parseFloat(item.regularPrice!.replace(/[^0-9.]/g, ""));
+      const sale = Number.parseFloat(item.salePrice!.replace(/[^0-9.]/g, ""));
+      if (!Number.isFinite(regular) || !Number.isFinite(sale) || regular <= sale) return "";
+      return `Save $${(regular - sale).toFixed(2)}`;
+    }
+    case "footer":
+      return footer;
+    case "barcode":
+      return config.showBarcode ? item.sku : "";
   }
 }
 
-function appendEplFooterAt(
-  parts: string[],
-  x: number,
-  y: number,
-  maxY: number,
-  footer: string,
-) {
-  if (!footer || y + EPL_FOOTER_HEIGHT_DOTS > maxY) return;
-  parts.push(eplText(x, y, 0, 1, 1, 1, footer));
+function customTextFont(id: TagElementId, config: InventoryTagPrintConfig): { font: 1 | 2 | 3 | 4 | 5; xMul: number; yMul: number } {
+  if (id === "price") {
+    return config.priceSize === "large"
+      ? { font: 5, xMul: 1, yMul: 1 }
+      : { font: 2, xMul: 1, yMul: 1 };
+  }
+  if (id === "productName") return { font: 3, xMul: 1, yMul: 1 };
+  if (id === "footer" || id === "brand" || id === "regularPrice" || id === "savings") return { font: 1, xMul: 1, yMul: 1 };
+  return { font: 2, xMul: 1, yMul: 1 };
 }
 
-function eplTextBlock(
-  parts: string[],
-  x: number,
-  y: number,
-  item: InventoryTagItem,
-  config: InventoryTagPrintConfig,
-  textChars: number,
-  maxY: number,
-): number {
-  const nameLines = config.showProductName ? wrapText(item.productName || item.sku, textChars, 2) : [];
-  const variation = item.variation?.trim() || "Standard";
-  if (config.showSku) {
-    y = appendBoundedEplText(parts, x, y, maxY, 2, 1, 1, item.sku);
-  }
-  for (const line of nameLines) {
-    y = appendBoundedEplText(parts, x, y, maxY, 3, 1, 1, line);
-  }
-  if (config.showVariation) {
-    y = appendBoundedEplText(parts, x, y, maxY, 2, 1, 1, variation);
-  }
-  if (config.showBrand && item.brand) {
-    y = appendBoundedEplText(parts, x, y, maxY, 1, 1, 1, item.brand);
-  }
-  return y;
+function isPromoTag(item: InventoryTagItem, config: InventoryTagPrintConfig): boolean {
+  return Boolean(config.showPromoPrice && item.salePrice && item.regularPrice);
 }
 
-function renderEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+function layoutForItem(item: InventoryTagItem, config: InventoryTagPrintConfig): CustomTagLayout {
+  return normalizeCustomLayout(
+    isPromoTag(item, config) ? config.saleCustomLayout : config.customLayout,
+    isPromoTag(item, config) ? defaultSaleCustomTagLayout() : defaultCustomTagLayout(),
+  );
+}
+
+function renderCustomEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
   const width = Math.round(clampDimension(config.widthInches, 2, 6, 4) * ZEBRA_2844_DPI);
   const height = Math.round(clampDimension(config.heightInches, 1.25, 4, 2.5) * ZEBRA_2844_DPI);
-  const m = Math.max(EPL_MARGIN_DOTS, Math.round(width * 0.03));
   const footer = buildInventoryTagFooterLine(config.footerText);
-  const layout = config.tagLayout || "standard";
-  const sku = escapeEplField(item.sku);
+  const layout = layoutForItem(item, config);
   const parts = ["N", `q${width}`, `Q${height},24`, "D7", "S2"];
-  const barcodeGap = eplBarcodeGap(config);
-  const horizontalBarcodeHeight = eplHorizontalBarcodeHeight(config);
-  const compactBarcodeHeight = eplCompactBarcodeHeight(config);
 
-  if (layout === "barcode-left") {
-    const bcZone = config.showBarcode ? Math.round(width * 0.18) : 0;
-    const textX = m + bcZone;
-    const footerY = height - m - EPL_FOOTER_HEIGHT_DOTS;
-    const priceHeight = eplPriceBlockHeight(item, config);
-    const priceY = Math.max(m, footerY - EPL_TEXT_GAP_DOTS - priceHeight);
-    eplTextBlock(parts, textX, m, item, config, Math.max(14, Math.floor((width - textX - m) / 17)), priceY - barcodeGap);
-    appendEplPriceBlockAt(parts, textX, priceY, footerY - EPL_TEXT_GAP_DOTS, item, config);
-    appendEplFooterAt(parts, textX, footerY, height - m, footer);
-    if (config.showBarcode && sku) {
-      parts.push(eplText(m, m, 1, 1, 1, 1, sku));
-      parts.push(`B${m + 18},${m},1,1,2,2,44,N,"${sku}"`);
+  for (const id of TAG_ELEMENT_ORDER) {
+    const value = customTextValue(id, item, config, footer);
+    if (!value) continue;
+    const { element, x, y, w, h } = customElementBox(layout, id, width, height);
+    const rotation = eplRotation(element.direction);
+    if (id === "barcode") {
+      const barcodeHeight = Math.max(18, Math.min(rotation === 0 ? h : w, 80));
+      const narrowBar = Math.max(1, Math.min(2, Math.floor(w / 150) + 1));
+      parts.push(`B${x},${y},${rotation},1,${narrowBar},2,${barcodeHeight},N,"${escapeEplField(value)}"`);
+      continue;
     }
-  } else if (layout === "barcode-right") {
-    const bcZone = config.showBarcode ? Math.round(width * 0.18) : 0;
-    const bodyW = width - m * 2 - bcZone;
-    const footerY = height - m - EPL_FOOTER_HEIGHT_DOTS;
-    const priceHeight = eplPriceBlockHeight(item, config);
-    const priceY = Math.max(m, footerY - EPL_TEXT_GAP_DOTS - priceHeight);
-    eplTextBlock(parts, m, m, item, config, Math.max(14, Math.floor(bodyW / 17)), priceY - barcodeGap);
-    appendEplPriceBlockAt(parts, m, priceY, footerY - EPL_TEXT_GAP_DOTS, item, config);
-    appendEplFooterAt(parts, m, footerY, height - m, footer);
-    if (config.showBarcode && sku) {
-      const bcX = width - bcZone;
-      parts.push(eplText(bcX, m, 1, 1, 1, 1, sku));
-      parts.push(`B${bcX + 18},${m},1,1,2,2,44,N,"${sku}"`);
-    }
-  } else if (layout === "price-hero") {
-    const barcodeReserve = config.showBarcode ? horizontalBarcodeHeight + barcodeGap : 0;
-    const footerY = height - m - barcodeReserve - EPL_FOOTER_HEIGHT_DOTS;
-    const priceHeight = eplPriceBlockHeight(item, config);
-    let y = m;
-    appendEplPriceBlockAt(parts, m, y, height - m, item, config);
-    if (config.showPrice) y += priceHeight + barcodeGap;
-    eplTextBlock(parts, m, y, item, config, Math.max(14, Math.floor((width - m * 2) / 17)), footerY - barcodeGap);
-    appendEplFooterAt(parts, m, footerY, height - m - barcodeReserve, footer);
-    if (config.showBarcode && sku) {
-      const barcodeY = height - m - horizontalBarcodeHeight;
-      parts.push(`B${m},${barcodeY},0,1,2,2,${horizontalBarcodeHeight},N,"${sku}"`);
-    }
-  } else if (layout === "compact") {
-    const rightX = Math.round(width * 0.56);
-    const footerY = height - m - EPL_FOOTER_HEIGHT_DOTS;
-    eplTextBlock(parts, m, m, item, config, Math.max(10, Math.floor((rightX - m) / 17)), footerY - barcodeGap);
-    appendEplFooterAt(parts, m, footerY, height - m, footer);
-    appendEplPriceBlockAt(parts, rightX, m, height - m, item, config);
-    if (config.showBarcode && sku) {
-      const barcodeY = height - m - compactBarcodeHeight;
-      parts.push(`B${rightX},${barcodeY},0,1,2,2,${compactBarcodeHeight},N,"${sku}"`);
-    }
-  } else {
-    const barcodeReserve = config.showBarcode ? horizontalBarcodeHeight + barcodeGap : 0;
-    const footerY = height - m - barcodeReserve - EPL_FOOTER_HEIGHT_DOTS;
-    const priceHeight = eplPriceBlockHeight(item, config);
-    const priceY = Math.max(m, footerY - EPL_TEXT_GAP_DOTS - priceHeight);
-    eplTextBlock(parts, m, m, item, config, Math.max(14, Math.floor((width - m * 2) / 17)), priceY - barcodeGap);
-    appendEplPriceBlockAt(parts, m, priceY, footerY - EPL_TEXT_GAP_DOTS, item, config);
-    appendEplFooterAt(parts, m, footerY, height - m - barcodeReserve, footer);
-    if (config.showBarcode && sku) {
-      const barcodeY = height - m - horizontalBarcodeHeight;
-      parts.push(`B${m},${barcodeY},0,1,2,2,${horizontalBarcodeHeight},N,"${sku}"`);
-    }
+    const font = customTextFont(id, config);
+    const clean = id === "productName"
+      ? wrapText(value, Math.max(8, Math.floor(w / 17)), 1)[0] ?? ""
+      : value;
+    if (!clean) continue;
+    parts.push(eplText(x, y, rotation, font.font, font.xMul, font.yMul, clean));
   }
   parts.push("P1");
   return `${parts.join("\r\n")}\r\n`;
+}
+
+function renderEplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  return renderCustomEplTag(item, config);
 }
 
 export function buildEplDocument(
@@ -498,11 +502,40 @@ function readStoredConfig(): Partial<InventoryTagPrintConfig> | null {
   }
 }
 
+function clampPct(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(100, Math.max(0, value));
+}
+
+function normalizeCustomLayout(layout?: CustomTagLayout, fallback: CustomTagLayout = defaultCustomTagLayout()): CustomTagLayout {
+  const source: Partial<Record<TagElementId, TagElementLayout>> = layout?.elements ?? {};
+  const elements = { ...fallback.elements };
+  for (const id of TAG_ELEMENT_ORDER) {
+    const raw = source[id] ?? fallback.elements[id];
+    const xPct = clampPct(raw.xPct, fallback.elements[id].xPct);
+    const yPct = clampPct(raw.yPct, fallback.elements[id].yPct);
+    const wPct = Math.min(100 - xPct, Math.max(3, clampPct(raw.wPct, fallback.elements[id].wPct)));
+    const hPct = Math.min(100 - yPct, Math.max(3, clampPct(raw.hPct, fallback.elements[id].hPct)));
+    const direction: TagElementDirection = raw.direction === "rotated-left" || raw.direction === "rotated-right"
+      ? raw.direction
+      : "normal";
+    elements[id] = { id, xPct, yPct, wPct, hPct, direction };
+  }
+  return {
+    elements,
+  };
+}
+
 export function getInventoryTagPrintConfig(): InventoryTagPrintConfig {
   const stored = readStoredConfig();
-  return {
+  const merged = {
     ...DEFAULT_CONFIG,
     ...stored,
+  };
+  return {
+    ...merged,
+    customLayout: normalizeCustomLayout(merged.customLayout),
+    saleCustomLayout: normalizeCustomLayout(merged.saleCustomLayout, defaultSaleCustomTagLayout()),
   };
 }
 
@@ -520,6 +553,8 @@ export function saveInventoryTagPrintConfig(
       DEFAULT_CONFIG.heightInches,
     ),
     footerText: next.footerText.trim() || DEFAULT_CONFIG.footerText,
+    customLayout: normalizeCustomLayout(next.customLayout),
+    saleCustomLayout: normalizeCustomLayout(next.saleCustomLayout, defaultSaleCustomTagLayout()),
   };
   if (typeof window !== "undefined") {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
@@ -537,26 +572,6 @@ function clampDimension(
   return Math.min(max, Math.max(min, value));
 }
 
-function computeSavings(regular: string, sale: string): string {
-  const regNum = parseFloat(regular.replace(/[^0-9.]/g, ""));
-  const saleNum = parseFloat(sale.replace(/[^0-9.]/g, ""));
-  if (!isFinite(regNum) || !isFinite(saleNum) || regNum <= saleNum) return "";
-  return `$${(regNum - saleNum).toFixed(2)}`;
-}
-
-function priceHtml(item: InventoryTagItem, config: InventoryTagPrintConfig, sizeOverride?: string): string {
-  if (!config.showPrice) return "";
-  const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
-  const sz = sizeOverride ?? (config.priceSize === "large" ? "28px" : "16px");
-  if (isPromo) {
-    const savings = computeSavings(item.regularPrice!, item.salePrice!);
-    return `<div class="t-price-block"><div class="t-price-reg"><s>${escapeHtml(item.regularPrice!)}</s></div><div class="t-price-sale" style="font-size:${sz}">${escapeHtml(item.salePrice!)}</div>${savings ? `<div class="t-savings">You save ${escapeHtml(savings)}</div>` : ""}</div>`;
-  }
-  const p = item.price?.trim() || "";
-  if (!p) return "";
-  return `<div class="t-price" style="font-size:${sz}">${escapeHtml(p)}</div>`;
-}
-
 function barcodeHtml(sku: string, orient: "h" | "v"): string {
   if (orient === "v") {
     return `<div class="t-bc t-bc-v"><div class="t-bc-v-lbl">${escapeHtml(sku)}</div><div class="t-bc-v-bars"><svg class="t-bc-svg" data-sku="${escapeHtml(sku)}"></svg></div></div>`;
@@ -564,76 +579,33 @@ function barcodeHtml(sku: string, orient: "h" | "v"): string {
   return `<div class="t-bc t-bc-h"><svg class="t-bc-svg" data-sku="${escapeHtml(sku)}"></svg><div class="t-bc-lbl">${escapeHtml(sku)}</div></div>`;
 }
 
-function skuHtml(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  return config.showSku ? `<div class="t-sku">${escapeHtml(item.sku)}</div>` : "";
-}
-function nameHtml(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  return config.showProductName ? `<div class="t-name">${escapeHtml(item.productName)}</div>` : "";
-}
-function variationHtml(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  return config.showVariation ? `<div class="t-var">${escapeHtml(item.variation?.trim() || "Standard")}</div>` : "";
-}
-function brandHtml(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  const b = item.brand?.trim();
-  return config.showBrand && b ? `<div class="t-brand">${escapeHtml(b)}</div>` : "";
-}
-function footerHtml(config: InventoryTagPrintConfig): string {
-  return `<div class="t-footer">${escapeHtml(buildInventoryTagFooterLine(config.footerText))}</div>`;
-}
-
-function renderTagStandard(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  return `<section class="tag-page"><div class="tag-shell tag-standard">
-    <div class="t-body">${skuHtml(item, config)}${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${priceHtml(item, config)}${footerHtml(config)}</div>
-    ${config.showBarcode ? `<div class="t-bc-row">${barcodeHtml(item.sku, "h")}</div>` : ""}
-  </div></section>`;
+function customHtmlElement(id: TagElementId, item: InventoryTagItem, config: InventoryTagPrintConfig, footer: string): string {
+  const layout = layoutForItem(item, config);
+  const el = layout.elements[id];
+  const value = customTextValue(id, item, config, footer);
+  if (!value) return "";
+  const rotate = el.direction === "rotated-left"
+    ? "rotate(-90deg)"
+    : el.direction === "rotated-right"
+      ? "rotate(90deg)"
+      : "none";
+  const style = `left:${el.xPct}%;top:${el.yPct}%;width:${el.wPct}%;height:${el.hPct}%;transform:${rotate};`;
+  if (id === "barcode") {
+    return `<div class="t-custom-el t-custom-barcode" style="${style}">${barcodeHtml(value, "h")}</div>`;
+  }
+  const cls = id === "price" ? "t-custom-price" : id === "productName" ? "t-custom-name" : "t-custom-text";
+  return `<div class="t-custom-el ${cls}" style="${style}">${escapeHtml(value)}</div>`;
 }
 
-function renderTagPriceHero(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  const sz = config.priceSize === "large" ? "36px" : "24px";
-  return `<section class="tag-page"><div class="tag-shell tag-price-hero">
-    <div class="t-top">${priceHtml(item, config, sz)}</div>
-    <div class="t-body">${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${skuHtml(item, config)}${footerHtml(config)}</div>
-    ${config.showBarcode ? `<div class="t-bc-row">${barcodeHtml(item.sku, "h")}</div>` : ""}
-  </div></section>`;
-}
-
-function renderTagBarcodeLeft(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  return `<section class="tag-page"><div class="tag-shell tag-bc-left">
-    ${config.showBarcode ? `<div class="t-bc-col">${barcodeHtml(item.sku, "v")}</div>` : ""}
-    <div class="t-body">${skuHtml(item, config)}${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${priceHtml(item, config)}${footerHtml(config)}</div>
-  </div></section>`;
-}
-
-function renderTagBarcodeRight(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  return `<section class="tag-page"><div class="tag-shell tag-bc-right">
-    <div class="t-body">${skuHtml(item, config)}${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${priceHtml(item, config)}${footerHtml(config)}</div>
-    ${config.showBarcode ? `<div class="t-bc-col">${barcodeHtml(item.sku, "v")}</div>` : ""}
-  </div></section>`;
-}
-
-function renderTagBarcodeBottom(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  return `<section class="tag-page"><div class="tag-shell tag-bc-bottom">
-    <div class="t-body">${skuHtml(item, config)}${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${priceHtml(item, config)}${footerHtml(config)}</div>
-    ${config.showBarcode ? `<div class="t-bc-row t-bc-row-lg">${barcodeHtml(item.sku, "h")}</div>` : ""}
-  </div></section>`;
-}
-
-function renderTagCompact(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  return `<section class="tag-page"><div class="tag-shell tag-compact">
-    <div class="t-col-left">${nameHtml(item, config)}${variationHtml(item, config)}${brandHtml(item, config)}${skuHtml(item, config)}</div>
-    <div class="t-col-right">${priceHtml(item, config)}${config.showBarcode ? barcodeHtml(item.sku, "h") : ""}${footerHtml(config)}</div>
+function renderTagCustom(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
+  const footer = buildInventoryTagFooterLine(config.footerText);
+  return `<section class="tag-page"><div class="tag-shell tag-custom">
+    ${TAG_ELEMENT_ORDER.map((id) => customHtmlElement(id, item, config, footer)).join("")}
   </div></section>`;
 }
 
 function renderTag(item: InventoryTagItem, config: InventoryTagPrintConfig): string {
-  switch (config.tagLayout) {
-    case "price-hero": return renderTagPriceHero(item, config);
-    case "barcode-left": return renderTagBarcodeLeft(item, config);
-    case "barcode-right": return renderTagBarcodeRight(item, config);
-    case "barcode-bottom": return renderTagBarcodeBottom(item, config);
-    case "compact": return renderTagCompact(item, config);
-    default: return renderTagStandard(item, config);
-  }
+  return renderTagCustom(item, config);
 }
 
 function generateBarcodeSvgScript(): string {
@@ -672,6 +644,14 @@ body{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px
 .tag-page{page-break-after:always;width:${tagPxWidth}px;height:${tagPxHeight}px;flex-shrink:0;}
 .tag-page:last-child{page-break-after:auto;}
 .tag-shell{display:flex;flex-direction:column;height:100%;border:1px solid #000;overflow:hidden;}
+.tag-custom{position:relative;display:block;}
+.t-custom-el{position:absolute;overflow:hidden;transform-origin:center center;color:#000;}
+.t-custom-text{font:800 11px/1.1 inherit;letter-spacing:.02em;}
+.t-custom-name{font:900 14px/1.05 inherit;}
+.t-custom-price{font:900 ${pSz}/1 inherit;letter-spacing:-.01em;}
+.t-custom-barcode .t-bc{width:100%;height:100%;}
+.t-custom-barcode .t-bc-svg{width:100%;height:100%;display:block;}
+.t-custom-barcode .t-bc-lbl{display:none;}
 .t-body{flex:1;display:flex;flex-direction:column;gap:2px;padding:6px 10px 4px;min-width:0;overflow:hidden;}
 .t-sku{font:800 11px/1.2 inherit;letter-spacing:.05em;text-transform:uppercase;color:#000;}
 .t-name{font:900 14px/1.15 inherit;letter-spacing:-.01em;color:#000;}

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  TAG_LAYOUTS,
   buildEplDocument,
   buildZplDocument,
+  defaultCustomTagLayout,
+  defaultSaleCustomTagLayout,
   getInventoryTagPrintConfig,
   getInventoryTagPrinterLanguage,
 } from "./labelPrint";
@@ -25,6 +26,13 @@ const retailItem = {
   price: "$0.00",
   regularPrice: null,
   salePrice: null,
+};
+
+const saleRetailItem = {
+  ...retailItem,
+  price: "$119.00",
+  regularPrice: "$149.00",
+  salePrice: "$119.00",
 };
 
 describe("LP 2844 EPL2 tag payloads", () => {
@@ -54,115 +62,141 @@ describe("LP 2844 EPL2 tag payloads", () => {
     expect(epl).toMatch(/^B.*?,N,"/m);
   });
 
-  it("preserves selected retail EPL layouts and configured content", () => {
-    for (const layout of TAG_LAYOUTS) {
-      const epl = buildEplDocument(
-        [retailItem],
-        {
-          ...getInventoryTagPrintConfig(),
-          tagLayout: layout.id,
-          widthInches: 2.25,
-          heightInches: 1.25,
-          showBarcode: true,
-          showPrice: true,
-          priceSize: "large",
-          footerText: "Riverside Men's Shop",
-        },
-      );
-
-      expect(epl.match(/^P1$/gm), layout.id).toHaveLength(1);
-      expect(epl, `${layout.id} footer`).toContain("Riverside Men's Shop");
-      expect(epl, `${layout.id} price`).toContain('"$0.00"');
-      expect(epl, `${layout.id} barcode`).toContain('"B-123456"');
-      if (layout.id === "barcode-left" || layout.id === "barcode-right") {
-        expect(epl, `${layout.id} rotated barcode`).toMatch(/^B\d+,\d+,1,/m);
-      } else {
-        expect(epl, `${layout.id} horizontal barcode`).toMatch(/^B\d+,\d+,0,/m);
-      }
-    }
-  });
-
-  it("keeps every supported EPL layout inside one physical label", () => {
-    for (const layout of TAG_LAYOUTS) {
-      const config = {
+  it("uses the Tag Builder layout for test and real retail EPL content", () => {
+    const epl = buildEplDocument(
+      [retailItem],
+      {
         ...getInventoryTagPrintConfig(),
-        tagLayout: layout.id,
+        tagLayout: "barcode-left",
         widthInches: 2.25,
         heightInches: 1.25,
-      };
-      const epl = buildEplDocument([item], config);
-      const width = Number(epl.match(/^q(\d+)/m)?.[1]);
-      const height = Number(epl.match(/^Q(\d+),/m)?.[1]);
+        showBarcode: true,
+        showPrice: true,
+        priceSize: "large",
+        footerText: "Riverside Men's Shop",
+      },
+    );
 
-      expect(Number.isFinite(width), layout.id).toBe(true);
-      expect(Number.isFinite(height), layout.id).toBe(true);
+    expect(epl.match(/^P1$/gm)).toHaveLength(1);
+    expect(epl).toContain("Riverside Men's Shop");
+    expect(epl).toContain('"$0.00"');
+    expect(epl).toContain('"B-123456"');
+    expect(epl).toMatch(/^B\d+,\d+,0,/m);
+  });
 
-      for (const match of epl.matchAll(/^A(\d+),(\d+),([0-3]),([1-5]),(\d+),(\d+),N,/gm)) {
-        const [, rawX, rawY, rawRotation, rawFont, , rawYMul] = match;
-        const x = Number(rawX);
-        const y = Number(rawY);
-        const rotation = Number(rawRotation);
-        const font = Number(rawFont);
-        const yMul = Number(rawYMul);
-        const baseHeight = font === 1 ? 16 : font === 2 ? 22 : font === 3 ? 28 : font === 4 ? 32 : 28;
-        const renderedHeight = baseHeight * Math.max(1, yMul);
+  it("prints sale tag pricing as separate builder fields", () => {
+    const epl = buildEplDocument(
+      [saleRetailItem],
+      {
+        ...getInventoryTagPrintConfig(),
+        widthInches: 2.25,
+        heightInches: 1.25,
+        showBarcode: true,
+        showPrice: true,
+        showPromoPrice: true,
+        priceSize: "large",
+        footerText: "Riverside Men's Shop",
+      },
+    );
 
-        expect(x, `${layout.id} text x`).toBeGreaterThanOrEqual(0);
-        expect(x, `${layout.id} text x`).toBeLessThan(width);
-        expect(y, `${layout.id} text y`).toBeGreaterThanOrEqual(0);
-        if (rotation === 0) {
-          expect(y + renderedHeight, `${layout.id} text bottom`).toBeLessThanOrEqual(height);
-        } else {
-          expect(y, `${layout.id} rotated text y`).toBeLessThan(height);
-        }
-      }
+    expect(epl).toContain('"Reg $149.00"');
+    expect(epl).toContain('"$119.00"');
+    expect(epl).toContain('"Save $30.00"');
+    expect(epl).toContain('"B-123456"');
+  });
 
-      for (const match of epl.matchAll(/^B(\d+),(\d+),([0-3]),1,\d+,\d+,(\d+),N,/gm)) {
-        const [, rawX, rawY, rawRotation, rawHeight] = match;
-        const x = Number(rawX);
-        const y = Number(rawY);
-        const rotation = Number(rawRotation);
-        const barcodeHeight = Number(rawHeight);
+  it("keeps regular and sale builder layouts independent", () => {
+    const regularLayout = defaultCustomTagLayout();
+    const saleLayout = defaultSaleCustomTagLayout();
+    saleLayout.elements.barcode = {
+      ...saleLayout.elements.barcode,
+      xPct: 72,
+      yPct: 12,
+      wPct: 18,
+      hPct: 60,
+      direction: "rotated-right",
+    };
 
-        expect(x, `${layout.id} barcode x`).toBeGreaterThanOrEqual(0);
-        expect(x, `${layout.id} barcode x`).toBeLessThan(width);
-        expect(y, `${layout.id} barcode y`).toBeGreaterThanOrEqual(0);
-        if (rotation === 0) {
-          expect(y + barcodeHeight, `${layout.id} barcode bottom`).toBeLessThanOrEqual(height);
-        } else {
-          expect(y, `${layout.id} rotated barcode y`).toBeLessThan(height);
-        }
-      }
+    const config = {
+      ...getInventoryTagPrintConfig(),
+      widthInches: 2.25,
+      heightInches: 1.25,
+      customLayout: regularLayout,
+      saleCustomLayout: saleLayout,
+    };
+
+    const regularEpl = buildEplDocument([retailItem], config);
+    const saleEpl = buildEplDocument([saleRetailItem], config);
+
+    expect(regularEpl).toMatch(/^B\d+,\d+,0,1,/m);
+    expect(saleEpl).toMatch(/^B\d+,\d+,1,1,/m);
+  });
+
+  it("keeps Tag Builder EPL commands inside one physical label", () => {
+    const config = {
+      ...getInventoryTagPrintConfig(),
+      widthInches: 2.25,
+      heightInches: 1.25,
+    };
+    const epl = buildEplDocument([item], config);
+    const width = Number(epl.match(/^q(\d+)/m)?.[1]);
+    const height = Number(epl.match(/^Q(\d+),/m)?.[1]);
+
+    expect(Number.isFinite(width)).toBe(true);
+    expect(Number.isFinite(height)).toBe(true);
+
+    for (const match of epl.matchAll(/^A(\d+),(\d+),([0-3]),([1-5]),(\d+),(\d+),N,/gm)) {
+      const [, rawX, rawY] = match;
+      const x = Number(rawX);
+      const y = Number(rawY);
+
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(width);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThan(height);
+    }
+
+    for (const match of epl.matchAll(/^B(\d+),(\d+),([0-3]),1,\d+,\d+,(\d+),N,/gm)) {
+      const [, rawX, rawY] = match;
+      const x = Number(rawX);
+      const y = Number(rawY);
+
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThan(width);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThan(height);
     }
   });
 
-  it("keeps small-tag prices clear of horizontal barcode bands", () => {
-    for (const layout of TAG_LAYOUTS.filter((layout) => layout.id !== "barcode-left" && layout.id !== "barcode-right")) {
-      const epl = buildEplDocument(
-        [retailItem],
-        {
-          ...getInventoryTagPrintConfig(),
-          tagLayout: layout.id,
-          widthInches: 2.25,
-          heightInches: 1.25,
-          showBarcode: true,
-          showPrice: true,
-          priceSize: "large",
-        },
-      );
-      const priceMatch = epl.match(/^A(\d+),(\d+),0,5,1,(\d+),N,"\$0\.00"/m);
-      const barcodeMatch = epl.match(/^B(\d+),(\d+),0,1,\d+,\d+,(\d+),N,"B-123456"/m);
+  it("lets the builder move and rotate barcode independently of price", () => {
+    const customLayout = defaultCustomTagLayout();
+    customLayout.elements.barcode = {
+      ...customLayout.elements.barcode,
+      xPct: 72,
+      yPct: 12,
+      wPct: 18,
+      hPct: 60,
+      direction: "rotated-right",
+    };
+    const epl = buildEplDocument(
+      [retailItem],
+      {
+        ...getInventoryTagPrintConfig(),
+        widthInches: 2.25,
+        heightInches: 1.25,
+        showBarcode: true,
+        showPrice: true,
+        priceSize: "large",
+        customLayout,
+      },
+    );
 
-      expect(priceMatch, `${layout.id} price command`).not.toBeNull();
-      expect(barcodeMatch, `${layout.id} barcode command`).not.toBeNull();
+    const priceMatch = epl.match(/^A(\d+),(\d+),0,5,1,\d+,N,"\$0\.00"/m);
+    const barcodeMatch = epl.match(/^B(\d+),(\d+),1,1,\d+,\d+,\d+,N,"B-123456"/m);
 
-      const priceY = Number(priceMatch?.[2]);
-      const priceYMul = Number(priceMatch?.[3]);
-      const priceBottom = priceY + 28 * Math.max(1, priceYMul);
-      const barcodeY = Number(barcodeMatch?.[2]);
-
-      expect(priceBottom + 12, `${layout.id} price/barcode gap`).toBeLessThanOrEqual(barcodeY);
-    }
+    expect(priceMatch).not.toBeNull();
+    expect(barcodeMatch).not.toBeNull();
+    expect(Number(barcodeMatch?.[1])).toBeGreaterThan(Number(priceMatch?.[1]));
   });
 
   it("keeps EPL2 text fields printable ASCII", () => {

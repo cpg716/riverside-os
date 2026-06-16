@@ -2225,6 +2225,8 @@ async function rosFetch(urlPath, body, method = "POST", extraHeaders = {}) {
   throw lastErr;
 }
 
+const SYNC_WORKBENCH_FETCH_MAX_ATTEMPTS = Math.max(1, Number.parseInt(process.env.COUNTERPOINT_SYNC_WORKBENCH_FETCH_ATTEMPTS || "4", 10));
+
 async function syncWorkbenchFetch(urlPath, body, method = "POST", extraHeaders = {}) {
   if (!SYNC_WORKBENCH_URL) {
     throw new Error("COUNTERPOINT_SYNC_WORKBENCH_URL is required when COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench.");
@@ -2237,24 +2239,34 @@ async function syncWorkbenchFetch(urlPath, body, method = "POST", extraHeaders =
   if (SYNC_WORKBENCH_TOKEN.trim()) {
     headers["x-counterpoint-sync-token"] = SYNC_WORKBENCH_TOKEN;
   }
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), ROS_FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      method,
-      headers,
-      body: body != null ? JSON.stringify(body) : undefined,
-      signal: ac.signal,
-    });
-    const text = await res.text();
-    const json = text.trim() ? JSON.parse(text) : {};
-    if (!res.ok) {
-      throw new Error(`Counterpoint SYNC ${res.status}: ${text.slice(0, 500)}`);
+  let lastErr;
+  for (let attempt = 0; attempt < SYNC_WORKBENCH_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), ROS_FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers,
+        body: body != null ? JSON.stringify(body) : undefined,
+        signal: ac.signal,
+      });
+      const text = await res.text();
+      const json = text.trim() ? JSON.parse(text) : {};
+      if (!res.ok) {
+        throw new Error(`Counterpoint SYNC ${res.status}: ${text.slice(0, 500)}`);
+      }
+      return json;
+    } catch (e) {
+      lastErr = e;
+    } finally {
+      clearTimeout(timer);
     }
-    return json;
-  } finally {
-    clearTimeout(timer);
+    if (attempt + 1 < SYNC_WORKBENCH_FETCH_MAX_ATTEMPTS) {
+      await delay(500 * 2 ** attempt);
+    }
   }
+  const message = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  throw new Error(`Counterpoint SYNC Workbench is not reachable at ${SYNC_WORKBENCH_URL}. Start the Workbench and confirm ${SYNC_WORKBENCH_URL}/health opens from this Bridge PC. Last error: ${message}`);
 }
 
 async function rosGetHealth() {

@@ -970,10 +970,10 @@ function dashboardHtml() {
     .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 18px; }
     .token { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .grid { display: grid; gap: 12px; }
-    .stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-    .card { border: 1px solid #e5e7eb; border-radius: 8px; background: rgba(255,255,255,.9); padding: 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+    .stats { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+    .card { min-width: 0; border: 1px solid #e5e7eb; border-radius: 8px; background: rgba(255,255,255,.9); padding: 14px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
     .muted { color: #6b7280; font-size: 12px; }
-    .value { margin-top: 4px; font-size: 18px; font-weight: 900; }
+    .value { margin-top: 4px; font-size: clamp(13px, 1.5vw, 18px); line-height: 1.2; font-weight: 900; overflow-wrap: anywhere; word-break: break-word; }
     .section { margin-top: 14px; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
     th, td { border-bottom: 1px solid #e5e7eb; padding: 9px 8px; text-align: left; vertical-align: top; }
@@ -1101,14 +1101,14 @@ function dashboardHtml() {
     }
     const fmt = (value) => value == null || value === "" ? "Not reported" : String(value);
     const pill = (value, bad = false, warn = false) => '<span class="pill ' + (bad ? "bad" : warn ? "warn" : "ok") + '">' + value + '</span>';
-    function stat(label, value) { return '<div class="card"><p class="muted">' + label + '</p><p class="value">' + value + '</p></div>'; }
+    function stat(label, value, detail = "") { return '<div class="card"><p class="muted">' + label + '</p><p class="value">' + value + '</p>' + (detail ? '<p class="muted" style="overflow-wrap:anywhere;margin-top:4px">' + detail + '</p>' : '') + '</div>'; }
     async function refresh() {
       const health = await fetch("/health").then((res) => res.json());
       const runs = await api("/api/runs");
       const summary = health.summary || {};
       document.getElementById("stats").innerHTML = [
         stat("Workbench status", health.ok ? "Online" : "Check"),
-        stat("Store path", health.store?.path || health.store_path || "Not reported"),
+        stat("Store", health.store?.healthy === false ? "Check" : "Ready", health.store?.path || health.store_path || "Not reported"),
         stat("Backup", health.store?.backup_exists ? "Available" : "Missing"),
         stat("Bridge heartbeat", health.last_bridge_heartbeat ? "Received" : "None"),
         stat("Runs", summary.runs_count || runs.runs.length || 0),

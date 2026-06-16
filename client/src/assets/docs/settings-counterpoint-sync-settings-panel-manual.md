@@ -51,11 +51,13 @@ The normal closed-store workflow does not require Bridge or SYNC Workbench token
 
 If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If SYNC is unreachable, confirm the Workbench is running and the saved URL matches the Workbench address.
 
+The Bridge GUI includes **Check SYNC Workbench**. Use it before extraction; the Bridge must be able to load the Workbench `/health` endpoint from the same Windows session before it starts sending batches. If the check fails, start or reopen Counterpoint SYNC Workbench and confirm the exact URL shown in the Bridge GUI opens.
+
 For no-hardware rehearsal at home, start the local Workbench with `npm run dev:sync-workbench`, run `npm run sync:simulate-counterpoint`, then select the simulated run in ROS. The simulator creates warning-only sections and a blocked inventory section without requiring the Counterpoint PC. Do not import simulated packages into production ROS unless intentionally testing in a safe environment.
 
 After simulator testing, use `npm run sync:clear-simulation` to remove only simulator-generated SYNC runs from the local Workbench store. This does not reset ROS and does not remove real Bridge/Counterpoint runs.
 
-The SYNC Workbench now uses a local SQLite store on the Main Hub. The Workbench health panel reports store type, store path, backup availability, schema version, and migration status. If an older JSON store exists, SYNC imports it into SQLite on first startup and preserves the JSON file.
+The SYNC Workbench uses a local SQLite store on the Main Hub. The Workbench health panel reports store readiness, full store path, backup availability, schema version, and Bridge heartbeat without letting the long Windows store path break the page layout. If an older JSON store exists, SYNC imports it into SQLite on first startup and preserves the JSON file.
 
 ## Command center and post-import verification
 

@@ -69,6 +69,12 @@ interface InstallUpdateResult {
   installed_build: string | null;
 }
 
+interface SyncWorkbenchCheck {
+  ok: boolean;
+  message: string;
+  checkedAt: string;
+}
+
 const ENTITIES = [
   { key: "staff", label: "Staff", icon: "👤" },
   { key: "sales_rep_stubs", label: "Sales Reps", icon: "🏷️" },
@@ -112,6 +118,8 @@ function App() {
   const [syncToken, setSyncToken] = useState("");
   const [syncWorkbenchUrl, setSyncWorkbenchUrl] = useState("");
   const [syncWorkbenchToken, setSyncWorkbenchToken] = useState("");
+  const [syncWorkbenchCheck, setSyncWorkbenchCheck] = useState<SyncWorkbenchCheck | null>(null);
+  const [syncWorkbenchChecking, setSyncWorkbenchChecking] = useState(false);
 
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
@@ -140,6 +148,44 @@ function App() {
       setStatusMessage(`Could not open Counterpoint SYNC Workbench: ${e?.message ?? String(e)}`);
     }
   }, [normalizedSyncWorkbenchUrl]);
+
+  const checkSyncWorkbenchReachability = useCallback(async (): Promise<boolean> => {
+    const url = normalizedSyncWorkbenchUrl;
+    setSyncWorkbenchChecking(true);
+    try {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 5000);
+      const headers: Record<string, string> = {};
+      if (syncWorkbenchToken.trim()) {
+        headers["x-counterpoint-sync-token"] = syncWorkbenchToken.trim();
+      }
+      const response = await fetch(`${url}/health`, {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+      });
+      window.clearTimeout(timer);
+      if (!response.ok) {
+        const message = `SYNC Workbench answered ${response.status} at ${url}/health.`;
+        setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
+        setStatusMessage(message);
+        return false;
+      }
+      const health = await response.json() as { service?: string; ok?: boolean };
+      const service = health.service === "counterpoint_sync_workbench" ? "Counterpoint SYNC Workbench" : "service";
+      const message = `${service} is reachable at ${url}.`;
+      setSyncWorkbenchCheck({ ok: true, message, checkedAt: new Date().toLocaleTimeString() });
+      setStatusMessage(message);
+      return true;
+    } catch (e: any) {
+      const message = `SYNC Workbench is not reachable at ${url}. Open the Workbench and confirm ${url}/health loads before starting extraction. ${e?.message ?? String(e)}`;
+      setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
+      setStatusMessage(message);
+      return false;
+    } finally {
+      setSyncWorkbenchChecking(false);
+    }
+  }, [normalizedSyncWorkbenchUrl, syncWorkbenchToken]);
 
   const loadEnvSettings = useCallback(async (): Promise<BridgeSettings | null> => {
     try {
@@ -274,6 +320,9 @@ function App() {
         setStatusMessage("Enter the SQL connection and SYNC Workbench URL before starting the bridge.");
         return;
       }
+      setStatusMessage("Checking Counterpoint SYNC Workbench before extraction...");
+      const syncReachable = await checkSyncWorkbenchReachability();
+      if (!syncReachable) return;
       setStatusMessage("Starting background sync engine...");
       const result = await invoke<string>("start_bridge", { dryRun: isDry });
       setIsProcessRunning(true);
@@ -566,6 +615,24 @@ function App() {
               <div className="font-mono text-[#f97316] mt-0.5">{BRIDGE_API}</div>
               <div className="font-semibold text-gray-400 mt-3 mb-1">SYNC Workbench</div>
               <div className="font-mono text-[#f97316] mt-0.5 break-all">{normalizedSyncWorkbenchUrl}</div>
+              <div className={`mt-2 rounded-lg border px-2 py-1.5 font-semibold ${
+                syncWorkbenchCheck?.ok
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                  : syncWorkbenchCheck
+                    ? "border-red-500/30 bg-red-500/10 text-red-300"
+                    : "border-white/10 bg-white/5 text-gray-400"
+              }`}>
+                {syncWorkbenchCheck ? syncWorkbenchCheck.message : "Not checked from Bridge GUI yet."}
+                {syncWorkbenchCheck ? <div className="mt-0.5 text-[9px] text-gray-500">Checked {syncWorkbenchCheck.checkedAt}</div> : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => void checkSyncWorkbenchReachability()}
+                disabled={syncWorkbenchChecking}
+                className="mt-2 w-full rounded-lg border border-white/10 px-2 py-2 font-bold text-gray-300 hover:border-orange-500/50 hover:text-white disabled:opacity-50"
+              >
+                {syncWorkbenchChecking ? "Checking..." : "Check SYNC Workbench"}
+              </button>
               <div className="font-semibold text-gray-400 mt-3 mb-1">ROS Final Importer</div>
               <div className="font-mono text-gray-400 mt-0.5 break-all">{normalizedRosUrl}</div>
             </div>
