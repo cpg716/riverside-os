@@ -74,6 +74,61 @@ function waitForPostgres() {
   throw new Error(`Postgres container did not become ready within 60 seconds.${lastError ? `\n${lastError}` : ""}`);
 }
 
+function isTransientPostgresStartupError(result) {
+  const output = [result.stderr, result.stdout].filter(Boolean).join("\n");
+  return (
+    output.includes("the database system is starting up") ||
+    output.includes("the database system is shutting down") ||
+    output.includes("could not connect to server") ||
+    output.includes("connection to server")
+  );
+}
+
+function runPostgresAdminCommandWithRetry(sql, options = {}) {
+  const deadline = Date.now() + 60_000;
+  let lastResult;
+
+  while (Date.now() < deadline) {
+    lastResult = run(
+      "docker",
+      [
+        "compose",
+        "exec",
+        "-T",
+        "db",
+        "psql",
+        "-U",
+        "postgres",
+        "-d",
+        "postgres",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        sql,
+      ],
+      { allowFailure: true, capture: true },
+    );
+
+    if (lastResult.status === 0) {
+      if (!options.quiet) {
+        process.stdout.write(lastResult.stdout);
+        process.stderr.write(lastResult.stderr);
+      }
+      return lastResult;
+    }
+
+    if (!isTransientPostgresStartupError(lastResult)) {
+      const detail = [lastResult.stderr, lastResult.stdout].filter(Boolean).join("\n").trim();
+      throw new Error(`docker compose exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c ${sql} failed with exit code ${lastResult.status}${detail ? `\n${detail}` : ""}`);
+    }
+
+    sleep(500);
+  }
+
+  const detail = [lastResult?.stderr, lastResult?.stdout].filter(Boolean).join("\n").trim();
+  throw new Error(`Postgres admin command did not succeed within 60 seconds: ${sql}${detail ? `\n${detail}` : ""}`);
+}
+
 const repairSerialSequencesSql = `
 DO $$
 DECLARE
@@ -113,25 +168,7 @@ END $$;
 `;
 
 function dropDatabase() {
-  run(
-    "docker",
-    [
-      "compose",
-      "exec",
-      "-T",
-      "db",
-      "psql",
-      "-U",
-      "postgres",
-      "-d",
-      "postgres",
-      "-v",
-      "ON_ERROR_STOP=1",
-      "-c",
-      `DROP DATABASE IF EXISTS ${dbName} WITH (FORCE);`,
-    ],
-    { allowFailure: true },
-  );
+  runPostgresAdminCommandWithRetry(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE);`, { quiet: true });
 }
 
 console.log("[pre-retag] Starting dirty migration rehearsal...");
@@ -140,21 +177,7 @@ waitForPostgres();
 
 try {
   dropDatabase();
-  run("docker", [
-    "compose",
-    "exec",
-    "-T",
-    "db",
-    "psql",
-    "-U",
-    "postgres",
-    "-d",
-    "postgres",
-    "-v",
-    "ON_ERROR_STOP=1",
-    "-c",
-    `CREATE DATABASE ${dbName};`,
-  ]);
+  runPostgresAdminCommandWithRetry(`CREATE DATABASE ${dbName};`);
 
   psql(
     dbName,
