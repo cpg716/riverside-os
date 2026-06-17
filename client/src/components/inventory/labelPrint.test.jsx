@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildEplDocument,
+  buildInventoryTagFooterLine,
   buildZplDocument,
   defaultCustomTagLayout,
   defaultSaleCustomTagLayout,
+  formatInventoryTagPrintDate,
   getInventoryTagPrintConfig,
   getInventoryTagPrinterLanguage,
 } from "./labelPrint";
@@ -123,6 +125,55 @@ describe("LP 2844 EPL2 tag payloads", () => {
     expect(epl).not.toMatch(/^A\d+,\d+,0,5,1,\d+,N,"\$119\.00"/m);
   });
 
+  it("prints XXL price text when the builder price box has enough room", () => {
+    const customLayout = defaultSaleCustomTagLayout();
+    customLayout.elements.price = {
+      ...customLayout.elements.price,
+      xPct: 0,
+      yPct: 50,
+      wPct: 65,
+      hPct: 36,
+      fontSize: "xxl",
+    };
+    const epl = buildEplDocument(
+      [saleRetailItem],
+      {
+        ...getInventoryTagPrintConfig(),
+        widthInches: 2.25,
+        heightInches: 1.25,
+        showPrice: true,
+        showPromoPrice: true,
+        saleCustomLayout: customLayout,
+      },
+    );
+
+    expect(epl).toMatch(/^A\d+,\d+,0,5,1,2,N,"\$119\.00"/m);
+  });
+
+  it("prints hero price text for six digit prices when the price box uses the tag width", () => {
+    const customLayout = defaultCustomTagLayout();
+    customLayout.elements.price = {
+      ...customLayout.elements.price,
+      xPct: 0,
+      yPct: 45,
+      wPct: 100,
+      hPct: 45,
+      fontSize: "hero",
+    };
+    const epl = buildEplDocument(
+      [{ ...retailItem, price: "$999.00" }],
+      {
+        ...getInventoryTagPrintConfig(),
+        widthInches: 2.25,
+        heightInches: 1.25,
+        showPrice: true,
+        customLayout,
+      },
+    );
+
+    expect(epl).toMatch(/^A0,\d+,0,5,2,2,N,"\$999\.00"/m);
+  });
+
   it("honors per-field text size from the tag builder", () => {
     const customLayout = defaultCustomTagLayout();
     customLayout.elements.productName = {
@@ -140,6 +191,13 @@ describe("LP 2844 EPL2 tag payloads", () => {
     );
 
     expect(epl).toMatch(/^A\d+,\d+,0,1,1,\d+,N,"HSM SLACKS"/m);
+  });
+
+  it("formats tag footers with the print job date", () => {
+    const printedAt = new Date("2026-06-17T14:30:00-04:00");
+
+    expect(formatInventoryTagPrintDate(printedAt)).toBe("Jun 17, 2026");
+    expect(buildInventoryTagFooterLine("Riverside Men's Shop", printedAt)).toBe("Riverside Men's Shop · Jun 17, 2026");
   });
 
   it("keeps regular and sale builder layouts independent", () => {

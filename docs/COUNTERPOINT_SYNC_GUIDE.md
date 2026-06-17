@@ -150,7 +150,7 @@ The simulator writes only to the local SYNC Workbench store. It does not write t
 1. Start the SYNC Workbench.
 2. Run `npm run sync:simulate-counterpoint`.
 3. Open ROS Back Office → Settings → Integrations → Counterpoint.
-4. Save the SYNC Workbench URL and token.
+4. Save the SYNC Workbench URL. Leave the token blank unless the Workbench was deliberately configured to require one.
 5. Select the simulated SYNC run.
 6. Preview a section package and confirm the package fingerprint.
 7. Run ROS preflight for a warning-only section such as vendors or customers.
@@ -223,8 +223,8 @@ SQL_CONNECTION_STRING=Server=localhost\RMSSVR;Database=Riverside;User Id=ros_cp_
 ```
 
 Key fields:
-- `ROS_BASE_URL` — the ROS server's LAN IP and port (not `localhost` unless they're the same machine)
-- `COUNTERPOINT_SYNC_TOKEN` — must **exactly match** the token saved in **Settings → Integrations → Counterpoint**
+- `ROS_BASE_URL` — compatibility-only direct ROS target. The normal Bridge -> SYNC workflow does not use it for extraction delivery.
+- `COUNTERPOINT_SYNC_TOKEN` — compatibility-only direct ROS token. Leave blank for the normal Bridge -> SYNC workflow.
 - `SQL_CONNECTION_STRING` — standard `mssql` connection string; `Database=` must be the Counterpoint **company** database (same one you connect to in SSMS)
 
 ### 3c. Confirm Runtime Mappings

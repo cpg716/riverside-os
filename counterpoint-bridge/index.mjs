@@ -3621,6 +3621,7 @@ function inventoryQuantityCostDiagnosticRow(row) {
 }
 
 async function postSnapshotReconciliation(snapshot, sourceCount, sourceSum, sourceChecksum) {
+  if (USE_SYNC_WORKBENCH) return;
   const body = {
     snapshot,
     source_count: sourceCount,
@@ -3640,6 +3641,7 @@ async function postSnapshotReconciliation(snapshot, sourceCount, sourceSum, sour
 }
 
 async function postFidelityDiagnostics(group, rows, limit = 50) {
+  if (USE_SYNC_WORKBENCH) return null;
   return await rosFetch(
     "/api/sync/counterpoint/fidelity-diagnostics",
     { group, rows, limit },

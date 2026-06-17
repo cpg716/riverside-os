@@ -72,7 +72,79 @@ function stableStringify(value) {
 }
 
 function fingerprint(value) {
-  return crypto.createHash("sha256").update(stableStringify(value)).digest("hex");
+  const hash = crypto.createHash("sha256");
+  updateStableHash(hash, value);
+  return hash.digest("hex");
+}
+
+function updateStableHash(hash, value) {
+  if (value === null || typeof value !== "object") {
+    hash.update(JSON.stringify(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    hash.update("[");
+    value.forEach((item, index) => {
+      if (index > 0) hash.update(",");
+      updateStableHash(hash, item);
+    });
+    hash.update("]");
+    return;
+  }
+  hash.update("{");
+  Object.keys(value).sort().forEach((key, index) => {
+    if (index > 0) hash.update(",");
+    hash.update(JSON.stringify(key));
+    hash.update(":");
+    updateStableHash(hash, value[key]);
+  });
+  hash.update("}");
+}
+
+function compactPayloadMetadata(payload, rowCountValue, payloadFingerprint) {
+  return {
+    row_count: rowCountValue,
+    payload_fingerprint: payloadFingerprint,
+  };
+}
+
+function compactSourceBatchForStorage(batch) {
+  const payload = batch.payload ?? batch.normalized_payload ?? batch.original_payload ?? {};
+  const rowCountValue = batch.row_count ?? rowCount(payload);
+  const payloadFingerprint = batch.payload_fingerprint ?? fingerprint(payload);
+  batch.row_count = rowCountValue;
+  batch.payload_fingerprint = payloadFingerprint;
+  batch.original_payload = compactPayloadMetadata(batch.original_payload ?? payload, rowCountValue, payloadFingerprint);
+  batch.normalized_payload = compactPayloadMetadata(batch.normalized_payload ?? payload, rowCountValue, payloadFingerprint);
+  return batch;
+}
+
+function compactProvenanceForPackage(item) {
+  const original = item.original_payload ?? {};
+  const normalized = item.normalized_payload ?? original;
+  const originalFingerprint = original?.payload_fingerprint ?? fingerprint(original);
+  const normalizedFingerprint = normalized?.payload_fingerprint ?? fingerprint(normalized);
+  return {
+    ...item,
+    original_payload: compactPayloadMetadata(original, original?.row_count ?? rowCount(original), originalFingerprint),
+    normalized_payload: compactPayloadMetadata(normalized, normalized?.row_count ?? rowCount(normalized), normalizedFingerprint),
+  };
+}
+
+function compactPackageForStorage(pkg) {
+  return {
+    sync_run_id: pkg.sync_run_id,
+    section: pkg.section,
+    entity: pkg.entity,
+    schema_version: pkg.schema_version,
+    generated_at: pkg.generated_at,
+    package_fingerprint: pkg.package_fingerprint,
+    source_counts: pkg.source_counts,
+    exceptions: pkg.exceptions,
+    provenance: pkg.provenance,
+    payload: compactPayloadMetadata(pkg.payload, rowCount(pkg.payload), fingerprint(pkg.payload)),
+    payload_omitted_from_store: true,
+  };
 }
 
 function emptyStore() {
@@ -370,13 +442,17 @@ function saveStore(store) {
     const insertHeartbeat = db.prepare("INSERT INTO sync_bridge_heartbeats (heartbeat_id, bridge_hostname, bridge_version, received_at, payload_json) VALUES (?, ?, ?, ?, ?)");
 
     for (const run of store.runs) {
+      for (const batch of run.source_batches ?? []) {
+        compactSourceBatchForStorage(batch);
+      }
+      run.provenance = (run.provenance ?? []).map(compactProvenanceForPackage);
       const sections = Object.values(run.sections ?? {});
       insertRun.run(run.sync_run_id, run.name, run.status, run.created_at, run.updated_at, run.finalized_at ?? null, run.source ?? null, dbJson(publicRun(run)), dbJson(run));
       for (const section of sections) {
         insertSection.run(run.sync_run_id, section.section, section.section, section.status, section.source_count ?? 0, section.prepared_count ?? 0, section.warnings ?? 0, section.blockers ?? 0, section.status === "imported" ? "imported" : "not_imported", section.ros_import_run_id ?? null, section.imported_package_fingerprint ?? null, section.imported_at ?? null, section.updated_at ?? run.updated_at, dbJson(section));
       }
       for (const batch of run.source_batches ?? []) {
-        insertBatch.run(batch.source_batch_id, run.sync_run_id, batch.section, batch.entity ?? batch.section, batch.source_system, batch.bridge_hostname ?? null, batch.bridge_version ?? null, batch.created_at ?? nowIso(), fingerprint(batch.payload ?? {}), batch.row_count ?? rowCount(batch.payload), dbJson(batch));
+        insertBatch.run(batch.source_batch_id, run.sync_run_id, batch.section, batch.entity ?? batch.section, batch.source_system, batch.bridge_hostname ?? null, batch.bridge_version ?? null, batch.created_at ?? nowIso(), batch.payload_fingerprint ?? fingerprint(batch.payload ?? {}), batch.row_count ?? rowCount(batch.payload), dbJson(batch));
       }
       for (const pkg of Object.values(run.packages ?? {})) {
         insertPackage.run(run.sync_run_id, pkg.section, pkg.entity, pkg.schema_version, pkg.package_fingerprint, pkg.generated_at, dbJson(pkg.source_counts), dbJson(pkg.payload), dbJson(pkg.exceptions), dbJson(pkg.provenance), "prepared", dbJson(pkg));
@@ -842,7 +918,7 @@ function packageFor(run, section) {
     ? batches[0].payload
     : { rows };
   const exceptions = run.exceptions.filter((item) => item.section === key);
-  const provenance = run.provenance.filter((item) => item.section === key);
+  const provenance = run.provenance.filter((item) => item.section === key).map(compactProvenanceForPackage);
   const source_counts = {
     raw: batches.reduce((sum, batch) => sum + batch.row_count, 0),
     prepared: rowCount(payload),
@@ -897,7 +973,7 @@ function packageFor(run, section) {
     generated_at,
     package_fingerprint,
   };
-  run.packages[key] = packagePayload;
+  run.packages[key] = compactPackageForStorage(packagePayload);
   const sectionState = sectionFor(run, key);
   sectionState.source_count = source_counts.raw;
   sectionState.prepared_count = source_counts.prepared;
@@ -1347,10 +1423,12 @@ function statusEvent(store, run, event_kind, metadata = {}) {
 
 async function route(req, res) {
   if (req.method === "OPTIONS") return send(res, 204, {});
-  if ((req.url === "/" || req.url === "/ui") && req.method === "GET") {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const normalizedPath = url.pathname.replace(/\/+$/u, "") || "/";
+  if ((normalizedPath === "/" || normalizedPath === "/ui") && req.method === "GET") {
     return sendHtml(res, 200, dashboardHtml());
   }
-  if (req.url === "/health" && req.method === "GET") {
+  if (normalizedPath === "/health" && req.method === "GET") {
     const store = (() => {
       try {
         return loadStore();
@@ -1375,7 +1453,6 @@ async function route(req, res) {
   }
   if (!authorized(req)) return send(res, 401, { error: "invalid or missing optional SYNC Workbench token" });
 
-  const url = new URL(req.url, `http://${req.headers.host}`);
   const parts = url.pathname.split("/").filter(Boolean);
   const store = loadStore();
 
@@ -1393,16 +1470,19 @@ async function route(req, res) {
     if (!section) return send(res, 400, { error: "section or entity required" });
     const run = activeRun(store, body.sync_run_id);
     const payload = body.payload ?? {};
+    const payloadRowCount = rowCount(payload);
+    const payloadFingerprint = fingerprint(payload);
     const batch = {
       source_batch_id: body.source_batch_id ?? newId("batch"),
       section,
       entity: section,
       source_system: body.source_system ?? "counterpoint_bridge",
       source_record_id: body.source_record_id ?? null,
-      original_payload: body.original_payload ?? payload,
-      normalized_payload: body.normalized_payload ?? payload,
+      original_payload: compactPayloadMetadata(body.original_payload ?? payload, payloadRowCount, payloadFingerprint),
+      normalized_payload: compactPayloadMetadata(body.normalized_payload ?? payload, payloadRowCount, payloadFingerprint),
       payload,
-      row_count: rowCount(payload),
+      row_count: payloadRowCount,
+      payload_fingerprint: payloadFingerprint,
       bridge_version: body.bridge_version ?? req.headers["x-bridge-version"] ?? null,
       bridge_hostname: body.bridge_hostname ?? req.headers["x-bridge-hostname"] ?? null,
       created_at: nowIso(),
@@ -1532,9 +1612,9 @@ async function route(req, res) {
       });
     }
     if (req.method === "GET" && parts[3] === "packages" && parts.length === 4) {
-      for (const section of Object.keys(run.sections)) packageFor(run, section);
+      const packages = Object.keys(run.sections).map((section) => packageFor(run, section));
       saveStore(store);
-      return send(res, 200, { packages: Object.values(run.packages) });
+      return send(res, 200, { packages });
     }
     if (req.method === "GET" && parts[3] === "packages" && parts[4]) {
       const pkg = packageFor(run, parts[4]);

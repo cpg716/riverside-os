@@ -13583,7 +13583,7 @@ async fn ensure_historical_fallback_variant(
 mod tests {
     use super::*;
     use crate::auth::pins::hash_pin;
-    use chrono::{Duration, NaiveDate, Utc};
+    use chrono::{DateTime, Duration, NaiveDate, Utc};
     use rust_decimal::Decimal;
     use sqlx::PgPool;
     use uuid::Uuid;
@@ -13614,6 +13614,63 @@ mod tests {
         .await;
 
         pool
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct SavedIntegrationCredential {
+        id: Uuid,
+        encrypted_value: String,
+        value_hint: Option<String>,
+        updated_by_staff_id: Option<Uuid>,
+        created_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>,
+    }
+
+    async fn remove_counterpoint_sync_token(pool: &PgPool) -> Vec<SavedIntegrationCredential> {
+        sqlx::query_as::<_, SavedIntegrationCredential>(
+            r#"
+            DELETE FROM integration_credentials
+            WHERE integration_key = 'counterpoint'
+              AND credential_key = 'sync_token'
+            RETURNING id, encrypted_value, value_hint, updated_by_staff_id, created_at, updated_at
+            "#,
+        )
+        .fetch_all(pool)
+        .await
+        .expect("temporarily remove counterpoint sync token")
+    }
+
+    async fn restore_counterpoint_sync_token(
+        pool: &PgPool,
+        credentials: Vec<SavedIntegrationCredential>,
+    ) {
+        for credential in credentials {
+            sqlx::query(
+                r#"
+                INSERT INTO integration_credentials (
+                    id, integration_key, credential_key, encrypted_value, value_hint,
+                    updated_by_staff_id, created_at, updated_at
+                )
+                VALUES ($1, 'counterpoint', 'sync_token', $2, $3, $4, $5, $6)
+                ON CONFLICT (integration_key, credential_key)
+                DO UPDATE SET
+                    encrypted_value = EXCLUDED.encrypted_value,
+                    value_hint = EXCLUDED.value_hint,
+                    updated_by_staff_id = EXCLUDED.updated_by_staff_id,
+                    created_at = EXCLUDED.created_at,
+                    updated_at = EXCLUDED.updated_at
+                "#,
+            )
+            .bind(credential.id)
+            .bind(credential.encrypted_value)
+            .bind(credential.value_hint)
+            .bind(credential.updated_by_staff_id)
+            .bind(credential.created_at)
+            .bind(credential.updated_at)
+            .execute(pool)
+            .await
+            .expect("restore counterpoint sync token");
+        }
     }
 
     async fn next_staff_code(pool: &PgPool) -> String {
@@ -19071,11 +19128,13 @@ mod tests {
         let pool = connect_test_db().await;
         let previous = std::env::var("COUNTERPOINT_SYNC_TOKEN").ok();
         std::env::remove_var("COUNTERPOINT_SYNC_TOKEN");
+        let saved_credentials = remove_counterpoint_sync_token(&pool).await;
         let health = health_check(&pool).await;
         assert!(!health.configured);
         assert!(!health.reachable);
         assert_eq!(health.latency_ms, 0);
         assert!(health.message.contains("COUNTERPOINT_SYNC_TOKEN"));
+        restore_counterpoint_sync_token(&pool, saved_credentials).await;
         if let Some(v) = previous {
             std::env::set_var("COUNTERPOINT_SYNC_TOKEN", v);
         }
@@ -19087,6 +19146,7 @@ mod tests {
         let pool = connect_test_db().await;
         let previous = std::env::var("COUNTERPOINT_SYNC_TOKEN").ok();
         std::env::set_var("COUNTERPOINT_SYNC_TOKEN", "test-token-for-health-check");
+        let saved_credentials = remove_counterpoint_sync_token(&pool).await;
         // Ensure no heartbeat row exists by deleting it if present
         let _ = sqlx::query("DELETE FROM counterpoint_bridge_heartbeat WHERE id = 1")
             .execute(&pool)
@@ -19098,6 +19158,7 @@ mod tests {
             health.message.contains("never sent a heartbeat")
                 || health.message.contains("heartbeat query failed")
         );
+        restore_counterpoint_sync_token(&pool, saved_credentials).await;
         if let Some(v) = previous {
             std::env::set_var("COUNTERPOINT_SYNC_TOKEN", v);
         } else {

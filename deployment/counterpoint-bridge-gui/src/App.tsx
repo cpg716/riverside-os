@@ -221,17 +221,27 @@ function App() {
         setStatusMessage(message);
         return false;
       }
-      const contentType = response.headers.get("content-type") ?? "";
-      if (!contentType.includes("application/json")) {
+      const text = await response.text();
+      let health: { service?: string; ok?: boolean };
+      try {
+        health = JSON.parse(text) as { service?: string; ok?: boolean };
+      } catch {
         const hint = loopbackSyncWarning(url);
-        const message = `SYNC Workbench check reached ${url}/health but it did not return JSON. This is usually the wrong service or wrong machine.${hint ? ` ${hint}` : ""}`;
+        const snippet = text.replace(/\s+/g, " ").trim().slice(0, 120);
+        const message = `SYNC Workbench check reached ${url}/health but did not receive the Counterpoint SYNC health JSON. This is usually the wrong service, wrong port, or the Workbench UI without its API. ${snippet ? `Response started with: ${snippet}.` : ""}${hint ? ` ${hint}` : ""}`;
         setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
       }
-      const health = await response.json() as { service?: string; ok?: boolean };
-      const service = health.service === "counterpoint_sync_workbench" ? "Counterpoint SYNC Workbench" : "service";
-      const message = `${service} is reachable at ${url}.`;
+      if (health.service !== "counterpoint_sync_workbench" || health.ok === false) {
+        const hint = loopbackSyncWarning(url);
+        const service = health.service ? ` It answered as ${health.service}.` : "";
+        const message = `SYNC Workbench check reached ${url}/health, but it was not the Counterpoint SYNC Workbench health endpoint.${service}${hint ? ` ${hint}` : ""}`;
+        setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
+        setStatusMessage(message);
+        return false;
+      }
+      const message = `Counterpoint SYNC Workbench is reachable at ${url}.`;
       setSyncWorkbenchCheck({ ok: true, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return true;

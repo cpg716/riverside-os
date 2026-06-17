@@ -76,7 +76,7 @@ export type TagElementId =
   | "footer";
 
 export type TagElementDirection = "normal" | "rotated-left" | "rotated-right";
-export type TagElementFontSize = "xs" | "sm" | "md" | "lg" | "xl";
+export type TagElementFontSize = "xs" | "sm" | "md" | "lg" | "xl" | "xxl" | "hero";
 
 export interface TagElementLayout {
   id: TagElementId;
@@ -141,9 +141,11 @@ export const TAG_ELEMENT_FONT_SIZE_LABELS: Record<TagElementFontSize, string> = 
   md: "Medium",
   lg: "Large",
   xl: "XL",
+  xxl: "XXL",
+  hero: "Hero",
 };
 
-export const TAG_ELEMENT_FONT_SIZES: TagElementFontSize[] = ["xs", "sm", "md", "lg", "xl"];
+export const TAG_ELEMENT_FONT_SIZES: TagElementFontSize[] = ["xs", "sm", "md", "lg", "xl", "xxl", "hero"];
 
 function defaultFontSizeForElement(id: TagElementId): TagElementFontSize {
   if (id === "price") return "xl";
@@ -426,6 +428,10 @@ function eplFontForSize(size: TagElementFontSize): EplTextFont {
       return { font: 4, xMul: 1, yMul: 1, charWidth: 18, charHeight: 28 };
     case "xl":
       return { font: 5, xMul: 1, yMul: 1, charWidth: 32, charHeight: 40 };
+    case "xxl":
+      return { font: 5, xMul: 1, yMul: 2, charWidth: 32, charHeight: 80 };
+    case "hero":
+      return { font: 5, xMul: 2, yMul: 2, charWidth: 64, charHeight: 80 };
   }
 }
 
@@ -492,16 +498,11 @@ function customTextValue(id: TagElementId, item: InventoryTagItem, config: Inven
 function customTextFont(
   id: TagElementId,
   element: TagElementLayout,
-  config: InventoryTagPrintConfig,
   value: string,
   boxWidth: number,
   boxHeight: number,
 ): EplTextFont {
   const requested = element.fontSize ?? defaultFontSizeForElement(id);
-  if (id === "price") {
-    const priceRequested = config.priceSize === "large" ? requested : "md";
-    return fitEplTextFont(priceRequested, value, boxWidth, boxHeight, element.direction);
-  }
   return fitEplTextFont(requested, value, boxWidth, boxHeight, element.direction);
 }
 
@@ -538,7 +539,7 @@ function renderCustomEplTag(item: InventoryTagItem, config: InventoryTagPrintCon
       ? wrapText(value, Math.max(8, Math.floor(w / 17)), 1)[0] ?? ""
       : value;
     if (!clean) continue;
-    const font = customTextFont(id, element, config, clean, w, h);
+    const font = customTextFont(id, element, clean, w, h);
     parts.push(eplText(x, y, rotation, font.font, font.xMul, font.yMul, clean));
   }
   parts.push("P1");
@@ -657,16 +658,16 @@ function barcodeHtml(sku: string, orient: "h" | "v"): string {
   return `<div class="t-bc t-bc-h"><svg class="t-bc-svg" data-sku="${escapeHtml(sku)}"></svg><div class="t-bc-lbl">${escapeHtml(sku)}</div></div>`;
 }
 
-function htmlFontSizeForElement(id: TagElementId, element: TagElementLayout, config: InventoryTagPrintConfig): string {
-  const requested = id === "price" && config.priceSize === "standard"
-    ? "md"
-    : element.fontSize ?? defaultFontSizeForElement(id);
+function htmlFontSizeForElement(id: TagElementId, element: TagElementLayout): string {
+  const requested = element.fontSize ?? defaultFontSizeForElement(id);
   switch (requested) {
     case "xs": return "9px";
     case "sm": return "10px";
     case "md": return "12px";
     case "lg": return "16px";
     case "xl": return "24px";
+    case "xxl": return "34px";
+    case "hero": return "48px";
   }
 }
 
@@ -680,7 +681,7 @@ function customHtmlElement(id: TagElementId, item: InventoryTagItem, config: Inv
     : el.direction === "rotated-right"
       ? "rotate(90deg)"
       : "none";
-  const fontSize = id === "barcode" ? "" : `font-size:${htmlFontSizeForElement(id, el, config)};`;
+  const fontSize = id === "barcode" ? "" : `font-size:${htmlFontSizeForElement(id, el)};`;
   const style = `left:${el.xPct}%;top:${el.yPct}%;width:${el.wPct}%;height:${el.hPct}%;transform:${rotate};${fontSize}`;
   if (id === "barcode") {
     return `<div class="t-custom-el t-custom-barcode" style="${style}">${barcodeHtml(value, "h")}</div>`;

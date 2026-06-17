@@ -126,6 +126,8 @@ test("SQLite store initializes, health reports schema, and export includes porta
   assert.equal(health.store.type, "sqlite");
   assert.equal(health.store.format_version, 1);
   assert.equal(health.store.exists, true);
+  const slashHealth = await fetch(`${baseUrl}/health/`).then((res) => res.json());
+  assert.equal(slashHealth.service, "counterpoint_sync_workbench");
 
   const exported = await api(baseUrl, "GET", "/api/export");
   assert.equal(exported.data.schema_version, 1);
@@ -325,5 +327,6 @@ test("AI review suggestions are review-first and accepted suggestions change pre
 
   const packageAfter = await api(baseUrl, "GET", `/api/runs/${runId}/packages/catalog`);
   assert.equal(packageAfter.data.payload.rows[0].description, "Blue Solid Shirt");
-  assert.equal(packageAfter.data.provenance[0].original_payload.rows[0].description, "BLU SLD SHT");
+  assert.equal(packageAfter.data.provenance[0].original_payload.row_count, 1);
+  assert.match(packageAfter.data.provenance[0].original_payload.payload_fingerprint, /^[a-f0-9]{64}$/);
 });

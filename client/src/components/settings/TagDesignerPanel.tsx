@@ -181,21 +181,21 @@ function elementStyle(element: TagElementLayout): CSSProperties {
   };
 }
 
-function fontSizePx(id: TagElementId, element: TagElementLayout, config: InventoryTagPrintConfig): string {
-  const fontSize = id === "price" && config.priceSize === "standard"
-    ? "md"
-    : element.fontSize ?? (id === "price" ? "xl" : id === "productName" ? "lg" : "md");
+function fontSizePx(id: TagElementId, element: TagElementLayout): string {
+  const fontSize = element.fontSize ?? (id === "price" ? "xl" : id === "productName" ? "lg" : "md");
   if (fontSize === "xs") return "10px";
   if (fontSize === "sm") return "12px";
   if (fontSize === "md") return "14px";
   if (fontSize === "lg") return "18px";
-  return "30px";
+  if (fontSize === "xl") return "30px";
+  if (fontSize === "xxl") return "42px";
+  return "58px";
 }
 
-function elementTextStyle(id: TagElementId, element: TagElementLayout, config: InventoryTagPrintConfig): CSSProperties {
+function elementTextStyle(id: TagElementId, element: TagElementLayout): CSSProperties {
   if (id === "barcode") return {};
   return {
-    fontSize: fontSizePx(id, element, config),
+    fontSize: fontSizePx(id, element),
   };
 }
 
@@ -450,7 +450,7 @@ export default function TagDesignerPanel() {
                       onPointerDown={(event) => onElementPointerDown(event, id)}
                       onClick={() => setSelectedId(id)}
                       className={`absolute overflow-hidden border text-left ${active ? "border-app-accent bg-app-accent/10" : "border-dashed border-slate-300 bg-transparent"} ${id === "barcode" ? "p-0.5" : "px-1 py-0.5"} ${elementClass(id)}`}
-                      style={{ ...elementStyle(element), ...elementTextStyle(id, element, normalizedDraft) }}
+                      style={{ ...elementStyle(element), ...elementTextStyle(id, element) }}
                     >
                       {id === "barcode" ? <BarcodeSvg text={value} /> : value}
                     </button>
