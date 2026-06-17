@@ -583,11 +583,7 @@ export default function TagDesignerPanel() {
           </div>
 
           <div className="space-y-3 rounded-xl border border-app-border bg-app-surface-2 p-3">
-            <h4 className="text-xs font-black uppercase tracking-[0.16em] text-app-text">Price and footer</h4>
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => updateDraft("priceSize", "large")} className={`rounded-xl border px-3 py-2 text-sm font-black ${draft.priceSize === "large" ? "border-app-accent bg-app-accent text-white" : "border-app-border bg-app-surface text-app-text"}`}>Large</button>
-              <button type="button" onClick={() => updateDraft("priceSize", "standard")} className={`rounded-xl border px-3 py-2 text-sm font-black ${draft.priceSize === "standard" ? "border-app-accent bg-app-accent text-white" : "border-app-border bg-app-surface text-app-text"}`}>Standard</button>
-            </div>
+            <h4 className="text-xs font-black uppercase tracking-[0.16em] text-app-text">Footer</h4>
             <label className="block space-y-1">
               <span className="text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">Footer</span>
               <input type="text" value={draft.footerText} onChange={(e) => updateDraft("footerText", e.target.value)} className="ui-input w-full" placeholder="Riverside Men's Shop" />

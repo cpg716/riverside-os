@@ -1346,7 +1346,7 @@ $packageServerExe = Join-Path $ScriptRoot "server\riverside-server.exe"
 $packageDist = Join-Path $ScriptRoot "client-dist"
 $packageMigrations = Join-Path $ScriptRoot "migrations"
 $packageSeeds = Join-Path $ScriptRoot "seeds"
-$packageReleaseDocs = Join-Path $ScriptRoot "release-docs"
+$packageReleaseDocs = Join-Path $ScriptRoot "docs"
 
 foreach ($dir in @($installRoot, $serverDir, $clientDist, $releaseDir, $backupDir, $logDir)) {
   New-Item -ItemType Directory -Force -Path $dir | Out-Null

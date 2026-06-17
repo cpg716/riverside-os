@@ -545,7 +545,9 @@ function checkCounterpointSyncWorkbenchDeploymentPackaging() {
     launcher.includes("Node.js 22.5+") &&
       launcher.includes("counterpoint-sync-workbench") &&
       launcher.includes("COUNTERPOINT_SYNC_WORKBENCH_DB") &&
-      launcher.includes("http://127.0.0.1:3015"),
+      launcher.includes("COUNTERPOINT_SYNC_WORKBENCH_PORT") &&
+      launcher.includes('$url = "http://127.0.0.1:$port"') &&
+      launcher.includes('service -eq "counterpoint_sync_workbench"'),
     "Counterpoint SYNC Workbench has a packaged Windows launcher",
     launcherFile,
     "Operators need a visible way to start the Main Hub SYNC Workbench from the deployment ZIP.",

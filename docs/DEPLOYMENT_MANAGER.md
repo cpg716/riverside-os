@@ -363,7 +363,7 @@ Logs are emitted asynchronously from Rust back to the Vite console using the `de
 
 ### GitHub Actions CI/CD Pipeline
 The deployment manager packaging is automated in two workflows:
-- **Windows**: `.github/workflows/windows-deployment-package.yml` — builds the full Windows deployment ZIP (server binary, client bundle, register updater, Deployment Manager installer bundle, ROS Server Manager installer bundle, updater manifests, and bundled ROSIE voice models).
+- **Windows**: `.github/workflows/windows-deployment-package.yml` — builds the full Windows deployment ZIP (server binary, client bundle, register installer, Deployment Manager installer bundle, ROS Server Manager installer bundle, Counterpoint SYNC Workbench, and bundled ROSIE voice models). Signed updater manifests/installers are uploaded as release assets beside the ZIP.
 - **macOS**: `.github/workflows/macos-ros-dev-center-release.yml` — builds a universal Apple Silicon / Intel DMG for the ROS Dev Center.
 
 Both pipelines utilize **`swatinem/rust-cache`** to cache downloaded Rust dependencies across runs. The Windows workspace builds three targets sequentially in one job:

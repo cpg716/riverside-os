@@ -120,7 +120,7 @@ The Windows package includes the Workbench under:
 counterpoint-sync-workbench\
 ```
 
-The starter creates `counterpoint-sync-workbench\.env` from `env.example` on first run, verifies Node.js 22.5+ for `node:sqlite`, stores local staging data under `counterpoint-sync-workbench\data\`, and opens the local review UI.
+The starter creates `counterpoint-sync-workbench\.env` from `env.example` on first run, uses the bundled `node-runtime\node.exe` when present, starts the Workbench API, verifies `http://127.0.0.1:3015/health` returns Counterpoint SYNC JSON, stores local staging data under `counterpoint-sync-workbench\data\`, and then opens the local review UI.
 
 For repo/dev runs on the Main Hub PC:
 
@@ -133,6 +133,8 @@ npm start
 Leave `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` blank for the normal closed-store workflow. The Workbench stores local transition staging data in SQLite under `counterpoint-sync-workbench\data\` in the packaged Windows deployment, or `counterpoint-sync/data/` in repo/dev runs. That store contains raw payloads, prepared package JSON, provenance, warnings, blockers, AI review packages, AI suggestions, review decisions, and readiness state. It is not ROS PostgreSQL.
 
 Open the local Workbench review UI on the Main Hub at `http://127.0.0.1:3015/`. Bridge PCs must use the Main Hub LAN address instead, for example `http://10.64.70.196:3015/`. `127.0.0.1` always means the machine you are typing on, so it is wrong in the Bridge GUI unless the Workbench is running on the Counterpoint PC. The Workbench shows health, local store path, backup status, latest Bridge heartbeat, prepared runs, section readiness, warnings, blockers, imported status, package previews, exceptions, and the non-mutating AI Review placeholder.
+
+If Bridge diagnostics say `/health` returned `<!doctype html>`, the Bridge reached a static UI/dev server or another service on port `3015`, not the Counterpoint SYNC API. Stop the wrong service and start `Start-CounterpointSYNCWorkbench.cmd`; the launcher must report health OK before Bridge extraction.
 
 ### 2c.1 No-hardware rehearsal simulator
 
@@ -179,7 +181,7 @@ Should return `200` with JSON including `"ok": true`, `"service": "counterpoint_
 curl http://127.0.0.1:3015/health
 ```
 
-Should return `200` with JSON including `"service": "counterpoint_sync_workbench"`.
+Should return `200` with JSON including `"service": "counterpoint_sync_workbench"`, not an HTML page.
 It also reports the local store path, whether the main store and `.bak` backup exist, last write time, size, format version, latest Bridge heartbeat received by SYNC, and run/section summary counts.
 
 Use this before a real rehearsal or go-live import:

@@ -228,7 +228,7 @@ function App() {
       } catch {
         const hint = loopbackSyncWarning(url);
         const snippet = text.replace(/\s+/g, " ").trim().slice(0, 120);
-        const message = `SYNC Workbench check reached ${url}/health but did not receive the Counterpoint SYNC health JSON. This is usually the wrong service, wrong port, or the Workbench UI without its API. ${snippet ? `Response started with: ${snippet}.` : ""}${hint ? ` ${hint}` : ""}`;
+        const message = `SYNC Workbench check reached ${url}/health but did not receive the Counterpoint SYNC health JSON. The port is serving a static UI/dev page or the wrong service instead of the Workbench API. Start the packaged Counterpoint SYNC Workbench launcher and wait for health OK. ${snippet ? `Response started with: ${snippet}.` : ""}${hint ? ` ${hint}` : ""}`;
         setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;

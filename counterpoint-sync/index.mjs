@@ -1428,7 +1428,7 @@ async function route(req, res) {
   if ((normalizedPath === "/" || normalizedPath === "/ui") && req.method === "GET") {
     return sendHtml(res, 200, dashboardHtml());
   }
-  if (normalizedPath === "/health" && req.method === "GET") {
+    if ((normalizedPath === "/health" || normalizedPath === "/api/health") && req.method === "GET") {
     const store = (() => {
       try {
         return loadStore();

@@ -29,7 +29,6 @@ RiversideOS-v0.80.9-Windows-Deployment/
   server/riverside-server.exe
   client-dist/
   migrations/
-  release-docs/
   register/
   deployment-app/
   server-manager-app/
@@ -47,7 +46,7 @@ From a Windows release machine after building the server, client, and Tauri bund
 .\deployment\windows\build-deployment-package.ps1 -Version "0.80.9"
 ```
 
-If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`. For v0.80.0 and later, do not mix the `server/`, `client-dist/`, `register/`, or `updater/` folders from different release zips.
+If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`. For v0.80.0 and later, do not mix the `server/`, `client-dist/`, or `register/` folders from different release zips. Updater manifests, signatures, and standalone updater installers are published as GitHub release assets instead of being duplicated inside the deployment ZIP.
 
 ## Configure the package
 

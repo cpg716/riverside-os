@@ -10,6 +10,7 @@ $workbenchDir = Join-Path $packageRoot "counterpoint-sync-workbench"
 $envPath = Join-Path $workbenchDir ".env"
 $envExamplePath = Join-Path $workbenchDir "env.example"
 $dataDir = Join-Path $workbenchDir "data"
+$bundledNodePath = Join-Path $packageRoot "node-runtime\node.exe"
 
 if (-not (Test-Path $workbenchDir)) {
   throw "Counterpoint SYNC Workbench was not found at $workbenchDir. Rebuild the Windows deployment package."
@@ -18,12 +19,16 @@ if (-not (Test-Path (Join-Path $workbenchDir "index.mjs"))) {
   throw "Counterpoint SYNC Workbench runtime is incomplete. Missing index.mjs."
 }
 
-$node = Get-Command node.exe -ErrorAction SilentlyContinue
-if (-not $node) {
-  throw "Node.js 22.5+ is required for Counterpoint SYNC Workbench. Install Node.js on the Main Hub, then run this launcher again."
+$nodePath = $bundledNodePath
+if (-not (Test-Path $nodePath)) {
+  $node = Get-Command node.exe -ErrorAction SilentlyContinue
+  if (-not $node) {
+    throw "Counterpoint SYNC Workbench needs Node.js 22.5+ or the bundled node-runtime\node.exe. Rebuild the Windows deployment package or install Node.js 22.5+ on the Main Hub."
+  }
+  $nodePath = $node.Source
 }
 
-$nodeVersionRaw = (& $node.Source --version).Trim().TrimStart("v")
+$nodeVersionRaw = (& $nodePath --version).Trim().TrimStart("v")
 $nodeVersion = [version]$nodeVersionRaw
 if ($nodeVersion -lt [version]"22.5.0") {
   throw "Counterpoint SYNC Workbench requires Node.js 22.5+ for node:sqlite. Found Node.js $nodeVersionRaw."
@@ -46,15 +51,51 @@ try {
   if (-not $env:COUNTERPOINT_SYNC_WORKBENCH_HOST) {
     $env:COUNTERPOINT_SYNC_WORKBENCH_HOST = "0.0.0.0"
   }
-  $url = "http://127.0.0.1:3015"
-  Write-Host "Starting Counterpoint SYNC Workbench on $url locally and port 3015 on the Main Hub LAN ..." -ForegroundColor Cyan
-  Write-Host "Use Ctrl+C in this window to stop the Workbench." -ForegroundColor DarkGray
+  $port = if ($env:COUNTERPOINT_SYNC_WORKBENCH_PORT) { $env:COUNTERPOINT_SYNC_WORKBENCH_PORT } else { "3015" }
+  $url = "http://127.0.0.1:$port"
+  Write-Host "Starting Counterpoint SYNC Workbench API on $url locally and port $port on the Main Hub LAN ..." -ForegroundColor Cyan
+  Write-Host "Using Node.js $nodeVersionRaw from $nodePath" -ForegroundColor DarkGray
+  Write-Host "The browser opens only after /health returns Counterpoint SYNC JSON." -ForegroundColor DarkGray
+  $process = Start-Process -FilePath $nodePath -ArgumentList "index.mjs" -WorkingDirectory $workbenchDir -PassThru -NoNewWindow
+  $healthy = $false
+  $lastError = ""
+  for ($attempt = 1; $attempt -le 30; $attempt++) {
+    if ($process.HasExited) {
+      throw "Counterpoint SYNC Workbench exited before health check passed. Exit code $($process.ExitCode)."
+    }
+    try {
+      $response = Invoke-WebRequest -Uri "$url/health" -UseBasicParsing -TimeoutSec 2
+      $body = [string]$response.Content
+      if ($body.TrimStart().StartsWith("{")) {
+        $health = $body | ConvertFrom-Json
+        if ($health.service -eq "counterpoint_sync_workbench" -and $health.ok -ne $false) {
+          $healthy = $true
+          break
+        }
+        $lastError = "Unexpected health service '$($health.service)'."
+      } else {
+        $snippet = $body.Substring(0, [Math]::Min(120, $body.Length))
+        $lastError = "Port $port returned HTML/text instead of Counterpoint SYNC JSON: $snippet"
+      }
+    } catch {
+      $lastError = $_.Exception.Message
+    }
+    Start-Sleep -Milliseconds 500
+  }
+  if (-not $healthy) {
+    if (-not $process.HasExited) {
+      Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    }
+    throw "Counterpoint SYNC Workbench did not return JSON at $url/health. $lastError Stop any other app using port $port or set COUNTERPOINT_SYNC_WORKBENCH_PORT to a free port."
+  }
+  Write-Host "Counterpoint SYNC Workbench health OK: $url/health" -ForegroundColor Green
   if (-not $NoBrowser) {
     Start-Process $url | Out-Null
   }
-  & $node.Source "index.mjs"
-  if ($LASTEXITCODE -ne 0) {
-    throw "Counterpoint SYNC Workbench exited with code $LASTEXITCODE."
+  Write-Host "Use Ctrl+C in this window to stop the Workbench." -ForegroundColor DarkGray
+  Wait-Process -Id $process.Id
+  if ($process.ExitCode -ne 0) {
+    throw "Counterpoint SYNC Workbench exited with code $($process.ExitCode)."
   }
 } finally {
   Pop-Location

@@ -180,8 +180,23 @@ assertNotIncludes(
 );
 assertIncludes(
   "deployment/windows/Start-CounterpointSYNCWorkbench.ps1",
-  "node:sqlite",
-  "SYNC Workbench launcher must explain the Node 22.5+ runtime requirement",
+  "node-runtime\\node.exe",
+  "SYNC Workbench launcher must prefer the bundled Node runtime",
+);
+assertIncludes(
+  "deployment/windows/Start-CounterpointSYNCWorkbench.ps1",
+  "$url/health",
+  "SYNC Workbench launcher must prove JSON health before opening the browser",
+);
+assertIncludes(
+  deploymentPackageBuilder,
+  "NodeRuntimePath",
+  "Windows deployment package must bundle a Node runtime for the standalone SYNC Workbench",
+);
+assertIncludes(
+  ".github/workflows/windows-deployment-package.yml",
+  '-NodeRuntimePath $nodeRuntime',
+  "Windows deployment workflow must pass the bundled Node runtime into the package builder",
 );
 assertIncludes(
   "deployment/windows/Start-CounterpointSYNCWorkbench.cmd",

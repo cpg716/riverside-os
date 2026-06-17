@@ -51,7 +51,7 @@ export interface InventoryTagPrintConfig {
   showPrice: boolean;
   showBarcode: boolean;
   showPromoPrice: boolean;
-  /** How prominent the price appears: "standard" or "large". */
+  /** Deprecated compatibility field. Tag Builder field text size controls printed price size. */
   priceSize: "standard" | "large";
   /** Overall tag composition layout. */
   tagLayout: TagLayoutId;
@@ -271,8 +271,8 @@ function zplPriceBlock(parts: string[], x: number, y: number, maxY: number, item
   const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
   // Match font sizes to live preview (24px/16px) converted to ZPL dots at 203 DPI
   // 24px ≈ 48 dots, 16px ≈ 32 dots, 10px ≈ 20 dots
-  const pH = config.priceSize === "large" ? 48 : 32;
-  const pW = config.priceSize === "large" ? 48 : 32;
+  const pH = 48;
+  const pW = 48;
   const pY = Math.max(y + 8, maxY - pH - 28);
   if (isPromo) {
     parts.push(zplField(x, pY - 20, 20, 18, `Reg ${escapeZplField(item.regularPrice!)}`));
@@ -320,8 +320,8 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
       parts.push(`^FO${bcX},${m}^BY2^BCR,${bcH},N,N,N^FD${sku}^FS`);
     }
   } else if (layout === "price-hero") {
-    const pH = config.priceSize === "large" ? 48 : 32;
-    const pW = config.priceSize === "large" ? 48 : 32;
+    const pH = 48;
+    const pW = 48;
     let y = m;
     if (config.showPrice) {
       const isPromo = config.showPromoPrice && item.salePrice && item.regularPrice;
@@ -423,15 +423,15 @@ function eplFontForSize(size: TagElementFontSize): EplTextFont {
     case "sm":
       return { font: 2, xMul: 1, yMul: 1, charWidth: 10, charHeight: 16 };
     case "md":
-      return { font: 3, xMul: 1, yMul: 1, charWidth: 14, charHeight: 20 };
+      return { font: 3, xMul: 1, yMul: 1, charWidth: 12, charHeight: 20 };
     case "lg":
-      return { font: 4, xMul: 1, yMul: 1, charWidth: 18, charHeight: 28 };
+      return { font: 4, xMul: 1, yMul: 1, charWidth: 16, charHeight: 28 };
     case "xl":
-      return { font: 5, xMul: 1, yMul: 1, charWidth: 32, charHeight: 40 };
+      return { font: 5, xMul: 1, yMul: 1, charWidth: 20, charHeight: 40 };
     case "xxl":
-      return { font: 5, xMul: 1, yMul: 2, charWidth: 32, charHeight: 80 };
+      return { font: 5, xMul: 2, yMul: 1, charWidth: 30, charHeight: 40 };
     case "hero":
-      return { font: 5, xMul: 2, yMul: 2, charWidth: 64, charHeight: 80 };
+      return { font: 5, xMul: 2, yMul: 2, charWidth: 30, charHeight: 80 };
   }
 }
 
@@ -445,6 +445,7 @@ function fitEplTextFont(
   availableWidth: number,
   availableHeight: number,
   direction: TagElementDirection,
+  options: { isPrice?: boolean } = {},
 ): EplTextFont {
   const text = escapeEplField(value);
   const sizeIndex = Math.max(0, fontSizeRank(requested));
@@ -453,7 +454,8 @@ function fitEplTextFont(
   for (let i = sizeIndex; i >= 0; i -= 1) {
     const candidate = TAG_ELEMENT_FONT_SIZES[i] ?? "xs";
     const font = eplFontForSize(candidate);
-    const estimatedWidth = Math.max(1, text.length) * font.charWidth;
+    const compactTextLength = options.isPrice ? text.replace(/\s+/g, "").length : text.length;
+    const estimatedWidth = Math.max(1, compactTextLength) * font.charWidth;
     if (estimatedWidth <= printableWidth && font.charHeight <= printableHeight + 12) {
       return font;
     }
@@ -503,7 +505,7 @@ function customTextFont(
   boxHeight: number,
 ): EplTextFont {
   const requested = element.fontSize ?? defaultFontSizeForElement(id);
-  return fitEplTextFont(requested, value, boxWidth, boxHeight, element.direction);
+  return fitEplTextFont(requested, value, boxWidth, boxHeight, element.direction, { isPrice: id === "price" });
 }
 
 function isPromoTag(item: InventoryTagItem, config: InventoryTagPrintConfig): boolean {
@@ -719,8 +721,6 @@ function generateBarcodeSvgScript(): string {
 
 function buildDocument(items: InventoryTagItem[], config: InventoryTagPrintConfig): string {
   const pages = items.map((i) => renderTag(i, config)).join("\n");
-  // Match font sizes exactly to live preview in TagDesignerPanel
-  const pSz = config.priceSize === "large" ? "24px" : "16px";
   const hIn = Math.max(1, config.heightInches - 0.12);
 
   // Use fixed pixel width for screen display to match live preview (300px)
@@ -741,7 +741,7 @@ body{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px
 .t-custom-el{position:absolute;overflow:hidden;transform-origin:center center;color:#000;}
 .t-custom-text{font:800 11px/1.1 inherit;letter-spacing:.02em;}
 .t-custom-name{font:900 14px/1.05 inherit;}
-.t-custom-price{font:900 ${pSz}/1 inherit;letter-spacing:-.01em;}
+.t-custom-price{font-weight:900;line-height:1;letter-spacing:-.01em;}
 .t-custom-barcode .t-bc{width:100%;height:100%;}
 .t-custom-barcode .t-bc-svg{width:100%;height:100%;display:block;}
 .t-custom-barcode .t-bc-lbl{display:none;}
@@ -750,11 +750,11 @@ body{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px
 .t-name{font:900 14px/1.15 inherit;letter-spacing:-.01em;color:#000;}
 .t-var{font:700 11px/1.2 inherit;color:#000;}
 .t-brand{font:700 10px/1.2 inherit;text-transform:uppercase;letter-spacing:.05em;color:#000;}
-.t-price{font:900 ${pSz}/1 inherit;letter-spacing:-.01em;margin-top:auto;color:#000;}
+.t-price{font:900 24px/1 inherit;letter-spacing:-.01em;margin-top:auto;color:#000;}
 .t-price-block{margin-top:auto;}
 .t-price-reg{font:700 10px/1.2 inherit;color:#000;}
 .t-price-reg s{text-decoration:line-through;}
-.t-price-sale{font:900 ${pSz}/1 inherit;letter-spacing:-.01em;color:#000;}
+.t-price-sale{font:900 24px/1 inherit;letter-spacing:-.01em;color:#000;}
 .t-savings{font:700 10px/1.2 inherit;color:#000;}
 .t-footer{font:700 8px/1.2 inherit;letter-spacing:.1em;text-transform:uppercase;color:#000;margin-top:auto;padding-top:2px;}
 /* Barcode horizontal row - match live preview px-2 py-0.5 */

@@ -5,12 +5,12 @@ param(
   [string]$ServerBinaryPath = "$PSScriptRoot\..\..\target\release\riverside-server.exe",
   [string]$ClientDistPath = "$PSScriptRoot\..\..\client\dist",
   [string]$RegisterBundlePath = "$PSScriptRoot\..\..\target\release\bundle",
-  [string]$UpdaterDistPath = "$PSScriptRoot\..\..\client\updater-dist",
   [string]$ManagerBinaryPath = "$PSScriptRoot\..\..\target\release\riverside-deployment-manager.exe",
   [string]$ServerManagerBinaryPath = "$PSScriptRoot\..\..\target\release\ros-server-manager.exe",
   [string]$ManagerBundlePath = "$PSScriptRoot\..\..\target\release\deployment-manager-bundle",
   [string]$ServerManagerBundlePath = "$PSScriptRoot\..\..\target\release\server-manager-bundle",
   [string]$CounterpointSyncSourcePath = "$PSScriptRoot\..\..\counterpoint-sync",
+  [string]$NodeRuntimePath = "",
   [switch]$AllowMissingRegisterBundle,
   [switch]$AllowMissingManagerBinary,
   [switch]$AllowMissingServerManagerBinary
@@ -67,7 +67,8 @@ function Assert-ClientDistMatchesSource([string]$ClientDistPath, [string]$Versio
 }
 
 function Get-DownloadRetryDelaySeconds([System.Management.Automation.ErrorRecord]$ErrorRecord, [int]$Attempt) {
-  $response = $ErrorRecord.Exception.Response
+  $downloadException = Get-DownloadException $ErrorRecord
+  $response = $downloadException.Response
   if ($response -and $response.Headers) {
     $retryAfter = $response.Headers["Retry-After"]
     if ($retryAfter) {
@@ -93,14 +94,24 @@ function Get-DownloadRetryDelaySeconds([System.Management.Automation.ErrorRecord
   return [Math]::Min(60, [int](5 * [Math]::Pow(2, [Math]::Max(0, $Attempt - 1))))
 }
 
+function Get-DownloadException([System.Management.Automation.ErrorRecord]$ErrorRecord) {
+  $exception = $ErrorRecord.Exception
+  while ($exception.InnerException) {
+    $exception = $exception.InnerException
+  }
+
+  return $exception
+}
+
 function Test-IsTransientDownloadError([System.Management.Automation.ErrorRecord]$ErrorRecord) {
-  $response = $ErrorRecord.Exception.Response
+  $downloadException = Get-DownloadException $ErrorRecord
+  $response = $downloadException.Response
   if ($response -and $response.StatusCode) {
     $statusCode = [int]$response.StatusCode
     return ($statusCode -eq 429 -or ($statusCode -ge 500 -and $statusCode -lt 600))
   }
 
-  $status = $ErrorRecord.Exception.Status
+  $status = $downloadException.Status
   return ($status -in @(
     [System.Net.WebExceptionStatus]::ConnectFailure,
     [System.Net.WebExceptionStatus]::ConnectionClosed,
@@ -272,9 +283,7 @@ New-Item -ItemType Directory -Force -Path "$packageRoot\client-dist" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\migrations" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\seeds" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\register" | Out-Null
-New-Item -ItemType Directory -Force -Path "$packageRoot\updater" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\docs" | Out-Null
-New-Item -ItemType Directory -Force -Path "$packageRoot\release-docs" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\deployment-app" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\server-manager-app" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\counterpoint-sync-workbench" | Out-Null
@@ -336,7 +345,6 @@ Copy-Item "$ClientDistPath\*" "$packageRoot\client-dist" -Recurse -Force
 Copy-Item "$repoRoot\migrations\*.sql" "$packageRoot\migrations" -Force
 Copy-Item "$repoRoot\scripts\seeds\seed_core_required.sql" "$packageRoot\seeds" -Force
 Copy-Item "$repoRoot\scripts\seeds\seed_rbac.sql" "$packageRoot\seeds" -Force
-Copy-Item "$repoRoot\docs\*" "$packageRoot\release-docs" -Recurse -Force
 
 # ROSIE AI stack manifest - install-server.ps1 reads this to download the pinned model.
 New-Item -ItemType Directory -Force -Path "$packageRoot\rosie" | Out-Null
@@ -395,7 +403,7 @@ foreach ($doc in @(
   }
 }
 
-function Copy-CounterpointSyncWorkbench([string]$PackageRoot, [string]$SourcePath) {
+function Copy-CounterpointSyncWorkbench([string]$PackageRoot, [string]$SourcePath, [string]$NodeRuntimePath) {
   if (-not (Test-Path $SourcePath)) {
     throw "Counterpoint SYNC Workbench source not found: $SourcePath"
   }
@@ -416,6 +424,15 @@ function Copy-CounterpointSyncWorkbench([string]$PackageRoot, [string]$SourcePat
     Copy-Item $scriptsSource (Join-Path $dest "scripts") -Recurse -Force
   }
 
+  if ($NodeRuntimePath -and (Test-Path $NodeRuntimePath)) {
+    $nodeDest = Join-Path $PackageRoot "node-runtime"
+    New-Item -ItemType Directory -Force -Path $nodeDest | Out-Null
+    Copy-Item $NodeRuntimePath (Join-Path $nodeDest "node.exe") -Force
+    Write-Host "Packaged bundled Node runtime for Counterpoint SYNC Workbench"
+  } else {
+    Write-Warning "No NodeRuntimePath was provided. Counterpoint SYNC Workbench will require Node.js 22.5+ installed on the Main Hub."
+  }
+
   $startHere = @"
 # Counterpoint SYNC Workbench - Windows Start Here
 
@@ -425,7 +442,8 @@ Run from the deployment package root:
 
   Start-CounterpointSYNCWorkbench.cmd
 
-The Workbench listens on http://127.0.0.1:3015 by default.
+The Workbench listens on http://127.0.0.1:3015 on the Main Hub by default.
+Bridge PCs must use the Main Hub LAN URL, for example http://10.64.70.196:3015.
 
 Important:
 - This is the staging/preparation app on the Main Hub PC.
@@ -435,10 +453,10 @@ Important:
 - It does not write directly to ROS PostgreSQL.
 
 First run:
-1. Install Node.js 22.5+ if Windows does not already have it.
-2. Edit counterpoint-sync-workbench\.env after the starter creates it.
-3. Set COUNTERPOINT_SYNC_WORKBENCH_TOKEN to the same token saved in ROS Back Office.
-4. Start the Workbench and open http://127.0.0.1:3015.
+1. Double-click Start-CounterpointSYNCWorkbench.cmd.
+2. The launcher starts the API first and waits for /health to return Counterpoint SYNC JSON.
+3. If /health returns HTML, another app is using port 3015. Stop that app or change COUNTERPOINT_SYNC_WORKBENCH_PORT.
+4. Open http://127.0.0.1:3015 on the Main Hub after the launcher reports health OK.
 "@
   Set-Content -Path (Join-Path $dest "WINDOWS_START_HERE.md") -Value $startHere -Encoding UTF8
   Write-Host "Packaged Counterpoint SYNC Workbench"
@@ -459,11 +477,7 @@ if (Test-Path $RegisterBundlePath) {
   Get-ChildItem "$packageRoot\register" -Recurse -Filter "*manager*" -ErrorAction SilentlyContinue | Remove-Item -Force
 }
 
-Copy-CounterpointSyncWorkbench $packageRoot (Resolve-FullPath $CounterpointSyncSourcePath)
-
-if (Test-Path $UpdaterDistPath) {
-  Copy-Item "$UpdaterDistPath\*" "$packageRoot\updater" -Recurse -Force
-}
+Copy-CounterpointSyncWorkbench $packageRoot (Resolve-FullPath $CounterpointSyncSourcePath) $NodeRuntimePath
 
 $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "`nPackage build: $gitShort`n" +
@@ -500,8 +514,7 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "The desktop app imports that file on first launch and saves the API/printer settings for the station.`n" +
   "`nDatabase-only repair:`n" +
   "`n- If the app starts but a screen reports a missing relation/table, double-click Apply-RiversideMigrations.cmd.`n" +
-  "`nIf the updater folder is present, keep those files with the release:`n" +
-  "`n- latest.json`n- the Windows updater installer or archive`n- the matching .sig signature file"
+  "`nUpdater manifests, installers, and signatures are published as GitHub release assets, not duplicated inside this deployment ZIP."
 Set-Content -Path "$packageRoot\README.md" -Value $readme -Encoding UTF8
 
 Compress-Archive -Path "$packageRoot\*" -DestinationPath "$packageRoot.zip" -Force
