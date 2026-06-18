@@ -67,7 +67,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 imageproc = "0.25"
 opentelemetry = "0.27"
 opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.27", features = ["http-proto", "reqwest-rustls"] }
+opentelemetry-otlp = { version = "0.32", features = ["http-proto", "reqwest-rustls"] }
 tracing-opentelemetry = "0.28"
 lettre = "0.11"
 # Keep exact until mailbox adapter migration is tested; imap 3.x is alpha and
