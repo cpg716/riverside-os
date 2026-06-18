@@ -185,8 +185,13 @@ assertIncludes(
 );
 assertIncludes(
   "deployment/windows/Start-CounterpointSYNCWorkbench.ps1",
-  "$url/health",
-  "SYNC Workbench launcher must prove JSON health before opening the browser",
+  "/api/bridge/health",
+  "SYNC Workbench launcher must prove the Bridge health JSON contract before opening the browser",
+);
+assertIncludes(
+  "deployment/windows/Start-CounterpointSYNCWorkbench.ps1",
+  'service -eq "counterpoint_sync_workbench"',
+  "SYNC Workbench launcher must reject static UI/dev pages on the Workbench port",
 );
 assertIncludes(
   deploymentPackageBuilder,

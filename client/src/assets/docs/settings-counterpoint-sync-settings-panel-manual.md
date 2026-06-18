@@ -21,7 +21,7 @@ status: approved
 
 ## What this is
 
-Counterpoint Sync Settings is the ROS Import Command Center. The Counterpoint Bridge extracts raw data into the Main Hub Counterpoint SYNC Workbench. ROS Back Office connects to SYNC, selects a prepared run, runs ROS preflight, imports approved sections, and shows final proof.
+Counterpoint Sync Settings is the ROS Import Command Center. The Counterpoint Bridge extracts raw data into the standalone Counterpoint SYNC Workbench app. ROS Back Office connects to SYNC, selects a prepared run, runs ROS preflight, imports approved sections, and shows final proof.
 
 Use this panel to verify facts. ROSIE can explain displayed facts only; it does not approve cutover or sign off reconciliation.
 
@@ -51,7 +51,7 @@ The normal closed-store workflow does not require Bridge or SYNC Workbench token
 
 If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. If SYNC is unreachable, confirm the Workbench is running and the saved URL matches the Workbench address.
 
-The Bridge GUI includes **Check SYNC Workbench**. Use it before extraction; the Bridge must be able to load the Workbench `/health` endpoint from the same Windows session before it starts sending batches. If the check fails, start or reopen Counterpoint SYNC Workbench and confirm the exact URL shown in the Bridge GUI opens.
+The Bridge GUI includes **Check SYNC Workbench**. Use it before extraction; the Bridge must be able to load the Workbench `/api/bridge/health` endpoint before it starts sending batches. If the check fails, start or reopen the standalone Counterpoint SYNC Workbench app and confirm the exact URL shown in the Bridge GUI reaches that app.
 
 For no-hardware rehearsal at home, start the local Workbench with `npm run dev:sync-workbench`, run `npm run sync:simulate-counterpoint`, then select the simulated run in ROS. The simulator creates warning-only sections and a blocked inventory section without requiring the Counterpoint PC. Do not import simulated packages into production ROS unless intentionally testing in a safe environment.
 

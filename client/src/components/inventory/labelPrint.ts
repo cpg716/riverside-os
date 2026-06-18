@@ -463,6 +463,67 @@ function fitEplTextFont(
   return eplFontForSize("xs");
 }
 
+function wrapEplTextLines(value: string, maxChars: number): string[] {
+  const limit = Math.max(1, maxChars);
+  const words = escapeEplField(value).split(/\s+/u).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (word.length > limit) {
+      if (current) {
+        lines.push(current);
+        current = "";
+      }
+      for (let i = 0; i < word.length; i += limit) {
+        lines.push(word.slice(i, i + limit));
+      }
+      continue;
+    }
+    const next = current ? `${current} ${word}` : word;
+    if (next.length <= limit) {
+      current = next;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length > 0 ? lines : [escapeEplField(value)];
+}
+
+function fitEplTextBlock(
+  requested: TagElementFontSize,
+  value: string,
+  availableWidth: number,
+  availableHeight: number,
+  direction: TagElementDirection,
+): { font: EplTextFont; lines: string[]; lineAdvance: number } {
+  const sizeIndex = Math.max(0, fontSizeRank(requested));
+  const printableWidth = Math.max(8, direction === "normal" ? availableWidth : availableHeight);
+  const printableHeight = Math.max(8, direction === "normal" ? availableHeight : availableWidth);
+  let fallback: { font: EplTextFont; lines: string[]; lineAdvance: number } | null = null;
+
+  for (let i = sizeIndex; i >= 0; i -= 1) {
+    const candidate = TAG_ELEMENT_FONT_SIZES[i] ?? "xs";
+    const font = eplFontForSize(candidate);
+    const maxChars = Math.max(1, Math.floor(printableWidth / font.charWidth));
+    const lines = wrapEplTextLines(value, maxChars);
+    const lineAdvance = Math.max(font.charHeight, Math.ceil(font.charHeight * 1.08));
+    const requiredHeight = lines.length * lineAdvance;
+    const block = { font, lines, lineAdvance };
+    fallback = block;
+    if (requiredHeight <= printableHeight + 4) {
+      return block;
+    }
+  }
+
+  return fallback ?? {
+    font: eplFontForSize("xs"),
+    lines: wrapEplTextLines(value, Math.max(1, Math.floor(printableWidth / eplFontForSize("xs").charWidth))),
+    lineAdvance: eplFontForSize("xs").charHeight,
+  };
+}
+
 function customTextValue(id: TagElementId, item: InventoryTagItem, config: InventoryTagPrintConfig, footer: string): string {
   switch (id) {
     case "sku":
@@ -537,12 +598,17 @@ function renderCustomEplTag(item: InventoryTagItem, config: InventoryTagPrintCon
       parts.push(`B${x},${y},${rotation},1,${narrowBar},2,${barcodeHeight},N,"${escapeEplField(value)}"`);
       continue;
     }
-    const clean = id === "productName"
-      ? wrapText(value, Math.max(8, Math.floor(w / 17)), 1)[0] ?? ""
-      : value;
-    if (!clean) continue;
-    const font = customTextFont(id, element, clean, w, h);
-    parts.push(eplText(x, y, rotation, font.font, font.xMul, font.yMul, clean));
+    if (id === "productName") {
+      const requested = element.fontSize ?? defaultFontSizeForElement(id);
+      const block = fitEplTextBlock(requested, value, w, h, element.direction);
+      block.lines.forEach((line, index) => {
+        if (!line) return;
+        parts.push(eplText(x, y + index * block.lineAdvance, rotation, block.font.font, block.font.xMul, block.font.yMul, line));
+      });
+      continue;
+    }
+    const font = customTextFont(id, element, value, w, h);
+    parts.push(eplText(x, y, rotation, font.font, font.xMul, font.yMul, value));
   }
   parts.push("P1");
   return `${parts.join("\r\n")}\r\n`;
@@ -740,7 +806,7 @@ body{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px
 .tag-custom{position:relative;display:block;}
 .t-custom-el{position:absolute;overflow:hidden;transform-origin:center center;color:#000;}
 .t-custom-text{font:800 11px/1.1 inherit;letter-spacing:.02em;}
-.t-custom-name{font:900 14px/1.05 inherit;}
+.t-custom-name{font:900 14px/1.05 inherit;white-space:normal;overflow-wrap:anywhere;}
 .t-custom-price{font-weight:900;line-height:1;letter-spacing:-.01em;}
 .t-custom-barcode .t-bc{width:100%;height:100%;}
 .t-custom-barcode .t-bc-svg{width:100%;height:100%;display:block;}

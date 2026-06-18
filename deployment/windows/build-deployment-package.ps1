@@ -430,23 +430,23 @@ function Copy-CounterpointSyncWorkbench([string]$PackageRoot, [string]$SourcePat
     Copy-Item $NodeRuntimePath (Join-Path $nodeDest "node.exe") -Force
     Write-Host "Packaged bundled Node runtime for Counterpoint SYNC Workbench"
   } else {
-    Write-Warning "No NodeRuntimePath was provided. Counterpoint SYNC Workbench will require Node.js 22.5+ installed on the Main Hub."
+    Write-Warning "No NodeRuntimePath was provided. Counterpoint SYNC Workbench will require Node.js 22.5+ installed on the computer running the standalone SYNC app."
   }
 
   $startHere = @"
 # Counterpoint SYNC Workbench - Windows Start Here
 
-This is the Main Hub Counterpoint SYNC Workbench package.
+This is the standalone Counterpoint SYNC Workbench package.
 
 Run from the deployment package root:
 
   Start-CounterpointSYNCWorkbench.cmd
 
-The Workbench listens on http://127.0.0.1:3015 on the Main Hub by default.
-Bridge PCs must use the Main Hub LAN URL, for example http://10.64.70.196:3015.
+The Workbench listens on http://127.0.0.1:3015 on the SYNC app computer by default.
+Bridge PCs must use the SYNC app computer LAN URL, for example http://10.64.70.196:3015.
 
 Important:
-- This is the staging/preparation app on the Main Hub PC.
+- This is the staging/preparation app on the computer running the standalone SYNC app.
 - It receives raw Counterpoint Bridge batches.
 - It stores local staging data under counterpoint-sync-workbench\data by default.
 - It exposes ROS-ready JSON packages.
@@ -454,9 +454,9 @@ Important:
 
 First run:
 1. Double-click Start-CounterpointSYNCWorkbench.cmd.
-2. The launcher starts the API first and waits for /health to return Counterpoint SYNC JSON.
-3. If /health returns HTML, another app is using port 3015. Stop that app or change COUNTERPOINT_SYNC_WORKBENCH_PORT.
-4. Open http://127.0.0.1:3015 on the Main Hub after the launcher reports health OK.
+2. The launcher starts the API first and waits for /api/bridge/health to return Counterpoint SYNC JSON.
+3. If /api/bridge/health returns HTML, another app is using port 3015. Stop that app or change COUNTERPOINT_SYNC_WORKBENCH_PORT.
+4. Open http://127.0.0.1:3015 on the SYNC app computer after the launcher reports health OK.
 "@
   Set-Content -Path (Join-Path $dest "WINDOWS_START_HERE.md") -Value $startHere -Encoding UTF8
   Write-Host "Packaged Counterpoint SYNC Workbench"
@@ -498,7 +498,7 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "- Station settings are written automatically for Register and Back Office workstation installs.`n" +
   "- A deployment-manager.log file is written next to the installer for support.`n" +
   "- ROS-ServerManager.exe runs locally and does not require the Riverside API to be online.`n" +
-  "- Counterpoint SYNC Workbench is included in counterpoint-sync-workbench and starts with Start-CounterpointSYNCWorkbench.cmd on the Main Hub.`n" +
+  "- Counterpoint SYNC Workbench is included in counterpoint-sync-workbench and starts with Start-CounterpointSYNCWorkbench.cmd on the computer running the standalone SYNC app.`n" +
   "- Counterpoint Bridge GUI installers are separated under counterpoint-bridge-gui.`n" +
   "`nUninstall behavior:`n" +
   "`n- Workstation uninstall removes the Riverside desktop app and station settings.`n" +

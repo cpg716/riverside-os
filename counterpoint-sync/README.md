@@ -1,18 +1,18 @@
 # Counterpoint SYNC Workbench
 
-Main Hub staging service for the Counterpoint transition.
+Standalone staging service for the Counterpoint transition.
 
 The Workbench receives raw batches from the Counterpoint Bridge, stores source payloads and provenance, tracks run/section readiness, and exposes ROS-compatible JSON packages. It does not connect to ROS PostgreSQL and it does not perform final imports.
 
 ## Run
 
-Packaged Windows Main Hub deployment:
+Packaged Windows deployment for the computer running the standalone SYNC app:
 
 ```text
 Start-CounterpointSYNCWorkbench.cmd
 ```
 
-The deployment ZIP includes this Workbench under `counterpoint-sync-workbench\`, a bundled `node-runtime\node.exe`, and the launcher at the package root. The launcher creates `.env` from `env.example` on first run, starts the Workbench API, verifies that `http://127.0.0.1:3015/health` returns Counterpoint SYNC JSON, stores data under `counterpoint-sync-workbench\data\`, listens on the Main Hub LAN, and opens `http://127.0.0.1:3015/` locally on the Main Hub.
+The deployment ZIP includes this Workbench under `counterpoint-sync-workbench\`, a bundled `node-runtime\node.exe`, and the launcher at the package root. The launcher creates `.env` from `env.example` on first run, starts the Workbench API, verifies that `http://127.0.0.1:3015/api/bridge/health` returns Counterpoint SYNC JSON, stores data under `counterpoint-sync-workbench\data\`, listens on this computer's LAN, and opens `http://127.0.0.1:3015/` locally on the SYNC app computer.
 
 Repo/dev run:
 
@@ -26,13 +26,13 @@ The Workbench requires Node with built-in `node:sqlite` support. Use Node 22.5+;
 
 The normal closed-store workflow does not require a Workbench token. Configure the Workbench URL in the Bridge and ROS Back Office. `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` is optional; only set it if you deliberately want the local Workbench API to reject unauthenticated LAN requests.
 
-Open the local review UI on the Main Hub at:
+Open the local review UI on the computer running the standalone SYNC app at:
 
 ```text
 http://127.0.0.1:3015/
 ```
 
-From the Counterpoint PC, the Bridge must use the Main Hub LAN URL, not `127.0.0.1`. For example:
+From the Counterpoint PC, the Bridge must use the standalone SYNC app computer's LAN URL. For example:
 
 ```text
 http://10.64.70.196:3015/
@@ -40,9 +40,9 @@ http://10.64.70.196:3015/
 
 `127.0.0.1` always means the same machine you are typing on. In the Bridge GUI, `127.0.0.1:3015` means the Counterpoint PC, so it will fail unless the SYNC Workbench is also running on that same Counterpoint PC.
 
-If `/health` returns a page that starts with `<!doctype html>` instead of JSON, the Bridge is reaching a static UI/dev server or the wrong service on port `3015`. Stop that service and start `Start-CounterpointSYNCWorkbench.cmd` from the deployment package so the API owns the port.
+If `/api/bridge/health` returns a page that starts with `<!doctype html>` instead of JSON, the Bridge is reaching a static UI/dev server or the wrong service on port `3015`. Stop that service and start `Start-CounterpointSYNCWorkbench.cmd` from the deployment package so the API owns the port.
 
-The UI is the local preparation workbench for the Main Hub PC. It shows the Bridge heartbeat, local store path, backup status, runs, section readiness, warnings, blockers, imported status, package previews, exceptions, inventory CSV inputs, and AI review controls. Operators can import the one Lightspeed inventory CSV and one Counterpoint inventory CSV as product/SKU/item-number/variation cleanup references, preview ROS-ready JSON packages, mark sections ready, or block sections that still need cleanup. Inventory quantities come from Counterpoint SQL unless SQL has no usable value. The AI Review panel is non-mutating until a human accepts suggestions; no records are changed automatically.
+The UI is the local preparation workbench for the computer running the standalone SYNC app. It shows the Bridge heartbeat, local store path, backup status, runs, section readiness, warnings, blockers, imported status, package previews, exceptions, inventory CSV inputs, and AI review controls. Operators can import the one Lightspeed inventory CSV and one Counterpoint inventory CSV as product/SKU/item-number/variation cleanup references, preview ROS-ready JSON packages, mark sections ready, or block sections that still need cleanup. Inventory quantities come from Counterpoint SQL unless SQL has no usable value. The AI Review panel is non-mutating until a human accepts suggestions; no records are changed automatically.
 
 ## No-hardware rehearsal simulator
 
@@ -76,6 +76,7 @@ The cleanup command removes the deterministic simulator run and simulator heartb
 ## API
 
 - `GET /health`
+- `GET /api/bridge/health`
 - `GET /api/runs`
 - `GET /api/runs/:run_id`
 - `GET /api/runs/:run_id/sections`

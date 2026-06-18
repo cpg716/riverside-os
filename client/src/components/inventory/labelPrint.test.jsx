@@ -107,7 +107,7 @@ describe("LP 2844 EPL2 tag payloads", () => {
     expect(epl).toContain('"B-123456"');
   });
 
-  it("shrinks large sale prices to stay inside the builder price box", () => {
+  it("uses the sale builder price field size instead of the deprecated global price size", () => {
     const config = {
       ...getInventoryTagPrintConfig(),
       widthInches: 2.25,
@@ -121,8 +121,7 @@ describe("LP 2844 EPL2 tag payloads", () => {
     };
     const epl = buildEplDocument([saleRetailItem], config);
 
-    expect(epl).toMatch(/^A\d+,\d+,0,[1-4],1,\d+,N,"\$119\.00"/m);
-    expect(epl).not.toMatch(/^A\d+,\d+,0,5,1,\d+,N,"\$119\.00"/m);
+    expect(epl).toMatch(/^A\d+,\d+,0,5,1,1,N,"\$119\.00"/m);
   });
 
   it("prints XXL price text when the builder price box has enough room", () => {
@@ -147,7 +146,7 @@ describe("LP 2844 EPL2 tag payloads", () => {
       },
     );
 
-    expect(epl).toMatch(/^A\d+,\d+,0,5,1,2,N,"\$119\.00"/m);
+    expect(epl).toMatch(/^A\d+,\d+,0,5,2,1,N,"\$119\.00"/m);
   });
 
   it("prints hero price text for six digit prices when the price box uses the tag width", () => {
@@ -190,7 +189,40 @@ describe("LP 2844 EPL2 tag payloads", () => {
       },
     );
 
-    expect(epl).toMatch(/^A\d+,\d+,0,1,1,\d+,N,"HSM SLACKS"/m);
+    expect(epl).toMatch(/^A\d+,\d+,0,1,1,\d+,N,"HSM SLACKS \(Custom\)"/m);
+  });
+
+  it("wraps full product names instead of truncating builder EPL tags", () => {
+    const customLayout = defaultCustomTagLayout();
+    customLayout.elements.productName = {
+      ...customLayout.elements.productName,
+      xPct: 6,
+      yPct: 12,
+      wPct: 72,
+      hPct: 28,
+      fontSize: "lg",
+    };
+    const epl = buildEplDocument(
+      [{ ...retailItem, productName: "HSM SPORT COAT INDIVIDUALIZED SHIRT CUSTOM PACKAGE" }],
+      {
+        ...getInventoryTagPrintConfig(),
+        widthInches: 2.25,
+        heightInches: 1.25,
+        showSku: false,
+        showVariation: false,
+        showBrand: false,
+        showPrice: false,
+        showBarcode: false,
+        customLayout,
+      },
+    );
+
+    const printedText = [...epl.matchAll(/^A\d+,\d+,0,[1-5],\d,\d,N,"([^"]*)"/gm)]
+      .map((match) => match[1])
+      .join(" ");
+    expect(printedText).toContain("HSM SPORT COAT");
+    expect(printedText).toContain("INDIVIDUALIZED");
+    expect(printedText).toContain("SHIRT CUSTOM PACKAGE");
   });
 
   it("formats tag footers with the print job date", () => {

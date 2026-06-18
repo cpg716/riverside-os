@@ -183,19 +183,21 @@ function elementStyle(element: TagElementLayout): CSSProperties {
 
 function fontSizePx(id: TagElementId, element: TagElementLayout): string {
   const fontSize = element.fontSize ?? (id === "price" ? "xl" : id === "productName" ? "lg" : "md");
-  if (fontSize === "xs") return "10px";
-  if (fontSize === "sm") return "12px";
-  if (fontSize === "md") return "14px";
-  if (fontSize === "lg") return "18px";
-  if (fontSize === "xl") return "30px";
-  if (fontSize === "xxl") return "42px";
-  return "58px";
+  if (fontSize === "xs") return "9px";
+  if (fontSize === "sm") return "10px";
+  if (fontSize === "md") return "12px";
+  if (fontSize === "lg") return "16px";
+  if (fontSize === "xl") return "24px";
+  if (fontSize === "xxl") return "34px";
+  return "48px";
 }
 
 function elementTextStyle(id: TagElementId, element: TagElementLayout): CSSProperties {
   if (id === "barcode") return {};
   return {
     fontSize: fontSizePx(id, element),
+    whiteSpace: id === "productName" ? "normal" : "nowrap",
+    overflowWrap: id === "productName" ? "anywhere" : undefined,
   };
 }
 

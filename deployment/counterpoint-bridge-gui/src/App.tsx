@@ -20,7 +20,8 @@ import {
 const BRIDGE_API = "http://localhost:3002";
 const ROS_BASE_URL = "http://localhost:3000";
 const SYNC_WORKBENCH_PORT = "3015";
-const SYNC_WORKBENCH_PLACEHOLDER = "http://<Main-Hub-LAN-IP>:3015";
+const SYNC_WORKBENCH_HEALTH_PATH = "/api/bridge/health";
+const SYNC_WORKBENCH_PLACEHOLDER = "http://<SYNC-App-LAN-IP>:3015";
 
 interface BridgeSettings {
   sql_conn: string;
@@ -112,7 +113,7 @@ function deriveSyncWorkbenchUrlFromRosUrl(value: string): string {
 function loopbackSyncWarning(url: string): string {
   const parsed = parseHttpUrl(url);
   if (!parsed || !isLoopbackHost(parsed.hostname)) return "";
-  return "127.0.0.1 means this Counterpoint PC. If the standalone SYNC Workbench runs on another PC, use that PC's LAN URL, for example http://10.64.70.196:3015.";
+  return "This address points back to the Counterpoint PC. Use the LAN URL of the computer running the standalone SYNC app.";
 }
 
 const ENTITIES = [
@@ -207,7 +208,7 @@ function App() {
     try {
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), 5000);
-      const healthUrl = `${url}/health?bridge_check=${Date.now()}`;
+      const healthUrl = `${url}${SYNC_WORKBENCH_HEALTH_PATH}?bridge_check=${Date.now()}`;
       const response = await fetch(healthUrl, {
         method: "GET",
         headers: {
@@ -221,7 +222,7 @@ function App() {
       window.clearTimeout(timer);
       if (!response.ok) {
         const hint = loopbackSyncWarning(url);
-        const message = `SYNC Workbench answered ${response.status} at ${url}/health.${hint ? ` ${hint}` : ""}`;
+        const message = `SYNC app answered ${response.status} at ${url}${SYNC_WORKBENCH_HEALTH_PATH}.${hint ? ` ${hint}` : ""}`;
         setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
@@ -233,7 +234,7 @@ function App() {
       } catch {
         const hint = loopbackSyncWarning(url);
         const snippet = text.replace(/\s+/g, " ").trim().slice(0, 120);
-        const message = `SYNC is not running correctly at ${url}. Start the Counterpoint SYNC Workbench launcher on the Main Hub, then try again. ${snippet ? `Response started with: ${snippet}.` : ""}${hint ? ` ${hint}` : ""}`;
+        const message = `The configured SYNC app URL is reachable, but it is not returning Counterpoint SYNC API health JSON at ${url}${SYNC_WORKBENCH_HEALTH_PATH}. Start the standalone Counterpoint SYNC Workbench launcher on the computer at that LAN address, or stop the wrong service using port 3015. ${snippet ? `Response started with: ${snippet}.` : ""}${hint ? ` ${hint}` : ""}`;
         setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
@@ -241,18 +242,18 @@ function App() {
       if (health.service !== "counterpoint_sync_workbench" || health.ok === false) {
         const hint = loopbackSyncWarning(url);
         const service = health.service ? ` It answered as ${health.service}.` : "";
-        const message = `SYNC Workbench check reached ${url}/health, but it was not the Counterpoint SYNC Workbench health endpoint.${service}${hint ? ` ${hint}` : ""}`;
+        const message = `SYNC app check reached ${url}${SYNC_WORKBENCH_HEALTH_PATH}, but it was not the Counterpoint SYNC API health endpoint.${service}${hint ? ` ${hint}` : ""}`;
         setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
       }
-      const message = `SYNC is ready at ${url}.`;
+      const message = `SYNC app is ready at ${url}.`;
       setSyncWorkbenchCheck({ ok: true, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return true;
     } catch (e: any) {
       const hint = loopbackSyncWarning(url);
-      const message = `SYNC is not reachable at ${url}. Start the standalone Counterpoint SYNC Workbench app, then try again.${hint ? ` ${hint}` : ""} ${e?.message ?? String(e)}`;
+      const message = `SYNC app is not reachable at ${url}. Start the standalone Counterpoint SYNC Workbench app on that computer, then try again.${hint ? ` ${hint}` : ""} ${e?.message ?? String(e)}`;
       setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return false;

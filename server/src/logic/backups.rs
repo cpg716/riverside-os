@@ -20,6 +20,8 @@ use uuid::Uuid;
 
 const BACKUP_DIR_ENV: &str = "RIVERSIDE_BACKUP_DIR";
 const BACKUP_ENCRYPTION_KEY_ENV: &str = "RIVERSIDE_BACKUP_ENCRYPTION_KEY";
+const PG_DUMP_PATH_ENV: &str = "RIVERSIDE_PG_DUMP_PATH";
+const BACKUP_DOCKER_FALLBACK_ENV: &str = "RIVERSIDE_BACKUP_ALLOW_DOCKER_FALLBACK";
 const ENCRYPTED_BACKUP_EXTENSION: &str = ".dump.enc";
 const ENCRYPTED_BACKUP_MAGIC: &[u8] = b"ROSBAK1";
 const BACKUP_ENCRYPTION_KEY_MIN_LEN: usize = 32;
@@ -424,7 +426,8 @@ impl BackupManager {
         //
         // Never use `.stderr(piped())` with `.status()` — nothing reads the pipe, the read end
         // can close, and pg_dump gets SIGPIPE while writing warnings/progress to stderr.
-        let mut cmd = Command::new("pg_dump");
+        let pg_dump = pg_dump_command_path();
+        let mut cmd = Command::new(&pg_dump);
         cmd.arg("-d")
             .arg(&self.database_url)
             .arg("-F")
@@ -432,12 +435,29 @@ impl BackupManager {
             .arg("-f")
             .arg(&output_path);
 
-        let out = cmd
+        let out = match cmd
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()
             .await
-            .context("Failed to execute pg_dump")?;
+        {
+            Ok(out) => out,
+            Err(err) => {
+                error!(error = %err, pg_dump = %pg_dump, "Failed to execute PostgreSQL pg_dump");
+                if docker_backup_fallback_allowed()
+                    && self.write_backup_with_docker(&output_path).await?
+                {
+                    let filename = self.finalize_backup_archive(filename, settings)?;
+                    info!("Backup successful via Docker fallback: {}", filename);
+                    return Ok(filename);
+                }
+                return Err(err).with_context(|| {
+                    format!(
+                        "Failed to execute pg_dump. Install PostgreSQL client tools or set {PG_DUMP_PATH_ENV} to the full pg_dump path."
+                    )
+                });
+            }
+        };
 
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr);
@@ -445,37 +465,12 @@ impl BackupManager {
             // Check for version mismatch error
             if err.contains("server version mismatch") {
                 info!("pg_dump version mismatch detected; attempting fallback via Docker...");
-
-                // Fallback attempt: use docker exec to run pg_dump inside the container
-                // We assume the standard container name 'riverside-os-db' from the manifests.
-                // Note: We use shell redirection-like behavior by capturing stdout if -f inside docker is tricky.
-                // But simpler is to try: docker exec riverside-os-db pg_dump -U postgres -F c riverside_os
-                let docker_out = Command::new("docker")
-                    .arg("exec")
-                    .arg("riverside-os-db")
-                    .arg("pg_dump")
-                    .arg("-U")
-                    .arg("postgres")
-                    .arg("-F")
-                    .arg("c")
-                    .arg("riverside_os")
-                    .output()
-                    .await;
-
-                match docker_out {
-                    Ok(d_out) if d_out.status.success() => {
-                        fs::write(&output_path, d_out.stdout)?;
-                        let filename = self.finalize_backup_archive(filename, settings)?;
-                        info!("Backup successful via Docker fallback: {}", filename);
-                        return Ok(filename);
-                    }
-                    Ok(d_out) => {
-                        let d_err = String::from_utf8_lossy(&d_out.stderr);
-                        error!(stderr = %d_err, "Docker fallback pg_dump failed");
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Failed to initiate Docker fallback");
-                    }
+                if docker_backup_fallback_allowed()
+                    && self.write_backup_with_docker(&output_path).await?
+                {
+                    let filename = self.finalize_backup_archive(filename, settings)?;
+                    info!("Backup successful via Docker fallback: {}", filename);
+                    return Ok(filename);
                 }
             }
 
@@ -490,6 +485,36 @@ impl BackupManager {
         let filename = self.finalize_backup_archive(filename, settings)?;
         info!("Database backup completed successfully: {}", filename);
         Ok(filename)
+    }
+
+    async fn write_backup_with_docker(&self, output_path: &Path) -> Result<bool> {
+        let docker_out = Command::new("docker")
+            .arg("exec")
+            .arg("riverside-os-db")
+            .arg("pg_dump")
+            .arg("-U")
+            .arg("postgres")
+            .arg("-F")
+            .arg("c")
+            .arg("riverside_os")
+            .output()
+            .await;
+
+        match docker_out {
+            Ok(out) if out.status.success() => {
+                fs::write(output_path, out.stdout)?;
+                Ok(true)
+            }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr);
+                error!(stderr = %err, "Docker fallback pg_dump failed");
+                Ok(false)
+            }
+            Err(err) => {
+                error!(error = %err, "Failed to initiate Docker fallback");
+                Ok(false)
+            }
+        }
     }
 
     fn finalize_backup_archive(
@@ -889,6 +914,36 @@ fn optional_env(key: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn pg_dump_command_path() -> String {
+    std::env::var(PG_DUMP_PATH_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "pg_dump".to_string())
+}
+
+fn docker_backup_fallback_allowed() -> bool {
+    let strict_production = std::env::var("RIVERSIDE_STRICT_PRODUCTION")
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
+    if strict_production {
+        return false;
+    }
+    std::env::var(BACKUP_DOCKER_FALLBACK_ENV)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
 }
 
 fn cloud_operator(settings: &BackupSettings) -> Result<Operator> {

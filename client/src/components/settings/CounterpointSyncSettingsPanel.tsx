@@ -1859,7 +1859,7 @@ export default function CounterpointSyncSettingsPanel({
               </div>
             ) : (
               <p className="mt-3 text-xs font-semibold text-app-text-muted">
-                Start the standalone Counterpoint SYNC Workbench on the Main Hub and prepare a run before ROS approval.
+                Start the standalone Counterpoint SYNC Workbench app and prepare a run before ROS approval.
               </p>
             )}
           </div>
@@ -2366,13 +2366,13 @@ export default function CounterpointSyncSettingsPanel({
         baseUrl={baseUrl}
         integrationKey="counterpoint"
         title="Counterpoint SYNC Connection"
-        description="Save the Main Hub SYNC Workbench URL. Tokens are optional advanced compatibility settings and are not required for the normal closed-store handoff."
+        description="Save the standalone Counterpoint SYNC app URL. Tokens are optional advanced compatibility settings and are not required for the normal closed-store handoff."
         fields={[
           {
             key: "sync_workbench_url",
             label: "SYNC Workbench URL",
             placeholder: "http://127.0.0.1:3015",
-            help: "Main Hub Counterpoint SYNC Workbench URL. ROS uses this server-side to list prepared runs and pull JSON packages.",
+            help: "Standalone Counterpoint SYNC app URL. ROS uses this server-side to list prepared runs and pull JSON packages.",
             type: "text",
           },
         ]}

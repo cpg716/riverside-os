@@ -10,7 +10,15 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadEnv(path.join(__dirname, ".env"));
 
-const HOST = process.env.COUNTERPOINT_SYNC_WORKBENCH_HOST ?? "0.0.0.0";
+function resolveListenHost(rawHost) {
+  const value = (rawHost ?? "").trim();
+  if (!value) return "0.0.0.0";
+  if (process.env.COUNTERPOINT_SYNC_WORKBENCH_LOCAL_ONLY === "1") return value;
+  if (["127.0.0.1", "localhost", "::1"].includes(value.toLowerCase())) return "0.0.0.0";
+  return value;
+}
+
+const HOST = resolveListenHost(process.env.COUNTERPOINT_SYNC_WORKBENCH_HOST);
 const PORT = Number.parseInt(process.env.COUNTERPOINT_SYNC_WORKBENCH_PORT ?? "3015", 10);
 const TOKEN = process.env.COUNTERPOINT_SYNC_WORKBENCH_TOKEN ?? "";
 const JSON_STORE_PATH = path.resolve(
@@ -1086,7 +1094,7 @@ function dashboardHtml() {
     <div class="toolbar">
       <div>
         <h1>Counterpoint SYNC Workbench</h1>
-        <p class="muted">Main Hub preparation, review, package generation, and ROS handoff. No data is written to ROS here.</p>
+        <p class="muted">Standalone preparation, review, package generation, and ROS handoff. No data is written to ROS here.</p>
       </div>
       <div class="token">
         ${TOKEN.trim() ? `
@@ -1179,7 +1187,7 @@ function dashboardHtml() {
     const pill = (value, bad = false, warn = false) => '<span class="pill ' + (bad ? "bad" : warn ? "warn" : "ok") + '">' + value + '</span>';
     function stat(label, value, detail = "") { return '<div class="card"><p class="muted">' + label + '</p><p class="value">' + value + '</p>' + (detail ? '<p class="muted" style="overflow-wrap:anywhere;margin-top:4px">' + detail + '</p>' : '') + '</div>'; }
     async function refresh() {
-      const health = await fetch("/health").then((res) => res.json());
+      const health = await fetch("/api/bridge/health").then((res) => res.json());
       const runs = await api("/api/runs");
       const summary = health.summary || {};
       document.getElementById("stats").innerHTML = [
@@ -1421,6 +1429,30 @@ function statusEvent(store, run, event_kind, metadata = {}) {
   store.status_events = store.status_events.slice(0, 500);
 }
 
+function healthPayload() {
+  const store = (() => {
+    try {
+      return loadStore();
+    } catch {
+      return emptyStore();
+    }
+  })();
+  return {
+    ok: true,
+    service: "counterpoint_sync_workbench",
+    store_type: "sqlite",
+    schema_version: SCHEMA_VERSION,
+    token_configured: TOKEN.trim().length > 0,
+    token_required: TOKEN.trim().length > 0,
+    hostname: os.hostname(),
+    store_path: STORE_PATH,
+    store: storeHealth(),
+    last_bridge_heartbeat: publicHeartbeat(store),
+    summary: summarizeRuns(store),
+    generated_at: nowIso(),
+  };
+}
+
 async function route(req, res) {
   if (req.method === "OPTIONS") return send(res, 204, {});
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -1428,28 +1460,13 @@ async function route(req, res) {
   if ((normalizedPath === "/" || normalizedPath === "/ui") && req.method === "GET") {
     return sendHtml(res, 200, dashboardHtml());
   }
-    if ((normalizedPath === "/health" || normalizedPath === "/api/health") && req.method === "GET") {
-    const store = (() => {
-      try {
-        return loadStore();
-      } catch {
-        return emptyStore();
-      }
-    })();
-    return send(res, 200, {
-      ok: true,
-      service: "counterpoint_sync_workbench",
-      store_type: "sqlite",
-      schema_version: SCHEMA_VERSION,
-      token_configured: TOKEN.trim().length > 0,
-      token_required: TOKEN.trim().length > 0,
-      hostname: os.hostname(),
-      store_path: STORE_PATH,
-      store: storeHealth(),
-      last_bridge_heartbeat: publicHeartbeat(store),
-      summary: summarizeRuns(store),
-      generated_at: nowIso(),
-    });
+  if (
+    (normalizedPath === "/health" ||
+      normalizedPath === "/api/health" ||
+      normalizedPath === "/api/bridge/health") &&
+    req.method === "GET"
+  ) {
+    return send(res, 200, healthPayload());
   }
   if (!authorized(req)) return send(res, 401, { error: "invalid or missing optional SYNC Workbench token" });
 
