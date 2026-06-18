@@ -76,10 +76,6 @@ interface SyncWorkbenchCheck {
   checkedAt: string;
 }
 
-function stripTrailingSlash(value: string): string {
-  return value.trim().replace(/\/+$/, "");
-}
-
 function parseHttpUrl(value: string): URL | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -88,6 +84,15 @@ function parseHttpUrl(value: string): URL | null {
   } catch {
     return null;
   }
+}
+
+function normalizeHttpUrl(value: string): string {
+  const parsed = parseHttpUrl(value);
+  if (!parsed) return value.trim().replace(/\/+$/, "");
+  parsed.pathname = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/u, "");
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString().replace(/\/+$/, "");
 }
 
 function isLoopbackHost(hostname: string): boolean {
@@ -101,13 +106,13 @@ function deriveSyncWorkbenchUrlFromRosUrl(value: string): string {
   parsed.pathname = "";
   parsed.search = "";
   parsed.hash = "";
-  return stripTrailingSlash(parsed.toString());
+  return normalizeHttpUrl(parsed.toString());
 }
 
 function loopbackSyncWarning(url: string): string {
   const parsed = parseHttpUrl(url);
   if (!parsed || !isLoopbackHost(parsed.hostname)) return "";
-  return "127.0.0.1 means this Counterpoint PC. If the Workbench is on the Main Hub, use the Main Hub LAN URL, for example http://10.64.70.196:3015.";
+  return "127.0.0.1 means this Counterpoint PC. If the standalone SYNC Workbench runs on another PC, use that PC's LAN URL, for example http://10.64.70.196:3015.";
 }
 
 const ENTITIES = [
@@ -150,9 +155,7 @@ function App() {
   // Settings fields
   const [sqlConn, setSqlConn] = useState("");
   const [rosUrl, setRosUrl] = useState("");
-  const [syncToken, setSyncToken] = useState("");
   const [syncWorkbenchUrl, setSyncWorkbenchUrl] = useState("");
-  const [syncWorkbenchToken, setSyncWorkbenchToken] = useState("");
   const [syncWorkbenchCheck, setSyncWorkbenchCheck] = useState<SyncWorkbenchCheck | null>(null);
   const [syncWorkbenchChecking, setSyncWorkbenchChecking] = useState(false);
 
@@ -167,7 +170,7 @@ function App() {
 
   const normalizedRosUrl = useMemo(() => {
     const value = rosUrl.trim() || ROS_BASE_URL;
-    return stripTrailingSlash(value);
+    return normalizeHttpUrl(value);
   }, [rosUrl]);
 
   const suggestedSyncWorkbenchUrl = useMemo(() => {
@@ -176,13 +179,13 @@ function App() {
 
   const normalizedSyncWorkbenchUrl = useMemo(() => {
     const value = syncWorkbenchUrl.trim() || deriveSyncWorkbenchUrlFromRosUrl(normalizedRosUrl);
-    return stripTrailingSlash(value);
+    return normalizeHttpUrl(value);
   }, [normalizedRosUrl, syncWorkbenchUrl]);
 
   const openSyncWorkbench = useCallback(async () => {
     const url = normalizedSyncWorkbenchUrl;
     if (!url) {
-      setStatusMessage("Enter the Main Hub SYNC Workbench URL first.");
+      setStatusMessage("Enter the standalone SYNC Workbench URL first.");
       return;
     }
     try {
@@ -195,7 +198,7 @@ function App() {
   const checkSyncWorkbenchReachability = useCallback(async (): Promise<boolean> => {
     const url = normalizedSyncWorkbenchUrl;
     if (!url) {
-      const message = `Enter the Main Hub SYNC Workbench URL before extraction. Use the Main Hub LAN address, for example http://10.64.70.196:3015.`;
+      const message = `Enter the standalone SYNC Workbench URL before extraction, for example http://10.64.70.196:3015.`;
       setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return false;
@@ -204,13 +207,15 @@ function App() {
     try {
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), 5000);
-      const headers: Record<string, string> = {};
-      if (syncWorkbenchToken.trim()) {
-        headers["x-counterpoint-sync-token"] = syncWorkbenchToken.trim();
-      }
-      const response = await fetch(`${url}/health`, {
+      const healthUrl = `${url}/health?bridge_check=${Date.now()}`;
+      const response = await fetch(healthUrl, {
         method: "GET",
-        headers,
+        headers: {
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+        cache: "no-store",
         signal: controller.signal,
       });
       window.clearTimeout(timer);
@@ -228,7 +233,7 @@ function App() {
       } catch {
         const hint = loopbackSyncWarning(url);
         const snippet = text.replace(/\s+/g, " ").trim().slice(0, 120);
-        const message = `SYNC Workbench check reached ${url}/health but did not receive the Counterpoint SYNC health JSON. The port is serving a static UI/dev page or the wrong service instead of the Workbench API. Start the packaged Counterpoint SYNC Workbench launcher and wait for health OK. ${snippet ? `Response started with: ${snippet}.` : ""}${hint ? ` ${hint}` : ""}`;
+        const message = `SYNC is not running correctly at ${url}. Start the Counterpoint SYNC Workbench launcher on the Main Hub, then try again. ${snippet ? `Response started with: ${snippet}.` : ""}${hint ? ` ${hint}` : ""}`;
         setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
@@ -241,31 +246,29 @@ function App() {
         setStatusMessage(message);
         return false;
       }
-      const message = `Counterpoint SYNC Workbench is reachable at ${url}.`;
+      const message = `SYNC is ready at ${url}.`;
       setSyncWorkbenchCheck({ ok: true, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return true;
     } catch (e: any) {
       const hint = loopbackSyncWarning(url);
-      const message = `SYNC Workbench is not reachable at ${url}. Open the Workbench on the Main Hub and confirm ${url}/health loads from this Counterpoint PC before extraction.${hint ? ` ${hint}` : ""} ${e?.message ?? String(e)}`;
+      const message = `SYNC is not reachable at ${url}. Start the standalone Counterpoint SYNC Workbench app, then try again.${hint ? ` ${hint}` : ""} ${e?.message ?? String(e)}`;
       setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return false;
     } finally {
       setSyncWorkbenchChecking(false);
     }
-  }, [normalizedSyncWorkbenchUrl, syncWorkbenchToken]);
+  }, [normalizedSyncWorkbenchUrl]);
 
   const loadEnvSettings = useCallback(async (): Promise<BridgeSettings | null> => {
     try {
       const data = await invoke<BridgeSettings>("load_settings");
       setSqlConn(data.sql_conn);
       setRosUrl(data.ros_url);
-      setSyncToken(data.sync_token);
-      const derivedSyncUrl = data.sync_workbench_url || deriveSyncWorkbenchUrlFromRosUrl(data.ros_url);
+      const derivedSyncUrl = normalizeHttpUrl(data.sync_workbench_url || deriveSyncWorkbenchUrlFromRosUrl(data.ros_url));
       setSyncWorkbenchUrl(derivedSyncUrl);
-      setSyncWorkbenchToken(data.sync_workbench_token);
-      return { ...data, sync_workbench_url: derivedSyncUrl };
+      return { ...data, sync_token: "", sync_workbench_url: derivedSyncUrl, sync_workbench_token: "" };
     } catch (e: any) {
       console.error("Failed to load settings:", e);
       setStatusMessage(`Failed to load bridge settings: ${e}`);
@@ -275,19 +278,21 @@ function App() {
 
   const handleSaveSettings = async () => {
     try {
-      const nextSettings = { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken, sync_workbench_url: normalizedSyncWorkbenchUrl, sync_workbench_token: syncWorkbenchToken };
+      const nextSettings = { sql_conn: sqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: normalizedSyncWorkbenchUrl, sync_workbench_token: "" };
       if (!hasRequiredBridgeSettings(nextSettings)) {
-        setStatusMessage("Enter the SQL connection and SYNC Workbench URL before starting the bridge.");
+        setStatusMessage("Enter the Counterpoint SQL connection and standalone SYNC Workbench URL.");
         return;
       }
       setStatusMessage("Saving bridge connection settings...");
       const result = await invoke<string>("save_settings", {
         sqlConn,
-        rosUrl,
-        syncToken,
+        rosUrl: normalizedRosUrl,
+        syncToken: "",
         syncWorkbenchUrl: normalizedSyncWorkbenchUrl,
-        syncWorkbenchToken
+        syncWorkbenchToken: ""
       });
+      setSyncWorkbenchUrl(normalizedSyncWorkbenchUrl);
+      setRosUrl(normalizedRosUrl);
       setStatusMessage(result);
       // Restart the bridge to pick up new config
       await handleStartBridge(dryRun, nextSettings);
@@ -305,7 +310,7 @@ function App() {
       if (settings && hasRequiredBridgeSettings(settings)) {
         setStatusMessage("Bridge configuration loaded. Click Start Engine when ready.");
       } else {
-        setStatusMessage("Bridge configuration is incomplete. Enter the SQL connection and SYNC Workbench URL, then Save Configuration.");
+        setStatusMessage("Enter the Counterpoint SQL connection and standalone SYNC Workbench URL, then Save Configuration.");
       }
     })();
     return () => {
@@ -384,10 +389,10 @@ function App() {
 
   const handleStartBridge = async (isDry = dryRun, settingsOverride?: BridgeSettings) => {
     try {
-      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: rosUrl, sync_token: syncToken, sync_workbench_url: normalizedSyncWorkbenchUrl, sync_workbench_token: syncWorkbenchToken };
+      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: normalizedSyncWorkbenchUrl, sync_workbench_token: "" };
       if (!hasRequiredBridgeSettings(nextSettings)) {
         setActiveTab("settings");
-        setStatusMessage("Enter the SQL connection and SYNC Workbench URL before starting the bridge.");
+        setStatusMessage("Enter the Counterpoint SQL connection and standalone SYNC Workbench URL.");
         return;
       }
       setStatusMessage("Checking Counterpoint SYNC Workbench before extraction...");
@@ -703,8 +708,6 @@ function App() {
               >
                 {syncWorkbenchChecking ? "Checking..." : "Check SYNC Workbench"}
               </button>
-              <div className="font-semibold text-gray-400 mt-3 mb-1">ROS Final Importer</div>
-              <div className="font-mono text-gray-400 mt-0.5 break-all">{normalizedRosUrl}</div>
             </div>
             <div className="p-4 rounded-xl bg-[#161922] border border-white/5 text-[10px] text-gray-500">
               <div className="font-semibold text-gray-400 mb-1">Bridge GUI Update</div>
@@ -886,31 +889,19 @@ function App() {
                   />
                 </div>
 
-	                <div className="grid grid-cols-2 gap-4">
-	                  <div className="flex flex-col gap-1">
-	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Main Hub SYNC Workbench URL</label>
-	                    <input
-	                      type="text"
+		                <div className="flex flex-col gap-1">
+		                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Standalone SYNC Workbench URL</label>
+		                    <input
+		                      type="text"
 	                      value={syncWorkbenchUrl}
 	                      placeholder={suggestedSyncWorkbenchUrl}
 	                      onChange={(e) => setSyncWorkbenchUrl(e.target.value)}
 	                      className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
 	                    />
-                      <p className="text-[10px] font-semibold text-gray-500">
-                        Use the Main Hub LAN URL from the Counterpoint PC. Do not use 127.0.0.1 unless SYNC runs on this same PC.
-                      </p>
-	                  </div>
-	                  <div className="flex flex-col gap-1">
-	                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">ROS Base URL (optional)</label>
-	                    <input
-	                      type="text"
-	                      value={rosUrl}
-                      placeholder="http://localhost:3000"
-                      onChange={(e) => setRosUrl(e.target.value)}
-                      className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
-                    />
-	                  </div>
-	                </div>
+	                      <p className="text-[10px] font-semibold text-gray-500">
+	                        This is the standalone Counterpoint SYNC Workbench app on port 3015, not the ROS Back Office/API on port 3000.
+	                      </p>
+		                </div>
 
                 <div className="flex gap-3 justify-end mt-4">
                   <button
