@@ -307,7 +307,7 @@ export default function BackofficeSignInGate({
       return;
     }
     if (code.length !== 4) {
-      setError("Enter 4-digit PIN.");
+      setError("Enter your 4-digit Access PIN.");
       return;
     }
     setBusy(true);

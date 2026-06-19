@@ -39,6 +39,48 @@ fn gift_card_uses_liability_relief(sub_type: Option<&str>) -> bool {
     matches!(sub_type.map(str::trim), Some("paid_liability"))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GiftCardAccountingRoute {
+    LiabilityRelief,
+    LoyaltyExpense,
+    MissingOrUnknown,
+}
+
+fn gift_card_accounting_route(sub_type: Option<&str>) -> GiftCardAccountingRoute {
+    if gift_card_uses_liability_relief(sub_type) {
+        GiftCardAccountingRoute::LiabilityRelief
+    } else if gift_card_uses_loyalty_expense(sub_type) {
+        GiftCardAccountingRoute::LoyaltyExpense
+    } else {
+        GiftCardAccountingRoute::MissingOrUnknown
+    }
+}
+
+fn unresolved_gift_card_classification_line(
+    sub_type: Option<&str>,
+    amount: Decimal,
+    payment_transaction_ids: &[Uuid],
+    source_payments: Option<Value>,
+) -> JournalLine {
+    JournalLine {
+        qbo_account_id: String::new(),
+        qbo_account_name: String::new(),
+        debit: Decimal::ZERO,
+        credit: Decimal::ZERO,
+        memo: "Unresolved gift card classification".to_string(),
+        detail: vec![json!({
+            "kind": "unresolved_gift_card_classification",
+            "classification_status": "missing_or_unknown",
+            "payment_method": "gift_card",
+            "sub_type": sub_type,
+            "amount": amount,
+            "payment_transaction_ids": payment_transaction_ids,
+            "source_payments": source_payments.unwrap_or_else(|| json!([])),
+            "repair": "Set payment_transactions.metadata.sub_type to paid_liability, loyalty_giveaway, donated_giveaway, or promo_gift_card, then regenerate the QBO journal."
+        })],
+    }
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct JournalLine {
     pub qbo_account_id: String,
@@ -311,6 +353,8 @@ pub async fn propose_daily_journal(
         rms_charge_collection: Option<bool>,
         total: Option<Decimal>,
         total_merchant_fee: Option<Decimal>,
+        payment_transaction_ids: Vec<Uuid>,
+        source_payments: Option<Value>,
     }
 
     let tender_rows: Vec<TenderAgg> = sqlx::query_as(
@@ -327,7 +371,19 @@ pub async fn propose_daily_journal(
             NULLIF(TRIM(COALESCE(metadata->>'tender_family', '')), '') AS tender_family,
             BOOL_OR(COALESCE((metadata->>'rms_charge_collection')::boolean, FALSE)) AS rms_charge_collection,
             SUM(amount)::numeric(14, 2) AS total,
-            SUM(merchant_fee)::numeric(14, 2) AS total_merchant_fee
+            SUM(merchant_fee)::numeric(14, 2) AS total_merchant_fee,
+            ARRAY_AGG(id ORDER BY created_at, id) AS payment_transaction_ids,
+            jsonb_agg(
+                jsonb_build_object(
+                    'payment_transaction_id', id,
+                    'amount', amount,
+                    'payment_method', payment_method,
+                    'sub_type', NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), ''),
+                    'gift_card_code', NULLIF(TRIM(COALESCE(metadata->>'gift_card_code', '')), ''),
+                    'gift_card_card_kind', NULLIF(TRIM(COALESCE(metadata->>'gift_card_card_kind', '')), '')
+                )
+                ORDER BY created_at, id
+            ) AS source_payments
         FROM payment_transactions
         WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
         GROUP BY
@@ -843,18 +899,30 @@ pub async fn propose_daily_journal(
         }
         let sid = t.payment_method.trim();
         let is_gift_card = sid.eq_ignore_ascii_case("gift_card");
+        let gift_card_route = if is_gift_card {
+            Some(gift_card_accounting_route(t.sub_type.as_deref()))
+        } else {
+            None
+        };
         let is_paid_liability_gc =
-            is_gift_card && gift_card_uses_liability_relief(t.sub_type.as_deref());
-        let is_loyalty_gc = is_gift_card && gift_card_uses_loyalty_expense(t.sub_type.as_deref());
+            gift_card_route == Some(GiftCardAccountingRoute::LiabilityRelief);
+        let is_loyalty_gc = gift_card_route == Some(GiftCardAccountingRoute::LoyaltyExpense);
         let is_rms_financing = is_rms_financing_tender(sid, t.tender_family.as_deref());
         let is_rms_collection = rms_payment_collection_flag(t.rms_charge_collection);
         let is_store_credit = sid.eq_ignore_ascii_case("store_credit");
         let is_open_deposit = sid.eq_ignore_ascii_case("open_deposit");
-        if is_gift_card && !is_paid_liability_gc && !is_loyalty_gc {
+        if gift_card_route == Some(GiftCardAccountingRoute::MissingOrUnknown) {
             warnings.push(
-                "Gift card payment missing/unknown card classification; expected purchased, loyalty, donated, or promo card metadata. Falling back to tender mapping."
+                "Gift card payment missing/unknown card classification; expected purchased, loyalty, donated, or promo card metadata. Resolve before QBO approval or sync."
                     .to_string(),
             );
+            lines.push(unresolved_gift_card_classification_line(
+                t.sub_type.as_deref(),
+                amt,
+                &t.payment_transaction_ids,
+                t.source_payments.clone(),
+            ));
+            continue;
         }
         let liability_mapped = if is_open_deposit {
             qbo_map_name(pool, "liability_deposit", "default").await?
@@ -869,6 +937,8 @@ pub async fn propose_daily_journal(
         };
         let mapped = if let Some(m) = liability_mapped.clone() {
             Some(m)
+        } else if is_gift_card {
+            None
         } else if is_open_deposit || is_store_credit {
             None
         } else if is_rms_financing {
@@ -896,7 +966,17 @@ pub async fn propose_daily_journal(
                 m
             }
             None => {
-                if is_open_deposit {
+                if is_gift_card && is_loyalty_gc {
+                    warnings.push(
+                        "Gift card loyalty/promo redemption detected but no `expense_loyalty` / default mapping exists; expense recognition omitted."
+                            .to_string(),
+                    );
+                } else if is_gift_card && is_paid_liability_gc {
+                    warnings.push(
+                        "Gift card purchased-card redemption detected but no `liability_gift_card` / default mapping exists; liability relief omitted."
+                            .to_string(),
+                    );
+                } else if is_open_deposit {
                     warnings.push(
                         "Open deposit redemption detected but no `liability_deposit` / default mapping exists; liability relief omitted."
                             .to_string(),
@@ -1621,7 +1701,7 @@ pub async fn propose_daily_journal(
     // (liability increase). Use allocation metadata instead of merchandise lines so
     // existing-order payments collected in a mixed POS sale remain liability movement,
     // not current merchandise revenue.
-    let deposit_inflow: Decimal = sqlx::query_scalar(&format!(
+    let allocation_deposit_inflow: Decimal = sqlx::query_scalar(&format!(
         r#"
         SELECT COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0)::numeric(14,2)
         FROM payment_allocations pa
@@ -1637,6 +1717,38 @@ pub async fn propose_daily_journal(
     .bind(activity_date)
     .fetch_one(pool)
     .await?;
+
+    let open_deposit_inflow: (Decimal, Option<Value>) = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(SUM(codls.amount), 0)::numeric(14,2) AS amount,
+            COALESCE(
+                jsonb_agg(
+                    jsonb_build_object(
+                        'ledger_id', codl.id,
+                        'source_transaction_id', codl.transaction_id,
+                        'source_payment_transaction_id', codls.source_payment_transaction_id,
+                        'payment_method', pt.payment_method,
+                        'amount', codls.amount,
+                        'beneficiary_wedding_member_id', codls.beneficiary_wedding_member_id
+                    )
+                    ORDER BY codl.created_at, codls.created_at
+                ) FILTER (WHERE codls.id IS NOT NULL),
+                '[]'::jsonb
+            ) AS source_detail
+        FROM customer_open_deposit_ledger_sources codls
+        INNER JOIN customer_open_deposit_ledger codl ON codl.id = codls.ledger_id
+        INNER JOIN payment_transactions pt ON pt.id = codls.source_payment_transaction_id
+        WHERE codl.reason = 'party_split_deposit'
+          AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+        "#,
+    )
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
+    let open_deposit_inflow_amount = open_deposit_inflow.0.round_dp(2);
+    let deposit_inflow = (allocation_deposit_inflow + open_deposit_inflow_amount).round_dp(2);
 
     if !deposit_inflow.is_zero() {
         if let Some((lid, lnm)) =
@@ -1660,7 +1772,10 @@ pub async fn propose_daily_journal(
                 },
                 detail: vec![serde_json::json!({
                     "kind": "new_deposit_inflow",
-                    "amount": deposit_inflow
+                    "amount": deposit_inflow,
+                    "allocation_deposit_amount": allocation_deposit_inflow,
+                    "open_deposit_party_split_amount": open_deposit_inflow_amount,
+                    "open_deposit_sources": open_deposit_inflow.1.unwrap_or_else(|| json!([]))
                 })],
             });
         } else {
@@ -2106,6 +2221,82 @@ mod tests {
         assert!(gift_card_uses_loyalty_expense(Some("promo_gift_card")));
         assert!(!gift_card_uses_loyalty_expense(Some("paid_liability")));
         assert!(!gift_card_uses_loyalty_expense(None));
+    }
+
+    #[test]
+    fn gift_card_routes_preserve_expected_qbo_accounting_classes() {
+        assert_eq!(
+            gift_card_accounting_route(Some("paid_liability")),
+            GiftCardAccountingRoute::LiabilityRelief
+        );
+        assert_eq!(
+            gift_card_accounting_route(Some("loyalty_giveaway")),
+            GiftCardAccountingRoute::LoyaltyExpense
+        );
+        assert_eq!(
+            gift_card_accounting_route(Some("donated_giveaway")),
+            GiftCardAccountingRoute::LoyaltyExpense
+        );
+        assert_eq!(
+            gift_card_accounting_route(Some("promo_gift_card")),
+            GiftCardAccountingRoute::LoyaltyExpense
+        );
+    }
+
+    #[test]
+    fn missing_gift_card_classification_builds_unresolved_proposal_detail() {
+        let payment_transaction_id = Uuid::new_v4();
+        let line = unresolved_gift_card_classification_line(
+            None,
+            Decimal::new(2500, 2),
+            &[payment_transaction_id],
+            Some(json!([{
+                "payment_transaction_id": payment_transaction_id,
+                "gift_card_code": "GC100"
+            }])),
+        );
+
+        assert_eq!(line.qbo_account_id, "");
+        assert_eq!(line.debit, Decimal::ZERO);
+        assert_eq!(line.credit, Decimal::ZERO);
+        let detail = &line.detail[0];
+        assert_eq!(
+            detail.get("classification_status").and_then(Value::as_str),
+            Some("missing_or_unknown")
+        );
+        let detail_payment_transaction_id = detail
+            .get("payment_transaction_ids")
+            .and_then(Value::as_array)
+            .and_then(|ids| ids.first())
+            .and_then(Value::as_str)
+            .expect("payment transaction id in unresolved detail");
+        assert_eq!(
+            detail_payment_transaction_id,
+            payment_transaction_id.to_string()
+        );
+    }
+
+    #[test]
+    fn unknown_gift_card_classification_is_unresolved_not_tender_fallback() {
+        let payment_transaction_id = Uuid::new_v4();
+        assert_eq!(
+            gift_card_accounting_route(Some("mystery_card")),
+            GiftCardAccountingRoute::MissingOrUnknown
+        );
+
+        let line = unresolved_gift_card_classification_line(
+            Some("mystery_card"),
+            Decimal::new(1000, 2),
+            &[payment_transaction_id],
+            None,
+        );
+
+        assert_eq!(line.memo, "Unresolved gift card classification");
+        assert_eq!(line.qbo_account_id, "");
+        assert_eq!(
+            line.detail[0].get("sub_type").and_then(Value::as_str),
+            Some("mystery_card")
+        );
     }
 
     #[test]

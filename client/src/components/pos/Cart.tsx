@@ -1586,7 +1586,7 @@ export default function Cart({
 
   const verifySalePin = useCallback(async () => {
     if (!salePinCredential) {
-      setSalePinError("Please enter PIN");
+      setSalePinError("Please enter your Access PIN.");
       return;
     }
     setSalePinBusy(true);
@@ -4150,7 +4150,7 @@ export default function Cart({
         isOpen={showVoidAllConfirm}
         onClose={() => setShowVoidAllConfirm(false)}
         title="Authorize Void All"
-        message="Clearing every line in the cart requires a manager PIN for audit logging."
+        message="Clearing every line in the cart requires Manager Access for audit logging."
         onApprove={async (pin) => {
           try {
             const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
@@ -4188,7 +4188,7 @@ export default function Cart({
         isOpen={showReadinessOverrideModal}
         onClose={() => setShowReadinessOverrideModal(false)}
         title="Authorize Pickup Readiness Override"
-        message="This pickup contains items not marked Ready for Pickup. A manager PIN is required to override readiness check."
+        message="This pickup contains items not marked Ready for Pickup. Manager Access is required to override the readiness check."
         onApprove={handleManagerApproveReadiness}
       />
 
@@ -4196,7 +4196,7 @@ export default function Cart({
         isOpen={showSuitSwapApproval}
         onClose={() => setShowSuitSwapApproval(false)}
         title="Authorize Suit Component Swap"
-        message="Suit/component swaps modify inventory and financial records. A manager PIN is required for audit logging."
+        message="Suit/component swaps modify inventory and financial records. Manager Access is required for audit logging."
         onApprove={async (pin) => {
           try {
             const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
@@ -4338,7 +4338,7 @@ export default function Cart({
         isOpen={!!discountPrompt}
         onClose={() => setDiscountPrompt(null)}
         title="Override Authority"
-        message={`Large discounts (>${roleMaxDiscountPct.toFixed(0)}%) require Manager PIN authorization for audit logging.`}
+        message={`Large discounts (>${roleMaxDiscountPct.toFixed(0)}%) require Manager Access authorization for audit logging.`}
         onApprove={async (pin) => {
           if (!discountPrompt) return false;
           try {
@@ -4378,7 +4378,7 @@ export default function Cart({
               toast("Override authorized", "success");
               return true;
             }
-            toast("Invalid Manager PIN", "error");
+            toast("Invalid Manager Access PIN.", "error");
             return false;
           } catch {
             toast("We couldn't verify manager approval. Please try again.", "error");

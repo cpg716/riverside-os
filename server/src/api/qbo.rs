@@ -208,6 +208,10 @@ pub struct DrilldownQuery {
 pub struct DrilldownContributor {
     pub transaction_id: Uuid,
     pub amount: rust_decimal::Decimal,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment_tx_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment_method: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -340,6 +344,83 @@ fn validate_staging_journal_balanced(payload: &serde_json::Value) -> Result<(), 
     }
 
     Ok(())
+}
+
+fn unresolved_gift_card_classification_ids(payload: &serde_json::Value) -> Vec<String> {
+    let mut ids = BTreeSet::new();
+    let Some(lines) = payload.get("lines").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+
+    for line in lines {
+        let Some(details) = line.get("detail").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for detail in details {
+            let unresolved = detail.get("classification_status").and_then(|v| v.as_str())
+                == Some("missing_or_unknown")
+                || detail.get("kind").and_then(|v| v.as_str())
+                    == Some("unresolved_gift_card_classification");
+            if !unresolved {
+                continue;
+            }
+
+            if let Some(payment_ids) = detail
+                .get("payment_transaction_ids")
+                .and_then(|v| v.as_array())
+            {
+                for id in payment_ids {
+                    if let Some(value) = id.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                        ids.insert(value.to_string());
+                    }
+                }
+            }
+
+            if let Some(sources) = detail.get("source_payments").and_then(|v| v.as_array()) {
+                for source in sources {
+                    if let Some(value) = source
+                        .get("payment_transaction_id")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        ids.insert(value.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    ids.into_iter().collect()
+}
+
+fn validate_no_unresolved_gift_card_classifications(
+    payload: &serde_json::Value,
+) -> Result<(), QboError> {
+    let ids = unresolved_gift_card_classification_ids(payload);
+    if ids.is_empty() {
+        return Ok(());
+    }
+
+    let sample = ids.iter().take(8).cloned().collect::<Vec<_>>().join(", ");
+    let suffix = if ids.len() > 8 {
+        format!(" and {} more", ids.len() - 8)
+    } else {
+        String::new()
+    };
+    Err(QboError::Conflict(format!(
+        "QBO journal has unresolved gift-card classification for payment transaction(s): {sample}{suffix}. Set gift-card metadata sub_type to paid_liability, loyalty_giveaway, donated_giveaway, or promo_gift_card, then regenerate before approval or sync."
+    )))
+}
+
+fn validate_staging_ready_for_approval(payload: &serde_json::Value) -> Result<(), QboError> {
+    validate_staging_journal_balanced(payload)?;
+    validate_no_unresolved_gift_card_classifications(payload)
+}
+
+fn validate_staging_ready_for_sync(payload: &serde_json::Value) -> Result<(), QboError> {
+    validate_staging_journal_balanced(payload)?;
+    validate_no_unresolved_gift_card_classifications(payload)
 }
 
 async fn validate_staging_accounts_active(
@@ -1622,7 +1703,7 @@ async fn approve_staging(
             "only pending entries can be approved".to_string(),
         ));
     }
-    validate_staging_journal_balanced(&payload)?;
+    validate_staging_ready_for_approval(&payload)?;
     validate_staging_accounts_active(&state.db, &payload).await?;
 
     let n = sqlx::query(
@@ -1726,7 +1807,65 @@ async fn staging_drilldown(
             .map(|(transaction_id, amount)| DrilldownContributor {
                 transaction_id,
                 amount,
+                payment_tx_id: None,
+                payment_method: None,
             })
+            .collect();
+    } else if detail0.get("kind").and_then(|v| v.as_str()) == Some("new_deposit_inflow") {
+        let rows: Vec<(Uuid, rust_decimal::Decimal, Option<Uuid>, Option<String>)> =
+            sqlx::query_as(&format!(
+                r#"
+                SELECT
+                    transaction_id,
+                    SUM(amount)::numeric(14,2) AS amount,
+                    source_payment_transaction_id,
+                    payment_method
+                FROM (
+                    SELECT
+                        pa.target_transaction_id AS transaction_id,
+                        pa.amount_allocated AS amount,
+                        pa.transaction_id AS source_payment_transaction_id,
+                        pt.payment_method AS payment_method
+                    FROM payment_allocations pa
+                    INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                    INNER JOIN transactions o ON o.id = pa.target_transaction_id
+                    WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+                      AND pa.amount_allocated > 0::numeric
+                      AND NULLIF(TRIM(pa.metadata->>'applied_deposit_amount'), '') IS NOT NULL
+                      AND (({order_recognition_ts}) IS NULL OR (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date > $1::date)
+                      AND o.status::text NOT IN ('cancelled')
+
+                    UNION ALL
+
+                    SELECT
+                        codl.transaction_id AS transaction_id,
+                        codls.amount AS amount,
+                        codls.source_payment_transaction_id,
+                        pt.payment_method AS payment_method
+                    FROM customer_open_deposit_ledger_sources codls
+                    INNER JOIN customer_open_deposit_ledger codl ON codl.id = codls.ledger_id
+                    INNER JOIN payment_transactions pt ON pt.id = codls.source_payment_transaction_id
+                    WHERE codl.reason = 'party_split_deposit'
+                      AND codl.transaction_id IS NOT NULL
+                      AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+                ) contributors
+                GROUP BY transaction_id, source_payment_transaction_id, payment_method
+                ORDER BY amount DESC
+                "#,
+            ))
+            .bind(sync_date)
+            .fetch_all(&state.db)
+            .await?;
+        contributors = rows
+            .into_iter()
+            .map(
+                |(transaction_id, amount, payment_tx_id, payment_method)| DrilldownContributor {
+                    transaction_id,
+                    amount,
+                    payment_tx_id,
+                    payment_method,
+                },
+            )
             .collect();
     } else if detail0.get("net_sales").is_some() {
         let category_id = detail0
@@ -1793,6 +1932,8 @@ async fn staging_drilldown(
             .map(|(transaction_id, amount)| DrilldownContributor {
                 transaction_id,
                 amount,
+                payment_tx_id: None,
+                payment_method: None,
             })
             .collect();
     } else if detail0.get("release_amount").is_some() {
@@ -1863,6 +2004,8 @@ async fn staging_drilldown(
             .map(|(transaction_id, amount)| DrilldownContributor {
                 transaction_id,
                 amount,
+                payment_tx_id: None,
+                payment_method: None,
             })
             .collect();
     }
@@ -1896,7 +2039,7 @@ async fn sync_staging(
             "only approved entries can be pushed to QBO".to_string(),
         ));
     }
-    validate_staging_journal_balanced(&payload)?;
+    validate_staging_ready_for_sync(&payload)?;
     validate_staging_accounts_active(&state.db, &payload).await?;
 
     let integ = integration_row(&state.db)
@@ -2192,7 +2335,7 @@ async fn retry_failed(
     }
 
     // Re-validate before retry
-    validate_staging_journal_balanced(&payload)?;
+    validate_staging_ready_for_sync(&payload)?;
     validate_staging_accounts_active(&state.db, &payload).await?;
 
     let _ = log_staff_access(
@@ -2837,6 +2980,58 @@ mod tests {
 
         let err = validate_staging_journal_balanced(&payload).unwrap_err();
         assert!(matches!(err, QboError::Conflict(_)));
+    }
+
+    fn unresolved_gift_card_payload() -> serde_json::Value {
+        let mut payload = balanced_payload();
+        payload["lines"]
+            .as_array_mut()
+            .expect("lines array")
+            .push(json!({
+                "qbo_account_id": "",
+                "qbo_account_name": "",
+                "debit": "0.00",
+                "credit": "0.00",
+                "memo": "Unresolved gift card classification",
+                "detail": [{
+                    "kind": "unresolved_gift_card_classification",
+                    "classification_status": "missing_or_unknown",
+                    "payment_method": "gift_card",
+                    "sub_type": null,
+                    "amount": "25.00",
+                    "payment_transaction_ids": [
+                        "11111111-1111-4111-8111-111111111111"
+                    ],
+                    "source_payments": [{
+                        "payment_transaction_id": "11111111-1111-4111-8111-111111111111",
+                        "gift_card_code": "GC100"
+                    }]
+                }]
+            }));
+        payload
+    }
+
+    #[test]
+    fn approval_gate_rejects_unresolved_gift_card_classification() {
+        let err = validate_staging_ready_for_approval(&unresolved_gift_card_payload()).unwrap_err();
+        match err {
+            QboError::Conflict(message) => {
+                assert!(message.contains("unresolved gift-card classification"));
+                assert!(message.contains("11111111-1111-4111-8111-111111111111"));
+            }
+            other => panic!("expected conflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sync_gate_rejects_unresolved_gift_card_classification() {
+        let err = validate_staging_ready_for_sync(&unresolved_gift_card_payload()).unwrap_err();
+        match err {
+            QboError::Conflict(message) => {
+                assert!(message.contains("regenerate before approval or sync"));
+            }
+            other => panic!("expected conflict, got {other:?}"),
+        }
     }
 
     #[test]

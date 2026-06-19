@@ -13,7 +13,7 @@ use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::{Error as SqlxError, FromRow, Postgres, Transaction};
+use sqlx::{Error as SqlxError, FromRow, PgPool, Postgres, Transaction};
 use std::ops::DerefMut;
 use thiserror::Error;
 use uuid::Uuid;
@@ -54,6 +54,10 @@ use crate::models::{
 };
 
 const RETURN_MANAGER_APPROVAL_WINDOW_DAYS: i64 = 60;
+
+#[cfg(test)]
+static FAIL_CARD_REFUND_LEDGER_AFTER_PROVIDER_APPROVAL: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 pub(crate) async fn rosie_order_summary(
     state: &AppState,
@@ -579,7 +583,41 @@ impl TransactionDetailResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::HeaderValue;
     use sqlx::Connection;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    static HELCIM_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn build_test_state(pool: PgPool) -> AppState {
+        AppState {
+            db: pool,
+            global_employee_markup: Decimal::new(15, 0),
+            http_client: reqwest::Client::new(),
+            podium_token_cache: std::sync::Arc::new(tokio::sync::Mutex::new(
+                crate::logic::podium::PodiumTokenCache::default(),
+            )),
+            database_url: "postgres://test".to_string(),
+            counterpoint_sync_token: None,
+            wedding_events: crate::logic::wedding_push::WeddingEventBus::new(),
+            store_customer_jwt_secret: std::sync::Arc::<[u8]>::from(
+                b"rosie-operational-test".as_slice(),
+            ),
+            store_account_rate: std::sync::Arc::new(tokio::sync::Mutex::new(
+                crate::api::store_account_rate::StoreAccountRateState::default(),
+            )),
+            store_account_unauth_post_per_minute_ip: 0,
+            store_account_authed_per_minute: 0,
+            meilisearch: None,
+            rosie_speech_state: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            server_log_ring: crate::observability::ServerLogRing::new(32, 512),
+            cache: None,
+            metrics_collector: None,
+            rate_limit: crate::middleware::rate_limit::rate_limit_middleware(),
+            github_token: None,
+        }
+    }
 
     fn sample_transaction_detail(items: Vec<TransactionDetailItem>) -> TransactionDetailResponse {
         TransactionDetailResponse {
@@ -795,6 +833,405 @@ mod tests {
         assert!(err
             .to_string()
             .contains("cash rounding is only allowed for cash refunds"));
+    }
+
+    #[test]
+    fn card_refund_idempotency_key_is_stable_until_ledger_records_refund() {
+        let refund_queue_id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+
+        let first = card_refund_idempotency_key(refund_queue_id, 987654, 0, 1234);
+        let retry_after_provider_success_before_ledger =
+            card_refund_idempotency_key(refund_queue_id, 987654, 0, 1234);
+        let next_refund_after_ledger_records_prior_card_refund =
+            card_refund_idempotency_key(refund_queue_id, 987654, 1234, 1234);
+
+        assert_eq!(first, retry_after_provider_success_before_ledger);
+        assert_ne!(first, next_refund_after_ledger_records_prior_card_refund);
+    }
+
+    #[test]
+    fn card_refund_audit_reference_scopes_attempt_to_refund_queue() {
+        let transaction_id = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let refund_queue_id = Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap();
+
+        assert_eq!(
+            card_refund_audit_reference(transaction_id, refund_queue_id),
+            "helcim:transactionRefund:22222222-2222-2222-2222-222222222222:33333333-3333-3333-3333-333333333333"
+        );
+    }
+
+    #[test]
+    fn only_approved_card_refund_attempts_can_be_reconciled_without_provider_call() {
+        let base = DurableCardRefundAttempt {
+            id: Uuid::new_v4(),
+            status: "approved".to_string(),
+            idempotency_key: "key".to_string(),
+            provider_payment_id: Some("refund-1".to_string()),
+            provider_transaction_id: Some("refund-1".to_string()),
+        };
+        assert!(base.is_approved());
+
+        let failed = DurableCardRefundAttempt {
+            status: "failed".to_string(),
+            ..base
+        };
+        assert!(!failed.is_approved());
+    }
+
+    #[tokio::test]
+    async fn card_refund_retry_reuses_approved_attempt_after_local_ledger_failure() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let _env_guard = HELCIM_ENV_LOCK.lock().await;
+        let previous_token = std::env::var("HELCIM_API_TOKEN").ok();
+        let previous_base_url = std::env::var("HELCIM_API_BASE_URL").ok();
+
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let state = build_test_state(pool.clone());
+        let mock = MockServer::start().await;
+        std::env::set_var("HELCIM_API_TOKEN", "test-helcim-token");
+        std::env::set_var("HELCIM_API_BASE_URL", mock.uri());
+
+        Mock::given(method("POST"))
+            .and(path("/payment/refund"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "transactionId": "777000123",
+                "status": "APPROVED",
+                "amount": "100.00",
+                "currency": "USD",
+                "cardType": "VISA",
+                "approvalCode": "SIMOK",
+                "cardNumber": "4242424242424242"
+            })))
+            .mount(&mock)
+            .await;
+
+        let staff_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        let till_close_group_id = Uuid::new_v4();
+        let transaction_id = Uuid::new_v4();
+        let original_payment_id = Uuid::new_v4();
+        let refund_queue_id = Uuid::new_v4();
+        let test_suffix = Uuid::new_v4().simple().to_string();
+        let cashier_code = format!("T{}", &test_suffix[..9]);
+        let display_id = format!("TXN-DUR-{}", &test_suffix[..12]);
+        let original_provider_transaction_id =
+            (9_000_000_000_i64 + (Utc::now().timestamp_micros() % 900_000_000)).to_string();
+        let session_ordinal = 9_000_000_000_i64 + (Utc::now().timestamp_micros() % 900_000_000);
+
+        sqlx::query(
+            r#"
+            INSERT INTO staff (id, full_name, cashier_code, role, is_active, pin_hash)
+            VALUES ($1, 'Refund Durability Test', $2, 'admin', TRUE, NULL)
+            "#,
+        )
+        .bind(staff_id)
+        .bind(&cashier_code)
+        .execute(&pool)
+        .await
+        .expect("insert staff");
+
+        sqlx::query(
+            r#"
+            INSERT INTO register_sessions (
+                id, opened_by, opening_float, lifecycle_status, session_ordinal,
+                shift_primary_staff_id, register_lane, till_close_group_id
+            )
+            VALUES ($1, $2, 0.00, 'open', $3, $2, 1, $4)
+            "#,
+        )
+        .bind(session_id)
+        .bind(staff_id)
+        .bind(session_ordinal)
+        .bind(till_close_group_id)
+        .execute(&pool)
+        .await
+        .expect("insert register session");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, operator_id, primary_salesperson_id, status, total_price,
+                amount_paid, balance_due, display_id, business_date
+            )
+            VALUES ($1, $2, $2, 'open', 0.00, 100.00, -100.00, $3, CURRENT_DATE)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(staff_id)
+        .bind(&display_id)
+        .execute(&pool)
+        .await
+        .expect("insert transaction");
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_transactions (
+                id, session_id, category, payment_method, amount, status, metadata,
+                merchant_fee, net_amount, payment_provider, provider_payment_id,
+                provider_status, provider_transaction_id, effective_date
+            )
+            VALUES (
+                $1, $2, 'retail_sale', 'card_present', 100.00, 'approved', $3,
+                0.00, 100.00, 'helcim', $4, 'approved', $4, CURRENT_DATE
+            )
+            "#,
+        )
+        .bind(original_payment_id)
+        .bind(session_id)
+        .bind(json!({ "kind": "test_original_card_payment" }))
+        .bind(&original_provider_transaction_id)
+        .execute(&pool)
+        .await
+        .expect("insert original payment");
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_allocations (
+                transaction_id, target_transaction_id, amount_allocated, metadata
+            )
+            VALUES ($1, $2, 100.00, $3)
+            "#,
+        )
+        .bind(original_payment_id)
+        .bind(transaction_id)
+        .bind(json!({ "kind": "test_original_card_allocation" }))
+        .execute(&pool)
+        .await
+        .expect("insert original allocation");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_refund_queue (
+                id, transaction_id, amount_due, amount_refunded, is_open, reason
+            )
+            VALUES ($1, $2, 100.00, 0.00, TRUE, 'refund durability regression')
+            "#,
+        )
+        .bind(refund_queue_id)
+        .bind(transaction_id)
+        .execute(&pool)
+        .await
+        .expect("insert refund queue");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-riverside-staff-code",
+            HeaderValue::from_str(&cashier_code).expect("staff code header"),
+        );
+        headers.insert(
+            "x-riverside-staff-pin",
+            HeaderValue::from_str(&cashier_code).expect("staff pin header"),
+        );
+        let make_request = || ProcessRefundRequest {
+            session_id,
+            payment_method: "card".to_string(),
+            amount: Decimal::new(10000, 2),
+            tender_amount: None,
+            rounding_adjustment: None,
+            final_cash_due: None,
+            gift_card_code: None,
+            manager_staff_id: None,
+            manager_pin: None,
+            manager_reason: None,
+        };
+
+        FAIL_CARD_REFUND_LEDGER_AFTER_PROVIDER_APPROVAL
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let first = process_refund(
+            State(state.clone()),
+            Path(transaction_id),
+            headers.clone(),
+            Json(make_request()),
+        )
+        .await;
+        assert!(
+            first.is_err(),
+            "first refund should hit forced local failure"
+        );
+
+        let provider_calls = mock.received_requests().await.expect("mock requests");
+        assert_eq!(
+            provider_calls.len(),
+            1,
+            "first attempt should call Helcim exactly once"
+        );
+
+        let attempt_after_failure: (Uuid, String, Option<String>, String) = sqlx::query_as(
+            r#"
+            SELECT id, status, provider_payment_id, idempotency_key
+            FROM payment_provider_attempts
+            WHERE raw_audit_reference = $1
+            "#,
+        )
+        .bind(card_refund_audit_reference(transaction_id, refund_queue_id))
+        .fetch_one(&pool)
+        .await
+        .expect("approved provider attempt");
+        assert_eq!(attempt_after_failure.1, "approved");
+        assert_eq!(attempt_after_failure.2.as_deref(), Some("777000123"));
+
+        let local_refund_rows_after_failure: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM payment_transactions
+            WHERE metadata->>'provider_attempt_id' = $1
+            "#,
+        )
+        .bind(attempt_after_failure.0.to_string())
+        .fetch_one(&pool)
+        .await
+        .expect("count local rows after failure");
+        assert_eq!(local_refund_rows_after_failure, 0);
+
+        let retry = process_refund(
+            State(state.clone()),
+            Path(transaction_id),
+            headers.clone(),
+            Json(make_request()),
+        )
+        .await;
+        assert!(
+            retry.is_ok(),
+            "retry should reconcile from approved attempt"
+        );
+
+        let provider_calls = mock.received_requests().await.expect("mock requests");
+        assert_eq!(provider_calls.len(), 1, "retry must not call Helcim again");
+
+        let attempts: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM payment_provider_attempts
+            WHERE raw_audit_reference = $1
+            "#,
+        )
+        .bind(card_refund_audit_reference(transaction_id, refund_queue_id))
+        .fetch_one(&pool)
+        .await
+        .expect("count provider attempts");
+        assert_eq!(attempts, 1);
+
+        let refund_rows: Vec<(Uuid, Decimal, Option<String>, serde_json::Value)> = sqlx::query_as(
+            r#"
+            SELECT id, amount, provider_payment_id, metadata
+            FROM payment_transactions
+            WHERE metadata->>'provider_attempt_id' = $1
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(attempt_after_failure.0.to_string())
+        .fetch_all(&pool)
+        .await
+        .expect("load local refund rows");
+        assert_eq!(refund_rows.len(), 1);
+        assert_eq!(refund_rows[0].1, Decimal::new(-10000, 2));
+        assert_eq!(refund_rows[0].2.as_deref(), Some("777000123"));
+        assert_eq!(
+            refund_rows[0].3["provider_idempotency_key"].as_str(),
+            Some(attempt_after_failure.3.as_str())
+        );
+        assert_eq!(
+            refund_rows[0].3["provider_refund_id"].as_str(),
+            Some("777000123")
+        );
+
+        let allocation_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM payment_allocations
+            WHERE transaction_id = $1
+              AND target_transaction_id = $2
+              AND amount_allocated = -100.00
+              AND metadata->>'kind' = 'order_refund'
+            "#,
+        )
+        .bind(refund_rows[0].0)
+        .bind(transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count refund allocation rows");
+        assert_eq!(allocation_count, 1);
+
+        let queue_state: (Decimal, bool) = sqlx::query_as(
+            "SELECT amount_refunded, is_open FROM transaction_refund_queue WHERE id = $1",
+        )
+        .bind(refund_queue_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load refund queue");
+        assert_eq!(queue_state.0, Decimal::new(10000, 2));
+        assert!(!queue_state.1);
+
+        let activity_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM transaction_activity_log
+            WHERE transaction_id = $1
+              AND event_kind = 'refund_processed'
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count refund activity");
+        assert_eq!(activity_count, 1);
+
+        sqlx::query("DELETE FROM transaction_activity_log WHERE transaction_id = $1")
+            .bind(transaction_id)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query(
+            "DELETE FROM payment_allocations WHERE target_transaction_id = $1 OR transaction_id = $2",
+        )
+        .bind(transaction_id)
+        .bind(refund_rows[0].0)
+        .execute(&pool)
+        .await
+        .ok();
+        sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
+            .bind(vec![original_payment_id, refund_rows[0].0])
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM transaction_refund_queue WHERE id = $1")
+            .bind(refund_queue_id)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM payment_provider_attempts WHERE id = $1")
+            .bind(attempt_after_failure.0)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM transactions WHERE id = $1")
+            .bind(transaction_id)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM register_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM staff WHERE id = $1")
+            .bind(staff_id)
+            .execute(&pool)
+            .await
+            .ok();
+
+        match previous_token {
+            Some(value) => std::env::set_var("HELCIM_API_TOKEN", value),
+            None => std::env::remove_var("HELCIM_API_TOKEN"),
+        }
+        match previous_base_url {
+            Some(value) => std::env::set_var("HELCIM_API_BASE_URL", value),
+            None => std::env::remove_var("HELCIM_API_BASE_URL"),
+        }
     }
 
     #[tokio::test]
@@ -1417,6 +1854,245 @@ fn cash_refund_tender_amount(
         }
     }
     Ok((tender, rounding))
+}
+
+#[derive(Debug)]
+struct RefundCapacity {
+    corrected_amount_due: Decimal,
+    void_original_paid: Option<Decimal>,
+}
+
+async fn validate_refund_capacity_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    refund: &RefundQueueRow,
+    exact_refund_amount: Decimal,
+) -> Result<RefundCapacity, TransactionError> {
+    let (current_paid, current_balance_due): (Decimal, Decimal) = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(amount_paid, 0)::numeric(14,2),
+            COALESCE(balance_due, 0)::numeric(14,2)
+        FROM transactions
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    let void_original_paid: Option<Decimal> = sqlx::query_scalar(
+        r#"
+        SELECT original_amount_paid::numeric(14,2)
+        FROM transaction_void_records
+        WHERE transaction_id = $1
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let queue_remaining = if refund.amount_due > refund.amount_refunded {
+        refund.amount_due - refund.amount_refunded
+    } else {
+        Decimal::ZERO
+    };
+    let (remaining, corrected_amount_due, paid_capacity) =
+        if let Some(original_paid) = void_original_paid {
+            let paid_remaining = if original_paid > refund.amount_refunded {
+                original_paid - refund.amount_refunded
+            } else {
+                Decimal::ZERO
+            };
+            let remaining = if queue_remaining < paid_remaining {
+                queue_remaining
+            } else {
+                paid_remaining
+            };
+            (remaining, refund.amount_due, original_paid)
+        } else {
+            let refundable_credit = if current_balance_due < Decimal::ZERO {
+                -current_balance_due
+            } else {
+                Decimal::ZERO
+            };
+            let remaining = if refundable_credit < current_paid {
+                refundable_credit
+            } else {
+                current_paid
+            };
+            let corrected_amount_due = refund.amount_refunded + remaining;
+            if corrected_amount_due != refund.amount_due {
+                sqlx::query(
+                    r#"
+                    UPDATE transaction_refund_queue
+                    SET amount_due = $1
+                    WHERE id = $2
+                    "#,
+                )
+                .bind(corrected_amount_due)
+                .bind(refund.id)
+                .execute(&mut **tx)
+                .await?;
+            }
+            (remaining, corrected_amount_due, current_paid)
+        };
+    if exact_refund_amount > remaining {
+        return Err(TransactionError::InvalidPayload(format!(
+            "refund exceeds refundable paid credit of ${remaining}"
+        )));
+    }
+    if exact_refund_amount > paid_capacity {
+        return Err(TransactionError::InvalidPayload(
+            "refund amount exceeds total amount paid on this order".to_string(),
+        ));
+    }
+
+    Ok(RefundCapacity {
+        corrected_amount_due,
+        void_original_paid,
+    })
+}
+
+#[derive(Debug, FromRow)]
+struct DurableCardRefundAttempt {
+    id: Uuid,
+    status: String,
+    idempotency_key: String,
+    provider_payment_id: Option<String>,
+    provider_transaction_id: Option<String>,
+}
+
+impl DurableCardRefundAttempt {
+    fn is_approved(&self) -> bool {
+        matches!(self.status.as_str(), "approved" | "captured")
+    }
+}
+
+fn card_refund_audit_reference(transaction_id: Uuid, refund_queue_id: Uuid) -> String {
+    format!("helcim:transactionRefund:{transaction_id}:{refund_queue_id}")
+}
+
+fn card_refund_idempotency_key(
+    refund_queue_id: Uuid,
+    original_transaction_id: i64,
+    per_card_already_cents: i64,
+    amount_cents: i64,
+) -> String {
+    format!(
+        "helcim-refund-{refund_queue_id}-{original_transaction_id}-{per_card_already_cents}-{amount_cents}"
+    )
+}
+
+fn is_payment_provider_idempotency_violation(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .and_then(|db_error| db_error.constraint())
+        == Some("uq_payment_provider_attempts_provider_idempotency")
+}
+
+async fn find_approved_card_refund_attempt(
+    db: &PgPool,
+    audit_reference: &str,
+    amount_cents: i64,
+) -> Result<Option<DurableCardRefundAttempt>, TransactionError> {
+    sqlx::query_as::<_, DurableCardRefundAttempt>(
+        r#"
+        SELECT id, status, idempotency_key, provider_payment_id, provider_transaction_id
+        FROM payment_provider_attempts
+        WHERE provider = 'helcim'
+          AND raw_audit_reference = $1
+          AND amount_cents = $2
+          AND status IN ('approved', 'captured')
+          AND provider_payment_id IS NOT NULL
+        ORDER BY completed_at DESC NULLS LAST, created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(audit_reference)
+    .bind(amount_cents)
+    .fetch_optional(db)
+    .await
+    .map_err(TransactionError::Database)
+}
+
+async fn find_card_refund_attempt_by_key(
+    db: &PgPool,
+    idempotency_key: &str,
+) -> Result<Option<DurableCardRefundAttempt>, TransactionError> {
+    sqlx::query_as::<_, DurableCardRefundAttempt>(
+        r#"
+        SELECT id, status, idempotency_key, provider_payment_id, provider_transaction_id
+        FROM payment_provider_attempts
+        WHERE provider = 'helcim'
+          AND idempotency_key = $1
+        LIMIT 1
+        "#,
+    )
+    .bind(idempotency_key)
+    .fetch_optional(db)
+    .await
+    .map_err(TransactionError::Database)
+}
+
+async fn create_pending_card_refund_attempt(
+    db: &PgPool,
+    provider_attempt_id: Uuid,
+    amount_cents: i64,
+    session_id: Uuid,
+    idempotency_key: &str,
+    original_transaction_id: i64,
+    audit_reference: &str,
+) -> Result<Option<DurableCardRefundAttempt>, TransactionError> {
+    let insert_result = sqlx::query(
+        r#"
+        INSERT INTO payment_provider_attempts (
+            id, provider, status, amount_cents, currency, register_session_id,
+            idempotency_key, provider_transaction_id, raw_audit_reference
+        )
+        VALUES ($1, 'helcim', 'pending', $2, 'usd', $3, $4, $5, $6)
+        "#,
+    )
+    .bind(provider_attempt_id)
+    .bind(amount_cents)
+    .bind(session_id)
+    .bind(idempotency_key)
+    .bind(original_transaction_id.to_string())
+    .bind(audit_reference)
+    .execute(db)
+    .await;
+
+    if let Err(error) = insert_result {
+        if is_payment_provider_idempotency_violation(&error) {
+            return find_card_refund_attempt_by_key(db, idempotency_key).await;
+        }
+        return Err(TransactionError::Database(error));
+    }
+
+    Ok(None)
+}
+
+async fn mark_card_refund_attempt_failed(
+    db: &PgPool,
+    provider_attempt_id: Uuid,
+    error_code: &str,
+    error_message: String,
+) -> Result<(), TransactionError> {
+    sqlx::query(
+        r#"
+        UPDATE payment_provider_attempts
+        SET status = 'failed',
+            error_code = $2,
+            error_message = $3,
+            completed_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(provider_attempt_id)
+    .bind(error_code)
+    .bind(error_message)
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 async fn transaction_has_positive_payment_in_session(
@@ -3093,89 +3769,14 @@ async fn process_refund(
     .bind(transaction_id)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some(refund) = row else {
+    let Some(mut refund) = row else {
         return Err(TransactionError::InvalidPayload(
             "no open refund for this order".to_string(),
         ));
     };
-    let (current_paid, current_balance_due): (Decimal, Decimal) = sqlx::query_as(
-        r#"
-	        SELECT
-	            COALESCE(amount_paid, 0)::numeric(14,2),
-            COALESCE(balance_due, 0)::numeric(14,2)
-        FROM transactions
-        WHERE id = $1
-        FOR UPDATE
-        "#,
-    )
-    .bind(transaction_id)
-    .fetch_one(&mut *tx)
-    .await?;
-    let void_original_paid: Option<Decimal> = sqlx::query_scalar(
-        r#"
-	        SELECT original_amount_paid::numeric(14,2)
-	        FROM transaction_void_records
-	        WHERE transaction_id = $1
-	        "#,
-    )
-    .bind(transaction_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    let queue_remaining = if refund.amount_due > refund.amount_refunded {
-        refund.amount_due - refund.amount_refunded
-    } else {
-        Decimal::ZERO
-    };
-    let (remaining, corrected_amount_due, paid_capacity) =
-        if let Some(original_paid) = void_original_paid {
-            let paid_remaining = if original_paid > refund.amount_refunded {
-                original_paid - refund.amount_refunded
-            } else {
-                Decimal::ZERO
-            };
-            let remaining = if queue_remaining < paid_remaining {
-                queue_remaining
-            } else {
-                paid_remaining
-            };
-            (remaining, refund.amount_due, original_paid)
-        } else {
-            let refundable_credit = if current_balance_due < Decimal::ZERO {
-                -current_balance_due
-            } else {
-                Decimal::ZERO
-            };
-            let remaining = if refundable_credit < current_paid {
-                refundable_credit
-            } else {
-                current_paid
-            };
-            let corrected_amount_due = refund.amount_refunded + remaining;
-            if corrected_amount_due != refund.amount_due {
-                sqlx::query(
-                    r#"
-	                    UPDATE transaction_refund_queue
-	                    SET amount_due = $1
-	                    WHERE id = $2
-	                    "#,
-                )
-                .bind(corrected_amount_due)
-                .bind(refund.id)
-                .execute(&mut *tx)
-                .await?;
-            }
-            (remaining, corrected_amount_due, current_paid)
-        };
-    if exact_refund_amount > remaining {
-        return Err(TransactionError::InvalidPayload(format!(
-            "refund exceeds refundable paid credit of ${remaining}"
-        )));
-    }
-    if exact_refund_amount > paid_capacity {
-        return Err(TransactionError::InvalidPayload(
-            "refund amount exceeds total amount paid on this order".to_string(),
-        ));
-    }
+    let mut capacity =
+        validate_refund_capacity_in_tx(&mut tx, transaction_id, &refund, exact_refund_amount)
+            .await?;
 
     let mut refund_metadata = json!({
         "kind": "order_refund",
@@ -3439,12 +4040,12 @@ async fn process_refund(
 	                .bind(cash_tender_amount)
 	                .bind(cash_rounding_adjustment)
 	                .bind(transaction_id)
-	                .bind(void_original_paid.is_some())
+	                .bind(capacity.void_original_paid.is_some())
 	                .execute(&mut *tx)
 	                .await?;
 
                 // If fully refunded, close the queue.
-                if (refund.amount_refunded + exact_refund_amount) >= corrected_amount_due {
+                if (refund.amount_refunded + exact_refund_amount) >= capacity.corrected_amount_due {
                     sqlx::query(
                         "UPDATE transaction_refund_queue SET is_open = FALSE WHERE id = $1",
                     )
@@ -3454,7 +4055,7 @@ async fn process_refund(
                 }
 
                 let void_close =
-                    (refund.amount_refunded + exact_refund_amount) >= corrected_amount_due;
+                    (refund.amount_refunded + exact_refund_amount) >= capacity.corrected_amount_due;
                 sqlx::query(
                     r#"
                     UPDATE transaction_void_records
@@ -3552,124 +4153,269 @@ async fn process_refund(
         // Idempotency key is per-card: uses the per-card already_refunded_cents (not queue-level),
         // so retrying after a partial split refund generates a fresh key scoped to this card's state.
         let per_card_already_cents = best.already_refunded_cents;
-        let idempotency_key = format!(
-            "helcim-refund-{}-{original_transaction_id}-{per_card_already_cents}-{amount_cents}",
-            refund.id
-        );
-
-        let provider_attempt_id = Uuid::new_v4();
-        sqlx::query(
-            r#"
-            INSERT INTO payment_provider_attempts (
-                id, provider, status, amount_cents, currency, register_session_id,
-                idempotency_key, provider_transaction_id, raw_audit_reference
-            )
-            VALUES ($1, 'helcim', 'pending', $2, 'usd', $3, $4, $5, $6)
-            "#,
-        )
-        .bind(provider_attempt_id)
-        .bind(amount_cents)
-        .bind(body.session_id)
-        .bind(&idempotency_key)
-        .bind(original_transaction_id.to_string())
-        .bind(format!(
-            "helcim:transactionRefund:{transaction_id}:{refund_id}",
-            refund_id = refund.id
-        ))
-        .execute(&mut *tx)
-        .await?;
-
-        let config = helcim::HelcimConfig::from_env();
-        let refund_request = helcim::HelcimCardRefundRequest {
+        let base_idempotency_key = card_refund_idempotency_key(
+            refund.id,
             original_transaction_id,
-            amount: cents_to_decimal_string(amount_cents),
-            ip_address: request_ip_address(&headers),
-            ecommerce: false,
+            per_card_already_cents,
+            amount_cents,
+        );
+        let audit_reference = card_refund_audit_reference(transaction_id, refund.id);
+
+        let approved_attempt =
+            find_approved_card_refund_attempt(&state.db, &audit_reference, amount_cents).await?;
+
+        let (
+            provider_attempt_id,
+            idempotency_key,
+            approved_provider_payment_id,
+            approved_provider_transaction_id,
+            approved_provider_status,
+        ) = if let Some(attempt) = approved_attempt {
+            (
+                attempt.id,
+                attempt.idempotency_key,
+                attempt.provider_payment_id,
+                attempt.provider_transaction_id,
+                Some(attempt.status),
+            )
+        } else {
+            tx.commit().await?;
+
+            let mut provider_attempt_id = Uuid::new_v4();
+            let mut idempotency_key = base_idempotency_key.clone();
+            let attempt = if let Some(existing) = create_pending_card_refund_attempt(
+                &state.db,
+                provider_attempt_id,
+                amount_cents,
+                body.session_id,
+                &idempotency_key,
+                original_transaction_id,
+                &audit_reference,
+            )
+            .await?
+            {
+                if existing.is_approved() {
+                    (
+                        existing.id,
+                        existing.idempotency_key,
+                        existing.provider_payment_id,
+                        existing.provider_transaction_id,
+                        Some(existing.status),
+                    )
+                } else if existing.status == "pending" {
+                    return Err(TransactionError::BadGateway(
+                        "Helcim refund is already being processed. Check the refund queue before retrying.".to_string(),
+                    ));
+                } else {
+                    provider_attempt_id = Uuid::new_v4();
+                    idempotency_key = format!("{base_idempotency_key}-retry-{provider_attempt_id}");
+                    if let Some(retry_existing) = create_pending_card_refund_attempt(
+                        &state.db,
+                        provider_attempt_id,
+                        amount_cents,
+                        body.session_id,
+                        &idempotency_key,
+                        original_transaction_id,
+                        &audit_reference,
+                    )
+                    .await?
+                    {
+                        if retry_existing.is_approved() {
+                            (
+                                retry_existing.id,
+                                retry_existing.idempotency_key,
+                                retry_existing.provider_payment_id,
+                                retry_existing.provider_transaction_id,
+                                Some(retry_existing.status),
+                            )
+                        } else {
+                            return Err(TransactionError::BadGateway(
+                                "Helcim refund retry is already being processed. Check the refund queue before retrying.".to_string(),
+                            ));
+                        }
+                    } else {
+                        (provider_attempt_id, idempotency_key, None, None, None)
+                    }
+                }
+            } else {
+                (provider_attempt_id, idempotency_key, None, None, None)
+            };
+
+            tx = state.db.begin().await?;
+            let session_open: Option<bool> = sqlx::query_scalar(
+                r#"
+                SELECT lifecycle_status = 'open'
+                FROM register_sessions
+                WHERE id = $1
+                FOR UPDATE
+                "#,
+            )
+            .bind(body.session_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if session_open != Some(true) {
+                return Err(TransactionError::InvalidPayload(
+                    "register session is not open".to_string(),
+                ));
+            }
+
+            refund = sqlx::query_as(
+                r#"
+                SELECT id, transaction_id, customer_id, amount_due, amount_refunded, is_open, reason, created_at
+                FROM transaction_refund_queue
+                WHERE transaction_id = $1 AND is_open = TRUE
+                ORDER BY created_at DESC
+                LIMIT 1
+                FOR UPDATE
+                "#,
+            )
+            .bind(transaction_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload("no open refund for this order".to_string())
+            })?;
+            capacity = validate_refund_capacity_in_tx(
+                &mut tx,
+                transaction_id,
+                &refund,
+                exact_refund_amount,
+            )
+            .await?;
+
+            let refreshed_card_remaining: Option<i64> = sqlx::query_scalar(
+                r#"
+                SELECT
+                    ROUND(SUM(pa.amount_allocated) * 100)::bigint
+                    - COALESCE(
+                        ROUND(SUM(
+                            CASE
+                                WHEN ref_pt.amount < 0
+                                 AND ref_pt.payment_provider = 'helcim'
+                                 AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
+                                THEN ABS(ref_pt.amount)
+                                ELSE 0
+                            END
+                        ) * 100),
+                        0
+                    )::bigint AS remaining_cents
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                LEFT JOIN payment_transactions ref_pt
+                    ON ref_pt.payment_provider = 'helcim'
+                   AND (ref_pt.metadata->>'original_provider_transaction_id') = pt.provider_transaction_id
+                WHERE pa.target_transaction_id = $1
+                  AND pa.amount_allocated > 0
+                  AND pt.payment_provider = 'helcim'
+                  AND pt.provider_transaction_id = $2
+                GROUP BY pt.provider_transaction_id
+                "#,
+            )
+            .bind(transaction_id)
+            .bind(original_transaction_id.to_string())
+            .fetch_optional(&mut *tx)
+            .await?;
+            if amount_cents > refreshed_card_remaining.unwrap_or(0) {
+                return Err(TransactionError::InvalidPayload(
+                    "refund exceeds the remaining refundable capacity on the original Helcim card"
+                        .to_string(),
+                ));
+            }
+
+            attempt
         };
-        let refund_transaction = match helcim::process_card_refund(
-            &state.http_client,
-            &config,
-            refund_request,
-            &idempotency_key,
-        )
-        .await
+
+        let (refund_provider_payment_id, refund_provider_status) = if let Some(
+            provider_payment_id,
+        ) =
+            approved_provider_payment_id
         {
-            Ok(transaction) => transaction,
-            Err(error) => {
-                let persisted_message = helcim::redact_provider_text(&error)
-                    .chars()
-                    .take(500)
-                    .collect::<String>();
-                let staff_message = helcim::redact_provider_text(&error);
-                sqlx::query(
+            (Some(provider_payment_id), approved_provider_status)
+        } else {
+            let config = helcim::HelcimConfig::from_env();
+            let refund_request = helcim::HelcimCardRefundRequest {
+                original_transaction_id,
+                amount: cents_to_decimal_string(amount_cents),
+                ip_address: request_ip_address(&headers),
+                ecommerce: false,
+            };
+            let refund_transaction = match helcim::process_card_refund(
+                &state.http_client,
+                &config,
+                refund_request,
+                &idempotency_key,
+            )
+            .await
+            {
+                Ok(transaction) => transaction,
+                Err(error) => {
+                    let persisted_message = helcim::redact_provider_text(&error)
+                        .chars()
+                        .take(500)
+                        .collect::<String>();
+                    let staff_message = helcim::redact_provider_text(&error);
+                    mark_card_refund_attempt_failed(
+                        &state.db,
+                        provider_attempt_id,
+                        "request_failed",
+                        persisted_message,
+                    )
+                    .await?;
+                    return Err(TransactionError::BadGateway(format!(
+                        "Helcim refund failed: {staff_message}"
+                    )));
+                }
+            };
+
+            let refund_status = refund_transaction.normalized_status();
+            let refund_provider_payment_id = refund_transaction.transaction_id_string();
+            let refund_provider_status = refund_transaction.provider_status();
+            let refund_warning = refund_transaction
+                .warning
+                .as_deref()
+                .map(helcim::redact_provider_text);
+
+            sqlx::query(
                     r#"
                     UPDATE payment_provider_attempts
-                    SET status = 'failed',
-                        error_code = 'request_failed',
-                        error_message = $2,
+                    SET status = $2,
+                        provider_payment_id = $3,
+                        provider_transaction_id = COALESCE($3, provider_transaction_id),
+                        error_code = CASE WHEN $2 = 'failed' THEN 'declined' ELSE NULL END,
+                        error_message = CASE WHEN $2 = 'failed' THEN COALESCE($4, 'Helcim refund was declined.') ELSE NULL END,
                         completed_at = now()
                     WHERE id = $1
                     "#,
                 )
                 .bind(provider_attempt_id)
-                .bind(persisted_message)
-                .execute(&mut *tx)
+                .bind(&refund_status)
+                .bind(refund_provider_payment_id.clone())
+                .bind(refund_warning.clone())
+                .execute(&state.db)
                 .await?;
-                tx.commit().await?;
+
+            if !matches!(refund_status.as_str(), "approved" | "captured") {
+                let provider_status_label = refund_provider_status
+                    .as_deref()
+                    .unwrap_or("not approved")
+                    .to_string();
                 return Err(TransactionError::BadGateway(format!(
-                    "Helcim refund failed: {staff_message}"
+                    "Helcim refund was not approved: {provider_status_label}"
                 )));
             }
+
+            provider_auth_code = refund_transaction.approval_code.clone();
+            provider_card_type = refund_transaction.card_type.clone();
+            card_brand = refund_transaction.card_brand();
+            card_last4 = refund_transaction.card_last4();
+
+            (refund_provider_payment_id, refund_provider_status)
         };
 
-        let refund_status = refund_transaction.normalized_status();
-        let refund_provider_payment_id = refund_transaction.transaction_id_string();
-        let refund_provider_status = refund_transaction.provider_status();
-        let refund_audit_reference = refund_transaction.audit_reference();
-        let refund_warning = refund_transaction
-            .warning
-            .as_deref()
-            .map(helcim::redact_provider_text);
-
-        sqlx::query(
-            r#"
-            UPDATE payment_provider_attempts
-            SET status = $2,
-                provider_payment_id = $3,
-                provider_transaction_id = COALESCE($3, provider_transaction_id),
-                error_code = CASE WHEN $2 = 'failed' THEN 'declined' ELSE NULL END,
-                error_message = CASE WHEN $2 = 'failed' THEN COALESCE($5, 'Helcim refund was declined.') ELSE NULL END,
-                raw_audit_reference = COALESCE($4, raw_audit_reference),
-                completed_at = now()
-            WHERE id = $1
-            "#,
-        )
-        .bind(provider_attempt_id)
-        .bind(&refund_status)
-        .bind(refund_provider_payment_id.clone())
-        .bind(refund_audit_reference)
-        .bind(refund_warning.clone())
-        .execute(&mut *tx)
-        .await?;
-
-        if !matches!(refund_status.as_str(), "approved" | "captured") {
-            tx.commit().await?;
-            let provider_status_label = refund_provider_status
-                .as_deref()
-                .unwrap_or("not approved")
-                .to_string();
-            return Err(TransactionError::BadGateway(format!(
-                "Helcim refund was not approved: {provider_status_label}"
-            )));
-        }
-
         provider_payment_id = refund_provider_payment_id;
-        provider_transaction_id = provider_payment_id.clone();
+        provider_transaction_id =
+            approved_provider_transaction_id.or_else(|| provider_payment_id.clone());
         provider_status = refund_provider_status;
-        provider_auth_code = refund_transaction.approval_code.clone();
-        provider_card_type = refund_transaction.card_type.clone();
-        card_brand = refund_transaction.card_brand();
-        card_last4 = refund_transaction.card_last4();
 
         if let Some(object) = refund_metadata.as_object_mut() {
             object.insert("payment_provider".to_string(), json!("helcim"));
@@ -3690,6 +4436,15 @@ async fn process_refund(
                 json!(idempotency_key.clone()),
             );
         }
+    }
+
+    #[cfg(test)]
+    if FAIL_CARD_REFUND_LEDGER_AFTER_PROVIDER_APPROVAL
+        .swap(false, std::sync::atomic::Ordering::SeqCst)
+    {
+        return Err(TransactionError::Database(sqlx::Error::Protocol(
+            "forced local refund ledger failure after provider approval".to_string(),
+        )));
     }
 
     let payment_tx_id: Uuid = sqlx::query_scalar(
@@ -3759,7 +4514,7 @@ async fn process_refund(
     .await?;
 
     let new_refunded = refund.amount_refunded + exact_refund_amount;
-    let close = new_refunded >= corrected_amount_due;
+    let close = new_refunded >= capacity.corrected_amount_due;
     sqlx::query(
         r#"
         UPDATE transaction_refund_queue
@@ -3798,7 +4553,7 @@ async fn process_refund(
 	    .bind(cash_tender_amount)
 	    .bind(cash_rounding_adjustment)
 	    .bind(transaction_id)
-	    .bind(void_original_paid.is_some())
+	    .bind(capacity.void_original_paid.is_some())
 	    .execute(&mut *tx)
 	    .await?;
 

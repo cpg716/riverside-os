@@ -1020,7 +1020,7 @@ export default function InventoryControlBoard({
     );
     if (!printResult.markShelfLabeled) {
       toast(
-        `${printResult.message} Shelf-label status was not changed because the Zebra tag station did not confirm the job.`,
+        `${printResult.message} Shelf-label status was not changed because the tag printer did not confirm the job.`,
         "info",
       );
       setSelected(new Set());
@@ -1044,7 +1044,7 @@ export default function InventoryControlBoard({
       const err = (await res.json().catch(() => ({}))) as { error?: string };
       toast(err.error ?? "We couldn't mark those tags as printed. Please try again.", "error");
     } else {
-      toast("Inventory tags sent to the Zebra tag station.", "success");
+      toast(`Inventory tags ${printResult.message}`, "success");
     }
     setSelected(new Set());
     await refreshBoard();
@@ -1072,7 +1072,7 @@ export default function InventoryControlBoard({
       );
       if (!printResult.markShelfLabeled) {
         toast(
-          `${printResult.message} Shelf-label status was not changed because the Zebra tag station did not confirm the job.`,
+          `${printResult.message} Shelf-label status was not changed because the tag printer did not confirm the job.`,
           "info",
         );
         setPrintTarget(null);
@@ -1098,8 +1098,8 @@ export default function InventoryControlBoard({
       }
       toast(
         expandedItems.length === 1
-          ? "Inventory tag sent to the Zebra tag station"
-          : `${expandedItems.length} inventory tags sent to the Zebra tag station`,
+          ? `Inventory tag ${printResult.message}`
+          : `${expandedItems.length} inventory tags ${printResult.message}`,
         "success",
       );
       setPrintTarget(null);

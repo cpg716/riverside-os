@@ -636,6 +636,24 @@ pub async fn try_load_party_ledger(
         SELECT
             NULL::uuid AS transaction_id,
             pt.id AS payment_tx_id,
+            'Group Payout (Open Deposit)'::text AS customer_name,
+            wm.id AS wedding_member_id,
+            'payment'::text AS kind,
+            codls.amount AS amount,
+            codl.created_at AS created_at,
+            NULL::text AS fulfillment_profile
+        FROM customer_open_deposit_ledger_sources codls
+        JOIN customer_open_deposit_ledger codl ON codl.id = codls.ledger_id
+        JOIN payment_transactions pt ON pt.id = codls.source_payment_transaction_id
+        JOIN wedding_members wm ON wm.id = codls.beneficiary_wedding_member_id
+        WHERE wm.wedding_party_id = $1
+          AND codl.reason = 'party_split_deposit'
+
+        UNION ALL
+
+        SELECT
+            NULL::uuid AS transaction_id,
+            pt.id AS payment_tx_id,
             COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Unknown') AS customer_name,
             wm.id AS wedding_member_id,
             'payment'::text AS kind,

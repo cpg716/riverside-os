@@ -380,7 +380,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
       );
       if (!printResult.markShelfLabeled) {
         toast(
-          `${printResult.message} Shelf-label status was not changed because the Zebra tag station did not confirm the job.`,
+          `${printResult.message} Shelf-label status was not changed because the tag printer did not confirm the job.`,
           "info",
         );
         return;
@@ -401,7 +401,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           },
         );
         if (!res.ok) throw new Error("Tag print status update failed");
-        toast(`${successLabel} Zebra tag station confirmed.`, "success");
+        toast(`${successLabel} ${printResult.message}`, "success");
         onVariantUpdated();
       } catch {
         toast("Tags opened for printing, but Riverside could not mark them as printed.", "error");
@@ -1118,7 +1118,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
               const printResult = await openInventoryTagsWindow(printItems);
               if (!printResult.markShelfLabeled) {
                 toast(
-                  `${printResult.message} Shelf-label status was not changed because the Zebra tag station did not confirm the job.`,
+                  `${printResult.message} Shelf-label status was not changed because the tag printer did not confirm the job.`,
                   "info",
                 );
                 return;
@@ -1144,7 +1144,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 return;
               }
               toast(
-                `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} sent to the Zebra tag station.`,
+                `${reprintPrompt.stockOnHand} updated price tag${reprintPrompt.stockOnHand === 1 ? "" : "s"} ${printResult.message}`,
                 "success",
               );
               onVariantUpdated();

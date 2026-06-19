@@ -66,7 +66,7 @@ export default function ManagerApprovalModal({
 
   const handleApprove = async () => {
     if (pin.length !== 4) {
-      setError("Enter 4-digit PIN.");
+      setError("Enter the 4-digit Access PIN.");
       return;
     }
     if (!selectedManagerId) {
@@ -163,7 +163,7 @@ export default function ManagerApprovalModal({
 
             <div className="space-y-3 text-center">
               <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted italic">
-                Enter PIN to Authorize
+                Enter Access PIN to Authorize
               </p>
               <PinDots length={pin.length} maxDigits={4} />
               <NumericPinKeypad

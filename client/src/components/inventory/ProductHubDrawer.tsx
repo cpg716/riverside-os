@@ -2333,7 +2333,7 @@ export default function ProductHubDrawer({
               const printResult = await openInventoryTagsWindow(printItems);
               if (!printResult.markShelfLabeled) {
                 toast(
-                  `${printResult.message} Shelf-label status was not changed because the Zebra tag station did not confirm the job.`,
+                  `${printResult.message} Shelf-label status was not changed because the tag printer did not confirm the job.`,
                   "info",
                 );
                 return;
@@ -2359,7 +2359,7 @@ export default function ProductHubDrawer({
                 return;
               }
               toast(
-                `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} sent to the Zebra tag station.`,
+                `${printItems.length} updated price tag${printItems.length === 1 ? "" : "s"} ${printResult.message}`,
                 "success",
               );
               void loadHub();

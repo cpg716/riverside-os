@@ -4069,7 +4069,7 @@ pub async fn execute_checkout(
                         .await?;
 
                         if let Some((bene_customer_id, bene_party_id)) = bene {
-                            let _source_chunks = take_disbursement_sources(d.amount)?;
+                            let source_chunks = take_disbursement_sources(d.amount)?;
                             let payer_name: Option<String> = if let Some(pc) = payload.customer_id {
                                 sqlx::query_scalar(
                                     r#"
@@ -4088,7 +4088,17 @@ pub async fn execute_checkout(
                                 .as_deref()
                                 .map(str::trim)
                                 .filter(|s| !s.is_empty());
-                            customer_open_deposit::credit_party_split(
+                            let source_chunks: Vec<customer_open_deposit::OpenDepositSourceChunk> =
+                                source_chunks
+                                    .into_iter()
+                                    .map(|(source_payment_transaction_id, amount)| {
+                                        customer_open_deposit::OpenDepositSourceChunk {
+                                            source_payment_transaction_id,
+                                            amount,
+                                        }
+                                    })
+                                    .collect();
+                            customer_open_deposit::credit_party_split_with_sources(
                                 &mut tx,
                                 bene_customer_id,
                                 d.amount,
@@ -4096,8 +4106,12 @@ pub async fn execute_checkout(
                                 payer_trim,
                                 bene_party_id,
                                 transaction_id,
+                                &source_chunks,
+                                payload.wedding_member_id,
+                                Some(d.wedding_member_id),
                             )
                             .await
+                            .map(|_| ())
                             .map_err(|e| {
                                 match e {
                                 customer_open_deposit::CustomerOpenDepositError::Database(d) => {
@@ -4636,6 +4650,7 @@ mod tests {
         ResolvedOrderPayment, ResolvedPaymentSplit, WeddingDisbursement,
     };
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
+    use crate::logic::qbo_journal;
     use crate::models::{DbFulfillmentType, DbOrderStatus};
     use rust_decimal::Decimal;
     use serde_json::json;
@@ -5460,6 +5475,26 @@ mod tests {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
+            DELETE FROM customer_open_deposit_ledger_sources
+            WHERE source_payment_transaction_id IN (
+                SELECT id FROM payment_transactions WHERE session_id = $1
+            )
+            "#,
+        )
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"
+            DELETE FROM customer_open_deposit_accounts
+            WHERE customer_id = ANY($1)
+            "#,
+        )
+        .bind(vec![beneficiary_customer_id, payer_customer_id])
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"
             DELETE FROM payment_allocations
             WHERE target_transaction_id = ANY($1)
                OR transaction_id IN (
@@ -5492,8 +5527,9 @@ mod tests {
             .bind(session_id)
             .execute(pool)
             .await?;
-        sqlx::query("DELETE FROM wedding_members WHERE id = $1")
+        sqlx::query("DELETE FROM wedding_members WHERE id = $1 OR wedding_party_id = $2")
             .bind(member_id)
+            .bind(party_id)
             .execute(pool)
             .await?;
         sqlx::query("DELETE FROM wedding_parties WHERE id = $1")
@@ -6173,5 +6209,500 @@ mod tests {
         )
         .await
         .expect("cleanup wedding group pay checkout test");
+    }
+
+    #[tokio::test]
+    async fn execute_checkout_preserves_open_deposit_group_pay_tender_sources() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let staff_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+        let category_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let party_id = Uuid::new_v4();
+        let payer_customer_id = Uuid::new_v4();
+        let first_customer_id = Uuid::new_v4();
+        let second_customer_id = Uuid::new_v4();
+        let payer_member_id = Uuid::new_v4();
+        let first_member_id = Uuid::new_v4();
+        let second_member_id = Uuid::new_v4();
+        let liability_account_id = format!("test-liability-deposit-{}", Uuid::new_v4().simple());
+        let sku = format!("E2E-WED-OPEN-DEP-{}", Uuid::new_v4().simple());
+
+        let register_lane: i16 = sqlx::query_scalar(
+            r#"
+            SELECT gs.lane::smallint
+            FROM generate_series(1, 99) AS gs(lane)
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM register_sessions rs
+                WHERE rs.is_open = TRUE AND rs.register_lane = gs.lane
+            )
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("find open register lane for checkout test");
+
+        sqlx::query(
+            r#"
+            INSERT INTO staff (
+                id, full_name, cashier_code, base_commission_rate,
+                role, max_discount_percent
+            )
+            VALUES ($1, $2, $3, $4, 'admin'::staff_role, $5)
+            "#,
+        )
+        .bind(staff_id)
+        .bind("Wedding Open Deposit Source Regression Staff")
+        .bind(format!("O{}", &staff_id.simple().to_string()[0..8]))
+        .bind(Decimal::new(200, 4))
+        .bind(Decimal::new(10000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert staff");
+
+        sqlx::query(
+            r#"
+            INSERT INTO register_sessions (
+                id, opened_by, opening_float, is_open, register_lane, till_close_group_id
+            )
+            VALUES ($1, $2, 0, TRUE, $3, $4)
+            "#,
+        )
+        .bind(session_id)
+        .bind(staff_id)
+        .bind(register_lane)
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("insert register session");
+
+        sqlx::query(
+            r#"
+            INSERT INTO categories (id, name, is_clothing_footwear)
+            VALUES ($1, $2, FALSE)
+            "#,
+        )
+        .bind(category_id)
+        .bind(format!(
+            "Wedding Open Deposit Regression {}",
+            category_id.simple()
+        ))
+        .execute(&pool)
+        .await
+        .expect("insert category");
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, category_id, name, base_retail_price, base_cost)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(product_id)
+        .bind(category_id)
+        .bind("Wedding Open Deposit Redemption Product")
+        .bind(Decimal::new(7500, 2))
+        .bind(Decimal::new(3000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert product");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand)
+            VALUES ($1, $2, $3, '{}'::jsonb, 1)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .execute(&pool)
+        .await
+        .expect("insert variant");
+
+        for (id, first, last) in [
+            (payer_customer_id, "Wedding", "Open Deposit Payer"),
+            (first_customer_id, "Wedding", "Open Deposit First"),
+            (second_customer_id, "Wedding", "Open Deposit Second"),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO customers (
+                    id, first_name, last_name, email, customer_created_source,
+                    marketing_email_opt_in, marketing_sms_opt_in,
+                    transactional_sms_opt_in, transactional_email_opt_in
+                )
+                VALUES ($1, $2, $3, $4, 'store', FALSE, FALSE, TRUE, TRUE)
+                "#,
+            )
+            .bind(id)
+            .bind(first)
+            .bind(format!("{} {}", last, id.simple()))
+            .bind(format!("{}@example.test", id.simple()))
+            .execute(&pool)
+            .await
+            .expect("insert customer");
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO wedding_parties (id, party_name, groom_name, event_date, party_type, is_deleted)
+            VALUES ($1, $2, $3, $4, 'Wedding', FALSE)
+            "#,
+        )
+        .bind(party_id)
+        .bind("Wedding Open Deposit Source Regression Party")
+        .bind("Regression Groom")
+        .bind(chrono::NaiveDate::from_ymd_opt(2027, 2, 14).unwrap())
+        .execute(&pool)
+        .await
+        .expect("insert wedding party");
+
+        for (member_id, customer_id, role, member_index) in [
+            (payer_member_id, payer_customer_id, "Groom", 1),
+            (first_member_id, first_customer_id, "Groomsman", 2),
+            (second_member_id, second_customer_id, "Groomsman", 3),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO wedding_members (
+                    id, wedding_party_id, customer_id, role, status, member_index
+                )
+                VALUES ($1, $2, $3, $4, 'active', $5)
+                "#,
+            )
+            .bind(member_id)
+            .bind(party_id)
+            .bind(customer_id)
+            .bind(role)
+            .bind(member_index)
+            .execute(&pool)
+            .await
+            .expect("insert wedding member");
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO qbo_accounts_cache (id, name, account_type)
+            VALUES ($1, 'Test Deposit Liability', 'Other Current Liability')
+            ON CONFLICT (id) DO NOTHING
+            "#,
+        )
+        .bind(&liability_account_id)
+        .execute(&pool)
+        .await
+        .expect("insert test qbo account");
+        sqlx::query(
+            r#"
+            INSERT INTO qbo_mappings (source_type, source_id, qbo_account_id, qbo_account_name)
+            VALUES ('liability_deposit', 'default', $1, 'Test Deposit Liability')
+            ON CONFLICT (source_type, source_id) DO NOTHING
+            "#,
+        )
+        .bind(&liability_account_id)
+        .execute(&pool)
+        .await
+        .expect("insert test qbo mapping");
+
+        let group_pay_payload = CheckoutRequest {
+            session_id,
+            operator_staff_id: staff_id,
+            primary_salesperson_id: Some(staff_id),
+            customer_id: Some(payer_customer_id),
+            wedding_member_id: Some(payer_member_id),
+            payment_method: "split".to_string(),
+            total_price: Decimal::ZERO,
+            amount_paid: Decimal::new(20000, 2),
+            items: vec![],
+            alteration_intakes: vec![],
+            actor_name: Some("Wedding Open Deposit Source Test".to_string()),
+            payment_splits: Some(vec![
+                CheckoutPaymentSplit {
+                    payment_method: "cash".to_string(),
+                    amount: Decimal::new(10000, 2),
+                    sub_type: None,
+                    applied_deposit_amount: None,
+                    gift_card_code: None,
+                    check_number: None,
+                    metadata: None,
+                },
+                CheckoutPaymentSplit {
+                    payment_method: "card".to_string(),
+                    amount: Decimal::new(10000, 2),
+                    sub_type: None,
+                    applied_deposit_amount: None,
+                    gift_card_code: None,
+                    check_number: None,
+                    metadata: None,
+                },
+            ]),
+            wedding_disbursements: Some(vec![
+                WeddingDisbursement {
+                    wedding_member_id: first_member_id,
+                    amount: Decimal::new(7500, 2),
+                },
+                WeddingDisbursement {
+                    wedding_member_id: second_member_id,
+                    amount: Decimal::new(12500, 2),
+                },
+            ]),
+            order_payments: vec![],
+            below_cost_approval: None,
+            checkout_client_id: Some(Uuid::new_v4()),
+            shipping_rate_quote_id: None,
+            fulfillment_mode: None,
+            ship_to: None,
+            target_transaction_id: None,
+            booked_at_local: None,
+            is_rush: false,
+            need_by_date: None,
+            is_tax_exempt: true,
+            tax_exempt_reason: Some("test tax-exempt checkout".to_string()),
+            rounding_adjustment: None,
+            final_cash_due: None,
+            is_processing: false,
+        };
+
+        let group_pay_transaction_id = match execute_checkout(
+            &pool,
+            &reqwest::Client::new(),
+            Decimal::ZERO,
+            group_pay_payload,
+        )
+        .await
+        {
+            Ok(CheckoutDone::Completed { transaction_id, .. }) => transaction_id,
+            other => panic!("wedding open-deposit group pay should complete: {other:?}"),
+        };
+
+        let source_rows: Vec<(Uuid, String, Decimal, i64, bool)> = sqlx::query_as(
+            r#"
+            SELECT
+                codls.beneficiary_wedding_member_id,
+                pt.payment_method,
+                SUM(codls.amount)::numeric(14,2) AS amount,
+                COUNT(DISTINCT codls.source_payment_transaction_id)::bigint AS source_count,
+                BOOL_AND(codls.payer_wedding_member_id = $1) AS payer_linked
+            FROM customer_open_deposit_ledger_sources codls
+            JOIN customer_open_deposit_ledger codl ON codl.id = codls.ledger_id
+            JOIN payment_transactions pt ON pt.id = codls.source_payment_transaction_id
+            WHERE codl.transaction_id = $2
+            GROUP BY codls.beneficiary_wedding_member_id, pt.payment_method
+            ORDER BY codls.beneficiary_wedding_member_id, pt.payment_method
+            "#,
+        )
+        .bind(payer_member_id)
+        .bind(group_pay_transaction_id)
+        .fetch_all(&pool)
+        .await
+        .expect("fetch open-deposit source rows");
+        assert_eq!(source_rows.len(), 3);
+        assert!(source_rows
+            .iter()
+            .all(|(_, _, _, _, payer_linked)| *payer_linked));
+        assert!(source_rows.iter().any(|(member_id, method, amount, _, _)| {
+            *member_id == first_member_id && method == "cash" && *amount == Decimal::new(7500, 2)
+        }));
+        assert!(source_rows.iter().any(|(member_id, method, amount, _, _)| {
+            *member_id == second_member_id && method == "cash" && *amount == Decimal::new(2500, 2)
+        }));
+        assert!(source_rows.iter().any(|(member_id, method, amount, _, _)| {
+            *member_id == second_member_id && method == "card" && *amount == Decimal::new(10000, 2)
+        }));
+
+        let disbursement_allocation_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM payment_allocations
+            WHERE transaction_id IN (
+                SELECT source_payment_transaction_id
+                FROM customer_open_deposit_ledger_sources codls
+                JOIN customer_open_deposit_ledger codl ON codl.id = codls.ledger_id
+                WHERE codl.transaction_id = $1
+            )
+              AND metadata->>'kind' = 'wedding_group_disbursement'
+            "#,
+        )
+        .bind(group_pay_transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count no-order disbursement allocations");
+        assert_eq!(disbursement_allocation_count, 0);
+
+        let balances: Vec<(Uuid, Decimal)> = sqlx::query_as(
+            r#"
+            SELECT a.customer_id, a.balance
+            FROM customer_open_deposit_accounts a
+            WHERE a.customer_id = ANY($1)
+            ORDER BY a.customer_id
+            "#,
+        )
+        .bind(vec![first_customer_id, second_customer_id])
+        .fetch_all(&pool)
+        .await
+        .expect("fetch open-deposit balances");
+        assert!(balances.iter().any(|(customer_id, balance)| {
+            *customer_id == first_customer_id && *balance == Decimal::new(7500, 2)
+        }));
+        assert!(balances.iter().any(|(customer_id, balance)| {
+            *customer_id == second_customer_id && *balance == Decimal::new(12500, 2)
+        }));
+
+        let activity_date: chrono::NaiveDate = sqlx::query_scalar(
+            "SELECT (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("fetch activity date");
+        let proposal = qbo_journal::propose_daily_journal(&pool, activity_date)
+            .await
+            .expect("propose qbo journal");
+        let deposit_line = proposal
+            .lines
+            .iter()
+            .find(|line| line.memo == "New deposits received (liability increase)")
+            .expect("new deposit liability line");
+        assert_eq!(deposit_line.credit, Decimal::new(20000, 2));
+        let detail = &deposit_line.detail[0];
+        let open_deposit_party_split_amount: Decimal = serde_json::from_value(
+            detail
+                .get("open_deposit_party_split_amount")
+                .expect("open deposit party split amount in qbo detail")
+                .clone(),
+        )
+        .expect("parse open deposit party split amount");
+        assert_eq!(open_deposit_party_split_amount, Decimal::new(20000, 2));
+        assert_eq!(
+            detail
+                .get("open_deposit_sources")
+                .and_then(|v| v.as_array())
+                .map(Vec::len),
+            Some(3)
+        );
+
+        let redemption_payload = CheckoutRequest {
+            session_id,
+            operator_staff_id: staff_id,
+            primary_salesperson_id: Some(staff_id),
+            customer_id: Some(first_customer_id),
+            wedding_member_id: Some(first_member_id),
+            payment_method: "open_deposit".to_string(),
+            total_price: Decimal::new(7500, 2),
+            amount_paid: Decimal::new(7500, 2),
+            items: vec![CheckoutItem {
+                client_line_id: Some("open-deposit-redemption-line".to_string()),
+                line_type: None,
+                alteration_intake_id: None,
+                product_id,
+                variant_id,
+                fulfillment: DbFulfillmentType::Takeaway,
+                quantity: 1,
+                unit_price: Decimal::new(7500, 2),
+                original_unit_price: None,
+                price_override_reason: None,
+                unit_cost: Decimal::new(3000, 2),
+                state_tax: Decimal::ZERO,
+                local_tax: Decimal::ZERO,
+                salesperson_id: Some(staff_id),
+                discount_event_id: None,
+                gift_card_load_code: None,
+                custom_item_type: None,
+                custom_order_details: None,
+                is_rush: false,
+                need_by_date: None,
+                needs_gift_wrap: false,
+                order_lifecycle_status: None,
+            }],
+            alteration_intakes: vec![],
+            actor_name: Some("Wedding Open Deposit Source Test".to_string()),
+            payment_splits: Some(vec![CheckoutPaymentSplit {
+                payment_method: "open_deposit".to_string(),
+                amount: Decimal::new(7500, 2),
+                sub_type: None,
+                applied_deposit_amount: None,
+                gift_card_code: None,
+                check_number: None,
+                metadata: None,
+            }]),
+            wedding_disbursements: None,
+            order_payments: vec![],
+            below_cost_approval: None,
+            checkout_client_id: Some(Uuid::new_v4()),
+            shipping_rate_quote_id: None,
+            fulfillment_mode: None,
+            ship_to: None,
+            target_transaction_id: None,
+            booked_at_local: None,
+            is_rush: false,
+            need_by_date: None,
+            is_tax_exempt: true,
+            tax_exempt_reason: Some("test tax-exempt checkout".to_string()),
+            rounding_adjustment: None,
+            final_cash_due: None,
+            is_processing: false,
+        };
+
+        let redemption_transaction_id = match execute_checkout(
+            &pool,
+            &reqwest::Client::new(),
+            Decimal::ZERO,
+            redemption_payload,
+        )
+        .await
+        {
+            Ok(CheckoutDone::Completed { transaction_id, .. }) => transaction_id,
+            other => panic!("open-deposit redemption checkout should complete: {other:?}"),
+        };
+
+        let first_balance_after: Decimal = sqlx::query_scalar(
+            "SELECT balance FROM customer_open_deposit_accounts WHERE customer_id = $1",
+        )
+        .bind(first_customer_id)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch first beneficiary open deposit after redemption");
+        assert_eq!(first_balance_after, Decimal::ZERO);
+
+        cleanup_wedding_group_pay_checkout_test(
+            &pool,
+            &[group_pay_transaction_id, redemption_transaction_id],
+            session_id,
+            staff_id,
+            product_id,
+            variant_id,
+            category_id,
+            party_id,
+            first_member_id,
+            first_customer_id,
+            payer_customer_id,
+        )
+        .await
+        .expect("cleanup primary wedding open deposit regression rows");
+        sqlx::query("DELETE FROM wedding_members WHERE id = ANY($1)")
+            .bind(vec![payer_member_id, second_member_id])
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM customers WHERE id = $1")
+            .bind(second_customer_id)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM qbo_mappings WHERE qbo_account_id = $1")
+            .bind(&liability_account_id)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM qbo_accounts_cache WHERE id = $1")
+            .bind(&liability_account_id)
+            .execute(&pool)
+            .await
+            .ok();
     }
 }

@@ -36,6 +36,12 @@ pub struct CustomerOpenDepositSummary {
     pub ledger: Vec<CustomerOpenDepositLedgerRow>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct OpenDepositSourceChunk {
+    pub source_payment_transaction_id: Uuid,
+    pub amount: Decimal,
+}
+
 pub async fn fetch_summary(
     pool: &sqlx::PgPool,
     customer_id: Uuid,
@@ -126,8 +132,37 @@ pub async fn credit_party_split(
     wedding_party_id: Option<Uuid>,
     source_transaction_id: Uuid,
 ) -> Result<(), CustomerOpenDepositError> {
+    credit_party_split_with_sources(
+        tx,
+        beneficiary_customer_id,
+        amount,
+        payer_customer_id,
+        payer_display_name,
+        wedding_party_id,
+        source_transaction_id,
+        &[],
+        None,
+        None,
+    )
+    .await
+    .map(|_| ())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn credit_party_split_with_sources(
+    tx: &mut Transaction<'_, Postgres>,
+    beneficiary_customer_id: Uuid,
+    amount: Decimal,
+    payer_customer_id: Option<Uuid>,
+    payer_display_name: Option<&str>,
+    wedding_party_id: Option<Uuid>,
+    source_transaction_id: Uuid,
+    source_chunks: &[OpenDepositSourceChunk],
+    payer_wedding_member_id: Option<Uuid>,
+    beneficiary_wedding_member_id: Option<Uuid>,
+) -> Result<Uuid, CustomerOpenDepositError> {
     if amount <= Decimal::ZERO {
-        return Ok(());
+        return Ok(Uuid::nil());
     }
 
     let account_id = ensure_account(tx, beneficiary_customer_id).await?;
@@ -149,13 +184,14 @@ pub async fn credit_party_split(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query(
+    let ledger_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO customer_open_deposit_ledger (
             account_id, amount, balance_after, reason, transaction_id,
             payer_customer_id, payer_display_name, wedding_party_id
         )
         VALUES ($1, $2, $3, 'party_split_deposit', $4, $5, $6, $7)
+        RETURNING id
         "#,
     )
     .bind(account_id)
@@ -165,10 +201,29 @@ pub async fn credit_party_split(
     .bind(payer_customer_id)
     .bind(payer_display_name)
     .bind(wedding_party_id)
-    .execute(&mut **tx)
+    .fetch_one(&mut **tx)
     .await?;
 
-    Ok(())
+    for chunk in source_chunks {
+        sqlx::query(
+            r#"
+            INSERT INTO customer_open_deposit_ledger_sources (
+                ledger_id, source_payment_transaction_id, amount,
+                payer_wedding_member_id, beneficiary_wedding_member_id
+            )
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(ledger_id)
+        .bind(chunk.source_payment_transaction_id)
+        .bind(chunk.amount)
+        .bind(payer_wedding_member_id)
+        .bind(beneficiary_wedding_member_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(ledger_id)
 }
 
 pub async fn apply_checkout_redemption(

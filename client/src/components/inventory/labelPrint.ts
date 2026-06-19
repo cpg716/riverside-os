@@ -3,7 +3,6 @@ import {
   autoRoutePrint,
   describePrinterTarget,
   RIVERSIDE_TAG_PRINTER_LANGUAGE,
-  RIVERSIDE_TAG_PRINTER_LANGUAGE_LABEL,
   resolvePrinterTarget,
   type HardwarePrinterTarget,
   type ThermalPrinterLanguage,
@@ -633,6 +632,10 @@ export function getInventoryTagPrinterLanguage(): ThermalPrinterLanguage {
   return readConfiguredTagPrinterLanguage();
 }
 
+function tagPrinterLanguageLabel(language: ThermalPrinterLanguage): string {
+  return language === "epl" ? "EPL2" : "ZPL";
+}
+
 function readStoredConfig(): Partial<InventoryTagPrintConfig> | null {
   if (typeof window === "undefined") return null;
   try {
@@ -902,7 +905,7 @@ export async function openInventoryTagsPreviewWindow(
     return {
       route: "preview",
       markShelfLabeled: false,
-      message: "Tag preview opened for manual printing.",
+      message: "Tag preview opened. No tag was confirmed printed; print manually from the preview.",
       directError: options.directError,
       printDialogOpened: false,
     };
@@ -924,8 +927,8 @@ export async function openInventoryTagsPreviewWindow(
     route: "preview",
     markShelfLabeled: false,
     message: options.autoPrint
-      ? "Tag print dialog opened after direct print fallback."
-      : "Tag preview opened for manual printing.",
+      ? "Tag preview opened after direct print failed. No tag was confirmed printed; finish printing from the preview or system dialog."
+      : "Tag preview opened. No tag was confirmed printed; print manually from the preview.",
     directError: options.directError,
     printDialogOpened: options.autoPrint === true,
   };
@@ -998,7 +1001,7 @@ export async function openInventoryTagsWindow(
     return {
       route: "direct",
       markShelfLabeled: true,
-      message: `sent to ${result?.target ?? describePrinterTarget(target)} using ${RIVERSIDE_TAG_PRINTER_LANGUAGE_LABEL}.`,
+      message: `sent to ${result?.target ?? describePrinterTarget(target)} using ${tagPrinterLanguageLabel(language)}.`,
     };
   } catch (directError) {
     const directMessage = directError instanceof Error ? directError.message : String(directError);

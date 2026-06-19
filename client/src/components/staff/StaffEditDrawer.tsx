@@ -656,8 +656,8 @@ export default function StaffEditDrawer({
                     />
                     <p className="mt-2 text-[10px] text-app-text-muted italic">
                       {staff.id === "NEW"
-                        ? "This PIN will be used for both register login and manager overrides."
-                        : "Only enter a value if you wish to reset this staff member's security PIN."}
+                        ? "This Access PIN will be used for Staff Access and Manager Access when permitted."
+                        : "Only enter a value if you wish to reset this staff member's Access PIN."}
                     </p>
                   </label>
                   {/* Invisible submit button to handle Enter key in the password field */}
