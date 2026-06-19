@@ -42,6 +42,13 @@ fn strip_quotes(s: &str) -> String {
     val
 }
 
+fn reject_multiline_setting(name: &str, value: &str) -> Result<(), String> {
+    if value.contains('\n') || value.contains('\r') {
+        return Err(format!("{name} must be a single line."));
+    }
+    Ok(())
+}
+
 fn package_version(dir: &Path) -> Option<String> {
     let content = std::fs::read_to_string(dir.join("package.json")).ok()?;
     let json: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -309,6 +316,24 @@ fn start_bridge(
     }
 
     let bridge_dir = find_bridge_directory(&app)?;
+    let settings = load_settings(app.clone())?;
+    let sql_conn = settings.sql_conn.trim();
+    if sql_conn.is_empty() {
+        let message = "Counterpoint SQL connection string is missing. Open Main Hub Connection, enter the SQL Server connection string, and Save Configuration.".to_string();
+        let mut logs = state.logs.lock().unwrap();
+        logs.push(format!("[SYSTEM ERROR] {message}"));
+        return Err(message);
+    }
+    reject_multiline_setting("Counterpoint SQL connection string", sql_conn)?;
+
+    let ros_url = settings.ros_url.trim();
+    if ros_url.is_empty() {
+        let message = "Main Hub ROS URL is missing. Open Main Hub Connection, enter the Main Hub ROS URL, and Save Configuration.".to_string();
+        let mut logs = state.logs.lock().unwrap();
+        logs.push(format!("[SYSTEM ERROR] {message}"));
+        return Err(message);
+    }
+    reject_multiline_setting("Main Hub ROS URL", ros_url)?;
 
     let node_modules_dir = bridge_dir.join("node_modules");
     if !node_modules_dir.exists() {
@@ -336,6 +361,8 @@ fn start_bridge(
         cmd.arg("--dry-run");
     }
     cmd.env("COUNTERPOINT_BRIDGE_TARGET_MODE", "ros_import_first");
+    cmd.env("SQL_CONNECTION_STRING", sql_conn);
+    cmd.env("ROS_BASE_URL", ros_url);
     cmd.current_dir(&bridge_dir);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -480,6 +507,16 @@ fn save_settings(
     let _ = sync_workbench_token;
     let bridge_dir = settings_bridge_directory(&app)?;
     std::fs::create_dir_all(&bridge_dir).map_err(|e| e.to_string())?;
+    let sql_conn = sql_conn.trim();
+    let ros_url = ros_url.trim();
+    reject_multiline_setting("Counterpoint SQL connection string", sql_conn)?;
+    reject_multiline_setting("Main Hub ROS URL", ros_url)?;
+    if sql_conn.is_empty() {
+        return Err("Counterpoint SQL connection string is required.".into());
+    }
+    if ros_url.is_empty() {
+        return Err("Main Hub ROS URL is required.".into());
+    }
 
     let env_path = bridge_dir.join(".env");
     let content = [

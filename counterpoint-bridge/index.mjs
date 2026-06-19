@@ -659,9 +659,16 @@ function retryAfterMs(res) {
  */
 function createSqlPool() {
   const conn = CONN.trim();
-  if (!conn) return new sql.ConnectionPool(conn);
+  if (!conn) {
+    throw new Error("SQL_CONNECTION_STRING is empty. Save the Counterpoint SQL Server connection string in the Bridge Main Hub Connection screen.");
+  }
   try {
     const parsed = sql.ConnectionPool.parseConnectionString(conn);
+    if (typeof parsed.server !== "string" || !parsed.server.trim()) {
+      throw new Error(
+        'SQL_CONNECTION_STRING did not include a SQL Server host. Use a full string like "Server=RMSSVR;Database=...;User Id=...;Password=...;TrustServerCertificate=True".',
+      );
+    }
     const usesIpServer = net.isIP(parsed.server ?? "") !== 0;
     const trustsServerCertificate = parsed.options?.trustServerCertificate === true;
     const explicitTlsServerName = String(process.env.SQL_TLS_SERVERNAME ?? "").trim();
@@ -680,8 +687,7 @@ function createSqlPool() {
       connectionTimeout: SQL_CONNECT_TIMEOUT_MS,
     });
   } catch (e) {
-    console.warn("[sql] parseConnectionString failed; falling back to raw string (add Request Timeout=600000 to the string):", e?.message ?? e);
-    return new sql.ConnectionPool(conn);
+    throw new Error(`[sql-config] ${e?.message ?? e}`);
   }
 }
 const POLL_MS = 10000; // Fast poll for triggers (10s)
@@ -5916,6 +5922,13 @@ async function main() {
         console.error("Critical: Maximum SQL connection attempts reached. The bridge will continue running the local dashboard, but sync will be disabled.");
       }
     }
+  }
+
+  if (!connected) {
+    BRIDGE_STATE.error =
+      "SQL Server connection failed. Check the Counterpoint SQL connection string in Main Hub Connection, then restart the engine.";
+    console.error("SQL Server connection is not ready. The local dashboard will stay open, but extraction/preflight is disabled until SQL connects.");
+    return;
   }
 
   if (connected) {

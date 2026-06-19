@@ -47,6 +47,7 @@ interface BridgeState {
   logs: { time: string; msg: string }[];
   isContinuous: boolean;
   runOnce: boolean;
+  error: string | null;
 }
 
 interface UpdateCheckResult {
@@ -515,6 +516,8 @@ function App() {
       return { entity: e, stat: st, isRunning };
     });
   }, [bridgeState]);
+  const engineHasError = Boolean(bridgeState?.error);
+  const engineReady = isConnected && !engineHasError;
 
   return (
     <div data-ros-bridge className="flex flex-col h-screen w-screen bg-[#08090c] text-[#e0e4ec] overflow-hidden select-none">
@@ -532,12 +535,14 @@ function App() {
 
         <div className="flex items-center gap-4">
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-wider ${
-            isConnected
+            engineReady
               ? "bg-green-500/10 border-green-500/20 text-green-400"
+              : engineHasError
+                ? "bg-amber-500/10 border-amber-500/20 text-amber-500"
               : "bg-red-500/10 border-red-500/20 text-red-400"
           }`}>
-            <span className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500 animate-pulse" : "bg-red-500"}`} />
-            {isConnected ? "Engine Connected" : "Engine Offline"}
+            <span className={`w-2 h-2 rounded-full ${engineReady ? "bg-green-500 animate-pulse" : engineHasError ? "bg-amber-500" : "bg-red-500"}`} />
+            {engineReady ? "Engine Connected" : engineHasError ? "SQL Attention" : "Engine Offline"}
           </div>
 
           <div className="flex items-center gap-2 bg-[#161922] border border-white/5 rounded-xl p-1">
