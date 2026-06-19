@@ -458,10 +458,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "settings-counterpoint-sync-settings-panel",
-    title: "Counterpoint Sync and Sign-Off",
-    summary: "Connect the Counterpoint Bridge to Main Hub ROS, stage data, use CSV/AI review, apply imports, and review proof.",
+    title: "Counterpoint Import and Sign-Off",
+    summary: "Connect the Counterpoint Bridge to Main Hub ROS, import data, use CSV cleanup, apply reviewed changes, and review proof.",
     markdown: manual_55_raw,
-    tags: ["settings-counterpoint-sync-settings-panel","counterpoint","bridge","sync","signoff"],
+    tags: ["settings-counterpoint-sync-settings-panel","counterpoint","bridge","import","signoff"],
   },
   {
     id: "settings-helcim-settings-panel",

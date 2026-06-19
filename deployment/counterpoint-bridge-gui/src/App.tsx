@@ -447,28 +447,28 @@ function App() {
   const triggerFullSync = useCallback(async () => {
     if (!isConnected) return;
     try {
-      setStatusMessage("Starting full Counterpoint extraction...");
+      setStatusMessage("Starting full Counterpoint import to ROS...");
       setSyncProgress(0);
       const res = await fetch(`${BRIDGE_API}/api/trigger-entity?name=full`);
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to trigger extraction');
-      setStatusMessage("Counterpoint extraction started. Batches will post to Main Hub ROS intake.");
+      if (!res.ok) throw new Error(data.error || 'Failed to trigger import');
+      setStatusMessage("Counterpoint import started. Keep this window open, then review landed rows in ROS Import & Proof.");
     } catch (e: any) {
-      setStatusMessage(`Failed to trigger sync: ${e.message}`);
+      setStatusMessage(`Failed to start import: ${e.message}`);
     }
   }, [isConnected]);
 
   const triggerSingleSync = useCallback(async (key: string) => {
     if (!isConnected) return;
     try {
-      setStatusMessage(`Extracting ${key}...`);
+      setStatusMessage(`Importing ${key} to ROS...`);
       setSyncProgress(0);
       const res = await fetch(`${BRIDGE_API}/api/trigger-entity?name=${key}`);
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Failed to trigger extraction');
-      setStatusMessage(`${key} extraction started. Batches will post to Main Hub ROS intake.`);
+      if (!res.ok) throw new Error(data.error || 'Failed to trigger import');
+      setStatusMessage(`${key} import started. Review landed rows in ROS Import & Proof.`);
     } catch (e: any) {
-      setStatusMessage(`Failed to trigger ${key} sync: ${e.message}`);
+      setStatusMessage(`Failed to start ${key} import: ${e.message}`);
     }
   }, [isConnected]);
 
@@ -744,17 +744,17 @@ function App() {
                   },
                   {
                     label: "2. Check Main Hub ROS",
-                    detail: syncWorkbenchCheck?.ok ? "ROS intake answered" : "Use Check Main Hub ROS before extraction",
+                    detail: syncWorkbenchCheck?.ok ? "ROS intake answered" : "Use Check Main Hub ROS before import",
                     ready: Boolean(syncWorkbenchCheck?.ok),
                   },
                   {
-                    label: "3. Extract",
-                    detail: dryRun ? "Dry Run is on" : "Run extraction when ready",
+                    label: "3. Run Import",
+                    detail: dryRun ? "Dry Run is on" : "Send Counterpoint rows to ROS",
                     ready: Boolean(bridgeState?.lastRun),
                   },
                   {
                     label: "4. Review in ROS",
-                    detail: "Use ROS Command Center for CSV, AI review, proof, and apply",
+                    detail: "Open ROS Import & Proof. Sent rows must become landed rows.",
                     ready: false,
                   },
                 ].map((step) => (
@@ -775,12 +775,12 @@ function App() {
               {/* Stats Bar */}
               <div className="grid grid-cols-4 gap-4">
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Extraction State</div>
+                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Import State</div>
                   <div className="text-lg font-bold text-white mt-1 flex items-center gap-2">
                     {bridgeState?.isSyncing ? (
                       <>
                         <RefreshCw className="w-4 h-4 text-orange-500 animate-spin" />
-	                        Extracting
+	                        Importing
                       </>
                     ) : (
                       <>
@@ -791,21 +791,21 @@ function App() {
                   </div>
                 </div>
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
-	                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Records Last Extraction</div>
+	                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Records Last Import</div>
                   <div className="text-lg font-bold text-orange-500 mt-1">
                     {bridgeState?.totalRecordsLastRun?.toLocaleString() ?? "—"}
                   </div>
                 </div>
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
-	                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Extraction Duration</div>
+	                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Import Duration</div>
                   <div className="text-lg font-bold text-white mt-1">
                     {fmtDuration(bridgeState?.lastRunDurationMs ?? 0)}
                   </div>
                 </div>
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl flex items-center justify-between">
                   <div>
-                    <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Run Full Extraction</div>
-	                    <div className="text-[10px] text-gray-400 mt-0.5">ROS will stage, validate, and apply</div>
+                    <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Run Full Import</div>
+	                    <div className="text-[10px] text-gray-400 mt-0.5">Sends rows to ROS; confirm landed rows in Import & Proof</div>
                   </div>
                   <button
                     onClick={triggerFullSync}
@@ -824,7 +824,7 @@ function App() {
                     <div className="flex items-center gap-2">
                       <Zap className="w-4 h-4 text-orange-500" />
                       <span className="text-xs font-bold text-white uppercase tracking-wider">
-                        {bridgeState.currentEntity ? `Extracting ${bridgeState.currentEntity}` : "Processing"}
+                        {bridgeState.currentEntity ? `Importing ${bridgeState.currentEntity}` : "Processing import"}
                       </span>
                     </div>
                     <span className="text-xs font-mono text-orange-400">{syncProgress}%</span>
@@ -867,7 +867,7 @@ function App() {
               {/* Entity Breakdown Table */}
               <div className="bg-[#0f1117] border border-white/5 rounded-xl overflow-hidden">
                 <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
-	                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-white">Counterpoint Extraction Entities</h3>
+	                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-white">Counterpoint Import Entities</h3>
                   {dryRun && <span className="text-[10px] text-amber-400 font-bold uppercase tracking-widest bg-amber-500/10 px-2 py-0.5 rounded">DRY RUN PREVENTING WRITES</span>}
                 </div>
                 <div className="divide-y divide-white/5 max-h-[500px] overflow-y-auto">
@@ -893,7 +893,7 @@ function App() {
                           disabled={!isConnected || bridgeState?.isSyncing}
                           className="px-3 py-1.5 bg-[#161922] border border-white/5 hover:border-orange-500/30 hover:text-orange-500 text-[10px] font-bold uppercase rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                         >
-                          Extract
+                          Import
                         </button>
                       </div>
                     </div>

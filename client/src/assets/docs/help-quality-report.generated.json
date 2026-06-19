@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-19T14:46:03.249Z",
+  "generated_at": "2026-06-19T18:52:19.760Z",
   "standard_version": "help-manual-standard-v2",
   "published_manual_count": 68,
   "draft_manual_count": 0,
@@ -3635,7 +3635,7 @@
     },
     {
       "id": "settings-counterpoint-sync-settings-panel",
-      "title": "Counterpoint Sync and Sign-Off",
+      "title": "Counterpoint Import and Sign-Off",
       "status": "approved",
       "source_path": "client/src/assets/docs/settings-counterpoint-sync-settings-panel-manual.md",
       "screenshots": {

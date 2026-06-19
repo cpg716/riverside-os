@@ -465,10 +465,11 @@ function checkCounterpointSyncStagingVisibility() {
 	    panel.includes("No accepted heartbeat") &&
 	    panel.includes("Main Hub ROS intake") &&
 	    panel.includes("ROS staging:") &&
-	    panel.includes("Legacy SYNC"),
+	    panel.includes("Prepared packages:") &&
+	    panel.includes("Prepared Package Source"),
 	  "Main Hub Counterpoint Sync screen shows explicit Bridge connection health",
 	  panelFile,
-	  "Operators must be able to distinguish Bridge mode, ROS heartbeat, staging state, and optional legacy SYNC status without requiring tokens for the normal closed-store handoff.",
+	  "Operators must be able to distinguish Bridge mode, ROS heartbeat, staging state, and optional prepared-package support status without requiring tokens for the normal closed-store handoff.",
 	);
 
   const apiFile = "server/src/api/counterpoint_sync.rs";

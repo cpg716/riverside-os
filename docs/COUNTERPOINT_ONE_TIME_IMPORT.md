@@ -4,11 +4,13 @@ Directed migration from Counterpoint (SQL Server + Windows bridge) into ROS Post
 
 This path is intended for a **single controlled import and validation cycle**. After cutover, **Riverside OS becomes the system of record** and the Counterpoint bridge should be retired.
 
-**Note:** Settings → Integrations → Counterpoint is command-center first. Use **Command center** for the actual one-time import and proof check. Use **Legacy diagnostics**, **Inbound queue**, **AI review packs**, and **Support diagnostics** only when the command center shows a blocker that needs deeper review.
+**Note:** Settings → Integrations → Counterpoint is command-center first. Use **Import & Proof** for the actual one-time import and proof check. Use **CSV Cleanup**, **Customer Duplicates**, and **Support Diagnostics** only after the Bridge has sent data into ROS or when the command center shows a blocker that needs deeper review.
 
 ## One-Time Import Overview
 
 The default command center proves the required go-live datasets before import and then shows expected Counterpoint rows, Bridge-sent rows, ROS landed rows, open exceptions, fallback-landed rows, and readiness:
+
+Read the proof table as two separate steps: **Sent** means the Bridge posted rows to Main Hub ROS; **Landed** means ROS wrote and linked those rows into proof. A Bridge import can finish successfully while ROS still shows failed or not-ready areas that must be resolved before go-live sign-off.
 
 1. **Inventory, catalog, and quantities** - products, variants, categories, vendors, SKU/vendor links, stock, cost, and price
 2. **Customers and CRM** - customer profiles, notes, staff attribution, and sales-rep attribution
@@ -29,13 +31,13 @@ Import-first still uses internal batching, but batching is not the operator work
 
 A run that sends Bridge rows but never creates an active import run, never records raw rows, or never links landed ROS rows is incomplete and must be rerun after the blocker is fixed.
 
-Command center proof is scoped to the latest import-first run when an import run exists. Legacy diagnostics and legacy accumulated verification are support tools only; they may include older rehearsal rows, staging facts, or dirty dev data and must not be treated as current-run sign-off proof.
+Command center proof is scoped to the latest import-first run when an import run exists. Support diagnostics and accumulated verification are support tools only; they may include older rehearsal rows, staging facts, or dirty dev data and must not be treated as current-run sign-off proof.
 
 Duplicate customer emails are handled row-by-row. ROS keeps the existing `customers.email` uniqueness rule, lands the Counterpoint customer without an email address, preserves the original Counterpoint email in the raw/import exception payload, and opens a duplicate-email Import exception for staff review. A duplicate email should not fail the whole customer batch.
 
 ## Advanced Steps Overview
 
-The former 8-step guided pipeline remains available under **Legacy diagnostics** for mapping, quarantine, and exception review. It is not the operator success path:
+The older 8-step guided pipeline remains available under **Support Diagnostics** for mapping, quarantine, and exception review. It is not the operator success path:
 
 1. **SQL Bridge Sync** - sync raw Counterpoint rows from the Bridge
 2. **Inventory & Catalog Mapping** - map codes, run ROSIE AI only if needed, and fix barcodes
@@ -55,8 +57,8 @@ The Windows bridge runs entities in a **single fixed pipeline** (`counterpoint-b
 When **`PS_SLS_REP`** is not visible and `CP_SALES_REPS_QUERY` is empty, the bridge calls **`POST /api/sync/counterpoint/sales-rep-stubs`** with distinct `SLS_REP` values from **`AR_CUST`** and **`PS_TKT_HIST`** so `preferred_salesperson_id` and ticket **`SLS_REP`** resolve. 
 
 ### **V0.1.8 Ingest Resilience (April 2026)**
-- **Historical Fallback**: When **`PS_TKT_HIST`** contains unknown SKUs (legacy/deleted), ROS now automatically assigns them to a **`HIST-CP-FALLBACK`** system item instead of rejecting the ticket. This ensures **Total Lifetime Spend** is always accurate.
-- **Smart Identity Resolution**: Ticket customers are matched using a dual-lookup (exact `114420` vs. prefixed `C-114420`). This prevents fragmented history for legacy numeric accounts.
+- **Historical Fallback**: When **`PS_TKT_HIST`** contains unknown SKUs from deleted or retired Counterpoint items, ROS now automatically assigns them to a **`HIST-CP-FALLBACK`** system item instead of rejecting the ticket. This ensures **Total Lifetime Spend** is always accurate.
+- **Smart Identity Resolution**: Ticket customers are matched using a dual-lookup (exact `114420` vs. prefixed `C-114420`). This prevents fragmented history for imported numeric accounts.
 - **SKU Hierarchy**: The bridge now strictly maps **`ITEM_NO` (I-XXXX)** as the ROS Product Handle/Parent and **`BARCODE` (B-XXXX)** as the variant SKU. This matches the target state for Go-Live.
 
 ## Preconditions
@@ -288,7 +290,7 @@ Customer ingest may still map Counterpoint A/R reference text to `customers.cust
 After the bridge finishes, review **Settings → Counterpoint → Status** and confirm:
 
 1. **Last bridge run** shows the expected completion time, duration, and record count.
-2. **Command center proof scope** shows either the latest import-first run, preflight-only state, or no preflight. Do not use legacy accumulated verification as current-run proof.
+2. **Command center proof scope** shows either the latest import-first run, preflight-only state, or no preflight. Do not use accumulated support diagnostics as current-run proof.
 3. **Sign-off reconciliation** shows the latest bridge-reported rows beside the latest ROS landed/apply count for each entity in scope.
 4. **Landing Verification** shows the expected ROS-landed counts for every domain included in the pass.
 5. **Inventory & Catalog Verification** shows live-query source-vs-ROS count proof for catalog products, variants, SKUs, barcodes, and inventory quantity rows.

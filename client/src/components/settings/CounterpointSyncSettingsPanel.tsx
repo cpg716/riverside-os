@@ -635,7 +635,7 @@ export default function CounterpointSyncSettingsPanel({
       setSyncWorkbenchStatus({
         configured: false,
         reachable: false,
-        message: "Legacy SYNC app is not reachable.",
+        message: "Prepared package app is not reachable.",
       });
     }
   }, [baseUrl, headers, hasPermission]);
@@ -685,12 +685,12 @@ export default function CounterpointSyncSettingsPanel({
         { headers: headers() },
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Could not load SYNC package");
+      if (!res.ok) throw new Error(data.error ?? "Could not load prepared package");
       const pkg = data as CounterpointSyncPackage;
       setSyncPackage(pkg);
       return pkg;
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not load SYNC package", "error");
+      toast(error instanceof Error ? error.message : "Could not load prepared package", "error");
       return null;
     } finally {
       setSyncActionBusy(null);
@@ -922,7 +922,7 @@ export default function CounterpointSyncSettingsPanel({
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "ROS preflight failed");
-      toast("ROS preflight recorded for selected SYNC package.", "success");
+      toast("ROS preflight recorded for selected prepared package.", "success");
       void fetchCommandCenter();
     } catch (error) {
       toast(error instanceof Error ? error.message : "ROS preflight failed", "error");
@@ -944,17 +944,17 @@ export default function CounterpointSyncSettingsPanel({
         },
       );
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Could not import selected SYNC package");
-      toast("Selected SYNC package imported through ROS.", "success");
+      if (!res.ok) throw new Error(data.error ?? "Could not import selected prepared package");
+      toast("Selected prepared package imported through ROS.", "success");
       if (data.sync_mark_imported_warning) {
-        toast(`ROS import succeeded, but SYNC status was not updated: ${String(data.sync_mark_imported_warning)}`, "error");
+        toast(`ROS import succeeded, but prepared package status was not updated: ${String(data.sync_mark_imported_warning)}`, "error");
       }
       setPendingSyncImport(null);
       void fetchCommandCenter();
       void fetchImportExceptions();
       void fetchSelectedSyncRun(selectedSyncRunId);
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not import selected SYNC package", "error");
+      toast(error instanceof Error ? error.message : "Could not import selected prepared package", "error");
     } finally {
       setSyncActionBusy(null);
     }
@@ -1463,8 +1463,8 @@ export default function CounterpointSyncSettingsPanel({
   };
   const importDisabledReasonForSection = (section: CounterpointSyncRunSection) => {
     const preflightState = preflightStateForSection(section);
-    if (!selectedSyncRunId) return "Select a SYNC run first.";
-    if (section.blockers > 0 || section.status === "blocked") return "Unresolved SYNC blockers.";
+    if (!selectedSyncRunId) return "Select a prepared package first.";
+    if (section.blockers > 0 || section.status === "blocked") return "Unresolved package blockers.";
     if (!section.package_fingerprint) return "Missing package fingerprint.";
     if (loadedPackageSection === section.section && syncPackage?.schema_version !== 1) return "Unsupported package schema.";
     if (!preflightState.ready) return preflightState.label;
@@ -1640,6 +1640,9 @@ export default function CounterpointSyncSettingsPanel({
     });
   }, [commandCenter?.source_counts, commandReconciliationByKey, importExceptionsByEntity]);
   const commandLandedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.landedCount), 0);
+  const commandFailedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.failedCount), 0);
+  const commandNotReadyTotal = commandCenterRows.filter((row) => !row.ready).length;
+  const bridgeSentButNotLanded = bridgeReportedRows > 0 && commandLandedTotal === 0;
   const bridgeRuntimeState = status?.windows_sync_state ?? "offline";
   const bridgeConnectionLabel = bridgeRuntimeState === "online"
       ? "Bridge online"
@@ -1678,7 +1681,7 @@ export default function CounterpointSyncSettingsPanel({
 	            ROS Import Command Center
 	          </h4>
 	          <p className="mt-1 max-w-4xl text-xs text-app-text-muted">
-	            Bridge extracts Counterpoint data into Main Hub ROS. Use ROS staging, CSV references, review packs, preflight, import proof, and exceptions before sign-off.
+	            First run the Bridge import, then review proof and exceptions here. CSV files and AI review are cleanup tools after ROS has import data to compare.
 	          </p>
           <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
             Final validation and PostgreSQL import only
@@ -1695,6 +1698,21 @@ export default function CounterpointSyncSettingsPanel({
         }`}>
           {commandCenter?.ready_for_import ? "Preflight passed" : "Preflight blocked"}
         </span>
+      </div>
+
+      <div className="grid gap-2 text-xs md:grid-cols-4">
+        {[
+          ["1", "Connect Bridge", "Counterpoint SQL and Main Hub ROS must both be ready."],
+          ["2", "Run Import", "Bridge sends Counterpoint rows into ROS for proof and import."],
+          ["3", "Review Proof", "Use landed rows, exceptions, and blockers for sign-off."],
+          ["4", "Clean Up Data", "Use CSV + AI review after import data exists in ROS."],
+        ].map(([step, title, detail]) => (
+          <div key={step} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Step {step}</p>
+            <p className="mt-1 font-black text-app-text">{title}</p>
+            <p className="mt-1 text-[11px] font-semibold text-app-text-muted">{detail}</p>
+          </div>
+        ))}
       </div>
 
       <div
@@ -1724,7 +1742,7 @@ export default function CounterpointSyncSettingsPanel({
             <p className="mt-1 font-bold text-app-text">{status?.last_seen_at ? formatDate(status.last_seen_at) : "No accepted heartbeat"}</p>
           </div>
 	          <div>
-	            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Legacy SYNC heartbeat</p>
+	            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Prepared package heartbeat</p>
 	            <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.received_at ? formatDate(syncHeartbeat.received_at) : "Not required"}</p>
 	          </div>
           <div>
@@ -1746,7 +1764,7 @@ export default function CounterpointSyncSettingsPanel({
 	          <span>Bridge heartbeat: {bridgeRuntimeState === "offline" ? "Offline" : "Online"}</span>
 	          <span>Main Hub ROS intake: {status?.last_seen_at ? "Receiving heartbeat" : "No accepted heartbeat"}</span>
 	          <span>ROS staging: {status?.counterpoint_staging_enabled ? "On" : "Off"}</span>
-	          <span>Legacy SYNC: {syncWorkbenchStatus?.reachable ? "Connected" : "Optional"}</span>
+	          <span>Prepared packages: {syncWorkbenchStatus?.reachable ? "Connected" : "Not needed"}</span>
 	          <button
 	            type="button"
 	            onClick={() => void setRosStagingEnabled(!status?.counterpoint_staging_enabled)}
@@ -1772,26 +1790,26 @@ export default function CounterpointSyncSettingsPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest">
-	            Legacy SYNC app connection
+	            Prepared package app connection
 	          </p>
 	          <p className="mt-1 text-xs font-semibold">
-	            {syncWorkbenchStatus?.message ?? "Standalone SYNC is optional for the go-live Bridge path."}
+	            {syncWorkbenchStatus?.message ?? "Optional support path for already-prepared packages. Normal go-live import uses the Bridge directly."}
             </p>
             {syncWorkbenchStatus?.error ? (
               <p className="mt-1 text-[10px] font-bold">{syncWorkbenchStatus.error}</p>
             ) : null}
           </div>
 	          <span className="ui-pill border border-app-border bg-app-bg/70 text-[10px]">
-	            {syncWorkbenchStatus?.reachable ? "Legacy SYNC connected" : syncWorkbenchStatus?.configured ? "Legacy SYNC unreachable" : "Optional"}
+	            {syncWorkbenchStatus?.reachable ? "Prepared packages connected" : syncWorkbenchStatus?.configured ? "Prepared package app unreachable" : "Not needed"}
 	          </span>
         </div>
         <div className="mt-3 grid gap-2 text-xs md:grid-cols-4">
           <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">SYNC host</p>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Package host</p>
             <p className="mt-1 font-bold text-app-text">{syncHealth?.hostname ?? "Not reported"}</p>
           </div>
           <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">SYNC schema</p>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Package schema</p>
             <p className="mt-1 font-bold text-app-text">{syncStore?.format_version ?? syncHealth?.schema_version ?? "Not connected"}</p>
           </div>
           <div>
@@ -1861,10 +1879,10 @@ export default function CounterpointSyncSettingsPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Legacy package import
+              Prepared package compatibility
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Optional compatibility for older standalone SYNC runs. Go-live Bridge extraction lands directly in ROS.
+              Support-only path for already-prepared packages. The current go-live path is Bridge import directly into Main Hub ROS.
             </p>
           </div>
           <button
@@ -1877,7 +1895,7 @@ export default function CounterpointSyncSettingsPanel({
             className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Refresh Legacy Runs
+            Refresh prepared packages
           </button>
         </div>
         <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(260px,0.35fr)_minmax(0,1fr)]">
@@ -1895,7 +1913,7 @@ export default function CounterpointSyncSettingsPanel({
                 }}
               >
                 {syncRuns.length === 0 ? (
-                  <option value="">No legacy runs available</option>
+                  <option value="">No prepared packages available</option>
                 ) : null}
                 {syncRuns.map((run) => (
                   <option key={run.sync_run_id} value={run.sync_run_id}>
@@ -1907,7 +1925,7 @@ export default function CounterpointSyncSettingsPanel({
             {selectedSyncRunSummary ? (
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <div className="col-span-2 rounded-md border border-app-border bg-app-bg/60 p-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Selected SYNC Run</p>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Selected prepared run</p>
                   <p className="mt-1 break-all font-mono text-[10px] font-bold text-app-text">{selectedSyncRunSummary.sync_run_id}</p>
                 </div>
                 <div>
@@ -1941,7 +1959,7 @@ export default function CounterpointSyncSettingsPanel({
               </div>
             ) : (
               <p className="mt-3 text-xs font-semibold text-app-text-muted">
-                No standalone SYNC run is selected. This is expected for the direct ROS intake workflow.
+                No prepared package is selected. This is expected for the direct Bridge import workflow.
               </p>
             )}
           </div>
@@ -1950,7 +1968,7 @@ export default function CounterpointSyncSettingsPanel({
               <thead className="bg-app-surface-2">
                 <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                   <th className="px-3 py-2">Section</th>
-                  <th className="px-3 py-2">SYNC status</th>
+                  <th className="px-3 py-2">Package status</th>
                   <th className="px-3 py-2 text-right">Source</th>
                   <th className="px-3 py-2 text-right">Prepared</th>
                   <th className="px-3 py-2 text-right">Warnings</th>
@@ -2032,7 +2050,7 @@ export default function CounterpointSyncSettingsPanel({
                             type="button"
                             onClick={() => void runSyncPackagePreflight(section.section)}
                             disabled={blocked || !section.package_fingerprint || syncActionBusy != null}
-                            title={blocked ? "Unresolved SYNC blockers." : undefined}
+                            title={blocked ? "Unresolved package blockers." : undefined}
                             className="ui-btn-secondary px-2 py-1 text-[10px] font-bold disabled:opacity-50"
                           >
                             ROS Preflight
@@ -2055,7 +2073,7 @@ export default function CounterpointSyncSettingsPanel({
             </table>
             {selectedSyncSections.length === 0 ? (
               <div className="p-4 text-xs font-semibold text-app-text-muted">
-                No sections are available for the selected legacy run.
+                No sections are available for the selected prepared package.
               </div>
             ) : null}
           </div>
@@ -2076,7 +2094,7 @@ export default function CounterpointSyncSettingsPanel({
               </span>
             </div>
             <div className="mt-3 grid gap-2 text-xs md:grid-cols-4">
-              <p>SYNC run: <span className="break-all font-mono font-black text-app-text">{syncPackage.sync_run_id}</span></p>
+              <p>Prepared run: <span className="break-all font-mono font-black text-app-text">{syncPackage.sync_run_id}</span></p>
               <p>Section: <span className="font-black text-app-text">{syncPackage.section}</span></p>
               <p>Entity: <span className="font-black text-app-text">{syncPackage.entity}</span></p>
               <p>Generated: <span className="font-black text-app-text">{formatDate(syncPackage.generated_at)}</span></p>
@@ -2348,6 +2366,32 @@ export default function CounterpointSyncSettingsPanel({
         ) : null}
       </div>
 
+      <div className={`rounded-lg border p-3 text-xs ${
+        commandNotReadyTotal > 0
+          ? "border-amber-500/25 bg-amber-500/10 text-amber-900 dark:text-amber-100"
+          : "border-emerald-500/20 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100"
+      }`}>
+        <p className="text-[10px] font-black uppercase tracking-widest">
+          Bridge sent vs ROS landed
+        </p>
+        <p className="mt-1 font-semibold">
+          Sent means the Bridge posted Counterpoint rows to Main Hub ROS. Landed means ROS wrote and linked those rows for proof. Go-live is not ready until required rows are landed, exceptions are resolved, and readiness is Ready.
+        </p>
+        {bridgeSentButNotLanded ? (
+          <p className="mt-2 font-bold">
+            Bridge has sent rows, but ROS has no landed proof yet. Keep the Bridge and Main Hub online, refresh Import & Proof, and review Support Diagnostics only if this does not progress.
+          </p>
+        ) : commandNotReadyTotal > 0 ? (
+          <p className="mt-2 font-bold">
+            ROS has landed proof for this import, but {fmtNum(commandNotReadyTotal)} area(s) are not ready and {fmtNum(commandFailedTotal)} open exception(s) still need review before sign-off.
+          </p>
+        ) : commandCenterRows.length > 0 ? (
+          <p className="mt-2 font-bold">
+            All listed import areas are ready in this proof view.
+          </p>
+        ) : null}
+      </div>
+
       <div className="overflow-auto rounded-lg border border-app-border">
         <table className="w-full min-w-[920px] text-left text-xs">
           <thead className="bg-app-surface-2">
@@ -2438,7 +2482,7 @@ export default function CounterpointSyncSettingsPanel({
             Counterpoint Import Command Center
           </h3>
           <p className="mt-1 text-xs text-app-text-muted max-w-3xl">
-            Bridge sends Counterpoint data to Main Hub ROS. ROS owns staging, CSV references, AI review packs, import proof, exceptions, and final sign-off.
+            Run the Bridge import, review ROS proof, then use CSV and AI tools only for post-import cleanup.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2449,7 +2493,7 @@ export default function CounterpointSyncSettingsPanel({
               workspaceView === "overview" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
-            Import Command Center
+            1 Import & Proof
           </button>
           <button
             type="button"
@@ -2458,7 +2502,7 @@ export default function CounterpointSyncSettingsPanel({
               workspaceView === "ai_review" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
-            CSV + AI Review
+            2 CSV Cleanup
           </button>
           <button
             type="button"
@@ -2467,7 +2511,7 @@ export default function CounterpointSyncSettingsPanel({
               workspaceView === "customer_duplicates" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
-            Customer Duplicates
+            3 Customer Duplicates
           </button>
           <button
             type="button"
@@ -2489,23 +2533,6 @@ export default function CounterpointSyncSettingsPanel({
           </button>
         </div>
       </div>
-
-      <IntegrationCredentialsCard
-        baseUrl={baseUrl}
-        integrationKey="counterpoint"
-        title="Legacy SYNC Package Source"
-        description="Optional compatibility for older standalone SYNC packages. The go-live Bridge path posts directly to Main Hub ROS and does not require this URL."
-        fields={[
-          {
-            key: "sync_workbench_url",
-            label: "Legacy SYNC Workbench URL",
-            placeholder: "http://127.0.0.1:3015",
-            help: "Optional standalone SYNC app URL used only to list/import older prepared packages.",
-            type: "text",
-          },
-        ]}
-        onSaved={fetchAllData}
-      />
 
       {importFirstCommandCenterPanel}
 
@@ -2545,6 +2572,23 @@ export default function CounterpointSyncSettingsPanel({
             </div>
           </div>
 
+          <IntegrationCredentialsCard
+            baseUrl={baseUrl}
+            integrationKey="counterpoint"
+            title="Prepared Package Source"
+            description="Optional support setting for already-prepared package files. The normal go-live Bridge import does not require this URL."
+            fields={[
+              {
+                key: "sync_workbench_url",
+                label: "Prepared package app URL",
+                placeholder: "http://127.0.0.1:3015",
+                help: "Use only when support needs to inspect or import an already-prepared package outside the direct Bridge import path.",
+                type: "text",
+              },
+            ]}
+            onSaved={fetchAllData}
+          />
+
           <div className="rounded-lg border border-app-border bg-app-bg/60 p-3 text-xs">
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               Counterpoint Support Diagnostics
@@ -2564,7 +2608,7 @@ export default function CounterpointSyncSettingsPanel({
                   Accumulated verification
                 </p>
                 <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                  Support-only reconciliation across ROS support/import state. Use selected-run proof in the Import Command Center for sign-off.
+                  Support-only reconciliation across ROS support/import state. Use the current import proof in Import & Proof for sign-off.
                 </p>
               </div>
             </div>
@@ -2693,13 +2737,13 @@ export default function CounterpointSyncSettingsPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
-              Counterpoint Transition Review Packs
+              Counterpoint CSV Cleanup Review
             </h4>
             <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Counterpoint SYNC Review References
+              Post-import CSV references
             </h4>
             <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
-              Build Codex review packages from imported ROS data plus Lightspeed and Counterpoint CSV references. Riverside OS validates returned suggestions and only applies staff-approved catalog cleanup.
+              After Bridge import data lands in ROS, load the Lightspeed and Counterpoint CSV references, generate a cleanup pack, review the returned JSON, then apply only staff-approved catalog cleanup.
             </p>
           </div>
           <span className="ui-pill bg-amber-500/15 text-[10px] text-amber-700 dark:text-amber-200">
@@ -2714,7 +2758,7 @@ export default function CounterpointSyncSettingsPanel({
                 CSV reference sources
               </p>
               <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
-                Load the Lightspeed and Counterpoint CSV references here. ROS uses them for cleanup comparison and AI review packs; inventory quantities still come from Counterpoint SQL.
+                Load the CSV files, then generate a cleanup pack. Inventory quantities still come from Counterpoint SQL; CSV files only help compare names, SKUs, categories, and cleanup suggestions.
               </p>
             </div>
             <button
@@ -3164,10 +3208,10 @@ export default function CounterpointSyncSettingsPanel({
         isOpen={pendingSyncImport != null}
         onClose={() => setPendingSyncImport(null)}
         onConfirm={() => void importSyncSection()}
-        title="Import SYNC section?"
+        title="Import prepared package section?"
         message={
           pendingSyncImport
-            ? `Import ${pendingSyncImport.section.label ?? formatEntityLabel(pendingSyncImport.section.section)} from selected SYNC run?\n\nRun: ${selectedSyncRunSummary?.name ?? selectedSyncRunId}\nSection: ${pendingSyncImport.section.section}\nRecords: ${fmtNum(pendingSyncImport.pkg.source_counts.prepared)}\nWarnings: ${fmtNum(pendingSyncImport.pkg.source_counts.warnings)}\nBlockers: ${fmtNum(pendingSyncImport.pkg.source_counts.blockers)}\n\nThis will write records into Riverside OS through the ROS Counterpoint import pipeline.`
+            ? `Import ${pendingSyncImport.section.label ?? formatEntityLabel(pendingSyncImport.section.section)} from the selected prepared package?\n\nPackage: ${selectedSyncRunSummary?.name ?? selectedSyncRunId}\nSection: ${pendingSyncImport.section.section}\nRecords: ${fmtNum(pendingSyncImport.pkg.source_counts.prepared)}\nWarnings: ${fmtNum(pendingSyncImport.pkg.source_counts.warnings)}\nBlockers: ${fmtNum(pendingSyncImport.pkg.source_counts.blockers)}\n\nThis will write records into Riverside OS through the ROS Counterpoint import pipeline.`
             : ""
         }
         confirmLabel="Import Section"
