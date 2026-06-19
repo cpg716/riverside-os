@@ -22,7 +22,7 @@ function Resolve-FullPath([string]$Path) {
 
 function Get-GitShort([string]$RepoRoot) {
   try {
-    return (& git -C $RepoRoot rev-parse --short HEAD 2>$null).Trim()
+    return (& git -C $RepoRoot rev-parse --short=8 HEAD 2>$null).Trim()
   } catch {
     return "unknown"
   }

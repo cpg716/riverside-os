@@ -164,6 +164,11 @@ assertIncludes(
   "counterpoint-bridge-gui",
   "Windows deployment package must include the Counterpoint Bridge GUI installer directory",
 );
+assertIncludes(
+  deploymentPackageBuilder,
+  "rev-parse --short=8 HEAD",
+  "Windows deployment ZIP names must use the same 8-character build prefix as updater metadata",
+);
 for (const obsolete of [
   "CounterpointSyncSourcePath",
   "Copy-CounterpointSyncWorkbench",

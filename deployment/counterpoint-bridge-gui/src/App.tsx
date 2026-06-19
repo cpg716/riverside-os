@@ -95,6 +95,45 @@ function normalizeHttpUrl(value: string): string {
   return parsed.toString().replace(/\/+$/, "");
 }
 
+function normalizeSqlConnectionInput(value: string): string {
+  let normalized = value.trim();
+  const assignment = normalized.match(/^SQL_CONNECTION_STRING\s*=\s*([\s\S]*)$/i);
+  if (assignment) normalized = assignment[1].trim();
+  if (
+    (normalized.startsWith('"') && normalized.endsWith('"')) ||
+    (normalized.startsWith("'") && normalized.endsWith("'"))
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  return normalized;
+}
+
+function connectionValue(value: string, aliases: string[]): string {
+  const parts = normalizeSqlConnectionInput(value)
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  for (const part of parts) {
+    const index = part.indexOf("=");
+    if (index <= 0) continue;
+    const key = part.slice(0, index).trim().toLowerCase().replace(/\s+/g, " ");
+    const match = aliases.some((alias) => key === alias.toLowerCase());
+    if (match) return part.slice(index + 1).trim();
+  }
+  return "";
+}
+
+function hasSqlConnectionShape(value: string): boolean {
+  const server = connectionValue(value, ["server", "data source", "address", "addr", "network address"])
+    .replace(/^tcp:/i, "")
+    .split(",", 1)[0]
+    .trim();
+  const database = connectionValue(value, ["database", "initial catalog"]).trim();
+  const invalid = (part: string) =>
+    !part || part === "..." || part.includes("<") || part.includes(">");
+  return !invalid(server) && !invalid(database);
+}
+
 const ENTITIES = [
   { key: "staff", label: "Staff", icon: "👤" },
   { key: "sales_rep_stubs", label: "Sales Reps", icon: "🏷️" },
@@ -142,7 +181,7 @@ function App() {
 
   const hasRequiredBridgeSettings = useCallback((settings: BridgeSettings) => {
     return (
-      settings.sql_conn.trim().length > 0 &&
+      hasSqlConnectionShape(settings.sql_conn) &&
       settings.ros_url.trim().length > 0
     );
   }, []);
@@ -227,19 +266,21 @@ function App() {
 
   const handleSaveSettings = async () => {
     try {
-      const nextSettings = { sql_conn: sqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: "", sync_workbench_token: "" };
+      const normalizedSqlConn = normalizeSqlConnectionInput(sqlConn);
+      const nextSettings = { sql_conn: normalizedSqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: "", sync_workbench_token: "" };
       if (!hasRequiredBridgeSettings(nextSettings)) {
-        setStatusMessage("Enter the Counterpoint SQL connection and Main Hub ROS URL.");
+        setStatusMessage("Enter the full Counterpoint SQL connection with Server and Database, plus the Main Hub ROS URL.");
         return;
       }
       setStatusMessage("Saving bridge connection settings...");
       const result = await invoke<string>("save_settings", {
-        sqlConn,
+        sqlConn: normalizedSqlConn,
         rosUrl: normalizedRosUrl,
         syncToken: "",
         syncWorkbenchUrl: "",
         syncWorkbenchToken: ""
       });
+      setSqlConn(normalizedSqlConn);
       setRosUrl(normalizedRosUrl);
       setStatusMessage(result);
       // Restart the bridge to pick up new config
@@ -340,7 +381,7 @@ function App() {
       const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: "", sync_workbench_token: "" };
       if (!hasRequiredBridgeSettings(nextSettings)) {
         setActiveTab("settings");
-        setStatusMessage("Enter the Counterpoint SQL connection and Main Hub ROS URL.");
+        setStatusMessage("Enter the full Counterpoint SQL connection with Server and Database, plus the Main Hub ROS URL.");
         return;
       }
       setStatusMessage("Checking Main Hub ROS intake before extraction...");
@@ -698,8 +739,8 @@ function App() {
                 {[
                   {
                     label: "1. Connect SQL",
-                    detail: sqlConn.trim() ? "Counterpoint SQL saved" : "Enter the Counterpoint SQL connection",
-                    ready: sqlConn.trim().length > 0,
+                    detail: hasSqlConnectionShape(sqlConn) ? "Counterpoint SQL saved" : "Enter Server and Database",
+                    ready: hasSqlConnectionShape(sqlConn),
                   },
                   {
                     label: "2. Check Main Hub ROS",

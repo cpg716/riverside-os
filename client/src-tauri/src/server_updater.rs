@@ -180,30 +180,30 @@ mod tests {
     fn deployment_asset_selection_prefers_target_build_sha() {
         let selected = select_deployment_asset(
             vec![
-                asset("RiversideOS-v0.90.0-14c3164-Windows-Deployment.zip"),
-                asset("RiversideOS-v0.90.0-e96a3e5-Windows-Deployment.zip"),
+                asset("RiversideOS-v0.90.0-14c3164b-Windows-Deployment.zip"),
+                asset("RiversideOS-v0.90.0-e96a3e50-Windows-Deployment.zip"),
             ],
             "v0.90.0",
-            Some("e96a3e5"),
+            Some("e96a3e50"),
         )
         .expect("expected matching deployment asset");
 
         assert_eq!(
             selected.name,
-            "RiversideOS-v0.90.0-e96a3e5-Windows-Deployment.zip"
+            "RiversideOS-v0.90.0-e96a3e50-Windows-Deployment.zip"
         );
     }
 
     #[test]
     fn deployment_asset_selection_rejects_missing_target_build_sha() {
         let err = select_deployment_asset(
-            vec![asset("RiversideOS-v0.90.0-14c3164-Windows-Deployment.zip")],
+            vec![asset("RiversideOS-v0.90.0-14c3164b-Windows-Deployment.zip")],
             "v0.90.0",
-            Some("e96a3e5"),
+            Some("e96a3e50"),
         )
         .expect_err("missing exact build should fail");
 
-        assert!(err.contains("does not contain a Windows Deployment ZIP for build e96a3e5"));
+        assert!(err.contains("does not contain a Windows Deployment ZIP for build e96a3e50"));
     }
 }
 

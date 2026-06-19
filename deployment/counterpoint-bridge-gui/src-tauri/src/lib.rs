@@ -42,10 +42,111 @@ fn strip_quotes(s: &str) -> String {
     val
 }
 
+fn normalize_sql_connection_input(value: &str) -> String {
+    let mut normalized = value.trim();
+    if let Some((key, raw_value)) = normalized.split_once('=') {
+        if key.trim().eq_ignore_ascii_case("SQL_CONNECTION_STRING") {
+            normalized = raw_value.trim();
+        }
+    }
+    strip_quotes(normalized)
+}
+
 fn reject_multiline_setting(name: &str, value: &str) -> Result<(), String> {
     if value.contains('\n') || value.contains('\r') {
         return Err(format!("{name} must be a single line."));
     }
+    Ok(())
+}
+
+fn sql_connection_value(value: &str, aliases: &[&str]) -> Option<String> {
+    let normalized_value = normalize_sql_connection_input(value);
+    for part in normalized_value.split(';') {
+        let trimmed = part.trim();
+        let Some((key, raw_value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        let normalized_key = key
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_lowercase();
+        if aliases.iter().any(|alias| normalized_key == *alias) {
+            let raw_value = raw_value.trim();
+            if !raw_value.is_empty() {
+                return Some(raw_value.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn is_placeholder_sql_value(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.is_empty()
+        || trimmed == "..."
+        || trimmed.contains('<')
+        || trimmed.contains('>')
+        || trimmed.chars().all(|ch| ch == 'x' || ch == 'X')
+}
+
+fn normalize_sql_server_host(value: &str) -> String {
+    let mut server = value.trim();
+    if server.len() >= 4 && server[..4].eq_ignore_ascii_case("tcp:") {
+        server = &server[4..];
+    }
+    if let Some((host, _port)) = server.split_once(',') {
+        if !server.contains('\\') {
+            return host.trim().to_string();
+        }
+    }
+    server.to_string()
+}
+
+fn validate_sql_connection_string(value: &str) -> Result<(), String> {
+    let value = normalize_sql_connection_input(value);
+    let server = sql_connection_value(
+        &value,
+        &[
+            "server",
+            "data source",
+            "address",
+            "addr",
+            "network address",
+        ],
+    )
+    .as_deref()
+    .map(normalize_sql_server_host)
+    .unwrap_or_default();
+    if is_placeholder_sql_value(&server) {
+        return Err("Counterpoint SQL connection must include a real SQL Server host, for example Server=RMSSVR;Database=COUNTERPOINT;User Id=...;Password=...;TrustServerCertificate=True.".into());
+    }
+
+    let database =
+        sql_connection_value(&value, &["database", "initial catalog"]).unwrap_or_default();
+    if is_placeholder_sql_value(&database) {
+        return Err("Counterpoint SQL connection must include the real company database, for example Database=COUNTERPOINT or Initial Catalog=COUNTERPOINT.".into());
+    }
+
+    let uses_windows_auth = value.split(';').any(|part| {
+        let Some((key, raw_value)) = part.trim().split_once('=') else {
+            return false;
+        };
+        let key = key
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_ascii_lowercase();
+        let raw_value = raw_value.trim().to_ascii_lowercase();
+        (key == "trusted_connection" || key == "integrated security")
+            && matches!(raw_value.as_str(), "true" | "yes" | "sspi")
+    });
+    let has_sql_auth = sql_connection_value(&value, &["user id", "uid", "user"]).is_some()
+        && sql_connection_value(&value, &["password", "pwd"]).is_some();
+    if uses_windows_auth && !has_sql_auth {
+        return Err("Counterpoint SQL connection uses Windows trusted authentication. The packaged Bridge requires a SQL login; save User Id and Password in the connection string.".into());
+    }
+
     Ok(())
 }
 
@@ -317,7 +418,8 @@ fn start_bridge(
 
     let bridge_dir = find_bridge_directory(&app)?;
     let settings = load_settings(app.clone())?;
-    let sql_conn = settings.sql_conn.trim();
+    let normalized_sql_conn = normalize_sql_connection_input(&settings.sql_conn);
+    let sql_conn = normalized_sql_conn.trim();
     if sql_conn.is_empty() {
         let message = "Counterpoint SQL connection string is missing. Open Main Hub Connection, enter the SQL Server connection string, and Save Configuration.".to_string();
         let mut logs = state.logs.lock().unwrap();
@@ -325,6 +427,7 @@ fn start_bridge(
         return Err(message);
     }
     reject_multiline_setting("Counterpoint SQL connection string", sql_conn)?;
+    validate_sql_connection_string(sql_conn)?;
 
     let ros_url = settings.ros_url.trim();
     if ros_url.is_empty() {
@@ -507,13 +610,15 @@ fn save_settings(
     let _ = sync_workbench_token;
     let bridge_dir = settings_bridge_directory(&app)?;
     std::fs::create_dir_all(&bridge_dir).map_err(|e| e.to_string())?;
-    let sql_conn = sql_conn.trim();
+    let normalized_sql_conn = normalize_sql_connection_input(&sql_conn);
+    let sql_conn = normalized_sql_conn.trim();
     let ros_url = ros_url.trim();
     reject_multiline_setting("Counterpoint SQL connection string", sql_conn)?;
     reject_multiline_setting("Main Hub ROS URL", ros_url)?;
     if sql_conn.is_empty() {
         return Err("Counterpoint SQL connection string is required.".into());
     }
+    validate_sql_connection_string(sql_conn)?;
     if ros_url.is_empty() {
         return Err("Main Hub ROS URL is required.".into());
     }

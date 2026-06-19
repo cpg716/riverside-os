@@ -607,6 +607,97 @@ let nextRosRequestAt = 0;
 let rosRequestGate = Promise.resolve();
 let activeWorkbenchRunId = null;
 
+function normalizeSqlConnectionInput(value) {
+  let normalized = String(value ?? "").trim();
+  const assignment = normalized.match(/^SQL_CONNECTION_STRING\s*=\s*([\s\S]*)$/i);
+  if (assignment) {
+    normalized = assignment[1].trim();
+  }
+  if (
+    (normalized.startsWith('"') && normalized.endsWith('"')) ||
+    (normalized.startsWith("'") && normalized.endsWith("'"))
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  return normalized;
+}
+
+function splitSqlConnectionString(conn) {
+  return normalizeSqlConnectionInput(conn)
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const index = part.indexOf("=");
+      if (index <= 0) return null;
+      const key = part.slice(0, index).trim().toLowerCase().replace(/\s+/g, " ");
+      const value = part.slice(index + 1).trim();
+      return [key, value];
+    })
+    .filter(Boolean);
+}
+
+function sqlConnectionValue(conn, aliases) {
+  const parts = splitSqlConnectionString(conn);
+  for (const alias of aliases) {
+    const normalizedAlias = alias.toLowerCase().replace(/\s+/g, " ");
+    const match = parts.find(([key]) => key === normalizedAlias);
+    if (match && match[1]) return match[1];
+  }
+  return "";
+}
+
+function isPlaceholderSqlValue(value) {
+  const trimmed = String(value ?? "").trim();
+  return (
+    !trimmed ||
+    trimmed === "..." ||
+    trimmed.includes("<") ||
+    trimmed.includes(">") ||
+    /^x+$/i.test(trimmed)
+  );
+}
+
+function normalizeSqlServerHost(value) {
+  let server = String(value ?? "").trim();
+  if (!server) return "";
+  if (server.toLowerCase().startsWith("tcp:")) {
+    server = server.slice(4);
+  }
+  if (server.includes(",") && !server.includes("\\")) {
+    server = server.split(",", 1)[0].trim();
+  }
+  return server;
+}
+
+function validateSqlConnectionString(conn) {
+  const normalizedConn = normalizeSqlConnectionInput(conn);
+  const server = normalizeSqlServerHost(
+    sqlConnectionValue(normalizedConn, ["server", "data source", "address", "addr", "network address"]),
+  );
+  const database = sqlConnectionValue(normalizedConn, ["database", "initial catalog"]);
+  if (isPlaceholderSqlValue(server)) {
+    throw new Error(
+      'SQL_CONNECTION_STRING did not include a real SQL Server host. Use the full Counterpoint company database string, for example: "Server=RMSSVR;Database=COUNTERPOINT;User Id=...;Password=...;TrustServerCertificate=True".',
+    );
+  }
+  if (isPlaceholderSqlValue(database)) {
+    throw new Error(
+      'SQL_CONNECTION_STRING did not include a real Counterpoint company database. Add "Database=<company database>" or "Initial Catalog=<company database>".',
+    );
+  }
+  const usesWindowsAuth = /(^|;)\s*(trusted_connection|integrated security)\s*=\s*(true|yes|sspi)\s*(;|$)/i.test(normalizedConn);
+  const hasSqlAuth =
+    Boolean(sqlConnectionValue(normalizedConn, ["user id", "uid", "user"])) &&
+    Boolean(sqlConnectionValue(normalizedConn, ["password", "pwd"]));
+  if (usesWindowsAuth && !hasSqlAuth) {
+    throw new Error(
+      "SQL_CONNECTION_STRING uses Windows trusted authentication, but this packaged Bridge uses the Node mssql/tedious driver. Create or use a SQL login and save User Id plus Password in the connection string.",
+    );
+  }
+  return { server, database };
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -658,15 +749,16 @@ function retryAfterMs(res) {
  * `{ connectionString, requestTimeout }` leaves server undefined — requestTimeout is ignored and Tedious stays at 15s.
  */
 function createSqlPool() {
-  const conn = CONN.trim();
+  const conn = normalizeSqlConnectionInput(CONN);
   if (!conn) {
     throw new Error("SQL_CONNECTION_STRING is empty. Save the Counterpoint SQL Server connection string in the Bridge Main Hub Connection screen.");
   }
   try {
+    validateSqlConnectionString(conn);
     const parsed = sql.ConnectionPool.parseConnectionString(conn);
     if (typeof parsed.server !== "string" || !parsed.server.trim()) {
       throw new Error(
-        'SQL_CONNECTION_STRING did not include a SQL Server host. Use a full string like "Server=RMSSVR;Database=...;User Id=...;Password=...;TrustServerCertificate=True".',
+        'SQL_CONNECTION_STRING did not include a SQL Server host after driver parsing. Use a full string like "Server=RMSSVR;Database=...;User Id=...;Password=...;TrustServerCertificate=True".',
       );
     }
     const usesIpServer = net.isIP(parsed.server ?? "") !== 0;
