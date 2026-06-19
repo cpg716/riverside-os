@@ -2,17 +2,17 @@
 
 /* ── Custom Utilities for WowDash Glassmorphism ── */
 :root {
-  --bg-0: #08090c;
-  --bg-1: #0f1117;
-  --bg-2: #161922;
-  --bg-3: #1e222e;
-  --border: rgba(255, 255, 255, 0.06);
-  --border-hover: rgba(255, 255, 255, 0.12);
-  --text: #e0e4ec;
-  --text-muted: #6b7280;
-  --text-dim: #3d4452;
-  --accent: #f97316;
-  --accent-dim: rgba(249, 115, 22, 0.15);
+  --bg-0: #f6f7fb;
+  --bg-1: #ffffff;
+  --bg-2: #f8fafc;
+  --bg-3: #eef2f7;
+  --border: #e2e8f0;
+  --border-hover: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+  --accent: #7c3aed;
+  --accent-dim: rgba(124, 58, 237, 0.12);
   --green: #22c55e;
   --green-dim: rgba(34, 197, 94, 0.12);
   --red: #ef4444;
@@ -26,6 +26,82 @@ body {
   background-color: var(--bg-0);
   color: var(--text);
   overflow: hidden;
+}
+
+[data-ros-bridge] {
+  background: var(--bg-0) !important;
+  color: var(--text) !important;
+}
+
+[data-ros-bridge] .bg-\[\#08090c\] {
+  background-color: var(--bg-0) !important;
+}
+
+[data-ros-bridge] .bg-\[\#0f1117\],
+[data-ros-bridge] .bg-\[\#0f1117\]\/80 {
+  background-color: var(--bg-1) !important;
+}
+
+[data-ros-bridge] .bg-\[\#0f1117\]\/50,
+[data-ros-bridge] .bg-\[\#161922\],
+[data-ros-bridge] .bg-zinc-800 {
+  background-color: var(--bg-2) !important;
+}
+
+[data-ros-bridge] .border-white\/5,
+[data-ros-bridge] .border-white\/10 {
+  border-color: var(--border) !important;
+}
+
+[data-ros-bridge] .hover\:bg-white\/5:hover,
+[data-ros-bridge] .hover\:bg-white\/2:hover {
+  background-color: var(--bg-3) !important;
+}
+
+[data-ros-bridge] .text-\[\#e0e4ec\],
+[data-ros-bridge] .text-white,
+[data-ros-bridge] .text-gray-300 {
+  color: var(--text) !important;
+}
+
+[data-ros-bridge] .text-gray-400,
+[data-ros-bridge] .text-gray-500 {
+  color: var(--text-muted) !important;
+}
+
+[data-ros-bridge] .text-\[\#f97316\],
+[data-ros-bridge] .text-orange-400,
+[data-ros-bridge] .text-orange-500 {
+  color: var(--accent) !important;
+}
+
+[data-ros-bridge] .bg-\[\#f97316\]\/10,
+[data-ros-bridge] .bg-orange-600,
+[data-ros-bridge] .bg-linear-to-r,
+[data-ros-bridge] .bg-linear-to-br {
+  background: var(--accent) !important;
+}
+
+[data-ros-bridge] .border-\[\#f97316\]\/20,
+[data-ros-bridge] .hover\:border-orange-500\/50:hover,
+[data-ros-bridge] .hover\:border-orange-500\/30:hover,
+[data-ros-bridge] .focus\:border-orange-500\/50:focus {
+  border-color: var(--accent) !important;
+}
+
+[data-ros-bridge] button.bg-orange-600,
+[data-ros-bridge] .bg-linear-to-r.text-white,
+[data-ros-bridge] .bg-linear-to-br .text-white,
+[data-ros-bridge] .bg-orange-600.text-white {
+  color: #ffffff !important;
+}
+
+[data-ros-bridge] input,
+[data-ros-bridge] select,
+[data-ros-bridge] textarea {
+  background-color: #ffffff !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
 }
 
 ::-webkit-scrollbar {

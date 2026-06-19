@@ -1,6 +1,6 @@
 # Counterpoint SQL Server → Riverside OS: Sync Guide
 
-End-to-end reference for setting up and operating the one-way Counterpoint transition into **ROS PostgreSQL**. The preferred architecture is **Counterpoint Bridge extracts raw data → Counterpoint SYNC Workbench stages/cleans/packages → ROS Back Office validates and imports approved packages**.
+End-to-end reference for setting up and operating the one-way Counterpoint transition into **ROS PostgreSQL**. The go-live architecture is **Counterpoint Bridge extracts raw data → Main Hub ROS stages/proofs data → ROS CSV/AI review improves allowed fields → staff applies approved imports**.
 
 **Companion docs:**
 - [`COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md`](COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) — **operator manual**: direct vs staging, hub, prerequisites, bridge/API updates, troubleshooting
@@ -9,28 +9,28 @@ End-to-end reference for setting up and operating the one-way Counterpoint trans
 - [`PLAN_COUNTERPOINT_ROS_SYNC.md`](PLAN_COUNTERPOINT_ROS_SYNC.md) — implementation roadmap and schema mapping tables
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
 - [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — Bridge connection and SYNC target template
-- [`counterpoint-sync/README.md`](../counterpoint-sync/README.md) — Main Hub SYNC Workbench API and setup
+- [`counterpoint-sync/README.md`](../counterpoint-sync/README.md) — legacy standalone SYNC Workbench API and setup
 
 **Import Command Center:**
 The Counterpoint screen in **Settings → Integrations → Counterpoint** is now the ROS final approval surface. The operator workflow is SYNC connection, prepared-run selection, section readiness review, ROS package preflight, explicit section import, import exceptions, final proof, and advanced diagnostics:
 
-Preparation, cleanup, CSV input, and AI/Codex review packages live in the standalone **Counterpoint SYNC Workbench** on the Main Hub. ROS does not host that cleanup workspace. ROS only pulls selected SYNC package JSON, validates it, imports approved sections, and records proof.
+Preparation, cleanup, CSV input, and AI/Codex review packages are hosted in ROS for the go-live path. The standalone **Counterpoint SYNC Workbench** is legacy compatibility for older prepared packages, not the required Bridge handoff.
 
 1. **Bridge heartbeat** - extraction host heartbeat/status only
-2. **SYNC app connection** - Main Hub SYNC Workbench reachability and selected prepared run
+2. **Main Hub ROS intake** - Bridge heartbeat, ROS intake health, and staging state
 3. **Sections** - SYNC status, source/prepared counts, warnings, blockers, and package fingerprint
 4. **ROS preflight** - ROS validates the selected package contract and records package-scoped count proof
 5. **Import Section** - explicit confirmation writes the selected package through the existing ROS Counterpoint import services
 6. **Exceptions** - SYNC preparation exceptions are separate from ROS import exceptions
 7. **Final proof / diagnostics** - selected-run proof first; accumulated ROS state is diagnostics only
 
-The Command Center also shows a direct business-area ingest path for Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points. Each one follows the same control pattern: selected SYNC JSON package → ROS preflight → explicit section import → existing backend import batch → PostgreSQL.
+The Command Center shows a business-area ingest path for Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points. Each one follows the same control pattern: Bridge extraction → ROS staging/proof → staff review/fix → existing backend import batch → PostgreSQL.
 
 Advancement is proof-gated. Bridge-reported row counts alone do not unlock import or cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, `401 invalid or missing sync token`, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import.
 
 When a SYNC package preflight passes, ROS records proof for the selected run/section/package fingerprint. Import is allowed only while that selected package fingerprint still matches the latest ROS preflight for that section. If SYNC package content changes after preflight, run ROS preflight again before importing. The package payload must match the existing typed Counterpoint payloads. ROS then writes through the normal Counterpoint ingest path, records raw source rows and provenance links to landed ROS rows, and stores package-scoped proof. A run that never imports, fails, has blockers, or lacks package-scoped proof is not complete.
 
-AI/Codex review happens only in SYNC before ROS preflight. Staff export an AI review package from the Workbench, paste/upload it to Codex or ChatGPT, import returned suggestion JSON, accept/reject/edit suggestions, and then regenerate the ROS-ready package. Accepted suggestions update prepared/normalized SYNC data only; raw source payloads remain unchanged. Any accepted suggestion that changes package content changes the package fingerprint, so ROS preflight must be run again.
+AI/Codex review happens in ROS after Counterpoint data and CSV references are available. Staff export an AI review package from ROS, paste/upload it to Codex or ChatGPT, import returned suggestion JSON, and accept/reject/edit suggestions. Accepted suggestions update only allowed cleanup fields; raw source payloads remain unchanged.
 
 **Optional SQL objects:** Gift and loyalty tables (Standard examples: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are Counterpoint-style names from product/schema docs. Local installations can use different names such as **`SY_GFC`** (Gift Cards) or **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 

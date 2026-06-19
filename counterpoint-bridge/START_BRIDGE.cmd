@@ -33,8 +33,8 @@ if not exist ".env" (
   echo.
   echo  EDIT ".env" in this folder:
   echo    - SQL_CONNECTION_STRING   ^(Counterpoint SQL Server^)
-  echo    - ROS_BASE_URL             ^(e.g. http://192.168.1.50:3000^)
-  echo    - COUNTERPOINT_SYNC_TOKEN  ^(same secret as the ROS server^)
+  echo    - ROS_BASE_URL             ^(Main Hub ROS URL, e.g. http://192.168.1.50:3000^)
+  echo    - COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first
   echo    - RUN_ONCE ^(0 = standby and wait for ROS requests; 1 = one full import then exit^)
   echo.
   echo  Save the file, then double-click START_BRIDGE.cmd again.

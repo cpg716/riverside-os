@@ -24,7 +24,6 @@ RiversideOS-v0.80.9-Windows-Deployment/
   remove-standalone-app.ps1
   Install-RosieAiStack.cmd
   Repair-RiversideCredentialsKey.cmd
-  Set-CounterpointBridgeToken.cmd
   riverside-deployment.config.example.json
   server/riverside-server.exe
   client-dist/
@@ -32,6 +31,7 @@ RiversideOS-v0.80.9-Windows-Deployment/
   register/
   deployment-app/
   server-manager-app/
+  counterpoint-bridge-gui/
   rosie/bin/
   rosie/stt/
   rosie/tts/
@@ -85,8 +85,7 @@ The Deployment Manager keeps the password work inside the installer flow:
 - **Riverside database password**: generated automatically if left blank or still set to a placeholder. It is saved to `riverside-deployment.config.json` and written to `C:\RiversideOS\server\.env`.
 - **Riverside app secret**: generated automatically if left blank, too short, or still set to a placeholder.
 - **Integration credential encryption key**: written as `RIVERSIDE_CREDENTIALS_KEY` in `C:\RiversideOS\server\.env` and the Windows machine environment. This must be present before Backoffice Settings can save Helcim, QBO, Counterpoint, or other encrypted integration credentials.
-- **Counterpoint bridge sync token**: generated when blank and written as `COUNTERPOINT_SYNC_TOKEN`. The same value must also be placed in `C:\counterpoint-bridge\.env` on the Counterpoint host.
-- **Counterpoint SYNC Workbench**: included in the Windows deployment package under `counterpoint-sync-workbench\` with `Start-CounterpointSYNCWorkbench.cmd` at the package root. Run it on the Main Hub before Bridge → SYNC rehearsal; it stages packages locally and never writes directly to ROS PostgreSQL.
+- **Counterpoint Bridge GUI**: included under `counterpoint-bridge-gui\`. Use it on the Counterpoint host to connect Counterpoint SQL directly to Main Hub ROS on port `3000`; standalone SYNC and bridge tokens are not part of the go-live package path.
 - **Register and Back Office station settings**: written automatically to `C:\ProgramData\RiversideOS\station-config.json`.
 
 Generated Riverside passwords intentionally use URL-safe letters and numbers so PostgreSQL connection strings do not break on characters like `#`, `@`, or `%`.
@@ -118,8 +117,6 @@ Hotfix/support actions included in v0.80.9 packages:
 
 - **`Install-RosieAiStack.cmd`** copies the precompiled ROSIE AI binaries (llama-server, sherpa-onnx) and bundled STT/TTS model files, verifies the Gemma GGUF model integrity, patches the server `.env` to make the local LLM reachable, and restarts the server. Use this to restore ROSIE AI features on existing Server PCs without a full reinstall.
 - **`Repair-RiversideCredentialsKey.cmd`** repairs the installed server credential key, writes it to both `C:\RiversideOS\server\.env` and the Windows machine environment, and restarts the `Riverside OS Server` task. Use this when Backoffice Settings says `RIVERSIDE_CREDENTIALS_KEY` must be set before integration credentials can be saved.
-- **`Set-CounterpointBridgeToken.cmd`** prompts for the exact `COUNTERPOINT_SYNC_TOKEN` from the Counterpoint bridge `.env`, writes that same token to the Riverside server environment, and restarts the server. Use this when the Counterpoint bridge reaches Riverside but fails with `health 401`.
-
 Manual fallback:
 
 ```powershell

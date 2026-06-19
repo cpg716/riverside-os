@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, Link, Download, Monitor, Square, AlertTriangle, Activity, HardDrive, XCircle, Copy } from 'lucide-react';
+import { Settings, Server, Play, CheckCircle, ChevronRight, Terminal, Cpu, Wrench, RefreshCw, Trash2, Key, Power, RotateCw, FolderOpen, SearchCheck, Database, Download, Monitor, Square, AlertTriangle, Activity, HardDrive, XCircle, Copy } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -93,7 +93,6 @@ export default function App() {
   const [selfUpdateCheck, setSelfUpdateCheck] = useState<UpdateCheckResult | null>(null);
   const [selfUpdateBusy, setSelfUpdateBusy] = useState(false);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
-  const [counterpointToken, setCounterpointToken] = useState('');
 
   const selectedInstallLabel =
     role === 'main-hub'
@@ -353,15 +352,6 @@ export default function App() {
       setIsExecuting(false);
       unlisten();
     }
-  };
-
-  const syncCounterpointBridgeToken = async () => {
-    const token = counterpointToken.trim();
-    if (!token) {
-      setLogs([{ level: 'error', text: 'Paste the Counterpoint bridge token before syncing it to the Main Hub.' }]);
-      return;
-    }
-    await executeScript('set-counterpoint-bridge-token.ps1', ['-Token', token]);
   };
 
   const checkDeploymentManagerUpdate = async () => {
@@ -1099,18 +1089,7 @@ export default function App() {
                 <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-zinc-900">
                   <Cpu className="w-5 h-5 text-brand-600" /> Utility & Integration Tools
                 </h3>
-                <p className="text-xs text-zinc-500 mb-6 font-medium">Repair local AI services, sync integration tokens, and restore encrypted server credentials.</p>
-                <div className="mb-4 max-w-xl">
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Counterpoint Bridge Token</label>
-                  <input
-                    type="password"
-                    value={counterpointToken}
-                    onChange={(e) => setCounterpointToken(e.target.value)}
-                    placeholder="Paste COUNTERPOINT_SYNC_TOKEN before syncing"
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none"
-                  />
-                  <p className="mt-1 text-[11px] text-zinc-500">Used only by Sync Counterpoint Bridge; the saved execution log masks the token argument.</p>
-                </div>
+                <p className="text-xs text-zinc-500 mb-6 font-medium">Repair local AI services and restore encrypted server credentials.</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <button
                     onClick={() => executeScript('Install-RosieAiStack.ps1')}
@@ -1144,23 +1123,6 @@ export default function App() {
                       </div>
                     </div>
                     <Play className="w-4 h-4 text-zinc-400 group-hover:text-brand-500" />
-                  </button>
-
-                  <button
-                    onClick={syncCounterpointBridgeToken}
-                    disabled={isExecuting}
-                    className="text-left p-4 rounded-xl border border-zinc-200 hover:border-amber-500 hover:bg-amber-50 transition-all disabled:opacity-50 flex items-center justify-between group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="p-2 rounded-lg bg-zinc-100 text-zinc-700 group-hover:bg-amber-100 group-hover:text-amber-700">
-                        <Link className="w-5 h-5" />
-                      </span>
-                      <div>
-                        <h4 className="font-bold text-sm text-zinc-900">Sync Counterpoint Bridge</h4>
-                        <p className="text-xs text-zinc-500">Save the bridge token to the Main Hub server and restart Riverside OS Server.</p>
-                      </div>
-                    </div>
-                    <Link className="w-4 h-4 text-zinc-400 group-hover:text-amber-500" />
                   </button>
 
                   <button

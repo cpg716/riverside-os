@@ -457,20 +457,19 @@ function checkCounterpointSyncStagingVisibility() {
     panelFile,
     "Bridge-extracted rows must not appear as No Data just because they are still in a support queue.",
   );
-  assert(
-    panel.includes('data-testid="counterpoint-bridge-connection-status"') &&
-      panel.includes("Bridge connection status") &&
-      panel.includes("SYNC Workbench handoff") &&
-      panel.includes("status?.last_seen_at") &&
-      panel.includes("No accepted heartbeat") &&
-      panel.includes("syncHeartbeat?.received_at") &&
-      panel.includes("No Bridge heartbeat at SYNC") &&
-      panel.includes("syncHeartbeat?.bridge_hostname ?? bridgeHost") &&
-      panel.includes("syncHeartbeat?.bridge_version ?? bridgeVersion"),
-    "Main Hub Counterpoint Sync screen shows explicit Bridge connection health",
-    panelFile,
-    "Operators must be able to distinguish Bridge mode, ROS heartbeat, SYNC heartbeat, host, phase, and version status without requiring tokens for the normal closed-store handoff.",
-  );
+	assert(
+	  panel.includes('data-testid="counterpoint-bridge-connection-status"') &&
+	    panel.includes("Bridge connection status") &&
+	    panel.includes("Direct ROS intake") &&
+	    panel.includes("status?.last_seen_at") &&
+	    panel.includes("No accepted heartbeat") &&
+	    panel.includes("Main Hub ROS intake") &&
+	    panel.includes("ROS staging:") &&
+	    panel.includes("Legacy SYNC"),
+	  "Main Hub Counterpoint Sync screen shows explicit Bridge connection health",
+	  panelFile,
+	  "Operators must be able to distinguish Bridge mode, ROS heartbeat, staging state, and optional legacy SYNC status without requiring tokens for the normal closed-store handoff.",
+	);
 
   const apiFile = "server/src/api/counterpoint_sync.rs";
   const api = read(apiFile);
@@ -524,33 +523,22 @@ function checkCounterpointBridgeGuiUpdateWiring() {
   );
 }
 
-function checkCounterpointSyncWorkbenchDeploymentPackaging() {
+function checkCounterpointBridgeDeploymentPackaging() {
   const builderFile = "deployment/windows/build-deployment-package.ps1";
   const builder = read(builderFile);
   assert(
-    builder.includes("Copy-CounterpointSyncWorkbench") &&
-      builder.includes("counterpoint-sync-workbench") &&
-      builder.includes("Start-CounterpointSYNCWorkbench.ps1") &&
-      builder.includes("Start-CounterpointSYNCWorkbench.cmd") &&
-      builder.includes("counterpoint-bridge-gui") &&
+    builder.includes("counterpoint-bridge-gui") &&
+      builder.includes("counterpointBridgeGuiPath") &&
+      !builder.includes("Copy-CounterpointSyncWorkbench") &&
+      !builder.includes("counterpoint-sync-workbench") &&
+      !builder.includes("Start-CounterpointSYNCWorkbench.ps1") &&
+      !builder.includes("Start-CounterpointSYNCWorkbench.cmd") &&
+      !builder.includes("set-counterpoint-bridge-token.ps1") &&
+      !builder.includes("Set-CounterpointBridgeToken.cmd") &&
       !builder.includes("counterpoint-sync-bridge"),
-    "Windows deployment package includes Counterpoint SYNC Workbench as a distinct Main Hub tool",
+    "Windows deployment package includes only the direct ROS Counterpoint Bridge GUI, not obsolete SYNC Workbench payloads",
     builderFile,
-    "The SYNC Workbench must be visible in the Windows deployment separately from the Counterpoint Bridge GUI.",
-  );
-
-  const launcherFile = "deployment/windows/Start-CounterpointSYNCWorkbench.ps1";
-  const launcher = read(launcherFile);
-  assert(
-    launcher.includes("Node.js 22.5+") &&
-      launcher.includes("counterpoint-sync-workbench") &&
-      launcher.includes("COUNTERPOINT_SYNC_WORKBENCH_DB") &&
-      launcher.includes("COUNTERPOINT_SYNC_WORKBENCH_PORT") &&
-      launcher.includes('$url = "http://127.0.0.1:$port"') &&
-      launcher.includes('service -eq "counterpoint_sync_workbench"'),
-    "Counterpoint SYNC Workbench has a packaged Windows launcher",
-    launcherFile,
-    "Operators need a visible way to start the Main Hub SYNC Workbench from the deployment ZIP.",
+    "Go-live Counterpoint import now uses Bridge GUI -> Main Hub ROS. The deployment ZIP must not carry the retired standalone SYNC Workbench or token helper.",
   );
 }
 
@@ -770,11 +758,11 @@ function checkDeploymentManagerActionWiring() {
       frontend.includes("renderExecutionOutput") &&
       frontend.includes("newConfig.register.apiBase = normalizeApiBaseInput(serverIp)") &&
       frontend.includes("remove-standalone-app.ps1") &&
-      frontend.includes("counterpointToken") &&
-      frontend.includes("set-counterpoint-bridge-token.ps1', ['-Token', token]"),
+      !frontend.includes("counterpointToken") &&
+      !frontend.includes("set-counterpoint-bridge-token.ps1"),
     "Deployment Manager visible actions are wired, confirmable, and use the shared execution console",
     frontendFile,
-    "Avoid browser prompts, arbitrary refresh timers, dead seed actions, unwired standalone API config, and hidden Counterpoint token prompts.",
+    "Avoid browser prompts, arbitrary refresh timers, dead seed actions, unwired standalone API config, and obsolete Counterpoint token prompts.",
   );
 
   const scriptCalls = sortedSet(
@@ -995,7 +983,7 @@ checkPrintRoutingManifest();
 checkCounterpointBridgeQueryTesterEntityParity();
 checkCounterpointSyncStagingVisibility();
 checkCounterpointBridgeGuiUpdateWiring();
-checkCounterpointSyncWorkbenchDeploymentPackaging();
+checkCounterpointBridgeDeploymentPackaging();
 checkCounterpointRateLimitBypass();
 checkCounterpointWorkbenchSql();
 checkPackagedHelpManuals();

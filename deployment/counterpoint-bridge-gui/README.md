@@ -9,14 +9,14 @@ Tauri desktop control panel for the Counterpoint SQL → Riverside OS migration 
 - The operator `.env` file and cursor state live in that writable app data bridge folder.
 - App updates refresh bundled bridge files when packaged files or dependency manifests change, while preserving `.env`.
 - Development builds may still use the system `node`/`npm` fallback when bundled runtime resources are not present.
-- The GUI does not auto-start the bridge until the SQL connection and Main Hub SYNC Workbench URL are configured.
+- The GUI does not auto-start the bridge until the SQL connection and Main Hub ROS URL are configured.
 
 ## Operator flow
 
 1. Open the GUI on the Counterpoint host or a machine with SQL Server access.
-2. Enter the Counterpoint SQL connection string and Main Hub SYNC Workbench URL. From the Counterpoint PC, this must be the Main Hub LAN address, such as `http://10.64.70.196:3015`; `127.0.0.1` points back to the Counterpoint PC.
+2. Enter the Counterpoint SQL connection string and Main Hub ROS URL. From the Counterpoint PC, use the Main Hub ROS LAN address on port `3000`, such as `http://10.64.70.196:3000`; `127.0.0.1` points back to the Counterpoint PC.
 3. Save configuration.
 4. Start with Dry Run enabled and review the Process Console.
-5. Open the Counterpoint SYNC Workbench from the sidebar and verify received runs before ROS final import.
+5. Run extraction after **Check Main Hub ROS** succeeds. Batches post directly to ROS intake for preflight/import proof.
 
 Loyalty is snapshot-only for go-live: current balances come through the customer import as `pts_bal`; ROS manages points after cutover.

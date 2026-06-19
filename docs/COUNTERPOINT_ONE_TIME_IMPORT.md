@@ -62,7 +62,7 @@ When **`PS_SLS_REP`** is not visible and `CP_SALES_REPS_QUERY` is empty, the bri
 ## Preconditions
 
 1. **Apply migrations** through `081_counterpoint_import_first_proof.sql` (adds import runs, source counts, raw records, provenance, and exceptions).
-2. Save **`COUNTERPOINT_SYNC_TOKEN`** in **Settings → Integrations → Counterpoint** and put the same value in the bridge `.env` as `COUNTERPOINT_SYNC_TOKEN`.
+2. Configure the Bridge with the Main Hub ROS URL on port `3000` and `COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first`.
 3. Prefer **`RUN_ONCE=1`** on the bridge for a single pass per launch. Re-launching for validation/cutover rehearsal is fine; leaving the bridge in repeated polling mode is usually not.
 
 ## Preflight: exact facts operators should verify before running
@@ -117,7 +117,7 @@ Use this order for the guarded authoritative import before launch:
    ```bash
    RIVERSIDE_DB_NAME=riverside_os bash scripts/validate_schema_contract.sh
    ```
-3. Start the Counterpoint Bridge with `CP_IMPORT_FIRST_MODE=1`, `CP_IMPORT_SINCE=2018-01-01`, and the same `COUNTERPOINT_SYNC_TOKEN` saved in ROS settings.
+3. Start the Counterpoint Bridge with `CP_IMPORT_FIRST_MODE=1`, `CP_IMPORT_SINCE=2018-01-01`, and `ROS_BASE_URL` pointed at the Main Hub ROS API.
 4. Confirm **Settings → Integrations → Counterpoint → Command center** shows **Preflight passed**. The Bridge posts `/api/sync/counterpoint/preflight` before any import run.
 5. Run inventory/SKU preflight from the flattened Counterpoint CSV when barcode or SKU cleanup is needed:
    ```bash
@@ -158,7 +158,7 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 - Confirm a current ROS database backup exists and is usable before changing import state.
 - Run `RIVERSIDE_DB_NAME=riverside_os bash scripts/validate_schema_contract.sh` and `RIVERSIDE_DB_NAME=riverside_os bash scripts/migration-status-docker.sh`. Do not start final import if the active database is missing Counterpoint staging columns or has unapplied active migrations.
 - Confirm the Counterpoint bridge `.env` points at the correct Counterpoint company database and ROS server.
-- Confirm `COUNTERPOINT_SYNC_TOKEN`, `CP_IMPORT_SINCE`, `RUN_ONCE`, direct landing mode, and enabled `SYNC_*` entities in the bridge runtime snapshot.
+- Confirm `ROS_BASE_URL`, `CP_IMPORT_SINCE`, `RUN_ONCE`, direct ROS intake mode, and enabled `SYNC_*` entities in the bridge runtime snapshot.
 - Confirm the enabled entities follow the required order: staff / sales-rep stubs, category masters, vendors, catalog, vendor items, inventory, customers, customer notes, tickets, receiving history only if deliberately enabled, open docs, store credit opening, current loyalty balances, and gift cards. Keep loyalty history disabled for the current-balance snapshot cutover.
 - Confirm gift cards and loyalty are configured as snapshots: leave `CP_GFC_HIST_QUERY` empty, leave `CP_TICKET_GIFT_QUERY` empty, keep `SYNC_LOYALTY_HIST=0`, and ensure `CP_CUSTOMERS_QUERY` selects the current Counterpoint points balance as `pts_bal`.
 - Review **Settings → Counterpoint → Payments** and confirm every active Counterpoint tender code is mapped before importing tickets/open docs. ROS ships common defaults, but unknown tenders import as `counterpoint_unmapped` and create an unresolved sync issue rather than silently reporting as cash.
@@ -209,7 +209,7 @@ Use this checklist for each pre-go-live rehearsal pass. Stop and resolve the iss
 
 ### Final go-live note
 
-After the final accepted import, stop using the bridge. Disable or rotate `COUNTERPOINT_SYNC_TOKEN`, stop the Counterpoint bridge process, remove startup/scheduled launch paths, and treat ROS as the system of record.
+After the final accepted import, stop using the bridge. Stop the Counterpoint bridge process, remove startup/scheduled launch paths, and treat ROS as the system of record.
 
 ## Batch failure and retry behavior
 
@@ -246,7 +246,7 @@ Enable either sync only when **`discover`** shows the corresponding CP tables an
 
 ## API endpoints (machine-to-machine)
 
-All require header **`x-ros-sync-token`** (or `Authorization: Bearer …`) matching **`COUNTERPOINT_SYNC_TOKEN`**.
+The go-live Bridge path is tokenless on the trusted store LAN. If a deployment explicitly enables a compatibility token, send it as **`x-ros-sync-token`** or `Authorization: Bearer ...`.
 
 | Path | Purpose |
 |------|---------|
@@ -418,7 +418,7 @@ Immediately after the migration is accepted:
 1. Capture the bridge summary and ROS status evidence used for sign-off.
 2. Stop the bridge on the Counterpoint host.
 3. Remove any startup shortcut, scheduled task, or operator habit that could launch it again.
-4. Remove the bridge folder and/or rotate the `COUNTERPOINT_SYNC_TOKEN` so the old path cannot post again accidentally.
+4. Remove the bridge folder so the old path cannot post again accidentally.
 5. Treat ROS as the only active system of record going forward.
 
 ### What can be disabled now vs later

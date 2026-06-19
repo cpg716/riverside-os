@@ -1,6 +1,6 @@
 # Counterpoint → Riverside one-time import bridge
 
-Node.js utility for **Windows** (or any OS with Node 18+) on or next to **Counterpoint SQL Server**. For Riverside's NCR Counterpoint POS v8.4 environment, it probes the live company database schema and builds runtime extraction SQL before POSTing raw batches to the Main Hub **Counterpoint SYNC Workbench**.
+Node.js utility for **Windows** (or any OS with Node 18+) on or next to **Counterpoint SQL Server**. For Riverside's NCR Counterpoint POS v8.4 environment, it probes the live company database schema and builds runtime extraction SQL before POSTing batches to the Main Hub **Riverside OS** Counterpoint intake.
 
 Use this bridge for a **controlled one-time migration** into ROS. It is **not** meant to remain as a permanent live POS integration after cutover.
 
@@ -16,14 +16,14 @@ Since v0.7.3, the bridge uses a high-concurrency parallel engine:
 | Variable | Purpose |
 |----------|---------|
 | `SQL_CONNECTION_STRING` | Company database (not `master`); same DB you use in SSMS |
-| `COUNTERPOINT_BRIDGE_TARGET_MODE` | Preferred: `sync_workbench`. Explicit direct ROS compatibility path: `ros_import_first` |
-| `COUNTERPOINT_SYNC_WORKBENCH_URL` | Main Hub SYNC Workbench API, e.g. `http://10.64.70.154:3015` |
-| `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` | Optional. Leave blank for the normal closed-store workflow unless the Workbench was deliberately configured to require a token |
-| `ROS_BASE_URL` | Optional direct ROS compatibility target, e.g. `http://10.64.70.154:3000` |
-| `COUNTERPOINT_SYNC_TOKEN` | Optional direct ROS compatibility token |
+| `COUNTERPOINT_BRIDGE_TARGET_MODE` | Go-live default: `ros_import_first` |
+| `ROS_BASE_URL` | Main Hub ROS target, e.g. `http://10.64.70.154:3000` |
+| `COUNTERPOINT_SYNC_WORKBENCH_URL` | Optional legacy standalone SYNC Workbench API, e.g. `http://10.64.70.154:3015` |
+| `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` | Optional legacy Workbench token |
+| `COUNTERPOINT_SYNC_TOKEN` | Optional compatibility token only if a deployment deliberately requires it |
 Normal setup keeps `.env` to connection and target values only. The bridge derives the entity SQL at runtime from `INFORMATION_SCHEMA`.
 
-In the preferred transition workflow, `COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench` keeps the Bridge focused on extraction. It sends raw batches and heartbeat to the SYNC Workbench. ROS Back Office later pulls a selected prepared JSON package from SYNC and imports through the existing ROS Counterpoint import pipeline. CSV files are still useful as SYNC inputs and review exports, but they are not the SYNC-to-ROS import mechanism.
+In the go-live workflow, `COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first` keeps the Bridge focused on extraction and posts directly to Main Hub ROS. ROS owns staging, CSV reference uploads, AI review packs, preflight/proof, import exceptions, and final approval. The standalone SYNC Workbench remains a legacy compatibility tool, not the required path.
 
 Run order is **fixed in code** each pass: **staff -> optional sales-rep stubs -> category masters -> vendors -> catalog -> vendor_items -> inventory -> customers -> notes -> tickets/sales history -> optional receiving history -> open docs -> optional store credit -> loyalty balances -> gift cards**. Current loyalty balances are imported through customers as `pts_bal`; loyalty history stays disabled for go-live. Older `CP_*_QUERY` overrides are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
 
@@ -49,7 +49,7 @@ Once the migration is accepted:
 
 ## Health
 
-On start in `sync_workbench` mode, the bridge calls `GET /health` on the SYNC Workbench. In direct ROS compatibility mode, it calls `GET /api/sync/counterpoint/health` on ROS.
+On start in `ros_import_first` mode, the bridge calls `GET /api/sync/counterpoint/health` on ROS. Legacy `sync_workbench` mode still calls `GET /health` on the standalone SYNC Workbench.
 
 ## Develop on Mac/Linux
 
@@ -80,8 +80,8 @@ Full integration notes: `docs/COUNTERPOINT_SYNC_GUIDE.md` in the Riverside OS re
 
 ## Server side
 
-ROS needs migration **29** plus **84+** Counterpoint tables and the Counterpoint SYNC Workbench URL saved in Back Office Settings for package handoff. `COUNTERPOINT_SYNC_TOKEN` is only needed when explicitly running the direct ROS compatibility path.
+ROS needs migration **29** plus **84+** Counterpoint tables. The go-live Bridge path does not require a saved standalone SYNC Workbench URL or token.
 
 ## Security
 
-Keep the Workbench on the trusted store LAN. Tokens are optional for the normal closed-store workflow; if you enable one for a wider network, use a long random value and never commit `.env` or log the token.
+Keep Bridge and ROS on the trusted store LAN. Tokens are optional compatibility controls only; if you enable one for a wider network, use a long random value and never commit `.env` or log the token.

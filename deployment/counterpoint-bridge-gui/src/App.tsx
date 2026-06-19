@@ -19,9 +19,7 @@ import {
 
 const BRIDGE_API = "http://localhost:3002";
 const ROS_BASE_URL = "http://localhost:3000";
-const SYNC_WORKBENCH_PORT = "3015";
-const SYNC_WORKBENCH_HEALTH_PATH = "/api/bridge/health";
-const SYNC_WORKBENCH_PLACEHOLDER = "http://<SYNC-App-LAN-IP>:3015";
+const ROS_SYNC_HEALTH_PATH = "/api/sync/counterpoint/health";
 
 interface BridgeSettings {
   sql_conn: string;
@@ -96,26 +94,6 @@ function normalizeHttpUrl(value: string): string {
   return parsed.toString().replace(/\/+$/, "");
 }
 
-function isLoopbackHost(hostname: string): boolean {
-  return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(hostname.toLowerCase());
-}
-
-function deriveSyncWorkbenchUrlFromRosUrl(value: string): string {
-  const parsed = parseHttpUrl(value);
-  if (!parsed || isLoopbackHost(parsed.hostname)) return "";
-  parsed.port = SYNC_WORKBENCH_PORT;
-  parsed.pathname = "";
-  parsed.search = "";
-  parsed.hash = "";
-  return normalizeHttpUrl(parsed.toString());
-}
-
-function loopbackSyncWarning(url: string): string {
-  const parsed = parseHttpUrl(url);
-  if (!parsed || !isLoopbackHost(parsed.hostname)) return "";
-  return "This address points back to the Counterpoint PC. Use the LAN URL of the computer running the standalone SYNC app.";
-}
-
 const ENTITIES = [
   { key: "staff", label: "Staff", icon: "👤" },
   { key: "sales_rep_stubs", label: "Sales Reps", icon: "🏷️" },
@@ -156,7 +134,6 @@ function App() {
   // Settings fields
   const [sqlConn, setSqlConn] = useState("");
   const [rosUrl, setRosUrl] = useState("");
-  const [syncWorkbenchUrl, setSyncWorkbenchUrl] = useState("");
   const [syncWorkbenchCheck, setSyncWorkbenchCheck] = useState<SyncWorkbenchCheck | null>(null);
   const [syncWorkbenchChecking, setSyncWorkbenchChecking] = useState(false);
 
@@ -165,7 +142,7 @@ function App() {
   const hasRequiredBridgeSettings = useCallback((settings: BridgeSettings) => {
     return (
       settings.sql_conn.trim().length > 0 &&
-      settings.sync_workbench_url.trim().length > 0
+      settings.ros_url.trim().length > 0
     );
   }, []);
 
@@ -174,32 +151,10 @@ function App() {
     return normalizeHttpUrl(value);
   }, [rosUrl]);
 
-  const suggestedSyncWorkbenchUrl = useMemo(() => {
-    return deriveSyncWorkbenchUrlFromRosUrl(normalizedRosUrl) || SYNC_WORKBENCH_PLACEHOLDER;
-  }, [normalizedRosUrl]);
-
-  const normalizedSyncWorkbenchUrl = useMemo(() => {
-    const value = syncWorkbenchUrl.trim() || deriveSyncWorkbenchUrlFromRosUrl(normalizedRosUrl);
-    return normalizeHttpUrl(value);
-  }, [normalizedRosUrl, syncWorkbenchUrl]);
-
-  const openSyncWorkbench = useCallback(async () => {
-    const url = normalizedSyncWorkbenchUrl;
+  const checkRosReachability = useCallback(async (settings?: BridgeSettings): Promise<boolean> => {
+    const url = normalizeHttpUrl(settings?.ros_url || normalizedRosUrl);
     if (!url) {
-      setStatusMessage("Enter the standalone SYNC Workbench URL first.");
-      return;
-    }
-    try {
-      await openUrl(url);
-    } catch (e: any) {
-      setStatusMessage(`Could not open Counterpoint SYNC Workbench: ${e?.message ?? String(e)}`);
-    }
-  }, [normalizedSyncWorkbenchUrl]);
-
-  const checkSyncWorkbenchReachability = useCallback(async (): Promise<boolean> => {
-    const url = normalizedSyncWorkbenchUrl;
-    if (!url) {
-      const message = `Enter the standalone SYNC Workbench URL before extraction, for example http://10.64.70.196:3015.`;
+      const message = "Enter the Main Hub ROS URL before extraction.";
       setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return false;
@@ -208,7 +163,7 @@ function App() {
     try {
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), 5000);
-      const healthUrl = `${url}${SYNC_WORKBENCH_HEALTH_PATH}?bridge_check=${Date.now()}`;
+      const healthUrl = `${url}${ROS_SYNC_HEALTH_PATH}?bridge_check=${Date.now()}`;
       const response = await fetch(healthUrl, {
         method: "GET",
         headers: {
@@ -220,56 +175,48 @@ function App() {
         signal: controller.signal,
       });
       window.clearTimeout(timer);
+      const text = await response.text();
       if (!response.ok) {
-        const hint = loopbackSyncWarning(url);
-        const message = `SYNC app answered ${response.status} at ${url}${SYNC_WORKBENCH_HEALTH_PATH}.${hint ? ` ${hint}` : ""}`;
+        const message = `Main Hub ROS intake answered ${response.status} at ${url}${ROS_SYNC_HEALTH_PATH}: ${text.slice(0, 220)}`;
         setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
       }
-      const text = await response.text();
       let health: { service?: string; ok?: boolean };
       try {
         health = JSON.parse(text) as { service?: string; ok?: boolean };
       } catch {
-        const hint = loopbackSyncWarning(url);
-        const snippet = text.replace(/\s+/g, " ").trim().slice(0, 120);
-        const message = `The configured SYNC app URL is reachable, but it is not returning Counterpoint SYNC API health JSON at ${url}${SYNC_WORKBENCH_HEALTH_PATH}. Start the standalone Counterpoint SYNC Workbench launcher on the computer at that LAN address, or stop the wrong service using port 3015. ${snippet ? `Response started with: ${snippet}.` : ""}${hint ? ` ${hint}` : ""}`;
+        const message = `Main Hub ROS intake reached ${url}${ROS_SYNC_HEALTH_PATH}, but it did not return JSON.`;
         setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
       }
-      if (health.service !== "counterpoint_sync_workbench" || health.ok === false) {
-        const hint = loopbackSyncWarning(url);
-        const service = health.service ? ` It answered as ${health.service}.` : "";
-        const message = `SYNC app check reached ${url}${SYNC_WORKBENCH_HEALTH_PATH}, but it was not the Counterpoint SYNC API health endpoint.${service}${hint ? ` ${hint}` : ""}`;
+      if (health.service !== "counterpoint_sync" || health.ok === false) {
+        const message = `Main Hub ROS intake reached ${url}${ROS_SYNC_HEALTH_PATH}, but it did not answer as Counterpoint sync.`;
         setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
       }
-      const message = `SYNC app is ready at ${url}.`;
+      const message = `Main Hub ROS intake is ready at ${url}.`;
       setSyncWorkbenchCheck({ ok: true, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return true;
     } catch (e: any) {
-      const hint = loopbackSyncWarning(url);
-      const message = `SYNC app is not reachable at ${url}. Start the standalone Counterpoint SYNC Workbench app on that computer, then try again.${hint ? ` ${hint}` : ""} ${e?.message ?? String(e)}`;
+      const message = `Main Hub ROS intake is not reachable at ${url}${ROS_SYNC_HEALTH_PATH}: ${e?.message ?? String(e)}`;
       setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return false;
     } finally {
       setSyncWorkbenchChecking(false);
     }
-  }, [normalizedSyncWorkbenchUrl]);
+  }, [normalizedRosUrl]);
 
   const loadEnvSettings = useCallback(async (): Promise<BridgeSettings | null> => {
     try {
       const data = await invoke<BridgeSettings>("load_settings");
       setSqlConn(data.sql_conn);
       setRosUrl(data.ros_url);
-      const derivedSyncUrl = normalizeHttpUrl(data.sync_workbench_url || deriveSyncWorkbenchUrlFromRosUrl(data.ros_url));
-      setSyncWorkbenchUrl(derivedSyncUrl);
-      return { ...data, sync_token: "", sync_workbench_url: derivedSyncUrl, sync_workbench_token: "" };
+      return { ...data, sync_workbench_url: "", sync_workbench_token: "" };
     } catch (e: any) {
       console.error("Failed to load settings:", e);
       setStatusMessage(`Failed to load bridge settings: ${e}`);
@@ -279,9 +226,9 @@ function App() {
 
   const handleSaveSettings = async () => {
     try {
-      const nextSettings = { sql_conn: sqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: normalizedSyncWorkbenchUrl, sync_workbench_token: "" };
+      const nextSettings = { sql_conn: sqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: "", sync_workbench_token: "" };
       if (!hasRequiredBridgeSettings(nextSettings)) {
-        setStatusMessage("Enter the Counterpoint SQL connection and standalone SYNC Workbench URL.");
+        setStatusMessage("Enter the Counterpoint SQL connection and Main Hub ROS URL.");
         return;
       }
       setStatusMessage("Saving bridge connection settings...");
@@ -289,10 +236,9 @@ function App() {
         sqlConn,
         rosUrl: normalizedRosUrl,
         syncToken: "",
-        syncWorkbenchUrl: normalizedSyncWorkbenchUrl,
+        syncWorkbenchUrl: "",
         syncWorkbenchToken: ""
       });
-      setSyncWorkbenchUrl(normalizedSyncWorkbenchUrl);
       setRosUrl(normalizedRosUrl);
       setStatusMessage(result);
       // Restart the bridge to pick up new config
@@ -311,7 +257,7 @@ function App() {
       if (settings && hasRequiredBridgeSettings(settings)) {
         setStatusMessage("Bridge configuration loaded. Click Start Engine when ready.");
       } else {
-        setStatusMessage("Enter the Counterpoint SQL connection and standalone SYNC Workbench URL, then Save Configuration.");
+        setStatusMessage("Enter the Counterpoint SQL connection and Main Hub ROS URL, then Save Configuration.");
       }
     })();
     return () => {
@@ -390,15 +336,15 @@ function App() {
 
   const handleStartBridge = async (isDry = dryRun, settingsOverride?: BridgeSettings) => {
     try {
-      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: normalizedSyncWorkbenchUrl, sync_workbench_token: "" };
+      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: "", sync_workbench_token: "" };
       if (!hasRequiredBridgeSettings(nextSettings)) {
         setActiveTab("settings");
-        setStatusMessage("Enter the Counterpoint SQL connection and standalone SYNC Workbench URL.");
+        setStatusMessage("Enter the Counterpoint SQL connection and Main Hub ROS URL.");
         return;
       }
-      setStatusMessage("Checking Counterpoint SYNC Workbench before extraction...");
-      const syncReachable = await checkSyncWorkbenchReachability();
-      if (!syncReachable) return;
+      setStatusMessage("Checking Main Hub ROS intake before extraction...");
+      const rosReachable = await checkRosReachability(nextSettings);
+      if (!rosReachable) return;
       setStatusMessage("Starting background sync engine...");
       const result = await invoke<string>("start_bridge", { dryRun: isDry });
       setIsProcessRunning(true);
@@ -464,7 +410,7 @@ function App() {
       const res = await fetch(`${BRIDGE_API}/api/trigger-entity?name=full`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to trigger extraction');
-      setStatusMessage("Counterpoint extraction started. Raw batches will land in the SYNC Workbench.");
+      setStatusMessage("Counterpoint extraction started. Batches will post to Main Hub ROS intake.");
     } catch (e: any) {
       setStatusMessage(`Failed to trigger sync: ${e.message}`);
     }
@@ -478,7 +424,7 @@ function App() {
       const res = await fetch(`${BRIDGE_API}/api/trigger-entity?name=${key}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Failed to trigger extraction');
-      setStatusMessage(`${key} extraction started. Raw batches will land in the SYNC Workbench.`);
+      setStatusMessage(`${key} extraction started. Batches will post to Main Hub ROS intake.`);
     } catch (e: any) {
       setStatusMessage(`Failed to trigger ${key} sync: ${e.message}`);
     }
@@ -571,7 +517,7 @@ function App() {
   }, [bridgeState]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#08090c] text-[#e0e4ec] overflow-hidden select-none">
+    <div data-ros-bridge className="flex flex-col h-screen w-screen bg-[#08090c] text-[#e0e4ec] overflow-hidden select-none">
       {/* Top Header Bar */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#0f1117]/80 backdrop-blur-md z-10 shrink-0">
         <div className="flex items-center gap-3">
@@ -579,8 +525,8 @@ function App() {
             <Database className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-sm font-extrabold tracking-wider uppercase text-white">Riverside Countersync</h1>
-            <p className="text-[10px] text-gray-500 font-medium">Counterpoint SQL → SYNC Workbench Extractor</p>
+            <h1 className="text-sm font-extrabold tracking-wider uppercase text-white">Riverside Counterpoint Bridge</h1>
+            <p className="text-[10px] text-gray-500 font-medium">Counterpoint SQL → Main Hub ROS Intake</p>
           </div>
         </div>
 
@@ -641,7 +587,7 @@ function App() {
             }`}
           >
             <Activity className="w-4 h-4" />
-            Dashboard
+            Go-Live Flow
           </button>
           <button
             onClick={() => setActiveTab("settings")}
@@ -652,7 +598,7 @@ function App() {
             }`}
           >
             <SettingsIcon className="w-4 h-4" />
-            Connection Config
+            Main Hub Connection
           </button>
           <button
             onClick={() => setActiveTab("tester")}
@@ -679,18 +625,18 @@ function App() {
 
           <div className="mt-auto flex flex-col gap-3">
             <button
-              onClick={() => void openSyncWorkbench()}
+              onClick={() => void openUrl(normalizedRosUrl)}
               className="flex items-center justify-center gap-2 px-4 py-3 bg-linear-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 text-white text-xs font-bold uppercase rounded-xl transition-all shadow-lg shadow-orange-500/20"
             >
               <ArrowUpRight className="w-4 h-4" />
-              Open Counterpoint SYNC Workbench
+              Open Main Hub ROS
             </button>
             <div className="p-4 rounded-xl bg-[#161922] border border-white/5 text-[10px] text-gray-500">
               <div className="font-semibold text-gray-400 mb-1">Local Bridge API</div>
               <div>Listening on:</div>
               <div className="font-mono text-[#f97316] mt-0.5">{BRIDGE_API}</div>
-              <div className="font-semibold text-gray-400 mt-3 mb-1">SYNC Workbench</div>
-              <div className="font-mono text-[#f97316] mt-0.5 break-all">{normalizedSyncWorkbenchUrl}</div>
+              <div className="font-semibold text-gray-400 mt-3 mb-1">Main Hub ROS Intake</div>
+              <div className="font-mono text-[#f97316] mt-0.5 break-all">{normalizedRosUrl}{ROS_SYNC_HEALTH_PATH}</div>
               <div className={`mt-2 rounded-lg border px-2 py-1.5 font-semibold ${
                 syncWorkbenchCheck?.ok
                   ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
@@ -698,16 +644,16 @@ function App() {
                     ? "border-red-500/30 bg-red-500/10 text-red-300"
                     : "border-white/10 bg-white/5 text-gray-400"
               }`}>
-                {syncWorkbenchCheck ? syncWorkbenchCheck.message : "Not checked from Bridge GUI yet."}
+                {syncWorkbenchCheck ? syncWorkbenchCheck.message : "Main Hub ROS intake not checked from Bridge GUI yet."}
                 {syncWorkbenchCheck ? <div className="mt-0.5 text-[9px] text-gray-500">Checked {syncWorkbenchCheck.checkedAt}</div> : null}
               </div>
               <button
                 type="button"
-                onClick={() => void checkSyncWorkbenchReachability()}
+                onClick={() => void checkRosReachability()}
                 disabled={syncWorkbenchChecking}
                 className="mt-2 w-full rounded-lg border border-white/10 px-2 py-2 font-bold text-gray-300 hover:border-orange-500/50 hover:text-white disabled:opacity-50"
               >
-                {syncWorkbenchChecking ? "Checking..." : "Check SYNC Workbench"}
+                {syncWorkbenchChecking ? "Checking..." : "Check Main Hub ROS"}
               </button>
             </div>
             <div className="p-4 rounded-xl bg-[#161922] border border-white/5 text-[10px] text-gray-500">
@@ -743,10 +689,47 @@ function App() {
         <main className="flex-1 p-6 overflow-y-auto bg-[#08090c] min-width-0">
           {activeTab === "dashboard" && (
             <div className="flex flex-col gap-6">
+              <div className="grid gap-4 lg:grid-cols-4">
+                {[
+                  {
+                    label: "1. Connect SQL",
+                    detail: sqlConn.trim() ? "Counterpoint SQL saved" : "Enter the Counterpoint SQL connection",
+                    ready: sqlConn.trim().length > 0,
+                  },
+                  {
+                    label: "2. Check Main Hub ROS",
+                    detail: syncWorkbenchCheck?.ok ? "ROS intake answered" : "Use Check Main Hub ROS before extraction",
+                    ready: Boolean(syncWorkbenchCheck?.ok),
+                  },
+                  {
+                    label: "3. Extract",
+                    detail: dryRun ? "Dry Run is on" : "Run extraction when ready",
+                    ready: Boolean(bridgeState?.lastRun),
+                  },
+                  {
+                    label: "4. Review in ROS",
+                    detail: "Use ROS Command Center for CSV, AI review, proof, and apply",
+                    ready: false,
+                  },
+                ].map((step) => (
+                  <div key={step.label} className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{step.label}</p>
+                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${
+                        step.ready ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-700"
+                      }`}>
+                        {step.ready ? "Ready" : "Needed"}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs font-semibold text-white">{step.detail}</p>
+                  </div>
+                ))}
+              </div>
+
               {/* Stats Bar */}
               <div className="grid grid-cols-4 gap-4">
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
-	                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Extraction State</div>
+                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Extraction State</div>
                   <div className="text-lg font-bold text-white mt-1 flex items-center gap-2">
                     {bridgeState?.isSyncing ? (
                       <>
@@ -776,7 +759,7 @@ function App() {
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl flex items-center justify-between">
                   <div>
                     <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Run Full Extraction</div>
-	                    <div className="text-[10px] text-gray-400 mt-0.5">Sends raw batches to SYNC</div>
+	                    <div className="text-[10px] text-gray-400 mt-0.5">ROS will stage, validate, and apply</div>
                   </div>
                   <button
                     onClick={triggerFullSync}
@@ -877,7 +860,7 @@ function App() {
           {activeTab === "settings" && (
             <div className="flex flex-col gap-6 max-w-3xl">
               <div className="bg-[#0f1117] border border-white/5 rounded-xl p-6 flex flex-col gap-4">
-	                <h3 className="text-xs font-extrabold uppercase tracking-wider text-white border-b border-white/5 pb-3">Bridge Config & SYNC Workbench Target</h3>
+	                <h3 className="text-xs font-extrabold uppercase tracking-wider text-white border-b border-white/5 pb-3">Bridge Config & Main Hub ROS Target</h3>
 
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">SQL Server Connection String</label>
@@ -890,19 +873,19 @@ function App() {
                   />
                 </div>
 
-		                <div className="flex flex-col gap-1">
-		                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Standalone SYNC Workbench URL</label>
-		                    <input
-		                      type="text"
-	                      value={syncWorkbenchUrl}
-	                      placeholder={suggestedSyncWorkbenchUrl}
-	                      onChange={(e) => setSyncWorkbenchUrl(e.target.value)}
-	                      className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
-	                    />
-	                      <p className="text-[10px] font-semibold text-gray-500">
-	                        This is the standalone Counterpoint SYNC Workbench app on port 3015, not the ROS Back Office/API on port 3000.
-	                      </p>
-		                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Main Hub ROS URL</label>
+                  <input
+                    type="text"
+                    value={rosUrl}
+                    placeholder="http://10.64.70.196:3000"
+                    onChange={(e) => setRosUrl(e.target.value)}
+                    className="bg-[#08090c] border border-white/5 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-orange-500/50"
+                  />
+                  <p className="text-[10px] font-semibold text-gray-500">
+                    Use the Main Hub ROS API URL on port 3000. Bridge extraction posts directly to this intake path.
+                  </p>
+                </div>
 
                 <div className="flex gap-3 justify-end mt-4">
                   <button

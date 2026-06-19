@@ -159,18 +159,25 @@ assertIncludes(
 );
 
 const deploymentPackageBuilder = "deployment/windows/build-deployment-package.ps1";
-for (const copy of [
+assertIncludes(
+  deploymentPackageBuilder,
+  "counterpoint-bridge-gui",
+  "Windows deployment package must include the Counterpoint Bridge GUI installer directory",
+);
+for (const obsolete of [
   "CounterpointSyncSourcePath",
   "Copy-CounterpointSyncWorkbench",
   "counterpoint-sync-workbench",
-  "counterpoint-bridge-gui",
   "Start-CounterpointSYNCWorkbench.ps1",
   "Start-CounterpointSYNCWorkbench.cmd",
+  "set-counterpoint-bridge-token.ps1",
+  "Set-CounterpointBridgeToken.cmd",
+  "NodeRuntimePath",
 ]) {
-  assertIncludes(
+  assertNotIncludes(
     deploymentPackageBuilder,
-    copy,
-    "Windows deployment package must include the Main Hub Counterpoint SYNC Workbench separately from the Bridge GUI",
+    obsolete,
+    "Windows deployment package must not include obsolete standalone Counterpoint SYNC Workbench or token helper payloads",
   );
 }
 assertNotIncludes(
@@ -178,35 +185,10 @@ assertNotIncludes(
   "counterpoint-sync-bridge",
   "Bridge GUI assets must not be placed in a misleading SYNC Workbench folder",
 );
-assertIncludes(
-  "deployment/windows/Start-CounterpointSYNCWorkbench.ps1",
-  "node-runtime\\node.exe",
-  "SYNC Workbench launcher must prefer the bundled Node runtime",
-);
-assertIncludes(
-  "deployment/windows/Start-CounterpointSYNCWorkbench.ps1",
-  "/api/bridge/health",
-  "SYNC Workbench launcher must prove the Bridge health JSON contract before opening the browser",
-);
-assertIncludes(
-  "deployment/windows/Start-CounterpointSYNCWorkbench.ps1",
-  'service -eq "counterpoint_sync_workbench"',
-  "SYNC Workbench launcher must reject static UI/dev pages on the Workbench port",
-);
-assertIncludes(
-  deploymentPackageBuilder,
-  "NodeRuntimePath",
-  "Windows deployment package must bundle a Node runtime for the standalone SYNC Workbench",
-);
-assertIncludes(
+assertNotIncludes(
   ".github/workflows/windows-deployment-package.yml",
-  '-NodeRuntimePath $nodeRuntime',
-  "Windows deployment workflow must pass the bundled Node runtime into the package builder",
-);
-assertIncludes(
-  "deployment/windows/Start-CounterpointSYNCWorkbench.cmd",
-  "Start-CounterpointSYNCWorkbench.ps1",
-  "SYNC Workbench command wrapper must launch the PowerShell starter",
+  "-NodeRuntimePath",
+  "Windows deployment workflow must not pass a Node runtime for the removed standalone SYNC Workbench",
 );
 
 const mainHubInstaller = "deployment/windows/install-server.ps1";

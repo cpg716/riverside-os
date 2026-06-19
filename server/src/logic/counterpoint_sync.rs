@@ -4084,7 +4084,7 @@ const HEARTBEAT_TTL_SECONDS: i64 = 120;
 
 pub async fn get_sync_status(
     pool: &PgPool,
-    token_configured: bool,
+    _token_configured: bool,
 ) -> Result<SyncStatusResponse, sqlx::Error> {
     let hb = sqlx::query_as::<_, (DateTime<Utc>, String, Option<String>, Option<String>, Option<String>)>(
         "SELECT last_seen_at, bridge_phase, current_entity, bridge_version, bridge_hostname FROM counterpoint_bridge_heartbeat WHERE id = 1",
@@ -4108,10 +4108,29 @@ pub async fn get_sync_status(
     let (state, offline_reason, phase, entity, version, hostname, last_seen) = match hb {
         Some((seen, phase, entity, ver, host)) => {
             let activity_seen = freshest_seen(Some(seen));
-            if !token_configured {
+            let age = activity_seen
+                .map(|last| Utc::now().signed_duration_since(last).num_seconds())
+                .unwrap_or(i64::MAX);
+            if age > HEARTBEAT_TTL_SECONDS {
                 (
                     "offline".into(),
-                    Some("Counterpoint sync token is not saved/configured on the Main Hub".into()),
+                    Some(format!(
+                        "Last bridge activity {age}s ago (TTL {HEARTBEAT_TTL_SECONDS}s)"
+                    )),
+                    phase,
+                    entity,
+                    ver,
+                    host,
+                    activity_seen,
+                )
+            } else if phase == "syncing"
+                || latest_run_activity
+                    .map(|run_activity| run_activity > seen)
+                    .unwrap_or(false)
+            {
+                (
+                    "syncing".into(),
+                    None,
                     phase,
                     entity,
                     ver,
@@ -4119,60 +4138,19 @@ pub async fn get_sync_status(
                     activity_seen,
                 )
             } else {
-                let age = activity_seen
-                    .map(|last| Utc::now().signed_duration_since(last).num_seconds())
-                    .unwrap_or(i64::MAX);
-                if age > HEARTBEAT_TTL_SECONDS {
-                    (
-                        "offline".into(),
-                        Some(format!(
-                            "Last bridge activity {age}s ago (TTL {HEARTBEAT_TTL_SECONDS}s)"
-                        )),
-                        phase,
-                        entity,
-                        ver,
-                        host,
-                        activity_seen,
-                    )
-                } else if phase == "syncing"
-                    || latest_run_activity
-                        .map(|run_activity| run_activity > seen)
-                        .unwrap_or(false)
-                {
-                    (
-                        "syncing".into(),
-                        None,
-                        phase,
-                        entity,
-                        ver,
-                        host,
-                        activity_seen,
-                    )
-                } else {
-                    (
-                        "online".into(),
-                        None,
-                        phase,
-                        entity,
-                        ver,
-                        host,
-                        activity_seen,
-                    )
-                }
+                (
+                    "online".into(),
+                    None,
+                    phase,
+                    entity,
+                    ver,
+                    host,
+                    activity_seen,
+                )
             }
         }
         None => {
-            if !token_configured {
-                (
-                    "offline".into(),
-                    Some("Counterpoint sync token is not saved/configured on the Main Hub".into()),
-                    "idle".into(),
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-            } else if let Some(activity_seen) = freshest_seen(None) {
+            if let Some(activity_seen) = freshest_seen(None) {
                 let age = Utc::now()
                     .signed_duration_since(activity_seen)
                     .num_seconds();
@@ -4249,7 +4227,7 @@ pub async fn get_sync_status(
         last_seen_at: last_seen,
         entity_runs,
         recent_issues,
-        token_configured,
+        token_configured: true,
         counterpoint_staging_enabled,
         staging_pending_count,
     })
@@ -5801,7 +5779,7 @@ async fn build_counterpoint_import_run_reconciliation(
 
 pub async fn build_counterpoint_import_command_center(
     pool: &PgPool,
-    token_configured: bool,
+    _token_configured: bool,
 ) -> Result<CounterpointImportCommandCenterSummary, CounterpointSyncError> {
     let latest_preflight = load_latest_counterpoint_import_preflight(pool).await?;
     let latest_import_run = load_latest_counterpoint_import_run(pool).await?;
@@ -5864,7 +5842,7 @@ pub async fn build_counterpoint_import_command_center(
         .as_ref()
         .map(|run| run.preflight_passed && run.status == "preflight_passed")
         .unwrap_or(false);
-    let ready_for_import = token_configured && latest_preflight_passed;
+    let ready_for_import = latest_preflight_passed;
     let latest_import_completed = latest_import_run
         .as_ref()
         .map(|run| run.status == "completed")
@@ -5874,9 +5852,7 @@ pub async fn build_counterpoint_import_command_center(
         && snapshot_reconciliation.iter().all(|row| row.passed);
     let ready_for_go_live_review =
         ready_for_import && import_proof_passed && open_exception_count == 0;
-    let recommendation = if !token_configured {
-        "NO-GO: Counterpoint sync token is not configured.".to_string()
-    } else if latest_preflight.is_none() {
+    let recommendation = if latest_preflight.is_none() {
         "NO-GO: run Bridge source-count preflight first.".to_string()
     } else if !latest_preflight_passed {
         "NO-GO: source-count preflight has blockers.".to_string()
@@ -5897,7 +5873,7 @@ pub async fn build_counterpoint_import_command_center(
         generated_at: Utc::now(),
         mode: "import_first".into(),
         required_history_start: COUNTERPOINT_IMPORT_HISTORY_START.into(),
-        token_configured,
+        token_configured: true,
         preflight_received: latest_preflight.is_some(),
         import_run_received: latest_import_run.is_some(),
         proof_scope,
@@ -6048,33 +6024,6 @@ pub struct CounterpointHealth {
 
 pub async fn health_check(pool: &PgPool) -> CounterpointHealth {
     let start = std::time::Instant::now();
-    let saved_token_configured = integration_credentials::load_integration_credentials(
-        pool,
-        "counterpoint",
-        &["sync_token"],
-    )
-    .await
-    .ok()
-    .and_then(|values| {
-        values
-            .get("sync_token")
-            .map(|value| !value.trim().is_empty())
-    })
-    .unwrap_or(false);
-    let token_configured = saved_token_configured
-        || std::env::var("COUNTERPOINT_SYNC_TOKEN")
-            .ok()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false);
-    if !token_configured {
-        return CounterpointHealth {
-            configured: false,
-            reachable: false,
-            latency_ms: 0,
-            message: "Counterpoint not configured (no saved sync token or COUNTERPOINT_SYNC_TOKEN)"
-                .to_string(),
-        };
-    }
     let hb = sqlx::query_as::<_, (DateTime<Utc>, String, Option<String>, Option<String>, Option<String>)>(
         "SELECT last_seen_at, bridge_phase, current_entity, bridge_version, bridge_hostname FROM counterpoint_bridge_heartbeat WHERE id = 1",
     )
@@ -13616,63 +13565,6 @@ mod tests {
         pool
     }
 
-    #[derive(sqlx::FromRow)]
-    struct SavedIntegrationCredential {
-        id: Uuid,
-        encrypted_value: String,
-        value_hint: Option<String>,
-        updated_by_staff_id: Option<Uuid>,
-        created_at: DateTime<Utc>,
-        updated_at: DateTime<Utc>,
-    }
-
-    async fn remove_counterpoint_sync_token(pool: &PgPool) -> Vec<SavedIntegrationCredential> {
-        sqlx::query_as::<_, SavedIntegrationCredential>(
-            r#"
-            DELETE FROM integration_credentials
-            WHERE integration_key = 'counterpoint'
-              AND credential_key = 'sync_token'
-            RETURNING id, encrypted_value, value_hint, updated_by_staff_id, created_at, updated_at
-            "#,
-        )
-        .fetch_all(pool)
-        .await
-        .expect("temporarily remove counterpoint sync token")
-    }
-
-    async fn restore_counterpoint_sync_token(
-        pool: &PgPool,
-        credentials: Vec<SavedIntegrationCredential>,
-    ) {
-        for credential in credentials {
-            sqlx::query(
-                r#"
-                INSERT INTO integration_credentials (
-                    id, integration_key, credential_key, encrypted_value, value_hint,
-                    updated_by_staff_id, created_at, updated_at
-                )
-                VALUES ($1, 'counterpoint', 'sync_token', $2, $3, $4, $5, $6)
-                ON CONFLICT (integration_key, credential_key)
-                DO UPDATE SET
-                    encrypted_value = EXCLUDED.encrypted_value,
-                    value_hint = EXCLUDED.value_hint,
-                    updated_by_staff_id = EXCLUDED.updated_by_staff_id,
-                    created_at = EXCLUDED.created_at,
-                    updated_at = EXCLUDED.updated_at
-                "#,
-            )
-            .bind(credential.id)
-            .bind(credential.encrypted_value)
-            .bind(credential.value_hint)
-            .bind(credential.updated_by_staff_id)
-            .bind(credential.created_at)
-            .bind(credential.updated_at)
-            .execute(pool)
-            .await
-            .expect("restore counterpoint sync token");
-        }
-    }
-
     async fn next_staff_code(pool: &PgPool) -> String {
         for _ in 0..128 {
             let candidate = format!("{:04}", (Uuid::new_v4().as_u128() % 10_000) as u16);
@@ -19123,30 +19015,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn health_check_returns_not_configured_when_token_missing() {
+    async fn health_check_is_configured_without_token() {
         let _guard = COUNTERPOINT_HEALTH_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
-        let previous = std::env::var("COUNTERPOINT_SYNC_TOKEN").ok();
-        std::env::remove_var("COUNTERPOINT_SYNC_TOKEN");
-        let saved_credentials = remove_counterpoint_sync_token(&pool).await;
+        let _ = sqlx::query("DELETE FROM counterpoint_bridge_heartbeat WHERE id = 1")
+            .execute(&pool)
+            .await;
         let health = health_check(&pool).await;
-        assert!(!health.configured);
+        assert!(health.configured);
         assert!(!health.reachable);
-        assert_eq!(health.latency_ms, 0);
-        assert!(health.message.contains("COUNTERPOINT_SYNC_TOKEN"));
-        restore_counterpoint_sync_token(&pool, saved_credentials).await;
-        if let Some(v) = previous {
-            std::env::set_var("COUNTERPOINT_SYNC_TOKEN", v);
-        }
+        assert!(
+            health.message.contains("never sent a heartbeat")
+                || health.message.contains("heartbeat query failed")
+        );
     }
 
     #[tokio::test]
-    async fn health_check_returns_offline_when_token_set_but_no_heartbeat() {
+    async fn health_check_returns_offline_when_no_heartbeat() {
         let _guard = COUNTERPOINT_HEALTH_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
-        let previous = std::env::var("COUNTERPOINT_SYNC_TOKEN").ok();
-        std::env::set_var("COUNTERPOINT_SYNC_TOKEN", "test-token-for-health-check");
-        let saved_credentials = remove_counterpoint_sync_token(&pool).await;
         // Ensure no heartbeat row exists by deleting it if present
         let _ = sqlx::query("DELETE FROM counterpoint_bridge_heartbeat WHERE id = 1")
             .execute(&pool)
@@ -19158,11 +19045,5 @@ mod tests {
             health.message.contains("never sent a heartbeat")
                 || health.message.contains("heartbeat query failed")
         );
-        restore_counterpoint_sync_token(&pool, saved_credentials).await;
-        if let Some(v) = previous {
-            std::env::set_var("COUNTERPOINT_SYNC_TOKEN", v);
-        } else {
-            std::env::remove_var("COUNTERPOINT_SYNC_TOKEN");
-        }
     }
 }

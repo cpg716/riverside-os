@@ -337,8 +337,8 @@ Downloads and configures the local AI copilot runtime into `C:\RiversideOS\rosie
 > [!NOTE]
 > Binaries and models are **never committed to the git repository**. Current deployment ZIPs pre-bundle `rosie\bin\`, `rosie\stt\`, and `rosie\tts\` so operators do not have to download voice models during install. If those package folders are missing, the installer attempts pinned downloads and fails with an explicit Hugging Face token/model-source message instead of looping through opaque 401 errors.
 
-### Set Counterpoint Bridge Token (`set-counterpoint-bridge-token.ps1`)
-Generates or rotates the 48-character `COUNTERPOINT_SYNC_TOKEN` required to secure the bridge between Riverside OS and legacy NCR Counterpoint POS systems.
+### Counterpoint Bridge
+The deployment ZIP includes the Counterpoint Bridge GUI installer under `counterpoint-bridge-gui\`. The current go-live path connects the Bridge directly to Main Hub ROS on port `3000`; the legacy standalone SYNC Workbench and bridge-token helper are not packaged.
 
 ---
 

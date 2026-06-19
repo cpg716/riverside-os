@@ -13,18 +13,17 @@ What you need on this PC (Windows 10 is supported)
        C:\Riverside\counterpoint-bridge\
 
 First full Counterpoint load (avoid “nothing imported” days)
-  • On Riverside: Settings → Integrations → Counterpoint → leave Inbound staging OFF (direct import).
-    Staging ON queues every batch until you Apply each one in the Inbound tab — fine for spot checks, wrong for bulk.
+  • On Riverside: Settings → Integrations → Counterpoint → enable ROS staging when you want staff review
+    before live writes. Staging ON queues every batch until staff Apply or Discard it from the command center.
   • Apply ROS DB migrations through at least 95 (staging/GUI) on the Postgres that the API uses.
-  • server/.env: COUNTERPOINT_SYNC_TOKEN must match bridge .env; restart the API after setting it.
-  • Bridge: ROS_BASE_URL = LAN IP:3000 of the API PC.
-  • Runtime schema mapping: keep .env to ROS_BASE_URL, COUNTERPOINT_SYNC_TOKEN, and
-    SQL_CONNECTION_STRING; the v8.4 bridge probes schema after SQL connect.
+  • Bridge: ROS_BASE_URL = LAN IP:3000 of the Main Hub ROS API PC.
+  • Runtime schema mapping: keep .env to ROS_BASE_URL, COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first,
+    and SQL_CONNECTION_STRING; the v8.4 bridge probes schema after SQL connect.
 
 First-time setup
   0. (Recommended) After you set SQL_CONNECTION_STRING in .env, double-click DISCOVER_SCHEMA.cmd.
      It probes your Counterpoint database and tells you exactly which columns/tables differ from the
-     template (cost field, points, gift/loyalty tables, etc.). No Riverside server or sync token required.
+     template (cost field, points, gift/loyalty tables, etc.). No Riverside server or token required.
      A copy of the output is saved as counterpoint-schema-report.txt in the same folder (set
      CP_DISCOVER_OUTPUT in .env to change path, or CP_DISCOVER_OUTPUT=0 to skip the file).
 
@@ -35,7 +34,7 @@ First-time setup
   2. Open .env in Notepad and set at least:
        SQL_CONNECTION_STRING=...   (your Counterpoint SQL Server connection)
        ROS_BASE_URL=http://IP:3000 (IP of the PC running Riverside OS)
-       COUNTERPOINT_SYNC_TOKEN=... (must match COUNTERPOINT_SYNC_TOKEN on ROS)
+       COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first
 
      Do not add legacy CP_*_QUERY lines for normal setup. Run DISCOVER_SCHEMA.cmd or GUI Auto Config
      if SQL reports a table/column problem.
@@ -75,7 +74,7 @@ Runtime mapping scope
   See .env.example for the three connection settings.
   Full guide: docs/COUNTERPOINT_SYNC_GUIDE.md in the Riverside OS repo.
 
-  Runtime schema mapping: keep .env to ROS_BASE_URL, COUNTERPOINT_SYNC_TOKEN, and SQL_CONNECTION_STRING.
+  Runtime schema mapping: keep .env to ROS_BASE_URL, COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first, and SQL_CONNECTION_STRING.
   The GUI Auto Config action, DISCOVER_SCHEMA.cmd, or `node index.mjs auto-config` confirms which live
   v8.4 tables and columns the bridge will use. Legacy CP_*_QUERY entries are ignored unless
   CP_SQL_ENV_OVERRIDES=1 is explicitly set for expert recovery work.
@@ -86,9 +85,8 @@ Runtime mapping scope
   hub Inbound queue tab.
 
 Troubleshooting
-  - "invalid or missing sync token" → token in .env must exactly match the server.
   - Connection refused to ROS → firewall on ROS PC must allow port 3000 from this PC.
-  - health 503 on ROS → set COUNTERPOINT_SYNC_TOKEN in server .env and restart the Rust server.
+  - health failure on ROS → confirm ROS_BASE_URL points to the Main Hub ROS API on port 3000 and that /api/sync/counterpoint/health returns JSON.
   - "invalid object name …" on customer sync → set Database= in SQL_CONNECTION_STRING to your
     Counterpoint company DB (same as in SSMS). Then run GUI Auto Config or DISCOVER_SCHEMA.cmd so the
     bridge can rebuild mappings from the live schema.

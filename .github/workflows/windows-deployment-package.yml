@@ -846,7 +846,6 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content "client/package.json" | ConvertFrom-Json).version
-          $nodeRuntime = (Get-Command node.exe).Source
           .\deployment\windows\build-deployment-package.ps1 `
             -Version $version `
             -ServerBinaryPath ".\target\release\riverside-server.exe" `
@@ -855,8 +854,7 @@ jobs:
             -ManagerBinaryPath ".\target\release\riverside-deployment-manager.exe" `
             -ServerManagerBinaryPath ".\target\release\ros-server-manager.exe" `
             -ManagerBundlePath ".\target\release\deployment-manager-bundle" `
-            -ServerManagerBundlePath ".\target\release\server-manager-bundle" `
-            -NodeRuntimePath $nodeRuntime
+            -ServerManagerBundlePath ".\target\release\server-manager-bundle"
           Get-ChildItem dist/deployment/*.zip | ForEach-Object {
             "Deployment package: $($_.Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
           }

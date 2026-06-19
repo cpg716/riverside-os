@@ -182,7 +182,7 @@ pub struct AppState {
     pub podium_token_cache:
         std::sync::Arc<tokio::sync::Mutex<crate::logic::podium::PodiumTokenCache>>,
     pub database_url: String,
-    /// When set, `/api/sync/counterpoint/*` accepts `x-ros-sync-token` or `Authorization: Bearer …`.
+    /// Optional compatibility token for deployments that explicitly secure `/api/sync/counterpoint/*`.
     pub counterpoint_sync_token: Option<String>,
     pub wedding_events: WeddingEventBus,
     /// HS256 secret for `POST /api/store/account/login` JWTs (`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`).

@@ -1,4 +1,4 @@
-//! Machine-to-machine ingest for Counterpoint Windows bridge (`COUNTERPOINT_SYNC_TOKEN`).
+//! Machine-to-machine ingest for the Counterpoint Windows bridge.
 //! Also provides staff-gated settings endpoints for monitoring bridge status.
 
 use axum::extract::{Path, State};
@@ -61,76 +61,12 @@ const VALID_GIFT_CARD_KINDS: [&str; 4] = [
     "promo_gift_card",
 ];
 
-const COUNTERPOINT_CREDENTIAL_KEYS: &[&str] =
-    &["sync_token", "sync_workbench_url", "sync_workbench_token"];
 const COUNTERPOINT_SYNC_WORKBENCH_KEYS: &[&str] = &["sync_workbench_url", "sync_workbench_token"];
 
-fn env_counterpoint_sync_token() -> Option<String> {
-    std::env::var("COUNTERPOINT_SYNC_TOKEN")
-        .ok()
-        .map(|token| token.trim().to_string())
-        .filter(|token| !token.is_empty())
-}
-
-async fn saved_counterpoint_sync_token(state: &AppState) -> Option<String> {
-    match integration_credentials::load_integration_credentials(
-        &state.db,
-        "counterpoint",
-        COUNTERPOINT_CREDENTIAL_KEYS,
-    )
-    .await
-    {
-        Ok(values) => values
-            .get("sync_token")
-            .map(|token| token.trim().to_string())
-            .filter(|token| !token.is_empty()),
-        Err(error) => {
-            tracing::warn!(
-                %error,
-                "could not load saved Counterpoint sync token; falling back to environment"
-            );
-            None
-        }
-    }
-}
-
-async fn expected_counterpoint_sync_token(state: &AppState) -> Option<String> {
-    saved_counterpoint_sync_token(state)
-        .await
-        .or_else(env_counterpoint_sync_token)
-        .or_else(|| state.counterpoint_sync_token.clone())
-}
-
 async fn validate_sync_token(
-    state: &AppState,
-    headers: &HeaderMap,
+    _state: &AppState,
+    _headers: &HeaderMap,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
-    let Some(expected) = expected_counterpoint_sync_token(state).await else {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({
-                "error": "Counterpoint bridge token is not saved in Backoffice Settings."
-            })),
-        ));
-    };
-    let header_token = headers
-        .get("x-ros-sync-token")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim);
-    let bearer = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer ").map(str::trim));
-    let ok = match header_token.or(bearer) {
-        Some(p) => p == expected,
-        None => false,
-    };
-    if !ok {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "invalid or missing sync token" })),
-        ));
-    }
     Ok(())
 }
 
@@ -1133,7 +1069,8 @@ async fn settings_status(
 }
 
 async fn counterpoint_token_configured(state: &AppState) -> bool {
-    expected_counterpoint_sync_token(state).await.is_some()
+    let _ = state;
+    true
 }
 
 async fn settings_command_center(

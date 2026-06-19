@@ -329,9 +329,11 @@ const startLocalServer = () => {
                 method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'x-ros-sync-token': SYNC_TOKEN
                 }
             };
+            if (SYNC_TOKEN.trim()) {
+                options.headers['x-ros-sync-token'] = SYNC_TOKEN;
+            }
 
             const proxyReq = http.request(fullUrl, options, (proxyRes) => {
                 res.writeHead(proxyRes.statusCode, proxyRes.headers);
@@ -584,7 +586,7 @@ const SYNC_WORKBENCH_URL = (process.env.COUNTERPOINT_SYNC_WORKBENCH_URL ?? "").r
 const SYNC_WORKBENCH_TOKEN = process.env.COUNTERPOINT_SYNC_WORKBENCH_TOKEN ?? "";
 const BRIDGE_TARGET_MODE = (
   process.env.COUNTERPOINT_BRIDGE_TARGET_MODE ??
-  "sync_workbench"
+  "ros_import_first"
 ).trim().toLowerCase();
 const USE_SYNC_WORKBENCH = BRIDGE_TARGET_MODE === "sync_workbench";
 const CONN = process.env.SQL_CONNECTION_STRING ?? "";
@@ -2168,9 +2170,11 @@ async function rosFetch(urlPath, body, method = "POST", extraHeaders = {}) {
   const url = `${ROS_BASE_URL}${urlPath}`;
   const headers = {
     "Content-Type": "application/json",
-    "x-ros-sync-token": SYNC_TOKEN,
     ...extraHeaders,
   };
+  if (SYNC_TOKEN.trim()) {
+    headers["x-ros-sync-token"] = SYNC_TOKEN;
+  }
   let lastErr;
   for (let attempt = 0; attempt < ROS_FETCH_MAX_ATTEMPTS; attempt++) {
     try {
@@ -2199,7 +2203,7 @@ async function rosFetch(urlPath, body, method = "POST", extraHeaders = {}) {
         if (res.status === 401) {
           const rosMessage = String(json?.error ?? text ?? "").slice(0, 300);
           lastErr = new Error(
-            `ROS 401: invalid or missing Counterpoint sync token for ${ROS_BASE_URL}. Confirm the bridge COUNTERPOINT_SYNC_TOKEN exactly matches Settings > Integrations > Counterpoint, and that ROS_BASE_URL points at the correct Main Hub. ROS said: ${rosMessage}`,
+            `ROS 401 from ${ROS_BASE_URL}. Confirm ROS_BASE_URL points at the correct Main Hub and the Counterpoint intake route is available. ROS said: ${rosMessage}`,
           );
         } else {
           lastErr = new Error(`ROS ${res.status}: ${text.slice(0, 500)}`);
@@ -3216,11 +3220,6 @@ async function runPreflightCommand() {
     console.error("   or: node index.mjs preflight aliases --csv <path>");
     process.exit(1);
   }
-  if (!USE_SYNC_WORKBENCH && !SYNC_TOKEN.trim()) {
-    console.error("Set COUNTERPOINT_SYNC_TOKEN");
-    process.exit(1);
-  }
-
   const csvPath = path.resolve(process.cwd(), csvArg);
   bridgeHostnameCached = os.hostname();
 
@@ -3260,11 +3259,6 @@ async function runNormalizationCommand() {
     console.error('Usage: node index.mjs normalization preview --lightspeed-csv "product-export (5).csv"');
     process.exit(1);
   }
-  if (!USE_SYNC_WORKBENCH && !SYNC_TOKEN.trim()) {
-    console.error("Set COUNTERPOINT_SYNC_TOKEN");
-    process.exit(1);
-  }
-
   const csvPath = path.resolve(process.cwd(), csvArg);
   bridgeHostnameCached = os.hostname();
   const { rows } = await loadLightspeedNormalizationCsv(csvPath);
@@ -3292,11 +3286,6 @@ async function runAliasesCommand() {
     console.error("Usage: node index.mjs aliases persist --csv <path> [--replace] [--dry-run]");
     process.exit(1);
   }
-  if (!USE_SYNC_WORKBENCH && !SYNC_TOKEN.trim()) {
-    console.error("Set COUNTERPOINT_SYNC_TOKEN");
-    process.exit(1);
-  }
-
   const csvPath = path.resolve(process.cwd(), csvArg);
   bridgeHostnameCached = os.hostname();
   const { rows } = await loadAliasPreflightCsv(csvPath);
@@ -3330,11 +3319,6 @@ async function runLightspeedReferenceCommand() {
     console.error('Usage: node index.mjs lightspeed-reference import --csv "product-export (5).csv" [--replace]');
     process.exit(1);
   }
-  if (!SYNC_TOKEN.trim()) {
-    console.error("Set COUNTERPOINT_SYNC_TOKEN");
-    process.exit(1);
-  }
-
   const csvPath = path.resolve(process.cwd(), csvArg);
   bridgeHostnameCached = os.hostname();
   const { rows } = await loadLightspeedNormalizationCsv(csvPath);
@@ -5851,7 +5835,7 @@ async function main() {
 
   if (DISCOVER_MODE) {
     if (!CONN.trim()) {
-      console.error("Set SQL_CONNECTION_STRING in .env (COUNTERPOINT_SYNC_TOKEN not required for discover).");
+      console.error("Set SQL_CONNECTION_STRING in .env.");
       process.exit(1);
     }
     const pool = createSqlPool();
@@ -5871,10 +5855,6 @@ async function main() {
     process.exit(0);
   }
 
-  if (!SYNC_TOKEN.trim()) {
-    console.error("Set COUNTERPOINT_SYNC_TOKEN");
-    process.exit(1);
-  }
   if (!CONN.trim()) {
     console.error("Set SQL_CONNECTION_STRING");
     process.exit(1);

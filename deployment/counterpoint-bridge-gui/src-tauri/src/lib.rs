@@ -335,6 +335,7 @@ fn start_bridge(
     if dry_run {
         cmd.arg("--dry-run");
     }
+    cmd.env("COUNTERPOINT_BRIDGE_TARGET_MODE", "ros_import_first");
     cmd.current_dir(&bridge_dir);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -474,22 +475,22 @@ fn save_settings(
     sync_workbench_url: String,
     sync_workbench_token: String,
 ) -> Result<String, String> {
+    let _ = sync_token;
+    let _ = sync_workbench_url;
+    let _ = sync_workbench_token;
     let bridge_dir = settings_bridge_directory(&app)?;
     std::fs::create_dir_all(&bridge_dir).map_err(|e| e.to_string())?;
 
     let env_path = bridge_dir.join(".env");
     let content = [
         format!("SQL_CONNECTION_STRING={sql_conn}"),
-        "COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench".to_string(),
-        format!("COUNTERPOINT_SYNC_WORKBENCH_URL={sync_workbench_url}"),
-        format!("COUNTERPOINT_SYNC_WORKBENCH_TOKEN={sync_workbench_token}"),
+        "COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first".to_string(),
         format!("ROS_BASE_URL={ros_url}"),
-        format!("COUNTERPOINT_SYNC_TOKEN={sync_token}"),
     ]
     .join("\n");
     std::fs::write(env_path, content).map_err(|e| e.to_string())?;
 
-    Ok("Bridge connection settings saved for Counterpoint SYNC Workbench.".into())
+    Ok("Bridge connection settings saved for Main Hub ROS intake.".into())
 }
 
 #[tauri::command]

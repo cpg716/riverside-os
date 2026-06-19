@@ -546,10 +546,11 @@ export default function CounterpointSyncSettingsPanel({
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [recoverBatch, setRecoverBatch] = useState<StagingBatchRow | null>(null);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [batchActionBusy, setBatchActionBusy] = useState<string | null>(null);
   const [workspaceView, setWorkspaceView] = useState<"overview" | "pipeline" | "inbound" | "details" | "ai_review" | "customer_duplicates">(() => {
     if (typeof window === "undefined") return "overview";
     const saved = window.localStorage.getItem("counterpoint.statusSection");
-    return saved === "details" ? saved : "overview";
+    return saved === "details" || saved === "ai_review" || saved === "customer_duplicates" ? saved : "overview";
   });
 
   const [workbenchState, setWorkbenchState] = useState<WorkbenchState | null>(null);
@@ -634,7 +635,7 @@ export default function CounterpointSyncSettingsPanel({
       setSyncWorkbenchStatus({
         configured: false,
         reachable: false,
-        message: "Counterpoint SYNC app is not reachable.",
+        message: "Legacy SYNC app is not reachable.",
       });
     }
   }, [baseUrl, headers, hasPermission]);
@@ -1336,6 +1337,78 @@ export default function CounterpointSyncSettingsPanel({
     }
   };
 
+  const applyStagingBatch = async (batch: StagingBatchRow) => {
+    setBatchActionBusy(`apply:${batch.id}`);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${batch.id}/apply`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...headers(),
+          },
+        },
+      );
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Unable to apply Counterpoint batch.");
+      toast(`Applied ${formatEntityLabel(batch.entity)} batch #${batch.id}.`, "success");
+      setSelectedBatchId(null);
+      void fetchAllData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to apply Counterpoint batch.", "error");
+    } finally {
+      setBatchActionBusy(null);
+    }
+  };
+
+  const discardStagingBatch = async (batch: StagingBatchRow) => {
+    setBatchActionBusy(`discard:${batch.id}`);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${batch.id}/discard`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...headers(),
+          },
+        },
+      );
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Unable to discard Counterpoint batch.");
+      toast(`Discarded ${formatEntityLabel(batch.entity)} batch #${batch.id}.`, "success");
+      setSelectedBatchId(null);
+      void fetchAllData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to discard Counterpoint batch.", "error");
+    } finally {
+      setBatchActionBusy(null);
+    }
+  };
+
+  const setRosStagingEnabled = async (enabled: boolean) => {
+    setBatchActionBusy("staging-toggle");
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/staging/enabled`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...headers(),
+        },
+        body: JSON.stringify({ staging_enabled: enabled }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Unable to update ROS staging.");
+      toast(enabled ? "ROS Counterpoint staging enabled." : "ROS Counterpoint staging disabled.", "success");
+      void fetchAllData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Unable to update ROS staging.", "error");
+    } finally {
+      setBatchActionBusy(null);
+    }
+  };
+
   /* ── Calculations & Helpers ── */
   const proofScopeLabel =
     commandCenter?.proof_scope === "current_import_run"
@@ -1579,7 +1652,7 @@ export default function CounterpointSyncSettingsPanel({
   const bridgeHost = status?.bridge_hostname ?? commandCenter?.latest_preflight?.bridge_hostname ?? null;
   const bridgeVersion = status?.bridge_version ?? commandCenter?.latest_preflight?.bridge_version ?? null;
   const bridgeRuntimeNote =
-    status?.offline_reason ?? "Bridge status is tracked separately from SYNC Workbench package handoff.";
+    status?.offline_reason ?? "Bridge status is tracked from Main Hub ROS intake heartbeat.";
   const stagingSummaryRows = [...stagingCountsByEntity.values()]
     .filter((row) => row.pending_rows > 0 || row.applying_rows > 0 || row.applied_rows > 0)
     .sort((a, b) => a.entity.localeCompare(b.entity));
@@ -1601,12 +1674,12 @@ export default function CounterpointSyncSettingsPanel({
     <section className="ui-card p-5 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
-            ROS Import Command Center
-          </h4>
-          <p className="mt-1 max-w-4xl text-xs text-app-text-muted">
-            Connect to the standalone Counterpoint SYNC Workbench, select a prepared run, run ROS preflight, import approved sections, and review final proof.
-          </p>
+	          <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
+	            ROS Import Command Center
+	          </h4>
+	          <p className="mt-1 max-w-4xl text-xs text-app-text-muted">
+	            Bridge extracts Counterpoint data into Main Hub ROS. Use ROS staging, CSV references, review packs, preflight, import proof, and exceptions before sign-off.
+	          </p>
           <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
             Final validation and PostgreSQL import only
           </p>
@@ -1642,40 +1715,49 @@ export default function CounterpointSyncSettingsPanel({
           </span>
         </div>
         <div className="mt-3 grid gap-2 text-xs md:grid-cols-5">
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Mode</p>
-            <p className="mt-1 font-bold text-app-text">SYNC Workbench handoff</p>
-          </div>
+	          <div>
+	            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Mode</p>
+	            <p className="mt-1 font-bold text-app-text">Direct ROS intake</p>
+	          </div>
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">ROS heartbeat</p>
             <p className="mt-1 font-bold text-app-text">{status?.last_seen_at ? formatDate(status.last_seen_at) : "No accepted heartbeat"}</p>
           </div>
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">SYNC heartbeat</p>
-            <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.received_at ? formatDate(syncHeartbeat.received_at) : "No Bridge heartbeat at SYNC"}</p>
-          </div>
+	          <div>
+	            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Legacy SYNC heartbeat</p>
+	            <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.received_at ? formatDate(syncHeartbeat.received_at) : "Not required"}</p>
+	          </div>
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge host</p>
             <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.bridge_hostname ?? bridgeHost ?? "Unknown"}</p>
           </div>
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Browser/control API</p>
-            <p className="mt-1 font-bold text-app-text">
-              {status?.last_seen_at ? "Not required for SYNC handoff" : "Not reachable or not checked"}
-            </p>
-          </div>
+	          <div>
+	            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Browser/control API</p>
+	            <p className="mt-1 font-bold text-app-text">
+	              {status?.last_seen_at ? "Not required for ROS intake" : "Not reachable or not checked"}
+	            </p>
+	          </div>
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge version</p>
             <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.bridge_version ?? bridgeVersion ?? "Not reported"}</p>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-app-text">
-          <span>Bridge heartbeat: {bridgeRuntimeState === "offline" ? "Offline" : "Online"}</span>
-          <span>SYNC Workbench: {syncWorkbenchStatus?.reachable ? "Connected" : "Not reachable"}</span>
-          <span>ROS preflight: {latestPreflightForSelectedRun ? "Run for selected run" : "Not run for selected run"}</span>
-          <button
-            type="button"
-            onClick={() => void fetchAllData()}
+	        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-app-text">
+	          <span>Bridge heartbeat: {bridgeRuntimeState === "offline" ? "Offline" : "Online"}</span>
+	          <span>Main Hub ROS intake: {status?.last_seen_at ? "Receiving heartbeat" : "No accepted heartbeat"}</span>
+	          <span>ROS staging: {status?.counterpoint_staging_enabled ? "On" : "Off"}</span>
+	          <span>Legacy SYNC: {syncWorkbenchStatus?.reachable ? "Connected" : "Optional"}</span>
+	          <button
+	            type="button"
+	            onClick={() => void setRosStagingEnabled(!status?.counterpoint_staging_enabled)}
+	            disabled={batchActionBusy === "staging-toggle"}
+	            className="ui-btn-secondary px-3 py-1.5 text-[10px] font-bold disabled:opacity-50"
+	          >
+	            {status?.counterpoint_staging_enabled ? "Disable ROS Staging" : "Enable ROS Staging"}
+	          </button>
+	          <button
+	            type="button"
+	            onClick={() => void fetchAllData()}
             className="ui-btn-secondary px-3 py-1.5 text-[10px] font-bold"
           >
             Refresh statuses
@@ -1690,18 +1772,18 @@ export default function CounterpointSyncSettingsPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest">
-              Counterpoint SYNC app connection
-            </p>
-            <p className="mt-1 text-xs font-semibold">
-              {syncWorkbenchStatus?.message ?? "Counterpoint SYNC app connection has not been checked."}
+	            Legacy SYNC app connection
+	          </p>
+	          <p className="mt-1 text-xs font-semibold">
+	            {syncWorkbenchStatus?.message ?? "Standalone SYNC is optional for the go-live Bridge path."}
             </p>
             {syncWorkbenchStatus?.error ? (
               <p className="mt-1 text-[10px] font-bold">{syncWorkbenchStatus.error}</p>
             ) : null}
           </div>
-          <span className="ui-pill border border-app-border bg-app-bg/70 text-[10px]">
-            {syncWorkbenchStatus?.reachable ? "SYNC connected" : syncWorkbenchStatus?.configured ? "SYNC unreachable" : "SYNC not configured"}
-          </span>
+	          <span className="ui-pill border border-app-border bg-app-bg/70 text-[10px]">
+	            {syncWorkbenchStatus?.reachable ? "Legacy SYNC connected" : syncWorkbenchStatus?.configured ? "Legacy SYNC unreachable" : "Optional"}
+	          </span>
         </div>
         <div className="mt-3 grid gap-2 text-xs md:grid-cols-4">
           <div>
@@ -1727,24 +1809,24 @@ export default function CounterpointSyncSettingsPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Approved package handoff into ROS
-            </p>
-            <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Each area is imported only after ROS pulls the selected SYNC JSON package, runs preflight, and the operator confirms the section import.
-            </p>
-          </div>
-          <span className="ui-pill bg-app-surface-2 text-[9px] text-app-text-muted">
-            No CSV handoff into ROS
-          </span>
+	            ROS business-area import path
+	          </p>
+	          <p className="mt-1 text-xs font-semibold text-app-text-muted">
+	            Each area is received by ROS, checked against proof and exceptions, then applied through the existing Counterpoint import services.
+	          </p>
+	        </div>
+	        <span className="ui-pill bg-app-surface-2 text-[9px] text-app-text-muted">
+	          CSV and AI review live in ROS
+	        </span>
         </div>
         <div className="mt-3 grid gap-2 text-xs md:grid-cols-2 xl:grid-cols-3">
           {[
-            { label: "Customers", section: "customers", path: "SYNC customer package -> ROS customer import batch -> PostgreSQL" },
-            { label: "Inventory", section: "inventory", path: "SYNC inventory package -> ROS inventory import batch -> PostgreSQL" },
-            { label: "Ticket History / Sales Movement", section: "tickets", path: "SYNC ticket package -> ROS sales history import batch -> PostgreSQL" },
-            { label: "Open Orders", section: "open_docs", path: "SYNC open order package -> ROS open-doc import batch -> PostgreSQL" },
-            { label: "Gift Cards", section: "gift_cards", path: "SYNC gift card package -> ROS gift-card import batch -> PostgreSQL" },
-            { label: "Loyalty Points", section: "loyalty_hist", path: "SYNC loyalty package -> ROS loyalty history import batch -> PostgreSQL" },
+	          { label: "Customers", section: "customers", path: "Bridge batch -> ROS customer import -> PostgreSQL" },
+	          { label: "Inventory", section: "inventory", path: "Bridge batch + CSV/AI review -> ROS inventory import -> PostgreSQL" },
+	          { label: "Ticket History / Sales Movement", section: "tickets", path: "Bridge batch -> ROS sales history import -> PostgreSQL" },
+	          { label: "Open Orders", section: "open_docs", path: "Bridge batch -> ROS open-doc import -> PostgreSQL" },
+	          { label: "Gift Cards", section: "gift_cards", path: "Bridge batch -> ROS gift-card import -> PostgreSQL" },
+	          { label: "Loyalty Points", section: "loyalty_hist", path: "Bridge batch -> ROS loyalty import -> PostgreSQL" },
           ].map((item) => {
             const section = selectedSyncSections.find((row) => row.section === item.section);
             return (
@@ -1779,10 +1861,10 @@ export default function CounterpointSyncSettingsPanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Import runs from Counterpoint SYNC
+              Legacy package import
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Select a prepared run, inspect section readiness, then run ROS preflight/import for approved sections.
+              Optional compatibility for older standalone SYNC runs. Go-live Bridge extraction lands directly in ROS.
             </p>
           </div>
           <button
@@ -1795,7 +1877,7 @@ export default function CounterpointSyncSettingsPanel({
             className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Refresh SYNC Runs
+            Refresh Legacy Runs
           </button>
         </div>
         <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(260px,0.35fr)_minmax(0,1fr)]">
@@ -1813,7 +1895,7 @@ export default function CounterpointSyncSettingsPanel({
                 }}
               >
                 {syncRuns.length === 0 ? (
-                  <option value="">No SYNC runs available</option>
+                  <option value="">No legacy runs available</option>
                 ) : null}
                 {syncRuns.map((run) => (
                   <option key={run.sync_run_id} value={run.sync_run_id}>
@@ -1859,7 +1941,7 @@ export default function CounterpointSyncSettingsPanel({
               </div>
             ) : (
               <p className="mt-3 text-xs font-semibold text-app-text-muted">
-                Start the standalone Counterpoint SYNC Workbench app and prepare a run before ROS approval.
+                No standalone SYNC run is selected. This is expected for the direct ROS intake workflow.
               </p>
             )}
           </div>
@@ -1973,7 +2055,7 @@ export default function CounterpointSyncSettingsPanel({
             </table>
             {selectedSyncSections.length === 0 ? (
               <div className="p-4 text-xs font-semibold text-app-text-muted">
-                No sections are available for the selected SYNC run.
+                No sections are available for the selected legacy run.
               </div>
             ) : null}
           </div>
@@ -2141,7 +2223,7 @@ export default function CounterpointSyncSettingsPanel({
               Support Diagnostics
             </p>
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Support-only diagnostics. Accumulated ROS state and support queue rows are not scoped to the selected SYNC run. Use selected-run proof above for import sign-off.
+              Support-only diagnostics for ROS staging and import state. Use current ROS proof and open exceptions for import sign-off.
             </p>
           </div>
           <button
@@ -2195,32 +2277,60 @@ export default function CounterpointSyncSettingsPanel({
         {selectedBatch ? (
           <div className="mt-3 rounded-lg border border-app-border bg-app-surface-2/40 p-3 text-xs">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Apply claimed
-                </p>
-                <p className="mt-1 font-semibold text-app-text">
-                  {batchStatusLabel(selectedBatch)}
-                </p>
-              </div>
-              {isStaleApplyingBatch(selectedBatch) ? (
-                <button
-                  type="button"
-                  onClick={() => setRecoverBatch(selectedBatch)}
-                  className="ui-btn-secondary px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10"
-                >
-                  Mark stale apply failed
-                </button>
-              ) : null}
-            </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-2">
-              <p>Operational decision guide</p>
-              <p>What changed</p>
-              <p>Replay visibility</p>
-              <p>Recovery guidance</p>
-              <p>Live write result</p>
-              <p>Payload fingerprint: {selectedBatch.payload_fingerprint ?? "not captured"}</p>
-            </div>
+	              <div>
+	                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+	                  Selected ROS staging batch
+	                </p>
+	                <p className="mt-1 font-semibold text-app-text">
+	                  {batchStatusLabel(selectedBatch)}
+	                </p>
+	              </div>
+	              <div className="flex flex-wrap gap-2">
+	                {selectedBatch.status === "pending" ? (
+	                  <>
+	                    <button
+	                      type="button"
+	                      onClick={() => void applyStagingBatch(selectedBatch)}
+	                      disabled={batchActionBusy != null}
+	                      className="ui-btn-primary px-3 py-2 text-xs font-bold disabled:opacity-50"
+	                    >
+	                      {batchActionBusy === `apply:${selectedBatch.id}` ? "Applying..." : "Apply Batch"}
+	                    </button>
+	                    <button
+	                      type="button"
+	                      onClick={() => void discardStagingBatch(selectedBatch)}
+	                      disabled={batchActionBusy != null}
+	                      className="ui-btn-secondary px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10 disabled:opacity-50"
+	                    >
+	                      {batchActionBusy === `discard:${selectedBatch.id}` ? "Discarding..." : "Discard"}
+	                    </button>
+	                  </>
+	                ) : null}
+	              {isStaleApplyingBatch(selectedBatch) ? (
+	                <button
+	                  type="button"
+	                  onClick={() => setRecoverBatch(selectedBatch)}
+	                  disabled={batchActionBusy != null}
+	                  className="ui-btn-secondary px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10 disabled:opacity-50"
+	                >
+	                  Mark stale apply failed
+	                </button>
+	              ) : null}
+	              </div>
+	            </div>
+	            <div className="mt-3 grid gap-2 md:grid-cols-2">
+	              <p>Entity: {formatEntityLabel(selectedBatch.entity)}</p>
+	              <p>Rows: {fmtNum(selectedBatch.row_count)}</p>
+	              <p>Replay visibility: {selectedBatch.replay_count > 0 ? `Replay suppressed x${selectedBatch.replay_count}` : "No replay"}</p>
+	              <p>Recovery guidance: {isStaleApplyingBatch(selectedBatch) ? "Stale apply can be marked failed after support review." : "No recovery action needed."}</p>
+	              <p>Live write result: {selectedBatch.applied_at ? `Applied ${formatDate(selectedBatch.applied_at)}` : "Not applied"}</p>
+	              <p>Payload fingerprint: {selectedBatch.payload_fingerprint ?? "not captured"}</p>
+	            </div>
+	            {selectedBatch.apply_error ? (
+	              <p className="mt-3 font-semibold text-red-600">
+	                Apply error: {selectedBatch.apply_error}
+	              </p>
+	            ) : null}
             {isStaleApplyingBatch(selectedBatch) ? (
               <div className="mt-3 space-y-1 font-semibold text-amber-700 dark:text-amber-200">
                 <p>Safe recovery is available.</p>
@@ -2328,7 +2438,7 @@ export default function CounterpointSyncSettingsPanel({
             Counterpoint Import Command Center
           </h3>
           <p className="mt-1 text-xs text-app-text-muted max-w-3xl">
-            ROS connects to the standalone Counterpoint SYNC Workbench, selects a prepared run, runs preflight, imports approved sections, and shows final proof.
+            Bridge sends Counterpoint data to Main Hub ROS. ROS owns staging, CSV references, AI review packs, import proof, exceptions, and final sign-off.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -2340,6 +2450,24 @@ export default function CounterpointSyncSettingsPanel({
             }`}
           >
             Import Command Center
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceView("ai_review")}
+            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
+              workspaceView === "ai_review" ? "ring-2 ring-app-accent/30" : ""
+            }`}
+          >
+            CSV + AI Review
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceView("customer_duplicates")}
+            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
+              workspaceView === "customer_duplicates" ? "ring-2 ring-app-accent/30" : ""
+            }`}
+          >
+            Customer Duplicates
           </button>
           <button
             type="button"
@@ -2365,14 +2493,14 @@ export default function CounterpointSyncSettingsPanel({
       <IntegrationCredentialsCard
         baseUrl={baseUrl}
         integrationKey="counterpoint"
-        title="Counterpoint SYNC Connection"
-        description="Save the standalone Counterpoint SYNC app URL. Tokens are optional advanced compatibility settings and are not required for the normal closed-store handoff."
+        title="Legacy SYNC Package Source"
+        description="Optional compatibility for older standalone SYNC packages. The go-live Bridge path posts directly to Main Hub ROS and does not require this URL."
         fields={[
           {
             key: "sync_workbench_url",
-            label: "SYNC Workbench URL",
+            label: "Legacy SYNC Workbench URL",
             placeholder: "http://127.0.0.1:3015",
-            help: "Standalone Counterpoint SYNC app URL. ROS uses this server-side to list prepared runs and pull JSON packages.",
+            help: "Optional standalone SYNC app URL used only to list/import older prepared packages.",
             type: "text",
           },
         ]}
@@ -2586,7 +2714,7 @@ export default function CounterpointSyncSettingsPanel({
                 CSV reference sources
               </p>
               <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
-                CSV review and preparation belongs in the standalone Counterpoint SYNC Workbench. ROS only imports approved JSON packages after preflight.
+                Load the Lightspeed and Counterpoint CSV references here. ROS uses them for cleanup comparison and AI review packs; inventory quantities still come from Counterpoint SQL.
               </p>
             </div>
             <button
