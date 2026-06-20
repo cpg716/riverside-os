@@ -49,18 +49,17 @@ If a specific entity (e.g., `inventory` or `tickets`) gets stuck:
 ## 4. Bridge Environment Secrets
 Ensure these values in `counterpoint-bridge/.env` are intact:
 - `ROS_BASE_URL`: should point to the Riverside Backoffice / Server PC API, for example `http://10.64.70.196:3000`. Do not point this at PostgreSQL or the Counterpoint SQL host unless that same machine is also running Riverside Server.
-- `COUNTERPOINT_SYNC_TOKEN`: must exactly match the token loaded by Riverside Server.
 - `SQL_REQUEST_TIMEOUT_MS`: Default is `600000` (10 minutes). Increase this if you are syncing more than 50k tickets.
 
 ### health 503
 
-- **What it means**: Riverside Server is reachable, but no Counterpoint sync token is configured on the Riverside side.
-- **Resolution**: On the Main Hub, save the token in **Settings → Integrations → Counterpoint → Counterpoint Bridge Token**. If saving the token is blocked by a credential-key warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package and restart Riverside Server. Editing `C:\RiversideOS\server\.env` is only a fallback/bootstrap path and requires a server restart.
+- **What it means**: Riverside Server is reachable, but the Counterpoint ingest path is not ready.
+- **Resolution**: Confirm Main Hub ROS is running, re-save the Bridge GUI connection settings, and restart the bridge. If saving settings is blocked by a credential-key warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package and restart Riverside Server.
 
 ### health 401
 
-- **What it means**: Riverside Server has a token, but the bridge sent a different token or no token.
-- **Resolution**: Save the exact same token in both places: Main Hub **Settings → Integrations → Counterpoint → Counterpoint Bridge Token** and the Counterpoint Bridge `.env` as `COUNTERPOINT_SYNC_TOKEN`. Then close and restart the bridge so its process reloads `.env`.
+- **What it means**: Riverside Server rejected the bridge ingest request.
+- **Resolution**: Re-save the Bridge GUI connection settings, confirm the Main Hub ROS URL, then close and restart the bridge so its process reloads `.env`.
 
 ---
 

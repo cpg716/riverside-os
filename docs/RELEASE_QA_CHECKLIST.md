@@ -288,12 +288,12 @@ After this checklist is complete and the branch is green:
    git tag v0.70.3
    git push origin main --tags
    ```
-4. **Automation takes over** — GitHub Actions `tauri-register-updater-release.yml` triggers on the `v*` tag push, builds the signed Windows installer, and publishes to the GitHub release with `latest.json` for the Tauri updater.
+4. **Automation takes over** — GitHub Actions `windows-deployment-package.yml` triggers on the `v*` tag push, builds the deployment ZIP plus signed Windows updater assets, and publishes to the GitHub release with `latest.json` for the Tauri updater.
 
 ### Manual Override
 
 For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:
-- Go to **Actions → Tauri register updater release → Run workflow**
+- Go to **Actions → Windows deployment package → Run workflow**
 - Optionally override `release_tag` and `release_notes`
 
 ---

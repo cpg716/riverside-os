@@ -65,13 +65,7 @@ The **Bridge Command Center** UI is available at `http://localhost:3002` during 
 
 ## Windows folder (operators)
 
-Preferred go-live path: use the **Counterpoint Bridge GUI** installer from `deployment/counterpoint-bridge-gui/`. Packaged GUI releases include the bridge script, production dependencies, and a Node runtime, so operators do not need to install Node.js or run `npm install`.
-
-Manual zip fallback:
-
-1. From repo root: `./scripts/package-counterpoint-bridge.sh` → **`counterpoint-bridge-for-windows.zip`** (no `node_modules` inside; includes **`env.example`** as a Windows-friendly duplicate of **`.env.example`** plus **`PACKAGE_README.txt`**).
-2. Unzip on the Counterpoint PC, install [Node.js LTS](https://nodejs.org/), double-click **`START_BRIDGE.cmd`**.
-3. Follow **`INSTALL_ON_COUNTERPOINT_SERVER.txt`**.
+Go-live path: use the **Counterpoint Bridge GUI** installer from the Riverside OS Windows deployment package. The packaged GUI includes the bridge script, production dependencies, and a Node runtime, so operators do not need to install Node.js or run `npm install`.
 
 Full integration notes: `docs/COUNTERPOINT_SYNC_GUIDE.md` in the Riverside OS repo. For the one-time execution checklist and retirement steps, also read `docs/COUNTERPOINT_ONE_TIME_IMPORT.md`. If your **`counterpoint-schema-report.txt`** matches the common pattern (missing `PS_SLS_REP` / gift / loyalty tables, `LOY_PTS_BAL`, `TOT` not `TOT_EXTD_PRC`, `UNIT_COST` on vendor items), see **`SCHEMA_PROBE_ALIGNMENT.txt`** next to this README.
 

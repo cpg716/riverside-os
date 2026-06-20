@@ -119,7 +119,7 @@ export default function GitHubDevOpsPanel() {
         method: "POST",
         headers,
         body: JSON.stringify({
-          workflow_id: "tauri-register-updater-release.yml",
+          workflow_id: "windows-deployment-package.yml",
           branch: "main",
           inputs: {},
         }),
@@ -130,7 +130,7 @@ export default function GitHubDevOpsPanel() {
         throw new Error(err.error ?? "Dispatch failed");
       }
 
-      toast("Release workflow dispatched. Check Actions tab.");
+      toast("Windows deployment release workflow dispatched. Check Actions tab.");
       setTimeout(fetchData, 3000);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Dispatch failed";

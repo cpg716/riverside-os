@@ -187,10 +187,10 @@ After the Main Hub server is updated, **satellite stations enforce version sync 
 
 For recurring Windows station updates via the Tauri updater channel:
 
-1. Run `.github/workflows/tauri-register-updater-release.yml` after business hours with:
+1. Run `.github/workflows/windows-deployment-package.yml` after business hours with:
    - GitHub variable: `RIVERSIDE_UPDATER_PUBLIC_KEY`
    - GitHub secret: `TAURI_SIGNING_PRIVATE_KEY` (+ optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`)
-2. The workflow publishes `updater-dist/latest.json`, updater artifact, and `.sig` to the GitHub release tag.
+2. The workflow publishes `latest.json`, updater artifact, `.sig`, and the full Windows deployment ZIP to the GitHub release tag.
 3. Stations detect the update automatically on launch via the version gate and prompt one-click install.
 4. Keep the previous installer available for rollback.
 

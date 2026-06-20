@@ -165,9 +165,8 @@ Installer signing and CI notes: [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PW
 
 Use one of these paths:
 
-1. **Preferred current release path:** run **Tauri register updater release (Windows)** (`.github/workflows/tauri-register-updater-release.yml`) for the target version. It publishes `latest.json`, the Windows installer/update artifact, and the `.sig` file to the matching GitHub release.
-2. **Manual artifact path:** run **Tauri register (Windows)** (`.github/workflows/tauri-register-build.yml`) and download the `tauri-windows-bundle` artifact from the completed workflow run.
-3. **Local build path:** on a Windows build machine with Rust/Node prerequisites, build from `client/` with `npm ci` then `npm run tauri:build`.
+1. **Current release path:** run **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`) for the target version. It publishes the full deployment ZIP plus the signed Windows updater manifests/artifacts to the matching GitHub release.
+2. **Local build path:** on a Windows build machine with Rust/Node prerequisites, build from `client/` with `npm ci` then `npm run tauri:build`.
 
 Record the installer version, GitHub run URL or release URL, and target API base in the deployment log. Do not reuse an older installer just because it is present on the release; confirm **Settings → Updates** shows one expected **Riverside version**.
 

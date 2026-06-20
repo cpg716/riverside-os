@@ -58,10 +58,10 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 
 ## D. Tauri register (desktop)
 
-- [x] **Release pipeline:** Local: `npm run tauri:build` from `client/` (runs `build:register` first). CI template: `.github/workflows/tauri-register-build.yml` (Windows, `workflow_dispatch`). Add a code-signing step before `tauri build` if SmartScreen requires it.
+- [x] **Release pipeline:** Local: `npm run tauri:build` from `client/` (runs `build:register` first). CI release path: `.github/workflows/windows-deployment-package.yml`, which builds the deployment ZIP and signed Windows updater assets together.
 - [x] **Windows 11 smoke:** Use `docs/WINDOWS11_TAURI_SMOKE_CHECKLIST_V021.md` for release sign-off on v0.2.1 auth/identity hardening (Unified Guard, authenticated staff persona priority, restricted POS Settings, POS hardware access).
 - [x] **Thermal / ESC-POS:** **Desktop / Tauri:** `client/src/lib/printerBridge.ts` → Tauri `invoke("print_*")` → `client/src-tauri/src/hardware.rs` to either the selected installed Windows printer or direct TCP printer address. Prefer direct **Network address** for Register #1 Epson receipts/cash drawer when the printer has a stable IP. **PWA / browser:** same module falls back to `POST /api/hardware/print`, then browser print fallback.
-- [x] **Auto-update (desktop):** Tauri updater is supported via the release workflow `.github/workflows/tauri-register-updater-release.yml`. It emits `latest.json` + signed Windows updater artifacts for your hosted update endpoint. Installed Windows stations use **Settings → Updates → Windows app** for check/install, and the same screen verifies the loaded app files and server API are on the same Riverside release.
+- [x] **Auto-update (desktop):** Tauri updater is supported via `.github/workflows/windows-deployment-package.yml`. It emits `latest.json` + signed Windows updater artifacts for your hosted update endpoint while keeping the server, client files, and deployment ZIP on the same build. Installed Windows stations use **Settings → Updates → Windows app** for check/install, and the same screen verifies the loaded app files and server API are on the same Riverside release.
 - [x] **In-app server update (Main Hub):** As of v0.80.9, the Main Hub uses **Settings → Updates → Server update** to download, install, restart, and verify the server in a single guided flow. The Deployment Manager is no longer required for routine updates. See [`DEPLOYMENT_MANAGER.md`](DEPLOYMENT_MANAGER.md) section 8.
 - [x] **Version gate (satellite stations):** On launch, every Register and Back Office station checks `GET /api/version` before showing the sign-in PIN screen. If the server is ahead of the client, the PIN screen is replaced with a blocking **"Update Required"** prompt. Staff cannot sign in until the station is updated to match the server. Windows Tauri stations update via the Tauri updater; PWA/browser stations reload after the web bundle is refreshed.
 - [x] **Kiosk-ish (optional):** Not bundled; use Windows assigned access / shell replacement, or Tauri fullscreen + `tauri-plugin-single-instance` if you add it later.
@@ -70,10 +70,9 @@ Near-turnkey Windows deployment package: [`WINDOWS_INSTALLER_PACKAGE.md`](WINDOW
 
 Use one of these paths for each Windows station:
 
-0. **Deployment package:** build `deployment/windows/build-deployment-package.ps1`, fill `riverside-deployment.config.json`, then run `install-server.ps1` on the Server PC and `install-register.ps1` on Register #1.
-1. **Current release installer:** run `.github/workflows/tauri-register-updater-release.yml` for the target version, then install from the release assets.
-2. **Manual build artifact:** run `.github/workflows/tauri-register-build.yml`, download `tauri-windows-bundle`, and install the bundle on the station.
-3. **Local Windows build:** copy `client/.env.register.example` to `.env.register`, set `VITE_API_BASE`, then run `npm ci` and `npm run tauri:build` from `client/`.
+0. **Deployment package:** build or download the ZIP from `.github/workflows/windows-deployment-package.yml`, fill `riverside-deployment.config.json`, then run `install-server.ps1` on the Main Hub and `install-register.ps1` on Register #1.
+1. **Current release installer:** use the signed Windows updater assets published by `.github/workflows/windows-deployment-package.yml`.
+2. **Local Windows build:** copy `client/.env.register.example` to `.env.register`, set `VITE_API_BASE`, then run `npm ci` and `npm run tauri:build` from `client/`.
 
 Station role rules:
 

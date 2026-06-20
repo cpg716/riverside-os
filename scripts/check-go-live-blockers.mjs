@@ -20,6 +20,10 @@ function readJson(file) {
   return JSON.parse(read(file));
 }
 
+function exists(file) {
+  return fs.existsSync(path.join(root, file));
+}
+
 function lineOf(content, needle) {
   const index =
     typeof needle === "string" ? content.indexOf(needle) : content.search(needle);
@@ -537,6 +541,30 @@ function checkCounterpointBridgeDeploymentPackaging() {
     builderFile,
     "Go-live Counterpoint import now uses Bridge GUI -> Main Hub ROS. The deployment ZIP must not carry the retired standalone SYNC Workbench or token helper.",
   );
+
+  const obsoletePaths = [
+    ".github/workflows/tauri-register-updater-release.yml",
+    ".github/workflows/tauri-register-build.yml",
+    ".github/workflows/macos-ros-dev-center-release.yml",
+    ".github/workflows/counterpoint-bridge-gui-release.yml",
+    "scripts/package-counterpoint-bridge.sh",
+    "scripts/smoke-counterpoint-bridge-package.sh",
+    "deployment/windows/Start-CounterpointSYNCWorkbench.ps1",
+    "deployment/windows/Start-CounterpointSYNCWorkbench.cmd",
+    "deployment/windows/set-counterpoint-bridge-token.ps1",
+    "deployment/windows/Set-CounterpointBridgeToken.cmd",
+    "counterpoint-sync/index.mjs",
+    "counterpoint-sync/package.json",
+  ];
+  const present = obsoletePaths.filter((file) => exists(file));
+  assert(
+    present.length === 0,
+    "Retired standalone SYNC Workbench and duplicate release builders are not present in the source tree",
+    builderFile,
+    present.length > 0
+      ? `Remove obsolete files before release: ${present.join(", ")}`
+      : "The go-live package path should only build the direct ROS Bridge GUI and the canonical Windows deployment assets.",
+  );
 }
 
 function checkCounterpointRateLimitBypass() {
@@ -814,8 +842,6 @@ function checkReleaseWorkflowPreBuildGates() {
 
   const workflowFiles = [
     ".github/workflows/windows-deployment-package.yml",
-    ".github/workflows/tauri-register-updater-release.yml",
-    ".github/workflows/macos-ros-dev-center-release.yml",
   ];
   for (const file of workflowFiles) {
     const content = read(file);
@@ -835,14 +861,14 @@ function checkReleaseWorkflowPreBuildGates() {
     );
   }
 
-  const updaterFile = ".github/workflows/tauri-register-updater-release.yml";
+  const updaterFile = ".github/workflows/windows-deployment-package.yml";
   const updater = read(updaterFile);
   assert(
     updater.includes("require-playwright-green") &&
-      /build-updater:\s*[\s\S]*?needs:\s*(?:\[[^\]]*require-playwright-green[^\]]*\]|require-playwright-green)/.test(updater),
-    "Windows updater release waits for same-commit Playwright E2E before building assets",
+      /build-register-updater:\s*[\s\S]*?needs:\s*(?:\[[^\]]*require-playwright-green[^\]]*\]|require-playwright-green)/.test(updater),
+    "Windows deployment release waits for same-commit Playwright E2E before building updater assets",
     updaterFile,
-    "The updater release must use the same Playwright gate as the deployment package and macOS release.",
+    "The canonical Windows deployment workflow must gate updater assets behind same-commit Playwright proof.",
   );
 }
 

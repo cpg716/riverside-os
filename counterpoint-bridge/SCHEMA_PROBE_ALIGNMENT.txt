@@ -18,4 +18,4 @@ LOY_PTS_BAL on AR_CUST                   →  Customer mapping uses LOY_PTS_BAL 
 TOT_EXTD_PRC and TOT_AMT_DUE absent      →  Ticket mapping can fall back to TOT when those columns are not visible.
 PO_VEND_ITEM UNIT_COST present           →  Vendor-item mapping uses UNIT_COST as vend_cost.
 
-If your live .env was copied from an older template, remove stale CP_*_QUERY values. Normal setup keeps only ROS_BASE_URL, COUNTERPOINT_SYNC_TOKEN, and SQL_CONNECTION_STRING.
+If your live .env was copied from an older template, remove stale CP_*_QUERY values. Normal setup keeps only ROS_BASE_URL and SQL_CONNECTION_STRING.

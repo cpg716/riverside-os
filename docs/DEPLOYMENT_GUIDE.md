@@ -1180,9 +1180,7 @@ Riverside OS uses GitHub Actions for continuous integration and automated depend
 |----------|---------|---------|
 | `lint.yml` | PR / push to `main` | `cargo fmt`, `cargo clippy` |
 | `security-audit.yml` | Weekly (Mon midnight) + manual | `cargo audit` (CVE scan) + `cargo outdated` (stale deps) |
-| `tauri-register-updater-release.yml` | Push `v*` tag or manual | Builds signed Windows updater bundle and publishes to GitHub release |
 | `windows-deployment-package.yml` | Push `v*` tag or manual | Builds Windows deployment package (server, client, Deployment Manager) and publishes to GitHub release |
-| `macos-ros-dev-center-release.yml` | Push `v*` tag or manual | Builds macOS universal DMG for the ROS Dev Center and publishes to GitHub release |
 | `dependabot-auto-merge.yml` | Dependabot PR | Auto-squash merges patch-level dependency updates |
 
 ### Releasing a New Version
@@ -1203,11 +1201,11 @@ Riverside OS uses GitHub Actions for continuous integration and automated depend
    git tag v0.90.0
    git push origin main --tags
    ```
-4. The `tauri-register-updater-release` workflow triggers automatically, builds the signed installer, and publishes `latest.json` to the GitHub release — visible to all Tauri auto-updaters.
+4. The `windows-deployment-package` workflow triggers automatically, builds the deployment ZIP plus signed Windows updater assets, and publishes `latest.json` to the GitHub release — visible to all Tauri auto-updaters.
 
 ### Manual Release Override
 
-For hotfixes or special tags, go to **Actions → Tauri register updater release → Run workflow** and specify a custom `release_tag`.
+For hotfixes or special tags, go to **Actions → Windows deployment package → Run workflow** and specify a custom `release_tag`.
 
 ---
 

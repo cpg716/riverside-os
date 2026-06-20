@@ -69,20 +69,6 @@ jobs:
 
       # Security audit is handled by the weekly security-audit.yml workflow
 
-  counterpoint-bridge-package:
-    name: Counterpoint Bridge Package Smoke
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Validate package scripts
-        run: |
-          bash -n scripts/package-counterpoint-bridge.sh
-          bash -n scripts/smoke-counterpoint-bridge-package.sh
-
-      - name: Smoke package contents
-        run: ./scripts/smoke-counterpoint-bridge-package.sh
-
   tauri-lint:
     name: Tauri (Rust) Clippy
     runs-on: ubuntu-latest

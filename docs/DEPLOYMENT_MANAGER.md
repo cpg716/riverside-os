@@ -46,12 +46,6 @@ RiversideOS-v[Version]-Windows-Deployment/
   register/                              <-- Register MSI/EXE installers
 ```
 
-### macOS ROS Dev Center
-
-The **ROS Dev Center** (`ros-dev`) is a separate macOS DevOps companion app built as a universal Apple Silicon / Intel DMG via `.github/workflows/macos-ros-dev-center-release.yml`. It connects to any ROS instance for real-time monitoring, GitHub integration, and one-click release builds. Download the `.dmg` from the matching release tag and install like any standard macOS application. See [`ros-dev/README.md`](../ros-dev/README.md) for setup and usage.
-
----
-
 ## 2. Installation Roles
 
 The Deployment Manager supports **three distinct installation roles**. Choose exactly one per workstation:
@@ -338,7 +332,7 @@ Downloads and configures the local AI copilot runtime into `C:\RiversideOS\rosie
 > Binaries and models are **never committed to the git repository**. Current deployment ZIPs pre-bundle `rosie\bin\`, `rosie\stt\`, and `rosie\tts\` so operators do not have to download voice models during install. If those package folders are missing, the installer attempts pinned downloads and fails with an explicit Hugging Face token/model-source message instead of looping through opaque 401 errors.
 
 ### Counterpoint Bridge
-The deployment ZIP includes the Counterpoint Bridge GUI installer under `counterpoint-bridge-gui\`. The current go-live path connects the Bridge directly to Main Hub ROS on port `3000`; the legacy standalone SYNC Workbench and bridge-token helper are not packaged.
+The deployment ZIP includes the Counterpoint Bridge GUI installer under `counterpoint-bridge-gui\`. The current go-live path connects the Bridge directly to Main Hub ROS on port `3000`; no separate SYNC app or bridge-token helper is packaged.
 
 ---
 
@@ -362,9 +356,7 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
 Logs are emitted asynchronously from Rust back to the Vite console using the `deployment-log` event emitter, allowing operators to monitor script output in real time.
 
 ### GitHub Actions CI/CD Pipeline
-The deployment manager packaging is automated in two workflows:
-- **Windows**: `.github/workflows/windows-deployment-package.yml` — builds the full Windows deployment ZIP (server binary, client bundle, register installer, Deployment Manager installer bundle, ROS Server Manager installer bundle, Counterpoint SYNC Workbench, and bundled ROSIE voice models). Signed updater manifests/installers are uploaded as release assets beside the ZIP.
-- **macOS**: `.github/workflows/macos-ros-dev-center-release.yml` — builds a universal Apple Silicon / Intel DMG for the ROS Dev Center.
+The deployment manager packaging is automated by **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`). It builds the full Windows deployment ZIP: server binary, client bundle, register installer, Deployment Manager installer bundle, ROS Server Manager installer bundle, Counterpoint Bridge GUI, and bundled ROSIE voice models. Signed updater manifests/installers are uploaded as release assets beside the ZIP.
 
 Both pipelines utilize **`swatinem/rust-cache`** to cache downloaded Rust dependencies across runs. The Windows workspace builds three targets sequentially in one job:
 1.  `client/src-tauri` (Tauri Client Desktop application)

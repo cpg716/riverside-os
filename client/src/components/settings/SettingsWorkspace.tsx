@@ -1334,19 +1334,17 @@ export default function SettingsWorkspace({
                           Counterpoint
                         </h2>
                         <p className="text-sm font-medium text-app-text-muted leading-relaxed max-w-3xl">
-                          The Windows bridge extracts raw Counterpoint SQL data
-                          into the standalone Counterpoint SYNC Workbench app. ROS
-                          Back Office only connects to approved SYNC packages,
-                          runs preflight, imports selected sections, and shows
-                          final proof.
+                          The Windows bridge extracts raw Counterpoint SQL data,
+                          sends it to Main Hub ROS, and ROS owns review, fixes,
+                          proof, and final import approval.
                         </p>
                         <p className="text-xs text-app-text-muted leading-relaxed max-w-3xl">
                           Install and operate the bridge per{" "}
                           <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
                             docs/COUNTERPOINT_SYNC_GUIDE.md
                           </code>
-                          . Save the bridge token in this workspace so staff do
-                          not need server environment file access.
+                          . The go-live path uses direct ROS intake on the Main
+                          Hub and does not require a separate SYNC app.
                         </p>
                       </div>
                     </div>

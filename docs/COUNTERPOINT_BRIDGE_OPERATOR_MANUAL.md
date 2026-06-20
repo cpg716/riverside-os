@@ -9,7 +9,7 @@ For migration planning, treat this as a **one-time import tool**. After a succes
 - [`COUNTERPOINT_SYNC_GUIDE.md`](COUNTERPOINT_SYNC_GUIDE.md) — SQL shapes, entity details, provenance, health API
 - [`COUNTERPOINT_ONE_TIME_IMPORT.md`](COUNTERPOINT_ONE_TIME_IMPORT.md) — migration cutover, `CP_IMPORT_SINCE`, store credit, open docs
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — Windows quick start
-- [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — every `SYNC_*` flag and `CP_*_QUERY` template
+- [`counterpoint-bridge/env.example`](../counterpoint-bridge/env.example) — supported Bridge GUI connection settings
 
 ---
 
@@ -19,7 +19,7 @@ For migration planning, treat this as a **one-time import tool**. After a succes
 |-------|------|
 | **ROS API** (Rust, usually port **3000**) | Accepts batches from the bridge; writes customers, catalog, orders, etc. |
 | **PostgreSQL** | Store database; must have migrations applied (including **95** for staging/GUI toggle). |
-| **Windows bridge** (`counterpoint-bridge/index.mjs`) | Reads Counterpoint via `SQL_CONNECTION_STRING`; POSTs JSON batches to ROS with `COUNTERPOINT_SYNC_TOKEN`. |
+| **Windows bridge** (`counterpoint-bridge/index.mjs`) | Reads Counterpoint via `SQL_CONNECTION_STRING`; POSTs JSON batches to Main Hub ROS. |
 | **Back Office → Settings → Integrations → Counterpoint** | Bridge status, default direct import proof, optional **Inbound staging** support queue, category/payment/gift **maps**, **staff link** browse (`settings.admin`). |
 
 Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can be sent on ingest as `x-bridge-version` (0.7.x).
@@ -37,17 +37,11 @@ Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can
 
    Minimum Counterpoint-related chain includes **84** (heartbeat, issues, maps), **85** (provenance), **86+** staff/vendor items as your build ships them, and **95** (`counterpoint_staging_batch`, `store_settings.counterpoint_config`).
 
-2. **ROS sync token**:
+2. **Bridge configuration**:
 
-   Generate a long random token and save it in **Settings → Integrations → Counterpoint**. Put the same value in the Counterpoint bridge `.env` as `COUNTERPOINT_SYNC_TOKEN`.
+   Save the Counterpoint SQL connection string and Main Hub ROS URL in the Bridge GUI. If Settings refuses to save encrypted credentials with a `RIVERSIDE_CREDENTIALS_KEY` warning, run **`Repair-RiversideCredentialsKey.cmd`** from the Windows deployment package on the Main Hub, then reopen Settings and save again.
 
-   Never log the token. Routine ROS-side token updates belong in Backoffice Settings; the bridge `.env` is still required because the bridge runs outside ROS.
-
-   If Settings refuses to save credentials with a `RIVERSIDE_CREDENTIALS_KEY` warning, run **`Repair-RiversideCredentialsKey.cmd`** from the Windows deployment package on the Backoffice / Server PC, then reopen Settings and save the token again.
-
-   If the bridge console shows `health 401`, Riverside has a token but the bridge is sending a different one. Run **`Set-CounterpointBridgeToken.cmd`** on the Backoffice / Server PC and paste the exact token from `C:\counterpoint-bridge\.env`, then restart the bridge.
-
-   If the bridge console shows `health 503`, Riverside does not have a Counterpoint sync token configured. Save the token in Settings or run **Repair** / **`Repair-RiversideCredentialsKey.cmd`** on the server PC.
+   If the bridge console shows `health 401` or `health 503`, re-save the Bridge GUI settings, confirm the Main Hub URL is reachable from the Counterpoint PC, then restart the bridge.
 
 3. **Network**: from the Counterpoint PC, `ROS_BASE_URL` must reach the machine **running the HTTP API** (e.g. `http://192.168.x.x:3000`), not the Postgres port.
 
@@ -57,24 +51,17 @@ Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can
 
 ## 3. Windows bridge setup
 
-1. Install **Node.js 18+** (LTS).
-2. Unzip **`counterpoint-bridge-for-windows.zip`** (or clone the repo folder `counterpoint-bridge/`.
-3. Copy **`.env.example`** → **`.env`** (or use **`env.example`** if Explorer hides dotfiles).
-4. Set at least:
+1. Install the **Counterpoint Bridge GUI** from the Riverside OS Windows deployment package.
+2. Open **Main Hub Connection** and save the Counterpoint SQL connection string plus the Main Hub ROS URL.
+3. Confirm the saved settings include:
 
    | Variable | Meaning |
    |----------|---------|
    | `SQL_CONNECTION_STRING` | Counterpoint **company** database (not `master`). |
    | `ROS_BASE_URL` | Base URL of ROS API (no trailing slash). |
-   | `COUNTERPOINT_SYNC_TOKEN` | **Exact match** to the token saved in **Settings → Integrations → Counterpoint**. |
 
-5. Run **`START_BRIDGE.cmd`** or `node index.mjs`.
-
-6. Run **`node index.mjs auto-config`** to interactively probe the SQL database schemas and automatically update your local `.env` with optimized queries and column fallbacks.
-
-7. **`node index.mjs discover`** (or **`DISCOVER_SCHEMA.cmd`**) — read-only schema probe; no ROS token strictly required for discover-only; use to align `CP_*_QUERY` with your CP/Counterpoint build.
-
-8. Run the bridge with **`node index.mjs --dry-run`** to test extraction and print payload summaries safely without modifying the Riverside OS database.
+4. Use **Auto-config Schema Probe** in the Bridge GUI to verify the live Counterpoint schema.
+5. Use **Start Engine** when the SQL connection and Main Hub ROS checks are ready.
 
 ---
 
@@ -85,7 +72,7 @@ For a premium, operator-friendly experience, Riverside OS includes a native Wind
 ### Features
 1. **Connection Manager**: Monitor the connection state of the background sync engine, toggle **Dry Run** mode with a single switch, and start or stop the engine dynamically.
 2. **Interactive Sync Dashboard**: View the status of all 15 sync schemas (Staff, Customers, Catalog, etc.), showing duration and records processed. You can trigger targeted single-schema extraction runs with a single click.
-3. **Connection Config & Credentials**: Review, edit, and save your database connection strings, ROS Base URLs, and Security Tokens safely inside the GUI. It persists configuration directly to the bridge `.env` file.
+3. **Connection Config**: Review, edit, and save your database connection string and Main Hub ROS URL inside the GUI. It persists configuration directly to the bridge `.env` file.
 4. **Auto-Config Schema Probe**: Scan database schemas directly from the GUI to verify column compatibility (e.g. `DOC_NO` alias mappings).
 5. **SQL Query Tester & Previewer**: Safely preview the SQL data to be extracted. Write custom raw SQL probes or test predefined entities, rendering up to a 10-row interactive preview table before importing.
 6. **Process Console**: Direct real-time stdout and stderr output stream from the background process, highlighting success states and precise database connection error logs to accelerate troubleshooting.
@@ -192,7 +179,7 @@ Immediately after migration sign-off:
 
 1. Stop the running bridge on the Counterpoint PC.
 2. Remove any startup shortcut or scheduled launch path.
-3. Remove old bridge folders/zips or rotate `COUNTERPOINT_SYNC_TOKEN` so stale copies cannot post again.
+3. Remove old bridge folders/zips and any saved startup shortcut so stale copies cannot post again.
 4. Leave ROS status/history surfaces in place for audit proof until a later cleanup/removal pass.
 
 ---
@@ -234,17 +221,10 @@ Conflicting `SYNC_*` combinations exit with `[sync-plan]` errors unless `SYNC_RE
 
 ## 8. Updating the bridge (Counterpoint PC)
 
-1. Stop the running bridge (Ctrl+C or close the window).
-2. Replace the folder contents with a new **`counterpoint-bridge-for-windows.zip`** extract (or `git pull` the repo and use `counterpoint-bridge/`).
-3. Preserve your **`.env`** (and optional `.counterpoint-bridge-state.json` cursors if you want incremental continuity).
-4. Run **`npm install`** if `package.json` changed (START_BRIDGE.cmd usually handles this).
-5. Run **`START_BRIDGE.cmd`** again. Confirm **`[ingest] Mode:`** and bridge version in the log.
-
-From repo root, pack a fresh zip:
-
-```bash
-./scripts/package-counterpoint-bridge.sh
-```
+1. Stop the running bridge from the Bridge GUI.
+2. Install the new Bridge GUI from the Riverside OS Windows deployment package or use the in-app Bridge GUI updater.
+3. Confirm **Main Hub Connection** still shows the Counterpoint SQL connection string and Main Hub ROS URL.
+4. Start the engine again. Confirm **`[ingest] Mode:`** and bridge version in the log.
 
 ---
 
@@ -259,11 +239,11 @@ From repo root, pack a fresh zip:
 
    (Or your hosted equivalent: run new `migrations/NN_*.sql` in order and insert ledger rows per your procedure.)
 
-3. Confirm the token saved in **Settings → Integrations → Counterpoint** matches the bridge `.env`. If there is any doubt, run **`Set-CounterpointBridgeToken.cmd`** on the Backoffice / Server PC and paste the token currently shown in `C:\counterpoint-bridge\.env`.
-4. **Smoke test** (replace token and host):
+3. Confirm the Counterpoint bridge credentials saved in **Settings → Integrations → Counterpoint** match the bridge `.env`.
+4. **Smoke test** (replace host):
 
    ```bash
-   curl -sS -H "x-ros-sync-token: YOUR_TOKEN" http://127.0.0.1:3000/api/sync/counterpoint/health
+   curl -sS http://127.0.0.1:3000/api/sync/counterpoint/health
    ```
 
    Expect JSON with `"ok": true`, `"counterpoint_staging_enabled": true|false`.
@@ -274,10 +254,10 @@ From repo root, pack a fresh zip:
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| GET | `/api/sync/counterpoint/health` | M2M token | Staging flag for bridge. |
-| POST | `/api/sync/counterpoint/staging` | M2M token | Only when staging enabled; body `{ "entity": "…", "payload": { … } }`. |
-| POST | `/api/sync/counterpoint/<entity>` | M2M token | Direct ingest (same payload shape as before staging). |
-| POST | `/api/sync/counterpoint/heartbeat` | M2M token | Bridge liveness + sync request pickup. |
+| GET | `/api/sync/counterpoint/health` | Bridge ingest | Staging flag for bridge. |
+| POST | `/api/sync/counterpoint/staging` | Bridge ingest | Only when staging enabled; body `{ "entity": "…", "payload": { … } }`. |
+| POST | `/api/sync/counterpoint/<entity>` | Bridge ingest | Direct ingest (same payload shape as before staging). |
+| POST | `/api/sync/counterpoint/heartbeat` | Bridge ingest | Bridge liveness + sync request pickup. |
 | GET | `/api/settings/counterpoint-sync/status` | Staff + `settings.admin` | Hub status JSON. |
 | PATCH | `/api/settings/counterpoint-sync/staging/enabled` | Staff + `settings.admin` | `{ "staging_enabled": bool }`. |
 
@@ -289,7 +269,7 @@ Entity keys for staging match apply logic: `customers`, `catalog`, `tickets`, `s
 
 | Symptom | Likely cause | Action |
 |---------|----------------|--------|
-| `invalid or missing sync token` | Token mismatch or missing header | Align `.env` on bridge and server; restart API. |
+| `health 401` or `health 503` | Bridge/Main Hub configuration mismatch or Main Hub unavailable | Re-save Bridge GUI settings, confirm Main Hub ROS URL, restart the bridge, then retry health. |
 | `counterpoint staging is disabled` while bridge thought staging on | Toggle changed after health | 0.7.1+ retries direct; or bump health by waiting one poll cycle; turn staging off for bulk. |
 | Customers/catalog empty after “successful” bridge run | **Staging on** without Apply | Turn staging off for bulk, or **Apply** all batches in Inbound queue. |
 | `Connection refused` to ROS | Firewall / wrong IP / API not listening | Ping host; curl port **3000**; bind is `0.0.0.0:3000` by default. |
@@ -302,9 +282,9 @@ Entity keys for staging match apply logic: `customers`, `catalog`, `tickets`, `s
 
 ## 12. Security notes
 
-- Treat `COUNTERPOINT_SYNC_TOKEN` like a password: **HTTPS** between bridge and ROS when not on localhost.
-- **Staging ingest** is M2M-token only; **Apply** is staff-authenticated — do not expose Apply paths without Back Office auth.
-- Bridge logs: avoid pasting full tokens in tickets or screenshots.
+- Keep the Bridge and Main Hub on the trusted store network. Use HTTPS if traffic leaves localhost or the private LAN.
+- **Apply** remains staff-authenticated — do not expose Apply paths without Back Office auth.
+- Bridge logs can include hostnames, SQL errors, and row counts; avoid posting complete connection strings in tickets or screenshots.
 
 ---
 

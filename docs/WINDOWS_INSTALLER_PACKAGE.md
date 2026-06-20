@@ -85,7 +85,7 @@ The Deployment Manager keeps the password work inside the installer flow:
 - **Riverside database password**: generated automatically if left blank or still set to a placeholder. It is saved to `riverside-deployment.config.json` and written to `C:\RiversideOS\server\.env`.
 - **Riverside app secret**: generated automatically if left blank, too short, or still set to a placeholder.
 - **Integration credential encryption key**: written as `RIVERSIDE_CREDENTIALS_KEY` in `C:\RiversideOS\server\.env` and the Windows machine environment. This must be present before Backoffice Settings can save Helcim, QBO, Counterpoint, or other encrypted integration credentials.
-- **Counterpoint Bridge GUI**: included under `counterpoint-bridge-gui\`. Use it on the Counterpoint host to connect Counterpoint SQL directly to Main Hub ROS on port `3000`; standalone SYNC and bridge tokens are not part of the go-live package path.
+- **Counterpoint Bridge GUI**: included under `counterpoint-bridge-gui\`. Use it on the Counterpoint host to connect Counterpoint SQL directly to Main Hub ROS on port `3000`; no separate SYNC app or bridge-token helper is part of the go-live package path.
 - **Register and Back Office station settings**: written automatically to `C:\ProgramData\RiversideOS\station-config.json`.
 
 Generated Riverside passwords intentionally use URL-safe letters and numbers so PostgreSQL connection strings do not break on characters like `#`, `@`, or `%`.
