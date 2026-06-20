@@ -16,7 +16,6 @@ import { useToast } from "../ui/ToastProviderLogic";
 import PromptModal from "../ui/PromptModal";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import DuplicateReviewQueueSection from "../customers/DuplicateReviewQueueSection";
-import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import RosieInsightSummary from "../help/RosieInsightSummary";
 import type { Customer } from "../pos/CustomerSelector";
 
@@ -107,7 +106,7 @@ interface InventorySummary {
   quarantine_count: number;
 }
 
-interface WorkbenchState {
+interface ImportReviewState {
   current_step: string | null;
   steps: Record<string, StepDetail>;
   inventory_summary: InventorySummary | null;
@@ -214,6 +213,7 @@ interface CounterpointLandingVerificationRow {
 interface CounterpointSnapshotReconciliationRow {
   key: string;
   label: string;
+  required: boolean;
   status: string;
   passed: boolean;
   source_count: number | null;
@@ -321,6 +321,7 @@ interface CounterpointImportCommandCenterSummary {
 
 interface CounterpointImportExceptionRow {
   id: string;
+  import_run_id: string | null;
   entity_key: string;
   source_key: string | null;
   severity: string;
@@ -333,105 +334,6 @@ interface CounterpointImportExceptionRow {
   status: string;
   created_at: string;
   updated_at: string;
-}
-
-interface CounterpointSyncWorkbenchStatus {
-  configured: boolean;
-  reachable: boolean;
-  message: string;
-  error?: string;
-  health?: {
-    service?: string;
-    hostname?: string;
-    generated_at?: string;
-    schema_version?: number;
-    store_path?: string;
-    store?: {
-      path?: string;
-      exists?: boolean;
-      backup_exists?: boolean;
-      last_write_at?: string | null;
-      size_bytes?: number;
-      format_version?: number;
-      readable?: boolean;
-      error?: string | null;
-    };
-    last_bridge_heartbeat?: {
-      received_at?: string;
-      bridge_hostname?: string;
-      bridge_version?: string;
-      phase?: string;
-      target_sync_reachable?: boolean;
-    } | null;
-    summary?: {
-      runs_count?: number;
-      ready_sections?: number;
-      imported_sections?: number;
-      blocked_sections?: number;
-      warnings?: number;
-      blockers?: number;
-    };
-  };
-}
-
-interface CounterpointSyncRunSummary {
-  sync_run_id: string;
-  name: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
-  sections_ready: number;
-  warnings: number;
-  blockers: number;
-  source_batches?: number;
-  imported_status: string;
-}
-
-interface CounterpointSyncRunSection {
-  section: string;
-  label: string;
-  status: string;
-  source_count: number;
-  prepared_count: number;
-  warnings: number;
-  blockers: number;
-  package_fingerprint: string | null;
-  updated_at: string;
-  approved_at: string | null;
-  approved_by: string | null;
-  imported_at?: string | null;
-  ros_import_run_id?: string | null;
-  ai_pending_suggestions?: number;
-  ai_accepted_suggestions?: number;
-  ai_applied_suggestions?: number;
-  ai_manual_review_suggestions?: number;
-}
-
-interface CounterpointSyncPackage {
-  sync_run_id: string;
-  section: string;
-  entity: string;
-  schema_version: number;
-  package_fingerprint: string;
-  generated_at: string;
-  source_counts: {
-    raw: number;
-    prepared: number;
-    warnings: number;
-    blockers: number;
-  };
-  payload: { rows?: unknown[]; [key: string]: unknown };
-  exceptions: unknown[];
-  provenance: unknown[];
-}
-
-interface CounterpointSyncRunDetail {
-  run: CounterpointSyncRunSummary & { sections: CounterpointSyncRunSection[] };
-}
-
-interface PendingSyncImport {
-  section: CounterpointSyncRunSection;
-  pkg: CounterpointSyncPackage;
 }
 
 function fmtNum(n: number | null | undefined): string {
@@ -553,7 +455,7 @@ export default function CounterpointSyncSettingsPanel({
     return saved === "details" || saved === "ai_review" || saved === "customer_duplicates" ? saved : "overview";
   });
 
-  const [workbenchState, setWorkbenchState] = useState<WorkbenchState | null>(null);
+  const [importReviewState, setImportReviewState] = useState<ImportReviewState | null>(null);
 
   const [dsHealth, setDsHealth] = useState<DataSourcesHealth | null>(null);
   const [csvUploading, setCsvUploading] = useState<string | null>(null);
@@ -579,13 +481,6 @@ export default function CounterpointSyncSettingsPanel({
   const [landingVerification, setLandingVerification] = useState<CounterpointLandingVerificationSummary | null>(null);
   const [commandCenter, setCommandCenter] = useState<CounterpointImportCommandCenterSummary | null>(null);
   const [importExceptions, setImportExceptions] = useState<CounterpointImportExceptionRow[]>([]);
-  const [syncWorkbenchStatus, setSyncWorkbenchStatus] = useState<CounterpointSyncWorkbenchStatus | null>(null);
-  const [syncRuns, setSyncRuns] = useState<CounterpointSyncRunSummary[]>([]);
-  const [selectedSyncRunId, setSelectedSyncRunId] = useState<string>("");
-  const [selectedSyncRun, setSelectedSyncRun] = useState<CounterpointSyncRunDetail | null>(null);
-  const [syncPackage, setSyncPackage] = useState<CounterpointSyncPackage | null>(null);
-  const [syncActionBusy, setSyncActionBusy] = useState<string | null>(null);
-  const [pendingSyncImport, setPendingSyncImport] = useState<PendingSyncImport | null>(null);
   const [resetPromptOpen, setResetPromptOpen] = useState(false);
   const [resetPreview, setResetPreview] = useState<CounterpointResetPreviewResponse | null>(null);
 
@@ -622,85 +517,16 @@ export default function CounterpointSyncSettingsPanel({
     }
   }, [baseUrl, headers, hasPermission]);
 
-  const fetchSyncWorkbenchStatus = useCallback(async () => {
+  const fetchImportExceptions = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/sync-workbench/status`, {
-        headers: headers(),
-      });
-      if (res.ok) {
-        setSyncWorkbenchStatus((await res.json()) as CounterpointSyncWorkbenchStatus);
-      }
-    } catch {
-      setSyncWorkbenchStatus({
-        configured: false,
-        reachable: false,
-        message: "Prepared package app is not reachable.",
-      });
-    }
-  }, [baseUrl, headers, hasPermission]);
-
-  const fetchSyncRuns = useCallback(async () => {
-    if (!hasPermission("settings.admin")) return;
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/sync-workbench/runs`, {
-        headers: headers(),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { runs?: CounterpointSyncRunSummary[] };
-        const runs = data.runs ?? [];
-        setSyncRuns(runs);
-        setSelectedSyncRunId((current) => current || runs[0]?.sync_run_id || "");
-      }
-    } catch {
-      setSyncRuns([]);
-    }
-  }, [baseUrl, headers, hasPermission]);
-
-  const fetchSelectedSyncRun = useCallback(async (runId?: string) => {
-    const id = runId ?? selectedSyncRunId;
-    if (!id || !hasPermission("settings.admin")) {
-      setSelectedSyncRun(null);
+    if (!commandCenter?.latest_import_run?.id) {
+      setImportExceptions([]);
       return;
     }
     try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/sync-workbench/runs/${encodeURIComponent(id)}`,
-        { headers: headers() },
-      );
-      if (res.ok) {
-        setSelectedSyncRun((await res.json()) as CounterpointSyncRunDetail);
-      }
-    } catch {
-      setSelectedSyncRun(null);
-    }
-  }, [baseUrl, headers, hasPermission, selectedSyncRunId]);
-
-  const loadSyncPackage = useCallback(async (section: string) => {
-    if (!selectedSyncRunId) return null;
-    setSyncActionBusy(`package:${section}`);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/sync-workbench/runs/${encodeURIComponent(selectedSyncRunId)}/packages/${encodeURIComponent(section)}`,
-        { headers: headers() },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Could not load prepared package");
-      const pkg = data as CounterpointSyncPackage;
-      setSyncPackage(pkg);
-      return pkg;
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not load prepared package", "error");
-      return null;
-    } finally {
-      setSyncActionBusy(null);
-    }
-  }, [baseUrl, headers, selectedSyncRunId, toast]);
-
-  const fetchImportExceptions = useCallback(async () => {
-    if (!hasPermission("settings.admin")) return;
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/exceptions?limit=200`, {
+      const params = new URLSearchParams({ limit: "200" });
+      params.set("import_run_id", commandCenter.latest_import_run.id);
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/exceptions?${params}`, {
         headers: headers(),
       });
       if (res.ok) {
@@ -710,7 +536,7 @@ export default function CounterpointSyncSettingsPanel({
     } catch {
       setImportExceptions([]);
     }
-  }, [baseUrl, headers, hasPermission]);
+  }, [baseUrl, commandCenter?.latest_import_run?.id, headers, hasPermission]);
 
   const fetchBatches = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
@@ -727,14 +553,14 @@ export default function CounterpointSyncSettingsPanel({
     }
   }, [baseUrl, headers, hasPermission]);
 
-  const fetchWorkbenchState = useCallback(async () => {
+  const fetchImportReviewState = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
     try {
       const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/workbench/state`, {
         headers: headers(),
       });
       if (res.ok) {
-        setWorkbenchState((await res.json()) as WorkbenchState);
+        setImportReviewState((await res.json()) as ImportReviewState);
       }
     } catch { /* silent */ }
   }, [baseUrl, headers, hasPermission]);
@@ -845,11 +671,9 @@ export default function CounterpointSyncSettingsPanel({
     await Promise.all([
       fetchStatus(),
       fetchCommandCenter(),
-      fetchSyncWorkbenchStatus(),
-      fetchSyncRuns(),
       fetchImportExceptions(),
       fetchBatches(),
-      fetchWorkbenchState(),
+      fetchImportReviewState(),
       fetchDsHealth(),
       fetchMergePreview(),
       fetchReviewScopes(),
@@ -861,11 +685,9 @@ export default function CounterpointSyncSettingsPanel({
   }, [
     fetchStatus,
     fetchCommandCenter,
-    fetchSyncWorkbenchStatus,
-    fetchSyncRuns,
     fetchImportExceptions,
     fetchBatches,
-    fetchWorkbenchState,
+    fetchImportReviewState,
     fetchDsHealth,
     fetchMergePreview,
     fetchReviewScopes,
@@ -879,12 +701,12 @@ export default function CounterpointSyncSettingsPanel({
   }, [fetchAllData]);
 
   useEffect(() => {
-    void fetchReviewSuggestions(selectedReviewPackId);
-  }, [fetchReviewSuggestions, selectedReviewPackId]);
+    void fetchImportExceptions();
+  }, [fetchImportExceptions]);
 
   useEffect(() => {
-    void fetchSelectedSyncRun(selectedSyncRunId);
-  }, [fetchSelectedSyncRun, selectedSyncRunId]);
+    void fetchReviewSuggestions(selectedReviewPackId);
+  }, [fetchReviewSuggestions, selectedReviewPackId]);
 
   /* ── Event Handlers ── */
 
@@ -908,72 +730,6 @@ export default function CounterpointSyncSettingsPanel({
       toast(error instanceof Error ? error.message : "Could not resolve import exception", "error");
     }
   }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
-
-  const runSyncPackagePreflight = useCallback(async (section: string) => {
-    if (!selectedSyncRunId) return;
-    setSyncActionBusy(`preflight:${section}`);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/sync-workbench/runs/${encodeURIComponent(selectedSyncRunId)}/sections/${encodeURIComponent(section)}/preflight`,
-        {
-          method: "POST",
-          headers: headers(),
-        },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "ROS preflight failed");
-      toast("ROS preflight recorded for selected prepared package.", "success");
-      void fetchCommandCenter();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "ROS preflight failed", "error");
-    } finally {
-      setSyncActionBusy(null);
-    }
-  }, [baseUrl, fetchCommandCenter, headers, selectedSyncRunId, toast]);
-
-  const importSyncSection = useCallback(async () => {
-    const pending = pendingSyncImport;
-    if (!pending || !selectedSyncRunId) return;
-    setSyncActionBusy(`import:${pending.section.section}`);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/sync-workbench/runs/${encodeURIComponent(selectedSyncRunId)}/sections/${encodeURIComponent(pending.section.section)}/import`,
-        {
-          method: "POST",
-          headers: headers(),
-        },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Could not import selected prepared package");
-      toast("Selected prepared package imported through ROS.", "success");
-      if (data.sync_mark_imported_warning) {
-        toast(`ROS import succeeded, but prepared package status was not updated: ${String(data.sync_mark_imported_warning)}`, "error");
-      }
-      setPendingSyncImport(null);
-      void fetchCommandCenter();
-      void fetchImportExceptions();
-      void fetchSelectedSyncRun(selectedSyncRunId);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not import selected prepared package", "error");
-    } finally {
-      setSyncActionBusy(null);
-    }
-  }, [
-    baseUrl,
-    fetchCommandCenter,
-    fetchImportExceptions,
-    fetchSelectedSyncRun,
-    headers,
-    pendingSyncImport,
-    selectedSyncRunId,
-    toast,
-  ]);
-
-  const prepareSyncImport = useCallback(async (section: CounterpointSyncRunSection) => {
-    const pkg = await loadSyncPackage(section.section);
-    if (!pkg) return;
-    setPendingSyncImport({ section, pkg });
-  }, [loadSyncPackage]);
 
   /* ── CSV Upload ── */
   const handleCsvUpload = async (file: File, type: "lightspeed" | "counterpoint") => {
@@ -1258,7 +1014,7 @@ export default function CounterpointSyncSettingsPanel({
         "success",
       );
       await fetchReviewSuggestions(selectedReviewPackId);
-      await fetchWorkbenchState();
+      await fetchImportReviewState();
       await fetchCommandCenter();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Could not apply approved suggestions", "error");
@@ -1432,49 +1188,6 @@ export default function CounterpointSyncSettingsPanel({
       ? null
       : reviewScopes.find((scope) => scope.scope === selectedReviewPack.scope) ?? null;
   const acceptedReviewSuggestionCount = reviewSuggestions.filter((s) => s.status === "accepted").length;
-  const selectedSyncRunSummary =
-    syncRuns.find((run) => run.sync_run_id === selectedSyncRunId) ?? syncRuns[0] ?? null;
-  const selectedSyncSections = selectedSyncRun?.run.sections ?? [];
-  const selectedSyncReadySections = selectedSyncSections.filter((section) =>
-    ["ready", "ready_with_warnings", "imported"].includes(section.status),
-  ).length;
-  const selectedSyncImportedSections = selectedSyncSections.filter((section) => section.status === "imported").length;
-  const syncHealth = syncWorkbenchStatus?.health;
-  const syncStore = syncHealth?.store;
-  const syncHeartbeat = syncHealth?.last_bridge_heartbeat;
-  const latestPreflightForSelectedRun =
-    commandCenter?.latest_preflight?.ros_base_url === `counterpoint-sync://${selectedSyncRunId}`
-      ? commandCenter.latest_preflight
-      : null;
-  const loadedPackageSection = syncPackage?.section ?? null;
-  const preflightStateForSection = (section: CounterpointSyncRunSection) => {
-    if (!selectedSyncRunId) return { label: "No selected run", ready: false, changed: false };
-    if (!section.package_fingerprint) return { label: "Missing fingerprint", ready: false, changed: false };
-    if (!latestPreflightForSelectedRun?.source_fingerprint) {
-      return { label: "Not run for selected run", ready: false, changed: false };
-    }
-    if (latestPreflightForSelectedRun.source_fingerprint !== section.package_fingerprint) {
-      return { label: "Package changed after preflight", ready: false, changed: true };
-    }
-    if (!latestPreflightForSelectedRun.preflight_passed) {
-      return { label: "Blocked by ROS preflight", ready: false, changed: false };
-    }
-    return { label: "Ready to import", ready: true, changed: false };
-  };
-  const importDisabledReasonForSection = (section: CounterpointSyncRunSection) => {
-    const preflightState = preflightStateForSection(section);
-    if (!selectedSyncRunId) return "Select a prepared package first.";
-    if (section.blockers > 0 || section.status === "blocked") return "Unresolved package blockers.";
-    if (!section.package_fingerprint) return "Missing package fingerprint.";
-    if (loadedPackageSection === section.section && syncPackage?.schema_version !== 1) return "Unsupported package schema.";
-    if (!preflightState.ready) return preflightState.label;
-    return null;
-  };
-  const syncWorkbenchConnectionClass = syncWorkbenchStatus?.reachable
-    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
-    : syncWorkbenchStatus?.configured
-      ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200"
-      : "border-red-500/25 bg-red-500/10 text-red-600";
 
   const catalogBatches = useMemo(() => batches.filter((b) => b.entity === "catalog"), [batches]);
   const inventoryBatches = useMemo(() => batches.filter((b) => b.entity === "inventory"), [batches]);
@@ -1542,8 +1255,8 @@ export default function CounterpointSyncSettingsPanel({
       message: `${label} has ${fmtNum(bridgeRows)} Bridge row(s), but no ROS landed proof is available for review.`,
     };
   };
-  const inventoryProducts = workbenchState?.inventory_summary?.products ?? 0;
-  const inventoryVariants = workbenchState?.inventory_summary?.variants ?? 0;
+  const inventoryProducts = importReviewState?.inventory_summary?.products ?? 0;
+  const inventoryVariants = importReviewState?.inventory_summary?.variants ?? 0;
   const hasLandedInventory = inventoryProducts > 0 && inventoryVariants > 0;
   const catalogStagedRows = stagedRowsFor("catalog", catalogBatches);
   const inventoryStagedRows = stagedRowsFor("inventory", inventoryBatches);
@@ -1611,7 +1324,7 @@ export default function CounterpointSyncSettingsPanel({
     const map = new Map<string, { open: number; fallback: number }>();
     for (const row of importExceptions) {
       const current = map.get(row.entity_key) ?? { open: 0, fallback: 0 };
-      if (row.status === "open") current.open += 1;
+      if (row.status === "open" && row.severity === "blocked") current.open += 1;
       if (row.status === "open" && row.fallback_landed) current.fallback += 1;
       map.set(row.entity_key, current);
     }
@@ -1624,7 +1337,7 @@ export default function CounterpointSyncSettingsPanel({
       const exceptions = importExceptionsByEntity.get(source.entity_key) ?? { open: 0, fallback: 0 };
       const sentByBridge = landed?.source_count ?? source.source_count;
       const ready =
-        source.status === "ok" &&
+        (source.status === "ok" || !source.required) &&
         (landed?.passed ?? false) &&
         exceptions.open === 0;
       return {
@@ -1641,7 +1354,7 @@ export default function CounterpointSyncSettingsPanel({
   }, [commandCenter?.source_counts, commandReconciliationByKey, importExceptionsByEntity]);
   const commandLandedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.landedCount), 0);
   const commandFailedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.failedCount), 0);
-  const commandNotReadyTotal = commandCenterRows.filter((row) => !row.ready).length;
+  const commandNotReadyTotal = commandCenterRows.filter((row) => row.required && !row.ready).length;
   const bridgeSentButNotLanded = bridgeReportedRows > 0 && commandLandedTotal === 0;
   const bridgeRuntimeState = status?.windows_sync_state ?? "offline";
   const bridgeConnectionLabel = bridgeRuntimeState === "online"
@@ -1741,13 +1454,13 @@ export default function CounterpointSyncSettingsPanel({
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">ROS heartbeat</p>
             <p className="mt-1 font-bold text-app-text">{status?.last_seen_at ? formatDate(status.last_seen_at) : "No accepted heartbeat"}</p>
           </div>
-	          <div>
-	            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Prepared package heartbeat</p>
-	            <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.received_at ? formatDate(syncHeartbeat.received_at) : "Not required"}</p>
-	          </div>
+		          <div>
+		            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge heartbeat</p>
+		            <p className="mt-1 font-bold text-app-text">{status?.last_seen_at ? formatDate(status.last_seen_at) : "Not received"}</p>
+		          </div>
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge host</p>
-            <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.bridge_hostname ?? bridgeHost ?? "Unknown"}</p>
+            <p className="mt-1 font-bold text-app-text">{bridgeHost ?? "Unknown"}</p>
           </div>
 	          <div>
 	            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Browser/control API</p>
@@ -1757,14 +1470,14 @@ export default function CounterpointSyncSettingsPanel({
 	          </div>
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge version</p>
-            <p className="mt-1 font-bold text-app-text">{syncHeartbeat?.bridge_version ?? bridgeVersion ?? "Not reported"}</p>
+            <p className="mt-1 font-bold text-app-text">{bridgeVersion ?? "Not reported"}</p>
           </div>
         </div>
 	        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-app-text">
 	          <span>Bridge heartbeat: {bridgeRuntimeState === "offline" ? "Offline" : "Online"}</span>
 	          <span>Main Hub ROS intake: {status?.last_seen_at ? "Receiving heartbeat" : "No accepted heartbeat"}</span>
 	          <span>ROS staging: {status?.counterpoint_staging_enabled ? "On" : "Off"}</span>
-	          <span>Prepared packages: {syncWorkbenchStatus?.reachable ? "Connected" : "Not needed"}</span>
+	          <span>Go-live path: Bridge direct to ROS</span>
 	          <button
 	            type="button"
 	            onClick={() => void setRosStagingEnabled(!status?.counterpoint_staging_enabled)}
@@ -1780,46 +1493,6 @@ export default function CounterpointSyncSettingsPanel({
           >
             Refresh statuses
           </button>
-        </div>
-      </div>
-
-      <div
-        className={`rounded-lg border p-3 ${syncWorkbenchConnectionClass}`}
-        data-testid="counterpoint-sync-workbench-status"
-      >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest">
-	            Prepared package app connection
-	          </p>
-	          <p className="mt-1 text-xs font-semibold">
-	            {syncWorkbenchStatus?.message ?? "Optional support path for already-prepared packages. Normal go-live import uses the Bridge directly."}
-            </p>
-            {syncWorkbenchStatus?.error ? (
-              <p className="mt-1 text-[10px] font-bold">{syncWorkbenchStatus.error}</p>
-            ) : null}
-          </div>
-	          <span className="ui-pill border border-app-border bg-app-bg/70 text-[10px]">
-	            {syncWorkbenchStatus?.reachable ? "Prepared packages connected" : syncWorkbenchStatus?.configured ? "Prepared package app unreachable" : "Not needed"}
-	          </span>
-        </div>
-        <div className="mt-3 grid gap-2 text-xs md:grid-cols-4">
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Package host</p>
-            <p className="mt-1 font-bold text-app-text">{syncHealth?.hostname ?? "Not reported"}</p>
-          </div>
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Package schema</p>
-            <p className="mt-1 font-bold text-app-text">{syncStore?.format_version ?? syncHealth?.schema_version ?? "Not connected"}</p>
-          </div>
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Store backup</p>
-            <p className="mt-1 font-bold text-app-text">{syncStore?.backup_exists ? "Available" : "Not reported"}</p>
-          </div>
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Store path</p>
-            <p className="mt-1 break-all font-bold text-app-text">{syncStore?.path ?? syncHealth?.store_path ?? "Not reported"}</p>
-          </div>
         </div>
       </div>
 
@@ -1845,355 +1518,17 @@ export default function CounterpointSyncSettingsPanel({
 	          { label: "Open Orders", section: "open_docs", path: "Bridge batch -> ROS open-doc import -> PostgreSQL" },
 	          { label: "Gift Cards", section: "gift_cards", path: "Bridge batch -> ROS gift-card import -> PostgreSQL" },
 	          { label: "Loyalty Points", section: "loyalty_hist", path: "Bridge batch -> ROS loyalty import -> PostgreSQL" },
-          ].map((item) => {
-            const section = selectedSyncSections.find((row) => row.section === item.section);
-            return (
+          ].map((item) => (
               <div key={item.section} className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-black text-app-text">{item.label}</p>
-                  <span className={`ui-pill text-[9px] ${
-                    section?.status === "blocked"
-                      ? "bg-red-500/10 text-red-600"
-                      : section?.status === "ready" || section?.status === "ready_with_warnings" || section?.status === "imported"
-                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
-                        : "bg-app-bg text-app-text-muted"
-                  }`}>
-                    {section ? formatEntityLabel(section.status) : "No selected package"}
+                  <span className="ui-pill bg-app-bg text-[9px] text-app-text-muted">
+                    Direct import
                   </span>
                 </div>
                 <p className="mt-2 text-[11px] font-semibold text-app-text-muted">{item.path}</p>
-                <p className="mt-2 text-[10px] font-bold text-app-text-muted">
-                  Prepared: <span className="text-app-text">{fmtNum(section?.prepared_count ?? 0)}</span>
-                  {" | "}
-                  Warnings: <span className="text-app-text">{fmtNum(section?.warnings ?? 0)}</span>
-                  {" | "}
-                  Blockers: <span className="text-app-text">{fmtNum(section?.blockers ?? 0)}</span>
-                </p>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Prepared package compatibility
-            </p>
-            <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Support-only path for already-prepared packages. The current go-live path is Bridge import directly into Main Hub ROS.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              void fetchSyncWorkbenchStatus();
-              void fetchSyncRuns();
-              void fetchSelectedSyncRun(selectedSyncRunId);
-            }}
-            className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Refresh prepared packages
-          </button>
-        </div>
-        <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(260px,0.35fr)_minmax(0,1fr)]">
-          <div className="rounded-lg border border-app-border bg-app-surface-2/40 p-3">
-            <label className="block">
-              <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                Prepared run
-              </span>
-              <select
-                className="ui-input mt-1 text-xs"
-                value={selectedSyncRunId}
-                onChange={(event) => {
-                  setSelectedSyncRunId(event.target.value);
-                  setSyncPackage(null);
-                }}
-              >
-                {syncRuns.length === 0 ? (
-                  <option value="">No prepared packages available</option>
-                ) : null}
-                {syncRuns.map((run) => (
-                  <option key={run.sync_run_id} value={run.sync_run_id}>
-                    {run.name} - {formatEntityLabel(run.status)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {selectedSyncRunSummary ? (
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                <div className="col-span-2 rounded-md border border-app-border bg-app-bg/60 p-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Selected prepared run</p>
-                  <p className="mt-1 break-all font-mono text-[10px] font-bold text-app-text">{selectedSyncRunSummary.sync_run_id}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Run status</p>
-                  <p className="font-black text-app-text">{formatEntityLabel(selectedSyncRunSummary.status)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Source batches</p>
-                  <p className="font-black tabular-nums text-app-text">{fmtNum(selectedSyncRunSummary.source_batches ?? 0)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Sections ready</p>
-                  <p className="font-black tabular-nums text-app-text">{fmtNum(selectedSyncReadySections)}/{fmtNum(selectedSyncSections.length)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Imported</p>
-                  <p className="font-black tabular-nums text-app-text">{fmtNum(selectedSyncImportedSections)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Warnings</p>
-                  <p className="font-black tabular-nums text-app-text">{fmtNum(selectedSyncRunSummary.warnings)}</p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Blockers</p>
-                  <p className="font-black tabular-nums text-app-text">{fmtNum(selectedSyncRunSummary.blockers)}</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Updated</p>
-                  <p className="font-bold text-app-text">{formatDate(selectedSyncRunSummary.updated_at)}</p>
-                </div>
-              </div>
-            ) : (
-              <p className="mt-3 text-xs font-semibold text-app-text-muted">
-                No prepared package is selected. This is expected for the direct Bridge import workflow.
-              </p>
-            )}
-          </div>
-          <div className="overflow-auto rounded-lg border border-app-border">
-            <table className="w-full min-w-[1280px] text-left text-xs">
-              <thead className="bg-app-surface-2">
-                <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                  <th className="px-3 py-2">Section</th>
-                  <th className="px-3 py-2">Package status</th>
-                  <th className="px-3 py-2 text-right">Source</th>
-                  <th className="px-3 py-2 text-right">Prepared</th>
-                  <th className="px-3 py-2 text-right">Warnings</th>
-                  <th className="px-3 py-2 text-right">Blockers</th>
-                  <th className="px-3 py-2">ROS preflight</th>
-                  <th className="px-3 py-2">ROS import</th>
-                  <th className="px-3 py-2">AI review</th>
-                  <th className="px-3 py-2">Package</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-app-border">
-                {selectedSyncSections.map((section) => {
-                  const blocked = section.blockers > 0 || section.status === "blocked";
-                  const preflightState = preflightStateForSection(section);
-                  const importDisabledReason = importDisabledReasonForSection(section);
-                  return (
-                    <tr key={section.section}>
-                      <td className="px-3 py-2 font-bold text-app-text">{section.label ?? formatEntityLabel(section.section)}</td>
-                      <td className="px-3 py-2">
-                        <span className={`ui-pill text-[9px] ${
-                          blocked
-                            ? "bg-red-500/10 text-red-600"
-                            : section.status === "ready_with_warnings"
-                              ? "bg-amber-500/15 text-amber-700 dark:text-amber-200"
-                              : ["ready", "imported"].includes(section.status)
-                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
-                                : "bg-app-surface-2 text-app-text-muted"
-                        }`}>
-                          {formatEntityLabel(section.status)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(section.source_count)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(section.prepared_count)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(section.warnings)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{fmtNum(section.blockers)}</td>
-                      <td className="px-3 py-2">
-                        <span className={`ui-pill text-[9px] ${
-                          preflightState.ready
-                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
-                            : preflightState.changed
-                              ? "bg-amber-500/15 text-amber-700 dark:text-amber-200"
-                              : "bg-app-surface-2 text-app-text-muted"
-                        }`}>
-                          {preflightState.label}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <p className="font-bold text-app-text">{section.imported_at ? "Imported" : "Not imported"}</p>
-                        <p className="mt-0.5 text-[10px] text-app-text-muted">{section.imported_at ? formatDate(section.imported_at) : "No ROS import run"}</p>
-                        {section.ros_import_run_id ? (
-                          <p className="mt-0.5 break-all font-mono text-[9px] text-app-text-muted">{section.ros_import_run_id}</p>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2 text-[10px] font-semibold text-app-text-muted">
-                        <p>Pending: <span className="font-black text-app-text">{fmtNum(section.ai_pending_suggestions ?? 0)}</span></p>
-                        <p>Accepted: <span className="font-black text-app-text">{fmtNum(section.ai_accepted_suggestions ?? 0)}</span></p>
-                        <p>Applied: <span className="font-black text-app-text">{fmtNum(section.ai_applied_suggestions ?? 0)}</span></p>
-                        {section.ai_manual_review_suggestions ? (
-                          <p className="text-amber-700 dark:text-amber-200">Manual review: {fmtNum(section.ai_manual_review_suggestions)}</p>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2">
-                        <p className="mb-1 break-all font-mono text-[9px] text-app-text-muted">
-                          {section.package_fingerprint ? section.package_fingerprint.slice(0, 16) : "No fingerprint"}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => void loadSyncPackage(section.section)}
-                          disabled={!section.package_fingerprint || syncActionBusy === `package:${section.section}`}
-                          className="ui-btn-secondary px-2 py-1 text-[10px] font-bold disabled:opacity-50"
-                        >
-                          Preview package
-                        </button>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void runSyncPackagePreflight(section.section)}
-                            disabled={blocked || !section.package_fingerprint || syncActionBusy != null}
-                            title={blocked ? "Unresolved package blockers." : undefined}
-                            className="ui-btn-secondary px-2 py-1 text-[10px] font-bold disabled:opacity-50"
-                          >
-                            ROS Preflight
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void prepareSyncImport(section)}
-                            disabled={importDisabledReason != null || syncActionBusy != null}
-                            title={importDisabledReason ?? "Import selected section through ROS."}
-                            className="ui-btn-primary px-2 py-1 text-[10px] font-bold disabled:opacity-50"
-                          >
-                            Import Section
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {selectedSyncSections.length === 0 ? (
-              <div className="p-4 text-xs font-semibold text-app-text-muted">
-                No sections are available for the selected prepared package.
-              </div>
-            ) : null}
-          </div>
-        </div>
-        {syncPackage ? (
-          <div className="mt-3 rounded-lg border border-app-border bg-app-surface-2/40 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Selected package preview
-                </p>
-                <p className="mt-1 text-xs font-bold text-app-text">
-                  {formatEntityLabel(syncPackage.section)} - {syncPackage.package_fingerprint.slice(0, 16)}
-                </p>
-              </div>
-              <span className="ui-pill text-[9px] bg-app-surface text-app-text-muted">
-                Schema v{syncPackage.schema_version}
-              </span>
-            </div>
-            <div className="mt-3 grid gap-2 text-xs md:grid-cols-4">
-              <p>Prepared run: <span className="break-all font-mono font-black text-app-text">{syncPackage.sync_run_id}</span></p>
-              <p>Section: <span className="font-black text-app-text">{syncPackage.section}</span></p>
-              <p>Entity: <span className="font-black text-app-text">{syncPackage.entity}</span></p>
-              <p>Generated: <span className="font-black text-app-text">{formatDate(syncPackage.generated_at)}</span></p>
-              <p>Raw: <span className="font-black text-app-text">{fmtNum(syncPackage.source_counts.raw)}</span></p>
-              <p>Prepared: <span className="font-black text-app-text">{fmtNum(syncPackage.source_counts.prepared)}</span></p>
-              <p>Warnings: <span className="font-black text-app-text">{fmtNum(syncPackage.source_counts.warnings)}</span></p>
-              <p>Blockers: <span className="font-black text-app-text">{fmtNum(syncPackage.source_counts.blockers)}</span></p>
-              <p>Payload rows: <span className="font-black text-app-text">{fmtNum(syncPackage.payload.rows?.length ?? 0)}</span></p>
-              <p>Exceptions: <span className="font-black text-app-text">{fmtNum(syncPackage.exceptions.length)}</span></p>
-              <p>Provenance: <span className="font-black text-app-text">{fmtNum(syncPackage.provenance.length)}</span></p>
-              <p>Fingerprint: <span className="break-all font-mono font-black text-app-text">{syncPackage.package_fingerprint}</span></p>
-            </div>
-            <details className="mt-3 rounded-md border border-app-border bg-app-bg/70 p-3">
-              <summary className="cursor-pointer text-xs font-black uppercase tracking-widest text-app-text-muted">
-                Advanced raw JSON
-              </summary>
-              <pre className="mt-3 max-h-56 overflow-auto rounded-md border border-app-border bg-app-bg/80 p-3 text-[10px] text-app-text-muted">
-                {JSON.stringify(syncPackage, null, 2)}
-              </pre>
-            </details>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {[
-          { label: "Selected run sections", value: fmtNum(selectedSyncSections.length) },
-          { label: "Selected run ready", value: fmtNum(selectedSyncReadySections) },
-          { label: "Selected run imported", value: fmtNum(selectedSyncImportedSections) },
-          { label: "Selected run warnings", value: fmtNum(selectedSyncRunSummary?.warnings ?? 0) },
-          { label: "Selected run blockers", value: fmtNum(selectedSyncRunSummary?.blockers ?? 0) },
-          { label: "Final proof scope", value: selectedSyncRunId ? "Selected run only" : "No run" },
-        ].map((stat) => (
-          <div key={stat.label} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{stat.label}</p>
-            <p className="mt-1 text-lg font-black text-app-text tabular-nums">{stat.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded-lg border border-app-border bg-app-surface-2/30 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              ROS preflight and final proof
-            </p>
-            <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Selected-run proof is scoped by sync_run_id, ros_import_run_id, section, and package fingerprint. Support diagnostics are below the command center.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void fetchAllData()}
-              disabled={loading}
-              className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              Refresh Proof
-            </button>
-          </div>
-        </div>
-        <div className="mt-3 grid gap-2 text-xs md:grid-cols-5">
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">History floor</p>
-            <p className="mt-1 font-bold text-app-text">{commandCenter?.required_history_start ?? "2018-01-01"}</p>
-          </div>
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Latest preflight</p>
-            <p className="mt-1 font-bold text-app-text">
-              {latestPreflightForSelectedRun ? formatDate(latestPreflightForSelectedRun.created_at) : "Not run for selected run"}
-            </p>
-          </div>
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Preflight fingerprint</p>
-            <p className="mt-1 break-all font-mono text-[10px] font-bold text-app-text">{latestPreflightForSelectedRun?.source_fingerprint ?? "No selected-run preflight"}</p>
-          </div>
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Latest import run</p>
-            <p className="mt-1 font-bold text-app-text">
-              {commandCenter?.latest_import_run
-                ? `${commandCenter.latest_import_run.status} (${formatDate(commandCenter.latest_import_run.updated_at)})`
-                : "Not run"}
-            </p>
-          </div>
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Selected run id</p>
-            <p className="mt-1 break-all font-mono text-[10px] font-bold text-app-text">{selectedSyncRunId || "No selected run"}</p>
-          </div>
-        </div>
-        <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
-          <div className="rounded-md border border-app-border bg-app-bg/60 p-3">
-            <p className="font-black text-app-text">Inventory, catalog, and quantities</p>
-            <p className="mt-1 text-app-text-muted">Catalog and inventory proof must land before use.</p>
-          </div>
-          <div className="rounded-md border border-app-border bg-app-bg/60 p-3">
-            <p className="font-black text-app-text">Sales and movement history</p>
-            <p className="mt-1 text-app-text-muted">Historical tickets remain review evidence, not tax filing proof.</p>
-          </div>
+          ))}
         </div>
       </div>
 
@@ -2383,7 +1718,7 @@ export default function CounterpointSyncSettingsPanel({
           </p>
         ) : commandNotReadyTotal > 0 ? (
           <p className="mt-2 font-bold">
-            ROS has landed proof for this import, but {fmtNum(commandNotReadyTotal)} area(s) are not ready and {fmtNum(commandFailedTotal)} open exception(s) still need review before sign-off.
+            ROS has landed proof for this import, but {fmtNum(commandNotReadyTotal)} required area(s) are not ready and {fmtNum(commandFailedTotal)} current-run blocker(s) still need review before sign-off.
           </p>
         ) : commandCenterRows.length > 0 ? (
           <p className="mt-2 font-bold">
@@ -2410,7 +1745,14 @@ export default function CounterpointSyncSettingsPanel({
             {commandCenterRows.map((row) => (
               <tr key={row.entity_key}>
                 <td className="px-3 py-2">
-                  <p className="font-bold text-app-text">{row.label}</p>
+                  <p className="font-bold text-app-text">
+                    {row.label}
+                    {!row.required ? (
+                      <span className="ml-2 ui-pill bg-app-surface-2 text-[9px] text-app-text-muted">
+                        Optional
+                      </span>
+                    ) : null}
+                  </p>
                   {row.message ? <p className="mt-1 text-[10px] text-red-600">{row.message}</p> : null}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.source_count)}</td>
@@ -2423,11 +1765,13 @@ export default function CounterpointSyncSettingsPanel({
                   <span className={`ui-pill text-[9px] ${
                     row.ready
                       ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                      : !row.required
+                        ? "bg-app-surface-2 text-app-text-muted"
                       : row.status === "blocked"
                         ? "bg-red-500/10 text-red-600"
                         : "bg-amber-500/15 text-amber-700 dark:text-amber-200"
                   }`}>
-                    {row.ready ? "Ready" : row.status === "blocked" ? "Blocked" : formatEntityLabel(row.landedStatus)}
+                    {row.ready ? "Ready" : !row.required ? "Optional" : row.status === "blocked" ? "Blocked" : formatEntityLabel(row.landedStatus)}
                   </span>
                 </td>
               </tr>
@@ -2571,23 +1915,6 @@ export default function CounterpointSyncSettingsPanel({
               </button>
             </div>
           </div>
-
-          <IntegrationCredentialsCard
-            baseUrl={baseUrl}
-            integrationKey="counterpoint"
-            title="Prepared Package Source"
-            description="Optional support setting for already-prepared package files. The normal go-live Bridge import does not require this URL."
-            fields={[
-              {
-                key: "sync_workbench_url",
-                label: "Prepared package app URL",
-                placeholder: "http://127.0.0.1:3015",
-                help: "Use only when support needs to inspect or import an already-prepared package outside the direct Bridge import path.",
-                type: "text",
-              },
-            ]}
-            onSaved={fetchAllData}
-          />
 
           <div className="rounded-lg border border-app-border bg-app-bg/60 p-3 text-xs">
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -3203,20 +2530,6 @@ export default function CounterpointSyncSettingsPanel({
         confirmLabel="Mark failed"
         variant="danger"
         loading={recoveryBusy}
-      />
-      <ConfirmationModal
-        isOpen={pendingSyncImport != null}
-        onClose={() => setPendingSyncImport(null)}
-        onConfirm={() => void importSyncSection()}
-        title="Import prepared package section?"
-        message={
-          pendingSyncImport
-            ? `Import ${pendingSyncImport.section.label ?? formatEntityLabel(pendingSyncImport.section.section)} from the selected prepared package?\n\nPackage: ${selectedSyncRunSummary?.name ?? selectedSyncRunId}\nSection: ${pendingSyncImport.section.section}\nRecords: ${fmtNum(pendingSyncImport.pkg.source_counts.prepared)}\nWarnings: ${fmtNum(pendingSyncImport.pkg.source_counts.warnings)}\nBlockers: ${fmtNum(pendingSyncImport.pkg.source_counts.blockers)}\n\nThis will write records into Riverside OS through the ROS Counterpoint import pipeline.`
-            : ""
-        }
-        confirmLabel="Import Section"
-        variant="info"
-        loading={syncActionBusy?.startsWith("import:") ?? false}
       />
     </div>
   );

@@ -1697,6 +1697,7 @@ async fn settings_sync_workbench_import_section(
 struct ImportExceptionRowsQuery {
     limit: Option<i64>,
     offset: Option<i64>,
+    import_run_id: Option<Uuid>,
 }
 
 async fn settings_import_exceptions(
@@ -1709,6 +1710,7 @@ async fn settings_import_exceptions(
         .map_err(map_perm)?;
     match list_counterpoint_import_exceptions(
         &state.db,
+        q.import_run_id,
         q.limit.unwrap_or(100),
         q.offset.unwrap_or(0),
     )

@@ -18,14 +18,11 @@ Since v0.7.3, the bridge uses a high-concurrency parallel engine:
 | `SQL_CONNECTION_STRING` | Company database (not `master`); same DB you use in SSMS |
 | `COUNTERPOINT_BRIDGE_TARGET_MODE` | Go-live default: `ros_import_first` |
 | `ROS_BASE_URL` | Main Hub ROS target, e.g. `http://10.64.70.154:3000` |
-| `COUNTERPOINT_SYNC_WORKBENCH_URL` | Optional legacy standalone SYNC Workbench API, e.g. `http://10.64.70.154:3015` |
-| `COUNTERPOINT_SYNC_WORKBENCH_TOKEN` | Optional legacy Workbench token |
-| `COUNTERPOINT_SYNC_TOKEN` | Optional compatibility token only if a deployment deliberately requires it |
 Normal setup keeps `.env` to connection and target values only. The bridge derives the entity SQL at runtime from `INFORMATION_SCHEMA`.
 
-In the go-live workflow, `COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first` keeps the Bridge focused on extraction and posts directly to Main Hub ROS. ROS owns staging, CSV reference uploads, AI review packs, preflight/proof, import exceptions, and final approval. The standalone SYNC Workbench remains a legacy compatibility tool, not the required path.
+In the go-live workflow, `COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first` keeps the Bridge focused on extraction and posts directly to Main Hub ROS. ROS owns CSV reference uploads, AI review packs, preflight/proof, import exceptions, and final approval.
 
-Run order is **fixed in code** each pass: **staff -> optional sales-rep stubs -> category masters -> vendors -> catalog -> vendor_items -> inventory -> customers -> notes -> tickets/sales history -> optional receiving history -> open docs -> optional store credit -> loyalty balances -> gift cards**. Current loyalty balances are imported through customers as `pts_bal`; loyalty history stays disabled for go-live. Older `CP_*_QUERY` overrides are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
+Run order is **fixed in code** each pass: **staff -> sales reps -> category masters -> vendors -> catalog -> vendor_items -> inventory -> customers -> notes -> tickets/sales history -> open docs -> store credit -> loyalty balances -> gift cards**. Current loyalty balances are imported through customers as `pts_bal`; loyalty history stays disabled for go-live. Older `CP_*_QUERY` overrides are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
 
 ## One-time migration posture
 
@@ -35,7 +32,7 @@ Run order is **fixed in code** each pass: **staff -> optional sales-rep stubs ->
 - After customer and gift-card syncs, the bridge posts source count/sum proof to ROS. In **Settings → Counterpoint → Status → Landing Verification**, gift-card current balances and loyalty current points should show **Pass** before cutover sign-off.
 - The migration floor is expected to stay at the approved cutover date unless you are deliberately running a narrower test cut.
 - Review the ROS **Settings → Counterpoint → Status** panel before running. It now shows the active import floor, enabled entities, landing mode, and rerun warnings based on the bridge process that is actually running.
-- Receiving/movement history is **disabled by default** and is not required for the Riverside cutover. SKU sales history comes from closed ticket headers, lines, and payments. Enable `SYNC_RECEIVING_HISTORY=1` only for a deliberate analytics/procurement-history investigation.
+- SKU sales history comes from closed ticket headers, lines, and payments.
 - After a successful migration, stop the bridge and retire it from the Counterpoint host.
 
 ## After sign-off: retire the bridge
@@ -49,7 +46,7 @@ Once the migration is accepted:
 
 ## Health
 
-On start in `ros_import_first` mode, the bridge calls `GET /api/sync/counterpoint/health` on ROS. Legacy `sync_workbench` mode still calls `GET /health` on the standalone SYNC Workbench.
+On start in `ros_import_first` mode, the bridge calls `GET /api/sync/counterpoint/health` on ROS.
 
 ## Develop on Mac/Linux
 
@@ -80,8 +77,8 @@ Full integration notes: `docs/COUNTERPOINT_SYNC_GUIDE.md` in the Riverside OS re
 
 ## Server side
 
-ROS needs migration **29** plus **84+** Counterpoint tables. The go-live Bridge path does not require a saved standalone SYNC Workbench URL or token.
+ROS needs migration **29** plus **84+** Counterpoint tables.
 
 ## Security
 
-Keep Bridge and ROS on the trusted store LAN. Tokens are optional compatibility controls only; if you enable one for a wider network, use a long random value and never commit `.env` or log the token.
+Keep Bridge and ROS on the trusted store LAN. Never commit `.env`.

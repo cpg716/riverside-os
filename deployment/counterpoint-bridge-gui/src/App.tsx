@@ -25,8 +25,6 @@ interface BridgeSettings {
   sql_conn: string;
   ros_url: string;
   sync_token: string;
-  sync_workbench_url: string;
-  sync_workbench_token: string;
 }
 
 interface EntityStat {
@@ -70,7 +68,7 @@ interface InstallUpdateResult {
   installed_build: string | null;
 }
 
-interface SyncWorkbenchCheck {
+interface RosIntakeCheck {
   ok: boolean;
   message: string;
   checkedAt: string;
@@ -148,7 +146,6 @@ const ENTITIES = [
   { key: "gift_cards", label: "Gift Cards", icon: "🎁" },
   { key: "tickets", label: "Orders/Tickets", icon: "🧾" },
   { key: "open_docs", label: "Open Documents", icon: "📄" },
-  { key: "receiving_history", label: "Receiving", icon: "📥" },
 ];
 
 function App() {
@@ -174,8 +171,8 @@ function App() {
   // Settings fields
   const [sqlConn, setSqlConn] = useState("");
   const [rosUrl, setRosUrl] = useState("");
-  const [syncWorkbenchCheck, setSyncWorkbenchCheck] = useState<SyncWorkbenchCheck | null>(null);
-  const [syncWorkbenchChecking, setSyncWorkbenchChecking] = useState(false);
+  const [rosIntakeCheck, setRosIntakeCheck] = useState<RosIntakeCheck | null>(null);
+  const [rosIntakeChecking, setRosIntakeChecking] = useState(false);
 
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
@@ -195,11 +192,11 @@ function App() {
     const url = normalizeHttpUrl(settings?.ros_url || normalizedRosUrl);
     if (!url) {
       const message = "Enter the Main Hub ROS URL before extraction.";
-      setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
+      setRosIntakeCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return false;
     }
-    setSyncWorkbenchChecking(true);
+    setRosIntakeChecking(true);
     try {
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), 5000);
@@ -218,7 +215,7 @@ function App() {
       const text = await response.text();
       if (!response.ok) {
         const message = `Main Hub ROS intake answered ${response.status} at ${url}${ROS_SYNC_HEALTH_PATH}: ${text.slice(0, 220)}`;
-        setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
+        setRosIntakeCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
       }
@@ -227,27 +224,27 @@ function App() {
         health = JSON.parse(text) as { service?: string; ok?: boolean };
       } catch {
         const message = `Main Hub ROS intake reached ${url}${ROS_SYNC_HEALTH_PATH}, but it did not return JSON.`;
-        setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
+        setRosIntakeCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
       }
       if (health.service !== "counterpoint_sync" || health.ok === false) {
         const message = `Main Hub ROS intake reached ${url}${ROS_SYNC_HEALTH_PATH}, but it did not answer as Counterpoint sync.`;
-        setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
+        setRosIntakeCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
         setStatusMessage(message);
         return false;
       }
       const message = `Main Hub ROS intake is ready at ${url}.`;
-      setSyncWorkbenchCheck({ ok: true, message, checkedAt: new Date().toLocaleTimeString() });
+      setRosIntakeCheck({ ok: true, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return true;
     } catch (e: any) {
       const message = `Main Hub ROS intake is not reachable at ${url}${ROS_SYNC_HEALTH_PATH}: ${e?.message ?? String(e)}`;
-      setSyncWorkbenchCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
+      setRosIntakeCheck({ ok: false, message, checkedAt: new Date().toLocaleTimeString() });
       setStatusMessage(message);
       return false;
     } finally {
-      setSyncWorkbenchChecking(false);
+      setRosIntakeChecking(false);
     }
   }, [normalizedRosUrl]);
 
@@ -256,7 +253,7 @@ function App() {
       const data = await invoke<BridgeSettings>("load_settings");
       setSqlConn(data.sql_conn);
       setRosUrl(data.ros_url);
-      return { ...data, sync_workbench_url: "", sync_workbench_token: "" };
+      return data;
     } catch (e: any) {
       console.error("Failed to load settings:", e);
       setStatusMessage(`Failed to load bridge settings: ${e}`);
@@ -267,7 +264,7 @@ function App() {
   const handleSaveSettings = async () => {
     try {
       const normalizedSqlConn = normalizeSqlConnectionInput(sqlConn);
-      const nextSettings = { sql_conn: normalizedSqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: "", sync_workbench_token: "" };
+      const nextSettings = { sql_conn: normalizedSqlConn, ros_url: normalizedRosUrl, sync_token: "" };
       if (!hasRequiredBridgeSettings(nextSettings)) {
         setStatusMessage("Enter the full Counterpoint SQL connection with Server and Database, plus the Main Hub ROS URL.");
         return;
@@ -277,8 +274,6 @@ function App() {
         sqlConn: normalizedSqlConn,
         rosUrl: normalizedRosUrl,
         syncToken: "",
-        syncWorkbenchUrl: "",
-        syncWorkbenchToken: ""
       });
       setSqlConn(normalizedSqlConn);
       setRosUrl(normalizedRosUrl);
@@ -378,7 +373,7 @@ function App() {
 
   const handleStartBridge = async (isDry = dryRun, settingsOverride?: BridgeSettings) => {
     try {
-      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: normalizedRosUrl, sync_token: "", sync_workbench_url: "", sync_workbench_token: "" };
+      const nextSettings = settingsOverride ?? { sql_conn: sqlConn, ros_url: normalizedRosUrl, sync_token: "" };
       if (!hasRequiredBridgeSettings(nextSettings)) {
         setActiveTab("settings");
         setStatusMessage("Enter the full Counterpoint SQL connection with Server and Database, plus the Main Hub ROS URL.");
@@ -684,22 +679,22 @@ function App() {
               <div className="font-semibold text-gray-400 mt-3 mb-1">Main Hub ROS Intake</div>
               <div className="font-mono text-[#f97316] mt-0.5 break-all">{normalizedRosUrl}{ROS_SYNC_HEALTH_PATH}</div>
               <div className={`mt-2 rounded-lg border px-2 py-1.5 font-semibold ${
-                syncWorkbenchCheck?.ok
+                rosIntakeCheck?.ok
                   ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                  : syncWorkbenchCheck
+                  : rosIntakeCheck
                     ? "border-red-500/30 bg-red-500/10 text-red-300"
                     : "border-white/10 bg-white/5 text-gray-400"
               }`}>
-                {syncWorkbenchCheck ? syncWorkbenchCheck.message : "Main Hub ROS intake not checked from Bridge GUI yet."}
-                {syncWorkbenchCheck ? <div className="mt-0.5 text-[9px] text-gray-500">Checked {syncWorkbenchCheck.checkedAt}</div> : null}
+                {rosIntakeCheck ? rosIntakeCheck.message : "Main Hub ROS intake not checked from Bridge GUI yet."}
+                {rosIntakeCheck ? <div className="mt-0.5 text-[9px] text-gray-500">Checked {rosIntakeCheck.checkedAt}</div> : null}
               </div>
               <button
                 type="button"
                 onClick={() => void checkRosReachability()}
-                disabled={syncWorkbenchChecking}
+                disabled={rosIntakeChecking}
                 className="mt-2 w-full rounded-lg border border-white/10 px-2 py-2 font-bold text-gray-300 hover:border-orange-500/50 hover:text-white disabled:opacity-50"
               >
-                {syncWorkbenchChecking ? "Checking..." : "Check Main Hub ROS"}
+                {rosIntakeChecking ? "Checking..." : "Check Main Hub ROS"}
               </button>
             </div>
             <div className="p-4 rounded-xl bg-[#161922] border border-white/5 text-[10px] text-gray-500">
@@ -744,8 +739,8 @@ function App() {
                   },
                   {
                     label: "2. Check Main Hub ROS",
-                    detail: syncWorkbenchCheck?.ok ? "ROS intake answered" : "Use Check Main Hub ROS before import",
-                    ready: Boolean(syncWorkbenchCheck?.ok),
+                    detail: rosIntakeCheck?.ok ? "ROS intake answered" : "Use Check Main Hub ROS before import",
+                    ready: Boolean(rosIntakeCheck?.ok),
                   },
                   {
                     label: "3. Run Import",

@@ -35,8 +35,7 @@ Use this panel to verify facts. ROSIE can explain displayed facts only; it does 
 6. Use **CSV Cleanup** to load the Lightspeed and Counterpoint inventory CSV references, generate review packs, import returned suggestion JSON, and apply only staff-approved catalog cleanup.
 7. Apply or discard staged batches from the ROS command center after review.
 8. Review ROS Import exceptions and final proof before sign-off reconciliation.
-9. Use **Prepared package compatibility** only when support needs to inspect or import an already-prepared package outside the direct Bridge import path.
-10. Use **Support Diagnostics** only when deployment or recovery blockers need manual resolution.
+9. Use **Support Diagnostics** only when deployment or recovery blockers need manual resolution.
 
 If a failed support-queue batch has been reviewed and successfully replayed into a newer import run, use **Discard** to remove the stale failed row from active blockers while preserving the original audit record.
 
@@ -50,13 +49,9 @@ The status cards separate Bridge heartbeat, Main Hub ROS intake reachability, RO
 
 The go-live Bridge workflow is tokenless. The Bridge sends data to the Main Hub ROS API on port 3000, so import does not depend on Counterpoint PCs reaching a separate package-preparation app.
 
-If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings. A prepared-package URL is optional and only needed for support recovery.
+If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings.
 
 The Bridge GUI includes **Check Main Hub ROS**. Use it before extraction; the Bridge must be able to load the ROS `/api/sync/counterpoint/health` endpoint before it starts sending batches.
-
-For no-hardware rehearsal at home, start the local Workbench with `npm run dev:sync-workbench`, run `npm run sync:simulate-counterpoint`, then select the simulated run in ROS. The simulator creates warning-only sections and a blocked inventory section without requiring the Counterpoint PC. Do not import simulated packages into production ROS unless intentionally testing in a safe environment.
-
-After simulator testing, use `npm run sync:clear-simulation` to remove only simulator-generated prepared runs from the local Workbench store. This does not reset ROS and does not remove real Bridge/Counterpoint runs.
 
 ## Command center and post-import verification
 
@@ -66,7 +61,7 @@ The default **Command center** is the primary one-time migration surface. Do not
 
 Accumulated verification is support-only: it can include rows from older rehearsals, support-queue diagnostics, or dirty dev data and must not be used as current-run sign-off proof.
 
-The import is proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If source counts are suspiciously low, such as too few open docs or tickets without line detail, preflight blocks the run before ROS can show a completed import. Receiving/movement history is optional for this cutover because Riverside OS only needs SKU sales history, not receiving history, to support historical customer lookup and returns review.
+The import is proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If source counts are suspiciously low, such as too few open docs or tickets without line detail, preflight blocks the run before ROS can show a completed import. Riverside OS uses SKU sales history from closed tickets for historical customer lookup and returns review.
 
 Read the command-center table as two separate steps: **Sent** means the Bridge posted rows to Main Hub ROS; **Landed** means ROS wrote and linked those rows for proof. A Bridge import can finish successfully while ROS still shows failed or not-ready areas that must be resolved before go-live sign-off.
 

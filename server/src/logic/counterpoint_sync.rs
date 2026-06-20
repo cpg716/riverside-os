@@ -3862,6 +3862,7 @@ pub struct CounterpointImportCommandCenterSummary {
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct CounterpointImportExceptionRow {
     pub id: Uuid,
+    pub import_run_id: Option<Uuid>,
     pub entity_key: String,
     pub source_key: Option<String>,
     pub severity: String,
@@ -3890,6 +3891,7 @@ pub struct CounterpointLandingVerificationRow {
 pub struct CounterpointSnapshotReconciliationRow {
     pub key: String,
     pub label: String,
+    pub required: bool,
     pub status: String,
     pub passed: bool,
     pub source_count: Option<i64>,
@@ -4434,17 +4436,7 @@ pub async fn record_counterpoint_import_preflight(
             .or_else(|| default_suspicious_min_for_import_entity(&entity_key));
         let mut status = normalize_import_count_status(row.status.as_deref()).to_string();
         let mut message = row.message.as_ref().map(|value| value.trim().to_string());
-        let effective_required = row.required && entity_key != "receiving_history";
-
-        if entity_key == "receiving_history"
-            && matches!(status.as_str(), "blocked" | "missing_mapping")
-        {
-            status = "warning".into();
-            message.get_or_insert_with(|| {
-                "Receiving/movement history is optional for the Counterpoint cutover import."
-                    .to_string()
-            });
-        }
+        let effective_required = row.required;
 
         if effective_required && status == "missing_mapping" {
             push_import_preflight_blocker(
@@ -4516,7 +4508,7 @@ pub async fn record_counterpoint_import_preflight(
                 .source_checksum
                 .as_ref()
                 .map(|value| value.trim().to_ascii_lowercase()),
-            required: row.required,
+            required: effective_required,
             suspicious_min_count: suspicious_min,
             status: status.clone(),
             message: message.clone(),
@@ -4530,7 +4522,7 @@ pub async fn record_counterpoint_import_preflight(
                 .as_ref()
                 .map(|value| value.trim().to_ascii_lowercase()),
             row.query_key.as_ref().map(|value| value.trim().to_string()),
-            row.required,
+            effective_required,
             suspicious_min,
             status,
             message,
@@ -4738,6 +4730,7 @@ async fn load_counterpoint_import_source_count_rows(
                required, suspicious_min_count, status, message
         FROM counterpoint_import_source_counts
         WHERE import_run_id = $1
+          AND entity_key <> 'receiving_history'
         ORDER BY entity_key
         "#,
     )
@@ -5751,11 +5744,20 @@ async fn build_counterpoint_import_run_reconciliation(
             import_run_landed_count_for_source_count(pool, import_run_id, &source.entity_key)
                 .await?;
         let count_difference = landed_count - source.source_count;
-        let passed = count_difference == 0;
+        let counts_match = count_difference == 0;
+        let passed = counts_match || !source.required;
         rows.push(CounterpointSnapshotReconciliationRow {
             key: source.entity_key.clone(),
             label: source.label.clone(),
-            status: if passed { "pass" } else { "fail" }.into(),
+            required: source.required,
+            status: if counts_match {
+                "pass"
+            } else if source.required {
+                "fail"
+            } else {
+                "optional"
+            }
+            .into(),
             passed,
             source_count: Some(source.source_count),
             landed_count,
@@ -5766,8 +5768,10 @@ async fn build_counterpoint_import_run_reconciliation(
             source_checksum: source.source_checksum.clone(),
             landed_checksum: None,
             checksum_matched: None,
-            note: if passed {
+            note: if counts_match {
                 "Current import run provenance matches the Bridge source count.".into()
+            } else if !source.required {
+                "Optional Counterpoint source area is not required for go-live proof.".into()
             } else {
                 "Current import run provenance does not yet match the Bridge source count.".into()
             },
@@ -5815,22 +5819,46 @@ pub async fn build_counterpoint_import_command_center(
                 .to_string(),
         )
     };
-    let open_exception_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::bigint FROM counterpoint_import_exceptions WHERE status = 'open'",
-    )
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
-    let fallback_landed_exception_count: i64 = sqlx::query_scalar(
-        r#"
-        SELECT COUNT(*)::bigint
-        FROM counterpoint_import_exceptions
-        WHERE status = 'open' AND fallback_landed
-        "#,
-    )
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
+    let required_entity_keys = source_counts
+        .iter()
+        .filter(|row| row.required)
+        .map(|row| row.entity_key.clone())
+        .collect::<Vec<_>>();
+    let latest_import_run_id = latest_import_run.as_ref().map(|run| run.id);
+    let open_exception_count: i64 = match latest_import_run_id {
+        Some(import_run_id) if !required_entity_keys.is_empty() => sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_import_exceptions
+            WHERE import_run_id = $1
+              AND entity_key = ANY($2)
+              AND status = 'open'
+              AND severity = 'blocked'
+            "#,
+        )
+        .bind(import_run_id)
+        .bind(&required_entity_keys)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0),
+        _ => 0,
+    };
+    let fallback_landed_exception_count: i64 = match latest_import_run_id {
+        Some(import_run_id) => sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_import_exceptions
+            WHERE import_run_id = $1
+              AND status = 'open'
+              AND fallback_landed
+            "#,
+        )
+        .bind(import_run_id)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0),
+        _ => 0,
+    };
     let staging_open_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)::bigint FROM counterpoint_staging_batch WHERE status IN ('pending', 'applying')",
     )
@@ -5847,9 +5875,13 @@ pub async fn build_counterpoint_import_command_center(
         .as_ref()
         .map(|run| run.status == "completed")
         .unwrap_or(false);
+    let required_snapshot_rows = snapshot_reconciliation
+        .iter()
+        .filter(|row| row.required)
+        .collect::<Vec<_>>();
     let import_proof_passed = latest_import_completed
-        && !snapshot_reconciliation.is_empty()
-        && snapshot_reconciliation.iter().all(|row| row.passed);
+        && !required_snapshot_rows.is_empty()
+        && required_snapshot_rows.iter().all(|row| row.passed);
     let ready_for_go_live_review =
         ready_for_import && import_proof_passed && open_exception_count == 0;
     let recommendation = if latest_preflight.is_none() {
@@ -5894,6 +5926,7 @@ pub async fn build_counterpoint_import_command_center(
 
 pub async fn list_counterpoint_import_exceptions(
     pool: &PgPool,
+    import_run_id: Option<Uuid>,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<CounterpointImportExceptionRow>, sqlx::Error> {
@@ -5902,10 +5935,11 @@ pub async fn list_counterpoint_import_exceptions(
     sqlx::query_as(
         r#"
         SELECT
-            id, entity_key, source_key, severity, reason_code, message,
+            id, import_run_id, entity_key, source_key, severity, reason_code, message,
             suggested_fix, fallback_landed, ros_table, ros_id, source_payload,
             status, created_at, updated_at
         FROM counterpoint_import_exceptions
+        WHERE ($3::uuid IS NULL OR import_run_id = $3)
         ORDER BY
             CASE severity WHEN 'blocked' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
             created_at DESC
@@ -5914,6 +5948,7 @@ pub async fn list_counterpoint_import_exceptions(
     )
     .bind(limit)
     .bind(offset)
+    .bind(import_run_id)
     .fetch_all(pool)
     .await
 }
@@ -6236,6 +6271,7 @@ fn build_snapshot_reconciliation_row(
         return CounterpointSnapshotReconciliationRow {
             key: key.into(),
             label: label.into(),
+            required: true,
             status: "missing_source".into(),
             passed: false,
             source_count: None,
@@ -6259,6 +6295,7 @@ fn build_snapshot_reconciliation_row(
     CounterpointSnapshotReconciliationRow {
         key: key.into(),
         label: label.into(),
+        required: true,
         status: if passed { "pass" } else { "fail" }.into(),
         passed,
         source_count: Some(metric.source_count),
@@ -6290,6 +6327,7 @@ fn build_checksum_reconciliation_row(
         return CounterpointSnapshotReconciliationRow {
             key: key.into(),
             label: label.into(),
+            required: true,
             status: "missing_source".into(),
             passed: false,
             source_count: None,
@@ -6324,6 +6362,7 @@ fn build_checksum_reconciliation_row(
     CounterpointSnapshotReconciliationRow {
         key: key.into(),
         label: label.into(),
+        required: true,
         status: status.into(),
         passed,
         source_count: Some(metric.source_count),
@@ -7054,10 +7093,6 @@ async fn build_snapshot_reconciliation_rows(
     )
     .fetch_one(pool)
     .await?;
-    let (receiving_history_count, _receiving_history_sum): (i64, Decimal) =
-        sqlx::query_as("SELECT COUNT(*)::bigint, 0::numeric FROM counterpoint_receiving_history")
-            .fetch_one(pool)
-            .await?;
     let (store_credit_opening_count, store_credit_opening_sum): (i64, Decimal) = sqlx::query_as(
         r#"
         SELECT COUNT(*)::bigint, COALESCE(SUM(amount), 0)::numeric
@@ -7237,13 +7272,6 @@ async fn build_snapshot_reconciliation_rows(
             load_snapshot_source_metric(pool, "open_doc_payments").await?,
             open_doc_payment_count,
             open_doc_payment_sum,
-        ),
-        build_snapshot_reconciliation_row(
-            "receiving_history",
-            "Receiving/movement history",
-            load_snapshot_source_metric(pool, "receiving_history").await?,
-            receiving_history_count,
-            Decimal::ZERO,
         ),
         build_snapshot_reconciliation_row(
             "gift_cards",
@@ -7494,12 +7522,6 @@ pub async fn build_counterpoint_landing_verification_summary(
         "#,
     )
     .await?;
-    let receiving_history = counterpoint_landing_count(
-        pool,
-        "SELECT COUNT(*)::bigint FROM counterpoint_receiving_history",
-    )
-    .await?;
-
     Ok(CounterpointLandingVerificationSummary {
         generated_at: Utc::now(),
         disclaimer: "Read-only landed-row counts from ROS tables. Gift-card and loyalty snapshots compare Counterpoint source metrics to landed ROS totals.".into(),
@@ -7525,7 +7547,6 @@ pub async fn build_counterpoint_landing_verification_summary(
             landing_row("closed_ticket_payments", "Closed ticket payments", closed_ticket_payments, "approximate", "distinct payment transactions allocated to CP ticket transactions; not tender reconciliation"),
             landing_row("open_doc_transactions", "Open-doc transactions", open_doc_transactions, "direct", "transactions.counterpoint_doc_ref present"),
             landing_row("open_doc_lines", "Open-doc lines", open_doc_lines, "direct", "transaction_lines attached to CP open-doc transactions"),
-            landing_row("receiving_history", "Receiving history rows", receiving_history, "direct", "counterpoint_receiving_history rows"),
         ],
         snapshot_reconciliation: build_snapshot_reconciliation_rows(pool).await?,
         cutover_visibility: build_cutover_visibility_rows(pool).await?,
@@ -8031,7 +8052,7 @@ async fn build_counterpoint_reset_scope(
                 "#,
             )
             .await?,
-            note: "Clears Counterpoint staging, run history, source-count proof, raw import proof, provenance, exceptions, receiving history, staff maps, and category maps so ROS shows a fresh migration state.".into(),
+            note: "Clears Counterpoint staging, run history, source-count proof, raw import proof, provenance, exceptions, staff maps, and category maps so ROS shows a fresh migration state.".into(),
         },
         CounterpointResetCountRow {
             key: "counterpoint_staff".into(),
@@ -13637,13 +13658,6 @@ mod tests {
                 None,
             ),
             (
-                "receiving_history",
-                "Receiving/movement history",
-                3_000,
-                true,
-                None,
-            ),
-            (
                 "open_docs",
                 "Open docs/unfulfilled obligations",
                 325,
@@ -13802,7 +13816,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn counterpoint_import_preflight_allows_optional_receiving_history_gap() {
+    async fn counterpoint_import_preflight_does_not_require_receiving_history() {
         let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
         ensure_counterpoint_import_first_tables(&pool).await;
@@ -13812,13 +13826,6 @@ mod tests {
                 "tickets" => row.source_count = 186,
                 "ticket_lines" => row.source_count = 109_093,
                 "ticket_payments" => row.source_count = 71_708,
-                "receiving_history" => {
-                    row.source_count = 0;
-                    row.required = false;
-                    row.status = Some("ok".into());
-                    row.message =
-                        Some("Receiving/movement history returned zero source rows.".into());
-                }
                 "open_docs" => row.source_count = 2_123,
                 "open_doc_lines" => row.source_count = 3_167,
                 "open_doc_payments" => row.source_count = 2_198,
@@ -13856,15 +13863,166 @@ mod tests {
         let receiving_row = summary
             .counts
             .iter()
-            .find(|row| row.entity_key == "receiving_history")
-            .expect("receiving count row");
-        assert_eq!(receiving_row.status, "ok");
+            .find(|row| row.entity_key == "receiving_history");
+        assert!(receiving_row.is_none());
+
+        let stored_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_import_source_counts
+            WHERE import_run_id = $1
+              AND entity_key = 'receiving_history'
+            "#,
+        )
+        .bind(summary.import_run_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count stored receiving source rows");
+        assert_eq!(stored_count, 0);
 
         sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = $1")
             .bind(summary.import_run_id)
             .execute(&pool)
             .await
             .expect("cleanup preflight run");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_command_center_gates_current_required_import_proof_only() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        ensure_counterpoint_import_first_tables(&pool).await;
+        let unique = Uuid::new_v4().to_string();
+        let mut counts = realistic_import_preflight_counts();
+        for row in &mut counts {
+            row.source_count = 0;
+            row.required = row.entity_key == "customers";
+            row.status = Some("ok".into());
+            row.message = None;
+            row.suspicious_min_count = Some(0);
+            if row.entity_key == "customers" {
+                row.source_count = 1;
+            }
+        }
+        let stale_run = record_counterpoint_import_preflight(
+            &pool,
+            CounterpointImportPreflightPayload {
+                history_start: Some("2018-01-01".into()),
+                bridge_hostname: Some("stale-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some(format!("stale-command-center-{unique}")),
+                import_first: true,
+                staging_enabled: false,
+                dry_run: false,
+                startup_issues: vec![],
+                counts: counts.clone(),
+                metadata: serde_json::json!({ "test": true }),
+            },
+        )
+        .await
+        .expect("record stale preflight");
+        sqlx::query(
+            r#"
+            INSERT INTO counterpoint_import_exceptions (
+                import_run_id, entity_key, source_key, severity, reason_code, message
+            )
+            VALUES ($1, 'customers', 'STALE', 'blocked', 'stale_blocker', 'Old rehearsal blocker')
+            "#,
+        )
+        .bind(stale_run.import_run_id)
+        .execute(&pool)
+        .await
+        .expect("insert stale exception");
+
+        let preflight = record_counterpoint_import_preflight(
+            &pool,
+            CounterpointImportPreflightPayload {
+                history_start: Some("2018-01-01".into()),
+                bridge_hostname: Some("test-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some(format!("current-command-center-{unique}")),
+                import_first: true,
+                staging_enabled: false,
+                dry_run: false,
+                startup_issues: vec![],
+                counts,
+                metadata: serde_json::json!({ "test": true }),
+            },
+        )
+        .await
+        .expect("record current preflight");
+        let import_run = start_counterpoint_import_run(
+            &pool,
+            CounterpointImportRunStartPayload {
+                preflight_import_run_id: Some(preflight.import_run_id),
+                run_kind: Some("rehearsal".into()),
+                bridge_hostname: Some("test-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some(format!("current-command-center-{unique}")),
+            },
+        )
+        .await
+        .expect("start current import run");
+        sqlx::query(
+            r#"
+            INSERT INTO counterpoint_import_provenance (
+                import_run_id, entity_key, source_key, source_row_hash, ros_table, ros_id
+            )
+            VALUES ($1, 'customers', $2, 'fixture-hash', 'customers', $3)
+            "#,
+        )
+        .bind(import_run.import_run_id)
+        .bind(format!("CURRENT-{unique}"))
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("insert current proof provenance");
+        complete_counterpoint_import_run(
+            &pool,
+            CounterpointImportRunCompletePayload {
+                import_run_id: import_run.import_run_id,
+                failed: false,
+                error_message: None,
+                totals: Some(serde_json::json!({})),
+            },
+        )
+        .await
+        .expect("complete current import run");
+
+        let command_center = build_counterpoint_import_command_center(&pool, true)
+            .await
+            .expect("build command center");
+        assert!(command_center.ready_for_import);
+        assert!(command_center.ready_for_go_live_review);
+        assert_eq!(command_center.open_exception_count, 0);
+        let receiving_row = command_center
+            .snapshot_reconciliation
+            .iter()
+            .find(|row| row.key == "receiving_history");
+        assert!(receiving_row.is_none());
+
+        let current_exceptions =
+            list_counterpoint_import_exceptions(&pool, Some(import_run.import_run_id), 100, 0)
+                .await
+                .expect("list current exceptions");
+        assert!(current_exceptions.is_empty());
+
+        let _ =
+            sqlx::query("DELETE FROM counterpoint_import_exceptions WHERE import_run_id = ANY($1)")
+                .bind(&vec![stale_run.import_run_id, import_run.import_run_id])
+                .execute(&pool)
+                .await;
+        let _ = sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = ANY($1)")
+            .bind(&vec![
+                stale_run.import_run_id,
+                preflight.import_run_id,
+                import_run.import_run_id,
+            ])
+            .execute(&pool)
+            .await;
     }
 
     #[tokio::test]

@@ -71,15 +71,12 @@ function getMigrationSnapshot() {
         ["tickets", SYNC_TICKETS],
         ["open_docs", SYNC_OPEN_DOCS],
         ["loyalty_hist", SYNC_LOYALTY_HIST],
-        ["receiving_history", SYNC_RECEIVING_HISTORY],
         ["ticket_notes", SYNC_TICKET_NOTES],
     ]
         .filter(([, enabled]) => enabled)
         .map(([entity]) => entity);
 
-    const nonIdempotentEntities = enabledEntities.filter((entity) =>
-        entity === "gift_cards" || entity === "receiving_history",
-    );
+    const nonIdempotentEntities = enabledEntities.filter((entity) => entity === "gift_cards");
 
     const rerunWarnings = [];
     if (CP_IMPORT_SINCE !== REQUIRED_CP_IMPORT_SINCE) {
@@ -150,8 +147,7 @@ const ENTITY_DEPENDENCIES = {
     'tickets': ['customers', 'catalog'],
     'vendor_items': ['vendors', 'catalog'],
     'open_docs': ['customers', 'catalog'],
-    'customer_notes': ['customers'],
-    'receiving_history': ['vendors', 'catalog']
+    'customer_notes': ['customers']
 };
 
 
@@ -386,7 +382,7 @@ const startLocalServer = () => {
             res.writeHead(202, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 status: 'triggered',
-                target_mode: USE_SYNC_WORKBENCH ? 'sync_workbench' : 'ros_import_first',
+                target_mode: 'ros_import_first',
                 queue: entity === 'full' ? 'all' : targetQueue,
             }));
         } else if (req.url === '/') {
@@ -582,13 +578,6 @@ const DRY_RUN_MODE = process.argv.includes("--dry-run");
 
 const ROS_BASE_URL = (process.env.ROS_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
 const SYNC_TOKEN = process.env.COUNTERPOINT_SYNC_TOKEN ?? "";
-const SYNC_WORKBENCH_URL = (process.env.COUNTERPOINT_SYNC_WORKBENCH_URL ?? "").replace(/\/$/, "");
-const SYNC_WORKBENCH_TOKEN = process.env.COUNTERPOINT_SYNC_WORKBENCH_TOKEN ?? "";
-const BRIDGE_TARGET_MODE = (
-  process.env.COUNTERPOINT_BRIDGE_TARGET_MODE ??
-  "ros_import_first"
-).trim().toLowerCase();
-const USE_SYNC_WORKBENCH = BRIDGE_TARGET_MODE === "sync_workbench";
 const CONN = process.env.SQL_CONNECTION_STRING ?? "";
 /** mssql default requestTimeout is 15s — large EXISTS / ticket-scoped queries often exceed that on real CP DBs. */
 const SQL_REQUEST_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.SQL_REQUEST_TIMEOUT_MS ?? "600000", 10));
@@ -605,7 +594,6 @@ const ROS_RATE_LIMIT_FALLBACK_WAIT_MS = Math.max(
 );
 let nextRosRequestAt = 0;
 let rosRequestGate = Promise.resolve();
-let activeWorkbenchRunId = null;
 
 function normalizeSqlConnectionInput(value) {
   let normalized = String(value ?? "").trim();
@@ -810,7 +798,7 @@ function configuredSql(name) {
 function requireImportFirstIngestMode() {
   if (!IMPORT_FIRST_MODE && !DRY_RUN_MODE) {
     throw new Error(
-      "CP_IMPORT_FIRST_MODE must remain enabled for direct ROS compatibility import runs. Direct/staging ingest is not the preferred Bridge-to-SYNC workflow.",
+      "CP_IMPORT_FIRST_MODE must remain enabled for Riverside go-live imports. Bridge extraction posts directly to Main Hub ROS.",
     );
   }
 }
@@ -830,7 +818,6 @@ const SYNC_LOYALTY_HIST = false; // Forced false: we only need current loyalty b
 const SYNC_VENDOR_ITEMS = envFlag("SYNC_VENDOR_ITEMS", true);
 const SYNC_STORE_CREDIT_OPENING = envFlag("SYNC_STORE_CREDIT_OPENING", true);
 const SYNC_OPEN_DOCS = envFlag("SYNC_OPEN_DOCS", true);
-const SYNC_RECEIVING_HISTORY = envFlag("SYNC_RECEIVING_HISTORY", false);
 const SYNC_TICKET_NOTES = envFlag("SYNC_TICKET_NOTES", true);
 const CP_CUSTOMER_STORE_CREDIT_EXISTS_RAW = configuredSql("CP_CUSTOMER_STORE_CREDIT_EXISTS");
 const CP_CUSTOMERS_QUERY = injectStoreCreditCustomerExistsClause(
@@ -878,7 +865,6 @@ const CP_STORE_CREDIT_QUERY = expandImportSince(configuredSql("CP_STORE_CREDIT_Q
 const CP_OPEN_DOCS_QUERY = expandImportSince(configuredSql("CP_OPEN_DOCS_QUERY"));
 const CP_OPEN_DOC_LINES_QUERY = expandImportSince(configuredSql("CP_OPEN_DOC_LINES_QUERY"));
 const CP_OPEN_DOC_PMT_QUERY = expandImportSince(configuredSql("CP_OPEN_DOC_PMT_QUERY"));
-const CP_RECEIVING_HISTORY_QUERY = expandImportSince(configuredSql("CP_RECEIVING_HISTORY_QUERY"));
 const CP_TICKET_NOTES_QUERY = expandImportSince(configuredSql("CP_TICKET_NOTES_QUERY"));
 const BRIDGE_VERSION = "0.7.4";
 
@@ -969,7 +955,6 @@ function initEffectiveSqlFromConstants() {
     open_docs: expandImportSince(configuredSql("CP_OPEN_DOCS_QUERY")),
     open_doc_lines: expandImportSince(configuredSql("CP_OPEN_DOC_LINES_QUERY")),
     open_doc_pmt: expandImportSince(configuredSql("CP_OPEN_DOC_PMT_QUERY")),
-    receiving_history: expandImportSince(configuredSql("CP_RECEIVING_HISTORY_QUERY")),
     ticket_notes: expandImportSince(configuredSql("CP_TICKET_NOTES_QUERY")),
     vendors_fast_simple: expandImportSince(configuredSql("CP_VENDORS_FAST_QUERY")).trim() || CP_VENDORS_QUERY_SIMPLE,
   });
@@ -986,7 +971,6 @@ const QUERY_TESTER_ENTITY_ALIASES = {
   open_doc_payments: ["open_doc_pmt"],
   loyalty_hist: ["loyalty"],
   categories: ["category_masters"],
-  receiving: ["receiving_history"],
   orders: ["tickets"],
   orders_tickets: ["tickets"],
 };
@@ -1690,40 +1674,6 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     }
   }
 
-  const recvHeaderTable = set("PO_RECVR_HIST") ? "PO_RECVR_HIST" : set("PO_RECVR") ? "PO_RECVR" : "";
-  const recvLineTable = set("PO_RECVR_HIST_LIN") ? "PO_RECVR_HIST_LIN" : set("PO_RECVR_LIN") ? "PO_RECVR_LIN" : "";
-  const recvHeader = recvHeaderTable ? set(recvHeaderTable) : null;
-  const recvLine = recvLineTable ? set(recvLineTable) : null;
-  const recvSingleTable = !recvHeaderTable && recvLineTable ? recvLineTable : "";
-  const recvSingle = recvSingleTable ? recvLine : null;
-  const recvHeaderJoin = pickColumn(recvHeader, ["RECVR_NO", "RECV_NO", "DOC_ID", "PO_NO"]);
-  const recvLineJoin = pickColumn(recvLine, [recvHeaderJoin, "RECVR_NO", "RECV_NO", "DOC_ID", "PO_NO"].filter(Boolean));
-  const recvHeaderDate = pickColumn(recvHeader, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT", "RECVD_DAT", "POST_DAT"]);
-  const recvLineDate = pickColumn(recvLine, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT", "RECVD_DAT", "POST_DAT"]);
-
-  if (recvHeaderTable && recvLineTable && recvHeaderJoin && recvLineJoin && recvLine?.has("ITEM_NO") && (recvHeaderDate || recvLineDate)) {
-    const dateAlias = recvHeaderDate ? "h" : "l";
-    const dateCol = recvHeaderDate ?? recvLineDate;
-    const vendExpr = recvHeader?.has("VEND_NO")
-      ? sqlText("h", recvHeader, ["VEND_NO"], "vend_no")
-      : sqlText("l", recvLine, ["VEND_NO"], "vend_no");
-    const poExpr = recvHeader?.has("PO_NO")
-      ? sqlText("h", recvHeader, ["PO_NO"], "po_no")
-      : sqlText("l", recvLine, ["PO_NO"], "po_no");
-    const recvNoExpr = recvHeader?.has(recvHeaderJoin)
-      ? sqlText("h", recvHeader, [recvHeaderJoin], "recv_no")
-      : sqlText("l", recvLine, [recvLineJoin], "recv_no");
-    const costExpr = sqlNumber("l", recvLine, ["COST", "UNIT_COST", "LST_COST"], "unit_cost");
-    sqlMap.receiving_history = `SELECT ${vendExpr}, ${sqlText("l", recvLine, ["ITEM_NO"], "item_no")}, CONVERT(varchar, ${dateAlias}.[${dateCol}], 126) + 'Z' AS recv_dat, ${costExpr}, ${sqlNumber("l", recvLine, ["QTY_RECVD", "QTY_RECV", "QTY"], "qty_recv")}, ${poExpr}, ${recvNoExpr} FROM ${recvLineTable} l INNER JOIN ${recvHeaderTable} h ON h.[${recvHeaderJoin}] = l.[${recvLineJoin}] WHERE ${dateAlias}.[${dateCol}] >= '__CP_IMPORT_SINCE__' ORDER BY ${dateAlias}.[${dateCol}]`;
-    changes.push(`${recvHeaderTable}/${recvLineTable} receiving history enabled`);
-  } else if (recvSingleTable && recvSingle?.has("VEND_NO") && recvSingle.has("ITEM_NO")) {
-    const recvDate = pickColumn(recvSingle, ["RECVR_DAT", "RECV_DAT", "RECEIVED_DAT", "RECVD_DAT", "POST_DAT"]);
-    if (recvDate) {
-      sqlMap.receiving_history = `SELECT ${sqlText("r", recvSingle, ["VEND_NO"], "vend_no")}, ${sqlText("r", recvSingle, ["ITEM_NO"], "item_no")}, CONVERT(varchar, r.[${recvDate}], 126) + 'Z' AS recv_dat, ${sqlNumber("r", recvSingle, ["COST", "UNIT_COST", "LST_COST"], "unit_cost")}, ${sqlNumber("r", recvSingle, ["QTY_RECVD", "QTY_RECV", "QTY"], "qty_recv")}, ${sqlText("r", recvSingle, ["PO_NO"], "po_no")}, ${sqlText("r", recvSingle, ["RECVR_NO", "RECV_NO"], "recv_no")} FROM ${recvSingleTable} r WHERE r.[${recvDate}] >= '__CP_IMPORT_SINCE__' ORDER BY r.[${recvDate}]`;
-      changes.push(`${recvSingleTable} receiving history enabled`);
-    }
-  }
-
   return { sqlMap, changes };
 }
 
@@ -2044,7 +1994,7 @@ async function rebuildEffectiveSql(pool) {
 
 function logCanonicalSyncOrder() {
   console.info(
-    "[sync-order] Enforced pass order: staff → sales_rep_stubs (opt) → category_masters → vendors → catalog parent products + variants → vendor_items (supplier #) → inventory quantities → customers → customer_notes (opt) → tickets/sales history → receiving history → open_docs/orders → store_credit_opening (opt) → loyalty balances → gift cards.",
+    "[sync-order] Enforced pass order: staff → sales_rep_stubs (opt) → category_masters → vendors → catalog parent products + variants → vendor_items (supplier #) → inventory quantities → customers → customer_notes (opt) → tickets/sales history → open_docs/orders → store_credit_opening (opt) → loyalty balances → gift cards.",
   );
 }
 
@@ -2327,68 +2277,8 @@ async function rosFetch(urlPath, body, method = "POST", extraHeaders = {}) {
   throw lastErr;
 }
 
-const SYNC_WORKBENCH_FETCH_MAX_ATTEMPTS = Math.max(1, Number.parseInt(process.env.COUNTERPOINT_SYNC_WORKBENCH_FETCH_ATTEMPTS || "4", 10));
-
-function syncWorkbenchReachabilityHint() {
-  try {
-    const parsed = new URL(SYNC_WORKBENCH_URL);
-    if (["127.0.0.1", "localhost", "::1", "[::1]"].includes(parsed.hostname.toLowerCase())) {
-      return " 127.0.0.1 means this Counterpoint PC. If SYNC runs on the Main Hub, set COUNTERPOINT_SYNC_WORKBENCH_URL to the Main Hub LAN URL, for example http://10.64.70.196:3015.";
-    }
-  } catch {
-    return "";
-  }
-  return "";
-}
-
-async function syncWorkbenchFetch(urlPath, body, method = "POST", extraHeaders = {}) {
-  if (!SYNC_WORKBENCH_URL) {
-    throw new Error("COUNTERPOINT_SYNC_WORKBENCH_URL is required when COUNTERPOINT_BRIDGE_TARGET_MODE=sync_workbench.");
-  }
-  const url = `${SYNC_WORKBENCH_URL}${urlPath}`;
-  const headers = {
-    "Content-Type": "application/json",
-    ...extraHeaders,
-  };
-  if (SYNC_WORKBENCH_TOKEN.trim()) {
-    headers["x-counterpoint-sync-token"] = SYNC_WORKBENCH_TOKEN;
-  }
-  let lastErr;
-  for (let attempt = 0; attempt < SYNC_WORKBENCH_FETCH_MAX_ATTEMPTS; attempt += 1) {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), ROS_FETCH_TIMEOUT_MS);
-    try {
-      const res = await fetch(url, {
-        method,
-        headers,
-        body: body != null ? JSON.stringify(body) : undefined,
-        signal: ac.signal,
-      });
-      const text = await res.text();
-      const json = text.trim() ? JSON.parse(text) : {};
-      if (!res.ok) {
-        throw new Error(`Counterpoint SYNC ${res.status}: ${text.slice(0, 500)}`);
-      }
-      return json;
-    } catch (e) {
-      lastErr = e;
-    } finally {
-      clearTimeout(timer);
-    }
-    if (attempt + 1 < SYNC_WORKBENCH_FETCH_MAX_ATTEMPTS) {
-      await delay(500 * 2 ** attempt);
-    }
-  }
-  const message = lastErr instanceof Error ? lastErr.message : String(lastErr);
-  throw new Error(`Counterpoint SYNC Workbench is not reachable at ${SYNC_WORKBENCH_URL}. Start the Workbench and confirm ${SYNC_WORKBENCH_URL}/health opens from this Bridge PC.${syncWorkbenchReachabilityHint()} Last error: ${message}`);
-}
-
 async function rosGetHealth() {
   return rosFetch("/api/sync/counterpoint/health", undefined, "GET");
-}
-
-async function syncWorkbenchGetHealth() {
-  return syncWorkbenchFetch("/health", undefined, "GET");
 }
 
 /** Startup: fails if health unreachable. */
@@ -2423,7 +2313,6 @@ const ENTITY_HTTP_PATH = {
   sales_rep_stubs: "sales-rep-stubs",
   store_credit_opening: "store-credit-opening",
   open_docs: "open-docs",
-  receiving_history: "receiving-history",
 };
 
 function bridgeIngestHeaders() {
@@ -2456,30 +2345,12 @@ async function rosPost(entityKey, body) {
       if (count > 0) {
         preview = JSON.stringify(body.rows[0]);
       }
-    } else if (body) {
-      count = 1;
-      preview = JSON.stringify(body);
-    }
-    console.info(`[dry-run] Would post entity "${entityKey}" with ${count} records. Preview: ${preview.slice(0, 150)}...`);
-    return { success: true, count, dryRun: true };
+  } else if (body) {
+    count = 1;
+    preview = JSON.stringify(body);
   }
-  if (USE_SYNC_WORKBENCH) {
-    const response = await syncWorkbenchFetch(
-      "/api/bridge/batches",
-      {
-        sync_run_id: activeWorkbenchRunId,
-        section: entityKey,
-        entity: entityKey,
-        source_system: "counterpoint_bridge",
-        payload: body,
-        bridge_version: BRIDGE_VERSION,
-        bridge_hostname: bridgeHostnameCached || os.hostname(),
-      },
-      "POST",
-      bridgeIngestHeaders(),
-    );
-    activeWorkbenchRunId = response?.sync_run_id ?? activeWorkbenchRunId;
-    return response;
+  console.info(`[dry-run] Would post entity "${entityKey}" with ${count} records. Preview: ${preview.slice(0, 150)}...`);
+  return { success: true, count, dryRun: true };
   }
   requireImportFirstIngestMode();
   const hdr = bridgeIngestHeaders();
@@ -2710,7 +2581,6 @@ function importFirstProbePlan() {
     },
     { entityKey: "ticket_lines", label: "Closed ticket lines", queryKey: "ticket_lines", required: true },
     { entityKey: "ticket_payments", label: "Closed ticket payments", queryKey: "ticket_payments", required: false },
-    { entityKey: "receiving_history", label: "Receiving/movement history", queryKey: "receiving_history", required: false },
     {
       entityKey: "open_docs",
       label: "Open docs/unfulfilled obligations",
@@ -3442,20 +3312,6 @@ async function runLightspeedReferenceCommand() {
 
 async function sendHeartbeat(phase, currentEntity) {
   try {
-    if (USE_SYNC_WORKBENCH) {
-      const resp = await syncWorkbenchFetch("/api/bridge/heartbeat", {
-        phase,
-        current_entity: currentEntity ?? null,
-        version: BRIDGE_VERSION,
-        hostname: os.hostname(),
-        target_mode: "sync_workbench",
-        active_sync_run_id: activeWorkbenchRunId,
-      });
-      if (Math.random() < 0.1) {
-        logToDashboard(`[heartbeat] SYNC Workbench online (bridge ${BRIDGE_VERSION})`);
-      }
-      return resp;
-    }
     const resp = await rosFetch("/api/sync/counterpoint/heartbeat", {
       phase,
       current_entity: currentEntity ?? null,
@@ -3478,7 +3334,6 @@ async function sendHeartbeat(phase, currentEntity) {
 }
 
 async function signalRunStart(entity, cursor = null) {
-  if (USE_SYNC_WORKBENCH) return;
   try {
     await rosFetch(
       "/api/sync/counterpoint/run-start",
@@ -3703,7 +3558,6 @@ function inventoryQuantityCostDiagnosticRow(row) {
 }
 
 async function postSnapshotReconciliation(snapshot, sourceCount, sourceSum, sourceChecksum) {
-  if (USE_SYNC_WORKBENCH) return;
   const body = {
     snapshot,
     source_count: sourceCount,
@@ -3723,80 +3577,12 @@ async function postSnapshotReconciliation(snapshot, sourceCount, sourceSum, sour
 }
 
 async function postFidelityDiagnostics(group, rows, limit = 50) {
-  if (USE_SYNC_WORKBENCH) return null;
   return await rosFetch(
     "/api/sync/counterpoint/fidelity-diagnostics",
     { group, rows, limit },
     "POST",
     bridgeIngestHeaders(),
   );
-}
-
-async function syncReceivingHistory(pool) {
-  if (!String(effectiveSql.receiving_history ?? "").trim()) {
-    throw new Error(
-      "receiving_history runtime mapping unavailable. Run SQL smoke/auto-config against the Counterpoint DB, or set SYNC_RECEIVING_HISTORY=0 if receiving history is intentionally out of scope.",
-    );
-  }
-  try {
-    const result = await pool.request().query(effectiveSql.receiving_history);
-    const rows = (result.recordset ?? []).map((r) => normalizeRowKeys(r));
-    if (rows.length === 0) {
-      console.info("[receiving_history] no rows");
-      return;
-    }
-
-    const RECV_BATCH = 50;
-    const CONCURRENCY = 2;
-    const pendingRequests = [];
-    const failures = [];
-    let postedRows = 0;
-
-    console.info(`[receiving_history] sending ${rows.length} rows (batch=${RECV_BATCH}, parallel=${CONCURRENCY})...`);
-
-    for (let i = 0; i < rows.length; i += RECV_BATCH) {
-      const chunk = rows.slice(i, i + RECV_BATCH).map((r) => ({
-        vend_no: String(r.vend_no ?? "").trim(),
-        item_no: String(r.item_no ?? "").trim(),
-        recv_dat: r.recv_dat != null ? String(new Date(r.recv_dat).toISOString()) : "",
-        unit_cost: Number(r.unit_cost ?? 0),
-        qty_recv: Number(r.qty_recv ?? 0),
-        po_no: r.po_no != null ? String(r.po_no).trim() : undefined,
-        recv_no: r.recv_no != null ? String(r.recv_no).trim() : undefined,
-      }));
-
-      const lastDat = rows[Math.min(i + RECV_BATCH - 1, rows.length - 1)].recv_dat;
-      const body = {
-        rows: chunk,
-        sync: { entity: "receiving_history", cursor: lastDat },
-      };
-
-      const promise = rosPost("receiving_history", body)
-        .then((summary) => {
-          console.info("[receiving_history] batch", summary);
-          postedRows += chunk.length;
-        })
-        .catch((err) => {
-          console.error("[receiving_history] batch failed:", err.message);
-          failures.push(err);
-        })
-        .finally(() => {
-          pendingRequests.splice(pendingRequests.indexOf(promise), 1);
-        });
-
-      pendingRequests.push(promise);
-      if (pendingRequests.length >= CONCURRENCY) {
-        await Promise.race(pendingRequests);
-      }
-    }
-    await Promise.all(pendingRequests);
-    throwIfBatchFailures("receiving_history", failures, postedRows, rows.length);
-    await postSnapshotReconciliation("receiving_history", rows.length);
-    return postedRows;
-  } catch (err) {
-    console.error("[receiving_history] sync failed:", err?.message ?? err);
-    throw err;
-  }
 }
 
 // ── Mappers ───────────────────────────────────────────────────────────────────
@@ -5650,7 +5436,6 @@ async function runSqlSmoke(pool) {
     ["open_docs", "open_docs"],
     ["open_doc_lines", "open_doc_lines"],
     ["open_doc_payments", "open_doc_pmt"],
-    ["receiving_history", "receiving_history"],
   ];
 
   const failures = [];
@@ -5658,12 +5443,7 @@ async function runSqlSmoke(pool) {
     const q = String(effectiveSql[key] ?? "").trim();
     if (!q) {
       const message = `${label}: runtime mapping unavailable`;
-      if (label === "receiving_history" && SYNC_RECEIVING_HISTORY) {
-        failures.push({ label, message });
-        console.error(`[sql-smoke] ${message}`);
-      } else {
-        console.info(`[sql-smoke] ${label}: skipped (runtime mapping unavailable)`);
-      }
+      console.info(`[sql-smoke] ${label}: skipped (runtime mapping unavailable)`);
       continue;
     }
     try {
@@ -5768,7 +5548,6 @@ function getOrderedSyncSteps(poolOverride) {
     { on: SYNC_CUSTOMERS, label: "customers", hb: "customers", run: () => syncCustomers(pool) },
     { on: SYNC_CUSTOMER_NOTES, label: "customer_notes", hb: "customer_notes", run: () => syncCustomerNotes(pool) },
     { on: SYNC_TICKETS, label: "tickets", hb: "tickets", run: () => syncTickets(pool) },
-    { on: SYNC_RECEIVING_HISTORY, label: "receiving_history", hb: "receiving_history", run: () => syncReceivingHistory(pool) },
     { on: SYNC_OPEN_DOCS, label: "open_docs", hb: "open_docs", run: () => syncOpenDocs(pool) },
     {
       on: SYNC_STORE_CREDIT_OPENING,
@@ -5808,14 +5587,9 @@ async function runManualBridgeExtraction(entity = "full") {
 
   let preflightSummary = null;
   try {
-    if (USE_SYNC_WORKBENCH) {
-      activeWorkbenchRunId = null;
-      logToDashboard("[sync] Starting Counterpoint extraction to SYNC Workbench...");
-    } else {
-      logToDashboard("[sync] Starting compatibility direct ROS extraction...");
-      preflightSummary = await runImportFirstSourcePreflight(pool);
-      await startImportFirstRun(preflightSummary);
-    }
+    logToDashboard("[sync] Starting direct Main Hub ROS extraction...");
+    preflightSummary = await runImportFirstSourcePreflight(pool);
+    await startImportFirstRun(preflightSummary);
 
     const steps = getOrderedSyncSteps(pool);
     for (const target of queue) {
@@ -5839,33 +5613,19 @@ async function runManualBridgeExtraction(entity = "full") {
     BRIDGE_STATE.lastRun = new Date().toISOString();
     pushEvent("complete", entity === "full" ? null : entity, "Extraction pass complete", { durationMs });
 
-    if (USE_SYNC_WORKBENCH) {
-      if (activeWorkbenchRunId) {
-        await syncWorkbenchFetch(`/api/runs/${activeWorkbenchRunId}/finalize`, {
-          totals: {
-            sync_summary: BRIDGE_STATE.syncSummary,
-            duration_ms: durationMs,
-            requested_entity: entity === "full" ? null : entity,
-          },
-        });
-      }
-    } else {
-      await completeImportFirstRun({
-        failed: BRIDGE_STATE.abortRequested,
-        errorMessage: BRIDGE_STATE.abortRequested ? "Manual extraction aborted by user." : null,
-        totals: {
-          sync_summary: BRIDGE_STATE.syncSummary,
-          duration_ms: durationMs,
-          targeted_entity: entity === "full" ? null : entity,
-        },
-      });
-    }
+    await completeImportFirstRun({
+      failed: BRIDGE_STATE.abortRequested,
+      errorMessage: BRIDGE_STATE.abortRequested ? "Manual extraction aborted by user." : null,
+      totals: {
+        sync_summary: BRIDGE_STATE.syncSummary,
+        duration_ms: durationMs,
+        targeted_entity: entity === "full" ? null : entity,
+      },
+    });
 
     logToDashboard(`[sync] ${entity === "full" ? "Full extraction" : `Targeted extraction for ${entity}`} finished.`);
   } catch (err) {
-    if (!USE_SYNC_WORKBENCH) {
-      await completeImportFirstRun({ failed: true, errorMessage: err.message }).catch(() => null);
-    }
+    await completeImportFirstRun({ failed: true, errorMessage: err.message }).catch(() => null);
     throw err;
   } finally {
     BRIDGE_STATE.isSyncing = false;
@@ -5957,18 +5717,13 @@ async function main() {
     console.error("Set SQL_CONNECTION_STRING");
     process.exit(1);
   }
-  if (!USE_SYNC_WORKBENCH) {
-    requireImportFirstIngestMode();
-  }
+  requireImportFirstIngestMode();
   bridgeHostnameCached = os.hostname();
 
   // Start the Bridge Command Dashboard (Port 3002)
   startLocalServer();
 
-  if (USE_SYNC_WORKBENCH) {
-    await syncWorkbenchGetHealth();
-    rosStagingEnabled = false;
-  } else if (DRY_RUN_MODE) {
+  if (DRY_RUN_MODE) {
     console.info("⚡ DRY-RUN ACTIVE: Bridge will fetch data from Counterpoint but will NOT post updates to Riverside OS.");
     try {
       await refreshRosStagingFromHealth();
@@ -5980,10 +5735,8 @@ async function main() {
     await refreshRosStagingFromHealth();
   }
   console.info(
-    USE_SYNC_WORKBENCH ? "Counterpoint SYNC Workbench health OK" : "ROS sync health OK",
-    USE_SYNC_WORKBENCH
-      ? "(raw extraction batches only)"
-      : rosStagingEnabled ? "(ROS support queue ingest)" : "(direct ROS compatibility ingest)",
+    "ROS sync health OK",
+    rosStagingEnabled ? "(ROS support queue ingest)" : "(direct Main Hub ROS ingest)",
   );
 
   logCanonicalSyncOrder();
@@ -6031,15 +5784,11 @@ async function main() {
 
   await rebuildEffectiveSql(pool);
   validateCounterpointSyncDependencyPlan();
-  if (!USE_SYNC_WORKBENCH) {
-    await runImportFirstSourcePreflight(pool);
-  }
+  await runImportFirstSourcePreflight(pool);
 
   console.info(
     `[ingest] Mode: ${
-      USE_SYNC_WORKBENCH
-        ? "SYNC Workbench — raw batches stage on the Main Hub for review and ROS package handoff"
-        : rosStagingEnabled
+      rosStagingEnabled
         ? "support queue — batches queue in ROS until staff apply them from diagnostics"
         : "import-first direct — each supported batch lands in ROS with proof and exception tracking"
     }`,
@@ -6074,7 +5823,7 @@ async function main() {
       console.warn("[heartbeat] failed", e.message);
     }
 
-    const hasPendingRequest = !USE_SYNC_WORKBENCH && !!hbResp?.pending_request_id;
+    const hasPendingRequest = !!hbResp?.pending_request_id;
     // Only auto-run if Continuous Sync is enabled, or if we are in RUN_ONCE mode
     const isTimeToAutoRun = (BRIDGE_STATE.isContinuous || RUN_ONCE) && (now - lastAutoRunTime) >= AUTO_SYNC_INTERVAL_MS;
 
@@ -6100,22 +5849,20 @@ async function main() {
     }
 
     let preflightSummary = null;
-    if (!USE_SYNC_WORKBENCH) {
-      try {
-        preflightSummary = await runImportFirstSourcePreflight(pool);
-      } catch (err) {
-        console.error("[preflight] sync blocked:", err.message);
-        if (hasPendingRequest) {
-          try {
-            await rosFetch("/api/sync/counterpoint/request/complete", {
-              request_id: hbResp.pending_request_id,
-              error: err.message,
-            });
-          } catch { /* ignore secondary error */ }
-        }
-        isTickRunning = false;
-        return;
+    try {
+      preflightSummary = await runImportFirstSourcePreflight(pool);
+    } catch (err) {
+      console.error("[preflight] sync blocked:", err.message);
+      if (hasPendingRequest) {
+        try {
+          await rosFetch("/api/sync/counterpoint/request/complete", {
+            request_id: hbResp.pending_request_id,
+            error: err.message,
+          });
+        } catch { /* ignore secondary error */ }
       }
+      isTickRunning = false;
+      return;
     }
 
     BRIDGE_STATE.isSyncing = true;
@@ -6128,11 +5875,7 @@ async function main() {
       : null;
 
     try {
-      if (USE_SYNC_WORKBENCH) {
-        activeWorkbenchRunId = null;
-      } else {
-        await startImportFirstRun(preflightSummary);
-      }
+      await startImportFirstRun(preflightSummary);
       for (const step of orderedSyncSteps) {
         if (!step.on) continue;
         if (BRIDGE_STATE.abortRequested) {
@@ -6157,25 +5900,15 @@ async function main() {
       BRIDGE_STATE.lastRunDurationMs = cycleDur;
       BRIDGE_STATE.lastRun = new Date().toISOString();
       pushEvent('complete', null, 'Auto-sync cycle complete', { durationMs: cycleDur });
-      if (USE_SYNC_WORKBENCH && activeWorkbenchRunId) {
-        await syncWorkbenchFetch(`/api/runs/${activeWorkbenchRunId}/finalize`, {
-          totals: {
-            sync_summary: BRIDGE_STATE.syncSummary,
-            duration_ms: cycleDur,
-            requested_entity: null,
-          },
-        });
-      } else {
-        await completeImportFirstRun({
-          failed: BRIDGE_STATE.abortRequested,
-          errorMessage: BRIDGE_STATE.abortRequested ? "Sync aborted by user." : null,
-          totals: {
-            sync_summary: BRIDGE_STATE.syncSummary,
-            duration_ms: cycleDur,
-            requested_entity: hbResp?.pending_request_entity ?? null,
-          },
-        });
-      }
+      await completeImportFirstRun({
+        failed: BRIDGE_STATE.abortRequested,
+        errorMessage: BRIDGE_STATE.abortRequested ? "Sync aborted by user." : null,
+        totals: {
+          sync_summary: BRIDGE_STATE.syncSummary,
+          duration_ms: cycleDur,
+          requested_entity: hbResp?.pending_request_entity ?? null,
+        },
+      });
 
       if (hasPendingRequest) {
         try {
@@ -6188,9 +5921,7 @@ async function main() {
       }
     } catch (err) {
       console.error("[sync] Loop failed:", err.message);
-      if (!USE_SYNC_WORKBENCH) {
-        await completeImportFirstRun({ failed: true, errorMessage: err.message }).catch(() => null);
-      }
+      await completeImportFirstRun({ failed: true, errorMessage: err.message }).catch(() => null);
       if (hasPendingRequest) {
           try {
             await rosFetch("/api/sync/counterpoint/request/complete", {
@@ -6222,9 +5953,7 @@ async function main() {
   }
 
   console.info(
-    USE_SYNC_WORKBENCH
-      ? `Polling for local extraction requests every ${POLL_MS} ms. Scheduled extraction runs only when Continuous Sync is enabled.`
-      : `Polling for manual ROS requests every ${POLL_MS} ms. Scheduled sync runs only when Continuous Sync is enabled.`,
+    `Polling for manual ROS requests every ${POLL_MS} ms. Scheduled sync runs only when Continuous Sync is enabled.`,
   );
   setInterval(tick, POLL_MS);
 }
