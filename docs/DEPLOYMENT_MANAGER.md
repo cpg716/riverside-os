@@ -358,9 +358,11 @@ Logs are emitted asynchronously from Rust back to the Vite console using the `de
 ### GitHub Actions CI/CD Pipeline
 The deployment manager packaging is automated by **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`). It builds the full Windows deployment ZIP: server binary, client bundle, register installer, Deployment Manager installer bundle, ROS Server Manager installer bundle, Counterpoint Bridge GUI, and bundled ROSIE voice models. Signed updater manifests/installers are uploaded as release assets beside the ZIP.
 
-Both pipelines utilize **`swatinem/rust-cache`** to cache downloaded Rust dependencies across runs. The Windows workspace builds three targets sequentially in one job:
+Both pipelines use **`swatinem/rust-cache`** for Rust dependency reuse and **`sccache`** for Rust/Tauri compiler output reuse across repeated release builds. The Windows workspace builds these Rust/Tauri targets as separate workflow jobs so unchanged companion apps can be skipped by the faster app-updater-only release path:
 1.  `client/src-tauri` (Tauri Client Desktop application)
 2.  `server` (Axum Backend server executable)
 3.  `deployment/manager-app/src-tauri` (Deployment Manager executable)
+4.  `deployment/server-manager-app/src-tauri` (Server Manager executable)
+5.  `deployment/counterpoint-bridge-gui/src-tauri` (Counterpoint Bridge GUI executable)
 
-Full Windows deployment package builds realistically take **20–30 minutes** (dependency caching saves time on crates that did not change between runs). macOS ROS Dev Center builds are faster at approximately **15 minutes** since only one Tauri app is compiled. The Windows runner automatically packages the compiled executable in the final zip file as `RiversideOS-Deployment-Manager.exe`.
+Full Windows deployment package builds realistically take **20–40 minutes** depending on runner cache warmth and GitHub-hosted runner load. App-updater-only reruns publish just the signed Windows desktop updater assets, and cached Rust/Tauri outputs should reduce repeated rebuild time after the first warm run. macOS ROS Dev Center builds are faster since only one Tauri app is compiled. The Windows runner automatically packages the compiled executable in the final zip file as `RiversideOS-Deployment-Manager.exe`.

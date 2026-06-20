@@ -195,6 +195,39 @@ assertNotIncludes(
   "-NodeRuntimePath",
   "Windows deployment workflow must not pass a Node runtime for the removed standalone SYNC Workbench",
 );
+for (const copy of [
+  "app-updater-only",
+  "publish-app-updater-only",
+  "client/updater-dist/latest.json",
+  "client/updater-dist/riverside-updater-build-manifest.json",
+  "gh release upload $tag client/updater-dist/* --clobber",
+  "--manifest latest.json",
+  "--build-manifest riverside-updater-build-manifest.json",
+]) {
+  assertIncludes(
+    ".github/workflows/windows-deployment-package.yml",
+    copy,
+    "Windows release workflow must expose a verified app-updater-only path that skips the full deployment ZIP when requested",
+  );
+}
+for (const path of [
+  ".github/workflows/windows-deployment-package.yml",
+  ".github/workflows/macos-ros-dev-center-release.yml",
+]) {
+  for (const copy of [
+    'CARGO_INCREMENTAL: "0"',
+    'RUSTC_WRAPPER: "sccache"',
+    'SCCACHE_GHA_ENABLED: "true"',
+    "mozilla-actions/sccache-action@v0.0.9",
+    "swatinem/rust-cache@v2",
+  ]) {
+    assertIncludes(
+      path,
+      copy,
+      "release workflows must keep Rust/Tauri compiler caching wired for faster rebuilds",
+    );
+  }
+}
 
 const mainHubInstaller = "deployment/windows/install-server.ps1";
 for (const copy of [

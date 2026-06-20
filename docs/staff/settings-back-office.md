@@ -230,7 +230,7 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 | Section | What it does |
 |---|---|
 | **Main Hub Server** | Shows current server version and build SHA. Displays whether a newer version or same-version rebuild is available. The update downloads the matching Windows deployment package and verifies its build SHA before launching the elevated runner. Daily update check runs automatically at 2 AM and notifies admin staff. |
-| **Windows app (Back Office / Register)** | Check for and install Tauri desktop app updates. Button is disabled if server has not updated yet. |
+| **Windows app (Back Office / Register)** | Check for and install signed Tauri desktop app updates from the Windows app updater release assets. Button is disabled if server has not updated yet. |
 | **PWA update status** | Shows whether the PWA served by the server matches the latest client build. |
 
 **Same-version rebuilds:** the system detects when a new build of the same release version is published (using a build SHA fingerprint) — not just version number changes. Main Hub updates must match that build SHA before the installer runs, so hotfixes and rebuild deployments are not silently mixed with an older package.

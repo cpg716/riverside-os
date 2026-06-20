@@ -39,6 +39,8 @@ interface GitHubData {
   releases: Release[];
 }
 
+type ReleaseScope = "full-deployment" | "app-updater-only";
+
 function fmtTs(v: string | null): string {
   if (!v) return "-";
   const d = new Date(v);
@@ -82,7 +84,7 @@ export default function GitHubDevOpsPanel() {
 
   const [data, setData] = useState<GitHubData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [dispatching, setDispatching] = useState(false);
+  const [dispatchingScope, setDispatchingScope] = useState<ReleaseScope | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -107,8 +109,8 @@ export default function GitHubDevOpsPanel() {
     fetchData();
   }, [fetchData]);
 
-  const triggerRelease = async () => {
-    setDispatching(true);
+  const triggerRelease = async (packageScope: ReleaseScope) => {
+    setDispatchingScope(packageScope);
     try {
       const headers = {
         ...backofficeHeaders(),
@@ -121,7 +123,9 @@ export default function GitHubDevOpsPanel() {
         body: JSON.stringify({
           workflow_id: "windows-deployment-package.yml",
           branch: "main",
-          inputs: {},
+          inputs: {
+            package_scope: packageScope,
+          },
         }),
       });
 
@@ -130,13 +134,17 @@ export default function GitHubDevOpsPanel() {
         throw new Error(err.error ?? "Dispatch failed");
       }
 
-      toast("Windows deployment release workflow dispatched. Check Actions tab.");
+      toast(
+        packageScope === "app-updater-only"
+          ? "Windows app updater workflow dispatched. Check Actions tab."
+          : "Windows deployment release workflow dispatched. Check Actions tab.",
+      );
       setTimeout(fetchData, 3000);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Dispatch failed";
       toast(msg);
     } finally {
-      setDispatching(false);
+      setDispatchingScope(null);
     }
   };
 
@@ -151,16 +159,28 @@ export default function GitHubDevOpsPanel() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={triggerRelease}
-            disabled={dispatching}
-            className="ui-btn ui-btn-primary ui-btn-sm inline-flex items-center gap-2"
+            onClick={() => triggerRelease("app-updater-only")}
+            disabled={dispatchingScope !== null}
+            className="ui-btn ui-btn-secondary ui-btn-sm inline-flex items-center gap-2"
           >
-            {dispatching ? (
+            {dispatchingScope === "app-updater-only" ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Rocket className="h-4 w-4" />
             )}
-            Build Release
+            Windows App Update
+          </button>
+          <button
+            onClick={() => triggerRelease("full-deployment")}
+            disabled={dispatchingScope !== null}
+            className="ui-btn ui-btn-primary ui-btn-sm inline-flex items-center gap-2"
+          >
+            {dispatchingScope === "full-deployment" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Rocket className="h-4 w-4" />
+            )}
+            Full Deployment
           </button>
           <button
             onClick={fetchData}

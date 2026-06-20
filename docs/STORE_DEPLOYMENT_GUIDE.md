@@ -71,8 +71,9 @@ This is the current repo/deployment status to verify before a live install:
 | Target release version | **`v0.90.0`** | Root, client/PWA bundle, server, Tauri, standalone apps, and deployment metadata must all match. Run `npm run check:version` before publishing artifacts. |
 | Latest published GitHub release | **`v0.90.0`** | Use the release workflow output for the current release; do not mix installer assets from older releases. |
 | Windows installer/updater assets | **Required for the same Riverside release** | The release must contain `latest.json`, one current Windows MSI, and the matching `.sig`; old Riverside MSI/signature assets must be removed before upload. |
-| Windows deployment package | **Required as GitHub release asset** | `RiversideOS-v0.90.0-*-Windows-Deployment.zip` includes server, client bundle, register installer, Deployment Manager, migrations, seeds, and PowerShell scripts. |
-| macOS ROS Dev Center | **Required as GitHub release asset** | Universal Apple Silicon / Intel DMG for macOS-based DevOps companion access. |
+| Windows deployment package | **Required as GitHub release asset for Main Hub/full go-live updates** | `RiversideOS-v0.90.0-*-Windows-Deployment.zip` includes server, client bundle, register installer, Deployment Manager, migrations, seeds, and PowerShell scripts. |
+| Windows app updater-only release | **Available for faster Back Office/Register desktop app updates** | Workflow scope `app-updater-only` publishes the signed Tauri app updater assets without rebuilding the full deployment ZIP or unchanged companion apps. |
+| macOS ROS Dev Center | **Required as GitHub release asset** | Universal Apple Silicon / Intel DMG for Mac-based DevOps companion access and system management. |
 | Latest Playwright E2E on `main` | Must pass on the final `v0.90.0` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
 | Latest Lint Checks on `main` | Must pass on the final `v0.90.0` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
 | Local go-live checklist | Human/hardware/accounting gates still open | Retail deployment remains **pilot/validation**, not unattended go-live. |

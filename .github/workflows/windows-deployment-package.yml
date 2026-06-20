@@ -11,6 +11,18 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+-*'
   workflow_dispatch:
     inputs:
+      package_scope:
+        description: "What to publish"
+        required: true
+        type: choice
+        default: "full-deployment"
+        options:
+          - "full-deployment"
+          - "app-updater-only"
+      release_tag:
+        description: "Release tag to update; blank uses package version"
+        required: false
+        default: ""
       release_notes:
         description: "Release notes shown in updater prompts"
         required: false
@@ -21,6 +33,7 @@ permissions:
   actions: read
 
 env:
+  CARGO_INCREMENTAL: "0"
   RIVERSIDE_BUILD_SHA: ${{ github.sha }}
   RIVERSIDE_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
   RIVERSIDE_DEPLOYMENT_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest-deployment-manager.json
@@ -31,6 +44,9 @@ env:
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
   RIVERSIDE_UPDATER_BASE_URL: https://github.com/${{ github.repository }}/releases/latest/download
   RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+  RELEASE_TAG_OVERRIDE: ${{ github.event.inputs.release_tag }}
+  RUSTC_WRAPPER: "sccache"
+  SCCACHE_GHA_ENABLED: "true"
   LLAMA_CPP_RELEASE: b8994
   LLAMA_CPP_WIN_CPU_ASSET: llama-b8994-bin-win-cpu-x64.zip
 
@@ -84,6 +100,12 @@ jobs:
           toolchain: "1.88"
           components: rustfmt
 
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "ubuntu-pre-retag"
+
       - name: Install root dependencies
         run: npm ci
 
@@ -124,6 +146,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           shared-key: "windows-release"
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Cache client node_modules
         id: cache-client-node-modules
@@ -305,7 +329,58 @@ jobs:
           name: updater-dist
           path: client/updater-dist/
 
+  publish-app-updater-only:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'app-updater-only' }}
+    needs: [build-register-updater]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Download updater dist
+        uses: actions/download-artifact@v4
+        with:
+          name: updater-dist
+          path: client/updater-dist
+
+      - name: Publish app updater assets to GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content "client/package.json" | ConvertFrom-Json).version
+          $tag = if ([string]::IsNullOrWhiteSpace($env:RELEASE_TAG_OVERRIDE)) { "v$version" } else { $env:RELEASE_TAG_OVERRIDE }
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "Riverside POS $tag" --notes "Riverside POS Release"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to create GitHub release $tag"
+            }
+          }
+          if (-not (Test-Path "client/updater-dist/latest.json")) {
+            throw "App updater manifest latest.json was not produced."
+          }
+          if (-not (Test-Path "client/updater-dist/riverside-updater-build-manifest.json")) {
+            throw "App updater build manifest was not produced."
+          }
+          gh release upload $tag client/updater-dist/* --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload app updater assets to release $tag"
+          }
+          node scripts/verify-updater-release-assets.mjs `
+            --repo $env:GITHUB_REPOSITORY `
+            --tag $tag `
+            --platform windows-x86_64 `
+            --manifest latest.json `
+            --build-manifest riverside-updater-build-manifest.json
+
   build-server-binary:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
     needs: [validate-scripts, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     steps:
@@ -320,6 +395,8 @@ jobs:
         with:
           shared-key: "windows-release"
 
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Build Windows server binary
         shell: pwsh
         run: cargo build --release --manifest-path server/Cargo.toml
@@ -330,6 +407,7 @@ jobs:
           path: target/release/riverside-server.exe
 
   build-deployment-manager:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
     needs: [validate-scripts, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     steps:
@@ -349,6 +427,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           shared-key: "windows-release"
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Cache manager-app node_modules
         id: cache-manager-node-modules
@@ -460,6 +540,7 @@ jobs:
           path: deployment/manager-app/updater-dist/
 
   build-server-manager:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
     needs: [validate-scripts, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     steps:
@@ -479,6 +560,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           shared-key: "windows-release"
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Cache server-manager-app node_modules
         id: cache-server-manager-node-modules
@@ -598,6 +681,7 @@ jobs:
           path: deployment/server-manager-app/updater-dist/
 
   build-counterpoint-bridge-gui:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
     needs: [validate-scripts, pre-retag-gate, require-playwright-green]
     runs-on: windows-latest
     steps:
@@ -617,6 +701,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           shared-key: "windows-release"
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Cache bridge-gui node_modules
         id: cache-bridge-gui-node-modules
@@ -754,6 +840,7 @@ jobs:
           path: deployment/counterpoint-bridge-gui/updater-dist/
 
   assemble-package:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
     needs: [build-register-updater, build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui]
     runs-on: windows-latest
     steps:

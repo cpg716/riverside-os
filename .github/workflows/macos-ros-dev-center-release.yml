@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag (e.g., v0.80.9)"
+        description: "Release tag (e.g., v0.90.0)"
         required: true
-        default: "v0.85.0"
+        default: "v0.90.0"
       release_notes:
         description: "Release notes"
         required: false
@@ -22,6 +22,11 @@ permissions:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+  RUSTC_WRAPPER: "sccache"
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   require-playwright-green:
@@ -53,6 +58,12 @@ jobs:
         with:
           toolchain: "1.88"
           components: rustfmt
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          shared-key: "macos-pre-retag"
 
       - name: Install root dependencies
         run: npm ci
@@ -90,6 +101,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           shared-key: "macos-ros-dev"
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Cache ros-dev node_modules
         id: cache-ros-dev-node-modules

@@ -294,6 +294,7 @@ After this checklist is complete and the branch is green:
 
 For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:
 - Go to **Actions → Windows deployment package → Run workflow**
+- Choose `full-deployment` for the complete Main Hub ZIP or `app-updater-only` for signed Back Office/Register desktop updater assets
 - Optionally override `release_tag` and `release_notes`
 
 ---
@@ -307,7 +308,8 @@ For hotfixes or custom tags (e.g., `v0.70.3-GOLD`), use the manual workflow:
 - [ ] GitHub DevOps section loads (requires `RIVERSIDE_GITHUB_TOKEN` on server)
 - [ ] Workflow runs table displays with status badges
 - [ ] Releases table displays with tag links
-- [ ] "Build Release" button dispatches workflow (requires `ops.dev_center.actions`)
+- [ ] "Windows App Update" dispatches the app-updater-only workflow scope (requires `ops.dev_center.actions`)
+- [ ] "Full Deployment" dispatches the complete deployment workflow scope (requires `ops.dev_center.actions`)
 - [ ] Alerts section shows open/acked alerts
 - [ ] Stations table shows online/offline status and versions
 - [ ] Bug reports section loads
