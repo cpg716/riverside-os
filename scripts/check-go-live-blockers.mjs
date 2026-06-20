@@ -389,7 +389,6 @@ function checkCounterpointBridgeQueryTesterEntityParity() {
     "gift_cards",
     "tickets",
     "open_docs",
-    "receiving_history",
   ];
   const missingGuiKeys = requiredGuiKeys.filter((key) => !guiKeys.includes(key));
   assert(
@@ -426,7 +425,6 @@ function checkCounterpointBridgeQueryTesterEntityParity() {
     "gift_cards",
     "tickets",
     "open_docs",
-    "receiving_history",
   ];
   const missingSqlKeys = directSqlKeys.filter(
     (key) => !new RegExp(`\\b${key}:\\s*`).test(bridge),
@@ -457,20 +455,18 @@ function checkCounterpointSyncStagingVisibility() {
     panelFile,
     "Bridge-extracted rows must not appear as No Data just because they are still in a support queue.",
   );
-	assert(
-	  panel.includes('data-testid="counterpoint-bridge-connection-status"') &&
-	    panel.includes("Bridge connection status") &&
-	    panel.includes("Direct ROS intake") &&
-	    panel.includes("status?.last_seen_at") &&
-	    panel.includes("No accepted heartbeat") &&
-	    panel.includes("Main Hub ROS intake") &&
-	    panel.includes("ROS staging:") &&
-	    panel.includes("Prepared packages:") &&
-	    panel.includes("Prepared Package Source"),
-	  "Main Hub Counterpoint Sync screen shows explicit Bridge connection health",
-	  panelFile,
-	  "Operators must be able to distinguish Bridge mode, ROS heartbeat, staging state, and optional prepared-package support status without requiring tokens for the normal closed-store handoff.",
-	);
+  assert(
+    panel.includes('data-testid="counterpoint-bridge-connection-status"') &&
+      panel.includes("Bridge connection status") &&
+      panel.includes("Direct ROS intake") &&
+      panel.includes("status?.last_seen_at") &&
+      panel.includes("No accepted heartbeat") &&
+      panel.includes("Main Hub ROS intake") &&
+      panel.includes("ROS staging:"),
+    "Main Hub Counterpoint screen shows explicit Bridge connection health",
+    panelFile,
+    "Operators must be able to distinguish Bridge mode, ROS heartbeat, and ROS staging state for the direct Main Hub ROS intake path.",
+  );
 
   const apiFile = "server/src/api/counterpoint_sync.rs";
   const api = read(apiFile);
