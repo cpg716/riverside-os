@@ -545,7 +545,6 @@ function checkCounterpointBridgeDeploymentPackaging() {
   const obsoletePaths = [
     ".github/workflows/tauri-register-updater-release.yml",
     ".github/workflows/tauri-register-build.yml",
-    ".github/workflows/macos-ros-dev-center-release.yml",
     ".github/workflows/counterpoint-bridge-gui-release.yml",
     "scripts/package-counterpoint-bridge.sh",
     "scripts/smoke-counterpoint-bridge-package.sh",
@@ -559,11 +558,11 @@ function checkCounterpointBridgeDeploymentPackaging() {
   const present = obsoletePaths.filter((file) => exists(file));
   assert(
     present.length === 0,
-    "Retired standalone SYNC Workbench and duplicate release builders are not present in the source tree",
+    "Retired standalone SYNC Workbench and duplicate Bridge-only release builders are not present in the source tree",
     builderFile,
     present.length > 0
       ? `Remove obsolete files before release: ${present.join(", ")}`
-      : "The go-live package path should only build the direct ROS Bridge GUI and the canonical Windows deployment assets.",
+      : "The go-live package path keeps direct ROS Bridge GUI packaging, canonical Windows updater/deployment assets, and the macOS ROS Dev Center management app.",
   );
 }
 

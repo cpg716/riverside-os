@@ -891,15 +891,12 @@ jobs:
           $release = gh release view $tag --json assets | ConvertFrom-Json
           if ($release -and $release.assets) {
             $retiredAssetNames = @(
-              "latest-ros-dev-center-macos.json",
-              "ros-dev-center-updater-build-manifest.json",
               "RiversideOS-v0.60.2-install-server-hotfix.zip"
             )
             foreach ($asset in $release.assets) {
               $isOlderDeploymentZip = $asset.name -like "RiversideOS-v$version-*-Windows-Deployment.zip"
-              $isRetiredRosDevCenterAsset = $asset.name -like "ROS.Dev.Center*"
               $isRetiredExactAsset = $retiredAssetNames -contains $asset.name
-              if ($isOlderDeploymentZip -or $isRetiredRosDevCenterAsset -or $isRetiredExactAsset) {
+              if ($isOlderDeploymentZip -or $isRetiredExactAsset) {
                 Write-Host "Deleting obsolete release asset: $($asset.name)"
                 gh release delete-asset $tag $asset.name --yes
               }
