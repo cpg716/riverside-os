@@ -823,11 +823,11 @@ jobs:
           name: counterpoint-bridge-gui-bundle
           path: target/release/bundle
 
-      - name: Download standalone updater dists
+      - name: Download companion updater dists
         uses: actions/download-artifact@v4
         with:
           pattern: "*-updater-dist"
-          path: standalone-updater-dist
+          path: companion-updater-dist
           merge-multiple: true
 
       - name: Ensure CRLF in deployment scripts
@@ -886,12 +886,21 @@ jobs:
             }
           }
           
-          # Delete any older duplicate deployment packages for this version on the release
+          # Delete duplicate or retired assets that clobber cannot replace because
+          # their names differ from the current build artifacts.
           $release = gh release view $tag --json assets | ConvertFrom-Json
           if ($release -and $release.assets) {
+            $retiredAssetNames = @(
+              "latest-ros-dev-center-macos.json",
+              "ros-dev-center-updater-build-manifest.json",
+              "RiversideOS-v0.60.2-install-server-hotfix.zip"
+            )
             foreach ($asset in $release.assets) {
-              if ($asset.name -like "RiversideOS-v$version-*-Windows-Deployment.zip") {
-                Write-Host "Deleting older deployment asset: $($asset.name)"
+              $isOlderDeploymentZip = $asset.name -like "RiversideOS-v$version-*-Windows-Deployment.zip"
+              $isRetiredRosDevCenterAsset = $asset.name -like "ROS.Dev.Center*"
+              $isRetiredExactAsset = $retiredAssetNames -contains $asset.name
+              if ($isOlderDeploymentZip -or $isRetiredRosDevCenterAsset -or $isRetiredExactAsset) {
+                Write-Host "Deleting obsolete release asset: $($asset.name)"
                 gh release delete-asset $tag $asset.name --yes
               }
             }
@@ -911,10 +920,10 @@ jobs:
               throw "Failed to upload updater assets to release $tag"
             }
           }
-          if (Test-Path "standalone-updater-dist") {
-            gh release upload $tag standalone-updater-dist/* --clobber
+          if (Test-Path "companion-updater-dist") {
+            gh release upload $tag companion-updater-dist/* --clobber
             if ($LASTEXITCODE -ne 0) {
-              throw "Failed to upload standalone updater assets to release $tag"
+              throw "Failed to upload companion updater assets to release $tag"
             }
           }
           $deploymentAppFiles = Get-ChildItem -Path "target/release/deployment-manager-bundle","target/release/server-manager-bundle" -Include "*.msi","*.exe" -Recurse -ErrorAction SilentlyContinue
