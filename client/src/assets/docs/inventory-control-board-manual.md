@@ -27,15 +27,15 @@ The product list is primary. Item Readiness and Inventory Cleanup Review sit bel
 ## How to use it
 
 1. Search or filter the inventory list.
-2. Review the first 20 rows and use **Load More Inventory** when you need more results.
+2. Review the loaded product families and use **Load More Inventory** when you need more results.
 3. Open a product row for Product Hub details and actions.
 4. Use Item Readiness or Inventory Cleanup Review after reviewing the list.
 
 ## Search and filters
 
-Use the main search field for product name, SKU, item number, or variation text. Use vendor, category, stock, label, high value, web, and department filters to narrow the list.
+Use the main search field for product name, SKU, item number, or variation text. The list is product-centered and shows each product's variation count; direct SKU or exact variation searches show the matched SKU/variation on that product row. Use vendor, category, stock, label, high value, web, and department filters to narrow the list.
 
-The list shows 20 items at a time. Select **Load More Inventory** to keep paging through results without losing the current filters.
+Select **Load More Inventory** to keep paging through results without losing the current filters.
 
 ## Open Product Hub
 

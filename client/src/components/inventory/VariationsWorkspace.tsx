@@ -19,7 +19,11 @@ import { VariationsList } from "./VariationsList";
 import { BatchCommandBar } from "./BatchCommandBar";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import type { VariationsListProps } from "./VariationsList";
-import { openInventoryTagsWindow } from "./labelPrint";
+import {
+  getInventoryTagPrintConfig,
+  openInventoryTagsWindow,
+  type InventoryTagPrintResult,
+} from "./labelPrint";
 
 export interface HubVariant {
   id: string;
@@ -370,14 +374,21 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         return;
       }
 
-      const printResult = await openInventoryTagsWindow(
-        variantsToPrint.map((variant) => ({
-          sku: variant.sku,
-          productName,
-          variation: variant.variation_label ?? "Standard",
-          price: `$${centsToFixed2(parseMoneyToCents(variant.effective_retail))}`,
-        })),
-      );
+      let printResult: InventoryTagPrintResult;
+      try {
+        printResult = await openInventoryTagsWindow(
+          variantsToPrint.map((variant) => ({
+            sku: variant.sku,
+            productName,
+            variation: variant.variation_label ?? "Standard",
+            price: `$${centsToFixed2(parseMoneyToCents(variant.effective_retail))}`,
+          })),
+          getInventoryTagPrintConfig(),
+        );
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Tag print failed.", "error");
+        return;
+      }
       if (!printResult.markShelfLabeled) {
         toast(
           `${printResult.message} Shelf-label status was not changed because the tag printer did not confirm the job.`,

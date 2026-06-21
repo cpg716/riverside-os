@@ -28,17 +28,18 @@ Brand is optional. Vendor decisions happen through **Vendors**, **Purchase Order
 
 1. Enter the product **name** and choose a valid **category**.
 2. Add a brand only if that label matters for reports, tags, or the online store.
-3. Enter **non-negative** retail and cost values.
+3. Enter **non-negative** default retail and cost values.
 4. Build the size / option list and confirm the new SKUs.
-5. Review the final list before saving.
+5. Review the final list before saving. The review table shows each SKU's variation label, option values, starting stock, retail price, and vendor cost.
 
 ## Validation rules
 
 - Product **name** is required.
 - A valid **category** is required before continuing.
-- Base retail, base cost, and generated starting stock must all be **non-negative**.
+- Base retail, base cost, per-variation retail, per-variation cost, and generated starting stock must all be **non-negative**.
 - New SKUs must be present and must not collide with an existing SKU already in ROS.
 - Size, color, fit, or other option values must stay aligned with the generated SKU list.
+- Riverside checks the next available ROS SKU block immediately before generating the review list.
 
 ## Operational detail
 
@@ -52,7 +53,7 @@ Create the product record only when the category, name, vendor context, and star
 
 ## What happens next
 
-After saving, review the product in Product Hub before staff sell it. Confirm the generated SKUs, category, pricing, vendor context, and tag behavior. If the product needs stock, use receiving or physical inventory so the inventory movement is traceable.
+After saving, review the product in Product Hub before staff sell it. Confirm the generated SKUs, category, variation-level pricing, vendor context, starting stock, and tag behavior. If the product needs stock beyond the starting quantities entered at setup, use receiving or physical inventory so the inventory movement is traceable.
 
 
 ## Related workflows

@@ -45,7 +45,7 @@ import { isCustomOrderSku } from "../../lib/customOrders";
 const HIGH_VALUE_MIN_USD = 500;
 
 /** Paged loads — keep the list scannable and use "Load more" for deep paging. */
-const BOARD_PAGE_LIMIT = 20;
+const BOARD_PAGE_LIMIT = 1000;
 
 type QuickPick = "suits" | "shirts" | "alterations" | null;
 type ReadinessFilter = "missing_category" | "missing_vendor" | "missing_brand";
@@ -114,6 +114,7 @@ interface BoardRow {
   primary_vendor_name?: string | null;
   web_published?: boolean;
   web_price_override?: string | null;
+  barcode?: string | null;
 }
 
 interface BoardStats {
@@ -1266,8 +1267,25 @@ export default function InventoryControlBoard({
     const low = !isNonStockSaleItem && totalAvailable > 0 && totalAvailable <= 2;
     const highValue = row.cost_extended >= HIGH_VALUE_MIN_USD;
 
-    const primaryVariant = row.variant_rows?.[0];
+    const searchNeedle = debouncedSearch.trim().toLowerCase();
+    const directVariant = searchNeedle
+      ? row.variant_rows.find((variant) => {
+          const sku = variant.sku.trim().toLowerCase();
+          const barcode = variant.barcode?.trim().toLowerCase() ?? "";
+          const variation = variant.variation_label?.trim().toLowerCase() ?? "";
+          return (
+            sku === searchNeedle ||
+            barcode === searchNeedle ||
+            variation === searchNeedle ||
+            (row.loaded_variant_count === 1 &&
+              searchNeedle.length >= 3 &&
+              variation.includes(searchNeedle))
+          );
+        })
+      : null;
+    const primaryVariant = directVariant ?? row.variant_rows?.[0];
     const singleVariant = row.variant_count === 1;
+    const showVariantIdentity = Boolean(directVariant);
 
     return (
       <div
@@ -1334,12 +1352,20 @@ export default function InventoryControlBoard({
               )}
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="font-mono text-[12px] font-black text-app-text-muted">
-                {primaryVariant?.sku || "NO SKU"}
-              </span>
-              <span className="text-[12px] font-semibold text-app-text-muted">
-                {primaryVariant?.variation_label ?? `${row.variant_count} variations`}
-              </span>
+              {showVariantIdentity && primaryVariant ? (
+                <>
+                  <span className="font-mono text-[12px] font-black text-app-text-muted">
+                    {primaryVariant.sku || "NO SKU"}
+                  </span>
+                  <span className="text-[12px] font-semibold text-app-text-muted">
+                    {primaryVariant.variation_label ?? "Standard"}
+                  </span>
+                </>
+              ) : (
+                <span className="text-[12px] font-semibold text-app-text-muted">
+                  {row.variant_count} variation{row.variant_count === 1 ? "" : "s"}
+                </span>
+              )}
               <span className="text-[10px] font-black uppercase tracking-tighter text-app-text-muted/70">
                 {row.category_name || "Misc"}
               </span>

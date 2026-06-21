@@ -197,7 +197,11 @@ export default function ProductMasterForm({
   const baseRetailCents = parseMoneyToCents(baseRetail || "0");
   const baseCostCents = parseMoneyToCents(baseCost || "0");
   const hasInvalidGeneratedRows = rows.some(
-    (row) => !row.sku.trim() || row.stock_on_hand < 0,
+    (row) =>
+      !row.sku.trim() ||
+      row.stock_on_hand < 0 ||
+      parseMoneyToCents(row.retail_price_override ?? baseRetail) < 0 ||
+      parseMoneyToCents(row.cost_override ?? baseCost) < 0,
   );
   const canSubmitProduct =
     !busy &&
@@ -224,6 +228,60 @@ export default function ProductMasterForm({
     setNewImageAlt("");
     toast("Image added to gallery list.", "success");
   };
+
+  const fetchNextRosSkuStart = useCallback(
+    async (count: number): Promise<number> => {
+      const res = await fetch(
+        apiUrl(baseUrl, `/api/products/next-ros-skus?count=${Math.max(1, count)}`),
+        { headers: apiAuth() },
+      );
+      if (!res.ok) {
+        throw new Error("Could not check the next available ROS SKUs.");
+      }
+      const skuData = (await res.json()) as NextRosSkuResponse;
+      const nextStart = Number.isFinite(skuData.start) ? skuData.start : 1;
+      setRosSkuStart(nextStart);
+      return nextStart;
+    },
+    [apiAuth, baseUrl],
+  );
+
+  const updateGeneratedRow = useCallback(
+    (index: number, patch: Partial<GeneratedVariationRow>) => {
+      setRows((current) =>
+        current.map((row, rowIndex) =>
+          rowIndex === index ? { ...row, ...patch } : row,
+        ),
+      );
+    },
+    [],
+  );
+
+  const variantRetailValue = useCallback(
+    (row: GeneratedVariationRow) => row.retail_price_override ?? baseRetail,
+    [baseRetail],
+  );
+
+  const variantCostValue = useCallback(
+    (row: GeneratedVariationRow) => row.cost_override ?? baseCost,
+    [baseCost],
+  );
+
+  const variantsForSubmit = useMemo(
+    () =>
+      rows.map((row) => {
+        const retailCents = parseMoneyToCents(variantRetailValue(row));
+        const costCents = parseMoneyToCents(variantCostValue(row));
+        return {
+          ...row,
+          retail_price_override:
+            retailCents === baseRetailCents ? undefined : centsToFixed2(retailCents),
+          cost_override:
+            costCents === baseCostCents ? undefined : centsToFixed2(costCents),
+        };
+      }),
+    [baseCostCents, baseRetailCents, rows, variantCostValue, variantRetailValue],
+  );
 
   const removeWebImage = (index: number) => {
     const nextImages = webImages.filter((_, idx) => idx !== index);
@@ -333,7 +391,7 @@ export default function ProductMasterForm({
           track_low_stock: trackLowStockTemplate,
           publish_variants_to_web: publishVariantsToWeb,
           tax_category_override: taxCategoryOverride || null,
-          variants: rows,
+          variants: variantsForSubmit,
         }),
       });
       if (!res.ok) {
@@ -860,6 +918,7 @@ export default function ProductMasterForm({
             initialAxes={variationTemplate}
             templateVersion={variationTemplateVersion}
             skuStart={rosSkuStart}
+            onBeforeGenerate={fetchNextRosSkuStart}
             onGenerated={(generated, axisNames) => {
               setRows(generated);
               setAxes(axisNames);
@@ -1338,8 +1397,10 @@ export default function ProductMasterForm({
                 <thead className="sticky top-0 bg-app-surface border-b border-app-border z-10">
                   <tr>
                     <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">SKU</th>
-                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Option</th>
+                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Variation</th>
                     <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Starting Stock</th>
+                    <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Retail</th>
+                    <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Cost</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-app-border/30">
@@ -1347,11 +1408,64 @@ export default function ProductMasterForm({
                     <tr key={`${r.sku}-${i}`} className="hover:bg-app-surface/40 transition-colors">
                       <td className="px-5 py-3 font-mono font-bold text-app-text">{r.sku}</td>
                       <td className="px-5 py-3">
-                        <span className="rounded-lg bg-app-surface border border-app-border/40 px-2 py-0.5 text-[10px] font-bold text-app-text-muted">
+                        <span className="rounded-lg bg-app-surface border border-app-border/40 px-2 py-0.5 text-[10px] font-bold text-app-text">
                           {r.variation_label}
                         </span>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {Object.entries(r.variation_values).map(([axis, value]) => (
+                            <span
+                              key={`${r.sku}-${axis}`}
+                              className="rounded bg-app-bg px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-app-text-muted"
+                            >
+                              {axis}: {value}
+                            </span>
+                          ))}
+                        </div>
                       </td>
-                      <td className="px-5 py-3 text-right font-bold tabular-nums text-app-text-muted">{r.stock_on_hand}</td>
+                      <td className="px-5 py-3 text-right">
+                        <input
+                          type="number"
+                          min="0"
+                          value={r.stock_on_hand}
+                          onChange={(e) =>
+                            updateGeneratedRow(i, {
+                              stock_on_hand: Math.max(
+                                0,
+                                Number.parseInt(e.target.value || "0", 10) || 0,
+                              ),
+                            })
+                          }
+                          className="ui-input ml-auto h-9 w-24 text-right text-xs font-black tabular-nums"
+                        />
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={variantRetailValue(r)}
+                          onChange={(e) =>
+                            updateGeneratedRow(i, {
+                              retail_price_override: e.target.value,
+                            })
+                          }
+                          className="ui-input ml-auto h-9 w-28 text-right text-xs font-black tabular-nums"
+                        />
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={variantCostValue(r)}
+                          onChange={(e) =>
+                            updateGeneratedRow(i, {
+                              cost_override: e.target.value,
+                            })
+                          }
+                          className="ui-input ml-auto h-9 w-28 text-right text-xs font-black tabular-nums"
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>

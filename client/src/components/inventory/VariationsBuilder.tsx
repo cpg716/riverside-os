@@ -27,6 +27,7 @@ interface VariationsBuilderProps {
   initialAxes?: AxisInput[];
   templateVersion?: number;
   skuStart?: number;
+  onBeforeGenerate?: (count: number) => Promise<number>;
 }
 
 function cartesian(input: Record<string, string[]>): Record<string, string>[] {
@@ -50,12 +51,15 @@ export default function VariationsBuilder({
   initialAxes,
   templateVersion = 0,
   skuStart = 1,
+  onBeforeGenerate,
 }: VariationsBuilderProps) {
   const [axes, setAxes] = useState<AxisInput[]>(
     initialAxes?.length ? initialAxes : [{ name: "", optionsRaw: "" }],
   );
   const [skuPrefix] = useState("ROS");
   const [defaultStock, setDefaultStock] = useState(0);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!initialAxes) return;
@@ -78,14 +82,29 @@ export default function VariationsBuilder({
 
   const combos = useMemo(() => cartesian(parsed), [parsed]);
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     const axisNames = Object.keys(parsed);
+    setGenerating(true);
+    setGenerateError(null);
+    let nextSkuStart = skuStart;
+    try {
+      nextSkuStart = onBeforeGenerate
+        ? await onBeforeGenerate(combos.length)
+        : skuStart;
+    } catch (error) {
+      setGenerateError(
+        error instanceof Error ? error.message : "Could not check the next available ROS SKUs.",
+      );
+      return;
+    } finally {
+      setGenerating(false);
+    }
     const rows: GeneratedVariationRow[] = combos.map((row, idx) => {
       const values = axisNames.map((k) => row[k]);
       return {
         variation_values: row,
         variation_label: values.join(" / "),
-        sku: `${skuPrefix}-${String(skuStart + idx).padStart(6, "0")}`,
+        sku: `${skuPrefix}-${String(nextSkuStart + idx).padStart(6, "0")}`,
         stock_on_hand: defaultStock,
       };
     });
@@ -202,15 +221,20 @@ export default function VariationsBuilder({
                 <p className="text-lg font-black text-app-text leading-tight italic">
                    {combos.length === 0 ? "0 SKUs" : `${combos.length} SKUs`}
                 </p>
+                {generateError ? (
+                  <p className="mt-1 max-w-64 text-[10px] font-bold leading-tight text-red-600">
+                    {generateError}
+                  </p>
+                ) : null}
             </div>
             <button
                 type="button"
-                disabled={combos.length === 0}
-                onClick={handleGenerate}
+                disabled={combos.length === 0 || generating}
+                onClick={() => void handleGenerate()}
                 className="h-14 px-10 rounded-2xl bg-app-accent text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-app-accent/20 hover:brightness-110 active:scale-95 transition-all disabled:opacity-20 flex items-center gap-2 group"
             >
                 <Zap size={16} className="group-hover:animate-pulse" />
-                Create SKU List
+                {generating ? "Checking SKUs..." : "Create SKU List"}
             </button>
         </div>
       </div>
