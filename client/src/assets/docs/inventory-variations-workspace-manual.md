@@ -30,7 +30,7 @@ Use this workspace when you need to:
 1. Review all variations for a single product in grid or list form.
 2. Select a subset of variations for a bulk action.
 3. Print retail price tags for all variations or only the selected ones.
-4. Review pricing, low-stock, and web state at the variation level.
+4. Review pricing, UPC/catalog identifiers, low-stock, and web state at the variation level.
 
 ## Before you start
 
@@ -44,20 +44,23 @@ Use this workspace when you need to:
 2. Switch between grid and list view depending on whether matrix layout or row-level detail is easier for the task.
 3. If you only need some variations, select those rows first.
 4. Use `Print selected tags` when you have an active selection, or `Print all tags` when you want the full variation set.
-5. Review the shared retail price-tag dialog and adjust quantities for each variation.
-6. Confirm the print batch when the dialog matches the physical tags you need.
+5. Use `Product UPC` for the manufacturer barcode that should scan at POS or receiving.
+6. Use `Catalog # / vendor style #` for the supplier item/style number used by buying and receiving paperwork.
+7. Review the shared retail price-tag dialog and adjust quantities for each variation.
+8. Confirm the print batch when the dialog matches the physical tags you need.
 
 ## What to watch for
 
 - The print button changes meaning based on selection. Check whether it says `Print selected tags` or `Print all tags` before confirming.
 - A quantity of `0` skips a variation even if it was selected.
-- Printing from this workspace uses the same direct **Zebra LP 2844** EPL2 retail price-tag path as Inventory List and Receive Stock.
+- Printing from this workspace uses the same configured tag station, saved tag language, and saved tag layout as Inventory List.
 - If a variation’s price or label looks wrong, correct the product data before printing floor tags.
+- A Counterpoint item number such as `I-103067` is not the vendor style/catalog number.
 
 ## What happens next
 
-- Riverside sends the approved tag batch to the configured **Zebra LP 2844** station using **EPL2**. Desktop/Main Hub dispatch reports the printer error if direct printing fails; preview is not proof that the tag printer works.
-- Variations are marked as shelf-labeled only after the Zebra station confirms the direct print job. Preview fallback means staff should print manually and retry direct printing before treating shelf labels as complete.
+- Riverside sends the approved tag batch directly to the configured tag station. Desktop/Main Hub dispatch reports the printer error if direct printing fails.
+- Variations are marked as shelf-labeled only after the tag station confirms the direct print job. Preview is not used as proof that tags printed.
 - You remain in Product Hub so you can keep reviewing stock, pricing, or the next variation subset.
 
 ## Related workflows

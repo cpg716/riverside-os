@@ -8,6 +8,9 @@ export interface VariantSearchResult {
   product_id: string;
   variant_id: string;
   sku: string;
+  barcode?: string | null;
+  vendor_upc?: string | null;
+  catalog_handle?: string | null;
   product_name: string;
   variation_label?: string | null;
   retail_price?: string | number;

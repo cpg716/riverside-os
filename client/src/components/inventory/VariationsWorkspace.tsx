@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   LayoutGrid,
@@ -35,6 +35,8 @@ export interface HubVariant {
   track_low_stock: boolean;
   retail_price_override: string | null;
   cost_override: string | null;
+  barcode: string | null;
+  vendor_upc: string | null;
   effective_retail: string;
   web_published: boolean;
   web_price_override: string | null;
@@ -72,6 +74,21 @@ interface VariantReprintPrompt {
   stockOnHand: number;
 }
 
+type VariantPatch =
+  | {
+      quantity_delta: number;
+      notes: string;
+      tx_type?: "damaged" | "return_to_vendor";
+    }
+  | { retail_price_override: string | null }
+  | { cost_override: string | null }
+  | { web_published: boolean }
+  | { track_low_stock: boolean }
+  | { barcode: string }
+  | { clear_barcode: boolean }
+  | { vendor_upc: string }
+  | { clear_vendor_upc: boolean };
+
 function strVal(v: unknown): string | null {
   if (v == null) return null;
   if (typeof v === "string") return v;
@@ -89,6 +106,104 @@ function fallbackRowLabel(variant: HubVariant): string {
 
 const cardActionButtonClass =
   "inline-flex min-w-0 items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-center text-[10px] font-black uppercase leading-tight tracking-[0.08em] transition-colors";
+
+const identifierInputClass =
+  "min-w-0 rounded-lg border border-app-border bg-app-surface px-2 py-1.5 font-mono text-xs text-app-text outline-none focus:border-app-accent";
+
+function VariantIdentifierEditor({
+  variant,
+  onSave,
+}: {
+  variant: HubVariant;
+  onSave: (patch: VariantPatch) => Promise<VariantPricingPatchResponse | null>;
+}) {
+  const [barcodeDraft, setBarcodeDraft] = useState(variant.barcode ?? "");
+  const [vendorUpcDraft, setVendorUpcDraft] = useState(variant.vendor_upc ?? "");
+  const [saving, setSaving] = useState<"barcode" | "vendor_upc" | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setBarcodeDraft(variant.barcode ?? "");
+    setVendorUpcDraft(variant.vendor_upc ?? "");
+  }, [variant.barcode, variant.vendor_upc]);
+
+  const saveIdentifier = async (field: "barcode" | "vendor_upc") => {
+    setSaving(field);
+    setMessage(null);
+    try {
+      if (field === "barcode") {
+        const next = barcodeDraft.trim();
+        await onSave(next ? { barcode: next } : { clear_barcode: true });
+        setMessage("Product UPC saved.");
+      } else {
+        const next = vendorUpcDraft.trim();
+        await onSave(next ? { vendor_upc: next } : { clear_vendor_upc: true });
+        setMessage("Catalog # saved.");
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Identifier update failed.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const barcodeChanged = barcodeDraft.trim() !== (variant.barcode ?? "");
+  const vendorUpcChanged = vendorUpcDraft.trim() !== (variant.vendor_upc ?? "");
+
+  return (
+    <div className="mt-4 space-y-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
+      <div className="grid gap-2">
+        <label className="grid gap-1">
+          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Product UPC
+          </span>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <input
+              value={barcodeDraft}
+              onChange={(event) => setBarcodeDraft(event.target.value)}
+              className={identifierInputClass}
+              placeholder="Manufacturer UPC"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              disabled={!barcodeChanged || saving != null}
+              onClick={() => void saveIdentifier("barcode")}
+              className="rounded-lg border border-app-border bg-app-surface px-2 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-40"
+            >
+              Save
+            </button>
+          </div>
+        </label>
+        <label className="grid gap-1">
+          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Catalog # / vendor style #
+          </span>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <input
+              value={vendorUpcDraft}
+              onChange={(event) => setVendorUpcDraft(event.target.value)}
+              className={identifierInputClass}
+              placeholder="Supplier style #"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              disabled={!vendorUpcChanged || saving != null}
+              onClick={() => void saveIdentifier("vendor_upc")}
+              className="rounded-lg border border-app-border bg-app-surface px-2 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-40"
+            >
+              Save
+            </button>
+          </div>
+        </label>
+      </div>
+      {message ? (
+        <p className="text-[10px] font-semibold text-app-text-muted">{message}</p>
+      ) : null}
+    </div>
+  );
+}
 
 export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   productId,
@@ -144,9 +259,13 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     if (!needle) return variants;
     return variants.filter((variant) => {
       const label = variant.variation_label?.toLowerCase() ?? "";
+      const barcode = variant.barcode?.toLowerCase() ?? "";
+      const vendorUpc = variant.vendor_upc?.toLowerCase() ?? "";
       return (
         variant.sku.toLowerCase().includes(needle) ||
-        label.includes(needle)
+        label.includes(needle) ||
+        barcode.includes(needle) ||
+        vendorUpc.includes(needle)
       );
     });
   }, [variants, localSearch]);
@@ -234,16 +353,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   const patchVariant = useCallback(
     async (
       variantId: string,
-      patch:
-        | {
-            quantity_delta: number;
-            notes: string;
-            tx_type?: "damaged" | "return_to_vendor";
-          }
-        | { retail_price_override: string | null }
-        | { cost_override: string | null }
-        | { web_published: boolean }
-        | { track_low_stock: boolean },
+      patch: VariantPatch,
     ): Promise<VariantPricingPatchResponse | null> => {
       const isStock = "quantity_delta" in patch;
       const endpoint = isStock ? "stock-adjust" : "pricing";
@@ -256,7 +366,10 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           body: JSON.stringify(patch),
         },
       );
-      if (!res.ok) throw new Error("Update failed");
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "Update failed");
+      }
       const payload = (await res.json().catch(() => null)) as
         | VariantPricingPatchResponse
         | null;
@@ -384,6 +497,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
             price: `$${centsToFixed2(parseMoneyToCents(variant.effective_retail))}`,
           })),
           getInventoryTagPrintConfig(),
+          { allowPreviewFallback: false },
         );
       } catch (error) {
         toast(error instanceof Error ? error.message : "Tag print failed.", "error");
@@ -572,6 +686,10 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                   </span>
                 ) : null}
               </div>
+              <VariantIdentifierEditor
+                variant={v}
+                onSave={(patch) => patchVariant(v.id, patch)}
+              />
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -1126,7 +1244,11 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 setReprintPrompt(null);
                 return;
               }
-              const printResult = await openInventoryTagsWindow(printItems);
+              const printResult = await openInventoryTagsWindow(
+                printItems,
+                getInventoryTagPrintConfig(),
+                { allowPreviewFallback: false },
+              );
               if (!printResult.markShelfLabeled) {
                 toast(
                   `${printResult.message} Shelf-label status was not changed because the tag printer did not confirm the job.`,
@@ -1159,8 +1281,8 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 "success",
               );
               onVariantUpdated();
-            } catch {
-              toast("Price tags could not be printed. Please try again.", "error");
+            } catch (error) {
+              toast(error instanceof Error ? error.message : "Price tags could not be printed. Please try again.", "error");
             } finally {
               setReprintPrompt(null);
             }

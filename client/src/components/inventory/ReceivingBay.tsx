@@ -49,6 +49,7 @@ interface ApiLine {
   line_id: string;
   variant_id: string;
   sku: string;
+  barcode?: string | null;
   vendor_upc?: string | null;
   product_name: string;
   variation_label: string | null;
@@ -65,6 +66,7 @@ export interface WorksheetLine {
   line_id: string;
   variant_id: string;
   sku: string;
+  barcode: string | null;
   vendor_upc: string | null;
   product_name: string;
   subtitle: string;
@@ -131,6 +133,7 @@ function mapApiLine(l: ApiLine): WorksheetLine {
     line_id: l.line_id,
     variant_id: l.variant_id,
     sku: l.sku,
+    barcode: l.barcode ?? null,
     vendor_upc: l.vendor_upc ?? null,
     product_name: l.product_name,
     subtitle,
@@ -340,6 +343,10 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
   const matchLine = useCallback(
     (code: string): number => {
       const c = code.toLowerCase().trim();
+      const barcodeIdx = lines.findIndex(
+        (l) => l.barcode && l.barcode.toLowerCase() === c,
+      );
+      if (barcodeIdx >= 0) return barcodeIdx;
       // If vendor uses vendor UPC, check that field first
       if (useVendorUpc) {
         const vuIdx = lines.findIndex(
@@ -430,8 +437,15 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
         if (!res.ok) return null;
         const data = (await res.json()) as { rows?: VariantSearchResult[] };
         const rows = Array.isArray(data.rows) ? data.rows : [];
+        const normalized = trimmed.toLowerCase();
         return (
-          rows.find((row) => row.sku.toLowerCase() === trimmed.toLowerCase()) ??
+          rows.find(
+            (row) =>
+              row.sku.toLowerCase() === normalized ||
+              row.barcode?.toLowerCase() === normalized ||
+              row.vendor_upc?.toLowerCase() === normalized ||
+              row.catalog_handle?.toLowerCase() === normalized,
+          ) ??
           rows[0] ??
           null
         );

@@ -56,12 +56,13 @@ Batch Scan is resolution-only. It does not receive inventory, adjust stock, star
 ## What to watch for
 
 - Bulk selection does not bypass review. The final dialog is still where you confirm the exact variation quantities.
-- Use `Set all to 1` in the dialog when you want the fastest one-tag-per-variation batch.
+- Tag quantities pre-fill from current on-hand stock. Zero-stock variations start at `0`; change a line quantity when you need a different tag count.
+- Use a row's **Print tag** action when you only need tags for that one variation.
 
 ## What happens next
 
-- Riverside sends the reviewed label batch to the configured **Zebra LP 2844** tag station using **EPL2**. Desktop/Main Hub dispatch reports the printer error if the Zebra queue cannot accept the job; tag printing should not be signed off from preview alone.
-- Preview fallback is not a confirmed Zebra print. Riverside leaves shelf-label status unchanged until a direct tag-station job succeeds.
+- Riverside sends the reviewed label batch to the configured **Zebra LP 2844** tag station using the saved tag printer language and layout. Desktop/Main Hub dispatch reports the printer error if the Zebra queue cannot accept the job.
+- Riverside leaves shelf-label status unchanged until a direct tag-station job succeeds. Preview is not used as proof that tags printed.
 - The selection toolbar stays tied to the current list so you can continue with another bulk action if needed.
 
 ## Related workflows

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronsUpDown, X, ShoppingBag } from "lucide-react";
+import { ChevronsUpDown, X } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { VariationsWorkspace, type HubVariant } from "./VariationsWorkspace";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -22,7 +22,7 @@ import {
   type RosieProductCatalogSuggestionResponse,
 } from "../../lib/rosie";
 import { getAppIcon } from "../../lib/icons";
-import { openInventoryTagsWindow } from "./labelPrint";
+import { getInventoryTagPrintConfig, openInventoryTagsWindow } from "./labelPrint";
 import RosieIcon from "../common/RosieIcon";
 import { isCustomOrderSku } from "../../lib/customOrders";
 
@@ -53,6 +53,7 @@ interface ProductHubProduct {
   employee_markup_percent: string | number | null;
   employee_extra_amount: string | number;
   nuorder_product_id: string | null;
+  catalog_handle: string | null;
 }
 
 interface VendorOption {
@@ -89,6 +90,8 @@ interface HubApiVariant {
   track_low_stock: boolean;
   retail_price_override: string | null;
   cost_override: string | null;
+  barcode?: string | null;
+  vendor_upc?: string | null;
   effective_retail: string;
   web_published?: boolean;
   web_price_override?: string | null;
@@ -226,6 +229,16 @@ function formatEventKind(kind: string) {
 function compactValue(value?: string | null) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : "—";
+}
+
+function isCounterpointItemNumber(value?: string | null) {
+  return /^I-\d+$/i.test(value?.trim() ?? "");
+}
+
+function vendorCatalogValue(value?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed || isCounterpointItemNumber(trimmed)) return null;
+  return trimmed;
 }
 
 function friendlyCleanupNote(note: string) {
@@ -925,6 +938,14 @@ export default function ProductHubDrawer({
   const title =
     hub?.product.name ??
     seedTitle;
+  const productCatalogNumber = vendorCatalogValue(
+    hub?.product.catalog_handle ?? hub?.product.nuorder_product_id,
+  );
+  const counterpointItemNumber = isCounterpointItemNumber(
+    hub?.product.catalog_handle ?? hub?.product.nuorder_product_id,
+  )
+    ? (hub?.product.catalog_handle ?? hub?.product.nuorder_product_id)
+    : null;
 
   const subtitle = (
     <div className="flex items-center gap-2">
@@ -939,11 +960,11 @@ export default function ProductHubDrawer({
           <span>Brand: {hub.product.brand}</span>
         </>
       )}
-      {hub?.product?.nuorder_product_id && (
+      {productCatalogNumber && (
         <>
           <span className="text-app-text-muted/30">·</span>
           <span className="inline-flex items-center gap-1 text-app-info font-black uppercase tracking-widest text-[10px]">
-            <ShoppingBag size={10} /> NuORDER {hub.product?.nuorder_product_id}
+            Catalog # {productCatalogNumber}
           </span>
         </>
       )}
@@ -989,6 +1010,8 @@ export default function ProductHubDrawer({
       track_low_stock: v.track_low_stock,
       retail_price_override: v.retail_price_override,
       cost_override: v.cost_override,
+      barcode: v.barcode ?? null,
+      vendor_upc: v.vendor_upc ?? null,
       effective_retail: v.effective_retail,
       web_published: Boolean(v.web_published),
       web_price_override: v.web_price_override ?? null,
@@ -1061,32 +1084,6 @@ export default function ProductHubDrawer({
           <>
           {tab === "general" && (
             <div className="space-y-5">
-              <section className="ui-panel ui-tint-neutral p-5">
-                <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                  Product Hub guide
-                </h3>
-                <div className="mt-3 grid gap-3 text-sm md:grid-cols-3">
-                  <div className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
-                    <p className="font-black text-app-text">Item Setup</p>
-                    <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
-                      Product family, vendor, category, tax, employee pricing, and cleanup review.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
-                    <p className="font-black text-app-text">SKUs & Stock</p>
-                    <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
-                      SKU prices, web status, tags, low-stock alerts, count corrections, damage, and vendor returns.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-amber-300/50 bg-amber-50 p-4">
-                    <p className="font-black text-amber-950">Receiving rule</p>
-                    <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-800">
-                      Vendor shipments belong in Receive Stock. Product Hub count fixes are for small corrections only.
-                    </p>
-                  </div>
-                </div>
-              </section>
-
               <section className="rounded-2xl border border-app-border bg-app-surface p-5">
                 <h3 className="mb-4 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
                   Item Identity
@@ -1339,11 +1336,20 @@ export default function ProductHubDrawer({
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-app-text-muted">External catalog handle</dt>
+                    <dt className="text-app-text-muted">Catalog # / vendor style #</dt>
                     <dd className="font-mono text-app-text">
-                      {hub.product.nuorder_product_id ?? "—"}
+                      {productCatalogNumber ?? "—"}
                     </dd>
+                    <p className="mt-1 text-[10px] text-app-text-muted">
+                      Used for NuORDER, purchase orders, and receiving.
+                    </p>
                   </div>
+                  {counterpointItemNumber ? (
+                    <div>
+                      <dt className="text-app-text-muted">Counterpoint item #</dt>
+                      <dd className="font-mono text-app-text">{counterpointItemNumber}</dd>
+                    </div>
+                  ) : null}
                   <div>
                     <dt className="text-app-text-muted">Base cost</dt>
                     <dd className="font-mono text-app-text">
@@ -2160,7 +2166,7 @@ export default function ProductHubDrawer({
                           {hub.product.brand ?? "No brand label"}
                         </p>
                         <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                          External catalog handle: {hub.product.nuorder_product_id ?? "not set"}
+                          Catalog # / vendor style #: {productCatalogNumber ?? "not set"}
                         </p>
                       </div>
 
@@ -2330,7 +2336,11 @@ export default function ProductHubDrawer({
                 setReprintPrompt(null);
                 return;
               }
-              const printResult = await openInventoryTagsWindow(printItems);
+              const printResult = await openInventoryTagsWindow(
+                printItems,
+                getInventoryTagPrintConfig(),
+                { allowPreviewFallback: false },
+              );
               if (!printResult.markShelfLabeled) {
                 toast(
                   `${printResult.message} Shelf-label status was not changed because the tag printer did not confirm the job.`,
@@ -2364,8 +2374,8 @@ export default function ProductHubDrawer({
               );
               void loadHub();
               onHubMutated?.();
-            } catch {
-              toast("Price tags could not be printed. Please try again.", "error");
+            } catch (error) {
+              toast(error instanceof Error ? error.message : "Price tags could not be printed. Please try again.", "error");
             } finally {
               setReprintPrompt(null);
             }

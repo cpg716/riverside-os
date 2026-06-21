@@ -33,13 +33,17 @@ The product list is primary. Item Readiness and Inventory Cleanup Review sit bel
 
 ## Search and filters
 
-Use the main search field for product name, SKU, item number, or variation text. The list is product-centered and shows each product's variation count; direct SKU or exact variation searches show the matched SKU/variation on that product row. Use vendor, category, stock, label, high value, web, and department filters to narrow the list.
+Use the main search field for product name, SKU, product UPC, catalog/vendor style number, or variation text. The list is product-centered and shows each product's variation count; direct SKU or exact variation searches show the matched SKU/variation on that product row. Use vendor, category, stock, label, high value, web, and department filters to narrow the list.
 
 Select **Load More Inventory** to keep paging through results without losing the current filters.
 
 ## Open Product Hub
 
 Select a product row to open the Product Hub drawer. Product Hub contains general information, variations, history, labels, damage, return-to-vendor, and other item actions.
+
+## Print Tags
+
+Inventory List and Product Hub tag actions send the reviewed batch directly to the configured tag station using the saved tag layout and printer language. The Inventory List tag review pre-fills each variation's tag quantity from current on-hand stock, leaves zero-stock variations at `0`, and lets staff print one variation row by itself. If direct dispatch fails, Riverside shows the printer error and leaves shelf-label status unchanged.
 
 ## Item Readiness
 

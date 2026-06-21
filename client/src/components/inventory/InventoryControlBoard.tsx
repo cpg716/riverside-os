@@ -267,7 +267,12 @@ function InventoryTagPrintModal({
   onPrint: (quantities: Record<string, number>) => void;
 }) {
   const [quantities, setQuantities] = useState<Record<string, number>>(() =>
-    Object.fromEntries(product.variant_rows.map((row) => [row.variant_id, 1])),
+    Object.fromEntries(
+      product.variant_rows.map((row) => [
+        row.variant_id,
+        Math.max(0, row.stock_on_hand),
+      ]),
+    ),
   );
 
   const totalTags = useMemo(
@@ -304,7 +309,7 @@ function InventoryTagPrintModal({
           {product.variant_rows.map((row) => (
             <div
               key={row.variant_id}
-              className="grid grid-cols-[minmax(0,1fr)_7rem_7rem] items-center gap-3 rounded-2xl border border-app-border/60 bg-app-bg/20 px-4 py-3"
+              className="grid grid-cols-[minmax(0,1fr)_7rem_7rem_7.5rem] items-center gap-3 rounded-2xl border border-app-border/60 bg-app-bg/20 px-4 py-3"
             >
               <div className="min-w-0">
                 <p className="truncate text-base font-black text-app-text">
@@ -342,6 +347,20 @@ function InventoryTagPrintModal({
                   className="mt-2 w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm font-black text-app-text outline-none focus:ring-2 focus:ring-app-accent/30"
                 />
               </div>
+              <button
+                type="button"
+                disabled={(quantities[row.variant_id] ?? 0) <= 0}
+                onClick={() =>
+                  onPrint({
+                    [row.variant_id]: Math.max(0, quantities[row.variant_id] ?? 0),
+                  })
+                }
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-app-text-muted transition-colors hover:border-app-accent hover:text-app-accent disabled:cursor-not-allowed disabled:opacity-40"
+                title="Print this variation"
+              >
+                <Printer size={14} />
+                Print tag
+              </button>
             </div>
           ))}
         </div>
@@ -361,7 +380,8 @@ function InventoryTagPrintModal({
             <button
               type="button"
               onClick={() => onPrint(quantities)}
-              className="rounded-xl border-b-4 border-app-accent/80 bg-app-accent px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.18em] text-white shadow-lg transition-all active:translate-y-1 active:border-b-0"
+              disabled={totalTags <= 0}
+              className="rounded-xl border-b-4 border-app-accent/80 bg-app-accent px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.18em] text-white shadow-lg transition-all active:translate-y-1 active:border-b-0 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Print Inventory Tags
             </button>
@@ -1010,15 +1030,23 @@ export default function InventoryControlBoard({
     const chosenProducts = productRows.filter((r) => selected.has(r.product_id));
     if (chosenProducts.length === 0) return;
     const chosenVariants = chosenProducts.flatMap((p) => p.variant_rows);
-    const printResult = await openInventoryTagsWindow(
-      chosenVariants.map((r) => ({
-        sku: r.sku,
-        productName: r.product_name,
-        variation: r.variation_label ?? "Standard",
-        brand: r.brand,
-        price: money(r.retail_price),
-      })),
-    );
+    let printResult;
+    try {
+      printResult = await openInventoryTagsWindow(
+        chosenVariants.map((r) => ({
+          sku: r.sku,
+          productName: r.product_name,
+          variation: r.variation_label ?? "Standard",
+          brand: r.brand,
+          price: money(r.retail_price),
+        })),
+        getInventoryTagPrintConfig(),
+        { allowPreviewFallback: false },
+      );
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Tag print failed.", "error");
+      return;
+    }
     if (!printResult.markShelfLabeled) {
       toast(
         `${printResult.message} Shelf-label status was not changed because the tag printer did not confirm the job.`,
@@ -1067,10 +1095,18 @@ export default function InventoryControlBoard({
         toast("Choose at least one tag to print", "info");
         return;
       }
-      const printResult = await openInventoryTagsWindow(
-        expandedItems,
-        getInventoryTagPrintConfig(),
-      );
+      let printResult;
+      try {
+        printResult = await openInventoryTagsWindow(
+          expandedItems,
+          getInventoryTagPrintConfig(),
+          { allowPreviewFallback: false },
+        );
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Tag print failed.", "error");
+        setPrintTarget(null);
+        return;
+      }
       if (!printResult.markShelfLabeled) {
         toast(
           `${printResult.message} Shelf-label status was not changed because the tag printer did not confirm the job.`,

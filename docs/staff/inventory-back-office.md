@@ -29,16 +29,18 @@ Old deep links and saved shortcuts still open the same tools. The labels above a
 
 **Purpose:** Find SKUs fast, open **Product hub**, and manage existing item details, options, pricing fields, stock actions, and history from one item-centered starting point.
 
-To edit an existing item, always start in **Find Item**. Search for the SKU or style, then open **Product hub** from the row.
+To edit an existing item, always start in **Find Item**. Search for the SKU, product UPC, vendor style/catalog number, or style name, then open **Product hub** from the row.
 
 1. Go to **Inventory** → **Find Item**.
-2. Search by **SKU**, **style name**, or **vendor** per header fields.
+2. Search by **SKU**, **Product UPC**, **Catalog # / vendor style #**, **style name**, or **vendor** per header fields.
 3. Use **Load more** for large catalogs — the server returns pages, not the whole world at once.
 4. Click a row or **hub** icon to open **Product Hub**.
 5. Use **Item Setup** for product family details, vendor, category, tax, employee pricing, and cleanup review.
-6. Use **SKUs & Stock** for SKU-level price, web status, tags, low-stock alerts, small count corrections, damage, and vendor returns.
+6. Use **SKUs & Stock** for SKU-level price, Product UPC, Catalog # / vendor style #, web status, tags, low-stock alerts, small count corrections, damage, and vendor returns.
 
 **Common pitfall:** Do not use Product Hub count corrections for vendor shipments. Vendor shipments belong in **Receive Stock** so PO, receiving, reserved stock, and financial staging stay connected.
+
+**Identifier rule:** `Product UPC` is the manufacturer barcode that can scan at POS and receiving. `Catalog # / vendor style #` is the supplier identifier used by buying and receiving. Counterpoint item numbers such as `I-103067` are internal item numbers, not vendor catalog numbers.
 
 **Availability rule:** Available stock is **on hand minus reserved minus layaway**. Layaway units are physically present, but ROS does not treat them as sellable for another customer or the online store.
 
@@ -151,7 +153,7 @@ If a physical inventory session is open or in review, receiving is paused. Sales
    - **Submitted PO** = ready to receive.
    - **Direct invoice** = arrived without a pre-built PO and can open receiving immediately.
    - **Draft PO** = order setup; submit it before receiving.
-4. Scanning and worksheet entry only **stage** the receipt. They do **not** change live stock yet.
+4. Scanning and worksheet entry only **stage** the receipt. They do **not** change live stock yet. Receiving scan matching accepts Product UPC and supplier catalog/style identifiers; do not use a Counterpoint `I-XXXXX` number as the vendor style.
 5. **Post Receipt** (the emerald button in the footer) finalizes the receipt into inventory — same **"terminal completion"** pattern as **Complete Sale** at the register. Read totals before confirming.
 6. Watch for messages about **reserved** stock for open special orders after posting.
 
@@ -186,7 +188,7 @@ Open **Product Hub** from **Find Item**. The **SKUs & Stock** tab supports three
 - **Matrix:** compact axis grid when a style has true size/color/fit structure.
 - **List:** dense table for long SKU lists and bulk edits.
 
-All views should represent the same filtered SKUs. Used Counterpoint SKUs and new ROS SKUs must both remain searchable, editable, sellable, and usable in receiving and order workflows.
+All views should represent the same filtered SKUs. Used Counterpoint SKUs, new ROS SKUs, Product UPCs, and supplier catalog/style identifiers must remain searchable, editable, sellable, and usable in receiving and order workflows.
 
 ## Inventory Reports
 

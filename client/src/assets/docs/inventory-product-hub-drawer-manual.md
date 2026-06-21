@@ -34,6 +34,7 @@ Use Product Hub when you need to:
 3. Print retail price tags from the product detail view instead of the Inventory List.
 4. Check recent inventory events or incoming PO context before taking action.
 5. Review or update primary and secondary vendor assignments before ordering.
+6. Confirm the product-level `Catalog # / vendor style #` and Counterpoint item number are not being confused.
 
 ## Before you start
 
@@ -60,6 +61,10 @@ The Product Hub panel is a visibility surface. It uses current server-computed v
   The vendor Riverside uses for Min/Max reorder suggestions and stock-out ordering context.
 - `Secondary vendors`
   Approved alternate vendors that can be used for PO line entry and receiving without changing the primary Min/Max suggestion vendor. Use the search box to add an alternate vendor, then remove selected vendors from their chips when needed.
+- `Catalog # / vendor style #`
+  The vendor or supplier identifier used for NuORDER, purchase orders, catalog import, and receiving paperwork.
+- `Counterpoint item #`
+  A Counterpoint-assigned internal item number such as `I-103067`. Do not treat this as the vendor style/catalog number.
 
 Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Product Hub shows sales and open-order context for those items instead of on-hand and available quantities.
 
@@ -71,15 +76,16 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 4. Search vendors in `Primary vendor` or `Secondary vendors` instead of scanning a long vendor list.
 5. Use `Print retail price tags` from the General section when you want to print from the product detail view.
 6. In the Variations tab, use `Print all tags` or select specific variations first and then use `Print selected tags`.
-7. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
-8. Use recent inventory events when you need to confirm why the number changed.
+7. Record variation-level `Product UPC` for manufacturer barcodes and `Catalog # / vendor style #` for supplier buying/receiving identifiers.
+8. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
+9. Use recent inventory events when you need to confirm why the number changed.
 
 ## What the retail price-tag review does
 
 - Riverside brings in the real product name, variation label, SKU, brand, and effective retail price.
 - The print review dialog lets you change tag quantity per variation before anything prints.
 - A quantity of `0` skips that variation.
-- After a confirmed direct Zebra print, Riverside marks the printed variations as shelf-labeled. Preview fallback opens a manual print path but does not clear the shelf-label-needed state.
+- After a confirmed direct Zebra print, Riverside marks the printed variations as shelf-labeled. If direct tag dispatch fails, Riverside shows the printer error and does not clear the shelf-label-needed state.
 
 ## What to watch for
 

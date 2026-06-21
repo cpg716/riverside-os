@@ -480,6 +480,7 @@ pub struct InventoryControlRow {
     pub total_variant_count: i64,
     pub sku: String,
     pub barcode: Option<String>,
+    pub vendor_upc: Option<String>,
     pub product_name: String,
     pub brand: Option<String>,
     pub catalog_handle: Option<String>,
@@ -640,6 +641,16 @@ pub struct VariantPricingPatch {
     pub cost_override: Option<Decimal>,
     #[serde(default)]
     pub track_low_stock: Option<bool>,
+    /// Manufacturer UPC / barcode for scanning at POS and receiving lookup.
+    #[serde(default)]
+    pub barcode: Option<String>,
+    #[serde(default)]
+    pub clear_barcode: bool,
+    /// Vendor catalog number / supplier style number for buying and receiving.
+    #[serde(default)]
+    pub vendor_upc: Option<String>,
+    #[serde(default)]
+    pub clear_vendor_upc: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -659,6 +670,7 @@ pub struct HubVariantRow {
     pub sku: String,
     pub variation_values: Value,
     pub variation_label: Option<String>,
+    pub barcode: Option<String>,
     pub vendor_upc: Option<String>,
     pub stock_on_hand: i32,
     pub reserved_stock: i32,
@@ -681,6 +693,7 @@ struct HubVariantJoinRow {
     sku: String,
     variation_values: Value,
     variation_label: Option<String>,
+    barcode: Option<String>,
     vendor_upc: Option<String>,
     stock_on_hand: i32,
     reserved_stock: i32,
@@ -1287,6 +1300,7 @@ pub async fn list_control_board(
             variant_totals.total_variant_count,
             pv.sku,
             pv.barcode,
+            pv.vendor_upc,
             p.name AS product_name,
             p.brand,
             p.catalog_handle,
@@ -3104,6 +3118,7 @@ async fn fetch_product_hub(
             pv.sku,
             pv.variation_values,
             pv.variation_label,
+            pv.barcode,
             pv.vendor_upc,
             pv.stock_on_hand,
             pv.reserved_stock,
@@ -3148,6 +3163,7 @@ async fn fetch_product_hub(
             sku: r.sku,
             variation_values: r.variation_values,
             variation_label: r.variation_label,
+            barcode: r.barcode,
             vendor_upc: r.vendor_upc,
             stock_on_hand: r.stock_on_hand,
             reserved_stock: r.reserved_stock,
@@ -3566,6 +3582,103 @@ async fn patch_variant_pricing(
     let old_effective_retail = current
         .retail_price_override
         .unwrap_or(current.base_retail_price);
+
+    if body.clear_barcode && body.barcode.is_some() {
+        return Err(ProductError::InvalidPayload(
+            "cannot set barcode and clear_barcode together".to_string(),
+        ));
+    }
+    if body.clear_vendor_upc && body.vendor_upc.is_some() {
+        return Err(ProductError::InvalidPayload(
+            "cannot set vendor_upc and clear_vendor_upc together".to_string(),
+        ));
+    }
+
+    if body.clear_barcode {
+        did = true;
+        sqlx::query(
+            r#"
+            UPDATE product_variants
+            SET barcode = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(variant_id)
+        .execute(&state.db)
+        .await?;
+    } else if let Some(ref barcode) = body.barcode {
+        let trimmed = barcode.trim();
+        if trimmed.is_empty() {
+            return Err(ProductError::InvalidPayload(
+                "barcode must be non-empty when provided".to_string(),
+            ));
+        }
+        let duplicate: Option<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT id
+            FROM product_variants
+            WHERE barcode IS NOT NULL
+              AND trim(barcode) <> ''
+              AND lower(trim(barcode)) = lower($1)
+              AND id <> $2
+            LIMIT 1
+            "#,
+        )
+        .bind(trimmed)
+        .bind(variant_id)
+        .fetch_optional(&state.db)
+        .await?;
+        if duplicate.is_some() {
+            return Err(ProductError::InvalidPayload(
+                "barcode is already assigned to another SKU".to_string(),
+            ));
+        }
+        did = true;
+        sqlx::query(
+            r#"
+            UPDATE product_variants
+            SET barcode = $1
+            WHERE id = $2
+            "#,
+        )
+        .bind(trimmed)
+        .bind(variant_id)
+        .execute(&state.db)
+        .await?;
+    }
+
+    if body.clear_vendor_upc {
+        did = true;
+        sqlx::query(
+            r#"
+            UPDATE product_variants
+            SET vendor_upc = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(variant_id)
+        .execute(&state.db)
+        .await?;
+    } else if let Some(ref vendor_upc) = body.vendor_upc {
+        let trimmed = vendor_upc.trim();
+        if trimmed.is_empty() {
+            return Err(ProductError::InvalidPayload(
+                "vendor_upc must be non-empty when provided".to_string(),
+            ));
+        }
+        did = true;
+        sqlx::query(
+            r#"
+            UPDATE product_variants
+            SET vendor_upc = $1
+            WHERE id = $2
+            "#,
+        )
+        .bind(trimmed)
+        .bind(variant_id)
+        .execute(&state.db)
+        .await?;
+    }
 
     if let Some(wp) = body.web_published {
         did = true;
@@ -5141,6 +5254,10 @@ mod tests {
                 clear_cost_override: false,
                 cost_override: None,
                 track_low_stock: None,
+                barcode: None,
+                clear_barcode: false,
+                vendor_upc: None,
+                clear_vendor_upc: false,
             }),
         )
         .await
@@ -5201,6 +5318,10 @@ mod tests {
                 clear_cost_override: false,
                 cost_override: None,
                 track_low_stock: None,
+                barcode: None,
+                clear_barcode: false,
+                vendor_upc: None,
+                clear_vendor_upc: false,
             }),
         )
         .await
@@ -5259,6 +5380,10 @@ mod tests {
                 clear_cost_override: false,
                 cost_override: None,
                 track_low_stock: None,
+                barcode: None,
+                clear_barcode: false,
+                vendor_upc: None,
+                clear_vendor_upc: false,
             }),
         )
         .await

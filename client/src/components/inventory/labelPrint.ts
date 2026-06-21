@@ -877,7 +877,9 @@ export type InventoryTagPrintResult =
 export async function openSingleInventoryTag(
   item: InventoryTagItem,
 ): Promise<InventoryTagPrintResult> {
-  return openInventoryTagsWindow([item]);
+  return openInventoryTagsWindow([item], undefined, {
+    allowPreviewFallback: false,
+  });
 }
 
 /** Browser preview/system-dialog fallback for tag layouts. */
