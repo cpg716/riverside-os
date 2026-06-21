@@ -30,6 +30,7 @@ The Orders workspace is the main place to review unfulfilled Special, Custom, an
 - Use **Edit Custom Order** on custom items to review or update the saved HSM or Individualized Shirts form details from the same field set used during POS custom-order booking.
 - Use **Review Pickup** from Order Detail to run the pickup release check. Use **Open in Register** only when staff need to review the order from the register or copy its unfulfilled items into a new sale.
 - After Register checkout activity, reopen the parent Transaction Record or return to Orders to see the latest authoritative data instead of a stale snapshot.
+- For a refund already processed in Helcim backend, use **Helcim backend refund**, enter the Helcim refund reference, and complete Manager Access so the register refund record matches the external processor action.
 - Use the `Order Integrity` summary at the top of the workspace to quickly see which shown orders are still waiting on booking details, still carrying balance due, or already showing action-needed / overdue follow-up counts from the existing pipeline stats feed.
 - Use the search bar and filter chips above the list to narrow the table before opening a row. The desktop table separates the secondary header labels, such as date, lifecycle, cashier, and deposit, so staff can scan the main work first.
 

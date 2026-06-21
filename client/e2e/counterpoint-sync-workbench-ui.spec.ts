@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../..");
 const workbenchRoot = path.join(repoRoot, "counterpoint-sync");
+const workbenchEntrypoint = path.join(workbenchRoot, "index.mjs");
 const token = "playwright-sync-token";
 
 async function freePort(): Promise<number> {
@@ -51,6 +52,11 @@ function runNodeScript(command: string, args: string[], cwd: string, env: NodeJS
 }
 
 test.describe("Counterpoint SYNC Workbench UI", () => {
+  test.skip(
+    !fs.existsSync(workbenchEntrypoint),
+    "Retired standalone SYNC Workbench server is not present in the current direct-ROS Counterpoint flow.",
+  );
+
   let child: ChildProcessWithoutNullStreams;
   let tmpDir: string;
   let baseUrl: string;
@@ -68,7 +74,7 @@ test.describe("Counterpoint SYNC Workbench UI", () => {
       COUNTERPOINT_SYNC_WORKBENCH_STORE: storePath,
       COUNTERPOINT_SYNC_WORKBENCH_URL: baseUrl,
     };
-    child = spawn(process.execPath, ["index.mjs"], {
+    child = spawn(process.execPath, [workbenchEntrypoint], {
       cwd: workbenchRoot,
       env,
       stdio: ["ignore", "pipe", "pipe"],

@@ -463,6 +463,7 @@ export default function NexoCheckoutDrawer({
   const completeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [checkNumber, setCheckNumber] = useState("");
   const [refundOriginalTransactionId, setRefundOriginalTransactionId] = useState("");
+  const [refundOriginalCardPresentConfirmed, setRefundOriginalCardPresentConfirmed] = useState(false);
   const [providerSettings, setProviderSettings] = useState<PaymentProviderSettings | null>(null);
   const [providerSettingsLoading, setProviderSettingsLoading] = useState(false);
   const [providerSettingsError, setProviderSettingsError] = useState<string | null>(null);
@@ -704,6 +705,7 @@ export default function NexoCheckoutDrawer({
           ? ""
           : String(originalHelcimTransactionIdForRefund),
       );
+      setRefundOriginalCardPresentConfirmed(false);
       setHelcimAttempt(null);
       setHelcimUnverifiedNotice(null);
       pendingHelcimCentsRef.current = 0;
@@ -1448,6 +1450,10 @@ export default function NexoCheckoutDrawer({
           toast("Enter the original Helcim transaction ID before starting the terminal refund.", "error");
           return;
         }
+        if (!refundOriginalCardPresentConfirmed) {
+          toast("Confirm the customer and original card are present before starting the terminal refund.", "error");
+          return;
+        }
 
         try {
           pendingHelcimCentsRef.current = amtCents;
@@ -1464,6 +1470,7 @@ export default function NexoCheckoutDrawer({
             body: JSON.stringify({
               amount_cents: Math.abs(amtCents),
               original_transaction_id: originalTransactionId,
+              customer_present_confirmed: refundOriginalCardPresentConfirmed,
               currency: "usd",
               register_session_id: registerSessionId ?? undefined,
               selected_terminal_key: selectedTerminalKey,
@@ -1678,7 +1685,7 @@ export default function NexoCheckoutDrawer({
     setGiftCardCode("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings]);
+  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -2358,6 +2365,17 @@ export default function NexoCheckoutDrawer({
                           className="mt-1 min-h-10 w-full rounded-xl border border-app-border bg-app-surface px-3 text-sm font-bold text-app-text outline-none transition-colors focus:border-app-accent"
                         />
                       </label>
+                      <label className="mt-3 flex items-start gap-2 text-xs font-semibold text-app-text-muted">
+                        <input
+                          type="checkbox"
+                          checked={refundOriginalCardPresentConfirmed}
+                          onChange={(event) => setRefundOriginalCardPresentConfirmed(event.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-app-border text-app-accent focus:ring-app-accent"
+                        />
+                        <span>
+                          Customer and original card are present for this terminal refund.
+                        </span>
+                      </label>
                     </div>
                   )}
 
@@ -2462,6 +2480,7 @@ export default function NexoCheckoutDrawer({
                             (providerSettingsLoading ||
                               helcimAttemptLoading ||
                               refundOriginalTransactionId.trim().length === 0 ||
+                              !refundOriginalCardPresentConfirmed ||
                               (providerSettings?.active_provider === "helcim" &&
                                 (!providerSettings.helcim.enabled ||
                                   !providerSettings.helcim.terminal_payments_ready ||

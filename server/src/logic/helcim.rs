@@ -1360,10 +1360,15 @@ pub async fn start_terminal_refund(
             response.status()
         ));
     }
-    response
+    Ok(response
         .json::<HelcimAcceptedPurchaseResponse>()
         .await
-        .map_err(|e| e.to_string())
+        .unwrap_or(HelcimAcceptedPurchaseResponse {
+            status: Some("accepted".to_string()),
+            payment_id: None,
+            transaction_id: None,
+            audit_reference: None,
+        }))
 }
 
 pub async fn initialize_helcim_pay(

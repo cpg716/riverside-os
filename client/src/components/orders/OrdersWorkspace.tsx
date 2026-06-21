@@ -6,6 +6,7 @@ import { useRegisterGate } from "../../context/RegisterGateContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import RegisterRequiredModal from "../layout/RegisterRequiredModal";
 import PosRefundModal from "../pos/PosRefundModal";
+import ManagerApprovalModal from "../pos/ManagerApprovalModal";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import {
@@ -1062,6 +1063,9 @@ export default function OrdersWorkspace({
   const [refundAmountStr, setRefundAmountStr] = useState("");
   const [refundMethod, setRefundMethod] = useState("cash");
   const [refundGiftCode, setRefundGiftCode] = useState("");
+  const [refundExternalReference, setRefundExternalReference] = useState("");
+  const [refundManagerReason, setRefundManagerReason] = useState("");
+  const [refundManagerAccessOpen, setRefundManagerAccessOpen] = useState(false);
   const [refundBusy, setRefundBusy] = useState(false);
   const openInRegisterAndClose = useCallback(
     (orderId: string, forPickup?: boolean) => {
@@ -1071,7 +1075,7 @@ export default function OrdersWorkspace({
     [onOpenInRegister],
   );
   const [registerRequiredOpen, setRegisterRequiredOpen] = useState(false);
-  useShellBackdropLayer(refundModalOpen || registerRequiredOpen);
+  useShellBackdropLayer(refundModalOpen || registerRequiredOpen || refundManagerAccessOpen);
   // exchangeOtherId removed
   const [returnQtyDraft, setReturnQtyDraft] = useState<Record<string, string>>(
     {},
@@ -1640,8 +1644,21 @@ export default function OrdersWorkspace({
 
   // linkExchange logic removed for build stabilization
 
-  const submitProcessRefund = async () => {
+  const submitProcessRefund = async (managerApproval?: { managerStaffId: string; managerPin: string }) => {
     if (!refundTargetOrderId || !canRefund) return;
+    const manualHelcimRefund = refundMethod === "card_terminal_manual";
+    if (manualHelcimRefund && !managerApproval) {
+      if (!refundExternalReference.trim()) {
+        toast("Enter the Helcim refund reference before recording the backend refund.", "error");
+        return;
+      }
+      if (!refundManagerReason.trim()) {
+        toast("Enter the Manager Access reason before recording the backend refund.", "error");
+        return;
+      }
+      setRefundManagerAccessOpen(true);
+      return;
+    }
     setRefundBusy(true);
     try {
       const cur = await fetch(`${baseUrl}/api/sessions/current`, {
@@ -1672,6 +1689,12 @@ export default function OrdersWorkspace({
       if (refundMethod.toLowerCase().includes("gift")) {
         body.gift_card_code = refundGiftCode.trim();
       }
+      if (manualHelcimRefund && managerApproval) {
+        body.manager_staff_id = managerApproval.managerStaffId;
+        body.manager_pin = managerApproval.managerPin;
+        body.manager_reason = refundManagerReason.trim();
+        body.external_refund_reference = refundExternalReference.trim();
+      }
       const res = await fetch(
         `${baseUrl}/api/transactions/${refundTargetOrderId}/refunds/process`,
         {
@@ -1681,12 +1704,15 @@ export default function OrdersWorkspace({
         },
       );
       if (!res.ok) {
-        await res.json().catch(() => ({}));
-        toast("Refund failed. Check the amount and try again.", "error");
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Refund failed. Check the amount and try again.", "error");
         return;
       }
       toast("Refund completed.", "success");
       setRefundModalOpen(false);
+      setRefundManagerAccessOpen(false);
+      setRefundExternalReference("");
+      setRefundManagerReason("");
       if (detail?.transaction_id === refundTargetOrderId)
         await loadDetail(refundTargetOrderId);
       await loadTransactions();
@@ -2341,7 +2367,10 @@ export default function OrdersWorkspace({
 
       <PosRefundModal
         isOpen={refundModalOpen}
-        onClose={() => setRefundModalOpen(false)}
+        onClose={() => {
+          setRefundModalOpen(false);
+          setRefundManagerAccessOpen(false);
+        }}
         onSubmit={() => void submitProcessRefund()}
         busy={refundBusy}
         amount={refundAmountStr}
@@ -2350,6 +2379,20 @@ export default function OrdersWorkspace({
         setMethod={setRefundMethod}
         giftCode={refundGiftCode}
         setGiftCode={setRefundGiftCode}
+        externalRefundReference={refundExternalReference}
+        setExternalRefundReference={setRefundExternalReference}
+        managerReason={refundManagerReason}
+        setManagerReason={setRefundManagerReason}
+      />
+      <ManagerApprovalModal
+        isOpen={refundManagerAccessOpen}
+        onClose={() => setRefundManagerAccessOpen(false)}
+        title="Manager Access"
+        message="Record this only after the refund was processed in the Helcim backend. The Helcim reference and Manager Access approval will be saved to the register audit trail."
+        onApprove={async (pin, managerId) => {
+          await submitProcessRefund({ managerStaffId: managerId, managerPin: pin });
+          return false;
+        }}
       />
 
       <TransactionDetailDrawer
@@ -2371,7 +2414,12 @@ export default function OrdersWorkspace({
           onAttachToWedding: () => setAttachWeddingModalOpen(true),
           onCancel: () => setCancelConfirmOpen(true),
           onReturnAll: () => setReturnConfirmOpen(true),
-          onProcessRefund: () => setRefundModalOpen(true),
+          onProcessRefund: () => {
+            setRefundExternalReference("");
+            setRefundManagerReason("");
+            setRefundManagerAccessOpen(false);
+            setRefundModalOpen(true);
+          },
           deleteLine: (it) => void deleteLine(it),
           addBySku,
           updateLine,

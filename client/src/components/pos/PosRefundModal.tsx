@@ -12,6 +12,10 @@ interface PosRefundModalProps {
   setMethod: (v: string) => void;
   giftCode: string;
   setGiftCode: (v: string) => void;
+  externalRefundReference: string;
+  setExternalRefundReference: (v: string) => void;
+  managerReason: string;
+  setManagerReason: (v: string) => void;
 }
 
 export default function PosRefundModal({
@@ -25,6 +29,10 @@ export default function PosRefundModal({
   setMethod,
   giftCode,
   setGiftCode,
+  externalRefundReference,
+  setExternalRefundReference,
+  managerReason,
+  setManagerReason,
 }: PosRefundModalProps) {
   const { dialogRef, titleId } = useDialogAccessibility(isOpen, {
     onEscape: onClose,
@@ -35,6 +43,7 @@ export default function PosRefundModal({
 
   const root = document.getElementById("drawer-root");
   if (!root) return null;
+  const manualHelcimRefund = method === "card_terminal_manual";
 
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]" onClick={onClose}>
@@ -52,8 +61,8 @@ export default function PosRefundModal({
             Process refund
           </h3>
           <p className="ui-type-instruction-muted mt-1 text-xs">
-            A register session must be open. Card methods use the configured payment provider on the
-            order. Gift card refunds require the card code.
+            A register session must be open. Helcim backend refunds record a refund already
+            processed in Helcim and require Manager Access.
           </p>
         </div>
         <div className="ui-modal-body space-y-4">
@@ -75,12 +84,36 @@ export default function PosRefundModal({
               className="ui-input mt-1 w-full text-sm"
             >
               <option value="card_present">Card refund</option>
+              <option value="card_terminal_manual">Helcim backend refund</option>
               <option value="cash">Cash</option>
               <option value="check">Check</option>
               <option value="store_credit">Store credit</option>
               <option value="gift_card">Gift card</option>
             </select>
           </label>
+          {manualHelcimRefund && (
+            <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+              <label className="block text-xs font-bold text-app-text-muted">
+                Helcim refund reference
+                <input
+                  type="text"
+                  value={externalRefundReference}
+                  onChange={(e) => setExternalRefundReference(e.target.value)}
+                  className="ui-input mt-1 w-full text-sm font-mono"
+                  placeholder="Helcim refund transaction/reference"
+                />
+              </label>
+              <label className="block text-xs font-bold text-app-text-muted">
+                Manager reason
+                <textarea
+                  value={managerReason}
+                  onChange={(e) => setManagerReason(e.target.value)}
+                  className="ui-input mt-1 min-h-20 w-full text-sm"
+                  placeholder="Refund processed in Helcim backend"
+                />
+              </label>
+            </div>
+          )}
           {method.toLowerCase().includes("gift") && (
             <label className="block text-xs font-bold text-app-text-muted animate-in slide-in-from-top-2">
               Gift card code

@@ -36,6 +36,7 @@ Choose the tender type on the left, then collect the amount in the center panel.
 
 - **Card reader** sends the payment to the selected Helcim terminal.
 - **Manual card** is for approved keyed-card workflows.
+- **Terminal refunds** require the original Helcim transaction ID, the customer, and the original card at the terminal before the refund is sent.
 - **Cash**, **check**, **gift card**, **store credit**, and other tenders remain separate so the sale ledger stays auditable.
 - Store credit and open deposit redemptions are not treated as cash or card tender revenue.
 - **Cash rounding is currently off.** Cash payments and cash refunds require the exact-cent balance. When pennyless cash rounding is enabled later, it must be recorded as a transaction-level adjustment on the main Transaction Record, not as a separate Transaction Record, pickup, deposit, or orphaned payment activity.

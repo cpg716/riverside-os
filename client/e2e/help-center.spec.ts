@@ -310,7 +310,7 @@ test("Top Bar ROSIE opens voice-first chat with Riverside context", async ({
     .fill("show me today’s sales");
   await page.getByTestId("help-center-ask-rosie-send").click();
 
-  await expect(page.getByText(/1,250\.00 in sales/i)).toBeVisible({
+  await expect(page.getByText(/Total Sales:\s*1250\.00/i)).toBeVisible({
     timeout: 15_000,
   });
   await expect(
@@ -1024,7 +1024,7 @@ test("Ask ROSIE narrates approved operational tool results", async ({ page }) =>
     };
     const systemPrompt = body.messages?.find((message) => message.role === "system")?.content ?? "";
     const userPrompt = body.messages?.find((message) => message.role === "user")?.content ?? "";
-    expect(systemPrompt).toContain("Approved operational tool results are present");
+    expect(systemPrompt).toContain("Approved operational/read-only tool results are present");
     expect(userPrompt).toContain("Tool 1: inventory_variant_intelligence");
     expect(userPrompt).toContain("\"sku\":\"MTX-42R\"");
     await route.fulfill({

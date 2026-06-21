@@ -15,7 +15,7 @@ function apiBase(): string {
   const raw =
     process.env.E2E_API_BASE?.trim() ||
     process.env.VITE_API_BASE?.trim() ||
-    "http://127.0.0.1:3000";
+    "http://127.0.0.1:43300";
   return raw.replace(/\/$/, "");
 }
 
@@ -29,17 +29,6 @@ function adminHeaders(): Record<string, string> {
     "x-riverside-staff-code": code,
     "x-riverside-staff-pin": code,
   };
-}
-
-const isCi = process.env.CI === "true" || process.env.CI === "1";
-
-function requireOrSkip(condition: boolean, message: string): void {
-  if (condition) return;
-  if (isCi) {
-    expect(condition, message).toBeTruthy();
-    return;
-  }
-  test.skip(true, message);
 }
 
 let serverReachable = false;
@@ -57,10 +46,10 @@ test.beforeAll(async ({ request }) => {
 });
 
 test.beforeEach(() => {
-  requireOrSkip(
+  expect(
     serverReachable,
     `API not reachable at ${apiBase()} — start Postgres + server to run intelligence-and-finance tests`,
-  );
+  ).toBeTruthy();
 });
 
 test.describe("Core Intelligence & Finance Contracts", () => {
@@ -72,10 +61,10 @@ test.describe("Core Intelligence & Finance Contracts", () => {
       failOnStatusCode: false,
     });
 
-    requireOrSkip(
+    expect(
       res.status() !== 401 && res.status() !== 403,
       "Admin unauthorized for wedding-health",
-    );
+    ).toBeTruthy();
 
     expect(res.status()).toBe(200);
     const j = await res.json();
@@ -92,10 +81,10 @@ test.describe("Core Intelligence & Finance Contracts", () => {
       failOnStatusCode: false,
     });
 
-    requireOrSkip(
+    expect(
       res.status() !== 401 && res.status() !== 403,
       "Admin unauthorized for inventory-recommendations",
-    );
+    ).toBeTruthy();
 
     expect(res.status()).toBe(200);
     const j = await res.json();
@@ -120,17 +109,17 @@ test.describe("Core Intelligence & Finance Contracts", () => {
       },
     );
 
-    requireOrSkip(
+    expect(
       res.status() !== 403 && res.status() !== 401,
       "Admin permission error on margin-pivot",
-    );
+    ).toBeTruthy();
 
     expect(res.status()).toBe(200);
     const j = await res.json();
     expect(j).toHaveProperty("rows");
   });
 
-    test("Payment config returns Helcim provider without secrets", async ({
+  test("Payment config returns Helcim provider without secrets", async ({
     request,
   }) => {
     const res = await request.get(`${apiBase()}/api/payments/config`);
@@ -141,9 +130,7 @@ test.describe("Core Intelligence & Finance Contracts", () => {
   });
 });
 
-const describeDataDependent = isCi ? test.describe.skip : test.describe;
-
-describeDataDependent("Optional Data-Dependent Diagnostics", () => {
+test.describe("Optional Data-Dependent Diagnostics", () => {
   test("Detailed Wedding Health Scorecard returns per-party risk analysis", async ({
     request,
   }) => {
@@ -152,10 +139,7 @@ describeDataDependent("Optional Data-Dependent Diagnostics", () => {
       failOnStatusCode: false,
     });
 
-    requireOrSkip(
-      partiesRes.status() === 200,
-      "Could not fetch wedding parties for detailed health scorecard",
-    );
+    expect(partiesRes.status(), "Could not fetch wedding parties for detailed health scorecard").toBe(200);
 
     const partiesJson = await partiesRes.json();
     test.skip(
@@ -185,10 +169,7 @@ describeDataDependent("Optional Data-Dependent Diagnostics", () => {
       failOnStatusCode: false,
     });
 
-    requireOrSkip(
-      boardRes.status() === 200,
-      "Could not fetch control board for variant ID",
-    );
+    expect(boardRes.status(), "Could not fetch control board for variant ID").toBe(200);
 
     const boardJson = await boardRes.json();
     test.skip(
@@ -215,7 +196,7 @@ describeDataDependent("Optional Data-Dependent Diagnostics", () => {
       failOnStatusCode: false,
     });
 
-    requireOrSkip(linesRes.status() === 200, "Could not fetch commission lines");
+    expect(linesRes.status(), "Could not fetch commission lines").toBe(200);
 
     const lines = await linesRes.json();
     test.skip(

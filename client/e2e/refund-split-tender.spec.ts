@@ -192,6 +192,7 @@ async function doRefund(
     managerStaffId?: string;
     managerPin?: string;
     managerReason?: string;
+    externalRefundReference?: string;
   },
 ): Promise<{ status: number; body: unknown }> {
   const res = await request.post(apiUrl(`/api/transactions/${options.transactionId}/refunds/process`), {
@@ -204,6 +205,7 @@ async function doRefund(
       manager_staff_id: options.managerStaffId,
       manager_pin: options.managerPin,
       manager_reason: options.managerReason,
+      external_refund_reference: options.externalRefundReference,
     },
     failOnStatusCode: false,
   });
@@ -760,14 +762,16 @@ test.describe("refund split-tender capacity contract", () => {
     // Valid override (using operator's own ID/PIN as "manager" for test simplicity if they have admin role)
     // In seedRmsFixture, the default staff usually has admin-level access.
     // We'll use "1234" which is the standard test PIN for the operator in these fixtures.
+    const helcimRefundReference = `E2E-HELCIM-REF-${Date.now()}`;
     const r3 = await doRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
       amount: checkout.grossStr,
-      paymentMethod: "card",
+      paymentMethod: "card_terminal_manual",
       managerStaffId: operatorStaffId,
       managerPin: "1234",
       managerReason: "migration migration",
+      externalRefundReference: helcimRefundReference,
     });
     expect(r3.status, JSON.stringify(r3.body)).toBe(200);
 
@@ -776,9 +780,11 @@ test.describe("refund split-tender capacity contract", () => {
       (r) => r.payment_method === "card_terminal_manual",
     );
     expect(manualRow).toBeTruthy();
-    expect(manualRow!.metadata.kind).toBe("legacy_migration_refund");
+    expect(manualRow!.metadata.kind).toBe("external_helcim_refund");
     expect(manualRow!.metadata.original_provider_transaction_id).toBe("MANUAL_MIGRATION");
     expect(manualRow!.metadata.authorizing_manager_id).toBe(operatorStaffId);
+    expect(manualRow!.metadata.external_refund_reference).toBe(helcimRefundReference);
+    expect(manualRow!.metadata.external_refund_processor).toBe("helcim");
 
     const queue = (await getRefundsDue(request)).find(
       (r) => r.transaction_id === checkout.transaction_id,

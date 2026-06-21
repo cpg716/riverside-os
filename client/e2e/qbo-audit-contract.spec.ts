@@ -873,6 +873,7 @@ async function processManualLegacyRefund(
     managerStaffId: string;
     managerPin: string;
     managerReason?: string;
+    externalRefundReference?: string;
   },
 ) {
   return request.post(`${apiBase()}/api/transactions/${options.transactionId}/refunds/process`, {
@@ -887,6 +888,7 @@ async function processManualLegacyRefund(
       manager_staff_id: options.managerStaffId,
       manager_pin: options.managerPin,
       manager_reason: options.managerReason,
+      external_refund_reference: options.externalRefundReference,
     },
     failOnStatusCode: false,
   });
@@ -1286,7 +1288,20 @@ test.describe("QBO audit contract", () => {
     expect(missingReasonAttempt.status(), missingReasonText.slice(0, 1000)).toBe(400);
     expect(missingReasonText).toContain("reason is required");
 
+    const missingReferenceAttempt = await processManualLegacyRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: returnedUnitTotal,
+      managerStaffId: operatorStaffId,
+      managerPin: staffCode(),
+      managerReason: "E2E missing Helcim reference",
+    });
+    const missingReferenceText = await missingReferenceAttempt.text();
+    expect(missingReferenceAttempt.status(), missingReferenceText.slice(0, 1000)).toBe(400);
+    expect(missingReferenceText).toContain("Helcim refund reference is required");
+
     const approvalReason = "E2E approved manual migration refund after terminal confirmation";
+    const helcimRefundReference = `E2E-HELCIM-REF-${Date.now()}`;
     const adminAttempt = await processManualLegacyRefund(request, {
       transactionId: checkout.transaction_id,
       sessionId,
@@ -1294,6 +1309,7 @@ test.describe("QBO audit contract", () => {
       managerStaffId: operatorStaffId,
       managerPin: staffCode(),
       managerReason: approvalReason,
+      externalRefundReference: helcimRefundReference,
     });
     const adminAttemptText = await adminAttempt.text();
     expect(adminAttempt.status(), adminAttemptText.slice(0, 1000)).toBe(200);
@@ -1311,6 +1327,8 @@ test.describe("QBO audit contract", () => {
             requires_operator_terminal_action: true,
             authorizing_manager_id: operatorStaffId,
             reason: approvalReason,
+            external_refund_reference: helcimRefundReference,
+            external_refund_processor: "helcim",
             original_provider_transaction_id: "MANUAL_MIGRATION",
             transaction_id: checkout.transaction_id,
           }),
@@ -1333,6 +1351,8 @@ test.describe("QBO audit contract", () => {
             refund_queue_id: expect.any(String),
             authorizing_manager_id: operatorStaffId,
             reason: approvalReason,
+            external_refund_reference: helcimRefundReference,
+            external_refund_processor: "helcim",
           }),
         }),
       ]),

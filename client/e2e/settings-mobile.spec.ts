@@ -58,7 +58,7 @@ const SETTINGS_DEEP_LINKS: SettingsDeepLinkCase[] = [
   {
     section: "tag-designer",
     title: "Open Tag Designer",
-    expected: /Price tag layout/i,
+    expected: /Price tag builder/i,
   },
   {
     section: "shippo",

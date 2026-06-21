@@ -93,7 +93,7 @@ for (const report of availableReports) {
   failures.push(`${report.id}: unverified report route ${concretePath}`);
 }
 
-if (!workspace.includes("reportPrintSubtitle(selected, ctx)")) {
+if (!/subtitle:\s*reportPrintSubtitle\([^)]*,\s*ctx\)/.test(workspace)) {
   failures.push("ReportsWorkspace print path is not using reportPrintSubtitle");
 }
 

@@ -527,6 +527,8 @@ pub struct HelcimTerminalRefundRequestBody {
     pub amount_cents: i64,
     pub original_transaction_id: i64,
     #[serde(default)]
+    pub customer_present_confirmed: bool,
+    #[serde(default)]
     pub currency: Option<String>,
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
@@ -6858,6 +6860,11 @@ async fn start_helcim_terminal_refund(
             "original_transaction_id is required".to_string(),
         ));
     }
+    if !payload.customer_present_confirmed {
+        return Err(PaymentError::InvalidPayload(
+            "Helcim terminal debit refunds require the original card and customer present at the terminal.".to_string(),
+        ));
+    }
 
     let (register_session_id, staff_id) = match auth {
         middleware::StaffOrPosSession::Staff(staff) => {
@@ -7339,6 +7346,11 @@ async fn process_helcim_card_reverse(
     let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
         .await
         .map_err(map_pay_session)?;
+    if load_active_card_provider(&state).await? != helcim::HELCIM_PROVIDER_KEY {
+        return Err(PaymentError::InvalidPayload(
+            "Helcim is not the active card provider.".to_string(),
+        ));
+    }
     if payload.original_transaction_id <= 0 {
         return Err(PaymentError::InvalidPayload(
             "original_transaction_id is required".to_string(),
@@ -8400,6 +8412,25 @@ mod tests {
         assert!(!should_skip_provider_refresh_for_idempotency_replay(
             &attempt
         ));
+    }
+
+    #[test]
+    fn terminal_refund_request_confirmation_defaults_to_false() {
+        let payload: HelcimTerminalRefundRequestBody = serde_json::from_value(serde_json::json!({
+            "amount_cents": 100,
+            "original_transaction_id": 123
+        }))
+        .expect("payload");
+        assert!(!payload.customer_present_confirmed);
+
+        let confirmed: HelcimTerminalRefundRequestBody =
+            serde_json::from_value(serde_json::json!({
+                "amount_cents": 100,
+                "original_transaction_id": 123,
+                "customer_present_confirmed": true
+            }))
+            .expect("payload");
+        assert!(confirmed.customer_present_confirmed);
     }
 
     #[test]

@@ -1037,6 +1037,7 @@ mod tests {
             manager_staff_id: None,
             manager_pin: None,
             manager_reason: None,
+            external_refund_reference: None,
         };
 
         FAIL_CARD_REFUND_LEDGER_AFTER_PROVIDER_APPROVAL
@@ -1632,6 +1633,9 @@ pub struct ProcessRefundRequest {
     /// Optional: Reason for the legacy manual refund override.
     #[serde(default)]
     pub manager_reason: Option<String>,
+    /// Required for manual card refunds processed outside ROS, such as Helcim dashboard refunds.
+    #[serde(default)]
+    pub external_refund_reference: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3868,6 +3872,7 @@ async fn process_refund(
     let mut card_last4: Option<String> = None;
 
     if (method_l.contains("card") || method_l.contains("helcim")) && !method_l.contains("gift") {
+        let manual_external_card_refund = method_l == "card_terminal_manual";
         // Query all positive Helcim charges on this transaction with per-card remaining capacity.
         // Prior refunds are attributed to their source card via the `original_provider_transaction_id`
         // metadata field written on every Helcim refund payment_transactions row.
@@ -3930,7 +3935,7 @@ async fn process_refund(
         .fetch_all(&mut *tx)
         .await?;
 
-        if cards.is_empty() {
+        if cards.is_empty() || manual_external_card_refund {
             // Check if this is a governed manual legacy refund override.
             if let (Some(m_id), Some(m_pin)) = (body.manager_staff_id, body.manager_pin.as_deref())
             {
@@ -3959,6 +3964,27 @@ async fn process_refund(
                             "reason is required for legacy manual refund override".to_string(),
                         )
                     })?;
+                let external_refund_reference = body
+                    .external_refund_reference
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        TransactionError::InvalidPayload(
+                            "Helcim refund reference is required for manual card refund recording"
+                                .to_string(),
+                        )
+                    })?;
+                let refund_record_kind = if manual_external_card_refund {
+                    "external_helcim_refund"
+                } else {
+                    "legacy_migration_refund"
+                };
+                let refund_summary = if manual_external_card_refund {
+                    "Manual Helcim refund recorded in Register"
+                } else {
+                    "Manual legacy refund recorded in Register"
+                };
 
                 // Log the audit event.
                 crate::auth::pins::log_staff_access(
@@ -3971,6 +3997,7 @@ async fn process_refund(
                         "amount_cents": (exact_refund_amount * Decimal::from(100)).to_i64(),
                         "authorizing_manager_id": manager.id,
                         "reason": reason,
+                        "external_refund_reference": external_refund_reference,
                     }),
                 )
                 .await?;
@@ -3991,11 +4018,13 @@ async fn process_refund(
                 .bind(refund.customer_id)
                 .bind(-cash_tender_amount)
                 .bind(json!({
-                    "kind": "legacy_migration_refund",
+                    "kind": refund_record_kind,
                     "manual_terminal_confirmation": true,
                     "requires_operator_terminal_action": true,
                     "authorizing_manager_id": manager.id,
                     "reason": reason,
+                    "external_refund_reference": external_refund_reference,
+                    "external_refund_processor": "helcim",
                     "original_provider_transaction_id": "MANUAL_MIGRATION",
                     "transaction_id": transaction_id,
                     "exact_refund_amount": exact_refund_amount,
@@ -4077,9 +4106,9 @@ async fn process_refund(
                     transaction_id,
                     refund.customer_id,
                     "refund_processed",
-                    "Manual legacy refund recorded in Register",
+                    refund_summary,
                     json!({
-                        "kind": "legacy_migration_refund",
+                        "kind": refund_record_kind,
                         "payment_transaction_id": pt_id,
                         "refund_queue_id": refund.id,
                         "amount": exact_refund_amount,
@@ -4087,15 +4116,27 @@ async fn process_refund(
                         "cash_rounding_adjustment": cash_rounding_adjustment,
                         "authorizing_manager_id": manager.id,
                         "reason": reason,
+                        "external_refund_reference": external_refund_reference,
+                        "external_refund_processor": "helcim",
                     }),
                 )
                 .await?;
 
                 return Ok(Json(json!({
                     "status": "success",
-                    "message": "Manual legacy refund recorded successfully.",
+                    "message": if manual_external_card_refund {
+                        "Manual Helcim refund recorded successfully."
+                    } else {
+                        "Manual legacy refund recorded successfully."
+                    },
                     "payment_transaction_id": pt_id
                 })));
+            }
+
+            if manual_external_card_refund {
+                return Err(TransactionError::InvalidPayload(
+                    "Manager Access is required to record a Helcim backend refund".to_string(),
+                ));
             }
 
             return Err(TransactionError::InvalidPayload(

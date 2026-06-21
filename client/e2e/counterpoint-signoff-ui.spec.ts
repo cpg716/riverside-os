@@ -908,10 +908,10 @@ test.describe("Counterpoint sign-off UI", () => {
       await mockBridgeStatus(page, "unavailable");
       await mockCounterpointStatus(page);
       await mockCounterpointProofRoutes(page);
-      const panel = await openCounterpointSettings(page, "connect");
-      await panel.getByRole("button", { name: /inbound queue/i }).click();
-      await expect(panel.getByText("Staging diagnostics")).toBeVisible();
-      await expect(panel.getByText("Batches", { exact: true })).toBeVisible({
+      const panel = await openCounterpointSettings(page, "details");
+      await expect(panel.getByText("Support Diagnostics").first()).toBeVisible();
+      await expect(panel.getByText("Support-only diagnostics for ROS staging and import state.")).toBeVisible();
+      await expect(panel.getByRole("columnheader", { name: "Batch" })).toBeVisible({
         timeout: 15_000,
       });
       await panel.getByRole("button", { name: /^reload$/i }).click();
@@ -921,11 +921,10 @@ test.describe("Counterpoint sign-off UI", () => {
       await expect(panel.getByRole("table").getByText("Stale applying")).toBeVisible();
 
       await panel.getByRole("cell", { name: String(staleBatchId), exact: true }).click();
-      await expect(panel.getByText("Apply claimed", { exact: true })).toBeVisible();
+      await expect(panel.getByText("Stale applying", { exact: true }).first()).toBeVisible();
       await expect(panel.getByText(/Safe recovery is available/i)).toBeVisible();
       await expect(panel.getByText(/Next safe action: Recovery review/i)).toBeVisible();
-      await expect(panel.getByText("Operational decision guide")).toBeVisible();
-      await expect(panel.getByText("What changed")).toBeVisible();
+      await expect(panel.getByText("Selected ROS staging batch")).toBeVisible();
       await expect(panel.getByText("Replay visibility")).toBeVisible();
       await expect(panel.getByText("Recovery guidance")).toBeVisible();
       await expect(panel.getByText("Live write result")).toBeVisible();
@@ -958,16 +957,13 @@ test.describe("Counterpoint sign-off UI", () => {
     await mockCounterpointStatus(page);
     await mockCounterpointProofRoutes(page);
 
-    const panel = await openCounterpointSettings(page, "connect");
+    const panel = await openCounterpointSettings(page, "details");
 
     await expect(panel.getByText("Browser cannot reach Bridge controls").first()).toBeVisible({
       timeout: 15_000,
     });
     await expect(panel.getByText(/Bridge heartbeat:/).first()).toBeVisible();
-    await expect(panel.getByText(/Import preflight:/).first()).toBeVisible();
-    await expect(panel.getByRole("button", { name: /reconnect to bridge/i })).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(panel.getByText("Counterpoint Support Diagnostics")).toBeVisible();
     await expect(panel.getByText("Bridge heartbeat: Offline")).toBeVisible({ timeout: 15_000 });
     await expect(panel.getByText("Ready for sign-off review")).toHaveCount(0);
     await expect(panel.getByText("No automatic blockers detected")).toHaveCount(0);
@@ -1059,18 +1055,18 @@ test.describe("Counterpoint sign-off UI", () => {
 
     const panel = await openCounterpointSettings(page, "connect");
 
-    await expect(panel.getByText("Counterpoint Import-First Go-Live")).toBeVisible();
     await expect(panel.getByText("Counterpoint Import Command Center")).toBeVisible();
-    await expect(panel.getByText("Import proof and advanced controls")).toBeVisible();
-    await expect(panel.getByText("Inventory, catalog, and quantities")).toBeVisible();
-    await expect(panel.getByText("Sales and movement history")).toBeVisible();
-    await expect(panel.getByRole("button", { name: /run full import/i })).toBeDisabled();
+    await expect(panel.getByText("ROS Import Command Center")).toBeVisible();
+    await expect(panel.getByText("ROS business-area import path")).toBeVisible();
+    await expect(panel.getByText("Bridge batch + CSV/AI review -> ROS inventory import -> PostgreSQL")).toBeVisible();
+    await expect(panel.getByText("Ticket History / Sales Movement")).toBeVisible();
+    await expect(panel.getByText("Preflight blocked")).toBeVisible();
     await expect(
       panel.getByRole("heading", { name: "Counterpoint Transition Review Packs" }),
     ).toHaveCount(0);
 
-    await panel.getByRole("button", { name: /ai review packs/i }).click();
-    await expect(panel.getByText("Counterpoint Transition Review Packs")).toBeVisible();
+    await panel.getByRole("button", { name: /csv cleanup/i }).click();
+    await expect(panel.getByText("Counterpoint CSV Cleanup Review")).toBeVisible();
   });
 
   test("blocks wizard advancement when bridge rows lack ROS proof", async ({ page }) => {
@@ -1094,8 +1090,7 @@ test.describe("Counterpoint sign-off UI", () => {
     await mockEmptyCounterpointProofRoutes(page);
     await mockCounterpointWorkbenchState(page);
 
-    const panel = await openCounterpointSettings(page, "connect");
-    await panel.getByRole("button", { name: /legacy diagnostics/i }).click({ force: true });
+    const panel = await openCounterpointSettings(page, "details");
 
     await expect(panel.getByText("Counterpoint review advancement blocked")).toBeVisible({
       timeout: 20_000,
@@ -1105,7 +1100,7 @@ test.describe("Counterpoint sign-off UI", () => {
         "Bridge runs reported 25 row(s), but no downstream review surface or landed proof is available.",
       ),
     ).toBeVisible();
-    await expect(panel.getByRole("button", { name: /advance to inventory mapping/i })).toBeDisabled();
+    await expect(panel.getByText("Ready for sign-off review")).toHaveCount(0);
   });
 
   test("marks stale catalog approval blocked when staged import has not landed", async ({ page }) => {
@@ -1191,15 +1186,14 @@ test.describe("Counterpoint sign-off UI", () => {
       },
     });
 
-    const panel = await openCounterpointSettings(page, "connect");
-    await panel.getByRole("button", { name: /legacy diagnostics/i }).click({ force: true });
-    await expect(panel.getByRole("button", { name: /advance to inventory mapping/i })).toBeEnabled();
-    await panel.getByRole("button", { name: /advance to inventory mapping/i }).click();
+    const panel = await openCounterpointSettings(page, "details");
 
-    await expect(panel.getByText("One-time import is still waiting in staging")).toBeVisible();
-    await expect(panel.getByText("Nothing has been loaded into ROS catalog tables yet.")).toBeVisible();
-    await expect(panel.getByText(/Previous catalog approval is stale/i)).toBeVisible();
-    await expect(panel.getByText(/Previous inventory approval is stale/i)).toBeVisible();
+    await expect(panel.getByText("Counterpoint review advancement blocked")).toBeVisible();
+    await expect(panel.getByText("Bridge has sent rows, but ROS has no landed proof yet.")).toBeVisible();
+    await expect(panel.getByText("1,136 ROS support queue batch(es) are pending review.")).toBeVisible();
+    const bridgeOnlyRow = panel.getByRole("row").filter({ hasText: "Bridge only" });
+    await expect(bridgeOnlyRow.getByRole("cell", { name: "503,498" })).toBeVisible();
+    await expect(bridgeOnlyRow.getByRole("cell", { name: "No landed proof" })).toBeVisible();
     await expect(panel.getByText("Inventory step verified and approved.")).toHaveCount(0);
     expect(requestedFullQueue).toBe(true);
   });
@@ -1312,8 +1306,8 @@ test.describe("Counterpoint sign-off UI", () => {
     await expect(panel.getByText("Support diagnostics center")).toBeVisible({
       timeout: 20_000,
     });
-    await expect(panel.getByText("Deployment visibility")).toBeVisible();
-    await expect(panel.getByText("Recovery and replay posture")).toBeVisible();
+    await expect(panel.getByText("Deployment and recovery visibility")).toBeVisible();
+    await expect(panel.getByText("These diagnostics are not selected-run import proof.")).toBeVisible();
     await expect(panel.getByRole("button", { name: /copy support report/i })).toBeVisible();
     await expect(panel.getByText("Counterpoint Support Diagnostics")).toBeVisible();
     await expect(
@@ -1323,19 +1317,19 @@ test.describe("Counterpoint sign-off UI", () => {
     await expect(panel.getByText("Pending apply", { exact: true }).first()).toBeVisible();
     await expect(panel.getByText("Support review needed", { exact: true }).first()).toBeVisible();
 
-    await expect(panel.getByText("Legacy accumulated verification")).toBeVisible({
+    await expect(panel.getByText("Accumulated verification")).toBeVisible({
       timeout: 20_000,
     });
-    await expect(panel.getByText("Accumulated sign-off reconciliation")).toBeVisible({
+    await expect(panel.getByText("Bridge rows sent")).toBeVisible({
       timeout: 20_000,
     });
     const postImportBeforeSignoff = await page.evaluate(() => {
       const elements = Array.from(document.querySelectorAll("h4, p, span"));
       const postImport = elements.find(
-        (element) => element.textContent?.trim() === "Legacy accumulated verification",
+        (element) => element.textContent?.trim() === "Accumulated verification",
       );
       const signoff = elements.find(
-        (element) => element.textContent?.trim() === "Accumulated sign-off reconciliation",
+        (element) => element.textContent?.trim() === "Sign-off blockers present",
       );
       return Boolean(
         postImport &&
@@ -1346,7 +1340,7 @@ test.describe("Counterpoint sign-off UI", () => {
     expect(postImportBeforeSignoff).toBe(true);
 
     await expect(panel.getByText("Sign-off blockers present")).toBeVisible();
-    await expect(panel.getByText("2 staging batch(es) are pending review.")).toBeVisible();
+    await expect(panel.getByText("2 ROS support queue batch(es) are pending review.")).toBeVisible();
     await expect(panel.getByText("1 unresolved sync issue(s) remain.")).toBeVisible();
     await expect(
       panel.getByText("1 entity row(s) have bridge-reported counts without ROS landed proof."),
