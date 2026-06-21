@@ -153,6 +153,7 @@ pub struct CreateProductRequest {
     pub name: String,
     pub brand: Option<String>,
     pub description: Option<String>,
+    pub catalog_handle: Option<String>,
     pub base_retail_price: Decimal,
     pub base_cost: Decimal,
     pub variation_axes: Vec<String>,
@@ -173,6 +174,8 @@ pub struct CreateVariantInput {
     pub sku: String,
     pub variation_values: Value,
     pub variation_label: Option<String>,
+    pub barcode: Option<String>,
+    pub vendor_upc: Option<String>,
     pub stock_on_hand: Option<i32>,
     pub retail_price_override: Option<Decimal>,
     pub cost_override: Option<Decimal>,
@@ -259,7 +262,7 @@ fn validate_variant_shape(
 
 fn validate_create_product_payload(
     payload: &CreateProductRequest,
-) -> Result<(Vec<String>, Vec<String>), ProductError> {
+) -> Result<(Vec<String>, Vec<String>, Vec<String>), ProductError> {
     if payload.name.trim().is_empty() {
         return Err(ProductError::InvalidPayload("name is required".to_string()));
     }
@@ -273,6 +276,15 @@ fn validate_create_product_payload(
             "base_cost must be non-negative".to_string(),
         ));
     }
+    if payload
+        .catalog_handle
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty())
+    {
+        return Err(ProductError::InvalidPayload(
+            "catalog_handle must be non-empty when provided".to_string(),
+        ));
+    }
     if payload.variants.is_empty() {
         return Err(ProductError::InvalidPayload(
             "at least one variant is required".to_string(),
@@ -281,7 +293,9 @@ fn validate_create_product_payload(
 
     let variation_axes = validate_variation_axes(&payload.variation_axes)?;
     let mut sku_set = HashSet::new();
+    let mut barcode_set = HashSet::new();
     let mut normalized_skus = Vec::with_capacity(payload.variants.len());
+    let mut normalized_barcodes = Vec::new();
 
     for variant in &payload.variants {
         let trimmed_sku = variant.sku.trim();
@@ -294,6 +308,30 @@ fn validate_create_product_payload(
         if !sku_set.insert(sku_key.clone()) {
             return Err(ProductError::InvalidPayload(format!(
                 "duplicate sku in request: {trimmed_sku}"
+            )));
+        }
+        if let Some(barcode) = variant.barcode.as_deref() {
+            let trimmed_barcode = barcode.trim();
+            if trimmed_barcode.is_empty() {
+                return Err(ProductError::InvalidPayload(format!(
+                    "variant {trimmed_sku} barcode must be non-empty when provided"
+                )));
+            }
+            let barcode_key = trimmed_barcode.to_lowercase();
+            if !barcode_set.insert(barcode_key.clone()) {
+                return Err(ProductError::InvalidPayload(format!(
+                    "duplicate barcode in request: {trimmed_barcode}"
+                )));
+            }
+            normalized_barcodes.push(barcode_key);
+        }
+        if variant
+            .vendor_upc
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(ProductError::InvalidPayload(format!(
+                "variant {trimmed_sku} vendor_upc must be non-empty when provided"
             )));
         }
         if variant.stock_on_hand.unwrap_or(0) < 0 {
@@ -321,7 +359,53 @@ fn validate_create_product_payload(
         normalized_skus.push(sku_key);
     }
 
-    Ok((variation_axes, normalized_skus))
+    Ok((variation_axes, normalized_skus, normalized_barcodes))
+}
+
+async fn ensure_barcodes_do_not_exist(
+    pool: &sqlx::PgPool,
+    normalized_barcodes: &[String],
+) -> Result<(), ProductError> {
+    if normalized_barcodes.is_empty() {
+        return Ok(());
+    }
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT barcode FROM product_variants WHERE lower(trim(barcode)) = ANY($1) LIMIT 1",
+    )
+    .bind(normalized_barcodes)
+    .fetch_optional(pool)
+    .await?;
+    if let Some(barcode) = existing {
+        return Err(ProductError::InvalidPayload(format!(
+            "barcode already exists: {}",
+            barcode.trim()
+        )));
+    }
+    Ok(())
+}
+
+async fn ensure_catalog_handle_does_not_exist(
+    pool: &sqlx::PgPool,
+    catalog_handle: Option<&str>,
+) -> Result<(), ProductError> {
+    let Some(trimmed) = catalog_handle
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    let existing: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM products WHERE lower(catalog_handle) = lower($1) LIMIT 1",
+    )
+    .bind(trimmed)
+    .fetch_optional(pool)
+    .await?;
+    if existing.is_some() {
+        return Err(ProductError::InvalidPayload(
+            "catalog_handle is already in use by another product".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 async fn ensure_category_exists(
@@ -1146,10 +1230,13 @@ async fn create_product(
     Json(payload): Json<CreateProductRequest>,
 ) -> Result<Json<ProductRow>, ProductError> {
     require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
-    let (normalized_axes, normalized_skus) = validate_create_product_payload(&payload)?;
+    let (normalized_axes, normalized_skus, normalized_barcodes) =
+        validate_create_product_payload(&payload)?;
     ensure_category_exists(&state.db, payload.category_id).await?;
     ensure_active_vendor_exists(&state.db, payload.primary_vendor_id).await?;
     ensure_skus_do_not_exist(&state.db, &normalized_skus).await?;
+    ensure_barcodes_do_not_exist(&state.db, &normalized_barcodes).await?;
+    ensure_catalog_handle_does_not_exist(&state.db, payload.catalog_handle.as_deref()).await?;
 
     let mut tx = state.db.begin().await?;
 
@@ -1157,9 +1244,9 @@ async fn create_product(
         r#"
         INSERT INTO products (
             category_id, name, brand, description, base_retail_price, base_cost, variation_axes, images,
-            track_low_stock, tax_category_override, primary_vendor_id
+            track_low_stock, tax_category_override, primary_vendor_id, catalog_handle
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING id, name, brand, base_retail_price, base_cost
         "#,
     )
@@ -1174,6 +1261,7 @@ async fn create_product(
     .bind(payload.track_low_stock)
     .bind(payload.tax_category_override)
     .bind(payload.primary_vendor_id)
+    .bind(payload.catalog_handle.as_deref().map(str::trim))
     .fetch_one(&mut *tx)
     .await?;
 
@@ -1181,16 +1269,18 @@ async fn create_product(
         sqlx::query(
             r#"
             INSERT INTO product_variants (
-                product_id, sku, variation_values, variation_label, stock_on_hand,
+                product_id, sku, variation_values, variation_label, barcode, vendor_upc, stock_on_hand,
                 retail_price_override, cost_override, track_low_stock, web_published
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
         )
         .bind(product.id)
         .bind(variant.sku.trim())
         .bind(variant.variation_values)
         .bind(variant.variation_label)
+        .bind(variant.barcode.as_deref().map(str::trim))
+        .bind(variant.vendor_upc.as_deref().map(str::trim))
         .bind(variant.stock_on_hand.unwrap_or(0))
         .bind(variant.retail_price_override)
         .bind(variant.cost_override)
@@ -4493,6 +4583,7 @@ mod tests {
             name: "Validation Product".to_string(),
             brand: Some("Riverside".to_string()),
             description: Some("Test".to_string()),
+            catalog_handle: None,
             base_retail_price: Decimal::new(10000, 2),
             base_cost: Decimal::new(4000, 2),
             variation_axes: vec!["Color".to_string(), "Size".to_string()],
@@ -4507,6 +4598,8 @@ mod tests {
                     "Size": "40R"
                 }),
                 variation_label: Some("Navy / 40R".to_string()),
+                barcode: None,
+                vendor_upc: None,
                 stock_on_hand: Some(0),
                 retail_price_override: None,
                 cost_override: None,
@@ -4700,6 +4793,8 @@ mod tests {
                     "Size": "42R"
                 }),
                 variation_label: Some("Black / 42R".to_string()),
+                barcode: None,
+                vendor_upc: None,
                 stock_on_hand: Some(0),
                 retail_price_override: None,
                 cost_override: None,

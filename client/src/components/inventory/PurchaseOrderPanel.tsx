@@ -68,6 +68,8 @@ interface PurchaseOrderLineDetail {
   line_id: string;
   variant_id: string;
   sku: string;
+  vendor_upc?: string | null;
+  product_catalog_handle?: string | null;
   product_name: string;
   variation_label?: string | null;
   qty_ordered: number;
@@ -135,9 +137,16 @@ function variantMoneyInput(value: string | number | null | undefined): string {
   return centsToFixed2(parseMoneyToCents(value ?? "0"));
 }
 
+function lineCatalogNumber(line: {
+  vendor_upc?: string | null;
+  product_catalog_handle?: string | null;
+}): string | null {
+  return line.vendor_upc?.trim() || line.product_catalog_handle?.trim() || null;
+}
+
 function poEmailText(detail: PurchaseOrderDetail): string {
   const lines = detail.lines.map((line) => (
-    `${line.qty_ordered} x ${line.product_name}${line.variation_label ? ` - ${line.variation_label}` : ""} (${line.sku}) @ $${line.unit_cost}`
+    `${line.qty_ordered} x ${line.product_name}${line.variation_label ? ` - ${line.variation_label}` : ""} (${line.sku}${lineCatalogNumber(line) ? ` / Catalog # ${lineCatalogNumber(line)}` : ""}) @ $${line.unit_cost}`
   ));
   return [
     `Purchase Order: ${detail.po_number}`,
@@ -728,6 +737,7 @@ export default function PurchaseOrderPanel({
       <tr>
         <td>${line.qty_ordered}</td>
         <td>${escapeHtml(line.sku)}</td>
+        <td>${escapeHtml(lineCatalogNumber(line) ?? "")}</td>
         <td>${escapeHtml(`${line.product_name}${line.variation_label ? ` - ${line.variation_label}` : ""}`)}</td>
         <td>$${line.unit_cost}</td>
       </tr>
@@ -749,7 +759,7 @@ export default function PurchaseOrderPanel({
           <h1>${escapeHtml(detail.po_number)}</h1>
           <p>${escapeHtml(detail.vendor_name)} - ${escapeHtml(purchaseOrderStatusLabel(detail.status))}</p>
           <table>
-            <thead><tr><th>Qty</th><th>SKU</th><th>Item</th><th>Unit Cost</th></tr></thead>
+            <thead><tr><th>Qty</th><th>SKU</th><th>Catalog #</th><th>Item</th><th>Unit Cost</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </body>
@@ -1252,6 +1262,7 @@ export default function PurchaseOrderPanel({
                 <thead className="bg-app-surface-2/70 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                   <tr>
                     <th className="px-3 py-2">Item</th>
+                    <th className="px-3 py-2">Catalog #</th>
                     <th className="px-3 py-2 text-center">Ordered</th>
                     <th className="px-3 py-2 text-center">Rcvd</th>
                     <th className="px-3 py-2 text-right">Unit Cost</th>
@@ -1265,6 +1276,9 @@ export default function PurchaseOrderPanel({
                         <p className="font-mono text-[10px] text-app-text-muted">
                           {line.variation_label ? `${line.variation_label} · ` : ""}{line.sku}
                         </p>
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[10px] font-bold text-app-text-muted">
+                        {lineCatalogNumber(line) ?? "—"}
                       </td>
                       <td className="px-3 py-2 text-center font-mono font-bold text-app-text">{line.qty_ordered}</td>
                       <td className="px-3 py-2 text-center font-mono font-bold text-app-text-muted">{line.qty_previously_received}</td>

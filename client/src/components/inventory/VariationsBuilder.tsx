@@ -17,6 +17,8 @@ export interface GeneratedVariationRow {
   variation_values: Record<string, string>;
   variation_label: string;
   sku: string;
+  barcode?: string;
+  vendor_upc?: string;
   stock_on_hand: number;
   retail_price_override?: string;
   cost_override?: string;

@@ -32,6 +32,10 @@ interface Props {
 
 const baseUrl = getBaseUrl();
 
+function isRosSku(value: string) {
+  return /^ROS-\d{6}$/i.test(value.trim());
+}
+
 export default function QuickProcurementItemModal({
   vendorId,
   vendorName,
@@ -44,15 +48,22 @@ export default function QuickProcurementItemModal({
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
   const [name, setName] = useState("");
-  const [sku, setSku] = useState(initialSku.trim().toUpperCase());
+  const [sku, setSku] = useState(
+    isRosSku(initialSku) ? initialSku.trim().toUpperCase() : "",
+  );
   const [variationLabel, setVariationLabel] = useState("Standard");
+  const [productUpc, setProductUpc] = useState("");
+  const [catalogNumber, setCatalogNumber] = useState(
+    isRosSku(initialSku) ? "" : initialSku.trim(),
+  );
   const [cost, setCost] = useState(defaultCost);
   const [retail, setRetail] = useState(defaultRetail);
   const [busy, setBusy] = useState(false);
   const [nextSkuBusy, setNextSkuBusy] = useState(false);
 
   useEffect(() => {
-    setSku(initialSku.trim().toUpperCase());
+    setSku(isRosSku(initialSku) ? initialSku.trim().toUpperCase() : "");
+    setCatalogNumber(isRosSku(initialSku) ? "" : initialSku.trim());
   }, [initialSku]);
 
   const headers = useMemo(
@@ -83,6 +94,8 @@ export default function QuickProcurementItemModal({
     const cleanName = name.trim();
     const cleanSku = sku.trim().toUpperCase();
     const cleanLabel = variationLabel.trim();
+    const cleanProductUpc = productUpc.trim();
+    const cleanCatalogNumber = catalogNumber.trim();
     const costCents = parseMoneyToCents(cost);
     const retailCents = parseMoneyToCents(retail);
     if (!cleanName) {
@@ -107,9 +120,10 @@ export default function QuickProcurementItemModal({
           category_id: null,
           primary_vendor_id: vendorId,
           name: cleanName,
-          brand: null,
-          description: null,
-          base_retail_price: centsToFixed2(retailCents),
+	          brand: null,
+	          description: null,
+	          catalog_handle: cleanCatalogNumber || null,
+	          base_retail_price: centsToFixed2(retailCents),
           base_cost: centsToFixed2(costCents),
           variation_axes: [],
           images: [],
@@ -121,6 +135,8 @@ export default function QuickProcurementItemModal({
               sku: cleanSku,
               variation_values: {},
               variation_label: cleanLabel || null,
+              barcode: cleanProductUpc || null,
+              vendor_upc: cleanCatalogNumber || null,
               stock_on_hand: 0,
               retail_price_override: null,
               cost_override: null,
@@ -146,6 +162,8 @@ export default function QuickProcurementItemModal({
         product_id: product.id,
         variant_id: variant.id,
         sku: variant.sku,
+        barcode: cleanProductUpc || null,
+        vendor_upc: cleanCatalogNumber || null,
         product_name: product.name,
         variation_label: (variant.variation_label ?? cleanLabel) || null,
         cost_price: centsToFixed2(costCents),
@@ -219,6 +237,7 @@ export default function QuickProcurementItemModal({
                 type="button"
                 onClick={() => void requestNextSku()}
                 disabled={nextSkuBusy}
+                title="Use next ROS SKU"
                 className="h-11 rounded-xl border border-app-border bg-app-surface px-3 text-xs font-bold text-app-text-muted transition hover:border-app-accent hover:text-app-accent disabled:opacity-40"
               >
                 <Barcode size={15} />
@@ -234,6 +253,28 @@ export default function QuickProcurementItemModal({
               onChange={(event) => setVariationLabel(event.target.value)}
               className="ui-input h-11 w-full text-sm font-bold"
               placeholder="Standard, size, color, or option"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="ml-1 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Product UPC</span>
+            <input
+              aria-label="Product UPC"
+              value={productUpc}
+              onChange={(event) => setProductUpc(event.target.value)}
+              className="ui-input h-11 w-full font-mono text-sm font-bold"
+              placeholder="Manufacturer barcode"
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="ml-1 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Catalog # / vendor style #</span>
+            <input
+              aria-label="Catalog # / vendor style #"
+              value={catalogNumber}
+              onChange={(event) => setCatalogNumber(event.target.value)}
+              className="ui-input h-11 w-full font-mono text-sm font-bold"
+              placeholder="Supplier item/style number"
             />
           </label>
 

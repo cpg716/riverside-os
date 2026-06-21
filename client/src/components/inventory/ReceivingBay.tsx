@@ -51,6 +51,7 @@ interface ApiLine {
   sku: string;
   barcode?: string | null;
   vendor_upc?: string | null;
+  product_catalog_handle?: string | null;
   product_name: string;
   variation_label: string | null;
   variation_values: Record<string, unknown>;
@@ -68,6 +69,7 @@ export interface WorksheetLine {
   sku: string;
   barcode: string | null;
   vendor_upc: string | null;
+  product_catalog_handle: string | null;
   product_name: string;
   subtitle: string;
   qty_ordered: number;
@@ -135,6 +137,7 @@ function mapApiLine(l: ApiLine): WorksheetLine {
     sku: l.sku,
     barcode: l.barcode ?? null,
     vendor_upc: l.vendor_upc ?? null,
+    product_catalog_handle: l.product_catalog_handle ?? null,
     product_name: l.product_name,
     subtitle,
     qty_ordered: l.qty_ordered,
@@ -144,6 +147,13 @@ function mapApiLine(l: ApiLine): WorksheetLine {
     prior_effective_cost: toNumberCost(l.prior_effective_cost),
     line_status: "",
   };
+}
+
+function effectiveCatalogNumber(line: {
+  vendor_upc?: string | null;
+  product_catalog_handle?: string | null;
+}): string | null {
+  return line.vendor_upc?.trim() || line.product_catalog_handle?.trim() || null;
 }
 
 function mergeWorksheetLines(
@@ -354,6 +364,13 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
         );
         if (vuIdx >= 0) return vuIdx;
       }
+      const catalogMatches = lines
+        .map((line, index) => ({
+          index,
+          catalog: line.product_catalog_handle?.toLowerCase().trim() ?? "",
+        }))
+        .filter((line) => line.catalog && line.catalog === c);
+      if (catalogMatches.length === 1) return catalogMatches[0].index;
       // Fall back to SKU
       return lines.findIndex((l) => l.sku.toLowerCase() === c);
     },
@@ -1176,7 +1193,11 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
                       <p className="text-xs font-bold text-app-text">{line.product_name}</p>
                       <p className="text-[10px] text-app-text-muted">
                         {line.subtitle} · <span className="font-mono">{line.sku}</span>
-                        {useVendorUpc && line.vendor_upc && <span className="ml-1 text-violet-500">UPC: {line.vendor_upc}</span>}
+                        {effectiveCatalogNumber(line) && (
+                          <span className="ml-1 text-violet-500">
+                            Catalog #: {effectiveCatalogNumber(line)}
+                          </span>
+                        )}
                       </p>
                     </td>
                     <td className="px-4 py-3 text-center">

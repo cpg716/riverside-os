@@ -269,6 +269,7 @@ pub struct PurchaseOrderLineDetail {
     pub sku: String,
     pub barcode: Option<String>,
     pub vendor_upc: Option<String>,
+    pub product_catalog_handle: Option<String>,
     pub product_name: String,
     pub variation_label: Option<String>,
     #[sqlx(json)]
@@ -903,6 +904,7 @@ async fn get_po_details(
             pv.sku,
             pv.barcode,
             pv.vendor_upc,
+            p.catalog_handle AS product_catalog_handle,
             p.name AS product_name,
             pv.variation_label,
             pv.variation_values,

@@ -40,7 +40,7 @@ To edit an existing item, always start in **Find Item**. Search for the SKU, pro
 
 **Common pitfall:** Do not use Product Hub count corrections for vendor shipments. Vendor shipments belong in **Receive Stock** so PO, receiving, reserved stock, and financial staging stay connected.
 
-**Identifier rule:** `Product UPC` is the manufacturer barcode that can scan at POS and receiving. `Catalog # / vendor style #` is the supplier identifier used by buying and receiving. Counterpoint item numbers such as `I-103067` are internal item numbers, not vendor catalog numbers.
+**Identifier rule:** `Product UPC` is the manufacturer barcode that can scan at POS and receiving. Main `Catalog # / vendor style #` is the supplier identifier used by buying and receiving for the product. SKU-level catalog values are optional overrides for cases such as color/style suffixes. Counterpoint item numbers such as `I-103067` are internal item numbers, not vendor catalog numbers.
 
 **Availability rule:** Available stock is **on hand minus reserved minus layaway**. Layaway units are physically present, but ROS does not treat them as sellable for another customer or the online store.
 
@@ -57,7 +57,7 @@ Use **Add/Edit Catalog** for setup tooling: creating new items, managing categor
      - **Item Rules Grid**: Tax overrides, low-stock warnings, and web-publishing configurations are grouped into a clean 3-column selector layout.
    - **Step 2: Sizes & Options**: Set up matrix axes (Size, Color, Fit, etc.) manually or by using **Copy From** to duplicate the variation structure of an existing product.
    - **Step 3: Web Listing** *(only if "Publish to Web" was checked in Step 1)*: Marketing overrides, tags, categories, image gallery, and SEO fields.
-   - **Final Step — Review & Save**: Verify the SKU variations and click the green save button to commit the product catalog record.
+   - **Final Step — Review & Save**: Verify the SKU variations, enter Product UPC values, enter SKU-level Catalog # / vendor style # values only when they differ from the main product catalog number, and click the green save button to commit the product catalog record.
 2. Enter **non-negative** base retail and cost values. Negative benchmark pricing, negative cost, and negative initial stock are blocked.
 3. Primary vendor is required for manually created items because downstream ordering and receiving depend on it.
 4. New Riverside-created SKUs use **`ROS-XXXXXX`** and should advance to the next available ROS number. Imported Counterpoint SKUs such as **`B-XXXXXX`** stay unchanged.
@@ -153,7 +153,7 @@ If a physical inventory session is open or in review, receiving is paused. Sales
    - **Submitted PO** = ready to receive.
    - **Direct invoice** = arrived without a pre-built PO and can open receiving immediately.
    - **Draft PO** = order setup; submit it before receiving.
-4. Scanning and worksheet entry only **stage** the receipt. They do **not** change live stock yet. Receiving scan matching accepts Product UPC and supplier catalog/style identifiers; do not use a Counterpoint `I-XXXXX` number as the vendor style.
+4. Scanning and worksheet entry only **stage** the receipt. They do **not** change live stock yet. Receiving scan matching accepts Product UPC and supplier catalog/style identifiers. Shared main catalog numbers only auto-match when they identify one line; otherwise select the exact variation. Do not use a Counterpoint `I-XXXXX` number as the vendor style.
 5. **Post Receipt** (the emerald button in the footer) finalizes the receipt into inventory — same **"terminal completion"** pattern as **Complete Sale** at the register. Read totals before confirming.
 6. Watch for messages about **reserved** stock for open special orders after posting.
 

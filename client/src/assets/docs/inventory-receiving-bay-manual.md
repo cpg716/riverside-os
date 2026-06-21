@@ -41,9 +41,9 @@ If paperwork cannot load, the drawer shows a recovery state with a retry action.
 
 The item-entry strip appears above the receiving table for open receiving documents. Search by product name, SKU, product UPC, catalog/vendor style number, or scanner input, confirm the current cost and retail, then add the line. Use it when a vendor shipment includes extra non-PO items on the invoice. Added invoice lines stage their received quantity but still do not change live inventory until **Post Receipt** succeeds.
 
-For existing receiving lines, scanner matching checks the variation's `Product UPC` before SKU. Vendor/supplier style numbers belong in `Catalog # / vendor style #`; Counterpoint item numbers such as `I-103067` are internal identifiers and should not be used as vendor catalog numbers.
+For existing receiving lines, scanner matching checks the variation's `Product UPC` before SKU. Receiving displays the variation `Catalog # / vendor style #` when present, otherwise it falls back to the main product catalog number. Shared main catalog scans only auto-select a line when exactly one receiving line matches. Vendor/supplier style numbers belong in `Catalog # / vendor style #`; Counterpoint item numbers such as `I-103067` are internal identifiers and should not be used as vendor catalog numbers.
 
-Use **Quick Add Item** when paperwork contains a SKU that does not exist yet. Riverside OS creates the catalog item for the current vendor with zero starting stock, selects it for the invoice, and leaves stock unchanged until the receipt posts.
+Use **Quick Add Item** when paperwork contains a SKU that does not exist yet. Enter the Product UPC and Catalog # / vendor style # if they are on the paperwork or tag. Riverside OS creates the catalog item for the current vendor with zero starting stock, selects it for the invoice, and leaves stock unchanged until the receipt posts.
 
 When a reviewed vendor import is converted to a direct invoice, Riverside OS opens this same Receive Stock screen for the created invoice so staff can finish invoice number, freight, staged quantities, and final posting from one place.
 

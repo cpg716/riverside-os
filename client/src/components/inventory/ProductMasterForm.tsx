@@ -106,6 +106,7 @@ export default function ProductMasterForm({
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
   const [description, setDescription] = useState("");
+  const [catalogHandle, setCatalogHandle] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [primaryVendorId, setPrimaryVendorId] = useState("");
 
@@ -203,13 +204,18 @@ export default function ProductMasterForm({
       parseMoneyToCents(row.retail_price_override ?? baseRetail) < 0 ||
       parseMoneyToCents(row.cost_override ?? baseCost) < 0,
   );
+  const barcodeValues = rows
+    .map((row) => row.barcode?.trim().toLowerCase() ?? "")
+    .filter(Boolean);
+  const hasDuplicateBarcode = new Set(barcodeValues).size !== barcodeValues.length;
   const canSubmitProduct =
     !busy &&
     name.trim().length > 0 &&
     rows.length > 0 &&
     baseRetailCents >= 0 &&
     baseCostCents >= 0 &&
-    !hasInvalidGeneratedRows;
+    !hasInvalidGeneratedRows &&
+    !hasDuplicateBarcode;
 
   const addWebImage = () => {
     if (!newImageUrl.trim()) {
@@ -274,6 +280,8 @@ export default function ProductMasterForm({
         const costCents = parseMoneyToCents(variantCostValue(row));
         return {
           ...row,
+          barcode: row.barcode?.trim() || undefined,
+          vendor_upc: row.vendor_upc?.trim() || undefined,
           retail_price_override:
             retailCents === baseRetailCents ? undefined : centsToFixed2(retailCents),
           cost_override:
@@ -384,6 +392,7 @@ export default function ProductMasterForm({
           name: name.trim(),
           brand: brand.trim() || null,
           description: description.trim() || null,
+          catalog_handle: catalogHandle.trim() || null,
           base_retail_price: centsToFixed2(baseRetailCents),
           base_cost: centsToFixed2(baseCostCents),
           variation_axes: axes,
@@ -656,6 +665,18 @@ export default function ProductMasterForm({
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Main Catalog # / vendor style #</label>
+                  <input
+                    value={catalogHandle}
+                    onChange={(e) => setCatalogHandle(e.target.value)}
+                    placeholder="40411"
+                    className="ui-input h-12 w-full font-mono text-sm font-bold"
+                  />
+                  <p className="ml-1 text-[10px] font-semibold text-app-text-muted">
+                    Product-level supplier number used by PO and receiving when a SKU does not have its own catalog #.
+                  </p>
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted ml-1">Brand <span className="text-app-text-muted/50">(optional)</span></label>
@@ -1393,11 +1414,12 @@ export default function ProductMasterForm({
 
           <div className="rounded-2xl border border-app-border overflow-hidden bg-app-surface-2 mb-6">
             <div className="max-h-[360px] overflow-auto">
-              <table className="w-full text-left text-xs border-collapse">
+              <table className="w-full min-w-[1120px] text-left text-xs border-collapse">
                 <thead className="sticky top-0 bg-app-surface border-b border-app-border z-10">
                   <tr>
                     <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">SKU</th>
                     <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Variation</th>
+                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Identifiers</th>
                     <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Starting Stock</th>
                     <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Retail</th>
                     <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Cost</th>
@@ -1420,6 +1442,42 @@ export default function ProductMasterForm({
                               {axis}: {value}
                             </span>
                           ))}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="grid gap-2">
+                          <label className="grid gap-1">
+                            <span className="text-[9px] font-bold uppercase tracking-wide text-app-text-muted">
+                              Product UPC
+                            </span>
+                            <input
+                              value={r.barcode ?? ""}
+                              onChange={(e) =>
+                                updateGeneratedRow(i, {
+                                  barcode: e.target.value,
+                                })
+                              }
+                              className="ui-input h-9 w-full min-w-48 font-mono text-xs font-bold"
+                              placeholder="Manufacturer UPC"
+                              autoComplete="off"
+                            />
+                          </label>
+                          <label className="grid gap-1">
+                            <span className="text-[9px] font-bold uppercase tracking-wide text-app-text-muted">
+                              Catalog # / vendor style #
+                            </span>
+                            <input
+                              value={r.vendor_upc ?? ""}
+                              onChange={(e) =>
+                                updateGeneratedRow(i, {
+                                  vendor_upc: e.target.value,
+                                })
+                              }
+                              className="ui-input h-9 w-full min-w-48 font-mono text-xs font-bold"
+                              placeholder={catalogHandle.trim() ? `${catalogHandle.trim()}-B` : "Supplier style #"}
+                              autoComplete="off"
+                            />
+                          </label>
                         </div>
                       </td>
                       <td className="px-5 py-3 text-right">
@@ -1477,7 +1535,9 @@ export default function ProductMasterForm({
             <div className="flex items-center gap-3">
               <CheckCircle2 size={22} className="text-emerald-600 shrink-0" />
               <p className="text-xs font-bold text-emerald-800">
-                Ready to save. Prices, category, and SKU codes validated.
+                {hasDuplicateBarcode
+                  ? "Each Product UPC can only be assigned to one SKU."
+                  : "Ready to save. Prices, category, SKU codes, and identifiers validated."}
               </p>
             </div>
             <button

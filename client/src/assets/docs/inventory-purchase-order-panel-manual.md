@@ -29,8 +29,9 @@ Purchase Orders is the inventory surface for vendor paperwork. Staff use it to c
 3. Review customer order items and **Min/Max reorder suggestions** for the selected vendor. Suggested Min/Max quantities use the item reorder point, available stock, and units already on open POs.
 4. Add lines in the open paperwork panel. Search or scan an item, confirm quantity, unit cost, and retail, then add the line.
 5. If the item is not in the catalog yet, use **Quick Add Item** to create the SKU for the selected vendor and immediately use it on the open paperwork.
-6. Mark a standard PO sent only after the lines are correct.
-7. Open **Receive Stock** when submitted paperwork or a direct invoice is ready to post inventory.
+6. Review the Catalog # column before sending. PO lines show the SKU-level catalog/vendor style number when present and otherwise use the main product catalog number.
+7. Mark a standard PO sent only after the lines are correct.
+8. Open **Receive Stock** when submitted paperwork or a direct invoice is ready to post inventory.
 
 ## Vendor paperwork states
 
