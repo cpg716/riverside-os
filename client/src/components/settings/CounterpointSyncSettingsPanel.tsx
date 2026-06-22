@@ -1,22 +1,14 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   RefreshCw,
-  CheckCircle2,
   AlertTriangle,
-  Loader2,
-  Database,
   RotateCcw,
-  Upload,
-  Download,
-  ClipboardCopy,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import PromptModal from "../ui/PromptModal";
-import ConfirmationModal from "../ui/ConfirmationModal";
 import DuplicateReviewQueueSection from "../customers/DuplicateReviewQueueSection";
-import RosieInsightSummary from "../help/RosieInsightSummary";
 import type { Customer } from "../pos/CustomerSelector";
 
 /* ── Types & Interfaces ── */
@@ -40,6 +32,17 @@ interface SyncIssueRow {
   created_at: string;
 }
 
+interface StagingEntityCountRow {
+  entity: string;
+  pending_batches: number;
+  applying_batches: number;
+  applied_batches: number;
+  pending_rows: number;
+  applying_rows: number;
+  applied_rows: number;
+  latest_at: string;
+}
+
 interface SyncStatusResponse {
   windows_sync_state: "online" | "offline" | "syncing";
   offline_reason?: string;
@@ -51,45 +54,10 @@ interface SyncStatusResponse {
   entity_runs: EntityRunRow[];
   recent_issues: SyncIssueRow[];
   token_configured: boolean;
-  counterpoint_staging_enabled?: boolean;
+  staging_entity_counts?: StagingEntityCountRow[];
   staging_pending_count?: number;
   staging_applying_count?: number;
-  staging_entity_counts?: StagingEntityCountRow[];
-}
-
-interface StagingBatchRow {
-  id: number;
-  entity: string;
-  row_count: number;
-  status: string;
-  apply_error: string | null;
-  bridge_version: string | null;
-  bridge_hostname: string | null;
-  created_at: string;
-  applied_at: string | null;
-  applied_by_staff_id: string | null;
-  applied_by_staff_name: string | null;
-  apply_started_at: string | null;
-  apply_claimed_by_staff_id: string | null;
-  apply_claimed_by_staff_name: string | null;
-  replay_count: number;
-  last_replayed_at: string | null;
-  payload_fingerprint: string | null;
-  recovered_at: string | null;
-  recovered_by_staff_id: string | null;
-  recovered_by_staff_name: string | null;
-  recovery_reason: string | null;
-}
-
-interface StagingEntityCountRow {
-  entity: string;
-  pending_batches: number;
-  applying_batches: number;
-  applied_batches: number;
-  pending_rows: number;
-  applying_rows: number;
-  applied_rows: number;
-  latest_at: string;
+  staging_open_count?: number;
 }
 
 interface StepDetail {
@@ -111,78 +79,6 @@ interface ImportReviewState {
   steps: Record<string, StepDetail>;
   inventory_summary: InventorySummary | null;
   can_reset: boolean;
-}
-
-interface MergeConflictRow {
-  item_no: string;
-  field: string;
-  ros_value: string | null;
-  lightspeed_value: string | null;
-  cp_csv_value: string | null;
-  suggested_value: string | null;
-}
-
-interface MergePreview {
-  total_ros_products: number;
-  total_lightspeed_rows: number;
-  total_cp_csv_rows: number;
-  name_conflicts: number;
-  category_conflicts: number;
-  price_conflicts: number;
-  conflicts: MergeConflictRow[];
-}
-
-interface DataSourcesHealth {
-  bridge_products: number;
-  lightspeed_rows: number;
-  lightspeed_file: string | null;
-  cp_csv_rows: number;
-  cp_csv_file: string | null;
-}
-
-interface ReviewPackScope {
-  scope: string;
-  label: string;
-  description: string;
-  fully_functional: boolean;
-  apply_supported: boolean;
-  allowed_actions: string[];
-}
-
-interface ReviewPackSummary {
-  id: string;
-  pack_id: string;
-  scope: string;
-  schema_version: number;
-  source_hash: string;
-  generated_by_staff_id: string | null;
-  generated_at: string;
-  row_count: number;
-  status: string;
-  metadata: Record<string, unknown>;
-}
-
-interface ReviewSuggestion {
-  id: string;
-  import_id: string;
-  pack_id: string;
-  row_id: string | null;
-  row_key: string;
-  scope: string;
-  action: string;
-  field_name: string | null;
-  current_value: unknown;
-  suggested_value: unknown;
-  confidence: number | string | null;
-  reason: string;
-  status: string;
-  validation_errors: unknown;
-  reviewed_by_staff_id: string | null;
-  reviewed_at: string | null;
-  applied_by_staff_id: string | null;
-  applied_at: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 interface CounterpointResetCountRow {
@@ -313,7 +209,6 @@ interface CounterpointImportCommandCenterSummary {
   snapshot_reconciliation: CounterpointSnapshotReconciliationRow[];
   open_exception_count: number;
   fallback_landed_exception_count: number;
-  staging_open_count: number;
   ready_for_import: boolean;
   ready_for_go_live_review: boolean;
   recommendation: string;
@@ -352,33 +247,6 @@ function formatEntityLabel(entity: string): string {
   return entity.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
-function reviewValueToText(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function reviewValueFromText(value: string): unknown {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return trimmed;
-  }
-}
-
-function formatConfidence(value: number | string | null): string {
-  if (value == null) return "—";
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n)) return "—";
-  return `${Math.round(n * 100)}%`;
-}
-
 // function fmtMoney(value: string | number | null | undefined): string {
 //   if (value == null) return "—";
 //   const n = typeof value === "number" ? value : Number(value);
@@ -388,35 +256,6 @@ function formatConfidence(value: number | string | null): string {
 //     currency: "USD",
 //   });
 // }
-
-async function hashString(str: string): Promise<string> {
-  const data = new TextEncoder().encode(str);
-  const buf = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function parseCsvRows(text: string): Record<string, string>[] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return [];
-  const headerLine = lines[0];
-  const headers = headerLine.split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
-  return lines.slice(1).map((line) => {
-    const values: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (const ch of line) {
-      if (ch === '"') { inQuotes = !inQuotes; continue; }
-      if (ch === "," && !inQuotes) { values.push(current.trim()); current = ""; continue; }
-      current += ch;
-    }
-    values.push(current.trim());
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = values[i] ?? ""; });
-    return row;
-  });
-}
 
 export interface CounterpointSyncSettingsPanelProps {
   variant?: "card" | "workspace";
@@ -444,39 +283,13 @@ export default function CounterpointSyncSettingsPanel({
 
   const [status, setStatus] = useState<SyncStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [batches, setBatches] = useState<StagingBatchRow[]>([]);
-  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
-  const [recoverBatch, setRecoverBatch] = useState<StagingBatchRow | null>(null);
-  const [recoveryBusy, setRecoveryBusy] = useState(false);
-  const [batchActionBusy, setBatchActionBusy] = useState<string | null>(null);
-  const [workspaceView, setWorkspaceView] = useState<"overview" | "pipeline" | "inbound" | "details" | "ai_review" | "customer_duplicates">(() => {
+  const [workspaceView, setWorkspaceView] = useState<"overview" | "pipeline" | "inbound" | "details" | "customer_duplicates">(() => {
     if (typeof window === "undefined") return "overview";
     const saved = window.localStorage.getItem("counterpoint.statusSection");
-    return saved === "details" || saved === "ai_review" || saved === "customer_duplicates" ? saved : "overview";
+    return saved === "details" || saved === "customer_duplicates" ? saved : "overview";
   });
 
   const [importReviewState, setImportReviewState] = useState<ImportReviewState | null>(null);
-
-  const [dsHealth, setDsHealth] = useState<DataSourcesHealth | null>(null);
-  const [csvUploading, setCsvUploading] = useState<string | null>(null);
-  const [csvUploadProgress, setCsvUploadProgress] = useState<number>(0);
-  const [csvUploadStatus, setCsvUploadStatus] = useState<string | null>(null);
-  const lsFileRef = useRef<HTMLInputElement>(null);
-  const cpFileRef = useRef<HTMLInputElement>(null);
-
-  const [reviewScopes, setReviewScopes] = useState<ReviewPackScope[]>([]);
-  const [reviewPacks, setReviewPacks] = useState<ReviewPackSummary[]>([]);
-  const [reviewScope, setReviewScope] = useState<string>("inventory_catalog");
-  const [selectedReviewPackId, setSelectedReviewPackId] = useState<string>("");
-  const [reviewSuggestions, setReviewSuggestions] = useState<ReviewSuggestion[]>([]);
-  const [reviewBusy, setReviewBusy] = useState<string | null>(null);
-  const [reviewImportText, setReviewImportText] = useState("");
-  const [reviewError, setReviewError] = useState<string | null>(null);
-  const [reviewSuggestionEdits, setReviewSuggestionEdits] = useState<Record<string, string>>({});
-  const reviewImportFileRef = useRef<HTMLInputElement>(null);
-
-  const [mergePreview, setMergePreview] = useState<MergePreview | null>(null);
-  const [mergeLoading, setMergeLoading] = useState(false);
 
   const [landingVerification, setLandingVerification] = useState<CounterpointLandingVerificationSummary | null>(null);
   const [commandCenter, setCommandCenter] = useState<CounterpointImportCommandCenterSummary | null>(null);
@@ -538,21 +351,6 @@ export default function CounterpointSyncSettingsPanel({
     }
   }, [baseUrl, commandCenter?.latest_import_run?.id, headers, hasPermission]);
 
-  const fetchBatches = useCallback(async () => {
-    if (!hasPermission("settings.admin")) return;
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/staging/batches?limit=5000`,
-        { headers: headers() },
-      );
-      if (res.ok) {
-        setBatches((await res.json()) as StagingBatchRow[]);
-      }
-    } catch {
-      setBatches([]);
-    }
-  }, [baseUrl, headers, hasPermission]);
-
   const fetchImportReviewState = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
     try {
@@ -564,84 +362,6 @@ export default function CounterpointSyncSettingsPanel({
       }
     } catch { /* silent */ }
   }, [baseUrl, headers, hasPermission]);
-
-  const fetchDsHealth = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/workbench/data-sources-health`,
-        { headers: headers() },
-      );
-      if (res.ok) setDsHealth((await res.json()) as DataSourcesHealth);
-    } catch { /* silent */ }
-  }, [baseUrl, headers]);
-
-  const fetchMergePreview = useCallback(async () => {
-    setMergeLoading(true);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/workbench/merge-preview?limit=100`,
-        { headers: headers() },
-      );
-      if (res.ok) {
-        setMergePreview((await res.json()) as MergePreview);
-      }
-    } catch {
-      toast("Could not load catalog preview", "error");
-    } finally {
-      setMergeLoading(false);
-    }
-  }, [baseUrl, headers, toast]);
-
-  const fetchReviewScopes = useCallback(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/review-packs/scopes`, {
-        headers: headers(),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { scopes?: ReviewPackScope[] };
-        setReviewScopes(data.scopes ?? []);
-      }
-    } catch {
-      setReviewScopes([]);
-    }
-  }, [baseUrl, headers]);
-
-  const fetchReviewPacks = useCallback(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/review-packs`, {
-        headers: headers(),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { packs?: ReviewPackSummary[] };
-        const packs = data.packs ?? [];
-        setReviewPacks(packs);
-        setSelectedReviewPackId((current) => current || packs[0]?.pack_id || "");
-      }
-    } catch {
-      setReviewPacks([]);
-    }
-  }, [baseUrl, headers]);
-
-  const fetchReviewSuggestions = useCallback(async (packId?: string) => {
-    const id = packId ?? selectedReviewPackId;
-    if (!id) {
-      setReviewSuggestions([]);
-      return;
-    }
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/review-packs/${id}/suggestions`,
-        { headers: headers() },
-      );
-      if (res.ok) {
-        const data = (await res.json()) as { suggestions?: ReviewSuggestion[] };
-        setReviewSuggestions(data.suggestions ?? []);
-        setReviewSuggestionEdits({});
-      }
-    } catch {
-      setReviewSuggestions([]);
-    }
-  }, [baseUrl, headers, selectedReviewPackId]);
 
   const fetchLandingVerification = useCallback(async () => {
     try {
@@ -672,12 +392,7 @@ export default function CounterpointSyncSettingsPanel({
       fetchStatus(),
       fetchCommandCenter(),
       fetchImportExceptions(),
-      fetchBatches(),
       fetchImportReviewState(),
-      fetchDsHealth(),
-      fetchMergePreview(),
-      fetchReviewScopes(),
-      fetchReviewPacks(),
       fetchLandingVerification(),
       fetchResetPreview(),
     ]);
@@ -686,12 +401,7 @@ export default function CounterpointSyncSettingsPanel({
     fetchStatus,
     fetchCommandCenter,
     fetchImportExceptions,
-    fetchBatches,
     fetchImportReviewState,
-    fetchDsHealth,
-    fetchMergePreview,
-    fetchReviewScopes,
-    fetchReviewPacks,
     fetchLandingVerification,
     fetchResetPreview,
   ]);
@@ -704,13 +414,9 @@ export default function CounterpointSyncSettingsPanel({
     void fetchImportExceptions();
   }, [fetchImportExceptions]);
 
-  useEffect(() => {
-    void fetchReviewSuggestions(selectedReviewPackId);
-  }, [fetchReviewSuggestions, selectedReviewPackId]);
-
   /* ── Event Handlers ── */
 
-  const resolveImportException = useCallback(async (exceptionId: string) => {
+  const recheckImportException = useCallback(async (exceptionId: string) => {
     try {
       const res = await fetch(
         `${baseUrl}/api/settings/counterpoint-sync/exceptions/${exceptionId}/resolve`,
@@ -721,309 +427,18 @@ export default function CounterpointSyncSettingsPanel({
       );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? "Could not resolve import exception");
+        throw new Error(data.reason ?? data.error ?? "Exception still needs repair before it can be closed.");
       }
-      toast("Import exception marked resolved.", "success");
+      const data = await res.json().catch(() => ({}));
+      toast(data.reason ?? "Exception reconciled against landed ROS data.", "success");
       void fetchImportExceptions();
       void fetchCommandCenter();
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not resolve import exception", "error");
+      toast(error instanceof Error ? error.message : "Exception still needs repair before it can be closed.", "error");
     }
   }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
 
-  /* ── CSV Upload ── */
-  const handleCsvUpload = async (file: File, type: "lightspeed" | "counterpoint") => {
-    setCsvUploading(type);
-    setCsvUploadProgress(0);
-    setCsvUploadStatus(`Parsing ${file.name}...`);
-    try {
-      const text = await file.text();
-      const fileHash = await hashString(text);
-      const parsed = parseCsvRows(text);
-      if (parsed.length === 0) {
-        toast("CSV contains no record rows.", "error");
-        setCsvUploadStatus(null);
-        return;
-      }
-
-      const CHUNK_SIZE = 2000;
-      let success = true;
-
-      if (type === "lightspeed") {
-        const allRows = parsed.map((row, i) => ({
-          sku: row["SKU"] || row["sku"] || row["Sku"] || "",
-          handle: row["Handle"] || row["handle"] || null,
-          name: row["Name"] || row["Title"] || row["name"] || row["Product Name"] || null,
-          product_category: row["Category"] || row["category"] || row["Product Category"] || null,
-          supplier_name: row["Supplier"] || row["supplier_name"] || row["Vendor"] || null,
-          supplier_code: row["Supplier Code"] || row["supplier_code"] || null,
-          brand_name: row["Brand"] || row["brand_name"] || null,
-          tags: row["Tags"] || row["tags"] || null,
-          variant_options: [],
-          source_row_number: i + 2,
-          source_row_hash: `${fileHash}-${i}`,
-          raw_row: row,
-        }));
-
-        setCsvUploadStatus(`Uploading ${allRows.length} Lightspeed product entries...`);
-
-        for (let idx = 0; idx < allRows.length; idx += CHUNK_SIZE) {
-          const chunk = allRows.slice(idx, idx + CHUNK_SIZE);
-          const isFirst = idx === 0;
-          const progress = Math.min(100, Math.round(((idx + chunk.length) / allRows.length) * 100));
-          setCsvUploadProgress(progress);
-
-          const res = await fetch(
-            `${baseUrl}/api/settings/counterpoint-sync/workbench/upload-lightspeed-csv`,
-            {
-              method: "POST",
-              headers: { ...headers(), "Content-Type": "application/json" },
-              body: JSON.stringify({
-                source_file_name: file.name,
-                source_file_hash: fileHash,
-                replace: isFirst,
-                rows: chunk,
-              }),
-            },
-          );
-
-          if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            toast(j.error ?? "Failed to save CSV reference mapping.", "error");
-            setCsvUploadStatus("Upload failed");
-            success = false;
-            break;
-          }
-        }
-
-        if (success) {
-          setCsvUploadStatus(`Successfully loaded ${allRows.length} product entries`);
-          toast(`Enrichment catalog loaded: ${allRows.length} product entries`, "success");
-          void fetchDsHealth();
-          void fetchMergePreview();
-        }
-      } else {
-        const allRows = parsed.map((row, i) => ({
-          item_no: row["Item No"] || row["ITEM_NO"] || row["item_no"] || row["ItemNo"] || row["Item #"] || "",
-          description: row["Description"] || row["DESCR"] || row["description"] || null,
-          long_description: row["Long Description"] || row["LONG_DESCR"] || null,
-          category_code: row["Category"] || row["CATEG_COD"] || row["category_code"] || null,
-          barcode: row["Barcode"] || row["UPC"] || row["barcode"] || null,
-          retail_price: row["Price"] || row["PRC_1"] || row["retail_price"] ? parseFloat(row["Price"] || row["PRC_1"] || row["retail_price"] || "0") || null : null,
-          unit_cost: row["Cost"] || row["COST"] || row["unit_cost"] ? parseFloat(row["Cost"] || row["COST"] || row["unit_cost"] || "0") || null : null,
-          qty_on_hand: row["Qty"] || row["QTY_ON_HND"] || row["qty_on_hand"] ? parseInt(row["Qty"] || row["QTY_ON_HND"] || row["qty_on_hand"] || "0", 10) || null : null,
-          vendor_no: row["Vendor"] || row["VEND_NO"] || row["vendor_no"] || null,
-          is_grid: (row["Grid"] || row["IS_GRID"] || "").toUpperCase() === "Y" || null,
-          source_row_number: i + 2,
-          raw_row: row,
-        }));
-
-        setCsvUploadStatus(`Uploading ${allRows.length} Counterpoint inventory rows...`);
-
-        for (let idx = 0; idx < allRows.length; idx += CHUNK_SIZE) {
-          const chunk = allRows.slice(idx, idx + CHUNK_SIZE);
-          const isFirst = idx === 0;
-          const progress = Math.min(100, Math.round(((idx + chunk.length) / allRows.length) * 100));
-          setCsvUploadProgress(progress);
-
-          const res = await fetch(
-            `${baseUrl}/api/settings/counterpoint-sync/workbench/upload-cp-csv`,
-            {
-              method: "POST",
-              headers: { ...headers(), "Content-Type": "application/json" },
-              body: JSON.stringify({
-                source_file_name: file.name,
-                source_file_hash: fileHash,
-                replace: isFirst,
-                rows: chunk,
-              }),
-            },
-          );
-
-          if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            toast(j.error ?? "Failed to save CSV reference mapping.", "error");
-            setCsvUploadStatus("Upload failed");
-            success = false;
-            break;
-          }
-        }
-
-        if (success) {
-          setCsvUploadStatus(`Successfully cached ${allRows.length} Counterpoint rows`);
-          toast(`Counterpoint backup CSV cached: ${allRows.length} rows`, "success");
-          void fetchDsHealth();
-          void fetchMergePreview();
-        }
-      }
-    } catch (e) {
-      toast(`CSV parsing failure: ${e}`, "error");
-      setCsvUploadStatus("Parsing failed");
-    } finally {
-      setCsvUploading(null);
-      setTimeout(() => {
-        setCsvUploadProgress(0);
-        setCsvUploadStatus(null);
-      }, 3000);
-    }
-  };
-
-  const generateReviewPack = async () => {
-    setReviewBusy("generate");
-    setReviewError(null);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/review-packs/generate`, {
-        method: "POST",
-        headers: { ...headers(), "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: reviewScope, limit: 500, issue_filter: "all" }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error ?? "Could not generate review pack");
-      }
-      const pack = data as ReviewPackSummary;
-      setSelectedReviewPackId(pack.pack_id);
-      toast(`Review pack generated: ${fmtNum(pack.row_count)} row(s).`, "success");
-      await fetchReviewPacks();
-      await fetchReviewSuggestions(pack.pack_id);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Could not generate review pack";
-      setReviewError(message);
-      toast(message, "error");
-    } finally {
-      setReviewBusy(null);
-    }
-  };
-
-  const downloadReviewPack = async (packId: string) => {
-    if (!packId) return;
-    setReviewBusy("download");
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/review-packs/${packId}/download.json`,
-        { headers: headers() },
-      );
-      if (!res.ok) throw new Error("Could not download review pack");
-      const blob = new Blob([await res.text()], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `counterpoint-review-pack-${packId}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      toast("Could not download review pack", "error");
-    } finally {
-      setReviewBusy(null);
-    }
-  };
-
-  const copyReviewPrompt = async (packId: string) => {
-    if (!packId) return;
-    setReviewBusy("prompt");
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/review-packs/${packId}/prompt.txt`,
-        { headers: headers() },
-      );
-      if (!res.ok) throw new Error("Could not load prompt");
-      const text = await res.text();
-      await navigator.clipboard.writeText(text);
-      toast("Manual ChatGPT/Codex prompt copied.", "success");
-    } catch {
-      toast("Could not copy prompt.", "error");
-    } finally {
-      setReviewBusy(null);
-    }
-  };
-
-  const importReviewResults = async () => {
-    const trimmed = reviewImportText.trim();
-    if (!trimmed) {
-      toast("Paste or upload the returned review JSON first.", "error");
-      return;
-    }
-    setReviewBusy("import");
-    setReviewError(null);
-    try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/review-packs/import-results`, {
-        method: "POST",
-        headers: { ...headers(), "Content-Type": "application/json" },
-        body: JSON.stringify(parsed),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error ?? "Imported review JSON did not pass validation");
-      }
-      toast(`Suggestions saved: ${fmtNum(data.stored_suggestions ?? 0)} pending review.`, "success");
-      setReviewImportText("");
-      await fetchReviewPacks();
-      const sourcePackId = typeof data.source_pack_id === "string" ? data.source_pack_id : selectedReviewPackId;
-      if (sourcePackId) {
-        setSelectedReviewPackId(sourcePackId);
-        await fetchReviewSuggestions(sourcePackId);
-      }
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Imported review JSON did not pass validation";
-      setReviewError(message);
-      toast(message, "error");
-    } finally {
-      setReviewBusy(null);
-    }
-  };
-
-  const updateReviewSuggestion = async (suggestion: ReviewSuggestion, statusValue: string) => {
-    setReviewBusy(suggestion.id);
-    try {
-      const draft = reviewSuggestionEdits[suggestion.id];
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/review-packs/suggestions/${suggestion.id}`,
-        {
-          method: "PATCH",
-          headers: { ...headers(), "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status: statusValue,
-            suggested_value: draft == null ? undefined : reviewValueFromText(draft),
-            reason: suggestion.reason,
-          }),
-        },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Could not update suggestion");
-      await fetchReviewSuggestions(selectedReviewPackId);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "Could not update suggestion", "error");
-    } finally {
-      setReviewBusy(null);
-    }
-  };
-
-  const applyApprovedReviewSuggestions = async () => {
-    if (!selectedReviewPackId) return;
-    setReviewBusy("apply");
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/review-packs/${selectedReviewPackId}/apply-approved`,
-        { method: "POST", headers: headers() },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Could not apply approved suggestions");
-      toast(
-        `Applied ${fmtNum(data.applied ?? 0)} suggestion(s); blocked ${fmtNum(data.blocked ?? 0)} review-only item(s).`,
-        "success",
-      );
-      await fetchReviewSuggestions(selectedReviewPackId);
-      await fetchImportReviewState();
-      await fetchCommandCenter();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "Could not apply approved suggestions", "error");
-    } finally {
-      setReviewBusy(null);
-    }
-  };
-
-  const runBaselineReset = async (confirmationPhrase: string) => {
+  const runBaselineReset = async (confirmationPhrase: string): Promise<boolean> => {
     // setResetBusy(true);
     try {
       const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/reset-baseline`, {
@@ -1035,133 +450,21 @@ export default function CounterpointSyncSettingsPanel({
         body: JSON.stringify({ confirmation_phrase: confirmationPhrase }),
       });
       if (res.ok) {
-        toast("Live ROS Counterpoint import tables wiped. Support queue state is reset.", "success");
+        toast("Live ROS Counterpoint import data wiped. Migration proof and exceptions are reset.", "success");
         setResetPromptOpen(false);
         // setBaselineResetPhrase("");
         void fetchAllData();
+        return true;
       } else {
         const j = await res.json().catch(() => ({}));
         toast(j.error ?? "Reset failed", "error");
+        return false;
       }
     } catch {
       toast("Could not perform reset", "error");
+      return false;
     } finally {
       // setResetBusy(false);
-    }
-  };
-
-  const recoverStaleBatch = async (batch: StagingBatchRow) => {
-    setRecoveryBusy(true);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${batch.id}/recover-stale`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...headers(),
-          },
-          body: JSON.stringify({ stale_after_minutes: 15 }),
-        },
-      );
-      if (!res.ok) {
-        const json = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(json?.error ?? "Unable to recover stale Counterpoint batch.");
-      }
-      setBatches((current) =>
-        current.map((row) =>
-          row.id === batch.id
-            ? {
-                ...row,
-                status: "failed",
-                recovered_at: new Date().toISOString(),
-                recovered_by_staff_name: row.recovered_by_staff_name ?? "Chris G",
-                recovery_reason:
-                  row.recovery_reason ??
-                  "Stale applying batch marked failed after operator recovery review; payload was not replayed.",
-              }
-            : row,
-        ),
-      );
-      toast("Stale Counterpoint apply marked failed for review.", "success");
-      setRecoverBatch(null);
-      void fetchBatches();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Unable to recover stale Counterpoint batch.", "error");
-    } finally {
-      setRecoveryBusy(false);
-    }
-  };
-
-  const applyStagingBatch = async (batch: StagingBatchRow) => {
-    setBatchActionBusy(`apply:${batch.id}`);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${batch.id}/apply`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...headers(),
-          },
-        },
-      );
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "Unable to apply Counterpoint batch.");
-      toast(`Applied ${formatEntityLabel(batch.entity)} batch #${batch.id}.`, "success");
-      setSelectedBatchId(null);
-      void fetchAllData();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Unable to apply Counterpoint batch.", "error");
-    } finally {
-      setBatchActionBusy(null);
-    }
-  };
-
-  const discardStagingBatch = async (batch: StagingBatchRow) => {
-    setBatchActionBusy(`discard:${batch.id}`);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/staging/batches/${batch.id}/discard`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...headers(),
-          },
-        },
-      );
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "Unable to discard Counterpoint batch.");
-      toast(`Discarded ${formatEntityLabel(batch.entity)} batch #${batch.id}.`, "success");
-      setSelectedBatchId(null);
-      void fetchAllData();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Unable to discard Counterpoint batch.", "error");
-    } finally {
-      setBatchActionBusy(null);
-    }
-  };
-
-  const setRosStagingEnabled = async (enabled: boolean) => {
-    setBatchActionBusy("staging-toggle");
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/staging/enabled`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...headers(),
-        },
-        body: JSON.stringify({ staging_enabled: enabled }),
-      });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "Unable to update ROS staging.");
-      toast(enabled ? "ROS Counterpoint staging enabled." : "ROS Counterpoint staging disabled.", "success");
-      void fetchAllData();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Unable to update ROS staging.", "error");
-    } finally {
-      setBatchActionBusy(null);
     }
   };
 
@@ -1172,31 +475,6 @@ export default function CounterpointSyncSettingsPanel({
       : commandCenter?.proof_scope === "preflight_only"
         ? "Preflight only"
         : "No import preflight";
-  const stagingCountsByEntity = useMemo(() => {
-    const rows = new Map<string, StagingEntityCountRow>();
-    for (const count of status?.staging_entity_counts ?? []) {
-      rows.set(count.entity, count);
-    }
-    return rows;
-  }, [status?.staging_entity_counts]);
-  const selectedReviewPack =
-    reviewPacks.find((pack) => pack.pack_id === selectedReviewPackId) ?? reviewPacks[0] ?? null;
-  const selectedReviewScope =
-    reviewScopes.find((scope) => scope.scope === reviewScope) ?? reviewScopes.find((scope) => scope.scope === selectedReviewPack?.scope) ?? null;
-  const selectedPackScope =
-    selectedReviewPack == null
-      ? null
-      : reviewScopes.find((scope) => scope.scope === selectedReviewPack.scope) ?? null;
-  const acceptedReviewSuggestionCount = reviewSuggestions.filter((s) => s.status === "accepted").length;
-
-  const catalogBatches = useMemo(() => batches.filter((b) => b.entity === "catalog"), [batches]);
-  const inventoryBatches = useMemo(() => batches.filter((b) => b.entity === "inventory"), [batches]);
-  const customerBatches = useMemo(() => batches.filter((b) => b.entity === "customers"), [batches]);
-  const ticketBatches = useMemo(() => batches.filter((b) => b.entity === "tickets"), [batches]);
-  const giftBatches = useMemo(() => batches.filter((b) => b.entity === "gift_cards"), [batches]);
-  const openDocBatches = useMemo(() => batches.filter((b) => b.entity === "open_docs"), [batches]);
-  const loyaltyBatches = useMemo(() => batches.filter((b) => b.entity === "loyalty_hist"), [batches]);
-
   const normalizeProofKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "_");
   const bridgeRowsFor = (entities: string[]) => {
     const keys = entities.map(normalizeProofKey);
@@ -1204,15 +482,6 @@ export default function CounterpointSyncSettingsPanel({
       const entity = normalizeProofKey(run.entity);
       return keys.includes(entity) ? sum + Math.max(0, run.records_processed ?? 0) : sum;
     }, 0);
-  };
-  const stagedRowsFor = (entity: string, entityBatches: StagingBatchRow[]) => {
-    const staged = stagingCountsByEntity.get(entity);
-    const stagedRows =
-      (staged?.pending_rows ?? 0) + (staged?.applying_rows ?? 0) + (staged?.applied_rows ?? 0);
-    const batchRows = entityBatches.reduce((sum, batch) => {
-      return batch.status === "discarded" ? sum : sum + Math.max(0, batch.row_count);
-    }, 0);
-    return Math.max(stagedRows, batchRows);
   };
   const landedRowsFor = (terms: string[]) => {
     const keys = terms.map(normalizeProofKey);
@@ -1236,21 +505,18 @@ export default function CounterpointSyncSettingsPanel({
   const reviewReadinessFor = (
     label: string,
     entity: string,
-    entityBatches: StagingBatchRow[],
     proofTerms: string[],
   ) => {
     const bridgeRows = bridgeRowsFor([entity]);
-    const stagedRows = stagedRowsFor(entity, entityBatches);
     const landedRows = landedRowsFor(proofTerms);
-    const expected = bridgeRows > 0 || stagedRows > 0 || landedRows > 0;
-    const ready = !expected || stagedRows > 0 || landedRows > 0;
+    const expected = bridgeRows > 0 || landedRows > 0;
+    const ready = !expected || landedRows > 0;
     return {
       label,
       entity,
       ready,
       expected,
       bridgeRows,
-      stagedRows,
       landedRows,
       message: `${label} has ${fmtNum(bridgeRows)} Bridge row(s), but no ROS landed proof is available for review.`,
     };
@@ -1258,27 +524,25 @@ export default function CounterpointSyncSettingsPanel({
   const inventoryProducts = importReviewState?.inventory_summary?.products ?? 0;
   const inventoryVariants = importReviewState?.inventory_summary?.variants ?? 0;
   const hasLandedInventory = inventoryProducts > 0 && inventoryVariants > 0;
-  const catalogStagedRows = stagedRowsFor("catalog", catalogBatches);
-  const inventoryStagedRows = stagedRowsFor("inventory", inventoryBatches);
-  const bridgeReportedCatalogRows = bridgeRowsFor(["catalog", "inventory"]) + (dsHealth?.bridge_products ?? 0);
-  const customerReviewReady = reviewReadinessFor("Customer CRM", "customers", customerBatches, ["customers"]);
-  const ticketReviewReady = reviewReadinessFor("Sales history", "tickets", ticketBatches, [
+  const bridgeReportedCatalogRows = bridgeRowsFor(["catalog", "inventory"]);
+  const customerReviewReady = reviewReadinessFor("Customer CRM", "customers", ["customers"]);
+  const ticketReviewReady = reviewReadinessFor("Sales history", "tickets", [
     "closed_ticket_transactions",
     "closed_ticket_lines",
     "closed_ticket_payments",
   ]);
-  const giftCardReviewReady = reviewReadinessFor("Gift card liabilities", "gift_cards", giftBatches, ["gift_cards"]);
-  const openDocReviewReady = reviewReadinessFor("Open orders and layaways", "open_docs", openDocBatches, [
+  const giftCardReviewReady = reviewReadinessFor("Gift card liabilities", "gift_cards", ["gift_cards"]);
+  const openDocReviewReady = reviewReadinessFor("Open orders and layaways", "open_docs", [
     "open_doc_transactions",
     "open_doc_lines",
   ]);
-  const loyaltyReviewReady = reviewReadinessFor("Loyalty history", "loyalty_hist", loyaltyBatches, [
+  const loyaltyReviewReady = reviewReadinessFor("Loyalty history", "loyalty_hist", [
     "loyalty_history",
     "loyalty_hist",
   ]);
   const downstreamReviewBlockers = [
     !hasLandedInventory && bridgeReportedCatalogRows > 0
-      ? `Bridge reported catalog/inventory rows, but ROS has ${fmtNum(inventoryProducts)} Counterpoint product(s) and ${fmtNum(inventoryVariants)} variant(s). Run or repair the direct import before approving catalog cleanup.`
+      ? `Bridge reported catalog/inventory rows, but ROS has ${fmtNum(inventoryProducts)} Counterpoint product(s) and ${fmtNum(inventoryVariants)} variant(s). Run or repair the direct import before go-live sign-off.`
       : null,
     ...[
       customerReviewReady,
@@ -1303,16 +567,8 @@ export default function CounterpointSyncSettingsPanel({
     (run) => (run.records_processed ?? 0) > 0,
   ).length;
   const recentIssueCount = status?.recent_issues?.filter((issue) => !issue.resolved).length ?? 0;
-  const stagedReviewRows = [
-    customerReviewReady,
-    ticketReviewReady,
-    giftCardReviewReady,
-    openDocReviewReady,
-    loyaltyReviewReady,
-  ].reduce((sum, review) => sum + review.stagedRows, 0);
-  const stagedImportRows = stagedReviewRows + catalogStagedRows + inventoryStagedRows;
   const bridgeRowsWithoutReviewSurface =
-    bridgeReportedRows > 0 && !hasLandedInventory && stagedImportRows === 0 && !hasAnyCounterpointLandingProof;
+    bridgeReportedRows > 0 && !hasLandedInventory && !hasAnyCounterpointLandingProof;
   const missingProofEntityCount = bridgeRowsWithoutReviewSurface
     ? bridgeReportedEntityCount
     : recentIssueCount;
@@ -1330,11 +586,19 @@ export default function CounterpointSyncSettingsPanel({
     }
     return map;
   }, [importExceptions]);
+  const stagingRowsByEntity = useMemo(() => {
+    const rows = new Map<string, StagingEntityCountRow>();
+    for (const count of status?.staging_entity_counts ?? []) {
+      rows.set(count.entity, count);
+    }
+    return rows;
+  }, [status?.staging_entity_counts]);
   const commandCenterRows = useMemo(() => {
     const rows = commandCenter?.source_counts ?? [];
     return rows.map((source) => {
       const landed = commandReconciliationByKey.get(source.entity_key);
       const exceptions = importExceptionsByEntity.get(source.entity_key) ?? { open: 0, fallback: 0 };
+      const staging = stagingRowsByEntity.get(source.entity_key);
       const sentByBridge = landed?.source_count ?? source.source_count;
       const ready =
         (source.status === "ok" || !source.required) &&
@@ -1344,6 +608,8 @@ export default function CounterpointSyncSettingsPanel({
         ...source,
         sentByBridge,
         landedCount: landed?.landed_count ?? 0,
+        queuedRows: (staging?.pending_rows ?? 0) + (staging?.applying_rows ?? 0),
+        appliedRows: staging?.applied_rows ?? 0,
         gap: landed?.count_difference ?? null,
         landedStatus: landed?.status ?? "waiting",
         failedCount: exceptions.open,
@@ -1351,7 +617,7 @@ export default function CounterpointSyncSettingsPanel({
         ready,
       };
     });
-  }, [commandCenter?.source_counts, commandReconciliationByKey, importExceptionsByEntity]);
+  }, [commandCenter?.source_counts, commandReconciliationByKey, importExceptionsByEntity, stagingRowsByEntity]);
   const commandLandedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.landedCount), 0);
   const commandFailedTotal = commandCenterRows.reduce((sum, row) => sum + Math.max(0, row.failedCount), 0);
   const commandNotReadyTotal = commandCenterRows.filter((row) => row.required && !row.ready).length;
@@ -1369,22 +635,6 @@ export default function CounterpointSyncSettingsPanel({
   const bridgeVersion = status?.bridge_version ?? commandCenter?.latest_preflight?.bridge_version ?? null;
   const bridgeRuntimeNote =
     status?.offline_reason ?? "Bridge status is tracked from Main Hub ROS intake heartbeat.";
-  const stagingSummaryRows = [...stagingCountsByEntity.values()]
-    .filter((row) => row.pending_rows > 0 || row.applying_rows > 0 || row.applied_rows > 0)
-    .sort((a, b) => a.entity.localeCompare(b.entity));
-  const selectedBatch = selectedBatchId == null
-    ? null
-    : batches.find((batch) => batch.id === selectedBatchId) ?? null;
-  const isStaleApplyingBatch = (batch: StagingBatchRow) => {
-    if (batch.status !== "applying" || !batch.apply_started_at) return false;
-    const startedAt = new Date(batch.apply_started_at).getTime();
-    return Number.isFinite(startedAt) && Date.now() - startedAt > 15 * 60 * 1000;
-  };
-  const batchStatusLabel = (batch: StagingBatchRow) => {
-    if (batch.recovered_at) return "Recovered stale apply";
-    if (isStaleApplyingBatch(batch)) return "Stale applying";
-    return formatEntityLabel(batch.status);
-  };
 
   const importFirstCommandCenterPanel = (
     <section className="ui-card p-5 space-y-4">
@@ -1394,7 +644,7 @@ export default function CounterpointSyncSettingsPanel({
 	            ROS Import Command Center
 	          </h4>
 	          <p className="mt-1 max-w-4xl text-xs text-app-text-muted">
-	            First run the Bridge import, then review proof and exceptions here. CSV files and AI review are cleanup tools after ROS has import data to compare.
+	            First run the Bridge import, then review proof and exceptions here.
 	          </p>
           <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
             Final validation and PostgreSQL import only
@@ -1418,7 +668,7 @@ export default function CounterpointSyncSettingsPanel({
           ["1", "Connect Bridge", "Counterpoint SQL and Main Hub ROS must both be ready."],
           ["2", "Run Import", "Bridge sends Counterpoint rows into ROS for proof and import."],
           ["3", "Review Proof", "Use landed rows, exceptions, and blockers for sign-off."],
-          ["4", "Clean Up Data", "Use CSV + AI review after import data exists in ROS."],
+          ["4", "Finish Go-Live Review", "Resolve listed exceptions and confirm every required area is Ready."],
         ].map(([step, title, detail]) => (
           <div key={step} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
             <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Step {step}</p>
@@ -1476,16 +726,8 @@ export default function CounterpointSyncSettingsPanel({
 	        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-app-text">
 	          <span>Bridge heartbeat: {bridgeRuntimeState === "offline" ? "Offline" : "Online"}</span>
 	          <span>Main Hub ROS intake: {status?.last_seen_at ? "Receiving heartbeat" : "No accepted heartbeat"}</span>
-	          <span>ROS staging: {status?.counterpoint_staging_enabled ? "On" : "Off"}</span>
-	          <span>Go-live path: Bridge direct to ROS</span>
-	          <button
-	            type="button"
-	            onClick={() => void setRosStagingEnabled(!status?.counterpoint_staging_enabled)}
-	            disabled={batchActionBusy === "staging-toggle"}
-	            className="ui-btn-secondary px-3 py-1.5 text-[10px] font-bold disabled:opacity-50"
-	          >
-	            {status?.counterpoint_staging_enabled ? "Disable ROS Staging" : "Enable ROS Staging"}
-	          </button>
+	          <span>ROS staging: {fmtNum(status?.staging_open_count ?? 0)} open row(s)</span>
+	          <span>Go-live path: Bridge imports directly into ROS</span>
 	          <button
 	            type="button"
 	            onClick={() => void fetchAllData()}
@@ -1503,21 +745,21 @@ export default function CounterpointSyncSettingsPanel({
 	            ROS business-area import path
 	          </p>
 	          <p className="mt-1 text-xs font-semibold text-app-text-muted">
-	            Each area is received by ROS, checked against proof and exceptions, then applied through the existing Counterpoint import services.
+	            Each area is received by ROS, checked against proof and exceptions, then written through the existing Counterpoint import services.
 	          </p>
 	        </div>
 	        <span className="ui-pill bg-app-surface-2 text-[9px] text-app-text-muted">
-	          CSV and AI review live in ROS
+	          Direct ROS import
 	        </span>
         </div>
         <div className="mt-3 grid gap-2 text-xs md:grid-cols-2 xl:grid-cols-3">
           {[
-	          { label: "Customers", section: "customers", path: "Bridge batch -> ROS customer import -> PostgreSQL" },
-	          { label: "Inventory", section: "inventory", path: "Bridge batch + CSV/AI review -> ROS inventory import -> PostgreSQL" },
-	          { label: "Ticket History / Sales Movement", section: "tickets", path: "Bridge batch -> ROS sales history import -> PostgreSQL" },
-	          { label: "Open Orders", section: "open_docs", path: "Bridge batch -> ROS open-doc import -> PostgreSQL" },
-	          { label: "Gift Cards", section: "gift_cards", path: "Bridge batch -> ROS gift-card import -> PostgreSQL" },
-	          { label: "Loyalty Points", section: "loyalty_hist", path: "Bridge batch -> ROS loyalty import -> PostgreSQL" },
+	          { label: "Customers", section: "customers", path: "Bridge -> ROS customer import -> PostgreSQL" },
+	          { label: "Inventory", section: "inventory", path: "Bridge -> ROS inventory import -> PostgreSQL" },
+	          { label: "Ticket History / Sales Movement", section: "tickets", path: "Bridge -> ROS sales history import -> PostgreSQL" },
+	          { label: "Open Orders", section: "open_docs", path: "Bridge -> ROS open-doc import -> PostgreSQL" },
+	          { label: "Gift Cards", section: "gift_cards", path: "Bridge -> ROS gift-card import -> PostgreSQL" },
+	          { label: "Loyalty Points", section: "loyalty_hist", path: "Bridge -> ROS loyalty import -> PostgreSQL" },
           ].map((item) => (
               <div key={item.section} className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -1530,175 +772,6 @@ export default function CounterpointSyncSettingsPanel({
               </div>
           ))}
         </div>
-      </div>
-
-      {stagingSummaryRows.length > 0 ? (
-        <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-200">
-            ROS support queue diagnostics
-          </p>
-          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {stagingSummaryRows.map((row) => {
-              const queuedRows = row.pending_rows + row.applying_rows;
-              return (
-                <div key={row.entity} className="rounded-md border border-app-border bg-app-bg/70 p-3 text-xs">
-                  <p className="font-black text-app-text">{formatEntityLabel(row.entity)}</p>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        Queued in ROS support queue
-                      </p>
-                      <p className="mt-1 font-black tabular-nums text-app-text">{fmtNum(queuedRows)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        Applied from ROS support queue
-                      </p>
-                      <p className="mt-1 font-black tabular-nums text-app-text">{fmtNum(row.applied_rows)}</p>
-                    </div>
-                  </div>
-                  {queuedRows > 0 ? (
-                    <p className="mt-2 font-semibold text-amber-700 dark:text-amber-200">
-                      No live write has happened yet.
-                    </p>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Support Diagnostics
-            </p>
-            <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              Support-only diagnostics for ROS staging and import state. Use current ROS proof and open exceptions for import sign-off.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void fetchBatches()}
-            className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Reload
-          </button>
-        </div>
-        <div className="mt-3 overflow-auto rounded-lg border border-app-border">
-          <table className="w-full min-w-[760px] text-left text-xs">
-            <thead className="bg-app-surface-2">
-              <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                <th className="px-3 py-2">Batch</th>
-                <th className="px-3 py-2">Entity</th>
-                <th className="px-3 py-2 text-right">Rows</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Replay</th>
-                <th className="px-3 py-2">Recovered</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-app-border">
-              {batches.map((batch) => (
-                <tr
-                  key={batch.id}
-                  className="cursor-pointer hover:bg-app-surface-2/60"
-                  onClick={() => setSelectedBatchId(batch.id)}
-                >
-                  <td className="px-3 py-2 font-mono font-bold text-app-text">{batch.id}</td>
-                  <td className="px-3 py-2">{formatEntityLabel(batch.entity)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{fmtNum(batch.row_count)}</td>
-                  <td className="px-3 py-2">{batchStatusLabel(batch)}</td>
-                  <td className="px-3 py-2">
-                    {batch.replay_count > 0 ? `Replay suppressed x${batch.replay_count}` : "No replay"}
-                  </td>
-                  <td className="px-3 py-2">
-                    {batch.recovered_at ? `Recovered by ${batch.recovered_by_staff_name ?? "staff"}` : "Not recovered"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {batches.length === 0 ? (
-            <div className="p-4 text-xs font-semibold text-app-text-muted">
-              No staged batches are waiting for review.
-            </div>
-          ) : null}
-        </div>
-        {selectedBatch ? (
-          <div className="mt-3 rounded-lg border border-app-border bg-app-surface-2/40 p-3 text-xs">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-	              <div>
-	                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-	                  Selected ROS staging batch
-	                </p>
-	                <p className="mt-1 font-semibold text-app-text">
-	                  {batchStatusLabel(selectedBatch)}
-	                </p>
-	              </div>
-	              <div className="flex flex-wrap gap-2">
-	                {selectedBatch.status === "pending" ? (
-	                  <>
-	                    <button
-	                      type="button"
-	                      onClick={() => void applyStagingBatch(selectedBatch)}
-	                      disabled={batchActionBusy != null}
-	                      className="ui-btn-primary px-3 py-2 text-xs font-bold disabled:opacity-50"
-	                    >
-	                      {batchActionBusy === `apply:${selectedBatch.id}` ? "Applying..." : "Apply Batch"}
-	                    </button>
-	                    <button
-	                      type="button"
-	                      onClick={() => void discardStagingBatch(selectedBatch)}
-	                      disabled={batchActionBusy != null}
-	                      className="ui-btn-secondary px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10 disabled:opacity-50"
-	                    >
-	                      {batchActionBusy === `discard:${selectedBatch.id}` ? "Discarding..." : "Discard"}
-	                    </button>
-	                  </>
-	                ) : null}
-	              {isStaleApplyingBatch(selectedBatch) ? (
-	                <button
-	                  type="button"
-	                  onClick={() => setRecoverBatch(selectedBatch)}
-	                  disabled={batchActionBusy != null}
-	                  className="ui-btn-secondary px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10 disabled:opacity-50"
-	                >
-	                  Mark stale apply failed
-	                </button>
-	              ) : null}
-	              </div>
-	            </div>
-	            <div className="mt-3 grid gap-2 md:grid-cols-2">
-	              <p>Entity: {formatEntityLabel(selectedBatch.entity)}</p>
-	              <p>Rows: {fmtNum(selectedBatch.row_count)}</p>
-	              <p>Replay visibility: {selectedBatch.replay_count > 0 ? `Replay suppressed x${selectedBatch.replay_count}` : "No replay"}</p>
-	              <p>Recovery guidance: {isStaleApplyingBatch(selectedBatch) ? "Stale apply can be marked failed after support review." : "No recovery action needed."}</p>
-	              <p>Live write result: {selectedBatch.applied_at ? `Applied ${formatDate(selectedBatch.applied_at)}` : "Not applied"}</p>
-	              <p>Payload fingerprint: {selectedBatch.payload_fingerprint ?? "not captured"}</p>
-	            </div>
-	            {selectedBatch.apply_error ? (
-	              <p className="mt-3 font-semibold text-red-600">
-	                Apply error: {selectedBatch.apply_error}
-	              </p>
-	            ) : null}
-            {isStaleApplyingBatch(selectedBatch) ? (
-              <div className="mt-3 space-y-1 font-semibold text-amber-700 dark:text-amber-200">
-                <p>Safe recovery is available.</p>
-                <p>Next safe action: Recovery review.</p>
-                <p>Apply is active; wait before taking recovery action unless the claim is stale.</p>
-                <p>Only stale recovery is available for this batch.</p>
-              </div>
-            ) : null}
-            {selectedBatch.recovery_reason ? (
-              <p className="mt-3 font-semibold text-app-text">
-                Recovery note: {selectedBatch.recovery_reason}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
       </div>
 
       <div className={`rounded-lg border p-3 text-xs ${
@@ -1771,7 +844,19 @@ export default function CounterpointSyncSettingsPanel({
                         ? "bg-red-500/10 text-red-600"
                         : "bg-amber-500/15 text-amber-700 dark:text-amber-200"
                   }`}>
-                    {row.ready ? "Ready" : !row.required ? "Optional" : row.status === "blocked" ? "Blocked" : formatEntityLabel(row.landedStatus)}
+                    {row.ready
+                      ? row.appliedRows > 0
+                        ? "Applied from ROS support queue"
+                        : "Ready"
+                      : row.queuedRows > 0
+                        ? "Queued in ROS support queue"
+                        : row.sentByBridge > 0
+                          ? "No live write has happened yet."
+                          : !row.required
+                            ? "Optional"
+                            : row.status === "blocked"
+                              ? "Blocked"
+                              : formatEntityLabel(row.landedStatus)}
                   </span>
                 </td>
               </tr>
@@ -1799,10 +884,10 @@ export default function CounterpointSyncSettingsPanel({
                   </p>
                   <button
                     type="button"
-                    onClick={() => void resolveImportException(row.id)}
+                    onClick={() => void recheckImportException(row.id)}
                     className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
                   >
-                    Resolve
+                    Recheck
                   </button>
                 </div>
                 <p className="mt-1 text-app-text-muted">{row.message}</p>
@@ -1826,7 +911,7 @@ export default function CounterpointSyncSettingsPanel({
             Counterpoint Import Command Center
           </h3>
           <p className="mt-1 text-xs text-app-text-muted max-w-3xl">
-            Run the Bridge import, review ROS proof, then use CSV and AI tools only for post-import cleanup.
+            Run the Bridge import, review ROS proof, resolve exceptions, and confirm readiness.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1841,21 +926,12 @@ export default function CounterpointSyncSettingsPanel({
           </button>
           <button
             type="button"
-            onClick={() => setWorkspaceView("ai_review")}
-            className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
-              workspaceView === "ai_review" ? "ring-2 ring-app-accent/30" : ""
-            }`}
-          >
-            2 CSV Cleanup
-          </button>
-          <button
-            type="button"
             onClick={() => setWorkspaceView("customer_duplicates")}
             className={`ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold ${
               workspaceView === "customer_duplicates" ? "ring-2 ring-app-accent/30" : ""
             }`}
           >
-            3 Customer Duplicates
+            2 Customer Duplicates
           </button>
           <button
             type="button"
@@ -1898,7 +974,7 @@ export default function CounterpointSyncSettingsPanel({
               <button
                 type="button"
                 onClick={() => {
-                  const text = JSON.stringify({ status, commandCenter, batches }, null, 2);
+                  const text = JSON.stringify({ status, commandCenter, importExceptions }, null, 2);
                   void navigator.clipboard?.writeText(text).catch(() => undefined);
                 }}
                 className="ui-btn-secondary px-3 py-2 text-xs font-bold"
@@ -1923,7 +999,7 @@ export default function CounterpointSyncSettingsPanel({
             <div className="mt-3 grid gap-2 md:grid-cols-4">
               <p>{bridgeRuntimeState === "offline" ? "Browser cannot reach Bridge controls" : "Browser can reach Bridge controls"}</p>
               <p>Current import run</p>
-              <p>{(status?.staging_pending_count ?? batches.length) > 0 ? "Pending apply" : "No pending apply"}</p>
+              <p>{commandNotReadyTotal > 0 ? "Proof needs review" : "Proof ready"}</p>
               <p>{recentIssueCount > 0 || bridgeRowsWithoutReviewSurface ? "Support review needed" : "Support review clear"}</p>
             </div>
           </div>
@@ -1940,12 +1016,9 @@ export default function CounterpointSyncSettingsPanel({
               </div>
             </div>
 
-            {(status?.staging_pending_count ?? 0) > 0 || recentIssueCount > 0 || bridgeRowsWithoutReviewSurface ? (
+            {recentIssueCount > 0 || bridgeRowsWithoutReviewSurface ? (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs font-semibold text-amber-700 dark:text-amber-200">
                 <p className="font-black">Sign-off blockers present</p>
-                {(status?.staging_pending_count ?? 0) > 0 ? (
-                  <p>{fmtNum(status?.staging_pending_count ?? 0)} ROS support queue batch(es) are pending review.</p>
-                ) : null}
                 {recentIssueCount > 0 ? <p>{fmtNum(recentIssueCount)} unresolved sync issue(s) remain.</p> : null}
                 {missingProofEntityCount > 0 ? (
                   <p>{fmtNum(missingProofEntityCount)} entity row(s) have bridge-reported counts without ROS landed proof.</p>
@@ -2006,24 +1079,6 @@ export default function CounterpointSyncSettingsPanel({
                 </tbody>
               </table>
             </div>
-
-            <RosieInsightSummary
-              surface="counterpoint_status"
-              title="Counterpoint Sign-Off"
-              mode="explain"
-              getHeaders={headers}
-              facts={{
-                title: "Counterpoint Sign-Off",
-                bullets: [
-                  { id: "bridge_rows", label: `${fmtNum(bridgeReportedRows)} bridge rows sent`, severity: "info" },
-                  { id: "ros_landed", label: `${fmtNum(commandLandedTotal)} ROS rows landed`, severity: "info" },
-                  { id: "pending", label: `${fmtNum(status?.staging_pending_count ?? 0)} ROS support queue batch(es) pending`, severity: "warning" },
-                ],
-                disclaimers: [
-                  "Do not approve sign-off or declare cutover safe from ROSIE output. Staff must use deterministic proof first.",
-                ],
-              }}
-            />
           </div>
         </section>
       ) : null}
@@ -2058,417 +1113,6 @@ export default function CounterpointSyncSettingsPanel({
           />
         </section>
       ) : null}
-
-      {workspaceView === "ai_review" ? (
-      <section className="ui-card p-5 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h4 className="text-sm font-black uppercase tracking-wide text-app-text">
-              Counterpoint CSV Cleanup Review
-            </h4>
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Post-import CSV references
-            </h4>
-            <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
-              After Bridge import data lands in ROS, load the Lightspeed and Counterpoint CSV references, generate a cleanup pack, review the returned JSON, then apply only staff-approved catalog cleanup.
-            </p>
-          </div>
-          <span className="ui-pill bg-amber-500/15 text-[10px] text-amber-700 dark:text-amber-200">
-            Post-import cleanup
-          </span>
-        </div>
-
-        <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                CSV reference sources
-              </p>
-              <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
-                Load the CSV files, then generate a cleanup pack. Inventory quantities still come from Counterpoint SQL; CSV files only help compare names, SKUs, categories, and cleanup suggestions.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                void fetchDsHealth();
-                void fetchMergePreview();
-              }}
-              disabled={mergeLoading}
-              className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${mergeLoading ? "animate-spin" : ""}`} />
-              Refresh References
-            </button>
-          </div>
-
-          <input
-            ref={lsFileRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              void handleCsvUpload(file, "lightspeed");
-              event.target.value = "";
-            }}
-          />
-          <input
-            ref={cpFileRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              void handleCsvUpload(file, "counterpoint");
-              event.target.value = "";
-            }}
-          />
-
-          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
-              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Imported catalog</p>
-              <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmtNum(dsHealth?.bridge_products ?? 0)}</p>
-              <p className="text-[10px] font-semibold text-app-text-muted">ROS imported products</p>
-            </div>
-            <div className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
-              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Lightspeed CSV</p>
-              <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmtNum(dsHealth?.lightspeed_rows ?? 0)}</p>
-              <p className="truncate text-[10px] font-semibold text-app-text-muted">{dsHealth?.lightspeed_file ?? "No file loaded"}</p>
-            </div>
-            <div className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
-              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Counterpoint CSV</p>
-              <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmtNum(dsHealth?.cp_csv_rows ?? 0)}</p>
-              <p className="truncate text-[10px] font-semibold text-app-text-muted">{dsHealth?.cp_csv_file ?? "No file loaded"}</p>
-            </div>
-            <div className="rounded-md border border-app-border bg-app-surface-2/40 p-3">
-              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Compare issues</p>
-              <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                {fmtNum((mergePreview?.name_conflicts ?? 0) + (mergePreview?.category_conflicts ?? 0) + (mergePreview?.price_conflicts ?? 0))}
-              </p>
-              <p className="text-[10px] font-semibold text-app-text-muted">
-                {fmtNum(mergePreview?.conflicts.length ?? 0)} sampled conflicts
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => lsFileRef.current?.click()}
-              disabled={csvUploading != null}
-              className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              Load Lightspeed CSV
-            </button>
-            <button
-              type="button"
-              onClick={() => cpFileRef.current?.click()}
-              disabled={csvUploading != null}
-              className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              Load Counterpoint CSV
-            </button>
-            {csvUploading ? (
-              <span className="text-xs font-semibold text-app-text-muted">
-                {csvUploadStatus ?? `Uploading ${csvUploading} CSV...`} {csvUploadProgress > 0 ? `${csvUploadProgress}%` : ""}
-              </span>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
-          <div className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-              <label className="block">
-                <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                  Pack scope
-                </span>
-                <select
-                  className="ui-input mt-1 text-xs"
-                  value={reviewScope}
-                  onChange={(e) => setReviewScope(e.target.value)}
-                >
-                  {(reviewScopes.length > 0 ? reviewScopes : [{ scope: "inventory_catalog", label: "Inventory Catalog", description: "", fully_functional: true, apply_supported: true, allowed_actions: [] }]).map((scope) => (
-                    <option key={scope.scope} value={scope.scope}>
-                      {scope.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                onClick={() => void generateReviewPack()}
-                disabled={reviewBusy === "generate"}
-                className="ui-btn-primary mt-4 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold disabled:opacity-50 md:mt-5"
-              >
-                {reviewBusy === "generate" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
-                Generate Pack
-              </button>
-            </div>
-
-            {selectedReviewScope ? (
-              <div className="rounded-lg border border-app-border bg-app-surface-2/40 p-3 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-bold text-app-text">{selectedReviewScope.label}</span>
-                  <span className={`ui-pill text-[9px] ${selectedReviewScope.fully_functional ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200" : "bg-app-surface-2 text-app-text-muted"}`}>
-                    {selectedReviewScope.fully_functional ? "Full export" : "Summary scaffold"}
-                  </span>
-                  <span className={`ui-pill text-[9px] ${selectedReviewScope.apply_supported ? "bg-blue-500/10 text-blue-700 dark:text-blue-200" : "bg-amber-500/15 text-amber-700 dark:text-amber-200"}`}>
-                    {selectedReviewScope.apply_supported ? "Safe apply available" : "Review-only apply"}
-                  </span>
-                </div>
-                <p className="mt-2 text-app-text-muted">{selectedReviewScope.description}</p>
-              </div>
-            ) : null}
-
-            <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    Generated packs
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                    {reviewPacks.length > 0 ? `${fmtNum(reviewPacks.length)} pack(s) available` : "No review packs generated yet"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void fetchReviewPacks()}
-                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Reload Packs
-                </button>
-              </div>
-
-              <select
-                className="ui-input mt-3 text-xs"
-                value={selectedReviewPackId}
-                onChange={(e) => setSelectedReviewPackId(e.target.value)}
-                disabled={reviewPacks.length === 0}
-              >
-                {reviewPacks.length === 0 ? (
-                  <option value="">No packs generated</option>
-                ) : (
-                  reviewPacks.map((pack) => (
-                    <option key={pack.pack_id} value={pack.pack_id}>
-                      {formatEntityLabel(pack.scope)} - {fmtNum(pack.row_count)} rows - {formatDate(pack.generated_at)}
-                    </option>
-                  ))
-                )}
-              </select>
-
-              {selectedReviewPack ? (
-                <div className="mt-3 grid gap-2 text-xs md:grid-cols-3">
-                  <div className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Rows</p>
-                    <p className="mt-1 font-bold text-app-text">{fmtNum(selectedReviewPack.row_count)}</p>
-                  </div>
-                  <div className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Status</p>
-                    <p className="mt-1 font-bold text-app-text">{formatEntityLabel(selectedReviewPack.status)}</p>
-                  </div>
-                  <div className="rounded-md border border-app-border bg-app-surface-2/40 p-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Generated</p>
-                    <p className="mt-1 font-bold text-app-text">{formatDate(selectedReviewPack.generated_at)}</p>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void downloadReviewPack(selectedReviewPackId)}
-                  disabled={!selectedReviewPackId || reviewBusy === "download"}
-                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  Download JSON
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void copyReviewPrompt(selectedReviewPackId)}
-                  disabled={!selectedReviewPackId || reviewBusy === "prompt"}
-                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
-                >
-                  <ClipboardCopy className="h-3.5 w-3.5" />
-                  Copy Prompt
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void fetchReviewSuggestions(selectedReviewPackId)}
-                  disabled={!selectedReviewPackId}
-                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Refresh Suggestions
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    Import reviewed JSON
-                  </p>
-                  <p className="mt-1 text-xs text-app-text-muted">
-                    Source hash, row keys, actions, categories, confidence, and forbidden fields are validated before suggestions are saved for staff review.
-                  </p>
-                </div>
-                <input
-                  ref={reviewImportFileRef}
-                  type="file"
-                  accept="application/json,.json"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    void file.text().then(setReviewImportText);
-                    e.target.value = "";
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => reviewImportFileRef.current?.click()}
-                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  Upload JSON
-                </button>
-              </div>
-              <textarea
-                className="ui-input mt-3 min-h-[108px] resize-y text-xs font-mono"
-                value={reviewImportText}
-                onChange={(e) => setReviewImportText(e.target.value)}
-                placeholder='{"schema":"riverside_counterpoint_review_results","schema_version":1,...}'
-              />
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                {reviewError ? (
-                  <span className="text-xs font-semibold text-red-600">{reviewError}</span>
-                ) : (
-                  <span className="text-xs text-app-text-muted">Invalid imports are rejected and logged.</span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void importReviewResults()}
-                  disabled={reviewBusy === "import" || !reviewImportText.trim()}
-                  className="ui-btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold disabled:opacity-50"
-                >
-                  {reviewBusy === "import" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  Import Results
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    Suggestions review
-                  </p>
-                  <p className="mt-1 text-xs text-app-text-muted">
-                    {reviewSuggestions.length > 0
-                      ? `${fmtNum(reviewSuggestions.length)} saved, ${fmtNum(acceptedReviewSuggestionCount)} accepted`
-                      : "No imported suggestions for this pack"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void applyApprovedReviewSuggestions()}
-                  disabled={!selectedPackScope?.apply_supported || acceptedReviewSuggestionCount === 0 || reviewBusy === "apply"}
-                  className="ui-btn-primary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  Apply Approved
-                </button>
-              </div>
-
-              <div className="mt-3 max-h-[280px] overflow-auto rounded-lg border border-app-border">
-                <table className="w-full min-w-[760px] text-left text-xs">
-                  <thead className="sticky top-0 bg-app-surface-2">
-                    <tr className="border-b border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      <th className="px-2 py-2">Action</th>
-                      <th className="px-2 py-2">Row</th>
-                      <th className="px-2 py-2">Suggested Value</th>
-                      <th className="px-2 py-2">Confidence</th>
-                      <th className="px-2 py-2">Status</th>
-                      <th className="px-2 py-2">Decision</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border">
-                    {reviewSuggestions.map((suggestion) => (
-                      <tr key={suggestion.id}>
-                        <td className="px-2 py-2">
-                          <p className="font-bold text-app-text">{formatEntityLabel(suggestion.action)}</p>
-                          <p className="text-[10px] text-app-text-muted">{suggestion.field_name ?? "flag"}</p>
-                        </td>
-                        <td className="px-2 py-2 font-mono text-[10px] text-app-text-muted">{suggestion.row_key}</td>
-                        <td className="px-2 py-2">
-                          <input
-                            className="ui-input min-w-[180px] text-[11px]"
-                            value={reviewSuggestionEdits[suggestion.id] ?? reviewValueToText(suggestion.suggested_value)}
-                            onChange={(e) =>
-                              setReviewSuggestionEdits((prev) => ({
-                                ...prev,
-                                [suggestion.id]: e.target.value,
-                              }))
-                            }
-                          />
-                          <p className="mt-1 line-clamp-2 text-[10px] text-app-text-muted">{suggestion.reason}</p>
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">{formatConfidence(suggestion.confidence)}</td>
-                        <td className="px-2 py-2">
-                          <span className={`ui-pill text-[9px] ${
-                            suggestion.status === "applied"
-                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
-                              : suggestion.status === "blocked" || suggestion.status === "rejected"
-                                ? "bg-red-500/10 text-red-600"
-                                : suggestion.status === "accepted"
-                                  ? "bg-blue-500/10 text-blue-700 dark:text-blue-200"
-                                  : "bg-app-surface-2 text-app-text-muted"
-                          }`}>
-                            {formatEntityLabel(suggestion.status)}
-                          </span>
-                        </td>
-                        <td className="px-2 py-2">
-                          <div className="flex flex-wrap gap-1">
-                            {["accept", "reject", "edit", "block"].map((action) => (
-                              <button
-                                key={action}
-                                type="button"
-                                onClick={() => void updateReviewSuggestion(suggestion, action)}
-                                disabled={reviewBusy === suggestion.id || suggestion.status === "applied"}
-                                className="ui-btn-secondary px-2 py-1 text-[10px] font-bold disabled:opacity-50"
-                              >
-                                {formatEntityLabel(action)}
-                              </button>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {reviewSuggestions.length === 0 ? (
-                  <div className="p-4 text-xs text-app-text-muted">
-                    Download a pack, review it manually, then import the returned JSON suggestions.
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-      ) : null}
-
 
       {(bridgeRowsWithoutReviewSurface || downstreamReviewBlockers.length > 0) && (
         <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-4">
@@ -2515,21 +1159,9 @@ export default function CounterpointSyncSettingsPanel({
           return success;
         }}
         title="Wipe & Reset Migration?"
-        message={`This will completely delete all Counterpoint products, variants, closed tickets, deposits, gift cards, and staged batch queues. This action is irreversible.\n\nTo proceed, type: ${resetPreview?.confirmation_phrase ?? "RESET"}`}
+        message={`This will completely delete all Counterpoint products, variants, closed tickets, deposits, gift cards, import proof, and import exceptions. This action is irreversible.\n\nTo proceed, type: ${resetPreview?.confirmation_phrase ?? "RESET"}`}
         confirmLabel="Wipe ROS Data"
         placeholder="Enter confirmation phrase"
-      />
-      <ConfirmationModal
-        isOpen={recoverBatch != null}
-        onClose={() => setRecoverBatch(null)}
-        onConfirm={() => {
-          if (recoverBatch) void recoverStaleBatch(recoverBatch);
-        }}
-        title="Mark stale apply failed?"
-        message="This marks the stale Counterpoint apply claim failed for operator review. It does not replay the payload."
-        confirmLabel="Mark failed"
-        variant="danger"
-        loading={recoveryBusy}
       />
     </div>
   );

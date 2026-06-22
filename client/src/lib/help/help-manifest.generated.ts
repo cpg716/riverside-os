@@ -459,7 +459,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "settings-counterpoint-sync-settings-panel",
     title: "Counterpoint Import and Sign-Off",
-    summary: "Connect the Counterpoint Bridge to Main Hub ROS, import data, use CSV cleanup, apply reviewed changes, and review proof.",
+    summary: "Connect the Counterpoint Bridge to Main Hub ROS, import data, resolve exceptions, review duplicates, and confirm go-live proof.",
     markdown: manual_55_raw,
     tags: ["settings-counterpoint-sync-settings-panel","counterpoint","bridge","import","signoff"],
   },

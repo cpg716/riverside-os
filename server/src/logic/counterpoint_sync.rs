@@ -186,6 +186,14 @@ pub struct CounterpointImportBatchProofSummary {
     pub exception_records: i64,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CounterpointImportExceptionResolveResult {
+    pub resolved: bool,
+    pub reason: String,
+    pub ros_table: Option<String>,
+    pub ros_id: Option<Uuid>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CounterpointCustomerRow {
     /// Becomes `customers.customer_code` (Counterpoint `CUST_NO`).
@@ -5667,6 +5675,8 @@ fn import_provenance_target_for_source_count(
         "inventory_quantity_rows"
         | "inventory_quantity_rows_matched"
         | "inventory_quantity_cost_fields" => Some(("inventory", Some("product_variants"))),
+        "inventory" => Some(("inventory", Some("product_variants"))),
+        "catalog" => Some(("catalog", None)),
         "gift_cards" | "gift_card_current_balances" => Some(("gift_cards", Some("gift_cards"))),
         "tickets" | "closed_ticket_history" => Some(("tickets", Some("transactions"))),
         "ticket_lines" | "closed_ticket_lines" => Some(("tickets", Some("transaction_lines"))),
@@ -5702,7 +5712,7 @@ async fn import_run_landed_count_for_source_count(
         Some(table) => {
             sqlx::query_scalar(
                 r#"
-                SELECT COUNT(DISTINCT ros_id)::bigint
+                SELECT COUNT(DISTINCT source_key)::bigint
                 FROM counterpoint_import_provenance
                 WHERE import_run_id = $1
                   AND entity_key = $2
@@ -5957,13 +5967,125 @@ pub async fn resolve_counterpoint_import_exception(
     pool: &PgPool,
     exception_id: Uuid,
     staff_id: Option<Uuid>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<Option<CounterpointImportExceptionResolveResult>, sqlx::Error> {
+    let row: Option<(
+        Option<Uuid>,
+        String,
+        Option<String>,
+        bool,
+        Option<String>,
+        Option<Uuid>,
+        String,
+    )> = sqlx::query_as(
+        r#"
+        SELECT import_run_id, entity_key, source_key, fallback_landed,
+               ros_table, ros_id, status
+        FROM counterpoint_import_exceptions
+        WHERE id = $1
+        "#,
+    )
+    .bind(exception_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((
+        import_run_id,
+        entity_key,
+        source_key,
+        fallback_landed,
+        existing_ros_table,
+        existing_ros_id,
+        status,
+    )) = row
+    else {
+        return Ok(None);
+    };
+
+    if status != "open" {
+        return Ok(Some(CounterpointImportExceptionResolveResult {
+            resolved: true,
+            reason: "Exception was already closed.".into(),
+            ros_table: existing_ros_table,
+            ros_id: existing_ros_id,
+        }));
+    }
+
+    if fallback_landed && existing_ros_table.is_some() && existing_ros_id.is_some() {
+        sqlx::query(
+            r#"
+            UPDATE counterpoint_import_exceptions
+            SET status = 'resolved',
+                resolved_by_staff_id = $2,
+                resolved_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $1
+              AND status = 'open'
+            "#,
+        )
+        .bind(exception_id)
+        .bind(staff_id)
+        .execute(pool)
+        .await?;
+        return Ok(Some(CounterpointImportExceptionResolveResult {
+            resolved: true,
+            reason: "Fallback-landed row already has ROS linkage.".into(),
+            ros_table: existing_ros_table,
+            ros_id: existing_ros_id,
+        }));
+    }
+
+    let Some(source_key) = source_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(Some(CounterpointImportExceptionResolveResult {
+            resolved: false,
+            reason: "This exception has no Counterpoint source key. Fix the source batch error and rerun the import area before closing it.".into(),
+            ros_table: existing_ros_table,
+            ros_id: existing_ros_id,
+        }));
+    };
+
+    let (provenance_entity, ros_table_filter) =
+        import_provenance_target_for_source_count(&entity_key)
+            .unwrap_or((entity_key.as_str(), None));
+    let landed: Option<(String, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT ros_table, ros_id
+        FROM counterpoint_import_provenance
+        WHERE ($1::uuid IS NULL OR import_run_id = $1)
+          AND entity_key = $2
+          AND source_key = $3
+          AND ($4::text IS NULL OR ros_table = $4)
+        ORDER BY imported_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(import_run_id)
+    .bind(provenance_entity)
+    .bind(source_key)
+    .bind(ros_table_filter)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((ros_table, ros_id)) = landed else {
+        return Ok(Some(CounterpointImportExceptionResolveResult {
+            resolved: false,
+            reason: "ROS still has no landed row for this Counterpoint source key. Correct the mapping/source row, then rerun this import area and recheck.".into(),
+            ros_table: existing_ros_table,
+            ros_id: existing_ros_id,
+        }));
+    };
+
     let result = sqlx::query(
         r#"
         UPDATE counterpoint_import_exceptions
         SET status = 'resolved',
             resolved_by_staff_id = $2,
             resolved_at = NOW(),
+            ros_table = $3,
+            ros_id = $4,
             updated_at = NOW()
         WHERE id = $1
           AND status = 'open'
@@ -5971,9 +6093,16 @@ pub async fn resolve_counterpoint_import_exception(
     )
     .bind(exception_id)
     .bind(staff_id)
+    .bind(&ros_table)
+    .bind(ros_id)
     .execute(pool)
     .await?;
-    Ok(result.rows_affected() > 0)
+    Ok(Some(CounterpointImportExceptionResolveResult {
+        resolved: result.rows_affected() > 0,
+        reason: "Counterpoint source row now has ROS landed provenance and was closed.".into(),
+        ros_table: Some(ros_table),
+        ros_id: Some(ros_id),
+    }))
 }
 
 async fn record_counterpoint_import_exception(

@@ -1,6 +1,10 @@
 //! HTTP API (Axum): maps domain types to JSON and status codes for the Tauri POS.
 
-use axum::{routing::get, Json, Router};
+use axum::{
+    http::{StatusCode, Uri},
+    routing::{any, get},
+    Json, Router,
+};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use sqlx::PgPool;
@@ -11,7 +15,6 @@ pub mod ai;
 pub mod alterations;
 pub mod bug_reports;
 pub mod categories;
-pub mod counterpoint_review_packs;
 pub mod counterpoint_sync;
 pub mod counterpoint_workbench;
 pub mod customer_notifications;
@@ -75,6 +78,22 @@ async fn api_version() -> Json<ApiVersionResponse> {
         version: env!("CARGO_PKG_VERSION"),
         component: "server",
     })
+}
+
+#[derive(Serialize)]
+struct ApiNotFoundResponse {
+    error: &'static str,
+    path: String,
+}
+
+async fn api_not_found(uri: Uri) -> (StatusCode, Json<ApiNotFoundResponse>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(ApiNotFoundResponse {
+            error: "api_route_not_found",
+            path: uri.path().to_string(),
+        }),
+    )
 }
 
 #[derive(Serialize)]
@@ -297,6 +316,8 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
     ) {
         router = router.nest("/api/test-support", test_support::router());
     }
+
+    router = router.route("/api/{*path}", any(api_not_found));
 
     // Add rate limiting middleware (IP-based only for now)
     router.layer(axum::middleware::from_fn_with_state(

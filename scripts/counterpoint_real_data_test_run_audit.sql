@@ -131,26 +131,7 @@ WHERE status = 'applying'
 ORDER BY apply_started_at;
 
 \echo ''
-\echo '3. Review pack and apply readiness'
-SELECT scope, status, COUNT(*) AS pack_count, COALESCE(SUM(row_count), 0) AS row_count, MAX(generated_at) AS latest_generated_at
-FROM counterpoint_review_packs
-GROUP BY scope, status
-ORDER BY scope, status;
-
-SELECT scope, status, COUNT(*) AS suggestion_count
-FROM counterpoint_ai_review_suggestions
-GROUP BY scope, status
-ORDER BY scope, status;
-
-\echo 'Expected zero rows: review-only suggestions applied'
-SELECT id, pack_id, row_key, scope, action, field_name, applied_at
-FROM counterpoint_ai_review_suggestions
-WHERE status = 'applied'
-  AND scope <> 'inventory_catalog'
-ORDER BY applied_at DESC;
-
-\echo ''
-\echo '4. Post-sync operational smoke readiness'
+\echo '3. Post-sync operational smoke readiness'
 SELECT
     COUNT(DISTINCT p.id) AS counterpoint_products,
     COUNT(pv.id) AS counterpoint_variants,
@@ -210,7 +191,7 @@ SELECT
 FROM vendors;
 
 \echo ''
-\echo '5. Audit, rollback, and reconciliation proof'
+\echo '4. Audit, rollback, and reconciliation proof'
 SELECT status, COUNT(*) AS batch_count, COALESCE(SUM(row_count), 0) AS row_count, MIN(created_at) AS oldest_at, MAX(created_at) AS newest_at
 FROM counterpoint_staging_batch
 GROUP BY status
@@ -242,7 +223,7 @@ HAVING COUNT(*) > 1
 ORDER BY ref_type, row_count DESC, ref;
 
 \echo ''
-\echo '6. POS sale flow with Counterpoint-ingested items'
+\echo '5. POS sale flow with Counterpoint-ingested items'
 WITH imported_sales AS (
     SELECT DISTINCT t.id
     FROM transactions t
@@ -299,7 +280,7 @@ ORDER BY t.booked_at DESC
 LIMIT 50;
 
 \echo ''
-\echo '7. Register close and drawer reconciliation'
+\echo '6. Register close and drawer reconciliation'
 SELECT
     id,
     register_lane,
@@ -337,7 +318,7 @@ WHERE sync_date = :'audit_date'::date
 ORDER BY created_at DESC;
 
 \echo ''
-\echo '8. Register inventory and fulfillment impact'
+\echo '7. Register inventory and fulfillment impact'
 SELECT
     pv.id AS variant_id,
     pv.sku,
@@ -389,7 +370,7 @@ WHERE it.reference_table = 'transaction_lines'
 ORDER BY it.created_at DESC;
 
 \echo ''
-\echo '9. QBO staging from real register activity'
+\echo '8. QBO staging from real register activity'
 SELECT
     id,
     sync_date,
@@ -421,7 +402,7 @@ WHERE COALESCE(booked_at, created_at)::date = :'audit_date'::date
   AND is_counterpoint_import = false;
 
 \echo ''
-\echo '10. QBO sync safety and reconciliation'
+\echo '9. QBO sync safety and reconciliation'
 SELECT
     COUNT(*) FILTER (WHERE status = 'pending') AS pending_rows,
     COUNT(*) FILTER (WHERE status = 'approved') AS approved_rows,
@@ -474,7 +455,6 @@ WITH bridge_proof_gaps AS (
         UNION ALL SELECT 'loyalty_hist', COUNT(*)::bigint FROM customers WHERE customer_created_source = 'counterpoint' AND COALESCE(loyalty_points, 0) <> 0
         UNION ALL SELECT 'tickets', COUNT(*)::bigint FROM transactions WHERE counterpoint_ticket_ref IS NOT NULL
         UNION ALL SELECT 'open_docs', COUNT(*)::bigint FROM transactions WHERE counterpoint_doc_ref IS NOT NULL
-        UNION ALL SELECT 'receiving', COUNT(*)::bigint FROM counterpoint_receiving_history
     )
     SELECT COUNT(*) AS gap_count
     FROM counterpoint_sync_runs r
@@ -515,11 +495,6 @@ blockers AS (
     SELECT 'unresolved_counterpoint_sync_issues', COUNT(*)::text || ' unresolved sync issue(s) remain.'
     FROM counterpoint_sync_issue
     WHERE resolved = false
-    HAVING COUNT(*) > 0
-    UNION ALL
-    SELECT 'review_only_suggestions_applied', COUNT(*)::text || ' review-only suggestion(s) were applied.'
-    FROM counterpoint_ai_review_suggestions
-    WHERE status = 'applied' AND scope <> 'inventory_catalog'
     HAVING COUNT(*) > 0
     UNION ALL
     SELECT 'no_imported_item_register_sale', 'No current ROS sale with Counterpoint-ingested item exists for audit_date.'

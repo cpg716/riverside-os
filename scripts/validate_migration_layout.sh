@@ -85,6 +85,13 @@ expected=(
   "079_counterpoint_transition_review_packs.sql"
   "080_counterpoint_payment_method_aliases.sql"
   "081_counterpoint_import_first_proof.sql"
+  "082_loyalty_reward_threshold_floor.sql"
+  "083_staff_schedule_requests_and_appointment_identity.sql"
+  "084_staff_birthdays_notifications.sql"
+  "085_rosie_read_tool_audit.sql"
+  "086_rosie_tool_gap_log.sql"
+  "087_open_deposit_ledger_sources.sql"
+  "088_drop_counterpoint_review_pack_tables.sql"
 )
 
 active=()
@@ -143,4 +150,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-081."
+echo "Migration layout OK: active baseline 001-088."

@@ -20,7 +20,7 @@ Since v0.7.3, the bridge uses a high-concurrency parallel engine:
 | `ROS_BASE_URL` | Main Hub ROS target, e.g. `http://10.64.70.154:3000` |
 Normal setup keeps `.env` to connection and target values only. The bridge derives the entity SQL at runtime from `INFORMATION_SCHEMA`.
 
-In the go-live workflow, `COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first` keeps the Bridge focused on extraction and posts directly to Main Hub ROS. ROS owns CSV reference uploads, AI review packs, preflight/proof, import exceptions, and final approval.
+In the go-live workflow, `COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first` keeps the Bridge focused on extraction and posts directly to Main Hub ROS. ROS owns proof, import exceptions, customer duplicate review, and final sign-off.
 
 Run order is **fixed in code** each pass: **staff -> sales reps -> category masters -> vendors -> catalog -> vendor_items -> inventory -> customers -> notes -> tickets/sales history -> open docs -> store credit -> loyalty balances -> gift cards**. Current loyalty balances are imported through customers as `pts_bal`; loyalty history stays disabled for go-live. Older `CP_*_QUERY` overrides are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
 

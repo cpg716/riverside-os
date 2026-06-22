@@ -177,8 +177,9 @@ const startLocalServer = () => {
         res.setHeader('Access-Control-Allow-Headers', '*');
         res.setHeader('Access-Control-Allow-Private-Network', 'true');
         if (req.method === 'OPTIONS') { res.end(); return; }
+        const requestPath = (req.url ?? "/").split("?", 1)[0];
 
-        if (req.url === '/api/status') {
+        if (requestPath === '/api/status') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 ...BRIDGE_STATE,
@@ -186,7 +187,22 @@ const startLocalServer = () => {
                 runOnce: process.env.RUN_ONCE === "1",
                 migrationPreflight: getMigrationSnapshot(),
             }));
-        } else if (req.url === '/api/auto-config') {
+        } else if (requestPath === '/api/bridge/health' || requestPath === '/health') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                ok: true,
+                service: "riverside_counterpoint_bridge",
+                status: BRIDGE_STATE.isSyncing ? "syncing" : "idle",
+                isSyncing: BRIDGE_STATE.isSyncing,
+                isContinuous: BRIDGE_STATE.isContinuous,
+                runOnce: process.env.RUN_ONCE === "1",
+                currentEntity: BRIDGE_STATE.currentEntity,
+                totalRecordsLastRun: BRIDGE_STATE.totalRecordsLastRun,
+                lastRun: BRIDGE_STATE.lastRun,
+                error: BRIDGE_STATE.error,
+                migrationPreflight: getMigrationSnapshot(),
+            }));
+        } else if (requestPath === '/api/auto-config') {
             if (req.method !== 'POST') {
                 res.writeHead(405, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ success: false, error: "Use POST for auto-config." }));
@@ -207,7 +223,7 @@ const startLocalServer = () => {
                     res.writeHead(500, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ success: false, error: err?.message ?? String(err) }));
                 });
-        } else if (req.url.startsWith('/api/test-query')) {
+        } else if (requestPath === '/api/test-query') {
             const url = new URL(req.url, `http://${req.headers.host}`);
             const entity = url.searchParams.get('query');
 
@@ -349,13 +365,13 @@ const startLocalServer = () => {
             } else {
                 proxyReq.end();
             }
-        } else if (req.url === '/api/stop') {
+        } else if (requestPath === '/api/stop') {
             logToDashboard("Manual Sync Abort Requested.");
             BRIDGE_STATE.abortRequested = true;
             pushEvent('abort', null, 'Sync abort requested by user');
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true }));
-        } else if (req.url.startsWith('/api/trigger-entity')) {
+        } else if (requestPath === '/api/trigger-entity') {
             const url = new URL(req.url, `http://${req.headers.host}`);
             const entity = url.searchParams.get('name') || 'full';
             if (BRIDGE_STATE.isSyncing) {

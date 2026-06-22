@@ -13,9 +13,7 @@ What you need on this PC (Windows 10 is supported)
        C:\Riverside\counterpoint-bridge\
 
 First full Counterpoint load (avoid “nothing imported” days)
-  • On Riverside: Settings → Integrations → Counterpoint → enable ROS staging when you want staff review
-    before live writes. Staging ON queues every batch until staff Apply or Discard it from the command center.
-  • Apply ROS DB migrations through at least 95 (staging/GUI) on the Postgres that the API uses.
+  • Apply ROS DB migrations through the current release on the Postgres that the API uses.
   • Bridge: ROS_BASE_URL = LAN IP:3000 of the Main Hub ROS API PC.
   • Runtime schema mapping: keep .env to ROS_BASE_URL, COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first,
     and SQL_CONNECTION_STRING; the v8.4 bridge probes schema after SQL connect.
@@ -36,7 +34,7 @@ First-time setup
        ROS_BASE_URL=http://IP:3000 (IP of the PC running Riverside OS)
        COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first
 
-     Do not add legacy CP_*_QUERY lines for normal setup. Run DISCOVER_SCHEMA.cmd or GUI Auto Config
+     Do not add manual CP_*_QUERY lines for normal setup. Run DISCOVER_SCHEMA.cmd or GUI Auto Config
      if SQL reports a table/column problem.
 
   3. Double-click START_BRIDGE.cmd again. The bridge defaults to one full import pass, then exits.
@@ -62,7 +60,6 @@ Runtime mapping scope
   - Gift-card current balances when visible
   - Historical tickets, lines, payments, and notes
   - Open PS_DOC orders when visible
-  - Receiving history when visible
 
   Import order is fixed in the bridge, not by rearranging .env: staff → vendors → customers →
   store credit opening → notes → category_masters → catalog → inventory → vendor_items → gift_cards →
@@ -76,13 +73,7 @@ Runtime mapping scope
 
   Runtime schema mapping: keep .env to ROS_BASE_URL, COUNTERPOINT_BRIDGE_TARGET_MODE=ros_import_first, and SQL_CONNECTION_STRING.
   The GUI Auto Config action, DISCOVER_SCHEMA.cmd, or `node index.mjs auto-config` confirms which live
-  v8.4 tables and columns the bridge will use. Legacy CP_*_QUERY entries are ignored unless
-  CP_SQL_ENV_OVERRIDES=1 is explicitly set for expert recovery work.
-
-  Staging ingest: when “Counterpoint staging” is enabled in Riverside Settings → Integrations → Counterpoint, GET
-  /api/sync/counterpoint/health returns counterpoint_staging_enabled=true and the bridge POSTs each entity payload to
-  /api/sync/counterpoint/staging instead of applying immediately; staff Apply or Discard batches in the Counterpoint
-  hub Inbound queue tab.
+  v8.4 tables and columns the bridge will use.
 
 Troubleshooting
   - Connection refused to ROS → firewall on ROS PC must allow port 3000 from this PC.
@@ -94,7 +85,7 @@ Troubleshooting
     bridge should omit unavailable staff/catalog columns from its runtime SQL.
   - Other "Invalid column name" / "Invalid object name" on sync → your Counterpoint SQL schema
     differs from the expected v8.4 shape. Run GUI Auto Config or DISCOVER_SCHEMA.cmd and review the
-    generated report. Only use CP_SQL_ENV_OVERRIDES=1 with manual CP_*_QUERY values as an expert fallback.
+    generated report before retrying.
   - Customer notes skipped_no_customer → run customer sync successfully first (notes attach by cust_no).
   - ROS error duplicate key vendors_name_key → fixed in current ROS server: second vendor with the same CP name imports as "Name [VEND_NO]". Update/restart the API if you still see this.
   - Reading the log: [staff]/[customers] SQL errors block those imports; then notes show skipped_no_customer
@@ -111,7 +102,7 @@ Troubleshooting
     IM_INV_CELL when the item table does not expose a grid flag.
   - "Invalid column name 'MERCH_CR_BAL'" → run Auto Config/discovery. Store-credit opening balances only run
     when a supported balance source is visible.
-  - "Incorrect syntax near ORDER" on customers → likely a stale expert CP_*_QUERY override. Remove the
-    manual override or rerun Auto Config/discovery.
+  - "Incorrect syntax near ORDER" on customers → rerun Auto Config/discovery so the bridge rebuilds
+    customer SQL from the live schema.
 
 ================================================================================

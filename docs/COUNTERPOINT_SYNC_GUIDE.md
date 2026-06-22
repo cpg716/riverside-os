@@ -1,38 +1,33 @@
 # Counterpoint SQL Server → Riverside OS: Sync Guide
 
-End-to-end reference for setting up and operating the one-way Counterpoint transition into **ROS PostgreSQL**. The go-live architecture is **Counterpoint Bridge extracts raw data → Main Hub ROS stages/proofs data → ROS CSV/AI review improves allowed fields → staff applies approved imports**.
+End-to-end reference for setting up and operating the one-way Counterpoint transition into **ROS PostgreSQL**. The go-live architecture is **Counterpoint Bridge extracts raw data → Main Hub ROS imports and proofs data → staff resolves exceptions → staff signs off the import**.
 
 **Companion docs:**
-- [`COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md`](COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) — **operator manual**: direct vs staging, hub, prerequisites, bridge/API updates, troubleshooting
-- [`COUNTERPOINT_TRANSITION_REVIEW_PACKS.md`](COUNTERPOINT_TRANSITION_REVIEW_PACKS.md) — manual ChatGPT/Codex review-pack export/import workflow for transition cleanup and returns readiness
+- [`COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md`](COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) — operator manual: Main Hub target, prerequisites, bridge/API updates, troubleshooting
 - [`WEDDING_COUNTERPOINT_CUTOVER_LINKING.md`](WEDDING_COUNTERPOINT_CUTOVER_LINKING.md) — how imported wedding parties are reviewed and linked to Counterpoint-synced customers, transactions, and item lifecycle states
 - [`PLAN_COUNTERPOINT_ROS_SYNC.md`](PLAN_COUNTERPOINT_ROS_SYNC.md) — implementation roadmap and schema mapping tables
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
 - [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — Bridge connection template
 
 **Import Command Center:**
-The Counterpoint screen in **Settings → Integrations → Counterpoint** is the ROS final approval surface. The operator workflow is Bridge connection, source-count proof, direct ROS import, import exceptions, CSV cleanup, final proof, and support diagnostics:
-
-Preparation, cleanup, CSV input, and AI/Codex review packages are hosted in ROS for the go-live path.
+The Counterpoint screen in **Settings → Integrations → Counterpoint** is the ROS final approval surface. The operator workflow is Bridge connection, source-count proof, direct ROS import, import exceptions, customer duplicate review, final proof, and support diagnostics.
 
 1. **Bridge heartbeat** - extraction host heartbeat/status only
-2. **Main Hub ROS intake** - Bridge heartbeat, ROS intake health, and staging state
+2. **Main Hub ROS intake** - Bridge heartbeat and ROS intake health
 3. **Source proof** - Bridge source counts compared to ROS-landed rows
 4. **Import exceptions** - rows that need correction before sign-off
-5. **CSV cleanup** - inventory reference files and reviewed cleanup suggestions
+5. **Customer duplicates** - duplicate customer review after customers land
 6. **Final proof / diagnostics** - current-run proof first; accumulated ROS state is diagnostics only
 
-The Command Center shows a business-area ingest path for Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points. Each one follows the same control pattern: Bridge extraction → ROS staging/proof → staff review/fix → existing backend import batch → PostgreSQL.
+The Command Center shows a business-area ingest path for Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points. Each one follows the same control pattern: Bridge extraction → ROS import/proof → staff review/fix → PostgreSQL.
 
 Advancement is proof-gated. Bridge-reported row counts alone do not unlock cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import.
 
-During a direct Bridge run, ROS records source-count proof, raw rows, provenance links to landed ROS rows, exceptions, and landed-row proof for the current import run. Rows that fail validation remain visible as import exceptions until staff fixes or intentionally resolves them.
-
-AI/Codex review happens in ROS after Counterpoint data and CSV references are available. Staff export an AI review package from ROS, paste/upload it to Codex or ChatGPT, import returned suggestion JSON, and accept/reject/edit suggestions. Accepted suggestions update only allowed cleanup fields; raw source payloads remain unchanged.
+During a direct Bridge run, ROS records source-count proof, raw rows, provenance links to landed ROS rows, exceptions, and landed-row proof for the current import run. Rows that fail validation remain visible as import exceptions until staff fixes them and reruns the affected import area or ROS can prove the source row landed.
 
 **Optional SQL objects:** Gift and loyalty tables (Standard examples: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are Counterpoint-style names from product/schema docs. Local installations can use different names such as **`SY_GFC`** (Gift Cards) or **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 
-**Migrations:** active baseline migration `081_counterpoint_import_first_proof.sql` adds `counterpoint_import_runs`, `counterpoint_import_source_counts`, `counterpoint_import_raw_records`, `counterpoint_import_provenance`, and `counterpoint_import_exceptions` for ROS import proof. Earlier Counterpoint migrations add item keys, sync runs/issues, mapping tables, staff/customer/catalog provenance, vendor supplier items, optional staging, transition review packs, and payment-method aliases.
+**Migrations:** active baseline migration `081_counterpoint_import_first_proof.sql` adds `counterpoint_import_runs`, `counterpoint_import_source_counts`, `counterpoint_import_raw_records`, `counterpoint_import_provenance`, and `counterpoint_import_exceptions` for ROS import proof. Earlier Counterpoint migrations add item keys, sync runs/issues, mapping tables, staff/customer/catalog provenance, vendor supplier items, and payment-method aliases.
 
 ---
 
@@ -101,7 +96,7 @@ On the Counterpoint PC, open **Riverside Counterpoint Bridge**, confirm:
 - Main Hub ROS intake ready
 - Auto Config / Schema Alignment verified
 
-Then run **Full Extraction**. The Bridge posts each supported domain directly to ROS. ROS owns source-count proof, exceptions, landed proof, CSV reference cleanup, AI review packs, and final sign-off.
+Then run **Full Extraction**. The Bridge posts each supported domain directly to ROS. ROS owns source-count proof, exceptions, landed proof, duplicate review, and final sign-off.
 
 ### 2d. Verify health endpoints
 
@@ -112,7 +107,17 @@ http://<main-hub-lan-ip>:3000/api/sync/counterpoint/health
 ```
 
 The Bridge should report that Main Hub ROS intake is ready before extraction starts.
-curl http://127.0.0.1:3015/health
+
+To verify the local Bridge control server itself, open this from the Counterpoint PC:
+
+```text
+http://127.0.0.1:3002/api/status
+```
+
+The compatibility health URL below is also supported for simple health probes:
+
+```text
+http://127.0.0.1:3002/api/bridge/health
 ```
 
 ### 2e. Bridge Command Center
@@ -569,8 +574,7 @@ Weak or approximate domains are explicitly marked in the section:
 
 Use Landing Verification with the other proof surfaces:
 - **Bridge counts** show what the bridge attempted and successfully posted for the latest run.
-- **Landing Verification** shows what is currently present in ROS tables after direct ingest or staging apply.
-- **Support staging diagnostics** must be clear after all intended staged batches are applied.
+- **Landing Verification** shows what is currently present in ROS tables after direct ingest.
 - **Open sync issues** must be empty or explicitly triaged before sign-off.
 - **Inventory & Catalog Verification** uses live bridge/source metrics and ROS landed values for catalog, variant, SKU, barcode, quantity, unresolved-row proof, and aggregate checksum proof for cost, price, category, vendor, and variant labels. A checksum failure means the field group differs and must be investigated before cutover; it does not identify the exact row without a later diagnostic comparison.
 - **Category/vendor mapping proof** compares live vendor/category master counts to ROS `vendors.vendor_code` and `counterpoint_category_map` rows, and compares catalog items that carried `vendor_no` or `category` to products with resolved `primary_vendor_id` or `category_id`.
@@ -725,50 +729,6 @@ Normal operation does not require entity SQL in `.env`. The bridge uses the thre
 
 ---
 
-## 10a. AI/Codex review packages
-
-Use ROS AI review packs for preparation suggestions only. AI suggestions never apply automatically.
-
-Allowed safe domains include customer phone/name/email-omit suggestions, customer duplicate clusters, product/description readability, category/vendor suggestions, inventory/catalog mismatch explanations, and vendor optional-info cleanup. High-risk sections such as gift cards, store credits, historical tickets, open docs, loyalty history, tax, payments, refunds, balances, quantities, costs, and accounting mappings are manual-review only.
-
-AI suggestions must use this shape:
-
-```json
-{
-  "review_package_id": "uuid",
-  "sync_run_id": "uuid",
-  "section": "catalog",
-  "package_fingerprint": "abc123",
-  "suggestions": [
-    {
-      "suggestion_type": "description_readability",
-      "source_record_id": "ITEM-123",
-      "target_path": "payload.rows[0].description",
-      "current_value": "BLU SLD SHT",
-      "suggested_value": "Blue Solid Shirt",
-      "reason": "Expanded abbreviations for staff-readable product description.",
-      "confidence": "medium",
-      "risk_level": "low"
-    }
-  ]
-}
-```
-
-Paste-ready prompt:
-
-```text
-Analyze this Counterpoint SYNC AI review package for Riverside OS.
-
-Return only valid JSON using the package's allowed_suggestion_schema.
-Preserve review_package_id, sync_run_id, section, package_fingerprint, and source_record_id.
-Mark confidence and risk_level for every suggestion.
-Do not invent costs, quantities, balances, emails, tax values, payment values, refund values, or accounting mappings.
-Do not auto-merge customers or vendors.
-Do not change gift card, store credit, tax, tender, payment, refund, historical ticket, open-doc, loyalty, quantity, balance, or accounting values.
-For high-risk sections, return manual-review suggestions only.
-Do not say changes were applied. Riverside OS staff will review and accept/reject suggestions in ROS.
-```
-
 ## 11. Operational checklist
 
 ### First-time setup
@@ -780,7 +740,7 @@ Do not say changes were applied. Riverside OS staff will review and accept/rejec
 5. Run GUI Auto Config or `node index.mjs auto-config` to confirm runtime mappings for staff, customers, catalog, inventory, gift cards, tickets, open docs, loyalty balances, and related data.
 6. Run Full Extraction.
 7. Monitor progress in the Bridge GUI and the ROS Import Command Center.
-8. Resolve import exceptions and review CSV/AI cleanup before final sign-off.
+8. Resolve import exceptions, review customer duplicates, and confirm proof before final sign-off.
 
 ### Ongoing monitoring
 

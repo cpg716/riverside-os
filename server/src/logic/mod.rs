@@ -6,7 +6,6 @@ pub mod bug_reports;
 pub mod checkout_validate;
 pub mod commission_events;
 pub mod commission_recalc;
-pub mod counterpoint_review_packs;
 pub mod counterpoint_staging;
 pub mod counterpoint_sync;
 pub mod custom_orders;

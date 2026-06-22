@@ -54,9 +54,16 @@ The only active migration files in `migrations/` are:
 | `036_financial_date_and_counterpoint_integrity.sql` | Financial date and Counterpoint integrity hardening |
 | `037_backfill_missing_columns.sql` | Backfill columns added to earlier files after they were applied (`store_media_asset.deleted_at/alt_text/usage_note`, `categories.variation_axis_presets`) |
 | `078_data_integrity_hardening.sql` | Provider ledger, QBO pending-row, and online checkout attempt integrity constraints |
-| `079_counterpoint_transition_review_packs.sql` | Manual Counterpoint transition review-pack export/import audit tables |
+| `079_counterpoint_transition_review_packs.sql` | Historical prelaunch Counterpoint review tables; not part of the go-live import workflow |
 | `080_counterpoint_payment_method_aliases.sql` | Counterpoint tender alias seeds observed during real-data import rehearsals |
 | `081_counterpoint_import_first_proof.sql` | Counterpoint import-first run, source-count, raw-record, provenance, and exception proof tables |
+| `082_loyalty_reward_threshold_floor.sql` | Loyalty reward threshold floor enforcement |
+| `083_staff_schedule_requests_and_appointment_identity.sql` | Staff request-off and appointment staff identity hardening |
+| `084_staff_birthdays_notifications.sql` | Staff birthday notification fields and notification type |
+| `085_rosie_read_tool_audit.sql` | ROSIE read-tool audit table |
+| `086_rosie_tool_gap_log.sql` | ROSIE unsupported tool gap logging |
+| `087_open_deposit_ledger_sources.sql` | Open deposit ledger source traceability |
+| `088_drop_counterpoint_review_pack_tables.sql` | Drops retired Counterpoint review-pack tables from the active schema |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 

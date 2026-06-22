@@ -2,9 +2,9 @@
 id: settings-counterpoint-sync-settings-panel
 title: "Counterpoint Import and Sign-Off"
 order: 1087
-summary: "Connect the Counterpoint Bridge to Main Hub ROS, import data, use CSV cleanup, apply reviewed changes, and review proof."
+summary: "Connect the Counterpoint Bridge to Main Hub ROS, import data, resolve exceptions, review duplicates, and confirm go-live proof."
 source: client/src/components/settings/CounterpointSyncSettingsPanel.tsx
-last_scanned: 2026-05-10
+last_scanned: 2026-06-22
 tags: settings-counterpoint-sync-settings-panel, counterpoint, bridge, import, signoff
 status: approved
 ---
@@ -21,101 +21,66 @@ status: approved
 
 ## What this is
 
-Counterpoint Settings is the ROS Import Command Center. For go-live import, the Counterpoint Bridge posts Counterpoint data directly to the Main Hub ROS intake on port 3000. ROS records preflight, import-run, exception, and final proof state for sign-off.
+Counterpoint Settings is the one-time ROS Import Command Center. For go-live, the Counterpoint Bridge reads Counterpoint SQL and posts directly to the Main Hub ROS intake on port 3000. ROS records source counts, landed proof, exceptions, duplicate-customer review, and final readiness.
 
-Use this panel to verify facts. ROSIE can explain displayed facts only; it does not approve cutover or sign off reconciliation.
+Use this panel to verify facts before cutover. Bridge row counts mean data was sent. ROS landed counts mean ROS wrote and linked rows for proof.
 
-## How to use it
+## Go-live workflow
 
-1. Enter the Main Hub ROS URL in the Bridge GUI.
-2. Confirm **Counterpoint Bridge heartbeat** for import status and review the current ROS import run.
-3. Confirm the import includes the expected business areas: Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points.
-4. Use ROS proof surfaces to review source counts, import counts, warnings, blockers, and exceptions.
-5. Enable **ROS staging** when staff need to review batches before live writes.
-6. Use **CSV Cleanup** to load the Lightspeed and Counterpoint inventory CSV references, generate review packs, import returned suggestion JSON, and apply only staff-approved catalog cleanup.
-7. Apply or discard staged batches from the ROS command center after review.
-8. Review ROS Import exceptions and final proof before sign-off reconciliation.
-9. Use **Support Diagnostics** only when deployment or recovery blockers need manual resolution.
+1. Open the Bridge app on the Counterpoint PC.
+2. Confirm the Bridge can reach Main Hub ROS.
+3. Run **Full Extraction** in the Bridge.
+4. Open **Import & Proof** in ROS.
+5. Confirm required areas show landed proof.
+6. Resolve import exceptions, then rerun the affected import area if needed.
+7. Review **Customer Duplicates** after customers land.
+8. Confirm final proof is ready before go-live sign-off.
 
-If a failed support-queue batch has been reviewed and successfully replayed into a newer import run, use **Discard** to remove the stale failed row from active blockers while preserving the original audit record.
+Do not sign off while required rows are failed, missing, or waiting for exception review.
 
-Some historical tickets or open documents may land with **Historical Counterpoint Sale (Item Unresolved)** when Counterpoint provides payment/header value but no exact item variant. Review those rows in **Import exceptions** after import; ROS preserves the original Counterpoint item key on the line so staff can correct the product when the exact size or source line is known.
+## Import proof
 
-Imported Counterpoint open documents are current obligations. Their lines are marked ready for pickup so staff can finish the customer handoff; they do not need the normal new-ROS order lifecycle before go-live review.
+The proof table compares:
 
-## Bridge and ROS status
+- **Expected**: rows Counterpoint reported during preflight.
+- **Sent**: rows the Bridge posted to Main Hub ROS.
+- **Landed**: rows ROS wrote and linked for proof.
+- **Gap**: difference between expected and landed proof.
+- **Ready**: whether that area can pass go-live review.
 
-The status cards separate Bridge heartbeat, Main Hub ROS intake reachability, ROS staging state, import status, exceptions, and final proof. Browser controls only affect Start/Stop buttons from this workstation. They do not replace ROS proof.
+Some rows can intentionally create more than one ROS row, such as matrix variants. ROS proof should explain that clearly; unexplained gaps or failed required areas need review.
 
-The go-live Bridge workflow is tokenless. The Bridge sends data to the Main Hub ROS API on port 3000, so import does not depend on Counterpoint PCs reaching a separate package-preparation app.
+## Exceptions
 
-If saving credentials shows a `RIVERSIDE_CREDENTIALS_KEY` warning, run `Repair-RiversideCredentialsKey.cmd` from the Windows deployment package on the Backoffice / Server PC and reopen Settings.
+Import exceptions identify Counterpoint rows that did not land cleanly. Use **Resolve** only after the source row has landed in ROS or the exception already has ROS linkage. If the row still has no landed proof, fix the missing customer, variant, tender, or mapping data and rerun the affected import area.
 
-The Bridge GUI includes **Check Main Hub ROS**. Use it before extraction; the Bridge must be able to load the ROS `/api/sync/counterpoint/health` endpoint before it starts sending batches.
+Historical Counterpoint sales can include unresolved item lines when Counterpoint provides payment/header value but no exact item variant. ROS preserves the original Counterpoint item key so staff can correct the product when the exact line is known.
 
-## Command center and post-import verification
+## Duplicate customers
 
-The command center appears before sign-off reconciliation. The current workflow is ROS-first: Bridge heartbeat, ROS staging, source counts, landed counts, warnings, blockers, exceptions, CSV/AI cleanup references, and final proof.
+Customer rows with duplicate email addresses do not stop the customer import. ROS preserves the raw Counterpoint source data, lands the customer without violating the unique email rule, and opens review work so staff can merge or correct duplicates before sign-off.
 
-The default **Command center** is the primary one-time migration surface. Do not treat the import as successful while required domains still show zero landed proof, blocked source-count rows, open review rows, or review-landed rows that have not been accepted.
+## Clean restart
 
-Accumulated verification is support-only: it can include rows from older rehearsals, support-queue diagnostics, or dirty dev data and must not be used as current-run sign-off proof.
+Use **Reset Baseline** only before go-live when a rehearsal needs to start over. Reset clears imported Counterpoint rows, import proof, exceptions, and active import pointers. It keeps staff access, store settings, register/printer configuration, and local ROS setup.
 
-The import is proof-gated. Bridge row counts do not by themselves prove that ROS has reviewable data. If source counts are suspiciously low, such as too few open docs or tickets without line detail, preflight blocks the run before ROS can show a completed import. Riverside OS uses SKU sales history from closed tickets for historical customer lookup and returns review.
+## Support diagnostics
 
-Read the command-center table as two separate steps: **Sent** means the Bridge posted rows to Main Hub ROS; **Landed** means ROS wrote and linked those rows for proof. A Bridge import can finish successfully while ROS still shows failed or not-ready areas that must be resolved before go-live sign-off.
-
-Each successful import records raw Counterpoint rows and provenance for landed ROS rows, and failed imports create ROS Import exceptions for review.
-
-Only the Lightspeed inventory CSV and Counterpoint inventory CSV belong in the CSV reference area. They are product/SKU/item-number/variation cleanup references for inventory preparation; inventory quantities come from Counterpoint SQL unless SQL has no usable value. CSV files are not the live inventory quantity source.
-
-The visible ingest path is business-area based: Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points each move from Bridge import to ROS staging/proof to explicit apply/import to PostgreSQL through the existing backend import services.
-
-Customer rows with duplicate email addresses do not stop the customer section import. ROS keeps the unique email constraint, lands the Counterpoint customer without an email address, preserves the original email in the raw payload/provenance trail, and opens an Import exception so staff can merge or correct the duplicate before go-live sign-off.
-
-Use **Reset Baseline** before a rehearsal when you need to start over from a clean migrated/seeded ROS database. Reset clears imported Counterpoint rows, import-run proof, exceptions, support-queue state, and the active ROS import-run pointer while keeping staff access, store settings, register/printer configuration, and reviewed mappings.
-
-Catalog cleanup approval is valid only when Counterpoint catalog parent products and variants have landed in ROS. Stale approval badges from an earlier rehearsal do not count.
-
-Counterpoint parent products are scoped to active items plus items with evidence since January 1, 2018. Matrix/cell variants remain attached under those parent products, including large variation sets.
-
-## CSV and AI Review
-
-Riverside OS supports AI Review Packages from imported ROS data plus Lightspeed and Counterpoint CSV references. Export a package from ROS, review it with Codex/ChatGPT, import returned suggestion JSON, then accept, reject, edit, or mark each suggestion for manual review. Accepted suggestions update approved cleanup fields only. Raw Counterpoint source payloads and provenance are preserved.
-
-AI suggestions must never auto-merge customers/vendors, invent emails, invent costs or quantities, or change gift card/store credit/tax/payment/refund/balance/accounting values. High-risk sections are manual-review only.
-
-Generate the review pack from ROS, download the JSON, copy the prompt, and review the file manually outside Riverside OS. Import only the returned JSON result file back into ROS. Riverside OS validates suggestions before staff can apply them.
-
-Imported suggestions never apply automatically. Staff must accept, reject, edit, or block each suggestion in ROS. Financial totals, tax, tenders, gift card balances, store credit balances, deposits, quantities, costs, dates, original Counterpoint IDs, customer merge targets, and QBO/accounting mappings remain review-only.
-
-For returns/exchanges, use the returns readiness scope to flag whether historical Counterpoint purchases resolve to current ROS items and original tender evidence. It preserves original Counterpoint ticket and line identity.
-
-The staging diagnostics view shows replay status, stale applying batches, landed-row proof, and recovery actions. Use **Mark stale apply failed** only when a batch has been stuck long enough for support review; it records the recovery state without replaying the batch.
-
-## Blockers and warnings
-
-Review blockers before warnings. Common blockers include failed source-count preflight, unresolved sync issues, missing ROS landed proof, open import exceptions, and Bridge entity errors.
-
-Do not proceed with sign-off while blockers remain.
+Support Diagnostics is for troubleshooting proof, exceptions, and Bridge communication. It is not the normal import workflow and should not replace the current-run proof table.
 
 ## Imported tax semantics
 
 Historical Counterpoint-imported transactions preserve gross historical totals for audit and reconciliation. Imported tax fields may be zero when Counterpoint did not provide itemized tax detail.
 
-That zero imported tax detail should not be treated as current-period tax collection. Current Riverside OS tax reporting and QBO proposals should use current ROS activity, not historical imported activity.
-
-Use the sign-off proof and tax semantics copy to explain that imported rows are distinguishable by source metadata and are for historical migration evidence.
-
-## ROSIE placement
-
-Counterpoint ROSIE insight appears below deterministic proof, blockers, warnings, and reconciliation tables. It should help explain the visible evidence and limits, not approve the migration.
+That imported tax detail is not current-period tax collection. Current Riverside OS tax reporting and QBO proposals should use current ROS activity, not historical imported activity.
 
 ## What to watch for
 
-- Do not sign off on cutover from a ROSIE summary.
+- Do not sign off from Bridge row counts alone.
+- Confirm ROS landed proof for required areas.
+- Resolve exceptions before final sign-off.
+- Review customer duplicates before opening live operations.
 - Confirm imported rows are auditable and distinguishable from current ROS transactions.
-- Review limits and caveats before making migration decisions.
 
 ## Related workflows
 
