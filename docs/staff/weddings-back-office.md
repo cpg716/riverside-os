@@ -112,6 +112,10 @@ The detailed Register behavior is documented in [../POS_WEDDING_REGISTER_WORKFLO
 - **Ledger** (`party` → **Ledger**): payment-oriented detail.
 - **Financial context**: snapshot for consultants — use before promising **pickup**.
 
+### Removal audit trail
+
+Removing a member, party appointment, or checklist-only non-inventory item is not a silent cleanup action. ROS writes a wedding activity entry with the removed record details before the removal commits, so managers can reconstruct what changed later. If a removal fails, refresh the party before trying again and do not recreate the record until the activity feed confirms the current state.
+
 ## Calendar
 
 **Purpose:** Party-centric **milestones** and internal dates (fittings, final pickup).
@@ -148,4 +152,4 @@ The detailed Register behavior is documented in [../POS_WEDDING_REGISTER_WORKFLO
 - [appointments.md](appointments.md)
 - [../WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md)
 
-**Last reviewed:** 2026-06-07
+**Last reviewed:** 2026-06-21

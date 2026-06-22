@@ -100,7 +100,7 @@ test.describe("Core Intelligence & Finance Contracts", () => {
     }
   });
 
-  test("Commission Trace rationale is human-readable/exact", async ({ request }) => {
+  test("Margin pivot returns report rows", async ({ request }) => {
     const res = await request.get(
       `${apiBase()}/api/insights/margin-pivot?group_by=brand&basis=sale`,
       {
@@ -204,8 +204,10 @@ test.describe("Optional Data-Dependent Diagnostics", () => {
       "No commission lines available to trace",
     );
 
-    const lineId = lines[0].transaction_line_id;
-    const res = await request.get(`${apiBase()}/api/insights/commission-trace/${lineId}`, {
+    const traceLine = lines.find((line: { event_id?: string | null }) => line.event_id);
+    test.skip(!traceLine, "No commission event rows available to trace");
+
+    const res = await request.get(`${apiBase()}/api/insights/commission-trace/${traceLine.event_id}`, {
       headers: adminHeaders(),
       failOnStatusCode: false,
     });

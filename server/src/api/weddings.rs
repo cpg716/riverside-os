@@ -1904,15 +1904,16 @@ async fn delete_member_handler(
     headers: HeaderMap,
 ) -> Result<StatusCode, WeddingError> {
     require_weddings_mutate(&state, &headers).await?;
+    let mut tx = state.db.begin().await?;
     let row: Option<Uuid> =
         sqlx::query_scalar("SELECT wedding_party_id FROM wedding_members WHERE id = $1")
             .bind(member_id)
-            .fetch_optional(&state.db)
+            .fetch_optional(&mut *tx)
             .await?;
     let party_id = row.ok_or(WeddingError::MemberNotFound)?;
     let actor = resolve_actor(q.actor_name);
-    if let Err(e) = wedding_logic::insert_wedding_activity(
-        &state.db,
+    wedding_logic::insert_wedding_activity(
+        &mut *tx,
         party_id,
         Some(member_id),
         &actor,
@@ -1920,17 +1921,15 @@ async fn delete_member_handler(
         "Member removed from party",
         json!({ "removed_wedding_member_id": member_id }),
     )
-    .await
-    {
-        tracing::warn!(error = %e, "Wedding activity log failed");
-    }
+    .await?;
     let r = sqlx::query("DELETE FROM wedding_members WHERE id = $1")
         .bind(member_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
     if r.rows_affected() == 0 {
         return Err(WeddingError::MemberNotFound);
     }
+    tx.commit().await?;
     state
         .wedding_events
         .parties_updated(wedding_client_sender(&headers).as_deref());
@@ -2299,6 +2298,7 @@ async fn delete_appointment(
     headers: HeaderMap,
 ) -> Result<StatusCode, WeddingError> {
     require_weddings_mutate(&state, &headers).await?;
+    let mut tx = state.db.begin().await?;
 
     // Fetch before deleting so we can log it and update search index
     let existing: Option<AppointmentRow> = sqlx::query_as(
@@ -2309,25 +2309,15 @@ async fn delete_appointment(
         "#,
     )
     .bind(appointment_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let existing =
         existing.ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
 
-    let result = sqlx::query("DELETE FROM wedding_appointments WHERE id = $1")
-        .bind(appointment_id)
-        .execute(&state.db)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(WeddingError::BadRequest(
-            "Appointment not found".to_string(),
-        ));
-    }
-
     if let Some(party_id) = existing.wedding_party_id {
-        if let Err(e) = wedding_logic::insert_wedding_activity(
-            &state.db,
+        wedding_logic::insert_wedding_activity(
+            &mut *tx,
             party_id,
             existing.wedding_member_id,
             "system",
@@ -2345,11 +2335,20 @@ async fn delete_appointment(
                 "customer_display_name": existing.customer_display_name,
             }),
         )
-        .await
-        {
-            tracing::warn!(error = %e, "Wedding activity log failed for appointment deletion");
-        }
+        .await?;
     }
+
+    let result = sqlx::query("DELETE FROM wedding_appointments WHERE id = $1")
+        .bind(appointment_id)
+        .execute(&mut *tx)
+        .await?;
+    if result.rows_affected() == 0 {
+        return Err(WeddingError::BadRequest(
+            "Appointment not found".to_string(),
+        ));
+    }
+
+    tx.commit().await?;
 
     state
         .wedding_events
@@ -2577,11 +2576,41 @@ async fn delete_non_inventory_item(
     Path(id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<StatusCode, WeddingError> {
-    require_weddings_mutate(&state, &headers).await?;
+    let staff = middleware::require_staff_with_permission(&state, &headers, WEDDINGS_MUTATE)
+        .await
+        .map_err(map_wed_perm)?;
+    let mut tx = state.db.begin().await?;
+    let item: Option<WeddingNonInventoryItem> =
+        sqlx::query_as("SELECT * FROM wedding_non_inventory_items WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let item = item.ok_or(WeddingError::BadRequest(
+        "Non-inventory item not found".to_string(),
+    ))?;
+    wedding_logic::insert_wedding_activity(
+        &mut *tx,
+        item.wedding_party_id,
+        item.wedding_member_id,
+        &staff.full_name,
+        "STATUS_CHANGE",
+        &format!(
+            "Non-inventory item removed: {} (qty {})",
+            item.description, item.quantity
+        ),
+        json!({
+            "non_inventory_item_id": item.id,
+            "description": item.description,
+            "quantity": item.quantity,
+            "status": item.status,
+        }),
+    )
+    .await?;
     sqlx::query("DELETE FROM wedding_non_inventory_items WHERE id = $1")
         .bind(id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
+    tx.commit().await?;
     state
         .wedding_events
         .parties_updated(wedding_client_sender(&headers).as_deref());
