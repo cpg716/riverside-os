@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [string]$ConfigPath = "",
-  [switch]$StartFresh
+  [switch]$StartFresh,
+  [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -170,10 +171,15 @@ try {
     throw "server.database.databaseName is blank in the deployment config."
   }
 
-  $confirm = "Yes"
-  if (-not $StartFresh) {
+  $confirm = if ($Force) { "Yes" } else { $null }
+  if (-not $Force) {
+    $message = if ($StartFresh) {
+      "This will delete and recreate the Riverside database '$databaseName', apply packaged migrations, and apply only the required Riverside seed data. Counterpoint imports, POS transactions, inventory, customers, orders, gift cards, loyalty, and other store data will be removed. PostgreSQL itself will stay installed. Continue?"
+    } else {
+      "This will delete and recreate only the Riverside database '$databaseName'. Use this only during a fresh failed install before store data exists. PostgreSQL itself will stay installed. Continue?"
+    }
     $confirm = [System.Windows.Forms.MessageBox]::Show(
-      "This will delete and recreate only the Riverside database '$databaseName'. Use this only during a fresh failed install before store data exists. PostgreSQL itself will stay installed. Continue?",
+      $message,
       "Reset Riverside database",
       "YesNo",
       "Warning"
@@ -212,6 +218,14 @@ try {
       Write-Host "Applying database migrations..."
       & $migrationsScript -ConfigPath $ConfigPath -MigrationsDir $migrationsDir -ApplySeeds
       Write-Host "Database recreated, migrated, and seeded successfully! Ready for use." -ForegroundColor Green
+      if (-not $Force) {
+        [System.Windows.Forms.MessageBox]::Show(
+          "Riverside database reset complete. Migrations and required seed data were applied. ROS is ready for a clean Counterpoint import.",
+          "Fresh start complete",
+          "OK",
+          "Information"
+        ) | Out-Null
+      }
     } else {
       throw "apply-riverside-migrations.ps1 not found in $ScriptRoot"
     }

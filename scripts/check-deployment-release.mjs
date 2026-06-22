@@ -220,10 +220,14 @@ for (const required of [
 }
 for (const copy of [
   "app-updater-only",
+  "main-hub-update",
   "publish-app-updater-only",
+  "publish-main-hub-update",
   "client/updater-dist/latest.json",
   "client/updater-dist/riverside-updater-build-manifest.json",
   "gh release upload $tag client/updater-dist/* --clobber",
+  "RiversideOS-v$version-*-MainHub-Update.zip",
+  '-PackageFlavor "MainHub-Update"',
   "--manifest latest.json",
   "--build-manifest riverside-updater-build-manifest.json",
 ]) {
@@ -293,9 +297,38 @@ assertIncludes(
   "Write-Host ('  Waiting... (' + ($i * 2).ToString() + 's)')",
   "generated update-runner.ps1 wait output must remain parse-safe",
 );
+for (const copy of [
+  "is_main_hub_update_asset",
+  "RiversideOS-v0.90.0-e96a3e50-MainHub-Update.zip",
+  "build_ids_match",
+  "deployment_asset_selection_accepts_seven_char_asset_for_eight_char_build",
+]) {
+  assertIncludes(
+    mainHubUpdater,
+    copy,
+    "Main Hub updater must prefer MainHub-Update.zip and tolerate existing 7/8-character build asset names",
+  );
+}
 parsePowerShell(
   `${mainHubUpdater}:generated-update-runner.ps1`,
   renderMainHubUpdateRunner(mainHubUpdaterSource),
+);
+
+for (const copy of [
+  "[switch]$StartFresh",
+  "-ApplySeeds",
+  "Migrations and required seed data were applied",
+]) {
+  assertIncludes(
+    "deployment/windows/reset-riverside-database.ps1",
+    copy,
+    "database reset must support a production fresh-start path that applies migrations and required seeds",
+  );
+}
+assertIncludes(
+  "deployment/windows/Reset-RiversideDatabase.cmd",
+  "-StartFresh",
+  "production database reset wrapper must reset to migrations plus required seed data",
 );
 
 for (const path of collectFiles("deployment/windows", (name) => name.endsWith(".ps1"))) {

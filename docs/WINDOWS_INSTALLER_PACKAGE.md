@@ -102,6 +102,8 @@ The same Deployment Manager handles later maintenance:
 - **Workstation uninstall**: removes the Riverside desktop app and station settings.
 - **Server uninstall**: removes the server scheduled task, firewall rule, and app files. It keeps the database, backups, and logs by default.
 
+For a clean pre-go-live database reset, run `Reset-RiversideDatabase.cmd` from the packaged release folder on the Main Hub. The wrapper prompts for confirmation, deletes and recreates the Riverside database, applies all packaged migrations, and applies only the required seed data. Do not use it after production transactions exist unless the intent is to discard all store/import data and start over.
+
 Server, Windows app, and PWA/web files are one release. After any update, open **Settings → Updates** and confirm it shows the expected **Riverside version**. If it shows **Update incomplete**, finish the matching server or workstation update before using that station for production work.
 
 If Riverside Settings cannot open because the API is down, manage the server from Windows instead:

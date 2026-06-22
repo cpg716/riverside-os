@@ -30,6 +30,8 @@ Reset keeps Riverside OS setup data that should not be destroyed: staff access, 
 
 After reset, refresh Settings → Counterpoint and confirm the proof table no longer shows stale landed rows from the discarded run.
 
+For a full rehearsal restart before go-live, use the packaged **Reset-RiversideDatabase.cmd** on the Main Hub. This deletes and recreates the Riverside database, applies all packaged migrations, and applies only the required Riverside seed data. Use it only when ROS should return to a clean migrated state before a new Counterpoint import.
+
 ## Bridge Setup
 
 On the Counterpoint PC, open Riverside Counterpoint Bridge.

@@ -190,9 +190,13 @@ For recurring Windows station updates via the Tauri updater channel:
 1. Run `.github/workflows/windows-deployment-package.yml` after business hours with:
    - GitHub variable: `RIVERSIDE_UPDATER_PUBLIC_KEY`
    - GitHub secret: `TAURI_SIGNING_PRIVATE_KEY` (+ optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`)
-2. The workflow publishes `latest.json`, updater artifact, `.sig`, and the full Windows deployment ZIP to the GitHub release tag.
-3. Stations detect the update automatically on launch via the version gate and prompt one-click install.
-4. Keep the previous installer available for rollback.
+2. Choose the narrowest release scope that matches the change:
+   - `app-updater-only` for Register and Back Office desktop app-only updates.
+   - `main-hub-update` for Main Hub server/API, web files, migrations, ROSIE runtime assets, and the local desktop app.
+   - `full-deployment` only when Deployment Manager, Server Manager, Counterpoint Bridge GUI, or first-install package contents changed.
+3. The workflow publishes `latest.json`, updater artifact, `.sig`, and the matching update package to the GitHub release tag.
+4. Stations detect the update automatically on launch via the version gate and prompt one-click install.
+5. Keep the previous installer available for rollback.
 
 **`VITE_API_BASE`** remains fixed **at build time** — any desktop rebuild must still target the same API origin staff use. See [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 3.2.
 

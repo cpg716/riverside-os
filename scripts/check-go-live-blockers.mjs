@@ -883,6 +883,8 @@ function checkDesktopAndPwaUpdateWiring() {
       updater.includes("Start-Transcript") &&
       updater.includes("health_ep = contract::HEALTH_ENDPOINT") &&
       updater.includes("select_deployment_asset") &&
+      updater.includes("is_main_hub_update_asset") &&
+      updater.includes("build_ids_match") &&
       updater.includes("verify_deployment_package_build") &&
       updater.includes("sourceGitSha") &&
       updater.includes("Deployment package build mismatch"),

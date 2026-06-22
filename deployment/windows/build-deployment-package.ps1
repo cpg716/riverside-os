@@ -9,6 +9,8 @@ param(
   [string]$ServerManagerBinaryPath = "$PSScriptRoot\..\..\target\release\ros-server-manager.exe",
   [string]$ManagerBundlePath = "$PSScriptRoot\..\..\target\release\deployment-manager-bundle",
   [string]$ServerManagerBundlePath = "$PSScriptRoot\..\..\target\release\server-manager-bundle",
+  [ValidateSet("Windows-Deployment", "MainHub-Update")]
+  [string]$PackageFlavor = "Windows-Deployment",
   [switch]$AllowMissingRegisterBundle,
   [switch]$AllowMissingManagerBinary,
   [switch]$AllowMissingServerManagerBinary
@@ -250,9 +252,9 @@ $repoRoot = Resolve-FullPath "$PSScriptRoot\..\.."
 $gitShort = Get-GitShort $repoRoot
 $gitFull = Get-GitFull $repoRoot
 $packageLabel = if ($gitShort -and $gitShort -ne "unknown") {
-  "RiversideOS-v$Version-$gitShort-Windows-Deployment"
+  "RiversideOS-v$Version-$gitShort-$PackageFlavor"
 } else {
-  "RiversideOS-v$Version-Windows-Deployment"
+  "RiversideOS-v$Version-$PackageFlavor"
 }
 $packageRoot = Join-Path (Resolve-FullPath $OutputDir) $packageLabel
 

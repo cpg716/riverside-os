@@ -18,6 +18,7 @@ on:
         default: "full-deployment"
         options:
           - "full-deployment"
+          - "main-hub-update"
           - "app-updater-only"
       release_tag:
         description: "Release tag to update; blank uses package version"
@@ -407,7 +408,7 @@ jobs:
           path: target/release/riverside-server.exe
 
   build-deployment-manager:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
     needs: [validate-scripts, pre-retag-gate]
     runs-on: windows-latest
     steps:
@@ -540,7 +541,7 @@ jobs:
           path: deployment/manager-app/updater-dist/
 
   build-server-manager:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
     needs: [validate-scripts, pre-retag-gate]
     runs-on: windows-latest
     steps:
@@ -681,7 +682,7 @@ jobs:
           path: deployment/server-manager-app/updater-dist/
 
   build-counterpoint-bridge-gui:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
     needs: [validate-scripts, pre-retag-gate]
     runs-on: windows-latest
     steps:
@@ -839,8 +840,143 @@ jobs:
           name: counterpoint-bridge-gui-updater-dist
           path: deployment/counterpoint-bridge-gui/updater-dist/
 
+  publish-main-hub-update:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package_scope == 'main-hub-update' }}
+    needs: [build-register-updater, build-server-binary, require-playwright-green]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Download client dist
+        uses: actions/download-artifact@v4
+        with:
+          name: client-dist
+          path: client/dist
+
+      - name: Download llama binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: llama-binaries
+          path: client/src-tauri/binaries
+
+      - name: Download register bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: register-bundle
+          path: target/release/bundle
+
+      - name: Download updater dist
+        uses: actions/download-artifact@v4
+        with:
+          name: updater-dist
+          path: client/updater-dist
+
+      - name: Download server binary
+        uses: actions/download-artifact@v4
+        with:
+          name: server-binary
+          path: target/release
+
+      - name: Ensure CRLF in deployment scripts
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path "deployment/windows" -Include "*.ps1","*.cmd" -Recurse | ForEach-Object {
+            $content = [System.IO.File]::ReadAllText($_.FullName)
+            if ($content -notmatch "`r`n" -and $content -match "`n") {
+              $fixed = $content -replace "(?!\r)\n", "`r`n"
+              [System.IO.File]::WriteAllText($_.FullName, $fixed)
+              Write-Host "Converted to CRLF: $($_.Name)"
+            }
+          }
+
+      - name: Assemble Main Hub update package
+        shell: pwsh
+        run: |
+          $version = (Get-Content "client/package.json" | ConvertFrom-Json).version
+          Remove-Item -Path "dist/deployment" -Recurse -Force -ErrorAction SilentlyContinue
+          .\deployment\windows\build-deployment-package.ps1 `
+            -Version $version `
+            -PackageFlavor "MainHub-Update" `
+            -ServerBinaryPath ".\target\release\riverside-server.exe" `
+            -ClientDistPath ".\client\dist" `
+            -RegisterBundlePath ".\target\release\bundle" `
+            -ManagerBinaryPath ".\target\release\riverside-deployment-manager.exe" `
+            -ServerManagerBinaryPath ".\target\release\ros-server-manager.exe" `
+            -AllowMissingManagerBinary `
+            -AllowMissingServerManagerBinary
+          $mainHubZipPattern = "RiversideOS-v$version-*-MainHub-Update.zip"
+          $mainHubZipFiles = @(Get-ChildItem -Path "dist/deployment" -Filter $mainHubZipPattern -ErrorAction SilentlyContinue)
+          if ($mainHubZipFiles.Count -ne 1) {
+            $found = @(Get-ChildItem -Path "dist/deployment" -Filter "*.zip" -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ", "
+            throw "Expected exactly one current Main Hub update ZIP matching $mainHubZipPattern. Found: $found"
+          }
+          "Main Hub update package: $($mainHubZipFiles[0].Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riverside-main-hub-update-package
+          path: dist/deployment/RiversideOS-v*-MainHub-Update.zip
+
+      - name: Publish Main Hub update package to GitHub release
+        timeout-minutes: 25
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content "client/package.json" | ConvertFrom-Json).version
+          $tag = if ([string]::IsNullOrWhiteSpace($env:RELEASE_TAG_OVERRIDE)) { "v$version" } else { $env:RELEASE_TAG_OVERRIDE }
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "Riverside POS $tag" --notes "Riverside POS Release"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to create GitHub release $tag"
+            }
+          }
+
+          $release = gh release view $tag --json assets | ConvertFrom-Json
+          if ($release -and $release.assets) {
+            foreach ($asset in $release.assets) {
+              if ($asset.name -like "RiversideOS-v$version-*-MainHub-Update.zip") {
+                Write-Host "Deleting obsolete Main Hub update asset: $($asset.name)"
+                gh release delete-asset $tag $asset.name --yes
+              }
+            }
+          }
+
+          $mainHubZipPattern = "RiversideOS-v$version-*-MainHub-Update.zip"
+          $zipFiles = @(Get-ChildItem -Path "dist/deployment" -Filter $mainHubZipPattern -ErrorAction SilentlyContinue)
+          if ($zipFiles.Count -ne 1) {
+            $found = @(Get-ChildItem -Path "dist/deployment" -Filter "*.zip" -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ", "
+            throw "Expected exactly one current Main Hub update ZIP matching $mainHubZipPattern. Found: $found"
+          }
+          $zipSizeMb = [Math]::Round($zipFiles[0].Length / 1MB, 1)
+          Write-Host "Uploading Main Hub update package: $($zipFiles[0].Name) ($zipSizeMb MB)"
+          gh release upload $tag $zipFiles[0].FullName --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload Main Hub update package to release $tag"
+          }
+          if (Test-Path "client/updater-dist") {
+            Write-Host "Uploading Windows app updater assets"
+            gh release upload $tag client/updater-dist/* --clobber
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to upload updater assets to release $tag"
+            }
+          }
+          node scripts/verify-updater-release-assets.mjs `
+            --repo $env:GITHUB_REPOSITORY `
+            --tag $tag `
+            --platform windows-x86_64 `
+            --manifest latest.json `
+            --build-manifest riverside-updater-build-manifest.json
+
   assemble-package:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope != 'app-updater-only' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.package_scope == 'full-deployment' }}
     needs: [build-register-updater, build-server-binary, build-deployment-manager, build-server-manager, build-counterpoint-bridge-gui, require-playwright-green]
     runs-on: windows-latest
     steps:

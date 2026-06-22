@@ -50,6 +50,39 @@ fn normalized_build_short(value: &str) -> Option<String> {
     Some(cleaned.chars().take(8).collect())
 }
 
+fn build_ids_match(left: &str, right: &str) -> bool {
+    let Some(left) = normalized_build_short(left) else {
+        return false;
+    };
+    let Some(right) = normalized_build_short(right) else {
+        return false;
+    };
+    let compare_len = left.len().min(right.len());
+    compare_len >= 7 && left[..compare_len] == right[..compare_len]
+}
+
+fn asset_name_matches_build(asset_name: &str, target_build: &str) -> bool {
+    let Some(target_build) = normalized_build_short(target_build) else {
+        return false;
+    };
+    let asset_name = asset_name.to_ascii_lowercase();
+    if asset_name.contains(&target_build) {
+        return true;
+    }
+    if target_build.len() >= 8 {
+        return asset_name.contains(&target_build[..7]);
+    }
+    false
+}
+
+fn is_main_hub_update_asset(asset_name: &str) -> bool {
+    asset_name.ends_with("-MainHub-Update.zip")
+}
+
+fn is_windows_deployment_asset(asset_name: &str) -> bool {
+    asset_name.ends_with("-Windows-Deployment.zip")
+}
+
 fn select_deployment_asset(
     assets: Vec<GithubAsset>,
     tag_name: &str,
@@ -57,19 +90,28 @@ fn select_deployment_asset(
 ) -> Result<GithubAsset, String> {
     let mut deployment_assets: Vec<GithubAsset> = assets
         .into_iter()
-        .filter(|asset| asset.name.ends_with("-Windows-Deployment.zip"))
+        .filter(|asset| {
+            is_main_hub_update_asset(&asset.name) || is_windows_deployment_asset(&asset.name)
+        })
         .collect();
+    deployment_assets.sort_by_key(|asset| {
+        if is_main_hub_update_asset(&asset.name) {
+            0
+        } else {
+            1
+        }
+    });
 
     if deployment_assets.is_empty() {
         return Err(format!(
-            "Could not find Windows Deployment ZIP asset in release tag {tag_name}"
+            "Could not find Main Hub update package or Windows Deployment ZIP asset in release tag {tag_name}"
         ));
     }
 
     if let Some(target_build_short) = target_build_short {
         if let Some(index) = deployment_assets
             .iter()
-            .position(|asset| asset.name.to_ascii_lowercase().contains(target_build_short))
+            .position(|asset| asset_name_matches_build(&asset.name, target_build_short))
         {
             return Ok(deployment_assets.remove(index));
         }
@@ -80,12 +122,12 @@ fn select_deployment_asset(
             .collect::<Vec<_>>()
             .join(", ");
         return Err(format!(
-            "Release {tag_name} does not contain a Windows Deployment ZIP for build {target_build_short}. Available deployment assets: {names}"
+            "Release {tag_name} does not contain a Main Hub update package or Windows Deployment ZIP for build {target_build_short}. Available update assets: {names}"
         ));
     }
 
     deployment_assets.into_iter().next().ok_or_else(|| {
-        format!("Could not find Windows Deployment ZIP asset in release tag {tag_name}")
+        format!("Could not find Main Hub update package or Windows Deployment ZIP asset in release tag {tag_name}")
     })
 }
 
@@ -156,7 +198,7 @@ fn verify_deployment_package_build(
         )
     })?;
 
-    if actual_build_short != target_build_short {
+    if !build_ids_match(&actual_build_short, &target_build_short) {
         return Err(format!(
             "Deployment package build mismatch. Expected {target_build_short}, package contains {actual_build_short}. Refusing to run the Main Hub update."
         ));
@@ -167,7 +209,7 @@ fn verify_deployment_package_build(
 
 #[cfg(test)]
 mod tests {
-    use super::{select_deployment_asset, GithubAsset};
+    use super::{build_ids_match, select_deployment_asset, GithubAsset};
 
     fn asset(name: &str) -> GithubAsset {
         GithubAsset {
@@ -195,6 +237,50 @@ mod tests {
     }
 
     #[test]
+    fn deployment_asset_selection_prefers_main_hub_update_package() {
+        let selected = select_deployment_asset(
+            vec![
+                asset("RiversideOS-v0.90.0-e96a3e50-Windows-Deployment.zip"),
+                asset("RiversideOS-v0.90.0-e96a3e50-MainHub-Update.zip"),
+            ],
+            "v0.90.0",
+            Some("e96a3e50"),
+        )
+        .expect("expected matching Main Hub update package");
+
+        assert_eq!(
+            selected.name,
+            "RiversideOS-v0.90.0-e96a3e50-MainHub-Update.zip"
+        );
+    }
+
+    #[test]
+    fn deployment_asset_selection_accepts_seven_char_asset_for_eight_char_build() {
+        let selected = select_deployment_asset(
+            vec![asset("RiversideOS-v0.90.0-7620fea-Windows-Deployment.zip")],
+            "v0.90.0",
+            Some("7620fea0"),
+        )
+        .expect("expected seven-character asset to match eight-character build");
+
+        assert_eq!(
+            selected.name,
+            "RiversideOS-v0.90.0-7620fea-Windows-Deployment.zip"
+        );
+    }
+
+    #[test]
+    fn build_id_matching_accepts_seven_or_eight_character_prefixes() {
+        assert!(build_ids_match("7620fea", "7620fea0"));
+        assert!(build_ids_match("7620fea0", "7620fea"));
+        assert!(build_ids_match(
+            "7620fea0deadcafe1234567890abcdef12345678",
+            "7620fea"
+        ));
+        assert!(!build_ids_match("7620feb", "7620fea0"));
+    }
+
+    #[test]
     fn deployment_asset_selection_rejects_missing_target_build_sha() {
         let err = select_deployment_asset(
             vec![asset("RiversideOS-v0.90.0-14c3164b-Windows-Deployment.zip")],
@@ -203,7 +289,7 @@ mod tests {
         )
         .expect_err("missing exact build should fail");
 
-        assert!(err.contains("does not contain a Windows Deployment ZIP for build e96a3e50"));
+        assert!(err.contains("does not contain a Main Hub update package or Windows Deployment ZIP for build e96a3e50"));
     }
 }
 
