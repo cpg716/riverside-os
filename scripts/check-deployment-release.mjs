@@ -195,6 +195,29 @@ assertNotIncludes(
   "-NodeRuntimePath",
   "Windows deployment workflow must not pass a Node runtime for the removed standalone SYNC Workbench",
 );
+for (const forbidden of [
+  "path: dist/deployment/*.zip",
+  "gh release upload $tag $zipFiles.FullName --clobber",
+]) {
+  assertNotIncludes(
+    ".github/workflows/windows-deployment-package.yml",
+    forbidden,
+    "Windows deployment release must not publish every ZIP in dist/deployment because tracked or stale ZIPs can be re-uploaded",
+  );
+}
+for (const required of [
+  'Remove-Item -Path "dist/deployment" -Recurse -Force -ErrorAction SilentlyContinue',
+  "RiversideOS-v$version-*-Windows-Deployment.zip",
+  "timeout-minutes: 25",
+  "Uploading Windows deployment package:",
+  "gh release upload $tag $zipFiles[0].FullName --clobber",
+]) {
+  assertIncludes(
+    ".github/workflows/windows-deployment-package.yml",
+    required,
+    "Windows deployment release must clean package output and publish exactly one current deployment ZIP",
+  );
+}
 for (const copy of [
   "app-updater-only",
   "publish-app-updater-only",

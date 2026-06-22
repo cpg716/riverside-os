@@ -864,10 +864,11 @@ function checkReleaseWorkflowPreBuildGates() {
   const updater = read(updaterFile);
   assert(
     updater.includes("require-playwright-green") &&
-      /build-register-updater:\s*[\s\S]*?needs:\s*(?:\[[^\]]*require-playwright-green[^\]]*\]|require-playwright-green)/.test(updater),
-    "Windows deployment release waits for same-commit Playwright E2E before building updater assets",
+      /publish-app-updater-only:\s*[\s\S]*?needs:\s*\[[^\]]*require-playwright-green[^\]]*\]/.test(updater) &&
+      /assemble-package:\s*[\s\S]*?needs:\s*\[[^\]]*require-playwright-green[^\]]*\]/.test(updater),
+    "Windows deployment release waits for same-commit Playwright E2E before publishing updater assets",
     updaterFile,
-    "The canonical Windows deployment workflow must gate updater assets behind same-commit Playwright proof.",
+    "The canonical Windows deployment workflow can build in parallel, but release publishing must remain gated behind same-commit Playwright proof.",
   );
 }
 
