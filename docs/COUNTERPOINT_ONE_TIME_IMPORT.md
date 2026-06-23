@@ -24,13 +24,13 @@ Before go-live, ROS must have ready proof for the required import areas:
 
 ## Clean Start
 
-Use **Reset Baseline** in Settings → Counterpoint when a rehearsal or failed run needs to be discarded. This clears imported Counterpoint rows, import proof, exceptions, and active import pointers.
+Use **Reset Counterpoint import** in Settings → Counterpoint when a failed run needs to be discarded. This clears imported Counterpoint rows, import proof, exceptions, quarantine, stale diagnostics, retired CSV/reference cleanup artifacts, and active import pointers.
 
-Reset keeps Riverside OS setup data that should not be destroyed: staff access, store settings, register and printer configuration, and local deployment state.
+Reset keeps Riverside OS setup data that should not be destroyed: staff access, store settings, register and printer configuration, local deployment state, and reviewed Counterpoint mapping configuration.
 
 After reset, refresh Settings → Counterpoint and confirm the proof table no longer shows stale landed rows from the discarded run.
 
-For a full rehearsal restart before go-live, use the packaged **Reset-RiversideDatabase.cmd** on the Main Hub. This deletes and recreates the Riverside database, applies all packaged migrations, and applies only the required Riverside seed data. Use it only when ROS should return to a clean migrated state before a new Counterpoint import.
+For a full clean restart before go-live, use the packaged **Reset-RiversideDatabase.cmd** on the Main Hub. This deletes and recreates the Riverside database, applies all packaged migrations, and applies only the required Riverside seed data. Use it only when ROS should return to a clean migrated state before a new Counterpoint import.
 
 ## Bridge Setup
 
@@ -47,7 +47,7 @@ The Bridge should report that it is posting directly to Main Hub ROS intake.
 
 ## Run Import
 
-Click **Run Full Extraction** in the Bridge.
+Click **Full Import / Recheck All** in the Bridge.
 
 The Bridge sends the import areas in dependency order so ROS can link rows correctly:
 
@@ -62,9 +62,23 @@ The Bridge sends the import areas in dependency order so ROS can link rows corre
 
 Do not use the Bridge record count alone as sign-off evidence. The Bridge count only proves that rows were sent. ROS proof proves which rows landed and linked.
 
+## Rerun Or Update Before Go-Live
+
+If the store keeps working in Counterpoint after an import, do not reset ROS just to bring over the new activity. Use **Update Since Last Run** in the Bridge. ROS records this as an `incremental_update` import run, uses Counterpoint source keys for customers, products, variants, inventory, gift cards, loyalty, tickets, open documents, and payments, then updates existing imported rows and adds new rows.
+
+If one area fails after source data or mapping is corrected, use that area's **Fix** button in the Bridge. ROS records this as a `fix_rerun` import run and keeps proof tied to the current import mode.
+
+Use **Full Import / Recheck All** when the entire import should be reproved without deleting the current ROS import state.
+
+After every rerun, repeat proof review. Confirm the **Current next step** card, required proof rows, exceptions, customer duplicates, open orders, deposits, gift cards, loyalty, and inventory quantities before sign-off.
+
+Use **Reset Counterpoint import** only when the previous import should be discarded and the next run should be treated as a new clean baseline.
+
 ## Review In ROS
 
 Open Settings → Counterpoint → **Import & Proof**.
+
+Start with **Current next step**. It turns Bridge state, source-count proof, landed proof, required-area readiness, and exceptions into the next operator action. Do not jump to Support Diagnostics unless the next-step card or proof table shows that proof is not progressing.
 
 Read the proof table as:
 

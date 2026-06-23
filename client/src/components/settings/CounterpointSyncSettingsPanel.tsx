@@ -175,6 +175,7 @@ interface CounterpointImportRunSnapshot {
   preflight_passed: boolean;
   preflight_blockers: unknown;
   totals: unknown;
+  metadata: unknown;
   started_at: string;
   completed_at: string | null;
   created_at: string;
@@ -245,6 +246,31 @@ function formatDate(value: string | null | undefined): string {
 
 function formatEntityLabel(entity: string): string {
   return entity.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function formatImportRunKind(runKind: string | null | undefined): string {
+  switch (runKind) {
+    case "incremental_update":
+      return "Update since last run";
+    case "fix_rerun":
+      return "Fix rerun";
+    case "go_live":
+      return "Go-live import";
+    case "full_rehearsal":
+    case "rehearsal":
+      return "Full import / recheck all";
+    default:
+      return "No import run yet";
+  }
+}
+
+function importRunRequestedEntity(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const value = (metadata as { requested_entity?: unknown }).requested_entity;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "full") return null;
+  return trimmed;
 }
 
 // function fmtMoney(value: string | number | null | undefined): string {
@@ -633,8 +659,101 @@ export default function CounterpointSyncSettingsPanel({
     : "border-red-500/25 bg-red-500/10 text-red-600";
   const bridgeHost = status?.bridge_hostname ?? commandCenter?.latest_preflight?.bridge_hostname ?? null;
   const bridgeVersion = status?.bridge_version ?? commandCenter?.latest_preflight?.bridge_version ?? null;
+  const latestImportRunKindLabel = formatImportRunKind(commandCenter?.latest_import_run?.run_kind);
+  const latestImportRunEntity = importRunRequestedEntity(commandCenter?.latest_import_run?.metadata);
+  const latestImportRunLabel = latestImportRunEntity
+    ? `${latestImportRunKindLabel}: ${formatEntityLabel(latestImportRunEntity)}`
+    : latestImportRunKindLabel;
   const bridgeRuntimeNote =
     status?.offline_reason ?? "Bridge status is tracked from Main Hub ROS intake heartbeat.";
+  const requiredRowsNeedingReview = commandCenterRows.filter((row) => row.required && !row.ready);
+  const firstRequiredIssue = requiredRowsNeedingReview[0] ?? null;
+  const firstOpenException = importExceptions.find((row) => row.status === "open") ?? null;
+  const importNextStep = useMemo(() => {
+    if (bridgeRuntimeState === "offline") {
+      return {
+        tone: "red",
+        title: "Next: start the Bridge on the Counterpoint PC",
+        body: "ROS is not receiving the Bridge heartbeat. Start the Bridge, confirm Main Hub ROS is ready, then run Full Import / Recheck All.",
+        actions: ["Start Bridge", "Check Main Hub ROS", "Run Full Import"],
+      };
+    }
+
+    if (!commandCenter?.preflight_received) {
+      return {
+        tone: "amber",
+        title: "Next: run Full Import / Recheck All",
+        body: "The Bridge is online, but ROS has not received Counterpoint source-count proof yet.",
+        actions: ["Run Full Import in Bridge", "Wait for source counts", "Refresh Import & Proof"],
+      };
+    }
+
+    if (!commandCenter.ready_for_import) {
+      return {
+        tone: "red",
+        title: "Next: fix preflight blockers",
+        body: "Counterpoint source-count proof is blocked. Fix the listed SQL, mapping, or source-data issue before importing.",
+        actions: ["Open Bridge Process Console", "Fix the blocker shown there", "Run Full Import again"],
+      };
+    }
+
+    if (bridgeSentButNotLanded) {
+      return {
+        tone: "amber",
+        title: "Next: wait for ROS landed proof",
+        body: "The Bridge sent rows, but ROS has not written landed proof yet. Keep Bridge and Main Hub online, then refresh this page.",
+        actions: ["Keep Bridge running", "Refresh Import & Proof", "Use Support Diagnostics only if proof stays empty"],
+      };
+    }
+
+    if (firstOpenException) {
+      return {
+        tone: "red",
+        title: `Next: fix ${formatEntityLabel(firstOpenException.entity_key)} exception`,
+        body: firstOpenException.suggested_fix ?? firstOpenException.message,
+        actions: ["Review the exception card below", "Fix the missing source/mapping/linkage", "Rerun the affected import area"],
+      };
+    }
+
+    if (firstRequiredIssue) {
+      return {
+        tone: "amber",
+        title: `Next: review ${firstRequiredIssue.label}`,
+        body: "This required area is not ready for sign-off. Review its gap, failed count, or landed proof status before finalizing.",
+        actions: ["Open the row in the proof table", "Fix or rerun the affected area", "Confirm the row becomes Ready"],
+      };
+    }
+
+    if (commandCenter?.ready_for_go_live_review && commandCenterRows.length > 0) {
+      return {
+        tone: "green",
+        title: "Next: final go-live sign-off",
+        body: "Required import areas are ready in this proof view. Review customer duplicates and final business checks before cutover.",
+        actions: ["Review Customer Duplicates", "Confirm open orders and deposits", "Complete go-live sign-off"],
+      };
+    }
+
+    return {
+      tone: "amber",
+      title: "Next: refresh import proof",
+      body: "ROS has partial import state, but it is not ready for sign-off yet.",
+      actions: ["Refresh Import & Proof", "Review any yellow or red rows", "Rerun the affected import area if needed"],
+    };
+  }, [
+    bridgeRuntimeState,
+    bridgeSentButNotLanded,
+    commandCenter?.preflight_received,
+    commandCenter?.ready_for_go_live_review,
+    commandCenter?.ready_for_import,
+    commandCenterRows.length,
+    firstOpenException,
+    firstRequiredIssue,
+  ]);
+  const importNextStepClass = importNextStep.tone === "green"
+    ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100"
+    : importNextStep.tone === "red"
+      ? "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-200"
+      : "border-amber-500/25 bg-amber-500/10 text-amber-900 dark:text-amber-100";
 
   const importFirstCommandCenterPanel = (
     <section className="ui-card p-5 space-y-4">
@@ -678,6 +797,31 @@ export default function CounterpointSyncSettingsPanel({
         ))}
       </div>
 
+      <div className={`rounded-lg border p-4 text-xs ${importNextStepClass}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest">Current next step</p>
+            <p className="mt-1 text-sm font-black">{importNextStep.title}</p>
+            <p className="mt-1 max-w-3xl font-semibold">{importNextStep.body}</p>
+          </div>
+          <span className="ui-pill border border-app-border bg-app-bg/70 text-[10px] text-app-text">
+            {commandNotReadyTotal > 0
+              ? `${fmtNum(commandNotReadyTotal)} area(s) need review`
+              : commandCenterRows.length > 0
+                ? "Proof ready"
+                : "Waiting for proof"}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {importNextStep.actions.map((action, index) => (
+            <div key={`${action}-${index}`} className="rounded-md border border-app-border bg-app-bg/60 p-2">
+              <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Do {index + 1}</p>
+              <p className="mt-1 font-bold text-app-text">{action}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div
         className={`rounded-lg border p-3 ${bridgeConnectionClass}`}
         data-testid="counterpoint-bridge-connection-status"
@@ -695,7 +839,7 @@ export default function CounterpointSyncSettingsPanel({
             {bridgeConnectionLabel}
           </span>
         </div>
-        <div className="mt-3 grid gap-2 text-xs md:grid-cols-5">
+        <div className="mt-3 grid gap-2 text-xs md:grid-cols-3 xl:grid-cols-6">
 	          <div>
 	            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Mode</p>
 	            <p className="mt-1 font-bold text-app-text">Direct ROS intake</p>
@@ -721,6 +865,10 @@ export default function CounterpointSyncSettingsPanel({
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Bridge version</p>
             <p className="mt-1 font-bold text-app-text">{bridgeVersion ?? "Not reported"}</p>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest opacity-70">Latest import mode</p>
+            <p className="mt-1 font-bold text-app-text">{latestImportRunLabel}</p>
           </div>
         </div>
 	        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-app-text">
@@ -850,13 +998,15 @@ export default function CounterpointSyncSettingsPanel({
                         : "Ready"
                       : row.queuedRows > 0
                         ? "Queued in ROS support queue"
-                        : row.sentByBridge > 0
-                          ? "No live write has happened yet."
-                          : !row.required
-                            ? "Optional"
-                            : row.status === "blocked"
-                              ? "Blocked"
-                              : formatEntityLabel(row.landedStatus)}
+                        : row.landedCount > 0 && row.gap !== 0
+                          ? "Proof needs review"
+                          : row.sentByBridge > 0
+                            ? "No live write has happened yet."
+                            : !row.required
+                              ? "Optional"
+                              : row.status === "blocked"
+                                ? "Blocked"
+                                : formatEntityLabel(row.landedStatus)}
                   </span>
                 </td>
               </tr>
@@ -987,7 +1137,7 @@ export default function CounterpointSyncSettingsPanel({
                 className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
-                Reset rehearsal data
+                Reset Counterpoint import
               </button>
             </div>
           </div>
@@ -1158,9 +1308,9 @@ export default function CounterpointSyncSettingsPanel({
           const success = await runBaselineReset(val);
           return success;
         }}
-        title="Wipe & Reset Migration?"
-        message={`This will completely delete all Counterpoint products, variants, closed tickets, deposits, gift cards, import proof, and import exceptions. This action is irreversible.\n\nTo proceed, type: ${resetPreview?.confirmation_phrase ?? "RESET"}`}
-        confirmLabel="Wipe ROS Data"
+        title="Reset Counterpoint Import?"
+        message={`This clears imported Counterpoint products, variants, customers, orders, deposits, gift cards, loyalty, import proof, exceptions, quarantine, and stale review state. It keeps Riverside setup and reviewed Counterpoint mapping configuration. This action is irreversible.\n\nTo proceed, type: ${resetPreview?.confirmation_phrase ?? "RESET"}`}
+        confirmLabel="Reset Import"
         placeholder="Enter confirmation phrase"
       />
     </div>

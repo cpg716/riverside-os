@@ -164,6 +164,18 @@ assertIncludes(
   "counterpoint-bridge-gui",
   "Windows deployment package must include the Counterpoint Bridge GUI installer directory",
 );
+for (const copy of [
+  "function Add-MeilisearchBinary",
+  "meilisearch-windows-amd64.exe",
+  "meilisearch\\meilisearch.exe",
+  "Meilisearch $meiliVersion Windows runtime",
+]) {
+  assertIncludes(
+    deploymentPackageBuilder,
+    copy,
+    "Windows deployment package must include the local Meilisearch runtime used by Main Hub search",
+  );
+}
 assertIncludes(
   deploymentPackageBuilder,
   "rev-parse --short=8 HEAD",
@@ -257,6 +269,20 @@ for (const path of [
 }
 
 const mainHubInstaller = "deployment/windows/install-server.ps1";
+for (const copy of [
+  "function Ensure-RiversideMeilisearchHost",
+  "Riverside OS Meilisearch",
+  "RIVERSIDE_MEILISEARCH_URL",
+  "RIVERSIDE_MEILISEARCH_API_KEY",
+  "--master-key",
+  "Wait-MeilisearchReady",
+]) {
+  assertIncludes(
+    mainHubInstaller,
+    copy,
+    "Main Hub installer must install and start local Meilisearch before the API relies on it",
+  );
+}
 for (const copy of [
   "function Repair-PublicSerialSequences",
   "pg_get_serial_sequence",

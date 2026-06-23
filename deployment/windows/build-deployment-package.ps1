@@ -248,6 +248,18 @@ function Add-RosieSherpaBinaries([string]$PackageRoot) {
   Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+function Add-MeilisearchBinary([string]$PackageRoot) {
+  $meiliVersion = "1.11.3"
+  $assetName = "meilisearch-windows-amd64.exe"
+  $meiliUrl = "https://github.com/meilisearch/meilisearch/releases/download/v$meiliVersion/$assetName"
+  $meiliDest = Join-Path $PackageRoot "meilisearch"
+  $meiliExe = Join-Path $meiliDest "meilisearch.exe"
+
+  New-Item -ItemType Directory -Force -Path $meiliDest | Out-Null
+  Invoke-DownloadFile $meiliUrl $meiliExe "Meilisearch $meiliVersion Windows runtime"
+  Write-Host "Packaged meilisearch/meilisearch.exe"
+}
+
 $repoRoot = Resolve-FullPath "$PSScriptRoot\..\.."
 $gitShort = Get-GitShort $repoRoot
 $gitFull = Get-GitFull $repoRoot
@@ -286,6 +298,7 @@ New-Item -ItemType Directory -Force -Path "$packageRoot\register" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\docs" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\deployment-app" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\server-manager-app" | Out-Null
+New-Item -ItemType Directory -Force -Path "$packageRoot\meilisearch" | Out-Null
 
 Copy-Item "$PSScriptRoot\install-server.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\install-register.ps1" $packageRoot -Force
@@ -365,6 +378,7 @@ if (Test-Path $llamaSourceExe) {
 }
 Add-RosieSherpaBinaries $packageRoot
 Add-RosieVoiceModels $packageRoot
+Add-MeilisearchBinary $packageRoot
 
 Copy-Item "$PSScriptRoot\start-riverside-llama.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideLlama.cmd" $packageRoot -Force
@@ -380,6 +394,7 @@ $manifest = @{
   clientDistPath = (Resolve-FullPath $ClientDistPath)
   serverBinaryPath = (Resolve-FullPath $ServerBinaryPath)
   counterpointBridgeGuiPath = "counterpoint-bridge-gui"
+  meilisearchPath = "meilisearch\meilisearch.exe"
 } | ConvertTo-Json -Depth 4
 Set-Content -Path "$packageRoot\deployment-package.manifest.json" -Value $manifest -Encoding UTF8
 
@@ -424,6 +439,7 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "the correct installer for the selected station type.`n" +
   "`nMain Hub installs both:`n" +
   "`n- The Riverside OS server, database setup, firewall rule, and startup task.`n" +
+  "- The local Meilisearch search runtime and startup task on http://127.0.0.1:7700.`n" +
   "- The Riverside Windows desktop app configured to use the local server.`n" +
   "`nPassword handling:`n" +
   "`n- If PostgreSQL is missing, the manager can offer to install PostgreSQL 18 through Windows Package Manager.`n" +

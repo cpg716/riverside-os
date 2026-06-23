@@ -574,7 +574,10 @@ export default function InventoryControlBoard({
 
   const refreshBoard = useCallback(async () => {
     const params = new URLSearchParams();
-    if (debouncedSearch) params.set("search", debouncedSearch);
+    if (debouncedSearch) {
+      params.set("search", debouncedSearch);
+      params.set("parent_rank_first", "true");
+    }
     if (oosLowOnly) params.set("oos_low_only", "true");
     if (oosOnly) params.set("oos_only", "true");
     if (negativeStockOnly) params.set("negative_stock_only", "true");
@@ -648,7 +651,10 @@ export default function InventoryControlBoard({
   const loadMoreBoard = useCallback(async () => {
     if (!boardHasMore || boardLoadingMore || boardRefreshing) return;
     const params = new URLSearchParams();
-    if (debouncedSearch) params.set("search", debouncedSearch);
+    if (debouncedSearch) {
+      params.set("search", debouncedSearch);
+      params.set("parent_rank_first", "true");
+    }
     if (oosLowOnly) params.set("oos_low_only", "true");
     if (oosOnly) params.set("oos_only", "true");
     if (negativeStockOnly) params.set("negative_stock_only", "true");

@@ -54,7 +54,7 @@ if (-not $Force) {
 
 # 1. Stop server process and scheduled tasks
 Write-Host "[1/6] Stopping Riverside OS services..." -ForegroundColor Cyan
-$tasks = @("Riverside OS Server", "Riverside OS LLM Host")
+$tasks = @("Riverside OS Server", "Riverside OS LLM Host", "Riverside OS Meilisearch")
 foreach ($taskName in $tasks) {
   $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
   if ($task) {
@@ -78,6 +78,11 @@ Get-Process -Name "llama-server" -ErrorAction SilentlyContinue | ForEach-Object 
   Write-Host "  Stopped process: llama-server (PID $($_.Id))" -ForegroundColor Green
 }
 
+Get-Process -Name "meilisearch" -ErrorAction SilentlyContinue | ForEach-Object {
+  Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+  Write-Host "  Stopped process: meilisearch (PID $($_.Id))" -ForegroundColor Green
+}
+
 # 2. Uninstall desktop app MSI
 Write-Host "[2/6] Uninstalling desktop app..." -ForegroundColor Cyan
 $existing = Get-WmiObject -Class Win32_Product -ErrorAction SilentlyContinue |
@@ -97,7 +102,7 @@ if ($existing) {
 
 # 3. Remove firewall rules
 Write-Host "[3/6] Removing firewall rules..." -ForegroundColor Cyan
-$rules = @("Riverside OS Server", "Riverside OS API", "Riverside OS LLM Host")
+$rules = @("Riverside OS Server", "Riverside OS API", "Riverside OS LLM Host", "Riverside OS Meilisearch")
 foreach ($ruleName in $rules) {
   Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
   Write-Host "  Removed firewall rule: $ruleName" -ForegroundColor Green

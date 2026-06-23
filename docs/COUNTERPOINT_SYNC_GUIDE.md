@@ -25,6 +25,10 @@ Advancement is proof-gated. Bridge-reported row counts alone do not unlock cutov
 
 During a direct Bridge run, ROS records source-count proof, raw rows, provenance links to landed ROS rows, exceptions, and landed-row proof for the current import run. Rows that fail validation remain visible as import exceptions until staff fixes them and reruns the affected import area or ROS can prove the source row landed.
 
+The Command Center also shows **Current next step**. That card is the normal operator guide: start Bridge, run extraction, fix preflight, wait for landed proof, resolve the first exception, review the first required failed area, or move to final sign-off. Support Diagnostics is intentionally secondary and should be used only when the proof path does not explain what is wrong.
+
+Before go-live, another few days of Counterpoint work can be brought into the same ROS import by running **Update Since Last Run** without a reset. ROS import handlers use Counterpoint source keys and provenance to update existing imported rows and add new rows, then proof must be reviewed again. Use **Full Import / Recheck All** when the whole import should be reproved, and use **Reset Counterpoint import** only when the prior import should be discarded.
+
 **Optional SQL objects:** Gift and loyalty tables (Standard examples: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are Counterpoint-style names from product/schema docs. Local installations can use different names such as **`SY_GFC`** (Gift Cards) or **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 
 **Migrations:** active baseline migration `081_counterpoint_import_first_proof.sql` adds `counterpoint_import_runs`, `counterpoint_import_source_counts`, `counterpoint_import_raw_records`, `counterpoint_import_provenance`, and `counterpoint_import_exceptions` for ROS import proof. Earlier Counterpoint migrations add item keys, sync runs/issues, mapping tables, staff/customer/catalog provenance, vendor supplier items, and payment-method aliases.
@@ -96,7 +100,7 @@ On the Counterpoint PC, open **Riverside Counterpoint Bridge**, confirm:
 - Main Hub ROS intake ready
 - Auto Config / Schema Alignment verified
 
-Then run **Full Extraction**. The Bridge posts each supported domain directly to ROS. ROS owns source-count proof, exceptions, landed proof, duplicate review, and final sign-off.
+Then run **Full Import / Recheck All**. The Bridge posts each supported domain directly to ROS. ROS owns source-count proof, exceptions, landed proof, duplicate review, and final sign-off.
 
 ### 2d. Verify health endpoints
 
@@ -593,7 +597,7 @@ The Fresh baseline reset preserves reviewed Counterpoint mapping configuration s
 
 Do not use `scripts/ros-wipe-business-data-keep-bootstrap-admin.sql` as the normal Counterpoint rehearsal reset. That script is a broad operational/business-data wipe; it may clear more operational setup and does not preserve the same Counterpoint rehearsal state.
 
-The server reset also clears the active ROS import-run pointer and import proof rows. It does not touch bridge-local cursor files. Delete or reset `.counterpoint-bridge-state.json` on the Counterpoint PC before the next run if you need a true full replay instead of continuing from saved bridge cursors.
+The server reset also clears the active ROS import-run pointer, import proof rows, exceptions, ingest quarantine, stored fidelity diagnostics, retired CSV/reference cleanup artifacts, and Counterpoint workbench step state. It does not touch bridge-local cursor files. Delete or reset `.counterpoint-bridge-state.json` on the Counterpoint PC before the next run if you need a true full replay instead of continuing from saved bridge cursors.
 
 ### API endpoints (staff-gated, `settings.admin`)
 
@@ -738,7 +742,7 @@ Normal operation does not require entity SQL in `.env`. The bridge uses the thre
 3. Install or open the Bridge GUI on the Counterpoint Windows host.
 4. Enter the Counterpoint SQL connection string and Main Hub ROS URL.
 5. Run GUI Auto Config or `node index.mjs auto-config` to confirm runtime mappings for staff, customers, catalog, inventory, gift cards, tickets, open docs, loyalty balances, and related data.
-6. Run Full Extraction.
+6. Run Full Import / Recheck All.
 7. Monitor progress in the Bridge GUI and the ROS Import Command Center.
 8. Resolve import exceptions, review customer duplicates, and confirm proof before final sign-off.
 

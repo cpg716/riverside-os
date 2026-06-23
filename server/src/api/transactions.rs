@@ -2583,8 +2583,25 @@ async fn mark_transaction_pickup(
         sqlx::query_as(
             r#"
             SELECT
-                COALESCE(pv.sku, 'Unknown SKU') AS sku,
-                COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Unknown item') AS product_name,
+                COALESCE(
+                    CASE
+                        WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                        THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_sku'), '')
+                        ELSE NULL
+                    END,
+                    pv.sku,
+                    'Unknown SKU'
+                ) AS sku,
+                COALESCE(
+                    CASE
+                        WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                        THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_description'), '')
+                        ELSE NULL
+                    END,
+                    NULLIF(TRIM(p.name), ''),
+                    pv.sku,
+                    'Unknown item'
+                ) AS product_name,
                 oi.order_lifecycle_status,
                 oi.variant_id,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity,
@@ -2612,8 +2629,25 @@ async fn mark_transaction_pickup(
         sqlx::query_as(
             r#"
             SELECT
-                COALESCE(pv.sku, 'Unknown SKU') AS sku,
-                COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Unknown item') AS product_name,
+                COALESCE(
+                    CASE
+                        WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                        THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_sku'), '')
+                        ELSE NULL
+                    END,
+                    pv.sku,
+                    'Unknown SKU'
+                ) AS sku,
+                COALESCE(
+                    CASE
+                        WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                        THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_description'), '')
+                        ELSE NULL
+                    END,
+                    NULLIF(TRIM(p.name), ''),
+                    pv.sku,
+                    'Unknown item'
+                ) AS product_name,
                 oi.order_lifecycle_status,
                 oi.variant_id,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity,
@@ -5703,8 +5737,23 @@ pub(crate) async fn load_transaction_detail(
             oi.id AS transaction_line_id,
             oi.product_id,
             oi.variant_id,
-            pv.sku,
-            p.name AS product_name,
+            COALESCE(
+                CASE
+                    WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                    THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_sku'), '')
+                    ELSE NULL
+                END,
+                pv.sku
+            ) AS sku,
+            COALESCE(
+                CASE
+                    WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                    THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_description'), '')
+                    ELSE NULL
+                END,
+                NULLIF(TRIM(p.name), ''),
+                p.name
+            ) AS product_name,
             pv.variation_label,
             oi.quantity,
             COALESCE((

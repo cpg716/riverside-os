@@ -29,14 +29,29 @@ Use this panel to verify facts before cutover. Bridge row counts mean data was s
 
 1. Open the Bridge app on the Counterpoint PC.
 2. Confirm the Bridge can reach Main Hub ROS.
-3. Run **Full Extraction** in the Bridge.
+3. Run **Full Import / Recheck All** in the Bridge.
 4. Open **Import & Proof** in ROS.
-5. Confirm required areas show landed proof.
-6. Resolve import exceptions, then rerun the affected import area if needed.
-7. Review **Customer Duplicates** after customers land.
-8. Confirm final proof is ready before go-live sign-off.
+5. Follow **Current next step** at the top of the command center.
+6. Confirm required areas show landed proof.
+7. Resolve import exceptions, then rerun the affected import area if needed.
+8. Review **Customer Duplicates** after customers land.
+9. Confirm final proof is ready before go-live sign-off.
 
 Do not sign off while required rows are failed, missing, or waiting for exception review.
+
+## Current next step
+
+The command center reads the Bridge heartbeat, source counts, landed proof, import exceptions, and required-area readiness. It then names the next action:
+
+- Start the Bridge if ROS is not receiving a heartbeat.
+- Run Full Import / Recheck All if source-count proof has not landed.
+- Fix preflight blockers if Counterpoint SQL or mapping proof is blocked.
+- Wait for landed proof if rows were sent but ROS has not written proof yet.
+- Fix the first open exception when a source row cannot land cleanly.
+- Review the first required area that is not ready.
+- Move to final sign-off only after required areas are ready.
+
+Use Support Diagnostics only when the current next step says proof or Bridge status is not progressing.
 
 ## Import proof
 
@@ -62,7 +77,13 @@ Customer rows with duplicate email addresses do not stop the customer import. RO
 
 ## Clean restart
 
-Use **Reset Baseline** only before go-live when a rehearsal needs to start over. Reset clears imported Counterpoint rows, import proof, exceptions, and active import pointers. It keeps staff access, store settings, register/printer configuration, and local ROS setup.
+Use **Reset Counterpoint import** only before go-live when an import needs to start over. Reset clears imported Counterpoint rows, import proof, exceptions, quarantine, stale diagnostics, CSV/reference cleanup artifacts, and active import pointers. It keeps staff access, store settings, register/printer configuration, local ROS setup, and reviewed Counterpoint mapping configuration.
+
+## Updating after more Counterpoint work
+
+Before go-live, if staff keep working in Counterpoint after an import, use **Update Since Last Run** in the Bridge without resetting ROS. ROS uses Counterpoint document, customer, product, variant, gift card, and loyalty keys to update existing imported records and land new rows. If a single area needs repair, use that area's **Fix** button. After every rerun, review **Current next step**, proof gaps, exceptions, open orders, deposits, and customer duplicates again before sign-off.
+
+Use **Reset Counterpoint import** only when the previous import should be discarded and the store wants a clean baseline.
 
 ## Support diagnostics
 

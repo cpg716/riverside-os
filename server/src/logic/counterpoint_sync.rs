@@ -18,13 +18,45 @@ use sqlx::{Acquire, PgPool, Postgres, QueryBuilder, Transaction};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::logic::{integration_credentials, store_credit};
+use crate::logic::{
+    custom_orders::known_custom_subtype_for_sku, integration_credentials, store_credit,
+};
 
 const HISTORICAL_FALLBACK_SKU: &str = "HIST-CP-FALLBACK";
 const HISTORICAL_FALLBACK_NAME: &str = "Historical Counterpoint Sale (Item Unresolved)";
 const COUNTERPOINT_IMPORT_HISTORY_START: &str = "2018-01-01";
 const COUNTERPOINT_TICKET_SUSPICIOUS_MIN: i64 = 1_000;
 const COUNTERPOINT_OPEN_DOC_SUSPICIOUS_MIN: i64 = 100;
+
+fn counterpoint_catalog_variant_sku(cp_key: &str, sku: &str) -> String {
+    let sku = sku.trim();
+    if known_custom_subtype_for_sku(sku).is_none() {
+        return sku.to_string();
+    }
+
+    let source_key = cp_key.trim();
+    let source_key = if source_key.is_empty() {
+        sku
+    } else {
+        source_key
+    };
+    let safe_key: String = source_key
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let safe_key = safe_key.trim_matches('-');
+    if safe_key.is_empty() {
+        format!("CP-{sku}")
+    } else {
+        format!("CP-{safe_key}")
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum CounterpointSyncError {
@@ -145,6 +177,10 @@ pub struct CounterpointImportRunStartPayload {
     pub preflight_import_run_id: Option<Uuid>,
     #[serde(default)]
     pub run_kind: Option<String>,
+    #[serde(default)]
+    pub requested_entity: Option<String>,
+    #[serde(default)]
+    pub trigger: Option<String>,
     #[serde(default)]
     pub bridge_hostname: Option<String>,
     #[serde(default)]
@@ -3838,6 +3874,7 @@ pub struct CounterpointImportRunSnapshot {
     pub preflight_passed: bool,
     pub preflight_blockers: JsonValue,
     pub totals: JsonValue,
+    pub metadata: JsonValue,
     pub started_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -4707,7 +4744,7 @@ async fn load_latest_counterpoint_import_preflight(
         SELECT
             id, run_kind, status, history_start, bridge_hostname, bridge_version,
             ros_base_url, source_fingerprint, preflight_passed, preflight_blockers,
-            totals, started_at, completed_at, created_at, updated_at
+            totals, metadata, started_at, completed_at, created_at, updated_at
         FROM counterpoint_import_runs
         WHERE run_kind = 'preflight'
         ORDER BY created_at DESC
@@ -4783,7 +4820,7 @@ async fn load_counterpoint_import_run(
         SELECT
             id, run_kind, status, history_start, bridge_hostname, bridge_version,
             ros_base_url, source_fingerprint, preflight_passed, preflight_blockers,
-            totals, started_at, completed_at, created_at, updated_at
+            totals, metadata, started_at, completed_at, created_at, updated_at
         FROM counterpoint_import_runs
         WHERE id = $1
         "#,
@@ -4801,9 +4838,9 @@ async fn load_latest_counterpoint_import_run(
         SELECT
             id, run_kind, status, history_start, bridge_hostname, bridge_version,
             ros_base_url, source_fingerprint, preflight_passed, preflight_blockers,
-            totals, started_at, completed_at, created_at, updated_at
+            totals, metadata, started_at, completed_at, created_at, updated_at
         FROM counterpoint_import_runs
-        WHERE run_kind IN ('rehearsal', 'go_live')
+        WHERE run_kind IN ('rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
         ORDER BY created_at DESC
         LIMIT 1
         "#,
@@ -4814,17 +4851,30 @@ async fn load_latest_counterpoint_import_run(
 
 fn normalized_import_run_kind(value: Option<&str>) -> Result<&'static str, CounterpointSyncError> {
     match value
-        .unwrap_or("rehearsal")
+        .unwrap_or("full_rehearsal")
         .trim()
         .to_ascii_lowercase()
         .as_str()
     {
-        "" | "rehearsal" | "test" | "dev" => Ok("rehearsal"),
+        "" | "rehearsal" | "test" | "dev" | "full" | "full_import" | "full-import"
+        | "full_rehearsal" | "full-rerun" | "full_rerun" => Ok("full_rehearsal"),
+        "fix" | "fix_rerun" | "fix-rerun" | "area_fix" | "area-fix" | "repair" | "repair_rerun" => {
+            Ok("fix_rerun")
+        }
+        "update" | "incremental" | "incremental_update" | "incremental-update"
+        | "since_last_run" | "since-last-run" | "catch_up" | "catch-up" => Ok("incremental_update"),
         "go_live" | "go-live" | "golive" | "production" => Ok("go_live"),
         other => Err(CounterpointSyncError::InvalidPayload(format!(
             "unsupported import run kind: {other}"
         ))),
     }
+}
+
+fn is_counterpoint_write_import_run_kind(value: &str) -> bool {
+    matches!(
+        value,
+        "rehearsal" | "full_rehearsal" | "fix_rerun" | "incremental_update" | "go_live"
+    )
 }
 
 pub async fn start_counterpoint_import_run(
@@ -4867,7 +4917,11 @@ pub async fn start_counterpoint_import_run(
             COALESCE($7, $8),
             COALESCE($9, $10),
             TRUE, $11, '{}'::jsonb,
-            jsonb_build_object('preflight_import_run_id', $12::uuid)
+            jsonb_build_object(
+                'preflight_import_run_id', $12::uuid,
+                'requested_entity', NULLIF(BTRIM($13), ''),
+                'trigger', NULLIF(BTRIM($14), '')
+            )
         )
         RETURNING id
         "#,
@@ -4884,6 +4938,8 @@ pub async fn start_counterpoint_import_run(
     .bind(preflight.source_fingerprint.as_deref())
     .bind(&preflight.preflight_blockers)
     .bind(preflight.id)
+    .bind(payload.requested_entity.as_deref())
+    .bind(payload.trigger.as_deref())
     .fetch_one(&mut *tx)
     .await?;
 
@@ -4959,11 +5015,11 @@ pub async fn complete_counterpoint_import_run(
             updated_at = NOW(),
             totals = COALESCE(totals, '{}'::jsonb) || $3::jsonb
         WHERE id = $1
-          AND run_kind IN ('rehearsal', 'go_live')
+          AND run_kind IN ('rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
         RETURNING
             id, run_kind, status, history_start, bridge_hostname, bridge_version,
             ros_base_url, source_fingerprint, preflight_passed, preflight_blockers,
-            totals, started_at, completed_at, created_at, updated_at
+            totals, metadata, started_at, completed_at, created_at, updated_at
         "#,
     )
     .bind(payload.import_run_id)
@@ -5004,7 +5060,7 @@ pub async fn require_counterpoint_import_run_for_batch(
                     "Counterpoint import run not found for batch".into(),
                 )
             })?;
-        if run.status == "running" && matches!(run.run_kind.as_str(), "rehearsal" | "go_live") {
+        if run.status == "running" && is_counterpoint_write_import_run_kind(&run.run_kind) {
             return Ok(import_run_id);
         }
         return Err(CounterpointSyncError::InvalidPayload(format!(
@@ -5036,7 +5092,7 @@ pub async fn require_counterpoint_import_run_for_batch(
                 "Counterpoint active import run was not found; restart the Bridge preflight".into(),
             )
         })?;
-    if run.status == "running" && matches!(run.run_kind.as_str(), "rehearsal" | "go_live") {
+    if run.status == "running" && is_counterpoint_write_import_run_kind(&run.run_kind) {
         Ok(import_run_id)
     } else {
         Err(CounterpointSyncError::InvalidPayload(format!(
@@ -5708,38 +5764,122 @@ async fn import_run_landed_count_for_source_count(
         return Ok(0);
     };
 
+    if import_run_counts_landed_raw_records(entity_key) {
+        return sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_import_raw_records
+            WHERE import_run_id = $1
+              AND entity_key = $2
+              AND landed
+            "#,
+        )
+        .bind(import_run_id)
+        .bind(provenance_entity)
+        .fetch_one(pool)
+        .await;
+    }
+
     match ros_table {
+        Some(table) if import_run_counts_landed_ros_rows(entity_key) => {
+            import_run_distinct_ros_row_count(pool, import_run_id, provenance_entity, table).await
+        }
         Some(table) => {
-            sqlx::query_scalar(
-                r#"
-                SELECT COUNT(DISTINCT source_key)::bigint
-                FROM counterpoint_import_provenance
-                WHERE import_run_id = $1
-                  AND entity_key = $2
-                  AND ros_table = $3
-                "#,
+            import_run_distinct_source_key_count(
+                pool,
+                import_run_id,
+                provenance_entity,
+                Some(table),
             )
-            .bind(import_run_id)
-            .bind(provenance_entity)
-            .bind(table)
-            .fetch_one(pool)
             .await
         }
         None => {
-            sqlx::query_scalar(
-                r#"
-                SELECT COUNT(DISTINCT source_key)::bigint
-                FROM counterpoint_import_raw_records
-                WHERE import_run_id = $1
-                  AND entity_key = $2
-                  AND landed
-                "#,
-            )
-            .bind(import_run_id)
-            .bind(provenance_entity)
-            .fetch_one(pool)
-            .await
+            import_run_distinct_source_key_count(pool, import_run_id, provenance_entity, None).await
         }
+    }
+}
+
+fn import_run_counts_landed_ros_rows(entity_key: &str) -> bool {
+    matches!(
+        entity_key,
+        "catalog_variants"
+            | "catalog_variant_skus"
+            | "ticket_lines"
+            | "closed_ticket_lines"
+            | "ticket_payments"
+            | "closed_ticket_payments"
+            | "open_doc_lines"
+            | "open_doc_payments"
+            | "open_doc_deposits_payments"
+    )
+}
+
+fn import_run_counts_landed_raw_records(entity_key: &str) -> bool {
+    matches!(
+        entity_key,
+        "inventory_quantity_rows"
+            | "inventory_quantity_rows_matched"
+            | "inventory_quantity_cost_fields"
+    )
+}
+
+async fn import_run_distinct_ros_row_count(
+    pool: &PgPool,
+    import_run_id: Uuid,
+    provenance_entity: &str,
+    ros_table: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT COUNT(DISTINCT ros_id)::bigint
+        FROM counterpoint_import_provenance
+        WHERE import_run_id = $1
+          AND entity_key = $2
+          AND ros_table = $3
+        "#,
+    )
+    .bind(import_run_id)
+    .bind(provenance_entity)
+    .bind(ros_table)
+    .fetch_one(pool)
+    .await
+}
+
+async fn import_run_distinct_source_key_count(
+    pool: &PgPool,
+    import_run_id: Uuid,
+    provenance_entity: &str,
+    ros_table: Option<&str>,
+) -> Result<i64, sqlx::Error> {
+    if let Some(table) = ros_table {
+        sqlx::query_scalar(
+            r#"
+            SELECT COUNT(DISTINCT source_key)::bigint
+            FROM counterpoint_import_provenance
+            WHERE import_run_id = $1
+              AND entity_key = $2
+              AND ros_table = $3
+            "#,
+        )
+        .bind(import_run_id)
+        .bind(provenance_entity)
+        .bind(table)
+        .fetch_one(pool)
+        .await
+    } else {
+        sqlx::query_scalar(
+            r#"
+            SELECT COUNT(DISTINCT source_key)::bigint
+            FROM counterpoint_import_raw_records
+            WHERE import_run_id = $1
+              AND entity_key = $2
+              AND landed
+            "#,
+        )
+        .bind(import_run_id)
+        .bind(provenance_entity)
+        .fetch_one(pool)
+        .await
     }
 }
 
@@ -6129,12 +6269,12 @@ async fn record_counterpoint_import_exception(
             FROM (
                 SELECT id, 0 AS priority, created_at
                 FROM counterpoint_import_runs
-                WHERE run_kind IN ('rehearsal', 'go_live')
+                WHERE run_kind IN ('rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
                   AND status = 'running'
                 UNION ALL
                 SELECT id, 1 AS priority, created_at
                 FROM counterpoint_import_runs
-                WHERE run_kind IN ('rehearsal', 'go_live')
+                WHERE run_kind IN ('rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
                   AND status IN ('completed', 'failed')
                 UNION ALL
                 SELECT id, 2 AS priority, created_at
@@ -8173,7 +8313,7 @@ async fn build_counterpoint_reset_scope(
                   + (SELECT COUNT(*)::bigint FROM counterpoint_staging_batch)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_receiving_history)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_staff_map)
-                  + (SELECT COUNT(*)::bigint FROM counterpoint_category_map)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_ingest_quarantine)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_import_runs)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_import_raw_records)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_import_provenance)
@@ -8181,7 +8321,24 @@ async fn build_counterpoint_reset_scope(
                 "#,
             )
             .await?,
-            note: "Clears Counterpoint staging, run history, source-count proof, raw import proof, provenance, exceptions, staff maps, and category maps so ROS shows a fresh migration state.".into(),
+            note: "Clears Counterpoint staging, run history, source-count proof, raw import proof, provenance, quarantine, exceptions, and staff maps so ROS shows a fresh migration state.".into(),
+        },
+        CounterpointResetCountRow {
+            key: "counterpoint_review_artifacts".into(),
+            label: "Counterpoint review artifacts".into(),
+            count: reset_preview_count(
+                pool,
+                r#"
+                SELECT
+                    (SELECT COUNT(*)::bigint FROM counterpoint_csv_reference_batches)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_csv_reference_rows)
+                  + (SELECT COUNT(*)::bigint FROM product_variant_barcode_aliases
+                     WHERE alias_type = 'counterpoint_b_sku'
+                        OR source_system LIKE 'counterpoint%')
+                "#,
+            )
+            .await?,
+            note: "Clears old CSV reference rows and Counterpoint scan aliases from retired review tooling so a fresh import does not inherit stale cleanup context.".into(),
         },
         CounterpointResetCountRow {
             key: "counterpoint_staff".into(),
@@ -9208,7 +9365,9 @@ struct CounterpointBaselineResetTargets {
     counterpoint_staging_batch_ids: Vec<i64>,
     counterpoint_receiving_history_ids: Vec<Uuid>,
     counterpoint_staff_map_staff_ids: Vec<Uuid>,
-    counterpoint_category_map_ids: Vec<i64>,
+    counterpoint_ingest_quarantine_ids: Vec<i64>,
+    counterpoint_csv_reference_batch_ids: Vec<Uuid>,
+    counterpoint_barcode_alias_ids: Vec<i64>,
     counterpoint_import_run_ids: Vec<Uuid>,
     counterpoint_import_exception_ids: Vec<Uuid>,
 }
@@ -9317,8 +9476,23 @@ async fn collect_counterpoint_baseline_reset_targets(
         )
         .fetch_all(&mut **tx)
         .await?,
-        counterpoint_category_map_ids: sqlx::query_scalar(
-            "SELECT id FROM counterpoint_category_map",
+        counterpoint_ingest_quarantine_ids: sqlx::query_scalar(
+            "SELECT id FROM counterpoint_ingest_quarantine",
+        )
+        .fetch_all(&mut **tx)
+        .await?,
+        counterpoint_csv_reference_batch_ids: sqlx::query_scalar(
+            "SELECT id FROM counterpoint_csv_reference_batches",
+        )
+        .fetch_all(&mut **tx)
+        .await?,
+        counterpoint_barcode_alias_ids: sqlx::query_scalar(
+            r#"
+            SELECT id
+            FROM product_variant_barcode_aliases
+            WHERE alias_type = 'counterpoint_b_sku'
+               OR source_system LIKE 'counterpoint%'
+            "#,
         )
         .fetch_all(&mut **tx)
         .await?,
@@ -9435,6 +9609,13 @@ async fn perform_counterpoint_baseline_reset_targets(
             .await?;
     }
 
+    if !targets.counterpoint_barcode_alias_ids.is_empty() {
+        sqlx::query("DELETE FROM product_variant_barcode_aliases WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_barcode_alias_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+
     if !targets.counterpoint_variant_ids.is_empty() {
         sqlx::query(
             r#"
@@ -9513,6 +9694,12 @@ async fn perform_counterpoint_baseline_reset_targets(
     if !targets.counterpoint_receiving_history_ids.is_empty() {
         sqlx::query("DELETE FROM counterpoint_receiving_history WHERE id = ANY($1)")
             .bind(&targets.counterpoint_receiving_history_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if !targets.counterpoint_ingest_quarantine_ids.is_empty() {
+        sqlx::query("DELETE FROM counterpoint_ingest_quarantine WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_ingest_quarantine_ids)
             .execute(&mut **tx)
             .await?;
     }
@@ -9606,12 +9793,46 @@ async fn perform_counterpoint_baseline_reset_targets(
             .execute(&mut **tx)
             .await?;
     }
+    if !targets.counterpoint_csv_reference_batch_ids.is_empty() {
+        sqlx::query("DELETE FROM counterpoint_csv_reference_batches WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_csv_reference_batch_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
     sqlx::query(
         r#"
         UPDATE store_settings
         SET counterpoint_config = COALESCE(counterpoint_config, '{}'::jsonb)
             - 'import_first_active_run_id'
             - 'import_first_preflight'
+            - 'fidelity_diagnostics'
+        WHERE id = 1
+        "#,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        r#"
+        UPDATE counterpoint_workbench_state
+        SET step_data_sources_status = 'pending',
+            step_data_sources_approved_at = NULL,
+            step_data_sources_approved_by = NULL,
+            step_categories_status = 'locked',
+            step_categories_approved_at = NULL,
+            step_categories_approved_by = NULL,
+            step_vendors_status = 'locked',
+            step_vendors_approved_at = NULL,
+            step_vendors_approved_by = NULL,
+            step_catalog_status = 'locked',
+            step_catalog_approved_at = NULL,
+            step_catalog_approved_by = NULL,
+            step_sku_gaps_status = 'locked',
+            step_sku_gaps_approved_at = NULL,
+            step_sku_gaps_approved_by = NULL,
+            step_verification_status = 'locked',
+            step_verification_approved_at = NULL,
+            step_verification_approved_by = NULL,
+            updated_at = NOW()
         WHERE id = 1
         "#,
     )
@@ -9620,12 +9841,6 @@ async fn perform_counterpoint_baseline_reset_targets(
     if !targets.counterpoint_staff_map_staff_ids.is_empty() {
         sqlx::query("DELETE FROM counterpoint_staff_map WHERE ros_staff_id = ANY($1)")
             .bind(&targets.counterpoint_staff_map_staff_ids)
-            .execute(&mut **tx)
-            .await?;
-    }
-    if !targets.counterpoint_category_map_ids.is_empty() {
-        sqlx::query("DELETE FROM counterpoint_category_map WHERE id = ANY($1)")
-            .bind(&targets.counterpoint_category_map_ids)
             .execute(&mut **tx)
             .await?;
     }
@@ -10511,14 +10726,30 @@ async fn upsert_variant(
         summary.skipped += 1;
         return Ok(());
     }
+    let import_sku = counterpoint_catalog_variant_sku(cp_key, sku);
 
-    let existing: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM product_variants WHERE counterpoint_item_key = $1")
+    let mut existing: Option<(Uuid, String)> =
+        sqlx::query_as("SELECT id, sku FROM product_variants WHERE counterpoint_item_key = $1")
             .bind(cp_key)
             .fetch_optional(&mut **tx)
             .await?;
 
-    if let Some(vid) = existing {
+    if let Some((vid, existing_sku)) = existing.as_ref() {
+        if known_custom_subtype_for_sku(existing_sku).is_some()
+            && known_custom_subtype_for_sku(cp_key).is_some()
+        {
+            sqlx::query(
+                "UPDATE product_variants SET counterpoint_item_key = NULL WHERE id = $1 AND counterpoint_item_key = $2",
+            )
+            .bind(*vid)
+            .bind(cp_key)
+            .execute(&mut **tx)
+            .await?;
+            existing = None;
+        }
+    }
+
+    if let Some((vid, _)) = existing {
         sqlx::query(
             r#"
             UPDATE product_variants SET
@@ -10535,7 +10766,7 @@ async fn upsert_variant(
             "#,
         )
         .bind(vid)
-        .bind(sku)
+        .bind(&import_sku)
         .bind(barcode)
         .bind(variation_label)
         .bind(override_retail)
@@ -10575,7 +10806,7 @@ async fn upsert_variant(
             "#,
         )
         .bind(product_id)
-        .bind(sku)
+        .bind(&import_sku)
         .bind(barcode)
         .bind(cp_key)
         .bind(vv)
@@ -12208,11 +12439,16 @@ pub async fn execute_counterpoint_open_doc_batch(
         .map(|doc| doc.doc_ref.trim().to_string())
         .filter(|doc_ref| !doc_ref.is_empty())
         .collect();
-    let existing_doc_refs: HashSet<String> = if doc_refs.is_empty() {
-        HashSet::new()
+    let existing_doc_ids: HashMap<String, Uuid> = if doc_refs.is_empty() {
+        HashMap::new()
     } else {
-        sqlx::query_scalar::<_, String>(
-            "SELECT counterpoint_doc_ref FROM transactions WHERE counterpoint_doc_ref = ANY($1)",
+        sqlx::query_as::<_, (String, Uuid)>(
+            r#"
+            SELECT counterpoint_doc_ref, id
+            FROM transactions
+            WHERE counterpoint_doc_ref = ANY($1)
+              AND counterpoint_doc_ref IS NOT NULL
+            "#,
         )
         .bind(&doc_refs)
         .fetch_all(pool)
@@ -12244,11 +12480,6 @@ pub async fn execute_counterpoint_open_doc_batch(
             )
             .await;
             summary.skipped += 1;
-            continue;
-        }
-
-        if existing_doc_refs.contains(doc_ref) {
-            summary.transactions_skipped_existing += 1;
             continue;
         }
 
@@ -12392,34 +12623,103 @@ pub async fn execute_counterpoint_open_doc_batch(
             .await;
         }
 
-        let transaction_id: Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO transactions (
-                customer_id, counterpoint_ticket_ref, counterpoint_doc_ref,
-                is_counterpoint_import,
-                status, booked_at, business_date, total_price, amount_paid, balance_due,
-                processed_by_staff_id, primary_salesperson_id
+        let existing_transaction_id = existing_doc_ids.get(doc_ref).copied();
+        let transaction_id = if let Some(transaction_id) = existing_transaction_id {
+            summary.transactions_skipped_existing += 1;
+            sqlx::query(
+                r#"
+                UPDATE transactions
+                SET customer_id = COALESCE($2, customer_id),
+                    status = $3::order_status,
+                    booked_at = $4,
+                    business_date = ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                    total_price = $5,
+                    amount_paid = $6,
+                    balance_due = $7,
+                    processed_by_staff_id = COALESCE($8, processed_by_staff_id),
+                    primary_salesperson_id = COALESCE($9, primary_salesperson_id)
+                WHERE id = $1
+                  AND is_counterpoint_import
+                  AND counterpoint_doc_ref = $10
+                "#,
             )
-            VALUES (
-                $1, NULL, $2, TRUE, $3::order_status, $4,
-                ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
-                $5, $6, $7, $8, $9
+            .bind(transaction_id)
+            .bind(customer_id)
+            .bind(status)
+            .bind(booked_at)
+            .bind(doc.total_price)
+            .bind(normalized_amount_paid)
+            .bind(balance)
+            .bind(processed_by)
+            .bind(salesperson)
+            .bind(doc_ref)
+            .execute(&mut *tx)
+            .await?;
+
+            let payment_ids: Vec<Uuid> = sqlx::query_scalar(
+                r#"
+                SELECT pa.transaction_id
+                FROM payment_allocations pa
+                JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = $1
+                  AND pt.metadata->>'counterpoint_doc_ref' = $2
+                "#,
             )
-            RETURNING id
-            "#,
-        )
-        .bind(customer_id)
-        .bind(doc_ref)
-        .bind(status)
-        .bind(booked_at)
-        .bind(doc.total_price)
-        .bind(normalized_amount_paid)
-        .bind(balance)
-        .bind(processed_by)
-        .bind(salesperson)
-        .fetch_one(&mut *tx)
-        .await?;
-        summary.transactions_created += 1;
+            .bind(transaction_id)
+            .bind(doc_ref)
+            .fetch_all(&mut *tx)
+            .await?;
+            if !payment_ids.is_empty() {
+                sqlx::query("DELETE FROM payment_allocations WHERE transaction_id = ANY($1)")
+                    .bind(&payment_ids)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
+                    .bind(&payment_ids)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = $1")
+                .bind(transaction_id)
+                .execute(&mut *tx)
+                .await?;
+            transaction_id
+        } else {
+            let Some(transaction_id) = sqlx::query_scalar::<_, Uuid>(
+                r#"
+                INSERT INTO transactions (
+                    customer_id, counterpoint_ticket_ref, counterpoint_doc_ref,
+                    is_counterpoint_import,
+                    status, booked_at, business_date, total_price, amount_paid, balance_due,
+                    processed_by_staff_id, primary_salesperson_id
+                )
+                VALUES (
+                    $1, NULL, $2, TRUE, $3::order_status, $4,
+                    ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                    $5, $6, $7, $8, $9
+                )
+                ON CONFLICT (counterpoint_doc_ref) WHERE counterpoint_doc_ref IS NOT NULL DO NOTHING
+                RETURNING id
+                "#,
+            )
+            .bind(customer_id)
+            .bind(doc_ref)
+            .bind(status)
+            .bind(booked_at)
+            .bind(doc.total_price)
+            .bind(normalized_amount_paid)
+            .bind(balance)
+            .bind(processed_by)
+            .bind(salesperson)
+            .fetch_optional(&mut *tx)
+            .await?
+            else {
+                summary.transactions_skipped_existing += 1;
+                continue;
+            };
+            summary.transactions_created += 1;
+            transaction_id
+        };
         if unresolved_count > 0 {
             fallback_exceptions.push((doc_ref.to_string(), transaction_id, unresolved_count));
         }
@@ -13692,6 +13992,44 @@ mod tests {
     static COUNTERPOINT_HEALTH_TEST_LOCK: tokio::sync::Mutex<()> =
         tokio::sync::Mutex::const_new(());
 
+    #[test]
+    fn counterpoint_import_run_kind_tracks_full_fix_and_update_modes() {
+        assert_eq!(
+            normalized_import_run_kind(Some("full")).expect("full mode"),
+            "full_rehearsal"
+        );
+        assert_eq!(
+            normalized_import_run_kind(Some("fix_rerun")).expect("fix mode"),
+            "fix_rerun"
+        );
+        assert_eq!(
+            normalized_import_run_kind(Some("update")).expect("update mode"),
+            "incremental_update"
+        );
+        assert_eq!(
+            normalized_import_run_kind(Some("go_live")).expect("go-live mode"),
+            "go_live"
+        );
+        assert!(is_counterpoint_write_import_run_kind("incremental_update"));
+        assert!(normalized_import_run_kind(Some("unknown_mode")).is_err());
+    }
+
+    #[test]
+    fn counterpoint_catalog_variant_sku_preserves_ros_custom_order_skus() {
+        assert_eq!(counterpoint_catalog_variant_sku("100", "100"), "CP-100");
+        assert_eq!(counterpoint_catalog_variant_sku("105", "105"), "CP-105");
+        assert_eq!(counterpoint_catalog_variant_sku("110", "110"), "CP-110");
+        assert_eq!(counterpoint_catalog_variant_sku("200", "200"), "CP-200");
+        assert_eq!(
+            counterpoint_catalog_variant_sku("I-102119|40901/1|36 R|2BV", "100"),
+            "CP-I-102119-40901-1-36-R-2BV"
+        );
+        assert_eq!(
+            counterpoint_catalog_variant_sku("40901/1", "40901/1"),
+            "40901/1"
+        );
+    }
+
     async fn connect_test_db() -> PgPool {
         let _ =
             dotenvy::from_filename(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
@@ -14086,7 +14424,9 @@ mod tests {
             &pool,
             CounterpointImportRunStartPayload {
                 preflight_import_run_id: Some(preflight.import_run_id),
-                run_kind: Some("rehearsal".into()),
+                run_kind: Some("full_rehearsal".into()),
+                requested_entity: Some("full".into()),
+                trigger: Some("test".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14150,6 +14490,133 @@ mod tests {
                 preflight.import_run_id,
                 import_run.import_run_id,
             ])
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn counterpoint_command_center_counts_landed_child_rows_by_row_grain() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        ensure_counterpoint_import_first_tables(&pool).await;
+        let unique = Uuid::new_v4().to_string();
+        let mut counts = realistic_import_preflight_counts();
+        for row in &mut counts {
+            row.source_count = 0;
+            row.required = false;
+            row.status = Some("ok".into());
+            row.message = None;
+            row.suspicious_min_count = Some(0);
+            match row.entity_key.as_str() {
+                "catalog_variants" | "open_doc_lines" | "inventory_quantity_rows" => {
+                    row.source_count = 2;
+                    row.required = true;
+                }
+                _ => {}
+            }
+        }
+
+        let preflight = record_counterpoint_import_preflight(
+            &pool,
+            CounterpointImportPreflightPayload {
+                history_start: Some("2018-01-01".into()),
+                bridge_hostname: Some("test-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some(format!("row-grain-{unique}")),
+                import_first: true,
+                staging_enabled: false,
+                dry_run: false,
+                startup_issues: vec![],
+                counts,
+                metadata: serde_json::json!({ "test": true }),
+            },
+        )
+        .await
+        .expect("record row-grain preflight");
+        let import_run = start_counterpoint_import_run(
+            &pool,
+            CounterpointImportRunStartPayload {
+                preflight_import_run_id: Some(preflight.import_run_id),
+                run_kind: Some("full_rehearsal".into()),
+                requested_entity: Some("full".into()),
+                trigger: Some("test".into()),
+                bridge_hostname: Some("test-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some(format!("row-grain-{unique}")),
+            },
+        )
+        .await
+        .expect("start row-grain import run");
+
+        sqlx::query(
+            r#"
+            INSERT INTO counterpoint_import_provenance (
+                import_run_id, entity_key, source_key, source_row_hash, ros_table, ros_id
+            )
+            VALUES
+                ($1, 'catalog', 'PARENT-ROW-GRAIN', 'catalog-row-1', 'product_variants', $2),
+                ($1, 'catalog', 'PARENT-ROW-GRAIN', 'catalog-row-2', 'product_variants', $3),
+                ($1, 'open_docs', 'DOC-ROW-GRAIN', 'doc-line-1', 'transaction_lines', $4),
+                ($1, 'open_docs', 'DOC-ROW-GRAIN', 'doc-line-2', 'transaction_lines', $5)
+            "#,
+        )
+        .bind(import_run.import_run_id)
+        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("insert row-grain provenance");
+        sqlx::query(
+            r#"
+            INSERT INTO counterpoint_import_raw_records (
+                import_run_id, entity_key, source_key, source_row_hash, payload, landed, landed_table, landed_id
+            )
+            VALUES
+                ($1, 'inventory', 'INV-ROW-GRAIN-1', 'inventory-row-1', '{}'::jsonb, TRUE, 'product_variants', $2),
+                ($1, 'inventory', 'INV-ROW-GRAIN-2', 'inventory-row-2', '{}'::jsonb, TRUE, 'product_variants', $3)
+            "#,
+        )
+        .bind(import_run.import_run_id)
+        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("insert row-grain raw records");
+        complete_counterpoint_import_run(
+            &pool,
+            CounterpointImportRunCompletePayload {
+                import_run_id: import_run.import_run_id,
+                failed: false,
+                error_message: None,
+                totals: Some(serde_json::json!({})),
+            },
+        )
+        .await
+        .expect("complete row-grain import run");
+
+        let command_center = build_counterpoint_import_command_center(&pool, true)
+            .await
+            .expect("build row-grain command center");
+        for key in [
+            "catalog_variants",
+            "open_doc_lines",
+            "inventory_quantity_rows",
+        ] {
+            let row = command_center
+                .snapshot_reconciliation
+                .iter()
+                .find(|row| row.key == key)
+                .expect("row-grain reconciliation row");
+            assert_eq!(row.landed_count, 2, "{key} should count landed row grain");
+            assert!(row.passed, "{key} should pass when two rows landed");
+        }
+
+        let _ = sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = ANY($1)")
+            .bind(&vec![preflight.import_run_id, import_run.import_run_id])
             .execute(&pool)
             .await;
     }
@@ -14222,7 +14689,9 @@ mod tests {
             &pool,
             CounterpointImportRunStartPayload {
                 preflight_import_run_id: Some(preflight.import_run_id),
-                run_kind: Some("rehearsal".into()),
+                run_kind: Some("full_rehearsal".into()),
+                requested_entity: Some("full".into()),
+                trigger: Some("test".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14378,7 +14847,9 @@ mod tests {
             &pool,
             CounterpointImportRunStartPayload {
                 preflight_import_run_id: Some(preflight.import_run_id),
-                run_kind: Some("rehearsal".into()),
+                run_kind: Some("full_rehearsal".into()),
+                requested_entity: Some("inventory".into()),
+                trigger: Some("test".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -17774,6 +18245,7 @@ mod tests {
 
     #[tokio::test]
     async fn counterpoint_open_doc_missing_customer_link_is_visible() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
         let suffix = Uuid::new_v4().simple().to_string();
         let product_id = Uuid::new_v4();
@@ -18119,6 +18591,7 @@ mod tests {
 
     #[tokio::test]
     async fn counterpoint_open_doc_duplicate_rows_merge_before_insert() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
         let suffix = Uuid::new_v4().simple().to_string();
         let product_id = Uuid::new_v4();
@@ -18224,6 +18697,28 @@ mod tests {
         .await
         .expect("import duplicate open doc rows");
 
+        let rerun_summary = execute_counterpoint_open_doc_batch(
+            &pool,
+            CounterpointOpenDocsPayload {
+                rows: vec![CounterpointOpenDocRow {
+                    doc_ref: doc_ref.clone(),
+                    cust_no: None,
+                    booked_at: Some(Utc::now().to_rfc3339()),
+                    total_price: Decimal::new(4590, 2),
+                    amount_paid: Decimal::new(2000, 2),
+                    usr_id: None,
+                    sls_rep: None,
+                    cp_status: None,
+                    doc_typ: Some("O".into()),
+                    lines: vec![repeated_line()],
+                    payments: vec![repeated_payment()],
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("rerun duplicate open doc import");
+
         let transaction: (Uuid, Decimal, Decimal, Decimal) = sqlx::query_as(
             "SELECT id, total_price, amount_paid, balance_due FROM transactions WHERE counterpoint_doc_ref = $1",
         )
@@ -18285,6 +18780,10 @@ mod tests {
             .expect("cleanup product");
 
         assert_eq!(summary.transactions_created, 1);
+        assert_eq!(rerun_summary.transactions_created, 0);
+        assert_eq!(rerun_summary.transactions_skipped_existing, 1);
+        assert_eq!(rerun_summary.line_items_created, 1);
+        assert_eq!(rerun_summary.payments_created, 1);
         assert_eq!(summary.line_items_created, 1);
         assert_eq!(summary.payments_created, 1);
         assert_eq!(line_count, 1);
@@ -18296,7 +18795,179 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn counterpoint_open_doc_matrix_item_and_deposit_land_once() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let suffix = Uuid::new_v4().simple().to_string();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let item_no = format!("CP-OPEN-MATRIX-ITEM-{suffix}");
+        let matrix_key = format!("{item_no}|46306/3|36 R|J BOND");
+        let doc_ref = format!("CP-OPEN-MATRIX-{suffix}");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, $3, $4, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("Gruppo Bravo Suit Fixture {suffix}"))
+        .bind(Decimal::new(26000, 2))
+        .bind(Decimal::new(10000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert matrix product fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, $3, '{}'::jsonb, 1, $4)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&matrix_key)
+        .bind(&matrix_key)
+        .execute(&pool)
+        .await
+        .expect("insert matrix variant fixture");
+
+        let payload = || CounterpointOpenDocsPayload {
+            rows: vec![CounterpointOpenDocRow {
+                doc_ref: doc_ref.clone(),
+                cust_no: None,
+                booked_at: Some(Utc::now().to_rfc3339()),
+                total_price: Decimal::new(28275, 2),
+                amount_paid: Decimal::new(14000, 2),
+                usr_id: None,
+                sls_rep: None,
+                cp_status: None,
+                doc_typ: Some("O".into()),
+                lines: vec![TicketLineRow {
+                    sku: Some(matrix_key.clone()),
+                    counterpoint_item_key: Some(matrix_key.clone()),
+                    lin_seq_no: Some(1),
+                    quantity: 1,
+                    unit_price: Decimal::new(26000, 2),
+                    unit_cost: Some(Decimal::new(10000, 2)),
+                    description: Some("Gruppo Bravo Suit (46306/3 / 36 R / J BOND)".into()),
+                    reason_code: None,
+                }],
+                payments: vec![TicketPaymentRow {
+                    pmt_typ: "CREDITCARD".into(),
+                    amount: Decimal::new(14000, 2),
+                    gift_cert_no: None,
+                }],
+            }],
+            sync: None,
+        };
+
+        let first = execute_counterpoint_open_doc_batch(&pool, payload())
+            .await
+            .expect("first matrix open doc import");
+        let second = execute_counterpoint_open_doc_batch(&pool, payload())
+            .await
+            .expect("rerun matrix open doc import");
+
+        let transaction: (Uuid, Decimal, Decimal, Decimal) = sqlx::query_as(
+            "SELECT id, total_price, amount_paid, balance_due FROM transactions WHERE counterpoint_doc_ref = $1",
+        )
+        .bind(&doc_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("load matrix open doc transaction");
+        let line: (Uuid, Option<String>, Option<String>, String) = sqlx::query_as(
+            r#"
+            SELECT
+                tl.variant_id,
+                tl.size_specs->>'counterpoint_item_key',
+                NULLIF(TRIM(tl.size_specs->>'counterpoint_description'), ''),
+                tl.order_lifecycle_status::text
+            FROM transaction_lines tl
+            WHERE tl.transaction_id = $1
+            "#,
+        )
+        .bind(transaction.0)
+        .fetch_one(&pool)
+        .await
+        .expect("load matrix open doc line");
+        let payment_summary: (i64, Decimal) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::bigint, COALESCE(SUM(amount_allocated), 0)::numeric
+            FROM payment_allocations
+            WHERE target_transaction_id = $1
+            "#,
+        )
+        .bind(transaction.0)
+        .fetch_one(&pool)
+        .await
+        .expect("summarize matrix open doc payments");
+        let payment_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT transaction_id FROM payment_allocations WHERE target_transaction_id = $1",
+        )
+        .bind(transaction.0)
+        .fetch_all(&pool)
+        .await
+        .expect("load matrix payment ids for cleanup");
+
+        sqlx::query("DELETE FROM payment_allocations WHERE target_transaction_id = $1")
+            .bind(transaction.0)
+            .execute(&pool)
+            .await
+            .expect("cleanup matrix payment allocations");
+        sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = $1")
+            .bind(transaction.0)
+            .execute(&pool)
+            .await
+            .expect("cleanup matrix transaction lines");
+        sqlx::query("DELETE FROM transactions WHERE id = $1")
+            .bind(transaction.0)
+            .execute(&pool)
+            .await
+            .expect("cleanup matrix transaction");
+        sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
+            .bind(&payment_ids)
+            .execute(&pool)
+            .await
+            .expect("cleanup matrix payment transactions");
+        sqlx::query("DELETE FROM product_variants WHERE id = $1")
+            .bind(variant_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup matrix variant");
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup matrix product");
+
+        assert_eq!(first.transactions_created, 1);
+        assert_eq!(first.line_items_created, 1);
+        assert_eq!(first.payments_created, 1);
+        assert_eq!(second.transactions_created, 0);
+        assert_eq!(second.transactions_skipped_existing, 1);
+        assert_eq!(second.line_items_created, 1);
+        assert_eq!(second.payments_created, 1);
+        assert_eq!(transaction.1, Decimal::new(28275, 2));
+        assert_eq!(transaction.2, Decimal::new(14000, 2));
+        assert_eq!(transaction.3, Decimal::new(14275, 2));
+        assert_eq!(line.0, variant_id);
+        assert_eq!(line.1.as_deref(), Some(matrix_key.as_str()));
+        assert_eq!(
+            line.2.as_deref(),
+            Some("Gruppo Bravo Suit (46306/3 / 36 R / J BOND)")
+        );
+        assert_eq!(line.3, "ready_for_pickup");
+        assert_eq!(payment_summary.0, 1);
+        assert_eq!(payment_summary.1, Decimal::new(14000, 2));
+    }
+
+    #[tokio::test]
     async fn counterpoint_open_doc_unresolved_lines_are_visible_and_deduped() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
         let suffix = Uuid::new_v4().simple().to_string();
         let doc_ref = format!("CP-OPEN-LINE-MISS-{suffix}");
@@ -18350,9 +19021,13 @@ mod tests {
         .await
         .expect("count unresolved line issues");
 
-        let fallback_line: (Uuid, Option<String>, String) = sqlx::query_as(
+        let fallback_line: (Uuid, Option<String>, String, Option<String>) = sqlx::query_as(
             r#"
-            SELECT tl.variant_id, tl.vendor_reference, tl.order_lifecycle_status::text
+            SELECT
+                tl.variant_id,
+                tl.vendor_reference,
+                tl.order_lifecycle_status::text,
+                NULLIF(TRIM(tl.size_specs->>'counterpoint_description'), '') AS counterpoint_description
             FROM transaction_lines tl
             INNER JOIN transactions t ON t.id = tl.transaction_id
             WHERE t.counterpoint_doc_ref = $1
@@ -18490,6 +19165,7 @@ mod tests {
         assert_eq!(fallback_line.0, fallback_variant_id);
         assert_eq!(fallback_line.1.as_deref(), Some(missing_key.as_str()));
         assert_eq!(fallback_line.2, "ready_for_pickup");
+        assert_eq!(fallback_line.3.as_deref(), Some("Unresolved line test"));
         assert_eq!(resolved_count, 1);
     }
 
@@ -18786,6 +19462,19 @@ mod tests {
             .execute(&mut *tx)
             .await
             .expect("insert imported variant");
+            sqlx::query(
+                r#"
+                INSERT INTO product_variant_barcode_aliases (
+                    variant_id, alias_value, alias_type, source_system, match_method
+                )
+                VALUES ($1, $2, 'counterpoint_b_sku', 'counterpoint_csv', 'reset-test')
+                "#,
+            )
+            .bind(imported_variant_id)
+            .bind(format!("CPRESETALIAS{}", Uuid::new_v4().simple()))
+            .execute(&mut *tx)
+            .await
+            .expect("insert Counterpoint barcode alias");
 
             let vendor_id = Uuid::new_v4();
             sqlx::query("INSERT INTO vendors (id, name, is_active) VALUES ($1, $2, TRUE)")
@@ -19075,6 +19764,76 @@ mod tests {
             .execute(&mut *tx)
             .await
             .expect("update heartbeat");
+            sqlx::query(
+                r#"
+                INSERT INTO counterpoint_ingest_quarantine (
+                    ingest_type, issue_type, severity, message, normalized_sku, source_row
+                )
+                VALUES ('inventory', 'reset-test', 'warning', 'reset test quarantine', $1, '{}'::jsonb)
+                "#,
+            )
+            .bind(format!("CPRESETQUAR{}", Uuid::new_v4().simple()))
+            .execute(&mut *tx)
+            .await
+            .expect("insert quarantine row");
+            sqlx::query(
+                r#"
+                INSERT INTO counterpoint_csv_reference_batches (
+                    source_file_name, source_file_hash, row_count, status
+                )
+                VALUES ($1, $2, 1, 'active')
+                "#,
+            )
+            .bind("counterpoint-reset-test.csv")
+            .bind(format!("reset-hash-{}", Uuid::new_v4().simple()))
+            .execute(&mut *tx)
+            .await
+            .expect("insert csv reference batch");
+            sqlx::query(
+                r#"
+                INSERT INTO counterpoint_workbench_state (id)
+                VALUES (1)
+                ON CONFLICT (id) DO NOTHING
+                "#,
+            )
+            .execute(&mut *tx)
+            .await
+            .expect("ensure workbench state");
+            sqlx::query(
+                r#"
+                UPDATE counterpoint_workbench_state
+                SET step_data_sources_status = 'complete',
+                    step_data_sources_approved_at = NOW(),
+                    step_data_sources_approved_by = $1,
+                    step_categories_status = 'complete',
+                    step_categories_approved_at = NOW(),
+                    step_categories_approved_by = $1,
+                    step_verification_status = 'complete',
+                    step_verification_approved_at = NOW(),
+                    step_verification_approved_by = $1
+                WHERE id = 1
+                "#,
+            )
+            .bind(preserved_staff_id)
+            .execute(&mut *tx)
+            .await
+            .expect("mark workbench approved");
+            sqlx::query(
+                r#"
+                UPDATE store_settings
+                SET counterpoint_config = jsonb_build_object(
+                    'import_first_active_run_id', $1::text,
+                    'import_first_preflight', jsonb_build_object('stale', true),
+                    'fidelity_diagnostics', jsonb_build_object('stale', true),
+                    'preserved_setting', true
+                )
+                WHERE id = 1
+                "#,
+            )
+            .bind(Uuid::new_v4())
+            .execute(&mut *tx)
+            .await
+            .expect("seed stale counterpoint config");
 
             let targets = CounterpointBaselineResetTargets {
                 counterpoint_customer_ids: vec![imported_customer_id],
@@ -19126,10 +19885,25 @@ mod tests {
                     .await
                     .expect("load receiving history ids"),
                 counterpoint_staff_map_staff_ids: vec![imported_staff_id],
-                counterpoint_category_map_ids: sqlx::query_scalar("SELECT id FROM counterpoint_category_map")
+                counterpoint_ingest_quarantine_ids: sqlx::query_scalar("SELECT id FROM counterpoint_ingest_quarantine")
                     .fetch_all(&mut *tx)
                     .await
-                    .expect("load category map ids"),
+                    .expect("load quarantine ids"),
+                counterpoint_csv_reference_batch_ids: sqlx::query_scalar("SELECT id FROM counterpoint_csv_reference_batches")
+                    .fetch_all(&mut *tx)
+                    .await
+                    .expect("load csv reference batch ids"),
+                counterpoint_barcode_alias_ids: sqlx::query_scalar(
+                    r#"
+                    SELECT id
+                    FROM product_variant_barcode_aliases
+                    WHERE alias_type = 'counterpoint_b_sku'
+                       OR source_system LIKE 'counterpoint%'
+                    "#,
+                )
+                    .fetch_all(&mut *tx)
+                    .await
+                    .expect("load barcode alias ids"),
                 counterpoint_import_run_ids: Vec::new(),
                 counterpoint_import_exception_ids: Vec::new(),
             };
@@ -19161,19 +19935,20 @@ mod tests {
                 SELECT
                     (SELECT COUNT(*)::bigint FROM counterpoint_payment_method_map)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_gift_reason_map)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_category_map)
                 "#,
             )
             .fetch_one(&mut *tx)
             .await
             .expect("count preserved maps");
-            assert!(preserved_maps_count >= 2);
+            assert!(preserved_maps_count >= 3);
 
             let category_map_count: i64 =
                 sqlx::query_scalar("SELECT COUNT(*)::bigint FROM counterpoint_category_map")
                     .fetch_one(&mut *tx)
                     .await
                     .expect("count category maps");
-            assert_eq!(category_map_count, 0);
+            assert!(category_map_count >= 1);
 
             let imported_customer_exists: bool =
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
@@ -19262,6 +20037,9 @@ mod tests {
                   + (SELECT COUNT(*)::bigint FROM counterpoint_staging_batch WHERE id = ANY($4))
                   + (SELECT COUNT(*)::bigint FROM counterpoint_receiving_history WHERE id = ANY($5))
                   + (SELECT COUNT(*)::bigint FROM counterpoint_staff_map WHERE ros_staff_id = ANY($6))
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_ingest_quarantine WHERE id = ANY($7))
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_csv_reference_batches WHERE id = ANY($8))
+                  + (SELECT COUNT(*)::bigint FROM product_variant_barcode_aliases WHERE id = ANY($9))
                 "#,
             )
             .bind(&targets.counterpoint_sync_run_ids)
@@ -19270,10 +20048,51 @@ mod tests {
             .bind(&targets.counterpoint_staging_batch_ids)
             .bind(&targets.counterpoint_receiving_history_ids)
             .bind(&targets.counterpoint_staff_map_staff_ids)
+            .bind(&targets.counterpoint_ingest_quarantine_ids)
+            .bind(&targets.counterpoint_csv_reference_batch_ids)
+            .bind(&targets.counterpoint_barcode_alias_ids)
             .fetch_one(&mut *tx)
             .await
             .expect("count counterpoint state rows");
             assert_eq!(counterpoint_state_rows, 0);
+
+            let reset_counterpoint_config: serde_json::Value =
+                sqlx::query_scalar("SELECT counterpoint_config FROM store_settings WHERE id = 1")
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("load reset counterpoint config");
+            assert!(reset_counterpoint_config
+                .get("import_first_active_run_id")
+                .is_none());
+            assert!(reset_counterpoint_config
+                .get("import_first_preflight")
+                .is_none());
+            assert!(reset_counterpoint_config
+                .get("fidelity_diagnostics")
+                .is_none());
+            assert_eq!(
+                reset_counterpoint_config
+                    .get("preserved_setting")
+                    .and_then(|value| value.as_bool()),
+                Some(true)
+            );
+
+            let workbench_state: (String, String, Option<Uuid>) = sqlx::query_as(
+                r#"
+                SELECT
+                    step_data_sources_status,
+                    step_categories_status,
+                    step_data_sources_approved_by
+                FROM counterpoint_workbench_state
+                WHERE id = 1
+                "#,
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .expect("load reset workbench state");
+            assert_eq!(workbench_state.0, "pending");
+            assert_eq!(workbench_state.1, "locked");
+            assert!(workbench_state.2.is_none());
 
             let imported_staff_exists: bool =
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff WHERE id = $1)")

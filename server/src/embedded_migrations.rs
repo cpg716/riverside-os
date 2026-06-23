@@ -89,4 +89,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("086_rosie_tool_gap_log.sql", include_str!("../../migrations/086_rosie_tool_gap_log.sql")),
     ("087_open_deposit_ledger_sources.sql", include_str!("../../migrations/087_open_deposit_ledger_sources.sql")),
     ("088_drop_counterpoint_review_pack_tables.sql", include_str!("../../migrations/088_drop_counterpoint_review_pack_tables.sql")),
+    ("089_restore_custom_order_catalog_skus.sql", include_str!("../../migrations/089_restore_custom_order_catalog_skus.sql")),
 ];

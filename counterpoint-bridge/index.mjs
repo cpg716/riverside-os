@@ -374,6 +374,7 @@ const startLocalServer = () => {
         } else if (requestPath === '/api/trigger-entity') {
             const url = new URL(req.url, `http://${req.headers.host}`);
             const entity = url.searchParams.get('name') || 'full';
+            const mode = url.searchParams.get('mode');
             if (BRIDGE_STATE.isSyncing) {
                 res.writeHead(409, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: "Bridge extraction is already running." }));
@@ -385,12 +386,20 @@ const startLocalServer = () => {
                 res.end(JSON.stringify({ error: `Unknown or disabled Counterpoint entity: ${entity}` }));
                 return;
             }
-            logToDashboard(`Manual trigger: Counterpoint extraction for [${entity}] requested`);
+            let runKind;
+            try {
+                runKind = normalizeImportRunKindForBridge(mode, entity);
+            } catch (err) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: err.message }));
+                return;
+            }
+            logToDashboard(`Manual trigger: ${importRunKindLabel(runKind)} for [${entity}] requested`);
             if (entity !== 'full') {
                 logToDashboard(`[dependency-check] To complete [${entity}], we will run: ${targetQueue.join(' -> ')}`);
             }
 
-            runManualBridgeExtraction(entity).catch(err => {
+            runManualBridgeExtraction(entity, runKind).catch(err => {
                 pushEvent('error', entity, err.message);
                 logToDashboard(`Sync error: ${err.message}`);
             });
@@ -399,6 +408,7 @@ const startLocalServer = () => {
             res.end(JSON.stringify({
                 status: 'triggered',
                 target_mode: 'ros_import_first',
+                run_kind: runKind,
                 queue: entity === 'full' ? 'all' : targetQueue,
             }));
         } else if (req.url === '/') {
@@ -1651,10 +1661,16 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const hasTot = Boolean(psDocTot && docTotJoinPredicate && psDocTot.has("TOT") && psDocTot.has("TOT_TND"));
     const total = pickColumn(psDocHdr, ["TOT", "TOT_EXTD_PRC"]);
     const paid = pickColumn(psDocHdr, ["TOT_TND", "AMT_PAID", "TOT"]);
+    const docTyp = pickColumn(psDocHdr, ["DOC_TYP", "TKT_TYP"]);
     const docStatus = pickColumn(psDocHdr, ["DOC_STAT", "DOC_STATUS", "STA_COD", "STATUS", "STAT"]);
     const docVoid = pickColumn(psDocHdr, ["VOID_FLG", "VOIDED", "VOID_FLAG", "IS_VOID"]);
     const docClosedAt = pickColumn(psDocHdr, ["CLOSE_DAT", "CLSD_DAT", "CLOSED_DAT", "CLOSED_AT", "FULFILL_DAT"]);
     const activeDocPredicates = [];
+    if (docTyp) {
+      activeDocPredicates.push(
+        `UPPER(RTRIM(LTRIM(CONVERT(NVARCHAR(32), h.[${docTyp}])))) IN ('O','L')`,
+      );
+    }
     if (docStatus) {
       activeDocPredicates.push(
         `(h.[${docStatus}] IS NULL OR UPPER(RTRIM(LTRIM(CONVERT(NVARCHAR(32), h.[${docStatus}])))) NOT IN ('C','CL','CLS','CLOSED','COMPLETE','COMPLETED','V','VOID','VOIDED'))`,
@@ -1678,7 +1694,27 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const lineJoinPairs = ticketJoinPairs(psDocHdr, psDocLin, docRef, lineDoc);
     const lineJoinPredicate = ticketJoinPredicate("h", "l", lineJoinPairs);
     if (psDocLin && lineJoinPredicate) {
-      sqlMap.open_doc_lines = `SELECT ${docRefSelect}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "sku")}, ${sqlText("l", psDocLin, ["ITEM_NO"], "counterpoint_item_key")}, ${sqlNumber("l", psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"], "quantity", "CAST(1 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, CAST(NULL AS NVARCHAR(255)) AS description FROM PS_DOC_LIN l INNER JOIN ${psDocTable} h ON ${lineJoinPredicate}${docTotJoinForChildren} WHERE ${activeDocWhere}`;
+      const lineDim1 = pickColumn(psDocLin, ["DIM_1_UPR", "DIM_1_VAL", "DIM_1", "GRID_1_VAL"]);
+      const lineDim2 = pickColumn(psDocLin, ["DIM_2_UPR", "DIM_2_VAL", "DIM_2", "GRID_2_VAL"]);
+      const lineDim3 = pickColumn(psDocLin, ["DIM_3_UPR", "DIM_3_VAL", "DIM_3", "GRID_3_VAL"]);
+      const lineItemNo = pickColumn(psDocLin, ["ITEM_NO"]);
+      const hasLineGrid = Boolean(lineItemNo && (lineDim1 || lineDim2 || lineDim3));
+      const openDocLineKey = hasLineGrid
+        ? matrixKeySql("l", [lineDim1, lineDim2, lineDim3])
+        : lineItemNo
+          ? `RTRIM(LTRIM(CAST(l.[${lineItemNo}] AS NVARCHAR(128))))`
+          : "CAST(NULL AS NVARCHAR(128))";
+      const lineDescriptionCol = pickColumn(psDocLin, ["DESCR", "ITEM_DESCR", "ITEM_DESC", "DESCRIPTION", "DESC_1", "DESC_2"]);
+      const itemDescriptionCol = imItemForCatalog?.has("ITEM_NO") ? pickColumn(imItemForCatalog, ["DESCR", "ITEM_DESCR", "ITEM_DESC", "DESCRIPTION"]) : null;
+      const itemDescriptionJoin = itemDescriptionCol && lineItemNo ? ` LEFT JOIN IM_ITEM i ON i.ITEM_NO = l.[${lineItemNo}]` : "";
+      const lineDescriptionExpr = lineDescriptionCol
+        ? `NULLIF(RTRIM(LTRIM(CAST(l.[${lineDescriptionCol}] AS NVARCHAR(255)))), N'')`
+        : "CAST(NULL AS NVARCHAR(255))";
+      const itemDescriptionExpr = itemDescriptionCol
+        ? `NULLIF(RTRIM(LTRIM(CAST(i.[${itemDescriptionCol}] AS NVARCHAR(255)))), N'')`
+        : "CAST(NULL AS NVARCHAR(255))";
+      const openDocDescriptionSelect = `COALESCE(${lineDescriptionExpr}, ${itemDescriptionExpr}) AS description`;
+      sqlMap.open_doc_lines = `SELECT ${docRefSelect}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${openDocLineKey} AS sku, ${openDocLineKey} AS counterpoint_item_key, ${sqlNumber("l", psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"], "quantity", "CAST(1 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, ${openDocDescriptionSelect} FROM PS_DOC_LIN l INNER JOIN ${psDocTable} h ON ${lineJoinPredicate}${docTotJoinForChildren}${itemDescriptionJoin} WHERE ${activeDocWhere}`;
       changes.push(`PS_DOC_LIN open-doc lines enabled; join=${lineJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
     const pmtDoc = pickColumn(psDocPmt, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
@@ -2695,13 +2731,20 @@ async function runImportFirstSourcePreflight(pool) {
   return summary;
 }
 
-async function startImportFirstRun(preflightSummary) {
+async function startImportFirstRun(preflightSummary, options = {}) {
   if (!IMPORT_FIRST_MODE || DRY_RUN_MODE) return null;
+  const requestedEntity = options.requestedEntity || null;
+  const runKind = normalizeImportRunKindForBridge(
+    options.runKind || process.env.CP_IMPORT_RUN_KIND,
+    requestedEntity || "full",
+  );
   const summary = await rosFetch(
     "/api/sync/counterpoint/import-run/start",
     {
       preflight_import_run_id: preflightSummary?.import_run_id ?? null,
-      run_kind: process.env.CP_IMPORT_RUN_KIND || "rehearsal",
+      run_kind: runKind,
+      requested_entity: requestedEntity,
+      trigger: options.trigger || null,
       bridge_hostname: bridgeHostnameCached || os.hostname(),
       bridge_version: BRIDGE_VERSION,
       ros_base_url: ROS_BASE_URL,
@@ -2714,7 +2757,7 @@ async function startImportFirstRun(preflightSummary) {
   if (!activeImportRunId) {
     throw new Error("[import-run] ROS did not return an import_run_id.");
   }
-  console.info(`[import-run] Started ${summary.run_kind ?? "rehearsal"} import run ${activeImportRunId}.`);
+  console.info(`[import-run] Started ${importRunKindLabel(summary.run_kind ?? runKind)} ${activeImportRunId}.`);
   return summary;
 }
 
@@ -5585,7 +5628,38 @@ function resolveManualExtractionQueue(entity) {
   return [...(ENTITY_DEPENDENCIES[entity] || []), entity].filter((label) => labels.has(label));
 }
 
-async function runManualBridgeExtraction(entity = "full") {
+function normalizeImportRunKindForBridge(mode, entity = "full") {
+  const raw = String(mode || "").trim().toLowerCase();
+  if (["update", "incremental", "incremental_update", "since_last_run"].includes(raw)) {
+    return "incremental_update";
+  }
+  if (["go_live", "go-live", "golive", "production"].includes(raw)) {
+    return "go_live";
+  }
+  if (["fix", "fix_rerun", "repair", "area_fix"].includes(raw) || entity !== "full") {
+    return "fix_rerun";
+  }
+  if (["", "full", "full_rehearsal", "full_import", "full-rerun"].includes(raw)) {
+    return "full_rehearsal";
+  }
+  throw new Error(`Unknown Counterpoint import mode: ${mode}`);
+}
+
+function importRunKindLabel(kind) {
+  switch (kind) {
+    case "incremental_update":
+      return "Update since last run";
+    case "fix_rerun":
+      return "Fix rerun";
+    case "go_live":
+      return "Go-live import";
+    case "full_rehearsal":
+    default:
+      return "Full import rerun";
+  }
+}
+
+async function runManualBridgeExtraction(entity = "full", mode = null) {
   const pool = ACTIVE_POOL;
   if (!pool) {
     throw new Error("SQL connection is not ready. Wait for SQL Server connected before extracting.");
@@ -5594,18 +5668,28 @@ async function runManualBridgeExtraction(entity = "full") {
   if (!queue) {
     throw new Error(`Unknown or disabled Counterpoint entity: ${entity}`);
   }
+  const runKind = normalizeImportRunKindForBridge(mode, entity);
+  const runLabel = importRunKindLabel(runKind);
 
   BRIDGE_STATE.isSyncing = true;
   BRIDGE_STATE.abortRequested = false;
   BRIDGE_STATE.totalRecordsLastRun = 0;
   const tStart = Date.now();
-  pushEvent("start", entity === "full" ? null : entity, entity === "full" ? "Full extraction started" : `${entity} extraction started`);
+  pushEvent(
+    "start",
+    entity === "full" ? null : entity,
+    entity === "full" ? `${runLabel} started` : `${runLabel} for ${entity} started`,
+  );
 
   let preflightSummary = null;
   try {
-    logToDashboard("[sync] Starting direct Main Hub ROS extraction...");
+    logToDashboard(`[sync] Starting ${runLabel.toLowerCase()} into Main Hub ROS...`);
     preflightSummary = await runImportFirstSourcePreflight(pool);
-    await startImportFirstRun(preflightSummary);
+    await startImportFirstRun(preflightSummary, {
+      runKind,
+      requestedEntity: entity,
+      trigger: "bridge_dashboard",
+    });
 
     const steps = getOrderedSyncSteps(pool);
     for (const target of queue) {
@@ -5636,10 +5720,11 @@ async function runManualBridgeExtraction(entity = "full") {
         sync_summary: BRIDGE_STATE.syncSummary,
         duration_ms: durationMs,
         targeted_entity: entity === "full" ? null : entity,
+        run_kind: runKind,
       },
     });
 
-    logToDashboard(`[sync] ${entity === "full" ? "Full extraction" : `Targeted extraction for ${entity}`} finished.`);
+    logToDashboard(`[sync] ${entity === "full" ? runLabel : `${runLabel} for ${entity}`} finished.`);
   } catch (err) {
     await completeImportFirstRun({ failed: true, errorMessage: err.message }).catch(() => null);
     throw err;
@@ -5889,9 +5974,17 @@ async function main() {
     const pendingRequestEntities = hasPendingRequest && hbResp.pending_request_entity
       ? new Set([...(ENTITY_DEPENDENCIES[hbResp.pending_request_entity] || []), hbResp.pending_request_entity])
       : null;
+    const requestedEntity = hasPendingRequest ? (hbResp.pending_request_entity || "full") : "full";
+    const runKind = hasPendingRequest
+      ? normalizeImportRunKindForBridge(null, requestedEntity)
+      : "incremental_update";
 
     try {
-      await startImportFirstRun(preflightSummary);
+      await startImportFirstRun(preflightSummary, {
+        runKind,
+        requestedEntity,
+        trigger: hasPendingRequest ? "ros_request" : "scheduled_update",
+      });
       for (const step of orderedSyncSteps) {
         if (!step.on) continue;
         if (BRIDGE_STATE.abortRequested) {
@@ -5922,7 +6015,8 @@ async function main() {
         totals: {
           sync_summary: BRIDGE_STATE.syncSummary,
           duration_ms: cycleDur,
-          requested_entity: hbResp?.pending_request_entity ?? null,
+          requested_entity: requestedEntity,
+          run_kind: runKind,
         },
       });
 
