@@ -1295,6 +1295,7 @@ export default function NexoCheckoutDrawer({
     const attemptId = helcimAttempt.id;
     const controller = new AbortController();
     let stopped = false;
+    let lastStreamActivityAt = Date.now();
 
     const readAttemptStream = async () => {
       try {
@@ -1330,6 +1331,7 @@ export default function NexoCheckoutDrawer({
             }
             if (!("id" in nextAttempt) || nextAttempt.id !== attemptId) continue;
             const attemptUpdate = nextAttempt as HelcimAttempt;
+            lastStreamActivityAt = Date.now();
             applyHelcimAttemptUpdate(attemptUpdate);
             if (attemptUpdate.status !== "pending") return;
           }
@@ -1342,9 +1344,10 @@ export default function NexoCheckoutDrawer({
 
     void readAttemptStream();
 
-    // Fallback poll: if SSE drops and does not reconnect, poll every 4s
+    // Fallback poll only when the SSE stream goes quiet.
     const fallbackPoll = setInterval(() => {
       if (stopped) return;
+      if (Date.now() - lastStreamActivityAt < 6000) return;
       void refreshHelcimAttempt(attemptId, { quietStaleSession: true });
     }, 4000);
 

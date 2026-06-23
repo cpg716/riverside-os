@@ -1,6 +1,6 @@
 //! Redis client for caching and distributed locking
 
-use redis::{Client, Connection, RedisError, RedisResult};
+use redis::{aio::ConnectionManager, Client, RedisError, RedisResult};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use uuid::Uuid;
@@ -16,14 +16,14 @@ impl RedisCache {
         Ok(Self { client })
     }
 
-    pub async fn get_connection(&self) -> RedisResult<Connection> {
-        self.client.get_connection()
+    pub async fn get_connection(&self) -> RedisResult<ConnectionManager> {
+        self.client.get_connection_manager().await
     }
 
     /// Health-check ping
     pub async fn ping(&self) -> RedisResult<String> {
         let mut conn = self.get_connection().await?;
-        redis::cmd("PING").query(&mut conn)
+        redis::cmd("PING").query_async(&mut conn).await
     }
 
     /// Cache a value with TTL
@@ -41,7 +41,8 @@ impl RedisCache {
             .arg(key)
             .arg(ttl.as_secs())
             .arg(serialized)
-            .query(&mut conn)?;
+            .query_async(&mut conn)
+            .await?;
 
         Ok(())
     }
@@ -49,7 +50,7 @@ impl RedisCache {
     /// Get a cached value
     pub async fn get<T: for<'de> Deserialize<'de>>(&self, key: &str) -> RedisResult<Option<T>> {
         let mut conn = self.get_connection().await?;
-        let result: Option<String> = redis::cmd("GET").arg(key).query(&mut conn)?;
+        let result: Option<String> = redis::cmd("GET").arg(key).query_async(&mut conn).await?;
 
         match result {
             Some(data) => {
@@ -69,7 +70,7 @@ impl RedisCache {
     /// Delete a cached value
     pub async fn del(&self, key: &str) -> RedisResult<bool> {
         let mut conn = self.get_connection().await?;
-        let count: i32 = redis::cmd("DEL").arg(key).query(&mut conn)?;
+        let count: i32 = redis::cmd("DEL").arg(key).query_async(&mut conn).await?;
 
         Ok(count > 0)
     }
@@ -77,14 +78,14 @@ impl RedisCache {
     /// Flush all keys in the database
     pub async fn flushdb(&self) -> RedisResult<()> {
         let mut conn = self.get_connection().await?;
-        let _: () = redis::cmd("FLUSHDB").query(&mut conn)?;
+        let _: () = redis::cmd("FLUSHDB").query_async(&mut conn).await?;
         Ok(())
     }
 
     /// Check if key exists
     pub async fn exists(&self, key: &str) -> RedisResult<bool> {
         let mut conn = self.get_connection().await?;
-        let count: i32 = redis::cmd("EXISTS").arg(key).query(&mut conn)?;
+        let count: i32 = redis::cmd("EXISTS").arg(key).query_async(&mut conn).await?;
 
         Ok(count > 0)
     }
@@ -92,13 +93,17 @@ impl RedisCache {
     /// Increment a counter
     pub async fn incr(&self, key: &str) -> RedisResult<i64> {
         let mut conn = self.get_connection().await?;
-        redis::cmd("INCR").arg(key).query(&mut conn)
+        redis::cmd("INCR").arg(key).query_async(&mut conn).await
     }
 
     /// Increment a counter by amount
     pub async fn incr_by(&self, key: &str, amount: i64) -> RedisResult<i64> {
         let mut conn = self.get_connection().await?;
-        redis::cmd("INCRBY").arg(key).arg(amount).query(&mut conn)
+        redis::cmd("INCRBY")
+            .arg(key)
+            .arg(amount)
+            .query_async(&mut conn)
+            .await
     }
 
     /// Set a value only if it doesn't exist
@@ -123,7 +128,8 @@ impl RedisCache {
             .arg("NX")
             .arg("EX")
             .arg(ttl.as_secs())
-            .query(&mut conn)?;
+            .query_async(&mut conn)
+            .await?;
 
         Ok(result.is_some())
     }
@@ -174,7 +180,8 @@ impl DistributedLock {
             .arg("NX")
             .arg("PX")
             .arg(self.ttl.as_millis() as u64)
-            .query(&mut conn)?;
+            .query_async(&mut conn)
+            .await?;
 
         Ok(result.is_some())
     }
@@ -195,7 +202,8 @@ impl DistributedLock {
         let result: i64 = redis::Script::new(script)
             .key(&self.key)
             .arg(&self.token)
-            .invoke(&mut conn)?;
+            .invoke_async(&mut conn)
+            .await?;
 
         Ok(result > 0)
     }
@@ -216,7 +224,8 @@ impl DistributedLock {
             .key(&self.key)
             .arg(&self.token)
             .arg(additional_ttl.as_millis() as u64)
-            .invoke(&mut conn)?;
+            .invoke_async(&mut conn)
+            .await?;
 
         Ok(result > 0)
     }

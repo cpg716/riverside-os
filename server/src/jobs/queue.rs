@@ -69,7 +69,8 @@ impl JobQueue {
         let _: () = redis::cmd("LPUSH")
             .arg(&queue_key)
             .arg(job_id.to_string())
-            .query(&mut conn)?;
+            .query_async(&mut conn)
+            .await?;
 
         // Update queue stats
         self.increment_queue_stats("enqueued").await?;
@@ -90,7 +91,8 @@ impl JobQueue {
             .arg(&queue_key)
             .arg(&processing_key)
             .arg(self.config.visibility_timeout.as_secs())
-            .query(&mut conn)?;
+            .query_async(&mut conn)
+            .await?;
 
         let job_id = match job_id_result {
             Some(id) => Uuid::parse_str(&id)
@@ -125,7 +127,8 @@ impl JobQueue {
                     .arg(&processing_key)
                     .arg(1)
                     .arg(job_id.to_string())
-                    .query(&mut conn)?;
+                    .query_async(&mut conn)
+                    .await?;
 
                 tracing::warn!(job_id = %job_id, "Job data missing, removing from processing queue");
 
@@ -158,7 +161,8 @@ impl JobQueue {
             .arg(&processing_key)
             .arg(1)
             .arg(job_id.to_string())
-            .query(&mut conn)?;
+            .query_async(&mut conn)
+            .await?;
 
         // Update queue stats
         self.increment_queue_stats("completed").await?;
@@ -195,7 +199,8 @@ impl JobQueue {
             .arg(&processing_key)
             .arg(1)
             .arg(job_id.to_string())
-            .query(&mut conn)?;
+            .query_async(&mut conn)
+            .await?;
 
         // Check if should retry or send to dead letter queue
         if let Some(ref job) = job {
@@ -204,7 +209,8 @@ impl JobQueue {
                 let _: () = redis::cmd("LPUSH")
                     .arg(self.queue_key())
                     .arg(job_id.to_string())
-                    .query(&mut conn)?;
+                    .query_async(&mut conn)
+                    .await?;
 
                 tracing::warn!(job_id = %job_id, attempt = job.attempts, error = error, "Job failed, requeuing");
             } else {
@@ -212,7 +218,8 @@ impl JobQueue {
                 let _: () = redis::cmd("LPUSH")
                     .arg(&dead_letter_key)
                     .arg(job_id.to_string())
-                    .query(&mut conn)?;
+                    .query_async(&mut conn)
+                    .await?;
 
                 tracing::error!(job_id = %job_id, attempts = job.attempts, error = error, "Job failed permanently, sent to dead letter queue");
             }
@@ -228,15 +235,20 @@ impl JobQueue {
     pub async fn get_stats(&self) -> Result<QueueStats, RedisError> {
         let mut conn = self.cache.redis().get_connection().await?;
 
-        let pending: i64 = redis::cmd("LLEN").arg(self.queue_key()).query(&mut conn)?;
+        let pending: i64 = redis::cmd("LLEN")
+            .arg(self.queue_key())
+            .query_async(&mut conn)
+            .await?;
 
         let processing: i64 = redis::cmd("LLEN")
             .arg(self.processing_key())
-            .query(&mut conn)?;
+            .query_async(&mut conn)
+            .await?;
 
         let dead_letter: i64 = redis::cmd("LLEN")
             .arg(self.dead_letter_key())
-            .query(&mut conn)?;
+            .query_async(&mut conn)
+            .await?;
 
         let enqueued: i64 = self
             .cache

@@ -6,6 +6,8 @@ use meilisearch_sdk::indexes::Index;
 use meilisearch_sdk::task_info::TaskInfo;
 use serde::Serialize;
 use sqlx::PgPool;
+use std::sync::{Arc, OnceLock};
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
@@ -19,6 +21,9 @@ use crate::logic::meilisearch_documents::{
     StaffDoc, StoreProductDoc, TaskDoc, TransactionDoc, VendorDoc, WeddingPartyDoc,
 };
 use futures_util::StreamExt;
+
+const MAX_INCREMENTAL_MEILI_TASKS: usize = 4;
+static INCREMENTAL_MEILI_SEMAPHORE: OnceLock<Arc<Semaphore>> = OnceLock::new();
 
 #[derive(sqlx::FromRow)]
 struct VariantRow {
@@ -977,7 +982,17 @@ pub fn spawn_meili<F>(fut: F)
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
-    tokio::spawn(fut);
+    let semaphore = INCREMENTAL_MEILI_SEMAPHORE
+        .get_or_init(|| Arc::new(Semaphore::new(MAX_INCREMENTAL_MEILI_TASKS)))
+        .clone();
+    tokio::spawn(async move {
+        match semaphore.acquire_owned().await {
+            Ok(_permit) => fut.await,
+            Err(error) => {
+                tracing::warn!(%error, "Meilisearch incremental sync throttle closed");
+            }
+        }
+    });
 }
 
 pub async fn record_sync_status(
