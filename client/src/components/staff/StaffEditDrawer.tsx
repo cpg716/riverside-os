@@ -193,8 +193,12 @@ export default function StaffEditDrawer({
         { headers: backofficeHeaders() }
       );
       if (res.ok) {
-        const data = await res.json();
-        setGranted(data.permissions || []);
+        const data = (await res.json()) as { granted?: unknown };
+        const granted = data.granted;
+        if (!Array.isArray(granted) || !granted.every((key: unknown) => typeof key === "string")) {
+          throw new Error("Unexpected permissions response.");
+        }
+        setGranted(granted);
       }
     } catch {
       toast("Could not load permissions", "error");
@@ -319,6 +323,11 @@ export default function StaffEditDrawer({
       const disc = Number.parseFloat(maxDiscountPct.trim());
       if (!Number.isFinite(disc) || disc < 0 || disc > 100)
         throw new Error("Max discount % must be 0–100.");
+      const originalMaxDiscount = Number.parseFloat(String(staff.max_discount_percent ?? "30"));
+      const maxDiscountChanged = !Number.isFinite(originalMaxDiscount) || disc !== originalMaxDiscount;
+      const roleSelectionChanged = role !== staff.role;
+      const shouldUseRoleDefaultDiscount =
+        (staff.id === "NEW" || roleSelectionChanged) && !maxDiscountChanged;
       const hasBirthdayMonth = birthdayMonth.trim().length > 0;
       const hasBirthdayDay = birthdayDay.trim().length > 0;
       if (hasBirthdayMonth !== hasBirthdayDay) {
@@ -342,12 +351,14 @@ export default function StaffEditDrawer({
         phone: phone.trim() || null,
         email: email.trim() || null,
         avatar_key: avatarKey.trim() || "ros_default",
-        max_discount_percent: disc,
         employment_start_date: employmentStart.trim() || null,
         employment_end_date: employmentEnd.trim() || null,
         podium_user_uid: podiumUserUid.trim() || "",
         podium_display_name: podiumDisplayName.trim() || "",
       };
+      if (!shouldUseRoleDefaultDiscount) {
+        payload.max_discount_percent = disc;
+      }
       if (birthdayMonthValue !== null && birthdayDayValue !== null) {
         payload.birthday_month = birthdayMonthValue;
         payload.birthday_day = birthdayDayValue;
@@ -403,8 +414,14 @@ export default function StaffEditDrawer({
         effectiveId = body.id;
       }
 
+      const shouldSaveManualPermissions =
+        staff.id !== "NEW" &&
+        !roleSelectionChanged &&
+        hasPermission("staff.manage_access") &&
+        role !== "admin";
+
       // Permissions Update (if not admin)
-      if (hasPermission("staff.manage_access") && role !== "admin") {
+      if (shouldSaveManualPermissions) {
         const pr = await fetch(
           `${baseUrl}/api/staff/admin/${encodeURIComponent(effectiveId)}/permissions`,
           {
@@ -420,6 +437,8 @@ export default function StaffEditDrawer({
           const p = await pr.json().catch(() => ({}));
           throw new Error(typeof p.error === "string" ? p.error : "Permissions update failed");
         }
+      } else if (staff.id !== "NEW" && roleSelectionChanged && role !== "admin") {
+        await loadPermissions();
       }
 
       // PIN Update

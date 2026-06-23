@@ -754,6 +754,60 @@ export default function CounterpointSyncSettingsPanel({
     : importNextStep.tone === "red"
       ? "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-200"
       : "border-amber-500/25 bg-amber-500/10 text-amber-900 dark:text-amber-100";
+  const proofNeedsReview = bridgeSentButNotLanded
+    || Boolean(firstOpenException)
+    || Boolean(firstRequiredIssue)
+    || commandNotReadyTotal > 0;
+  const importProgressSteps = useMemo(() => {
+    const bridgeConnected = bridgeRuntimeState !== "offline";
+    const importStarted = Boolean(commandCenter?.preflight_received || commandCenter?.import_run_received);
+    const proofReady = commandCenterRows.length > 0 && !proofNeedsReview;
+    const finalReady = Boolean(commandCenter?.ready_for_go_live_review && proofReady);
+
+    return [
+      {
+        step: "1",
+        title: "Connect Bridge",
+        detail: bridgeConnected
+          ? "Bridge heartbeat is online."
+          : "Start the Bridge on the Counterpoint PC.",
+        state: bridgeConnected ? "done" : "current",
+      },
+      {
+        step: "2",
+        title: "Run Import",
+        detail: importStarted
+          ? latestImportRunLabel
+          : "Run Full Import / Recheck All in the Bridge.",
+        state: !bridgeConnected ? "waiting" : importStarted ? "done" : "current",
+      },
+      {
+        step: "3",
+        title: "Review Proof",
+        detail: proofReady
+          ? "Required proof has no open blockers."
+          : importNextStep.title.replace(/^Next: /, ""),
+        state: !importStarted ? "waiting" : proofReady ? "done" : "current",
+      },
+      {
+        step: "4",
+        title: "Finish Go-Live Review",
+        detail: finalReady
+          ? "Review duplicates and complete final business sign-off."
+          : "Wait until required areas are Ready.",
+        state: proofReady ? "current" : "waiting",
+      },
+    ] as const;
+  }, [
+    bridgeRuntimeState,
+    commandCenter?.import_run_received,
+    commandCenter?.preflight_received,
+    commandCenter?.ready_for_go_live_review,
+    commandCenterRows.length,
+    importNextStep.title,
+    latestImportRunLabel,
+    proofNeedsReview,
+  ]);
 
   const importFirstCommandCenterPanel = (
     <section className="ui-card p-5 space-y-4">
@@ -783,18 +837,47 @@ export default function CounterpointSyncSettingsPanel({
       </div>
 
       <div className="grid gap-2 text-xs md:grid-cols-4">
-        {[
-          ["1", "Connect Bridge", "Counterpoint SQL and Main Hub ROS must both be ready."],
-          ["2", "Run Import", "Bridge sends Counterpoint rows into ROS for proof and import."],
-          ["3", "Review Proof", "Use landed rows, exceptions, and blockers for sign-off."],
-          ["4", "Finish Go-Live Review", "Resolve listed exceptions and confirm every required area is Ready."],
-        ].map(([step, title, detail]) => (
-          <div key={step} className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Step {step}</p>
-            <p className="mt-1 font-black text-app-text">{title}</p>
-            <p className="mt-1 text-[11px] font-semibold text-app-text-muted">{detail}</p>
+        {importProgressSteps.map(({ step, title, detail, state }) => {
+          const stateClass = state === "done"
+            ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
+            : state === "current"
+              ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200"
+              : "border-app-border bg-app-surface-2 text-app-text-muted";
+          const stateLabel = state === "done" ? "Done" : state === "current" ? "Current" : "Waiting";
+          return (
+            <div key={step} className={`rounded-lg border p-3 ${stateClass}`}>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[9px] font-black uppercase tracking-widest">Step {step}</p>
+                <span className="ui-pill border border-app-border bg-app-bg/70 text-[9px] text-app-text">
+                  {stateLabel}
+                </span>
+              </div>
+              <p className="mt-1 font-black text-app-text">{title}</p>
+              <p className="mt-1 text-[11px] font-semibold">{detail}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-xs">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-red-700 dark:text-red-300">
+              Need to start over?
+            </p>
+            <p className="mt-1 max-w-3xl font-semibold text-app-text-muted">
+              Use Reset Counterpoint import before go-live only when the current landed proof and exceptions should be discarded, then rerun the Bridge import from a clean ROS baseline.
+            </p>
           </div>
-        ))}
+          <button
+            type="button"
+            onClick={() => setResetPromptOpen(true)}
+            className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-500/10"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reset Counterpoint import
+          </button>
+        </div>
       </div>
 
       <div className={`rounded-lg border p-4 text-xs ${importNextStepClass}`}>
@@ -897,7 +980,7 @@ export default function CounterpointSyncSettingsPanel({
 	          </p>
 	        </div>
 	        <span className="ui-pill bg-app-surface-2 text-[9px] text-app-text-muted">
-	          Direct ROS import
+	          Bridge-driven import
 	        </span>
         </div>
         <div className="mt-3 grid gap-2 text-xs md:grid-cols-2 xl:grid-cols-3">
@@ -913,10 +996,13 @@ export default function CounterpointSyncSettingsPanel({
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-black text-app-text">{item.label}</p>
                   <span className="ui-pill bg-app-bg text-[9px] text-app-text-muted">
-                    Direct import
+                    Import area
                   </span>
                 </div>
                 <p className="mt-2 text-[11px] font-semibold text-app-text-muted">{item.path}</p>
+                <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                  Rerun this area from the Bridge if the proof table or exceptions name it as blocked.
+                </p>
               </div>
           ))}
         </div>
@@ -1026,24 +1112,38 @@ export default function CounterpointSyncSettingsPanel({
             Import exceptions
           </p>
           <div className="mt-2 grid gap-2 md:grid-cols-2">
-            {importExceptions.slice(0, 6).map((row) => (
-              <div key={row.id} className="rounded-md border border-app-border bg-app-bg/60 p-2 text-xs">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="font-bold text-app-text">
-                    {formatEntityLabel(row.entity_key)} {row.source_key ? `#${row.source_key}` : ""}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void recheckImportException(row.id)}
-                    className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
-                  >
-                    Recheck
-                  </button>
+            {importExceptions.slice(0, 6).map((row) => {
+              const sourceKey = row.source_key?.trim() ?? "";
+              return (
+                <div key={row.id} className="rounded-md border border-app-border bg-app-bg/60 p-2 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-bold text-app-text">
+                      {formatEntityLabel(row.entity_key)} {sourceKey ? `#${sourceKey}` : ""}
+                    </p>
+                    {sourceKey ? (
+                      <button
+                        type="button"
+                        onClick={() => void recheckImportException(row.id)}
+                        className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                      >
+                        Recheck
+                      </button>
+                    ) : (
+                      <span className="ui-pill bg-amber-500/15 text-[9px] text-amber-700 dark:text-amber-200">
+                        Rerun import area first
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-app-text-muted">{row.message}</p>
+                  {row.suggested_fix ? <p className="mt-1 font-semibold text-amber-700 dark:text-amber-200">{row.suggested_fix}</p> : null}
+                  {!sourceKey ? (
+                    <p className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 p-2 font-semibold text-amber-700 dark:text-amber-200">
+                      This is a batch-level exception, not a single Counterpoint row that ROS can recheck. Fix the source or mapping issue, rerun the affected import area from the Bridge, then refresh Import & Proof.
+                    </p>
+                  ) : null}
                 </div>
-                <p className="mt-1 text-app-text-muted">{row.message}</p>
-                {row.suggested_fix ? <p className="mt-1 font-semibold text-amber-700 dark:text-amber-200">{row.suggested_fix}</p> : null}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : null}

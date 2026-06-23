@@ -994,6 +994,30 @@ function checkFinancialInvariantGate() {
   );
 }
 
+function checkStaffCustomerSaveContracts() {
+  const result = spawnSync(process.execPath, [path.join(root, "scripts/check-staff-customer-save-contracts.mjs")], {
+    cwd: root,
+    encoding: "utf8",
+    env: process.env,
+  });
+  if (result.error) {
+    fail(
+      "Staff/Customer save-contract gate failed to start",
+      "scripts/check-staff-customer-save-contracts.mjs",
+      result.error.message,
+    );
+    return;
+  }
+  assert(
+    result.status === 0,
+    "Staff/Customer save-contract gate passes",
+    "scripts/check-staff-customer-save-contracts.mjs",
+    result.status === 0
+      ? "Staff role defaults and Customer profile sparse-save contracts passed."
+      : `${result.stdout || ""}${result.stderr || ""}`.trim(),
+  );
+}
+
 checkCurrentReleaseNotes();
 checkTauriOpenerAcl();
 checkBrowserPrintHelper();
@@ -1019,6 +1043,7 @@ checkDeploymentManagerPersistentLogs();
 checkDeploymentManagerActionWiring();
 checkReleaseWorkflowPreBuildGates();
 checkDesktopAndPwaUpdateWiring();
+checkStaffCustomerSaveContracts();
 checkFinancialInvariantGate();
 
 if (failures.length > 0) {

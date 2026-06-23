@@ -572,6 +572,152 @@ export interface CustomerRelationshipHubDrawerProps {
   panelMaxClassName?: string;
 }
 
+type CustomerProfileDraft = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  address_line1: string;
+  address_line2: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  company_name: string;
+  date_of_birth: string;
+  anniversary_date: string;
+  custom_field_1: string;
+  custom_field_2: string;
+  custom_field_3: string;
+  custom_field_4: string;
+  marketing_email_opt_in: boolean;
+  marketing_sms_opt_in: boolean;
+  transactional_sms_opt_in: boolean;
+  transactional_email_opt_in: boolean;
+  review_requests_opt_out: boolean;
+  profile_discount_percent: string;
+  tax_exempt: boolean;
+  tax_exempt_id: string;
+};
+
+function customerProfileDraftFromRow(row: CustomerProfile): CustomerProfileDraft {
+  return {
+    first_name: row.first_name ?? "",
+    last_name: row.last_name ?? "",
+    email: row.email ?? "",
+    phone: row.phone ?? "",
+    address_line1: row.address_line1 ?? "",
+    address_line2: row.address_line2 ?? "",
+    city: row.city ?? "",
+    state: row.state ?? "",
+    postal_code: row.postal_code ?? "",
+    company_name: row.company_name ?? "",
+    date_of_birth: row.date_of_birth ? String(row.date_of_birth).slice(0, 10) : "",
+    anniversary_date: row.anniversary_date
+      ? String(row.anniversary_date).slice(0, 10)
+      : "",
+    custom_field_1: row.custom_field_1 ?? "",
+    custom_field_2: row.custom_field_2 ?? "",
+    custom_field_3: row.custom_field_3 ?? "",
+    custom_field_4: row.custom_field_4 ?? "",
+    marketing_email_opt_in: row.marketing_email_opt_in,
+    marketing_sms_opt_in: row.marketing_sms_opt_in,
+    transactional_sms_opt_in: row.transactional_sms_opt_in ?? false,
+    transactional_email_opt_in: row.transactional_email_opt_in ?? false,
+    review_requests_opt_out: row.review_requests_opt_out ?? false,
+    profile_discount_percent: String(row.profile_discount_percent ?? "0"),
+    tax_exempt: row.tax_exempt ?? false,
+    tax_exempt_id: row.tax_exempt_id ?? "",
+  };
+}
+
+function blankToNull(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function percentToFixed(value: string): string {
+  const parsed = Number.parseFloat(value || "0");
+  return Number.isFinite(parsed) ? parsed.toFixed(2) : "0.00";
+}
+
+function addChangedProfileField(
+  body: Record<string, unknown>,
+  key: keyof CustomerProfileDraft,
+  value: unknown,
+  baselineValue: unknown,
+) {
+  if (!Object.is(value, baselineValue)) {
+    body[key] = value;
+  }
+}
+
+function buildCustomerProfilePatch(
+  draft: CustomerProfileDraft,
+  baseline: CustomerProfileDraft,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+
+  for (const key of [
+    "first_name",
+    "last_name",
+  ] satisfies Array<keyof CustomerProfileDraft>) {
+    addChangedProfileField(body, key, draft[key].trim(), baseline[key].trim());
+  }
+
+  for (const key of [
+    "email",
+    "phone",
+    "address_line1",
+    "address_line2",
+    "city",
+    "state",
+    "postal_code",
+    "company_name",
+    "custom_field_1",
+    "custom_field_2",
+    "custom_field_3",
+    "custom_field_4",
+  ] satisfies Array<keyof CustomerProfileDraft>) {
+    addChangedProfileField(body, key, blankToNull(draft[key]), blankToNull(baseline[key]));
+  }
+
+  for (const key of [
+    "date_of_birth",
+    "anniversary_date",
+  ] satisfies Array<keyof CustomerProfileDraft>) {
+    const next = draft[key].trim();
+    if (next && next !== baseline[key].trim()) {
+      body[key] = next;
+    }
+  }
+
+  for (const key of [
+    "marketing_email_opt_in",
+    "marketing_sms_opt_in",
+    "transactional_sms_opt_in",
+    "transactional_email_opt_in",
+    "review_requests_opt_out",
+  ] satisfies Array<keyof CustomerProfileDraft>) {
+    addChangedProfileField(body, key, draft[key], baseline[key]);
+  }
+
+  addChangedProfileField(
+    body,
+    "profile_discount_percent",
+    percentToFixed(draft.profile_discount_percent),
+    percentToFixed(baseline.profile_discount_percent),
+  );
+
+  addChangedProfileField(body, "tax_exempt", draft.tax_exempt, baseline.tax_exempt);
+  const taxExemptId = draft.tax_exempt ? blankToNull(draft.tax_exempt_id) : null;
+  const baselineTaxExemptId = baseline.tax_exempt ? blankToNull(baseline.tax_exempt_id) : null;
+  if (draft.tax_exempt && !Object.is(taxExemptId, baselineTaxExemptId)) {
+    body.tax_exempt_id = taxExemptId;
+  }
+
+  return body;
+}
+
 export function CustomerRelationshipHubDrawer({
   customer,
   open,
@@ -651,7 +797,7 @@ export function CustomerRelationshipHubDrawer({
   const [noteSaving, setNoteSaving] = useState(false);
   const [actorStaffId, setActorStaffId] = useState<string | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
-  const [profileDraft, setProfileDraft] = useState({
+  const [profileDraft, setProfileDraft] = useState<CustomerProfileDraft>({
     first_name: "",
     last_name: "",
     email: "",
@@ -681,6 +827,7 @@ export function CustomerRelationshipHubDrawer({
   const [measDraft, setMeasDraft] = useState<Record<string, string>>({});
   const [measSaving, setMeasSaving] = useState(false);
   const profileDraftInit = useRef(false);
+  const profileDraftBaseline = useRef<CustomerProfileDraft | null>(null);
   const [ordersDateFrom, setOrdersDateFrom] = useState("");
   const [ordersDateTo, setOrdersDateTo] = useState("");
   /** From timeline shipping row → open Shipments tab with this id (consumed by ShipmentsHubSection). */
@@ -770,11 +917,17 @@ export function CustomerRelationshipHubDrawer({
   const [duplicateEnqueueBusy, setDuplicateEnqueueBusy] = useState(false);
 
   useEffect(() => {
-    if (!open) profileDraftInit.current = false;
+    if (!open) {
+      profileDraftInit.current = false;
+      profileDraftBaseline.current = null;
+    }
   }, [open]);
 
   useEffect(() => {
-    if (tab !== "profile") profileDraftInit.current = false;
+    if (tab !== "profile") {
+      profileDraftInit.current = false;
+      profileDraftBaseline.current = null;
+    }
   }, [tab]);
 
   useEffect(() => {
@@ -785,36 +938,9 @@ export function CustomerRelationshipHubDrawer({
 
   useEffect(() => {
     if (!hub || tab !== "profile" || profileDraftInit.current) return;
-    setProfileDraft({
-      first_name: hub.first_name ?? "",
-      last_name: hub.last_name ?? "",
-      email: hub.email ?? "",
-      phone: hub.phone ?? "",
-      address_line1: hub.address_line1 ?? "",
-      address_line2: hub.address_line2 ?? "",
-      city: hub.city ?? "",
-      state: hub.state ?? "",
-      postal_code: hub.postal_code ?? "",
-      company_name: hub.company_name ?? "",
-      date_of_birth: hub.date_of_birth
-        ? String(hub.date_of_birth).slice(0, 10)
-        : "",
-      anniversary_date: hub.anniversary_date
-        ? String(hub.anniversary_date).slice(0, 10)
-        : "",
-      custom_field_1: hub.custom_field_1 ?? "",
-      custom_field_2: hub.custom_field_2 ?? "",
-      custom_field_3: hub.custom_field_3 ?? "",
-      custom_field_4: hub.custom_field_4 ?? "",
-      marketing_email_opt_in: hub.marketing_email_opt_in,
-      marketing_sms_opt_in: hub.marketing_sms_opt_in,
-      transactional_sms_opt_in: hub.transactional_sms_opt_in ?? false,
-      transactional_email_opt_in: hub.transactional_email_opt_in ?? false,
-      review_requests_opt_out: hub.review_requests_opt_out ?? false,
-      profile_discount_percent: String(hub.profile_discount_percent ?? "0"),
-      tax_exempt: hub.tax_exempt ?? false,
-      tax_exempt_id: hub.tax_exempt_id ?? "",
-    });
+    const nextDraft = customerProfileDraftFromRow(hub);
+    setProfileDraft(nextDraft);
+    profileDraftBaseline.current = nextDraft;
     profileDraftInit.current = true;
   }, [hub, tab]);
 
@@ -1818,34 +1944,14 @@ export function CustomerRelationshipHubDrawer({
     }
     setProfileSaving(true);
     try {
-      const body: Record<string, unknown> = {
-        first_name: profileDraft.first_name.trim(),
-        last_name: profileDraft.last_name.trim(),
-        email: profileDraft.email.trim() || null,
-        phone: profileDraft.phone.trim() || null,
-        address_line1: profileDraft.address_line1.trim() || null,
-        address_line2: profileDraft.address_line2.trim() || null,
-        city: profileDraft.city.trim() || null,
-        state: profileDraft.state.trim() || null,
-        postal_code: profileDraft.postal_code.trim() || null,
-        company_name: profileDraft.company_name.trim() || null,
-        custom_field_1: profileDraft.custom_field_1.trim() || null,
-        custom_field_2: profileDraft.custom_field_2.trim() || null,
-        custom_field_3: profileDraft.custom_field_3.trim() || null,
-        custom_field_4: profileDraft.custom_field_4.trim() || null,
-        marketing_email_opt_in: profileDraft.marketing_email_opt_in,
-        marketing_sms_opt_in: profileDraft.marketing_sms_opt_in,
-        transactional_sms_opt_in: profileDraft.transactional_sms_opt_in,
-        transactional_email_opt_in: profileDraft.transactional_email_opt_in,
-        review_requests_opt_out: profileDraft.review_requests_opt_out,
-        profile_discount_percent: profileDiscount.toFixed(2),
-        tax_exempt: profileDraft.tax_exempt,
-        tax_exempt_id: profileDraft.tax_exempt ? profileDraft.tax_exempt_id.trim() : null,
-      };
-      const dob = profileDraft.date_of_birth.trim();
-      const ann = profileDraft.anniversary_date.trim();
-      if (dob) body.date_of_birth = dob;
-      if (ann) body.anniversary_date = ann;
+      const baseline =
+        profileDraftBaseline.current ??
+        (hub ? customerProfileDraftFromRow(hub) : profileDraft);
+      const body = buildCustomerProfilePatch(profileDraft, baseline);
+      if (Object.keys(body).length === 0) {
+        toast("No profile changes to save", "info");
+        return;
+      }
       const res = await fetch(`${baseUrl}/api/customers/${customer.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...apiAuth() },
@@ -1882,36 +1988,9 @@ export function CustomerRelationshipHubDrawer({
         tax_exempt?: boolean | null;
         tax_exempt_id?: string | null;
       };
-      setProfileDraft({
-        first_name: row.first_name ?? "",
-        last_name: row.last_name ?? "",
-        email: row.email ?? "",
-        phone: row.phone ?? "",
-        address_line1: row.address_line1 ?? "",
-        address_line2: row.address_line2 ?? "",
-        city: row.city ?? "",
-        state: row.state ?? "",
-        postal_code: row.postal_code ?? "",
-        company_name: row.company_name ?? "",
-        date_of_birth: row.date_of_birth
-          ? String(row.date_of_birth).slice(0, 10)
-          : "",
-        anniversary_date: row.anniversary_date
-          ? String(row.anniversary_date).slice(0, 10)
-          : "",
-        custom_field_1: row.custom_field_1 ?? "",
-        custom_field_2: row.custom_field_2 ?? "",
-        custom_field_3: row.custom_field_3 ?? "",
-        custom_field_4: row.custom_field_4 ?? "",
-        marketing_email_opt_in: row.marketing_email_opt_in,
-        marketing_sms_opt_in: row.marketing_sms_opt_in,
-        transactional_sms_opt_in: row.transactional_sms_opt_in ?? false,
-        transactional_email_opt_in: row.transactional_email_opt_in ?? false,
-        review_requests_opt_out: row.review_requests_opt_out ?? false,
-        profile_discount_percent: String(row.profile_discount_percent ?? "0"),
-        tax_exempt: row.tax_exempt ?? false,
-        tax_exempt_id: row.tax_exempt_id ?? "",
-      });
+      const nextDraft = customerProfileDraftFromRow(row as CustomerProfile);
+      setProfileDraft(nextDraft);
+      profileDraftBaseline.current = nextDraft;
       toast("Profile details saved", "success");
       await loadHub();
     } finally {

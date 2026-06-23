@@ -5,7 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { apiUrl } from "../../lib/apiUrl";
 import { Badge } from "@/components/ui-shadcn/badge";
@@ -539,6 +539,53 @@ interface StoreAccountMe {
   customer_created_source: string;
 }
 
+type StoreAccountProfileDraft = Pick<
+  StoreAccountMe,
+  | "first_name"
+  | "last_name"
+  | "company_name"
+  | "phone"
+  | "address_line1"
+  | "address_line2"
+  | "city"
+  | "state"
+  | "postal_code"
+>;
+
+function storeAccountProfileDraftFromMe(me: StoreAccountMe): StoreAccountProfileDraft {
+  return {
+    first_name: me.first_name,
+    last_name: me.last_name,
+    company_name: me.company_name,
+    phone: me.phone,
+    address_line1: me.address_line1,
+    address_line2: me.address_line2,
+    city: me.city,
+    state: me.state,
+    postal_code: me.postal_code,
+  };
+}
+
+function normalizeStoreAccountPatchValue(value: string | null): string | null {
+  const trimmed = (value ?? "").trim();
+  return trimmed ? trimmed : null;
+}
+
+function buildStoreAccountProfilePatch(
+  draft: StoreAccountProfileDraft,
+  baseline: StoreAccountProfileDraft,
+): Record<string, string | null> {
+  const body: Record<string, string | null> = {};
+  for (const key of Object.keys(draft) as Array<keyof StoreAccountProfileDraft>) {
+    const next = normalizeStoreAccountPatchValue(draft[key]);
+    const previous = normalizeStoreAccountPatchValue(baseline[key]);
+    if (!Object.is(next, previous)) {
+      body[key] = next;
+    }
+  }
+  return body;
+}
+
 interface StoreAccountOrderDetail {
   order_id: string;
   booked_at: string;
@@ -701,7 +748,8 @@ function StoreAccountSection({
   const [pwBusy, setPwBusy] = useState(false);
   const [pwCurrent, setPwCurrent] = useState("");
   const [pwNew, setPwNew] = useState("");
-  const [profileDraft, setProfileDraft] = useState<Partial<StoreAccountMe> | null>(null);
+  const [profileDraft, setProfileDraft] = useState<StoreAccountProfileDraft | null>(null);
+  const profileDraftBaseline = useRef<StoreAccountProfileDraft | null>(null);
 
   const loadMeAndOrders = useCallback(async () => {
     const t = readStoreAccountJwt();
@@ -798,19 +846,21 @@ function StoreAccountSection({
 
   useEffect(() => {
     if (me) {
-      setProfileDraft({
-        first_name: me.first_name,
-        last_name: me.last_name,
-        company_name: me.company_name,
-        phone: me.phone,
-        address_line1: me.address_line1,
-        address_line2: me.address_line2,
-        city: me.city,
-        state: me.state,
-        postal_code: me.postal_code,
-      });
+      const nextDraft = storeAccountProfileDraftFromMe(me);
+      setProfileDraft(nextDraft);
+      profileDraftBaseline.current = nextDraft;
+    } else {
+      setProfileDraft(null);
+      profileDraftBaseline.current = null;
     }
   }, [me]);
+
+  const updateProfileDraft = (
+    key: keyof StoreAccountProfileDraft,
+    value: string | null,
+  ) => {
+    setProfileDraft((draft) => (draft ? { ...draft, [key]: value } : draft));
+  };
 
   const saleChannelLabel = (ch: string | undefined) => {
     if (ch === "web") return "Web";
@@ -988,96 +1038,78 @@ function StoreAccountSection({
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label htmlFor="sa-fn">First name</Label>
-                    <Input
-                      id="sa-fn"
-                      value={profileDraft.first_name ?? ""}
-                      onChange={(e) =>
-                        setProfileDraft((d) => ({ ...d, first_name: e.target.value }))
-                      }
-                    />
+	                    <Input
+	                      id="sa-fn"
+	                      value={profileDraft.first_name ?? ""}
+	                      onChange={(e) => updateProfileDraft("first_name", e.target.value)}
+	                    />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="sa-ln">Last name</Label>
-                    <Input
-                      id="sa-ln"
-                      value={profileDraft.last_name ?? ""}
-                      onChange={(e) =>
-                        setProfileDraft((d) => ({ ...d, last_name: e.target.value }))
-                      }
-                    />
+	                    <Input
+	                      id="sa-ln"
+	                      value={profileDraft.last_name ?? ""}
+	                      onChange={(e) => updateProfileDraft("last_name", e.target.value)}
+	                    />
                   </div>
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="sa-co">Company (optional)</Label>
-                  <Input
-                    id="sa-co"
-                    value={profileDraft.company_name ?? ""}
-                    onChange={(e) =>
-                      setProfileDraft((d) => ({ ...d, company_name: e.target.value || null }))
-                    }
-                  />
+	                  <Input
+	                    id="sa-co"
+	                    value={profileDraft.company_name ?? ""}
+	                    onChange={(e) => updateProfileDraft("company_name", e.target.value || null)}
+	                  />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="sa-ph">Phone</Label>
-                  <Input
-                    id="sa-ph"
-                    type="tel"
-                    value={profileDraft.phone ?? ""}
-                    onChange={(e) =>
-                      setProfileDraft((d) => ({ ...d, phone: e.target.value || null }))
-                    }
-                  />
+	                  <Input
+	                    id="sa-ph"
+	                    type="tel"
+	                    value={profileDraft.phone ?? ""}
+	                    onChange={(e) => updateProfileDraft("phone", e.target.value || null)}
+	                  />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="sa-a1">Address line 1</Label>
-                  <Input
-                    id="sa-a1"
-                    value={profileDraft.address_line1 ?? ""}
-                    onChange={(e) =>
-                      setProfileDraft((d) => ({ ...d, address_line1: e.target.value || null }))
-                    }
-                  />
+	                  <Input
+	                    id="sa-a1"
+	                    value={profileDraft.address_line1 ?? ""}
+	                    onChange={(e) => updateProfileDraft("address_line1", e.target.value || null)}
+	                  />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="sa-a2">Address line 2</Label>
-                  <Input
-                    id="sa-a2"
-                    value={profileDraft.address_line2 ?? ""}
-                    onChange={(e) =>
-                      setProfileDraft((d) => ({ ...d, address_line2: e.target.value || null }))
-                    }
-                  />
+	                  <Input
+	                    id="sa-a2"
+	                    value={profileDraft.address_line2 ?? ""}
+	                    onChange={(e) => updateProfileDraft("address_line2", e.target.value || null)}
+	                  />
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="space-y-1">
                     <Label htmlFor="sa-city">City</Label>
-                    <Input
-                      id="sa-city"
-                      value={profileDraft.city ?? ""}
-                      onChange={(e) =>
-                        setProfileDraft((d) => ({ ...d, city: e.target.value || null }))
-                      }
-                    />
+	                    <Input
+	                      id="sa-city"
+	                      value={profileDraft.city ?? ""}
+	                      onChange={(e) => updateProfileDraft("city", e.target.value || null)}
+	                    />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="sa-st">State</Label>
-                    <Input
-                      id="sa-st"
-                      value={profileDraft.state ?? ""}
-                      onChange={(e) =>
-                        setProfileDraft((d) => ({ ...d, state: e.target.value || null }))
-                      }
-                    />
+	                    <Input
+	                      id="sa-st"
+	                      value={profileDraft.state ?? ""}
+	                      onChange={(e) => updateProfileDraft("state", e.target.value || null)}
+	                    />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="sa-zip">Postal code</Label>
-                    <Input
-                      id="sa-zip"
-                      value={profileDraft.postal_code ?? ""}
-                      onChange={(e) =>
-                        setProfileDraft((d) => ({ ...d, postal_code: e.target.value || null }))
-                      }
-                    />
+	                    <Input
+	                      id="sa-zip"
+	                      value={profileDraft.postal_code ?? ""}
+	                      onChange={(e) => updateProfileDraft("postal_code", e.target.value || null)}
+	                    />
                   </div>
                 </div>
                 <Button
@@ -1086,27 +1118,25 @@ function StoreAccountSection({
                   onClick={() => {
                     void (async () => {
                       const t = readStoreAccountJwt();
-                      if (!t || !profileDraft) return;
-                      setProfileBusy(true);
-                      try {
-                        const res = await fetch(apiUrl(API_BASE, "/api/store/account/me"), {
-                          method: "PATCH",
-                          headers: {
-                            Authorization: `Bearer ${t}`,
-                            "Content-Type": "application/json",
-                          },
-                          body: JSON.stringify({
-                            first_name: profileDraft.first_name ?? undefined,
-                            last_name: profileDraft.last_name ?? undefined,
-                            company_name: profileDraft.company_name ?? undefined,
-                            phone: profileDraft.phone ?? undefined,
-                            address_line1: profileDraft.address_line1 ?? undefined,
-                            address_line2: profileDraft.address_line2 ?? undefined,
-                            city: profileDraft.city ?? undefined,
-                            state: profileDraft.state ?? undefined,
-                            postal_code: profileDraft.postal_code ?? undefined,
-                          }),
-                        });
+	                      if (!t || !profileDraft) return;
+	                      setProfileBusy(true);
+	                      try {
+	                        const baseline =
+	                          profileDraftBaseline.current ??
+	                          (me ? storeAccountProfileDraftFromMe(me) : profileDraft);
+	                        const patch = buildStoreAccountProfilePatch(profileDraft, baseline);
+	                        if (Object.keys(patch).length === 0) {
+	                          toast("No profile changes to save.", "info");
+	                          return;
+	                        }
+	                        const res = await fetch(apiUrl(API_BASE, "/api/store/account/me"), {
+	                          method: "PATCH",
+	                          headers: {
+	                            Authorization: `Bearer ${t}`,
+	                            "Content-Type": "application/json",
+	                          },
+	                          body: JSON.stringify(patch),
+	                        });
                         const j = (await res.json().catch(() => ({}))) as {
                           error?: string;
                         };
@@ -1118,8 +1148,10 @@ function StoreAccountSection({
                           toast(j.error ?? "Could not save profile.", "error");
                           return;
                         }
-                        setMe(j as StoreAccountMe);
-                        toast("Profile saved.", "success");
+	                        const nextMe = j as StoreAccountMe;
+	                        setMe(nextMe);
+	                        profileDraftBaseline.current = storeAccountProfileDraftFromMe(nextMe);
+	                        toast("Profile saved.", "success");
                       } finally {
                         setProfileBusy(false);
                       }

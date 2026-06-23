@@ -53,6 +53,8 @@ The command center reads the Bridge heartbeat, source counts, landed proof, impo
 
 Use Support Diagnostics only when the current next step says proof or Bridge status is not progressing.
 
+The four workflow cards show whether each stage is **Done**, **Current**, or **Waiting**. The active stage should match **Current next step**.
+
 ## Import proof
 
 The proof table compares:
@@ -69,6 +71,8 @@ Some rows can intentionally create more than one ROS row, such as matrix variant
 
 Import exceptions identify Counterpoint rows that did not land cleanly. Use **Resolve** only after the source row has landed in ROS or the exception already has ROS linkage. If the row still has no landed proof, fix the missing customer, variant, tender, or mapping data and rerun the affected import area.
 
+If an exception has no Counterpoint source key, it is a batch-level blocker rather than one row ROS can recheck. Fix the source, duplicate, or mapping issue, rerun the affected import area from the Bridge, then refresh **Import & Proof**.
+
 Historical Counterpoint sales can include unresolved item lines when Counterpoint provides payment/header value but no exact item variant. ROS preserves the original Counterpoint item key so staff can correct the product when the exact line is known.
 
 ## Duplicate customers
@@ -77,7 +81,7 @@ Customer rows with duplicate email addresses do not stop the customer import. RO
 
 ## Clean restart
 
-Use **Reset Counterpoint import** only before go-live when an import needs to start over. Reset clears imported Counterpoint rows, import proof, exceptions, quarantine, stale diagnostics, CSV/reference cleanup artifacts, and active import pointers. It keeps staff access, store settings, register/printer configuration, local ROS setup, and reviewed Counterpoint mapping configuration.
+Use **Reset Counterpoint import** from **Import & Proof** or **Support Diagnostics** only before go-live when an import needs to start over. Reset clears imported Counterpoint rows, import proof, exceptions, quarantine, stale diagnostics, CSV/reference cleanup artifacts, and active import pointers. It keeps staff access, store settings, register/printer configuration, local ROS setup, and reviewed Counterpoint mapping configuration.
 
 ## Updating after more Counterpoint work
 

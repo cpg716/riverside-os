@@ -60,6 +60,8 @@ Use **Link a Partner** to search for an existing Riverside customer first. If th
 
 When two profiles are linked, use **Person view** to switch between each person. Profile details, measurements, Podium SMS, mailbox email, and contact preferences stay tied to the selected person. Transaction Records, purchase history, and loyalty are shared while the profiles remain linked.
 
+Saving Profile details updates only the fields changed in the open profile form. Separate customer actions such as VIP status, measurements, timeline notes, messages, shipments, store credit, and linked-profile changes remain on their own save paths.
+
 When linked profiles are split, the parent profile retains joined purchase history. The separated profile keeps its own contact details, measurements, messages, and a timeline note that points staff to the parent profile for pre-split purchase history.
 
 ## RMS Charge status

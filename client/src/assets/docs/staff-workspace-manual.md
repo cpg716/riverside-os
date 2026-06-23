@@ -65,7 +65,7 @@ Open task lists, team task lists, history, and individual task sheets can be pri
 ## What to watch for
 
 - **PIN Security**: PINs are 4 digits. Avoid using simple sequences (1234, 1111).
-- **Role Sync**: Changing a staff member's Role will reset their permissions to the role's default baseline.
+- **Role Sync**: Changing a staff member's Role will reset their permissions and default discount cap to the role's baseline. Make one-off permission changes after saving the new Role.
 - **Employment Dates**: Staff members with a future 'Start Date' or a past 'End Date' will not be able to sign in to the register.
 
 ## What happens next
