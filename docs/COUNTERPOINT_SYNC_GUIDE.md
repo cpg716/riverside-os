@@ -23,7 +23,7 @@ The Command Center shows a business-area ingest path for Customers, Inventory, T
 
 Advancement is proof-gated. Bridge-reported row counts alone do not unlock cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import.
 
-During a direct Bridge run, ROS records source-count proof, raw rows, provenance links to landed ROS rows, exceptions, and landed-row proof for the current import run. Rows that fail validation remain visible as import exceptions until staff fixes them and reruns the affected import area or ROS can prove the source row landed.
+During a direct Bridge run, ROS records source-count proof, raw rows, provenance links to landed ROS rows, exceptions, and landed-row proof for the current import run. Ticket and open-doc line/payment proof is counted from the landed source payload child rows for that import run, so repeat proof stays tied to the Bridge input instead of whatever child rows were rewritten in PostgreSQL. Rows that fail validation remain visible as import exceptions until staff fixes them and reruns the affected import area or ROS can prove the source row landed.
 
 The Command Center also shows **Current next step**. That card is the normal operator guide: start Bridge, run extraction, fix preflight, wait for landed proof, resolve the first exception, review the first required failed area, or move to final sign-off. Support Diagnostics is intentionally secondary and should be used only when the proof path does not explain what is wrong.
 
@@ -571,6 +571,8 @@ The counts do **not** prove full business reconciliation. They do not compare fi
 Customers, catalog products, catalog variants/SKUs, inventory quantity rows, open docs, open-doc lines, vendor masters, category masters, gift-card balances, and loyalty current points have added proof rows. The bridge sends the Counterpoint source count (and source sum where balances/points apply); ROS compares those values to landed ROS values and shows **Pass**, **Fail**, or **No source proof**. Catalog and inventory fidelity proof also uses deterministic live-query checksums for price/cost, category/vendor, variant labels, and inventory quantity/cost field groups.
 
 Operational cutover visibility rows also call out unresolved ticket customer links, open-doc customer links, skipped open docs from unresolved item lines, skipped open docs from missing required data, and unmatched inventory quantity rows. These rows are backed by **Open sync issues**, so staff can review the exact Counterpoint ticket/doc/SKU key before sign-off.
+
+Import exception cards are the repair workflow for rows that did not land. Use **Copy source** to capture the raw Counterpoint payload, fix the customer/item/tender/duplicate/mapping issue named by the card, then use the card's rerun action to request the affected Bridge area. Use **Recheck after rerun** only after the rerun has completed; it closes the exception only when ROS can prove the source key landed.
 
 Weak or approximate domains are explicitly marked in the section:
 - **Gift cards** are approximate only until source count/sum proof has been received and the snapshot reconciliation row passes.

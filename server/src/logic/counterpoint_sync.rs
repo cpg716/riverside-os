@@ -5291,13 +5291,27 @@ fn unlanded_import_exception_details(
     } else {
         "row_not_landed"
     };
-    let message = format!(
-        "Counterpoint {entity_key} source row {source_key} did not land in ROS during this import-first batch. The batch continued and this row needs review."
-    );
-    let suggested_fix = if financial_document {
-        "Review the source document and resolve missing customers, variants, tenders, or mapping data before go-live sign-off."
+    let message = if entity_key == "tickets" {
+        format!(
+            "Ticket {source_key} did not land as a ROS sale. Open the source payload on this card, fix the missing customer, item/variant, tender, or duplicate reference, then rerun Ticket History / Sales Movement."
+        )
+    } else if entity_key == "open_docs" {
+        format!(
+            "Open order {source_key} did not land as a ROS open order. Open the source payload on this card, fix the missing customer, item/variant, deposit, or duplicate reference, then rerun Open Orders."
+        )
     } else {
-        "Review the source payload, quarantine records, and sync issues; correct the source data or mapping, then rerun this entity batch."
+        format!(
+            "Counterpoint {entity_key} source row {source_key} did not land in ROS during this import batch. Open the source payload on this card, fix or remove the source/mapping issue, then rerun this import area."
+        )
+    };
+    let suggested_fix = if entity_key == "tickets" {
+        "Use Inspect source to identify the exact ticket, customer, line items, and tenders. Repair the missing mapping/source data or remove the source ticket from import review, then use Rerun Ticket History."
+    } else if entity_key == "open_docs" {
+        "Use Inspect source to identify the exact document, customer, line items, and deposits. Repair the missing mapping/source data or remove the source document from import review, then use Rerun Open Orders."
+    } else if financial_document {
+        "Inspect the source document, repair or remove the missing source/mapping/linkage, then rerun the affected import area."
+    } else {
+        "Inspect the source payload, quarantine records, and sync issues; correct or remove the source data or mapping, then rerun this entity batch."
     };
     (
         if financial_document {
@@ -5841,6 +5855,15 @@ async fn import_run_landed_count_for_source_count(
         .await;
     }
 
+    if let Some((raw_entity, child_field)) = import_run_landed_payload_child_counter(entity_key) {
+        if let Some(count) =
+            import_run_landed_payload_child_count(pool, import_run_id, raw_entity, child_field)
+                .await?
+        {
+            return Ok(count);
+        }
+    }
+
     match ros_table {
         Some(table) if import_run_counts_landed_ros_rows(entity_key) => {
             import_run_distinct_ros_row_count(pool, import_run_id, provenance_entity, table).await
@@ -5858,6 +5881,50 @@ async fn import_run_landed_count_for_source_count(
             import_run_distinct_source_key_count(pool, import_run_id, provenance_entity, None).await
         }
     }
+}
+
+fn import_run_landed_payload_child_counter(
+    entity_key: &str,
+) -> Option<(&'static str, &'static str)> {
+    match entity_key {
+        "ticket_lines" | "closed_ticket_lines" => Some(("tickets", "lines")),
+        "ticket_payments" | "closed_ticket_payments" => Some(("tickets", "payments")),
+        "open_doc_lines" => Some(("open_docs", "lines")),
+        "open_doc_payments" | "open_doc_deposits_payments" => Some(("open_docs", "payments")),
+        _ => None,
+    }
+}
+
+async fn import_run_landed_payload_child_count(
+    pool: &PgPool,
+    import_run_id: Uuid,
+    raw_entity: &str,
+    child_field: &str,
+) -> Result<Option<i64>, sqlx::Error> {
+    let (raw_count, child_count): (i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*)::bigint AS raw_count,
+            COALESCE(SUM(
+                CASE
+                    WHEN jsonb_typeof(payload -> $3) = 'array'
+                        THEN jsonb_array_length(payload -> $3)
+                    ELSE 0
+                END
+            ), 0)::bigint AS child_count
+        FROM counterpoint_import_raw_records
+        WHERE import_run_id = $1
+          AND entity_key = $2
+          AND landed
+        "#,
+    )
+    .bind(import_run_id)
+    .bind(raw_entity)
+    .bind(child_field)
+    .fetch_one(pool)
+    .await?;
+
+    Ok((raw_count > 0).then_some(child_count))
 }
 
 fn import_run_counts_landed_ros_rows(entity_key: &str) -> bool {
@@ -14290,6 +14357,14 @@ mod tests {
                     row.source_count = 2;
                     row.required = true;
                 }
+                "ticket_lines" => {
+                    row.source_count = 3;
+                    row.required = true;
+                }
+                "ticket_payments" => {
+                    row.source_count = 2;
+                    row.required = true;
+                }
                 _ => {}
             }
         }
@@ -14355,10 +14430,32 @@ mod tests {
             )
             VALUES
                 ($1, 'inventory', 'INV-ROW-GRAIN-1', 'inventory-row-1', '{}'::jsonb, TRUE, 'product_variants', $2),
-                ($1, 'inventory', 'INV-ROW-GRAIN-2', 'inventory-row-2', '{}'::jsonb, TRUE, 'product_variants', $3)
+                ($1, 'inventory', 'INV-ROW-GRAIN-2', 'inventory-row-2', '{}'::jsonb, TRUE, 'product_variants', $3),
+                (
+                    $1,
+                    'tickets',
+                    'TICKET-ROW-GRAIN-1',
+                    'ticket-row-1',
+                    '{"lines":[{"sku":"A"},{"sku":"B"}],"payments":[{"pmt_typ":"CASH"}]}'::jsonb,
+                    TRUE,
+                    'transactions',
+                    $4
+                ),
+                (
+                    $1,
+                    'tickets',
+                    'TICKET-ROW-GRAIN-2',
+                    'ticket-row-2',
+                    '{"lines":[{"sku":"C"}],"payments":[{"pmt_typ":"VISA"}]}'::jsonb,
+                    TRUE,
+                    'transactions',
+                    $5
+                )
             "#,
         )
         .bind(import_run.import_run_id)
+        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4())
         .bind(Uuid::new_v4())
         .bind(Uuid::new_v4())
         .execute(&pool)
@@ -14391,6 +14488,21 @@ mod tests {
                 .expect("row-grain reconciliation row");
             assert_eq!(row.landed_count, 2, "{key} should count landed row grain");
             assert!(row.passed, "{key} should pass when two rows landed");
+        }
+        for (key, expected) in [("ticket_lines", 3), ("ticket_payments", 2)] {
+            let row = command_center
+                .snapshot_reconciliation
+                .iter()
+                .find(|row| row.key == key)
+                .expect("ticket child reconciliation row");
+            assert_eq!(
+                row.landed_count, expected,
+                "{key} should count landed source children from the ticket payload"
+            );
+            assert!(
+                row.passed,
+                "{key} should pass when payload child counts match"
+            );
         }
 
         let _ = sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = ANY($1)")

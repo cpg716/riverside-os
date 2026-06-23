@@ -3,6 +3,7 @@
 import { dispatchAppToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { printReportDocument } from "../../lib/reportPrint";
+import { describePrinterTarget, resolvePrinterTarget } from "../../lib/printerBridge";
 
 export interface ZReportTenderRow {
   payment_method: string;
@@ -117,12 +118,17 @@ async function finishPrintDocument(
       text: directReportText,
       width: 950,
       height: 950,
+      preferFormattedPreview: true,
     });
     return true;
   } catch (error) {
     notifyPrintDialogFailure(error);
     return false;
   }
+}
+
+function reportPrinterName(): string {
+  return describePrinterTarget(resolvePrinterTarget("report"));
 }
 
 function reportLabel(value: string | null | undefined): string {
@@ -227,7 +233,7 @@ export async function openProfessionalZReportPrint(opts: {
   const target = createPrintDocument(`${opts.title} — ${opts.sessionId}`);
 
   const ord = opts.registerOrdinal != null ? ` #${opts.registerOrdinal}` : "";
-  const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
+  const reportPrinter = reportPrinterName();
 
   const tendersRows = opts.tenders
     .map(
@@ -776,7 +782,7 @@ export async function openProfessionalDailySalesPrint(opts: {
 
   target.doc.title = "Daily Sales Report";
 
-  const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
+  const reportPrinter = reportPrinterName();
   const { summary, activities } = opts;
 
   const groupedActivities = activities.reduce<Record<string, typeof activities>>((groups, row) => {
@@ -1041,7 +1047,7 @@ export async function openProfessionalTablePrint(opts: {
 
   target.doc.title = opts.title;
 
-  const reportPrinter = localStorage.getItem("ros.pos.reportPrinterName") || "System Default";
+  const reportPrinter = reportPrinterName();
   const escapeHtml = (value: string) =>
     value
       .replaceAll("&", "&amp;")

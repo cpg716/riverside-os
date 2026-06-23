@@ -1,8 +1,11 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { printExistingWindowAsync } from "./browserPrint";
+import { openPrintableHtml, printExistingWindowAsync } from "./browserPrint";
 import { printTextReport } from "./printerBridge";
 
-export type ReportPrintRoute = "tauri-report-printer" | "browser-print-dialog";
+export type ReportPrintRoute =
+  | "tauri-report-printer"
+  | "tauri-report-preview"
+  | "browser-print-dialog";
 
 export interface ReportPrintResult {
   route: ReportPrintRoute;
@@ -15,6 +18,7 @@ export interface ReportPrintDocumentRequest {
   filename?: string;
   width?: number;
   height?: number;
+  preferFormattedPreview?: boolean;
 }
 
 function escapeReportHtml(value: string): string {
@@ -49,6 +53,14 @@ export async function printReportDocument(
   }
 
   if (isTauri()) {
+    if (request.preferFormattedPreview && request.html?.trim()) {
+      await openPrintableHtml(request.html, request.title, {
+        filename: request.filename,
+        width: request.width,
+        height: request.height,
+      });
+      return { route: "tauri-report-preview" };
+    }
     await printTextReport(request.text);
     return { route: "tauri-report-printer" };
   }

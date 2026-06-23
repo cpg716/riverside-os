@@ -227,6 +227,7 @@ interface CounterpointImportExceptionRow {
   fallback_landed: boolean;
   ros_table: string | null;
   ros_id: string | null;
+  source_payload: unknown;
   status: string;
   created_at: string;
   updated_at: string;
@@ -246,6 +247,67 @@ function formatDate(value: string | null | undefined): string {
 
 function formatEntityLabel(entity: string): string {
   return entity.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function importAreaForException(entity: string): string {
+  switch (entity) {
+    case "ticket_lines":
+    case "ticket_payments":
+      return "tickets";
+    case "open_doc_lines":
+    case "open_doc_payments":
+      return "open_docs";
+    case "catalog_variants":
+      return "catalog";
+    case "inventory_quantity_rows":
+      return "inventory";
+    default:
+      return entity;
+  }
+}
+
+function sourcePayloadObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function sourceRowForException(row: CounterpointImportExceptionRow): Record<string, unknown> | null {
+  const payload = sourcePayloadObject(row.source_payload);
+  const nested = sourcePayloadObject(payload?.source_row);
+  return nested ?? payload;
+}
+
+function sourceFieldText(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
+}
+
+function exceptionSourceSummary(row: CounterpointImportExceptionRow): string[] {
+  const source = sourceRowForException(row);
+  if (!source) return [];
+  const fields = [
+    ["Customer", "cust_no"],
+    ["Ticket", "ticket_ref"],
+    ["Open order", "doc_ref"],
+    ["Item", "counterpoint_item_key"],
+    ["SKU", "sku"],
+    ["Tender", "pmt_typ"],
+    ["Amount", "amount"],
+    ["Total", "total_price"],
+  ];
+  const lines = fields
+    .map(([label, key]) => {
+      const text = sourceFieldText(source[key]);
+      return text ? `${label}: ${text}` : null;
+    })
+    .filter((line): line is string => Boolean(line));
+  for (const [label, key] of [["Lines", "lines"], ["Payments", "payments"]]) {
+    const list = source[key];
+    if (Array.isArray(list)) lines.push(`${label}: ${list.length}`);
+  }
+  return lines;
 }
 
 function formatImportRunKind(runKind: string | null | undefined): string {
@@ -464,6 +526,37 @@ export default function CounterpointSyncSettingsPanel({
       toast(error instanceof Error ? error.message : "Exception still needs repair before it can be closed.", "error");
     }
   }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
+
+  const requestImportAreaRerun = useCallback(async (entity: string) => {
+    const importArea = importAreaForException(entity);
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/request-run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...headers(),
+        },
+        body: JSON.stringify({ entity: importArea }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? "Could not request Bridge rerun.");
+      }
+      toast(`${formatEntityLabel(importArea)} rerun requested. Keep the Bridge open; it will pick up the request on its next heartbeat.`, "success");
+      void fetchStatus();
+      void fetchCommandCenter();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not request Bridge rerun.", "error");
+    }
+  }, [baseUrl, fetchCommandCenter, fetchStatus, headers, toast]);
+
+  const copyExceptionSource = useCallback((row: CounterpointImportExceptionRow) => {
+    const text = JSON.stringify(row.source_payload ?? row, null, 2);
+    void navigator.clipboard?.writeText(text).then(
+      () => toast("Counterpoint source payload copied.", "success"),
+      () => toast("Could not copy source payload.", "error"),
+    );
+  }, [toast]);
 
   const runBaselineReset = async (confirmationPhrase: string): Promise<boolean> => {
     // setResetBusy(true);
@@ -1161,28 +1254,67 @@ export default function CounterpointSyncSettingsPanel({
           <div className="mt-2 grid gap-2 md:grid-cols-2">
             {importExceptions.slice(0, 6).map((row) => {
               const sourceKey = row.source_key?.trim() ?? "";
+              const sourceSummary = exceptionSourceSummary(row);
+              const importArea = importAreaForException(row.entity_key);
               return (
                 <div key={row.id} className="rounded-md border border-app-border bg-app-bg/60 p-2 text-xs">
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-bold text-app-text">
                       {formatEntityLabel(row.entity_key)} {sourceKey ? `#${sourceKey}` : ""}
                     </p>
+                    <span className="ui-pill bg-amber-500/15 text-[9px] text-amber-700 dark:text-amber-200">
+                      {formatEntityLabel(importArea)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-app-text-muted">{row.message}</p>
+                  {row.suggested_fix ? <p className="mt-1 font-semibold text-amber-700 dark:text-amber-200">{row.suggested_fix}</p> : null}
+                  {sourceSummary.length > 0 ? (
+                    <div className="mt-2 rounded-md border border-app-border bg-app-surface-2 p-2">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        Source details
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {sourceSummary.map((line) => (
+                          <span key={line} className="ui-pill border border-app-border bg-app-bg/80 text-[10px] text-app-text">
+                            {line}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => copyExceptionSource(row)}
+                      className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                    >
+                      Copy source
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void requestImportAreaRerun(row.entity_key)}
+                      className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                    >
+                      Rerun {formatEntityLabel(importArea)}
+                    </button>
                     {sourceKey ? (
                       <button
                         type="button"
                         onClick={() => void recheckImportException(row.id)}
                         className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
                       >
-                        Recheck
+                        Recheck after rerun
                       </button>
-                    ) : (
-                      <span className="ui-pill bg-amber-500/15 text-[9px] text-amber-700 dark:text-amber-200">
-                        Rerun import area first
-                      </span>
-                    )}
+                    ) : null}
+                    <a
+                      href="http://localhost:3002"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                    >
+                      Open Bridge
+                    </a>
                   </div>
-                  <p className="mt-1 text-app-text-muted">{row.message}</p>
-                  {row.suggested_fix ? <p className="mt-1 font-semibold text-amber-700 dark:text-amber-200">{row.suggested_fix}</p> : null}
                   {!sourceKey ? (
                     <p className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 p-2 font-semibold text-amber-700 dark:text-amber-200">
                       This is a batch-level exception, not a single Counterpoint row that ROS can recheck. Fix the source or mapping issue, rerun the affected import area from the Bridge, then refresh Import & Proof.

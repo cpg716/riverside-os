@@ -69,7 +69,11 @@ Some rows can intentionally create more than one ROS row, such as matrix variant
 
 ## Exceptions
 
-Import exceptions identify Counterpoint rows that did not land cleanly. Use **Resolve** only after the source row has landed in ROS or the exception already has ROS linkage. If the row still has no landed proof, fix the missing customer, variant, tender, or mapping data and rerun the affected import area.
+Import exceptions identify Counterpoint rows that did not land cleanly. Each exception card shows the affected import area, source details from the raw Counterpoint payload, and action buttons.
+
+Use **Copy source** when support needs the exact Counterpoint payload. Use **Rerun Tickets**, **Rerun Open Docs**, or the matching import-area rerun after fixing the missing customer, variant, tender, duplicate reference, or mapping data. The Bridge must remain open so it can pick up the rerun request on its next heartbeat.
+
+Use **Recheck after rerun** only after the affected import area has been rerun. Recheck closes the exception only when ROS can prove that the same Counterpoint source key now has landed provenance.
 
 If an exception has no Counterpoint source key, it is a batch-level blocker rather than one row ROS can recheck. Fix the source, duplicate, or mapping issue, rerun the affected import area from the Bridge, then refresh **Import & Proof**.
 
