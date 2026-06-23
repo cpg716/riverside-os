@@ -523,6 +523,19 @@ function checkCounterpointImportRunKindSchemaParity() {
   );
 }
 
+function checkCounterpointBridgeGuiIncrementalUpdateAction() {
+  const bridgeGuiFile = "deployment/counterpoint-bridge-gui/src/App.tsx";
+  const bridgeGui = read(bridgeGuiFile);
+  assert(
+    bridgeGui.includes("Update Since Last Run") &&
+      bridgeGui.includes("triggerUpdateSinceLastRun") &&
+      bridgeGui.includes("/api/trigger-entity?name=full&mode=update"),
+    "Counterpoint Bridge GUI exposes update-since-last-run mode",
+    bridgeGuiFile,
+    "The Bridge engine supports incremental_update, so the GUI must provide an operator-visible action that sends mode=update.",
+  );
+}
+
 function checkCounterpointBridgeGuiUpdateWiring() {
   const updatesFile = "deployment/counterpoint-bridge-gui/src-tauri/src/app_updates.rs";
   const updates = read(updatesFile);
@@ -1070,6 +1083,7 @@ checkPrintRoutingManifest();
 checkCounterpointBridgeQueryTesterEntityParity();
 checkCounterpointSyncStagingVisibility();
 checkCounterpointImportRunKindSchemaParity();
+checkCounterpointBridgeGuiIncrementalUpdateAction();
 checkCounterpointBridgeGuiUpdateWiring();
 checkCounterpointBridgeDeploymentPackaging();
 checkCounterpointRateLimitBypass();

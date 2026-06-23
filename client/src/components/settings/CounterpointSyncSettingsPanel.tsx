@@ -759,6 +759,12 @@ export default function CounterpointSyncSettingsPanel({
     || Boolean(firstOpenException)
     || Boolean(firstRequiredIssue)
     || commandNotReadyTotal > 0;
+  const scrollToImportExceptions = useCallback(() => {
+    document.getElementById("counterpoint-import-exceptions")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, []);
   const importProgressSteps = useMemo(() => {
     const bridgeConnected = bridgeRuntimeState !== "offline";
     const importStarted = Boolean(commandCenter?.preflight_received || commandCenter?.import_run_received);
@@ -845,6 +851,7 @@ export default function CounterpointSyncSettingsPanel({
               ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200"
               : "border-app-border bg-app-surface-2 text-app-text-muted";
           const stateLabel = state === "done" ? "Done" : state === "current" ? "Current" : "Waiting";
+          const showActions = state === "current";
           return (
             <div key={step} className={`rounded-lg border p-3 ${stateClass}`}>
               <div className="flex items-start justify-between gap-2">
@@ -855,6 +862,45 @@ export default function CounterpointSyncSettingsPanel({
               </div>
               <p className="mt-1 font-black text-app-text">{title}</p>
               <p className="mt-1 text-[11px] font-semibold">{detail}</p>
+              {showActions ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {step === "1" || step === "2" ? (
+                    <a
+                      href="http://localhost:3002"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                    >
+                      Open Bridge
+                    </a>
+                  ) : null}
+                  {step === "3" && importExceptions.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={scrollToImportExceptions}
+                      className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                    >
+                      Review exceptions
+                    </button>
+                  ) : null}
+                  {step === "4" ? (
+                    <button
+                      type="button"
+                      onClick={() => setWorkspaceView("customer_duplicates")}
+                      className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                    >
+                      Review duplicates
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void fetchAllData()}
+                    className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                  >
+                    Refresh proof
+                  </button>
+                </div>
+              ) : null}
             </div>
           );
         })}
@@ -1108,7 +1154,7 @@ export default function CounterpointSyncSettingsPanel({
       </div>
 
       {importExceptions.length > 0 ? (
-        <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
+        <div id="counterpoint-import-exceptions" className="scroll-mt-24 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-200">
             Import exceptions
           </p>

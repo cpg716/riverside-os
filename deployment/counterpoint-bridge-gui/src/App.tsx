@@ -453,6 +453,20 @@ function App() {
     }
   }, [isConnected]);
 
+  const triggerUpdateSinceLastRun = useCallback(async () => {
+    if (!isConnected) return;
+    try {
+      setStatusMessage("Starting Counterpoint update since last run...");
+      setSyncProgress(0);
+      const res = await fetch(`${BRIDGE_API}/api/trigger-entity?name=full&mode=update`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to trigger update');
+      setStatusMessage("Counterpoint update started. Keep this window open, then review updated proof in ROS Import & Proof.");
+    } catch (e: any) {
+      setStatusMessage(`Failed to start update: ${e.message}`);
+    }
+  }, [isConnected]);
+
   const triggerSingleSync = useCallback(async (key: string) => {
     if (!isConnected) return;
     try {
@@ -768,7 +782,7 @@ function App() {
               </div>
 
               {/* Stats Bar */}
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl">
                   <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Import State</div>
                   <div className="text-lg font-bold text-white mt-1 flex items-center gap-2">
@@ -808,6 +822,19 @@ function App() {
                     className="p-2.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     <Play className="w-4 h-4 fill-current" />
+                  </button>
+                </div>
+                <div className="bg-[#0f1117] border border-white/5 p-4 rounded-xl flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Update Since Last Run</div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">Adds changed Counterpoint rows without resetting ROS proof</div>
+                  </div>
+                  <button
+                    onClick={triggerUpdateSinceLastRun}
+                    disabled={!isConnected || bridgeState?.isSyncing}
+                    className="p-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    <RefreshCw className="w-4 h-4" />
                   </button>
                 </div>
               </div>

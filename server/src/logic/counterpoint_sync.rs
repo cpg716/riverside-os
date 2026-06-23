@@ -3425,6 +3425,7 @@ pub async fn execute_counterpoint_inventory_batch(
 
     // 1. Separate items by how we resolve them (key vs sku)
     let mut keyed_keys = Vec::new();
+    let mut keyed_skus = Vec::new();
     let mut keyed_soh = Vec::new();
     let mut keyed_cost = Vec::new();
 
@@ -3444,6 +3445,7 @@ pub async fn execute_counterpoint_inventory_batch(
         if let Some(ref key) = trim_opt(&row.counterpoint_item_key) {
             requested_keys.push(key.clone());
             keyed_keys.push(key.clone());
+            keyed_skus.push(sku.to_string());
             keyed_soh.push(row.stock_on_hand);
             keyed_cost.push(row.unit_cost);
             sku_skus.push(sku.to_string());
@@ -3466,11 +3468,13 @@ pub async fn execute_counterpoint_inventory_batch(
             SET
                 stock_on_hand = u.soh,
                 cost_override = COALESCE(u.cost, v.cost_override)
-            FROM UNNEST($1::text[], $2::int[], $3::numeric[]) AS u(key, soh, cost)
+            FROM UNNEST($1::text[], $2::text[], $3::int[], $4::numeric[]) AS u(key, sku, soh, cost)
             WHERE v.counterpoint_item_key = u.key
+              AND lower(trim(v.sku)) = lower(trim(u.sku))
             "#,
         )
         .bind(&keyed_keys)
+        .bind(&keyed_skus)
         .bind(&keyed_soh)
         .bind(&keyed_cost)
         .execute(&mut *tx)
@@ -3486,9 +3490,30 @@ pub async fn execute_counterpoint_inventory_batch(
             SET
                 stock_on_hand = u.soh,
                 cost_override = COALESCE(u.cost, v.cost_override),
-                counterpoint_item_key = COALESCE(v.counterpoint_item_key, u.key)
+                counterpoint_item_key = CASE
+                    WHEN v.counterpoint_item_key IS NULL
+                     AND u.key IS NOT NULL
+                     AND NOT EXISTS (
+                        SELECT 1
+                        FROM product_variants owner
+                        WHERE owner.counterpoint_item_key = u.key
+                          AND owner.id <> v.id
+                     )
+                    THEN u.key
+                    ELSE v.counterpoint_item_key
+                END
             FROM UNNEST($1::text[], $2::text[], $3::int[], $4::numeric[]) AS u(sku, key, soh, cost)
             WHERE lower(trim(v.sku)) = lower(trim(u.sku))
+              AND (
+                u.key IS NULL
+                OR v.counterpoint_item_key = u.key
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM product_variants owner
+                    WHERE owner.counterpoint_item_key = u.key
+                      AND owner.id <> v.id
+                )
+              )
             "#,
         )
         .bind(&sku_skus)
@@ -3504,6 +3529,22 @@ pub async fn execute_counterpoint_inventory_batch(
     } else {
         sqlx::query_scalar::<_, String>(
             "SELECT counterpoint_item_key FROM product_variants WHERE counterpoint_item_key = ANY($1)",
+        )
+        .bind(&requested_keys)
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect()
+    };
+    let key_owner_skus: HashMap<String, String> = if requested_keys.is_empty() {
+        HashMap::new()
+    } else {
+        sqlx::query_as::<_, (String, String)>(
+            r#"
+            SELECT counterpoint_item_key, lower(trim(sku))
+            FROM product_variants
+            WHERE counterpoint_item_key = ANY($1)
+            "#,
         )
         .bind(&requested_keys)
         .fetch_all(&mut *tx)
@@ -3533,10 +3574,23 @@ pub async fn execute_counterpoint_inventory_batch(
             continue;
         }
         let key = trim_opt(&row.counterpoint_item_key);
-        let matched = key.as_ref().is_some_and(|k| matched_keys.contains(k))
-            || matched_skus.contains(&sku.to_lowercase());
+        let normalized_sku = sku.to_lowercase();
+        let conflicting_key_owner = key
+            .as_ref()
+            .and_then(|k| key_owner_skus.get(k).map(|owner_sku| (k, owner_sku)))
+            .filter(|(_, owner_sku)| owner_sku.as_str() != normalized_sku.as_str());
+        let matched = conflicting_key_owner.is_none()
+            && (key.as_ref().is_some_and(|k| matched_keys.contains(k))
+                || matched_skus.contains(&normalized_sku));
         let external_key = key.clone().unwrap_or_else(|| sku.to_string());
-        if matched {
+        if let Some((conflicting_key, owner_sku)) = conflicting_key_owner {
+            unmatched_issues.push((
+                external_key,
+                format!(
+                    "Inventory item-key conflict: counterpoint_item_key={conflicting_key:?} is already linked to ROS sku={owner_sku:?}, but this Counterpoint row has sku={sku:?}. Fix the Counterpoint catalog/inventory mapping and rerun Inventory."
+                ),
+            ));
+        } else if matched {
             matched_row_count += 1;
             matched_issue_keys.push(external_key.clone());
             if let Some((parent_key, _)) = external_key.split_once('|') {
@@ -18922,6 +18976,128 @@ mod tests {
         assert!(row_passed);
         assert_eq!(row_source_count, Some(1));
         assert_eq!(row_landed_count, 1);
+    }
+
+    #[tokio::test]
+    async fn counterpoint_inventory_item_key_conflict_is_review_issue_not_batch_failure() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let suffix = numeric_identity_suffix();
+        let owner_sku = format!("CP-CONFLICT-OWNER-{suffix}");
+        let source_sku = format!("CP-CONFLICT-SOURCE-{suffix}");
+        let cp_key = format!("I-CONFLICT-{suffix}|RED|42");
+        let owner_product_id = Uuid::new_v4();
+        let source_product_id = Uuid::new_v4();
+        let owner_variant_id = Uuid::new_v4();
+        let source_variant_id = Uuid::new_v4();
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES
+                ($1, $2, $3, $4, TRUE, 'counterpoint'),
+                ($5, $6, $7, $8, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(owner_product_id)
+        .bind(format!("Counterpoint Conflict Owner {suffix}"))
+        .bind(Decimal::new(4000, 2))
+        .bind(Decimal::new(1000, 2))
+        .bind(source_product_id)
+        .bind(format!("Counterpoint Conflict Source {suffix}"))
+        .bind(Decimal::new(4000, 2))
+        .bind(Decimal::new(1000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert conflict products");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+            )
+            VALUES
+                ($1, $2, $3, '{}'::jsonb, 2, $4),
+                ($5, $6, $7, '{}'::jsonb, 3, NULL)
+            "#,
+        )
+        .bind(owner_variant_id)
+        .bind(owner_product_id)
+        .bind(&owner_sku)
+        .bind(&cp_key)
+        .bind(source_variant_id)
+        .bind(source_product_id)
+        .bind(&source_sku)
+        .execute(&pool)
+        .await
+        .expect("insert conflict variants");
+
+        let summary = execute_counterpoint_inventory_batch(
+            &pool,
+            CounterpointInventoryPayload {
+                rows: vec![CounterpointInventoryRow {
+                    sku: source_sku.clone(),
+                    stock_on_hand: 7,
+                    counterpoint_item_key: Some(cp_key.clone()),
+                    unit_cost: Some(Decimal::new(1200, 2)),
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("conflicting inventory row becomes review issue");
+
+        let owner_stock: i32 =
+            sqlx::query_scalar("SELECT stock_on_hand FROM product_variants WHERE id = $1")
+                .bind(owner_variant_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load owner stock");
+        let source_row: (i32, Option<String>) = sqlx::query_as(
+            "SELECT stock_on_hand, counterpoint_item_key FROM product_variants WHERE id = $1",
+        )
+        .bind(source_variant_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load source variant");
+        let issue_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_sync_issue
+            WHERE entity = 'inventory'
+              AND external_key = $1
+              AND NOT resolved
+              AND message LIKE 'Inventory item-key conflict:%'
+            "#,
+        )
+        .bind(&cp_key)
+        .fetch_one(&pool)
+        .await
+        .expect("count conflict issue");
+
+        sqlx::query(
+            "DELETE FROM counterpoint_sync_issue WHERE entity = 'inventory' AND external_key = $1",
+        )
+        .bind(&cp_key)
+        .execute(&pool)
+        .await
+        .expect("cleanup conflict issue");
+        sqlx::query("DELETE FROM product_variants WHERE id = ANY($1)")
+            .bind(&vec![owner_variant_id, source_variant_id])
+            .execute(&pool)
+            .await
+            .expect("cleanup conflict variants");
+        sqlx::query("DELETE FROM products WHERE id = ANY($1)")
+            .bind(&vec![owner_product_id, source_product_id])
+            .execute(&pool)
+            .await
+            .expect("cleanup conflict products");
+
+        assert_eq!(summary.updated, 0);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(owner_stock, 2);
+        assert_eq!(source_row.0, 3);
+        assert_eq!(source_row.1, None);
+        assert_eq!(issue_count, 1);
     }
 
     #[tokio::test]
