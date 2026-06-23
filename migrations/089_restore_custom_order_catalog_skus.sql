@@ -4,6 +4,16 @@
 -- order products. Those ROS SKUs are used by the Register custom order buttons
 -- and must never be owned by imported Counterpoint catalog rows.
 
+INSERT INTO categories (id, name, is_clothing_footwear)
+VALUES (
+    'b7c0a010-0010-4010-8010-000000000010'::uuid,
+    'Custom Orders',
+    true
+)
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    is_clothing_footwear = EXCLUDED.is_clothing_footwear;
+
 INSERT INTO products (
     id,
     category_id,
