@@ -101,7 +101,7 @@ function getMigrationSnapshot() {
     }
     if (rosStagingEnabled) {
         rerunWarnings.push(
-            "ROS support queue mode is enabled. Import-first rehearsal must post directly into ROS.",
+            "ROS support queue mode is enabled. Live import must post directly into ROS.",
         );
     }
 
@@ -2721,9 +2721,9 @@ async function runImportFirstSourcePreflight(pool) {
       .join(" | ");
     const message = blockerText || "Bridge source-count preflight failed.";
     if (!ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS) {
-      throw new Error(`[preflight] Import blocked: ${message}`);
+      throw new Error(`[preflight] Import needs review: ${message}`);
     }
-    console.warn(`[preflight] Import blockers ignored by CP_ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS=1: ${message}`);
+    console.warn(`[preflight] Import review issues ignored by CP_ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS=1: ${message}`);
   } else {
     console.info(`[preflight] Import-first source-count preflight passed (${summary.import_run_id}).`);
   }
@@ -5640,7 +5640,7 @@ function normalizeImportRunKindForBridge(mode, entity = "full") {
     return "fix_rerun";
   }
   if (["", "full", "full_rehearsal", "full_import", "full-rerun"].includes(raw)) {
-    return "full_rehearsal";
+    return "full_import";
   }
   throw new Error(`Unknown Counterpoint import mode: ${mode}`);
 }
@@ -5653,9 +5653,10 @@ function importRunKindLabel(kind) {
       return "Fix rerun";
     case "go_live":
       return "Go-live import";
+    case "full_import":
     case "full_rehearsal":
     default:
-      return "Full import rerun";
+      return "Full import";
   }
 }
 
@@ -5953,7 +5954,7 @@ async function main() {
     try {
       preflightSummary = await runImportFirstSourcePreflight(pool);
     } catch (err) {
-      console.error("[preflight] sync blocked:", err.message);
+      console.error("[preflight] sync needs review:", err.message);
       if (hasPendingRequest) {
         try {
           await rosFetch("/api/sync/counterpoint/request/complete", {

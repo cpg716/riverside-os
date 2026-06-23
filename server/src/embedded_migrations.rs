@@ -90,4 +90,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("087_open_deposit_ledger_sources.sql", include_str!("../../migrations/087_open_deposit_ledger_sources.sql")),
     ("088_drop_counterpoint_review_pack_tables.sql", include_str!("../../migrations/088_drop_counterpoint_review_pack_tables.sql")),
     ("089_restore_custom_order_catalog_skus.sql", include_str!("../../migrations/089_restore_custom_order_catalog_skus.sql")),
+    ("090_counterpoint_import_run_kind_modes.sql", include_str!("../../migrations/090_counterpoint_import_run_kind_modes.sql")),
 ];

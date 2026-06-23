@@ -994,9 +994,6 @@ async fn settings_status(
         .await
         .map_err(map_perm)?;
 
-    // Automatically attempt to resolve any fallback lines on status refresh
-    let _ = counterpoint_sync::resolve_unresolved_counterpoint_lines(&state.db).await;
-
     let token_configured = counterpoint_token_configured(&state).await;
     match counterpoint_sync::get_sync_status(&state.db, token_configured).await {
         Ok(resp) => {

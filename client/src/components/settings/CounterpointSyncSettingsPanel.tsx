@@ -256,9 +256,10 @@ function formatImportRunKind(runKind: string | null | undefined): string {
       return "Fix rerun";
     case "go_live":
       return "Go-live import";
+    case "full_import":
     case "full_rehearsal":
     case "rehearsal":
-      return "Full import / recheck all";
+      return "Full import";
     default:
       return "No import run yet";
   }
@@ -606,7 +607,7 @@ export default function CounterpointSyncSettingsPanel({
     const map = new Map<string, { open: number; fallback: number }>();
     for (const row of importExceptions) {
       const current = map.get(row.entity_key) ?? { open: 0, fallback: 0 };
-      if (row.status === "open" && row.severity === "blocked") current.open += 1;
+      if (row.status === "open" && ["blocked", "review"].includes(row.severity)) current.open += 1;
       if (row.status === "open" && row.fallback_landed) current.fallback += 1;
       map.set(row.entity_key, current);
     }
@@ -691,9 +692,9 @@ export default function CounterpointSyncSettingsPanel({
     if (!commandCenter.ready_for_import) {
       return {
         tone: "red",
-        title: "Next: fix preflight blockers",
-        body: "Counterpoint source-count proof is blocked. Fix the listed SQL, mapping, or source-data issue before importing.",
-        actions: ["Open Bridge Process Console", "Fix the blocker shown there", "Run Full Import again"],
+        title: "Next: fix preflight issues",
+        body: "Counterpoint source-count proof needs review. Fix or remove the listed SQL, mapping, or source-data issue before importing.",
+        actions: ["Open Bridge Process Console", "Fix or remove the issue shown there", "Run Full Import again"],
       };
     }
 
@@ -785,7 +786,7 @@ export default function CounterpointSyncSettingsPanel({
         step: "3",
         title: "Review Proof",
         detail: proofReady
-          ? "Required proof has no open blockers."
+          ? "Required proof has no open review issues."
           : importNextStep.title.replace(/^Next: /, ""),
         state: !importStarted ? "waiting" : proofReady ? "done" : "current",
       },
@@ -832,7 +833,7 @@ export default function CounterpointSyncSettingsPanel({
             ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
             : "bg-red-500/10 text-red-600"
         }`}>
-          {commandCenter?.ready_for_import ? "Preflight passed" : "Preflight blocked"}
+          {commandCenter?.ready_for_import ? "Preflight passed" : "Preflight needs review"}
         </span>
       </div>
 
@@ -1001,7 +1002,7 @@ export default function CounterpointSyncSettingsPanel({
                 </div>
                 <p className="mt-2 text-[11px] font-semibold text-app-text-muted">{item.path}</p>
                 <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                  Rerun this area from the Bridge if the proof table or exceptions name it as blocked.
+                  Rerun this area from the Bridge if the proof table or exceptions name it as needing review.
                 </p>
               </div>
           ))}
@@ -1025,7 +1026,7 @@ export default function CounterpointSyncSettingsPanel({
           </p>
         ) : commandNotReadyTotal > 0 ? (
           <p className="mt-2 font-bold">
-            ROS has landed proof for this import, but {fmtNum(commandNotReadyTotal)} required area(s) are not ready and {fmtNum(commandFailedTotal)} current-run blocker(s) still need review before sign-off.
+            ROS has landed proof for this import, but {fmtNum(commandNotReadyTotal)} required area(s) are not ready and {fmtNum(commandFailedTotal)} current-run issue(s) still need review before sign-off.
           </p>
         ) : commandCenterRows.length > 0 ? (
           <p className="mt-2 font-bold">
@@ -1091,7 +1092,7 @@ export default function CounterpointSyncSettingsPanel({
                             : !row.required
                               ? "Optional"
                               : row.status === "blocked"
-                                ? "Blocked"
+                                ? "Needs fix or removal"
                                 : formatEntityLabel(row.landedStatus)}
                   </span>
                 </td>
@@ -1268,7 +1269,7 @@ export default function CounterpointSyncSettingsPanel({
 
             {recentIssueCount > 0 || bridgeRowsWithoutReviewSurface ? (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs font-semibold text-amber-700 dark:text-amber-200">
-                <p className="font-black">Sign-off blockers present</p>
+                <p className="font-black">Sign-off issues need review</p>
                 {recentIssueCount > 0 ? <p>{fmtNum(recentIssueCount)} unresolved sync issue(s) remain.</p> : null}
                 {missingProofEntityCount > 0 ? (
                   <p>{fmtNum(missingProofEntityCount)} entity row(s) have bridge-reported counts without ROS landed proof.</p>
@@ -1371,7 +1372,7 @@ export default function CounterpointSyncSettingsPanel({
             <div className="space-y-2">
               <div>
                 <p className="text-xs font-black uppercase tracking-widest text-red-700 dark:text-red-300">
-                  Counterpoint review advancement blocked
+                  Counterpoint review needs attention
                 </p>
                 <p className="mt-1 text-xs font-semibold text-app-text-muted">
                   Bridge-reported rows must have ROS landed proof before this import can be treated as ready.

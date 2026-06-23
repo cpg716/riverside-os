@@ -485,6 +485,44 @@ function checkCounterpointSyncStagingVisibility() {
   );
 }
 
+function checkCounterpointImportRunKindSchemaParity() {
+  const logicFile = "server/src/logic/counterpoint_sync.rs";
+  const migrationFile = "migrations/090_counterpoint_import_run_kind_modes.sql";
+  const logic = read(logicFile);
+  const migration = read(migrationFile);
+  const requiredRunKinds = [
+    "preflight",
+    "full_import",
+    "fix_rerun",
+    "incremental_update",
+    "go_live",
+  ];
+  const constraintStart = migration.indexOf("ADD CONSTRAINT counterpoint_import_runs_run_kind_check");
+  const activeConstraint = constraintStart >= 0 ? migration.slice(constraintStart) : "";
+  const missingLogicRunKinds = requiredRunKinds.filter((kind) => !logic.includes(`"${kind}"`));
+  const missingMigrationRunKinds = requiredRunKinds.filter((kind) => !activeConstraint.includes(`'${kind}'`));
+  const legacyMigrationRunKinds = ["'rehearsal'", "'full_rehearsal'"].filter((kind) =>
+    activeConstraint.includes(kind),
+  );
+  assert(
+    constraintStart >= 0 &&
+      missingLogicRunKinds.length === 0 &&
+      missingMigrationRunKinds.length === 0 &&
+      legacyMigrationRunKinds.length === 0,
+    "Counterpoint import run-kind schema matches Bridge/API modes",
+    constraintStart < 0 || missingMigrationRunKinds.length > 0 || legacyMigrationRunKinds.length > 0 ? migrationFile : logicFile,
+    constraintStart < 0
+      ? "Migration is missing the counterpoint_import_runs_run_kind_check constraint replacement."
+      : missingMigrationRunKinds.length > 0
+      ? `Migration constraint is missing run kind(s): ${missingMigrationRunKinds.join(", ")}`
+      : legacyMigrationRunKinds.length > 0
+        ? `Migration constraint still allows legacy run kind(s): ${legacyMigrationRunKinds.join(", ")}`
+      : missingLogicRunKinds.length > 0
+        ? `Server normalization is missing run kind(s): ${missingLogicRunKinds.join(", ")}`
+        : "Main Hub must accept every normalized Bridge import mode before landed proof can be written.",
+  );
+}
+
 function checkCounterpointBridgeGuiUpdateWiring() {
   const updatesFile = "deployment/counterpoint-bridge-gui/src-tauri/src/app_updates.rs";
   const updates = read(updatesFile);
@@ -1031,6 +1069,7 @@ checkCuratedReportsPrintVisibility();
 checkPrintRoutingManifest();
 checkCounterpointBridgeQueryTesterEntityParity();
 checkCounterpointSyncStagingVisibility();
+checkCounterpointImportRunKindSchemaParity();
 checkCounterpointBridgeGuiUpdateWiring();
 checkCounterpointBridgeDeploymentPackaging();
 checkCounterpointRateLimitBypass();

@@ -183,7 +183,7 @@ async function mockCounterpointProofRoutes(page: Page) {
         },
         latest_import_run: {
           id: "00000000-0000-0000-0000-000000000002",
-          run_kind: "rehearsal",
+          run_kind: "full_import",
           status: "completed",
           history_start: "2018-01-01",
           bridge_hostname: "counterpoint-host",
@@ -1058,9 +1058,9 @@ test.describe("Counterpoint sign-off UI", () => {
     await expect(panel.getByText("Counterpoint Import Command Center")).toBeVisible();
     await expect(panel.getByText("ROS Import Command Center")).toBeVisible();
     await expect(panel.getByText("ROS business-area import path")).toBeVisible();
-    await expect(panel.getByText("Bridge batch + CSV/AI review -> ROS inventory import -> PostgreSQL")).toBeVisible();
+    await expect(panel.getByText("Bridge -> ROS inventory import -> PostgreSQL")).toBeVisible();
     await expect(panel.getByText("Ticket History / Sales Movement")).toBeVisible();
-    await expect(panel.getByText("Preflight blocked")).toBeVisible();
+    await expect(panel.getByText("Preflight needs review")).toBeVisible();
     await expect(
       panel.getByRole("heading", { name: "Counterpoint Transition Review Packs" }),
     ).toHaveCount(0);
@@ -1092,7 +1092,7 @@ test.describe("Counterpoint sign-off UI", () => {
 
     const panel = await openCounterpointSettings(page, "details");
 
-    await expect(panel.getByText("Counterpoint review advancement blocked")).toBeVisible({
+    await expect(panel.getByText("Counterpoint review needs attention")).toBeVisible({
       timeout: 20_000,
     });
     await expect(
@@ -1188,7 +1188,7 @@ test.describe("Counterpoint sign-off UI", () => {
 
     const panel = await openCounterpointSettings(page, "details");
 
-    await expect(panel.getByText("Counterpoint review advancement blocked")).toBeVisible();
+    await expect(panel.getByText("Counterpoint review needs attention")).toBeVisible();
     await expect(panel.getByText("Bridge has sent rows, but ROS has no landed proof yet.")).toBeVisible();
     await expect(panel.getByText("1,136 ROS support queue batch(es) are pending review.")).toBeVisible();
     const bridgeOnlyRow = panel.getByRole("row").filter({ hasText: "Bridge only" });
@@ -1329,7 +1329,7 @@ test.describe("Counterpoint sign-off UI", () => {
         (element) => element.textContent?.trim() === "Accumulated verification",
       );
       const signoff = elements.find(
-        (element) => element.textContent?.trim() === "Sign-off blockers present",
+        (element) => element.textContent?.trim() === "Sign-off issues need review",
       );
       return Boolean(
         postImport &&
@@ -1339,7 +1339,7 @@ test.describe("Counterpoint sign-off UI", () => {
     });
     expect(postImportBeforeSignoff).toBe(true);
 
-    await expect(panel.getByText("Sign-off blockers present")).toBeVisible();
+    await expect(panel.getByText("Sign-off issues need review")).toBeVisible();
     await expect(panel.getByText("2 ROS support queue batch(es) are pending review.")).toBeVisible();
     await expect(panel.getByText("1 unresolved sync issue(s) remain.")).toBeVisible();
     await expect(

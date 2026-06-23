@@ -22,6 +22,7 @@ use crate::logic::{
     custom_orders::known_custom_subtype_for_sku, integration_credentials, store_credit,
 };
 
+// Reset cleanup markers for fallback products created by earlier import builds.
 const HISTORICAL_FALLBACK_SKU: &str = "HIST-CP-FALLBACK";
 const HISTORICAL_FALLBACK_NAME: &str = "Historical Counterpoint Sale (Item Unresolved)";
 const COUNTERPOINT_IMPORT_HISTORY_START: &str = "2018-01-01";
@@ -4539,7 +4540,7 @@ pub async fn record_counterpoint_import_preflight(
                 "bridge_reported_blocked_count",
                 message
                     .clone()
-                    .unwrap_or_else(|| format!("{label} source-count row is blocked.")),
+                    .unwrap_or_else(|| format!("{label} source-count row needs review.")),
             );
         }
 
@@ -4840,7 +4841,7 @@ async fn load_latest_counterpoint_import_run(
             ros_base_url, source_fingerprint, preflight_passed, preflight_blockers,
             totals, metadata, started_at, completed_at, created_at, updated_at
         FROM counterpoint_import_runs
-        WHERE run_kind IN ('rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
+        WHERE run_kind IN ('full_import', 'rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
         ORDER BY created_at DESC
         LIMIT 1
         "#,
@@ -4851,13 +4852,13 @@ async fn load_latest_counterpoint_import_run(
 
 fn normalized_import_run_kind(value: Option<&str>) -> Result<&'static str, CounterpointSyncError> {
     match value
-        .unwrap_or("full_rehearsal")
+        .unwrap_or("full_import")
         .trim()
         .to_ascii_lowercase()
         .as_str()
     {
         "" | "rehearsal" | "test" | "dev" | "full" | "full_import" | "full-import"
-        | "full_rehearsal" | "full-rerun" | "full_rerun" => Ok("full_rehearsal"),
+        | "full_rehearsal" | "full-rerun" | "full_rerun" => Ok("full_import"),
         "fix" | "fix_rerun" | "fix-rerun" | "area_fix" | "area-fix" | "repair" | "repair_rerun" => {
             Ok("fix_rerun")
         }
@@ -4873,7 +4874,12 @@ fn normalized_import_run_kind(value: Option<&str>) -> Result<&'static str, Count
 fn is_counterpoint_write_import_run_kind(value: &str) -> bool {
     matches!(
         value,
-        "rehearsal" | "full_rehearsal" | "fix_rerun" | "incremental_update" | "go_live"
+        "full_import"
+            | "rehearsal"
+            | "full_rehearsal"
+            | "fix_rerun"
+            | "incremental_update"
+            | "go_live"
     )
 }
 
@@ -4898,7 +4904,8 @@ pub async fn start_counterpoint_import_run(
         || !preflight.preflight_passed
     {
         return Err(CounterpointSyncError::InvalidPayload(
-            "latest Counterpoint source-count preflight has blockers; import cannot start".into(),
+            "latest Counterpoint source-count preflight has issues that need review; import cannot start"
+                .into(),
         ));
     }
 
@@ -5015,7 +5022,7 @@ pub async fn complete_counterpoint_import_run(
             updated_at = NOW(),
             totals = COALESCE(totals, '{}'::jsonb) || $3::jsonb
         WHERE id = $1
-          AND run_kind IN ('rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
+          AND run_kind IN ('full_import', 'rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
         RETURNING
             id, run_kind, status, history_start, bridge_hostname, bridge_version,
             ros_base_url, source_fingerprint, preflight_passed, preflight_blockers,
@@ -6037,7 +6044,7 @@ pub async fn build_counterpoint_import_command_center(
     let recommendation = if latest_preflight.is_none() {
         "NO-GO: run Bridge source-count preflight first.".to_string()
     } else if !latest_preflight_passed {
-        "NO-GO: source-count preflight has blockers.".to_string()
+        "NO-GO: source-count preflight has issues that need review.".to_string()
     } else if latest_import_run.is_none() {
         "READY TO IMPORT: source counts are proved. Run Full Import next.".to_string()
     } else if !latest_import_completed {
@@ -6269,12 +6276,12 @@ async fn record_counterpoint_import_exception(
             FROM (
                 SELECT id, 0 AS priority, created_at
                 FROM counterpoint_import_runs
-                WHERE run_kind IN ('rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
+                WHERE run_kind IN ('full_import', 'rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
                   AND status = 'running'
                 UNION ALL
                 SELECT id, 1 AS priority, created_at
                 FROM counterpoint_import_runs
-                WHERE run_kind IN ('rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
+                WHERE run_kind IN ('full_import', 'rehearsal', 'full_rehearsal', 'fix_rerun', 'incremental_update', 'go_live')
                   AND status IN ('completed', 'failed')
                 UNION ALL
                 SELECT id, 2 AS priority, created_at
@@ -7655,14 +7662,14 @@ async fn build_cutover_visibility_rows(
             "open_doc_unresolved_lines",
             "Open-doc unresolved lines",
             open_doc_unresolved_lines,
-            "No Counterpoint open docs are blocked by unresolved item lines.",
+            "No Counterpoint open docs need review for unresolved item lines.",
             "Counterpoint open docs were skipped because item lines could not match ROS variants. Review Open sync issues.",
         ),
         cutover_visibility_row(
             "open_doc_required_data",
             "Open-doc required data",
             open_doc_required_data,
-            "No Counterpoint open docs are blocked by missing required data.",
+            "No Counterpoint open docs need review for missing required data.",
             "Counterpoint open docs were skipped because required fields or lines were missing. Review Open sync issues.",
         ),
         cutover_visibility_row(
@@ -8271,7 +8278,13 @@ async fn build_counterpoint_reset_scope(
             label: "Counterpoint catalog products".into(),
             count: reset_preview_count(
                 pool,
-                "SELECT COUNT(*)::bigint FROM products WHERE data_source = 'counterpoint'",
+                r#"
+                SELECT COUNT(*)::bigint
+                FROM products p
+                WHERE p.data_source = 'counterpoint'
+                   OR p.catalog_handle = 'HIST-CP-FALLBACK'
+                   OR p.name = 'Historical Counterpoint Sale (Item Unresolved)'
+                "#,
             )
             .await?,
             note: "Deletes Counterpoint products/variants and clears pre-go-live operational leftovers that still point at those variants.".into(),
@@ -9381,10 +9394,19 @@ async fn collect_counterpoint_baseline_reset_targets(
     .fetch_all(&mut **tx)
     .await?;
 
-    let counterpoint_product_ids: Vec<Uuid> =
-        sqlx::query_scalar("SELECT id FROM products WHERE data_source = 'counterpoint'")
-            .fetch_all(&mut **tx)
-            .await?;
+    let counterpoint_product_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT p.id
+        FROM products p
+        WHERE p.data_source = 'counterpoint'
+           OR p.catalog_handle = $1
+           OR p.name = $2
+        "#,
+    )
+    .bind(HISTORICAL_FALLBACK_SKU)
+    .bind(HISTORICAL_FALLBACK_NAME)
+    .fetch_all(&mut **tx)
+    .await?;
 
     let counterpoint_variant_ids: Vec<Uuid> = sqlx::query_scalar(
         r#"
@@ -9392,8 +9414,13 @@ async fn collect_counterpoint_baseline_reset_targets(
         FROM product_variants pv
         INNER JOIN products p ON p.id = pv.product_id
         WHERE p.data_source = 'counterpoint'
+           OR p.catalog_handle = $1
+           OR p.name = $2
+           OR pv.sku = $1
         "#,
     )
+    .bind(HISTORICAL_FALLBACK_SKU)
+    .bind(HISTORICAL_FALLBACK_NAME)
     .fetch_all(&mut **tx)
     .await?;
 
@@ -9925,12 +9952,6 @@ pub async fn complete_sync_request(
     .bind(error)
     .execute(pool)
     .await?;
-
-    if error.is_none() {
-        if let Err(e) = resolve_unresolved_counterpoint_lines(pool).await {
-            tracing::error!("Error running post-sync Counterpoint line resolution: {e}");
-        }
-    }
 
     Ok(())
 }
@@ -11396,164 +11417,6 @@ fn resolve_ticket_lines_from_cache(
     Ok(out)
 }
 
-/// Resolve unresolved transaction lines that are currently mapped to the fallback variant
-/// but now have a matching variant in the database (matching counterpoint_item_key or SKU).
-pub async fn resolve_unresolved_counterpoint_lines(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    let fallback_variant_id: Uuid = match sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM product_variants WHERE sku = $1 LIMIT 1",
-    )
-    .bind(HISTORICAL_FALLBACK_SKU)
-    .fetch_optional(pool)
-    .await?
-    {
-        Some(id) => id,
-        None => return Ok(0),
-    };
-
-    let mut tx = pool.begin().await?;
-
-    let updated = sqlx::query(
-        r#"
-        WITH fallback_lines AS (
-          SELECT
-            tl.id,
-            lower(trim(tl.vendor_reference)) AS lookup_key,
-            tl.unit_price
-          FROM transaction_lines tl
-          WHERE tl.variant_id = $1
-            AND NULLIF(trim(tl.vendor_reference), '') IS NOT NULL
-        ),
-        expanded_line_keys AS (
-          SELECT id, lookup_key, unit_price
-          FROM fallback_lines
-          UNION ALL
-          SELECT id, 'i-' || substring(lookup_key from 3), unit_price
-          FROM fallback_lines
-          WHERE lookup_key LIKE 'b-%' AND length(lookup_key) > 2
-          UNION ALL
-          SELECT id, 'b-' || substring(lookup_key from 3), unit_price
-          FROM fallback_lines
-          WHERE lookup_key LIKE 'i-%' AND length(lookup_key) > 2
-        ),
-        variant_keys AS (
-          SELECT
-            lower(trim(pv.counterpoint_item_key)) AS lookup_key,
-            pv.id,
-            pv.product_id,
-            COALESCE(pv.retail_price_override, p.base_retail_price) AS effective_price
-          FROM product_variants pv
-          JOIN products p ON p.id = pv.product_id
-          WHERE pv.sku <> $2
-            AND NULLIF(trim(pv.counterpoint_item_key), '') IS NOT NULL
-          UNION ALL
-          SELECT
-            lower(trim(split_part(pv.counterpoint_item_key, '|', 1))) AS lookup_key,
-            pv.id,
-            pv.product_id,
-            COALESCE(pv.retail_price_override, p.base_retail_price) AS effective_price
-          FROM product_variants pv
-          JOIN products p ON p.id = pv.product_id
-          WHERE pv.sku <> $2
-            AND position('|' in pv.counterpoint_item_key) > 0
-          UNION ALL
-          SELECT
-            lower(trim(pv.sku)) AS lookup_key,
-            pv.id,
-            pv.product_id,
-            COALESCE(pv.retail_price_override, p.base_retail_price) AS effective_price
-          FROM product_variants pv
-          JOIN products p ON p.id = pv.product_id
-          WHERE pv.sku <> $2
-            AND NULLIF(trim(pv.sku), '') IS NOT NULL
-        ),
-        candidate_matches AS (
-          SELECT DISTINCT
-            lk.id AS line_id,
-            vk.id AS variant_id,
-            vk.product_id,
-            CASE WHEN abs(vk.effective_price - lk.unit_price) <= 0.01 THEN 0 ELSE 1 END AS price_rank
-          FROM expanded_line_keys lk
-          JOIN variant_keys vk ON vk.lookup_key = lk.lookup_key
-        ),
-        unambiguous_matches AS (
-          SELECT line_id, variant_id, product_id
-          FROM (
-            SELECT
-              line_id,
-              variant_id,
-              product_id,
-              COUNT(*) OVER (PARTITION BY line_id) AS match_count,
-              COUNT(*) FILTER (WHERE price_rank = 0) OVER (PARTITION BY line_id) AS price_match_count,
-              ROW_NUMBER() OVER (PARTITION BY line_id ORDER BY price_rank, variant_id) AS rn
-            FROM candidate_matches
-          ) ranked
-          WHERE rn = 1
-            AND (match_count = 1 OR price_match_count = 1)
-        )
-        UPDATE transaction_lines tl
-        SET
-          variant_id = m.variant_id,
-          product_id = m.product_id,
-          vendor_reference = NULL
-        FROM unambiguous_matches m
-        WHERE tl.id = m.line_id
-        "#,
-    )
-    .bind(fallback_variant_id)
-    .bind(HISTORICAL_FALLBACK_SKU)
-    .execute(&mut *tx)
-    .await?
-    .rows_affected();
-
-    if updated > 0 {
-        // Resolve ticket sync issue warnings where there are no longer any fallback lines
-        sqlx::query(
-            r#"
-            UPDATE counterpoint_sync_issue csi
-            SET resolved = TRUE, resolved_at = NOW()
-            FROM transactions t
-            WHERE t.counterpoint_ticket_ref = csi.external_key
-              AND csi.entity = 'tickets'
-              AND csi.message LIKE '%unresolved line%'
-              AND NOT csi.resolved
-              AND NOT EXISTS (
-                SELECT 1 FROM transaction_lines tl
-                WHERE tl.transaction_id = t.id
-                  AND tl.variant_id = $1
-              )
-            "#,
-        )
-        .bind(fallback_variant_id)
-        .execute(&mut *tx)
-        .await?;
-
-        // Resolve open doc sync issue warnings where there are no longer any fallback lines
-        sqlx::query(
-            r#"
-            UPDATE counterpoint_sync_issue csi
-            SET resolved = TRUE, resolved_at = NOW()
-            FROM transactions t
-            WHERE t.counterpoint_doc_ref = csi.external_key
-              AND csi.entity = 'open_docs'
-              AND csi.message LIKE '%unresolved line%'
-              AND NOT csi.resolved
-              AND NOT EXISTS (
-                SELECT 1 FROM transaction_lines tl
-                WHERE tl.transaction_id = t.id
-                  AND tl.variant_id = $1
-              )
-            "#,
-        )
-        .bind(fallback_variant_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    tx.commit().await?;
-
-    Ok(updated)
-}
-
 async fn resolve_variant_for_cp_item_no(
     tx: &mut Transaction<'_, Postgres>,
     item_no: &str,
@@ -11606,7 +11469,7 @@ pub async fn execute_counterpoint_ticket_batch(
     .into_iter()
     .collect();
 
-    // Batch pre-fetch exact variants and matrix-parent fallback candidates once per payload.
+    // Batch pre-fetch exact variants and matrix-parent match candidates once per payload.
     // Historical tickets may carry parent ITEM_NO only; resolving those with per-line SQL is too slow.
     let variant_cache =
         build_variant_resolution_cache(pool, payload.rows.iter().flat_map(|tkt| tkt.lines.iter()))
@@ -11682,9 +11545,6 @@ pub async fn execute_counterpoint_ticket_batch(
     let mut bulk_line_costs = Vec::new();
     let mut bulk_line_reasons = Vec::new();
     let mut bulk_line_vendor_refs = Vec::new();
-    let mut fallback_pair: Option<(Uuid, Uuid)> = None;
-    let mut fallback_exceptions: Vec<(String, Uuid, i32)> = Vec::new();
-
     let mut summary = TicketSyncSummary {
         transactions_created: 0,
         transactions_skipped_existing: 0,
@@ -11706,121 +11566,98 @@ pub async fn execute_counterpoint_ticket_batch(
             continue;
         }
 
-        let synthesized_lines: Vec<TicketLineRow>;
-        let ticket_lines: &[TicketLineRow] = if tkt.lines.is_empty() {
-            let tender_total =
-                sum_counterpoint_ticket_tenders(&tkt.payments, &tkt.gift_applications)
-                    .unwrap_or(tkt.amount_paid);
-            if tkt.total_price == Decimal::ZERO && tender_total == Decimal::ZERO {
-                record_sync_issue(
-                    pool,
-                    "tickets",
-                    Some(ticket_ref),
-                    "warning",
-                    "Ticket skipped: no line items in payload",
-                )
-                .await;
-                summary.skipped += 1;
-                continue;
-            }
-
-            sqlx::query(
-                r#"
-                UPDATE counterpoint_sync_issue
-                SET resolved = TRUE, resolved_at = NOW()
-                WHERE entity = 'tickets'
-                  AND external_key = $1
-                  AND NOT resolved
-                  AND message = 'Ticket skipped: no line items in payload'
-                "#,
+        if tkt.lines.is_empty() {
+            record_counterpoint_import_exception(
+                pool,
+                "tickets",
+                Some(ticket_ref),
+                "review",
+                "missing_line_items",
+                &format!("Needs review: ticket {ticket_ref} has no source line items."),
+                Some("Fix by importing the missing Counterpoint ticket lines, or removing this source ticket from the import review; then rerun Ticket History / Sales Movement."),
+                false,
+                None,
+                None,
+                serde_json::json!({
+                    "counterpoint_ticket_ref": ticket_ref,
+                    "counterpoint_total_price": tkt.total_price,
+                    "counterpoint_amount_paid": tkt.amount_paid,
+                }),
             )
-            .bind(ticket_ref)
-            .execute(pool)
-            .await?;
-
+            .await;
             record_sync_issue(
                 pool,
                 "tickets",
                 Some(ticket_ref),
                 "warning",
-                "Ticket had no line items; mapped sale total to fallback",
+                "Needs review: ticket has no source line items; no placeholder product was created",
             )
             .await;
+            summary.skipped += 1;
+            continue;
+        }
 
-            let fallback_amount = if tkt.total_price != Decimal::ZERO {
-                tkt.total_price
-            } else {
-                tender_total
-            };
-            synthesized_lines = vec![TicketLineRow {
-                sku: Some("COUNTERPOINT_NO_LINE_ITEMS".into()),
-                counterpoint_item_key: Some("COUNTERPOINT_NO_LINE_ITEMS".into()),
-                lin_seq_no: None,
-                quantity: 1,
-                unit_price: fallback_amount,
-                unit_cost: Some(Decimal::ZERO),
-                description: Some("Counterpoint ticket with no source line items".into()),
-                reason_code: None,
-            }];
-            &synthesized_lines
-        } else {
-            &tkt.lines
-        };
+        let ticket_lines: &[TicketLineRow] = &tkt.lines;
 
         let mut resolved_lines: Vec<(Uuid, Uuid)> = Vec::with_capacity(ticket_lines.len());
         let mut line_vendor_refs: Vec<Option<String>> = Vec::with_capacity(ticket_lines.len());
+        let mut unresolved_lines: Vec<JsonValue> = Vec::new();
         let mut unresolved_count = 0;
-        let mut skipped_ticket = false;
 
         for line in ticket_lines {
             if let Some(pair) = resolve_variant_from_cache(&variant_cache, line) {
                 resolved_lines.push(pair);
                 line_vendor_refs.push(None);
             } else {
-                let pair = if let Some(p) = fallback_pair {
-                    p
-                } else {
-                    match ensure_historical_fallback_variant(&mut tx).await {
-                        Ok(p) => {
-                            fallback_pair = Some(p);
-                            p
-                        }
-                        Err(e) => {
-                            record_sync_issue(
-                                pool,
-                                "tickets",
-                                Some(ticket_ref),
-                                "error",
-                                &format!("Ticket skipped: failed to ensure fallback variant: {e}"),
-                            )
-                            .await;
-                            skipped_ticket = true;
-                            break;
-                        }
-                    }
-                };
-                resolved_lines.push(pair);
-
                 let sku = line.sku.as_deref().unwrap_or("").trim();
                 let cp_key = line.counterpoint_item_key.as_deref().unwrap_or(&sku).trim();
                 let item_key = if cp_key.is_empty() { sku } else { cp_key };
-                line_vendor_refs.push(Some(item_key.to_string()));
+                unresolved_lines.push(serde_json::json!({
+                    "counterpoint_ticket_ref": ticket_ref,
+                    "counterpoint_item_key": item_key,
+                    "counterpoint_sku": sku,
+                    "counterpoint_description": line.description.as_deref(),
+                    "counterpoint_line_sequence": line.lin_seq_no,
+                }));
                 unresolved_count += 1;
             }
         }
-        if skipped_ticket {
-            summary.skipped += 1;
-            continue;
-        }
         if unresolved_count > 0 {
+            for unresolved_line in &unresolved_lines {
+                let source_key = unresolved_line
+                    .get("counterpoint_item_key")
+                    .and_then(JsonValue::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or(ticket_ref);
+                record_counterpoint_import_exception(
+                    pool,
+                    "tickets",
+                    Some(source_key),
+                    "review",
+                    "unresolved_item",
+                    &format!(
+                        "Needs review: ticket {ticket_ref} has a Counterpoint item that does not match a ROS product/variant yet."
+                    ),
+                    Some("Fix by repairing and rerunning the Counterpoint inventory/catalog import for this item first. If the item is a true alias or duplicate, map it to the correct ROS variant; otherwise remove this source line from the import review. Then rerun Ticket History / Sales Movement."),
+                    false,
+                    None,
+                    None,
+                    unresolved_line.clone(),
+                )
+                .await;
+            }
             record_sync_issue(
                 pool,
                 "tickets",
                 Some(ticket_ref),
                 "warning",
-                &format!("Mapped {unresolved_count} unresolved line item(s) to fallback"),
+                &format!(
+                    "Needs review: {unresolved_count} unresolved line item(s); no placeholder product was created"
+                ),
             )
             .await;
+            summary.skipped += 1;
+            continue;
         }
 
         let customer_id: Option<Uuid> = tkt
@@ -11927,10 +11764,6 @@ pub async fn execute_counterpoint_ticket_batch(
             bulk_line_vendor_refs.push(vendor_ref.clone());
             summary.line_items_created += 1;
         }
-        if unresolved_count > 0 {
-            fallback_exceptions.push((ticket_ref.to_string(), transaction_id, unresolved_count));
-        }
-
         for pmt in &tkt.payments {
             let method = resolve_counterpoint_payment_method(
                 pool,
@@ -12070,29 +11903,6 @@ pub async fn execute_counterpoint_ticket_batch(
     }
 
     tx.commit().await?;
-
-    for (ticket_ref, transaction_id, unresolved_count) in fallback_exceptions {
-        record_counterpoint_import_exception(
-            pool,
-            "tickets",
-            Some(&ticket_ref),
-            "warning",
-            "fallback_item_landed",
-            &format!(
-                "{unresolved_count} ticket line item(s) landed with Counterpoint Import Item fallback."
-            ),
-            Some("Map the source item to a ROS variant or keep this Counterpoint Import Item as review-visible history proof."),
-            true,
-            Some("transactions"),
-            Some(transaction_id),
-            serde_json::json!({
-                "counterpoint_ticket_ref": ticket_ref,
-                "unresolved_line_count": unresolved_count,
-                "fallback_sku": HISTORICAL_FALLBACK_SKU,
-            }),
-        )
-        .await;
-    }
 
     if let Some(ref s) = payload.sync {
         if s.entity == "tickets" {
@@ -12458,8 +12268,6 @@ pub async fn execute_counterpoint_open_doc_batch(
     };
 
     let mut tx = pool.begin().await?;
-    let mut fallback_pair: Option<(Uuid, Uuid)> = None;
-    let mut fallback_exceptions: Vec<(String, Uuid, i32)> = Vec::new();
     let mut summary = OpenDocSyncSummary {
         transactions_created: 0,
         transactions_skipped_existing: 0,
@@ -12553,50 +12361,26 @@ pub async fn execute_counterpoint_open_doc_batch(
 
         let mut resolved_lines: Vec<(Uuid, Uuid)> = Vec::with_capacity(doc.lines.len());
         let mut line_vendor_refs: Vec<Option<String>> = Vec::with_capacity(doc.lines.len());
+        let mut unresolved_lines: Vec<JsonValue> = Vec::new();
         let mut unresolved_count = 0;
-        let mut skipped_doc = false;
 
         for line in &doc.lines {
             if let Some(pair) = resolve_variant_from_cache(&variant_cache, line) {
                 resolved_lines.push(pair);
                 line_vendor_refs.push(None);
             } else {
-                let pair = if let Some(p) = fallback_pair {
-                    p
-                } else {
-                    match ensure_historical_fallback_variant(&mut tx).await {
-                        Ok(p) => {
-                            fallback_pair = Some(p);
-                            p
-                        }
-                        Err(e) => {
-                            record_sync_issue(
-                                pool,
-                                "open_docs",
-                                Some(doc_ref),
-                                "error",
-                                &format!(
-                                    "Open doc skipped: failed to ensure fallback variant: {e}"
-                                ),
-                            )
-                            .await;
-                            skipped_doc = true;
-                            break;
-                        }
-                    }
-                };
-                resolved_lines.push(pair);
-
                 let sku = line.sku.as_deref().unwrap_or("").trim();
                 let cp_key = line.counterpoint_item_key.as_deref().unwrap_or(sku).trim();
                 let item_key = if cp_key.is_empty() { sku } else { cp_key };
-                line_vendor_refs.push(Some(item_key.to_string()));
+                unresolved_lines.push(serde_json::json!({
+                    "counterpoint_doc_ref": doc_ref,
+                    "counterpoint_item_key": item_key,
+                    "counterpoint_sku": sku,
+                    "counterpoint_description": line.description.as_deref(),
+                    "counterpoint_line_sequence": line.lin_seq_no,
+                }));
                 unresolved_count += 1;
             }
-        }
-        if skipped_doc {
-            summary.skipped += 1;
-            continue;
         }
         if unresolved_count > 0 {
             sqlx::query(
@@ -12613,14 +12397,41 @@ pub async fn execute_counterpoint_open_doc_batch(
             .execute(pool)
             .await?;
 
+            for unresolved_line in &unresolved_lines {
+                let source_key = unresolved_line
+                    .get("counterpoint_item_key")
+                    .and_then(JsonValue::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or(doc_ref);
+                record_counterpoint_import_exception(
+                    pool,
+                    "open_docs",
+                    Some(source_key),
+                    "review",
+                    "unresolved_item",
+                    &format!(
+                        "Needs review: open doc {doc_ref} has a Counterpoint item that does not match a ROS product/variant yet."
+                    ),
+                    Some("Fix by repairing and rerunning the Counterpoint inventory/catalog import for this item first. If the item is a true alias or duplicate, map it to the correct ROS variant; otherwise remove this source line from the import review. Then rerun Open Orders."),
+                    false,
+                    None,
+                    None,
+                    unresolved_line.clone(),
+                )
+                .await;
+            }
             record_sync_issue(
                 pool,
                 "open_docs",
                 Some(doc_ref),
                 "warning",
-                &format!("Mapped {unresolved_count} unresolved line item(s) to fallback"),
+                &format!(
+                    "Needs review: {unresolved_count} unresolved line item(s); no placeholder product was created"
+                ),
             )
             .await;
+            summary.skipped += 1;
+            continue;
         }
 
         let existing_transaction_id = existing_doc_ids.get(doc_ref).copied();
@@ -12720,10 +12531,6 @@ pub async fn execute_counterpoint_open_doc_batch(
             summary.transactions_created += 1;
             transaction_id
         };
-        if unresolved_count > 0 {
-            fallback_exceptions.push((doc_ref.to_string(), transaction_id, unresolved_count));
-        }
-
         let fulfillment = fulfillment_type_for_cp_doc_typ(doc.doc_typ.as_deref());
 
         for (((variant_id, product_id), line), vendor_ref) in resolved_lines
@@ -12819,29 +12626,6 @@ pub async fn execute_counterpoint_open_doc_batch(
     }
 
     tx.commit().await?;
-
-    for (doc_ref, transaction_id, unresolved_count) in fallback_exceptions {
-        record_counterpoint_import_exception(
-            pool,
-            "open_docs",
-            Some(&doc_ref),
-            "warning",
-            "fallback_item_landed",
-            &format!(
-                "{unresolved_count} open-doc line item(s) landed with Counterpoint Import Item fallback."
-            ),
-            Some("Map the source item to a ROS variant or keep this Counterpoint Import Item as review-visible obligation proof."),
-            true,
-            Some("transactions"),
-            Some(transaction_id),
-            serde_json::json!({
-                "counterpoint_doc_ref": doc_ref,
-                "unresolved_line_count": unresolved_count,
-                "fallback_sku": HISTORICAL_FALLBACK_SKU,
-            }),
-        )
-        .await;
-    }
 
     if let Some(ref s) = payload.sync {
         if s.entity == "open_docs" {
@@ -13918,66 +13702,6 @@ pub async fn resolve_staff_id(pool: &PgPool, cp_code: Option<&str>) -> Option<Uu
         .ok()
         .flatten()
 }
-async fn ensure_historical_fallback_variant(
-    tx: &mut Transaction<'_, Postgres>,
-) -> Result<(Uuid, Uuid), sqlx::Error> {
-    let existing: Option<(Uuid, Uuid)> =
-        sqlx::query_as("SELECT id, product_id FROM product_variants WHERE sku = $1")
-            .bind(HISTORICAL_FALLBACK_SKU)
-            .fetch_optional(&mut **tx)
-            .await?;
-
-    if let Some(ids) = existing {
-        return Ok(ids);
-    }
-
-    // Create a special category for fallbacks
-    let category_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO categories (name, is_clothing_footwear)
-        VALUES ('Historical Fallbacks', false)
-        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-        RETURNING id
-        "#,
-    )
-    .fetch_one(&mut **tx)
-    .await?;
-
-    let product_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO products (
-            catalog_handle, name, brand, category_id,
-            base_retail_price, base_cost, spiff_amount, is_active
-        )
-        VALUES ($1, $2, 'Counterpoint History', $3, 0, 0, 0, true)
-        ON CONFLICT (catalog_handle) DO UPDATE SET name = EXCLUDED.name
-        RETURNING id
-        "#,
-    )
-    .bind(HISTORICAL_FALLBACK_SKU)
-    .bind(HISTORICAL_FALLBACK_NAME)
-    .bind(category_id)
-    .fetch_one(&mut **tx)
-    .await?;
-
-    let variant_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO product_variants (
-            product_id, sku, variation_values, variation_label, stock_on_hand
-        )
-        VALUES ($1, $2, '{}'::jsonb, 'Standard', 0)
-        ON CONFLICT (sku) DO UPDATE SET sku = EXCLUDED.sku
-        RETURNING id
-        "#,
-    )
-    .bind(product_id)
-    .bind(HISTORICAL_FALLBACK_SKU)
-    .fetch_one(&mut **tx)
-    .await?;
-
-    Ok((variant_id, product_id))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -13996,7 +13720,7 @@ mod tests {
     fn counterpoint_import_run_kind_tracks_full_fix_and_update_modes() {
         assert_eq!(
             normalized_import_run_kind(Some("full")).expect("full mode"),
-            "full_rehearsal"
+            "full_import"
         );
         assert_eq!(
             normalized_import_run_kind(Some("fix_rerun")).expect("fix mode"),
@@ -14394,7 +14118,7 @@ mod tests {
             INSERT INTO counterpoint_import_exceptions (
                 import_run_id, entity_key, source_key, severity, reason_code, message
             )
-            VALUES ($1, 'customers', 'STALE', 'blocked', 'stale_blocker', 'Old rehearsal blocker')
+            VALUES ($1, 'customers', 'STALE', 'blocked', 'stale_blocker', 'Old import blocker')
             "#,
         )
         .bind(stale_run.import_run_id)
@@ -14424,7 +14148,7 @@ mod tests {
             &pool,
             CounterpointImportRunStartPayload {
                 preflight_import_run_id: Some(preflight.import_run_id),
-                run_kind: Some("full_rehearsal".into()),
+                run_kind: Some("full_import".into()),
                 requested_entity: Some("full".into()),
                 trigger: Some("test".into()),
                 bridge_hostname: Some("test-bridge".into()),
@@ -14538,7 +14262,7 @@ mod tests {
             &pool,
             CounterpointImportRunStartPayload {
                 preflight_import_run_id: Some(preflight.import_run_id),
-                run_kind: Some("full_rehearsal".into()),
+                run_kind: Some("full_import".into()),
                 requested_entity: Some("full".into()),
                 trigger: Some("test".into()),
                 bridge_hostname: Some("test-bridge".into()),
@@ -14689,7 +14413,7 @@ mod tests {
             &pool,
             CounterpointImportRunStartPayload {
                 preflight_import_run_id: Some(preflight.import_run_id),
-                run_kind: Some("full_rehearsal".into()),
+                run_kind: Some("full_import".into()),
                 requested_entity: Some("full".into()),
                 trigger: Some("test".into()),
                 bridge_hostname: Some("test-bridge".into()),
@@ -14847,7 +14571,7 @@ mod tests {
             &pool,
             CounterpointImportRunStartPayload {
                 preflight_import_run_id: Some(preflight.import_run_id),
-                run_kind: Some("full_rehearsal".into()),
+                run_kind: Some("full_import".into()),
                 requested_entity: Some("inventory".into()),
                 trigger: Some("test".into()),
                 bridge_hostname: Some("test-bridge".into()),
@@ -15205,7 +14929,7 @@ mod tests {
             r#"
             CREATE TABLE IF NOT EXISTS counterpoint_import_runs (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                run_kind TEXT NOT NULL DEFAULT 'rehearsal',
+                run_kind TEXT NOT NULL DEFAULT 'full_import',
                 status TEXT NOT NULL DEFAULT 'preflight_pending',
                 history_start DATE NOT NULL DEFAULT DATE '2018-01-01',
                 bridge_hostname TEXT,
@@ -17233,7 +16957,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn counterpoint_ticket_with_payment_and_no_lines_imports_fallback_line() {
+    async fn counterpoint_ticket_with_payment_and_no_lines_needs_review_without_fallback() {
         let pool = connect_test_db().await;
         let suffix = Uuid::new_v4().simple().to_string();
         let ticket_ref = format!("CP-NO-LINES-{suffix}");
@@ -17264,19 +16988,6 @@ mod tests {
         .await
         .expect("import no-line paid ticket");
 
-        let line_data: (String, Option<String>, Decimal) = sqlx::query_as(
-            r#"
-            SELECT pv.sku, tl.vendor_reference, tl.unit_price
-            FROM transaction_lines tl
-            INNER JOIN transactions t ON t.id = tl.transaction_id
-            INNER JOIN product_variants pv ON pv.id = tl.variant_id
-            WHERE t.counterpoint_ticket_ref = $1
-            "#,
-        )
-        .bind(&ticket_ref)
-        .fetch_one(&pool)
-        .await
-        .expect("load fallback ticket line");
         let issue_count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*)::bigint
@@ -17284,52 +16995,45 @@ mod tests {
             WHERE entity = 'tickets'
               AND external_key = $1
               AND NOT resolved
-              AND message = 'Ticket had no line items; mapped sale total to fallback'
+              AND message = 'Needs review: ticket has no source line items; no placeholder product was created'
             "#,
         )
         .bind(&ticket_ref)
         .fetch_one(&pool)
         .await
         .expect("count no-line ticket issue");
-        let payment_ids: Vec<Uuid> = sqlx::query_scalar(
+
+        let exception_count: i64 = sqlx::query_scalar(
             r#"
-            SELECT pa.transaction_id
-            FROM payment_allocations pa
-            INNER JOIN transactions t ON t.id = pa.target_transaction_id
-            WHERE t.counterpoint_ticket_ref = $1
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_import_exceptions
+            WHERE entity_key = 'tickets'
+              AND source_key = $1
+              AND reason_code = 'missing_line_items'
+              AND status = 'open'
+              AND severity = 'review'
             "#,
         )
         .bind(&ticket_ref)
-        .fetch_all(&pool)
+        .fetch_one(&pool)
         .await
-        .expect("load payment ids for cleanup");
-        let transaction_ids: Vec<Uuid> =
-            sqlx::query_scalar("SELECT id FROM transactions WHERE counterpoint_ticket_ref = $1")
-                .bind(&ticket_ref)
-                .fetch_all(&pool)
-                .await
-                .expect("load transaction ids for cleanup");
+        .expect("count no-line ticket exception");
 
-        sqlx::query("DELETE FROM payment_allocations WHERE target_transaction_id = ANY($1)")
-            .bind(&transaction_ids)
-            .execute(&pool)
-            .await
-            .expect("cleanup payment allocations");
-        sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = ANY($1)")
-            .bind(&transaction_ids)
-            .execute(&pool)
-            .await
-            .expect("cleanup transaction lines");
-        sqlx::query("DELETE FROM transactions WHERE id = ANY($1)")
-            .bind(&transaction_ids)
-            .execute(&pool)
-            .await
-            .expect("cleanup transactions");
-        sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
-            .bind(&payment_ids)
-            .execute(&pool)
-            .await
-            .expect("cleanup payment transactions");
+        let transaction_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM transactions WHERE counterpoint_ticket_ref = $1",
+        )
+        .bind(&ticket_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("count no-line ticket transactions");
+
+        sqlx::query(
+            "DELETE FROM counterpoint_import_exceptions WHERE entity_key = 'tickets' AND source_key = $1",
+        )
+        .bind(&ticket_ref)
+        .execute(&pool)
+        .await
+        .expect("cleanup ticket exception");
         sqlx::query(
             "DELETE FROM counterpoint_sync_issue WHERE entity = 'tickets' AND external_key = $1",
         )
@@ -17338,14 +17042,13 @@ mod tests {
         .await
         .expect("cleanup ticket issue");
 
-        assert_eq!(summary.transactions_created, 1);
-        assert_eq!(summary.line_items_created, 1);
-        assert_eq!(summary.payments_created, 1);
-        assert_eq!(summary.skipped, 0);
-        assert_eq!(line_data.0, HISTORICAL_FALLBACK_SKU);
-        assert_eq!(line_data.1.as_deref(), Some("COUNTERPOINT_NO_LINE_ITEMS"));
-        assert_eq!(line_data.2, Decimal::new(12500, 2));
+        assert_eq!(summary.transactions_created, 0);
+        assert_eq!(summary.line_items_created, 0);
+        assert_eq!(summary.payments_created, 0);
+        assert_eq!(summary.skipped, 1);
         assert_eq!(issue_count, 1);
+        assert_eq!(exception_count, 1);
+        assert_eq!(transaction_count, 0);
     }
 
     #[tokio::test]
@@ -18966,7 +18669,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn counterpoint_open_doc_unresolved_lines_are_visible_and_deduped() {
+    async fn counterpoint_open_doc_unresolved_lines_need_review_without_fallback() {
         let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
         let suffix = Uuid::new_v4().simple().to_string();
@@ -19013,7 +18716,7 @@ mod tests {
             WHERE entity = 'open_docs'
               AND external_key = $1
               AND NOT resolved
-              AND message LIKE 'Mapped % unresolved line item(s) to fallback'
+              AND message LIKE 'Needs review: % unresolved line item(s); no placeholder product was created'
             "#,
         )
         .bind(&doc_ref)
@@ -19021,122 +18724,38 @@ mod tests {
         .await
         .expect("count unresolved line issues");
 
-        let fallback_line: (Uuid, Option<String>, String, Option<String>) = sqlx::query_as(
+        let exception_count: i64 = sqlx::query_scalar(
             r#"
-            SELECT
-                tl.variant_id,
-                tl.vendor_reference,
-                tl.order_lifecycle_status::text,
-                NULLIF(TRIM(tl.size_specs->>'counterpoint_description'), '') AS counterpoint_description
-            FROM transaction_lines tl
-            INNER JOIN transactions t ON t.id = tl.transaction_id
-            WHERE t.counterpoint_doc_ref = $1
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_import_exceptions
+            WHERE entity_key = 'open_docs'
+              AND source_key = $1
+              AND reason_code = 'unresolved_item'
+              AND status = 'open'
+              AND severity = 'review'
             "#,
         )
-        .bind(&doc_ref)
-        .fetch_one(&pool)
-        .await
-        .expect("fetch fallback open doc line");
-        let fallback_variant_id: Uuid =
-            sqlx::query_scalar("SELECT id FROM product_variants WHERE sku = $1")
-                .bind(HISTORICAL_FALLBACK_SKU)
-                .fetch_one(&pool)
-                .await
-                .expect("load fallback variant");
-
-        // Create the missing catalog item and variant
-        let category_id: Uuid = sqlx::query_scalar(
-            "INSERT INTO categories (name, is_clothing_footwear) VALUES ($1, false) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id"
-        )
-        .bind(format!("Cat-{suffix}"))
-        .fetch_one(&pool)
-        .await
-        .expect("insert category");
-
-        let product_id: Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO products (catalog_handle, name, base_retail_price, base_cost, is_active, data_source, category_id)
-            VALUES ($1, $2, 40.00, 10.00, true, 'counterpoint', $3)
-            RETURNING id
-            "#
-        )
-        .bind(format!("prod-{suffix}"))
-        .bind(format!("Unresolved Line Test Product {suffix}"))
-        .bind(category_id)
-        .fetch_one(&pool)
-        .await
-        .expect("insert product");
-
-        let variant_id: Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO product_variants (product_id, sku, counterpoint_item_key, variation_values, variation_label, stock_on_hand)
-            VALUES ($1, $2, $3, '{}'::jsonb, 'Standard', 0)
-            RETURNING id
-            "#
-        )
-        .bind(product_id)
-        .bind(&missing_sku)
         .bind(&missing_key)
         .fetch_one(&pool)
         .await
-        .expect("insert variant");
+        .expect("count unresolved item exceptions");
 
-        let resolved_count = resolve_unresolved_counterpoint_lines(&pool)
-            .await
-            .expect("resolve fallback open doc line");
-
-        // Verify the line has been updated and vendor_reference is NULL
-        let line_data: (Uuid, Option<String>) = sqlx::query_as(
-            "SELECT variant_id, vendor_reference FROM transaction_lines tl
-             INNER JOIN transactions t ON t.id = tl.transaction_id
-             WHERE t.counterpoint_doc_ref = $1",
+        let transaction_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM transactions WHERE counterpoint_doc_ref = $1",
         )
         .bind(&doc_ref)
         .fetch_one(&pool)
         .await
-        .expect("fetch transaction line data");
-        assert_eq!(line_data.0, variant_id);
-        assert_eq!(line_data.1, None);
+        .expect("count open doc transactions");
 
         // Clean up
-        let payment_ids: Vec<Uuid> = sqlx::query_scalar(
-            r#"
-            SELECT pa.transaction_id
-            FROM payment_allocations pa
-            INNER JOIN transactions t ON t.id = pa.target_transaction_id
-            WHERE t.counterpoint_doc_ref = $1
-            "#,
+        sqlx::query(
+            "DELETE FROM counterpoint_import_exceptions WHERE entity_key = 'open_docs' AND source_key = $1",
         )
-        .bind(&doc_ref)
-        .fetch_all(&pool)
+        .bind(&missing_key)
+        .execute(&pool)
         .await
-        .expect("load payment ids for cleanup");
-        let transaction_ids: Vec<Uuid> =
-            sqlx::query_scalar("SELECT id FROM transactions WHERE counterpoint_doc_ref = $1")
-                .bind(&doc_ref)
-                .fetch_all(&pool)
-                .await
-                .expect("load transaction ids for cleanup");
-        sqlx::query("DELETE FROM payment_allocations WHERE target_transaction_id = ANY($1)")
-            .bind(&transaction_ids)
-            .execute(&pool)
-            .await
-            .expect("cleanup payment allocations");
-        sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = ANY($1)")
-            .bind(&transaction_ids)
-            .execute(&pool)
-            .await
-            .expect("cleanup transaction lines");
-        sqlx::query("DELETE FROM transactions WHERE id = ANY($1)")
-            .bind(&transaction_ids)
-            .execute(&pool)
-            .await
-            .expect("cleanup transactions");
-        sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
-            .bind(&payment_ids)
-            .execute(&pool)
-            .await
-            .expect("cleanup payment transactions");
+        .expect("cleanup open doc import exception");
         sqlx::query(
             "DELETE FROM counterpoint_sync_issue WHERE entity = 'open_docs' AND external_key = $1",
         )
@@ -19144,29 +18763,16 @@ mod tests {
         .execute(&pool)
         .await
         .expect("cleanup open doc issue");
-        sqlx::query("DELETE FROM product_variants WHERE id = $1")
-            .bind(variant_id)
-            .execute(&pool)
-            .await
-            .expect("cleanup variant");
-        sqlx::query("DELETE FROM products WHERE id = $1")
-            .bind(product_id)
-            .execute(&pool)
-            .await
-            .expect("cleanup product");
 
-        assert_eq!(first.transactions_created, 1);
-        assert_eq!(first.line_items_created, 1);
-        assert_eq!(first.skipped, 0);
+        assert_eq!(first.transactions_created, 0);
+        assert_eq!(first.line_items_created, 0);
+        assert_eq!(first.skipped, 1);
         assert_eq!(second.transactions_created, 0);
-        assert_eq!(second.transactions_skipped_existing, 1);
-        assert_eq!(second.skipped, 0);
+        assert_eq!(second.transactions_skipped_existing, 0);
+        assert_eq!(second.skipped, 1);
         assert_eq!(issue_count, 1);
-        assert_eq!(fallback_line.0, fallback_variant_id);
-        assert_eq!(fallback_line.1.as_deref(), Some(missing_key.as_str()));
-        assert_eq!(fallback_line.2, "ready_for_pickup");
-        assert_eq!(fallback_line.3.as_deref(), Some("Unresolved line test"));
-        assert_eq!(resolved_count, 1);
+        assert_eq!(exception_count, 1);
+        assert_eq!(transaction_count, 0);
     }
 
     #[tokio::test]
