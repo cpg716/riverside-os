@@ -22,6 +22,8 @@ use serde_json::{json, Value};
 use sqlx::Row;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::process::Command;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -1067,7 +1069,7 @@ fn clean_integration_credential_value(
     }
     if matches!(
         credential_key,
-        "api_base_url" | "oauth_token_url" | "base_url" | "url"
+        "api_base_url" | "oauth_token_url" | "base_url" | "public_base_url" | "url"
     ) {
         let parsed = reqwest::Url::parse(trimmed).map_err(|_| {
             SettingsError::InvalidPayload(format!("{credential_key} must be a valid URL."))
@@ -1351,6 +1353,18 @@ pub struct EdgeAccessProbeResponse {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct EdgeAccessRepairResponse {
+    pub status: String,
+    pub hostname: Option<String>,
+    pub service_url: Option<String>,
+    pub config_path: Option<String>,
+    pub updated: bool,
+    pub restarted: bool,
+    pub message: String,
+    pub error: Option<String>,
+}
+
 fn nonempty_env(key: &str) -> Option<String> {
     std::env::var(key)
         .ok()
@@ -1376,6 +1390,248 @@ fn command_available(name: &str) -> bool {
             false
         }
     })
+}
+
+fn cloudflared_installed() -> bool {
+    if command_available("cloudflared") {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        [
+            r"C:\Program Files\cloudflared\cloudflared.exe",
+            r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
+            r"C:\Windows\System32\cloudflared.exe",
+        ]
+        .iter()
+        .any(|path| std::path::Path::new(path).is_file())
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn cloudflared_service_configured() -> bool {
+    let mac_launch_agent = std::env::var("HOME")
+        .ok()
+        .map(|home| {
+            std::path::Path::new(&home)
+                .join("Library/LaunchAgents/com.cloudflare.riverside-helcim.plist")
+                .is_file()
+        })
+        .unwrap_or(false)
+        || std::path::Path::new("/Library/LaunchAgents/com.cloudflare.riverside-helcim.plist")
+            .is_file();
+    if mac_launch_agent {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("sc.exe")
+            .args(["query", "cloudflared"])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn configured_riverside_http_port() -> u16 {
+    nonempty_env("RIVERSIDE_HTTP_BIND")
+        .and_then(|bind| {
+            bind.rsplit_once(':')
+                .map(|(_, port)| port.to_string())
+                .or(Some(bind))
+        })
+        .and_then(|port| port.parse::<u16>().ok())
+        .unwrap_or(3000)
+}
+
+fn cloudflared_service_config_argument() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        let output = Command::new("sc.exe")
+            .args(["qc", "cloudflared"])
+            .output()
+            .ok()?;
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let config_marker = "--config";
+        let marker_index = text.find(config_marker)?;
+        let after_marker = text[marker_index + config_marker.len()..].trim_start();
+        if let Some(rest) = after_marker.strip_prefix('"') {
+            let path = rest.split('"').next()?;
+            return Some(PathBuf::from(path));
+        }
+        let path = after_marker
+            .split_whitespace()
+            .next()
+            .filter(|value| !value.is_empty())?;
+        Some(PathBuf::from(path))
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+fn cloudflared_config_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(path) = cloudflared_service_config_argument() {
+        candidates.push(path);
+    }
+    #[cfg(windows)]
+    {
+        candidates.push(PathBuf::from(r"C:\ProgramData\cloudflared\config.yml"));
+        candidates.push(PathBuf::from(
+            r"C:\Windows\System32\config\systemprofile\.cloudflared\config.yml",
+        ));
+        if let Some(user_profile) = std::env::var_os("USERPROFILE") {
+            candidates.push(PathBuf::from(user_profile).join(r".cloudflared\config.yml"));
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            candidates.push(PathBuf::from(home).join(".cloudflared/config.yml"));
+        }
+        candidates.push(PathBuf::from("/etc/cloudflared/config.yml"));
+        candidates.push(PathBuf::from("/usr/local/etc/cloudflared/config.yml"));
+    }
+
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        if candidate.is_file() && !unique.contains(&candidate) {
+            unique.push(candidate);
+        }
+    }
+    unique
+}
+
+fn yaml_value_matches_hostname(line: &str, hostname: &str) -> bool {
+    let trimmed = line.trim();
+    let value = trimmed
+        .strip_prefix("- hostname:")
+        .or_else(|| trimmed.strip_prefix("hostname:"))
+        .map(str::trim)
+        .map(|value| value.trim_matches(['"', '\'']));
+    value == Some(hostname)
+}
+
+fn set_cloudflared_ingress_rule(
+    config_path: &PathBuf,
+    hostname: &str,
+    service_url: &str,
+) -> Result<bool, SettingsError> {
+    let content = std::fs::read_to_string(config_path).map_err(|error| {
+        SettingsError::InvalidPayload(format!(
+            "Could not read cloudflared config {}: {error}",
+            config_path.display()
+        ))
+    })?;
+    let mut lines: Vec<String> = content.lines().map(str::to_string).collect();
+    let mut updated = false;
+    let mut found_host = false;
+    let mut in_target = false;
+    let mut service_seen = false;
+    let mut service_indent = "    ".to_string();
+    let mut insert_before: Option<usize> = None;
+
+    for index in 0..lines.len() {
+        let line = lines[index].clone();
+        if yaml_value_matches_hostname(&line, hostname) {
+            found_host = true;
+            in_target = true;
+            service_seen = false;
+            if let Some(indent) = line.split("- hostname:").next() {
+                if line.trim_start().starts_with("- hostname:") {
+                    service_indent = format!("{indent}  ");
+                }
+            } else if let Some(indent) = line.split("hostname:").next() {
+                service_indent = indent.to_string();
+            }
+            continue;
+        }
+
+        if in_target
+            && line.trim_start().starts_with("- ")
+            && !line.trim_start().starts_with("- service:")
+        {
+            if !service_seen {
+                insert_before = Some(index);
+            }
+            in_target = false;
+        }
+
+        if in_target && line.trim_start().starts_with("service:") {
+            service_seen = true;
+            let indent_len = line.len() - line.trim_start().len();
+            let desired = format!("{}service: {service_url}", " ".repeat(indent_len));
+            if line != desired {
+                lines[index] = desired;
+                updated = true;
+            }
+            in_target = false;
+        }
+    }
+
+    if found_host {
+        if let Some(index) = insert_before {
+            lines.insert(index, format!("{service_indent}service: {service_url}"));
+            updated = true;
+        } else if in_target && !service_seen {
+            lines.push(format!("{service_indent}service: {service_url}"));
+            updated = true;
+        }
+    } else if let Some(index) = lines.iter().position(|line| line.trim() == "ingress:") {
+        lines.insert(index + 1, format!("  - hostname: {hostname}"));
+        lines.insert(index + 2, format!("    service: {service_url}"));
+        updated = true;
+    } else {
+        lines.push("ingress:".to_string());
+        lines.push(format!("  - hostname: {hostname}"));
+        lines.push(format!("    service: {service_url}"));
+        updated = true;
+    }
+
+    if updated {
+        std::fs::write(config_path, format!("{}\n", lines.join("\n"))).map_err(|error| {
+            SettingsError::InvalidPayload(format!(
+                "Could not write cloudflared config {}: {error}",
+                config_path.display()
+            ))
+        })?;
+    }
+
+    Ok(updated)
+}
+
+fn restart_cloudflared_service() -> bool {
+    #[cfg(windows)]
+    {
+        Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "Restart-Service cloudflared -ErrorAction Stop",
+            ])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
 }
 
 fn public_url_with_path(public_base_url: Option<&str>, path: &str) -> Option<String> {
@@ -1537,17 +1793,8 @@ async fn get_edge_access_status(
         .and_then(|value| url::Url::parse(value).ok())
         .map(|parsed| parsed.scheme() == "https")
         .unwrap_or(false);
-    let cloudflared_installed = command_available("cloudflared");
-    let cloudflared_launch_agent_configured = std::env::var("HOME")
-        .ok()
-        .map(|home| {
-            std::path::Path::new(&home)
-                .join("Library/LaunchAgents/com.cloudflare.riverside-helcim.plist")
-                .is_file()
-        })
-        .unwrap_or(false)
-        || std::path::Path::new("/Library/LaunchAgents/com.cloudflare.riverside-helcim.plist")
-            .is_file();
+    let cloudflared_installed = cloudflared_installed();
+    let cloudflared_launch_agent_configured = cloudflared_service_configured();
     let cloudflare_tunnel_hint_configured = nonempty_env("RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME")
         .is_some()
         || public_host
@@ -1750,6 +1997,77 @@ async fn post_edge_access_probe(
             error: Some("unexpected_probe_response".to_string()),
         }))
     }
+}
+
+async fn post_edge_access_repair_cloudflare(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<EdgeAccessRepairResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+
+    let hostname = nonempty_env("RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME").or_else(|| {
+        nonempty_env("RIVERSIDE_PUBLIC_BASE_URL").and_then(|value| {
+            url::Url::parse(&value)
+                .ok()
+                .and_then(|parsed| parsed.host_str().map(str::to_string))
+        })
+    });
+    let Some(hostname) = hostname else {
+        return Ok(Json(EdgeAccessRepairResponse {
+            status: "not_configured".to_string(),
+            hostname: None,
+            service_url: None,
+            config_path: None,
+            updated: false,
+            restarted: false,
+            message: "Save a Cloudflare tunnel hostname or public HTTPS base URL before repairing the tunnel route.".to_string(),
+            error: Some("cloudflare_hostname_missing".to_string()),
+        }));
+    };
+
+    let service_url = format!("http://127.0.0.1:{}", configured_riverside_http_port());
+    let Some(config_path) = cloudflared_config_candidates().into_iter().next() else {
+        return Ok(Json(EdgeAccessRepairResponse {
+            status: "failed".to_string(),
+            hostname: Some(hostname),
+            service_url: Some(service_url),
+            config_path: None,
+            updated: false,
+            restarted: false,
+            message: "cloudflared is expected, but Riverside could not find a local cloudflared config.yml to repair.".to_string(),
+            error: Some("cloudflared_config_missing".to_string()),
+        }));
+    };
+
+    let updated = set_cloudflared_ingress_rule(&config_path, &hostname, &service_url)?;
+    let restarted = if updated {
+        restart_cloudflared_service()
+    } else {
+        false
+    };
+    let status = if updated { "repaired" } else { "verified" };
+    let restart_detail = if updated && !restarted {
+        " The config was updated, but Riverside could not restart the cloudflared service automatically."
+    } else {
+        ""
+    };
+
+    Ok(Json(EdgeAccessRepairResponse {
+        status: status.to_string(),
+        hostname: Some(hostname.clone()),
+        service_url: Some(service_url.clone()),
+        config_path: Some(config_path.display().to_string()),
+        updated,
+        restarted,
+        message: format!(
+            "Cloudflare Tunnel route for {hostname} is set to {service_url}.{restart_detail}"
+        ),
+        error: if updated && !restarted {
+            Some("cloudflared_restart_failed".to_string())
+        } else {
+            None
+        },
+    }))
 }
 
 fn shippo_settings_response(cfg: &StoreShippoConfig) -> ShippoSettingsResponse {
@@ -2715,6 +3033,10 @@ pub fn router() -> Router<AppState> {
         .route("/remote-access/status", get(get_remote_access_status))
         .route("/edge-access/status", get(get_edge_access_status))
         .route("/edge-access/probe", post(post_edge_access_probe))
+        .route(
+            "/edge-access/repair-cloudflare",
+            post(post_edge_access_repair_cloudflare),
+        )
         .route("/remote-access/connect", post(post_remote_access_connect))
         .route(
             "/remote-access/disconnect",

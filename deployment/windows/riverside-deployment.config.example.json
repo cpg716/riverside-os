@@ -30,8 +30,10 @@
       "HELCIM_WEBHOOK_SECRET": "",
       "COUNTERPOINT_SYNC_TOKEN": "",
       "RIVERSIDE_BACKUP_DIR": "C:\\RiversideOS\\backups",
-      "MEILISEARCH_URL": "",
-      "MEILISEARCH_API_KEY": "",
+      "RIVERSIDE_MEILISEARCH_URL": "http://127.0.0.1:7700",
+      "RIVERSIDE_MEILISEARCH_API_KEY": "dev_master_key_change_me",
+      "RIVERSIDE_PUBLIC_BASE_URL": "https://ros.riversidemens.com",
+      "RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME": "ros.riversidemens.com",
       "RIVERSIDE_REPO_ROOT": "C:\\RiversideOS\\release"
     }
   },

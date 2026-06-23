@@ -272,6 +272,16 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         env_key: "RIVERSIDE_PUBLIC_BASE_URL",
     },
     IntegrationCredentialMapping {
+        integration_key: "edge_access",
+        credential_key: "public_base_url",
+        env_key: "RIVERSIDE_PUBLIC_BASE_URL",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "edge_access",
+        credential_key: "cloudflare_tunnel_hostname",
+        env_key: "RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME",
+    },
+    IntegrationCredentialMapping {
         integration_key: "constant_contact",
         credential_key: "client_id",
         env_key: "RIVERSIDE_CC_CLIENT_ID",

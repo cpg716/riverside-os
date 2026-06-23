@@ -45,14 +45,15 @@ interface HelcimEventsHealth {
   webhook_delivery_action: string;
 }
 
+interface EdgeAccessStatus {
+  helcim_webhook_url: string | null;
+}
+
 const HelcimSettingsPanel: React.FC = () => {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
   const webhookPath = "/api/webhooks/helcim";
-  const webhookDeliveryUrl = `${baseUrl.replace(/\/$/, "")}${webhookPath}`;
-  const webhookUrlWarning = webhookDeliveryUrl.startsWith("https://")
-    ? null
-    : "Use the store public HTTPS ROS API URL in Helcim. Do not use localhost, 127.0.0.1, or this local workstation URL as the Helcim delivery URL.";
+  const localWebhookDeliveryUrl = `${baseUrl.replace(/\/$/, "")}${webhookPath}`;
 
   const [helcimStatus, setHelcimStatus] =
     useState<HelcimProviderStatus | null>(null);
@@ -64,6 +65,14 @@ const HelcimSettingsPanel: React.FC = () => {
   const [providerSaving, setProviderSaving] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [simulatorEnabled, setSimulatorEnabled] = useState(false);
+  const [publicWebhookDeliveryUrl, setPublicWebhookDeliveryUrl] =
+    useState<string | null>(null);
+
+  const webhookDeliveryUrl =
+    publicWebhookDeliveryUrl ?? localWebhookDeliveryUrl;
+  const webhookUrlWarning = publicWebhookDeliveryUrl
+    ? null
+    : "Use the store public HTTPS ROS API URL in Helcim. Do not use localhost, 127.0.0.1, or this local workstation URL as the Helcim delivery URL.";
 
   const fetchProviderStatus = useCallback(async () => {
     setHelcimLoading(true);
@@ -86,10 +95,24 @@ const HelcimSettingsPanel: React.FC = () => {
       } else {
         setEventsHealth(null);
       }
+      const edgeRes = await fetch(`${baseUrl}/api/settings/edge-access/status`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (edgeRes.ok) {
+        const edgeStatus = (await edgeRes.json()) as EdgeAccessStatus;
+        setPublicWebhookDeliveryUrl(
+          edgeStatus.helcim_webhook_url?.startsWith("https://")
+            ? edgeStatus.helcim_webhook_url
+            : null,
+        );
+      } else {
+        setPublicWebhookDeliveryUrl(null);
+      }
     } catch (error) {
       setProviderSettings(null);
       setHelcimStatus(null);
       setEventsHealth(null);
+      setPublicWebhookDeliveryUrl(null);
       setHelcimError(
         error instanceof Error
           ? error.message
@@ -347,11 +370,13 @@ const HelcimSettingsPanel: React.FC = () => {
           <p className="text-xs font-semibold text-app-text-muted">
             {helcimError
               ? helcimError
-              : missingConfig.length
+              : terminalReady && missingConfig.length
+                ? `Configured terminals can take card payments. Remaining setup: ${missingConfig.join(", ")}`
+                : missingConfig.length
                 ? `Missing configuration: ${missingConfig.join(", ")}`
                 : terminalReady
-                  ? "Helcim API access and terminal device codes are configured. Webhook updates are optional for local POS."
-                  : "Helcim API access is configured. Add Terminal 1 and Terminal 2 device codes only if ROS will start in-store terminal payments."}
+                  ? "Helcim API access and at least one terminal device code are configured. Add both terminal slots when both registers will take cards."
+                  : "Helcim API access is configured. Add a Terminal 1 or Terminal 2 device code before ROS starts in-store terminal payments."}
           </p>
         </div>
       </section>
@@ -405,7 +430,7 @@ const HelcimSettingsPanel: React.FC = () => {
                   : "Not ready"
               }
               ready={Boolean(helcimStatus?.live_terminal_payments_ready)}
-              detail="Requires API token, Terminal 1, and Terminal 2. Webhook updates are optional for local POS."
+              detail="Requires API token and the device code for the terminal selected by the active register. Webhook updates are optional for local POS."
             />
             <ConfigRow
               label="Terminal routing"

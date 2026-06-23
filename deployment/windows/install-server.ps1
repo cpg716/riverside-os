@@ -814,6 +814,279 @@ function Ensure-RiversideFirewallRule([string]$DisplayName, [int]$Port) {
     -Profile Any | Out-Null
 }
 
+function Ensure-ServerEnvironmentObject($Config) {
+  if (-not $Config.server.environment) {
+    $Config.server | Add-Member -NotePropertyName "environment" -NotePropertyValue ([pscustomobject]@{}) -Force
+    $script:meilisearchConfigModified = $true
+  }
+  return $Config.server.environment
+}
+
+function Get-ServerEnvironmentValue($Config, [string[]]$Names) {
+  $envObj = Ensure-ServerEnvironmentObject $Config
+  foreach ($name in $Names) {
+    $prop = $envObj.PSObject.Properties[$name]
+    if ($prop -and $null -ne $prop.Value -and -not [string]::IsNullOrWhiteSpace("$($prop.Value)")) {
+      return "$($prop.Value)".Trim()
+    }
+  }
+  return ""
+}
+
+function Get-CloudflaredConfigPath {
+  $candidates = @()
+  try {
+    $service = Get-CimInstance Win32_Service -Filter "Name='cloudflared'" -ErrorAction SilentlyContinue
+    if ($service -and $service.PathName) {
+      if ($service.PathName -match '--config\s+"([^"]+)"') {
+        $candidates += $Matches[1]
+      } elseif ($service.PathName -match '--config\s+([^\s]+)') {
+        $candidates += $Matches[1]
+      }
+    }
+  } catch {}
+
+  $candidates += @(
+    "C:\ProgramData\cloudflared\config.yml",
+    "C:\Windows\System32\config\systemprofile\.cloudflared\config.yml"
+  )
+  if ($env:USERPROFILE) {
+    $candidates += (Join-Path $env:USERPROFILE ".cloudflared\config.yml")
+  }
+
+  return $candidates |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+    Select-Object -Unique |
+    Where-Object { Test-Path $_ } |
+    Select-Object -First 1
+}
+
+function Set-CloudflaredIngressRule([string]$ConfigPath, [string]$Hostname, [string]$ServiceUrl) {
+  $lines = @(Get-Content $ConfigPath -ErrorAction Stop)
+  $escapedHost = [regex]::Escape($Hostname)
+  $updated = $false
+  $foundHost = $false
+  $inTarget = $false
+  $targetServiceSeen = $false
+  $insertBeforeIndex = -1
+  $serviceIndent = "    "
+
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    $line = $lines[$i]
+    if ($line -match "^\s*-\s+hostname:\s*['""]?$escapedHost['""]?\s*$" -or
+        $line -match "^\s*hostname:\s*['""]?$escapedHost['""]?\s*$") {
+      $foundHost = $true
+      $inTarget = $true
+      $targetServiceSeen = $false
+      if ($line -match "^(\s*)-\s+hostname:") {
+        $serviceIndent = "$($Matches[1])  "
+      } elseif ($line -match "^(\s*)hostname:") {
+        $serviceIndent = $Matches[1]
+      }
+      continue
+    }
+
+    if ($inTarget -and $line -match "^\s*-\s+" -and $line -notmatch "^\s*-\s+service:") {
+      if (-not $targetServiceSeen) {
+        $insertBeforeIndex = $i
+      }
+      $inTarget = $false
+    }
+
+    if ($inTarget -and $line -match "^(\s*)service:\s*") {
+      $targetServiceSeen = $true
+      $desired = "$($Matches[1])service: $ServiceUrl"
+      if ($line -ne $desired) {
+        $lines[$i] = $desired
+        $updated = $true
+      }
+      $inTarget = $false
+    }
+  }
+
+  $newLines = New-Object System.Collections.Generic.List[string]
+  if ($foundHost -and $insertBeforeIndex -ge 0) {
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+      if ($i -eq $insertBeforeIndex) {
+        $newLines.Add("${serviceIndent}service: $ServiceUrl")
+        $updated = $true
+      }
+      $newLines.Add($lines[$i])
+    }
+    $lines = @($newLines)
+  } elseif ($foundHost -and $inTarget -and -not $targetServiceSeen) {
+    $lines += "${serviceIndent}service: $ServiceUrl"
+    $updated = $true
+  } elseif (-not $foundHost) {
+    $inserted = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+      $newLines.Add($lines[$i])
+      if (-not $inserted -and $lines[$i] -match "^\s*ingress:\s*$") {
+        $newLines.Add("  - hostname: $Hostname")
+        $newLines.Add("    service: $ServiceUrl")
+        $inserted = $true
+        $updated = $true
+      }
+    }
+    if (-not $inserted) {
+      $newLines.Add("ingress:")
+      $newLines.Add("  - hostname: $Hostname")
+      $newLines.Add("    service: $ServiceUrl")
+      $updated = $true
+    }
+    $lines = @($newLines)
+  }
+
+  if ($updated) {
+    Set-Content -Path $ConfigPath -Value $lines -Encoding UTF8
+  }
+  return $updated
+}
+
+function Ensure-CloudflaredRosIngress($Config, [int]$ServerPort) {
+  $hostname = Get-ServerEnvironmentValue $Config @("RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME")
+  if ([string]::IsNullOrWhiteSpace($hostname)) {
+    return
+  }
+  $serviceUrl = "http://127.0.0.1:$ServerPort"
+  $configPath = Get-CloudflaredConfigPath
+  if ([string]::IsNullOrWhiteSpace($configPath)) {
+    Write-Warning "Cloudflare tunnel hostname '$hostname' is configured, but no local cloudflared config.yml was found. Public Helcim callbacks will not work until cloudflared routes $hostname to $serviceUrl."
+    return
+  }
+
+  try {
+    $updated = Set-CloudflaredIngressRule $configPath $hostname $serviceUrl
+    if ($updated) {
+      Write-Host "Updated cloudflared ingress for $hostname -> $serviceUrl in $configPath" -ForegroundColor Green
+      Restart-Service cloudflared -ErrorAction SilentlyContinue
+    } else {
+      Write-Host "Verified cloudflared ingress for $hostname -> $serviceUrl"
+    }
+  } catch {
+    Write-Warning "Could not update cloudflared ingress for ${hostname}: $($_.Exception.Message)"
+  }
+}
+
+function Ensure-MeilisearchServerEnvironment($Config) {
+  $envObj = Ensure-ServerEnvironmentObject $Config
+  $url = Get-ServerEnvironmentValue $Config @("RIVERSIDE_MEILISEARCH_URL", "MEILISEARCH_URL")
+  $apiKey = Get-ServerEnvironmentValue $Config @("RIVERSIDE_MEILISEARCH_API_KEY", "MEILISEARCH_API_KEY")
+
+  if ([string]::IsNullOrWhiteSpace($url)) {
+    $url = "http://127.0.0.1:7700"
+    $script:meilisearchConfigModified = $true
+  }
+  if ([string]::IsNullOrWhiteSpace($apiKey)) {
+    $apiKey = "dev_master_key_change_me"
+    $script:meilisearchConfigModified = $true
+  }
+
+  if (-not $envObj.PSObject.Properties["RIVERSIDE_MEILISEARCH_URL"] -or "$($envObj.RIVERSIDE_MEILISEARCH_URL)" -ne $url) {
+    Set-SafeProperty $envObj "RIVERSIDE_MEILISEARCH_URL" $url
+    $script:meilisearchConfigModified = $true
+  }
+  if (-not $envObj.PSObject.Properties["RIVERSIDE_MEILISEARCH_API_KEY"] -or "$($envObj.RIVERSIDE_MEILISEARCH_API_KEY)" -ne $apiKey) {
+    Set-SafeProperty $envObj "RIVERSIDE_MEILISEARCH_API_KEY" $apiKey
+    $script:meilisearchConfigModified = $true
+  }
+
+  return @{
+    Url = $url
+    ApiKey = $apiKey
+  }
+}
+
+function Wait-MeilisearchReady([string]$BaseUrl) {
+  $healthUrl = "$($BaseUrl.TrimEnd('/'))/health"
+  Write-Host "Waiting for Meilisearch at $healthUrl..."
+  for ($i = 0; $i -lt 30; $i++) {
+    Start-Sleep -Seconds 2
+    try {
+      $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 5
+      if ([int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 300) {
+        Write-Host "Meilisearch health check passed at $healthUrl" -ForegroundColor Green
+        return
+      }
+    } catch {}
+  }
+  throw "Meilisearch did not pass the health check at $healthUrl. Check the 'Riverside OS Meilisearch' scheduled task and C:\RiversideOS\meilisearch."
+}
+
+function Ensure-RiversideMeilisearchHost(
+  [string]$PackageRoot,
+  [string]$InstallRoot,
+  $Config,
+  [bool]$StartNow = $true
+) {
+  $meiliConfig = Ensure-MeilisearchServerEnvironment $Config
+  $meiliUrl = $meiliConfig.Url
+  $apiKey = $meiliConfig.ApiKey
+
+  if ($apiKey -match '"') {
+    throw "RIVERSIDE_MEILISEARCH_API_KEY cannot contain a double quote because it is passed to the scheduled task command line."
+  }
+
+  try {
+    $uri = [Uri]$meiliUrl
+  } catch {
+    throw "RIVERSIDE_MEILISEARCH_URL '$meiliUrl' is not a valid URL."
+  }
+
+  if ($uri.Scheme -notin @("http", "https")) {
+    throw "RIVERSIDE_MEILISEARCH_URL '$meiliUrl' must use http or https."
+  }
+
+  $isLocal = $uri.Host -in @("127.0.0.1", "localhost", "::1")
+  if (-not $isLocal) {
+    Write-Warning "Meilisearch URL '$meiliUrl' is not local. Skipping local Riverside OS Meilisearch scheduled task setup."
+    return
+  }
+
+  $port = if ($uri.Port -gt 0) { $uri.Port } else { 7700 }
+  $localUrl = "http://127.0.0.1:$port"
+  if ($meiliUrl -ne $localUrl) {
+    Set-SafeProperty (Ensure-ServerEnvironmentObject $Config) "RIVERSIDE_MEILISEARCH_URL" $localUrl
+    $script:meilisearchConfigModified = $true
+    $meiliUrl = $localUrl
+  }
+  $taskName = "Riverside OS Meilisearch"
+  $meiliSrc = Join-Path $PackageRoot "meilisearch\meilisearch.exe"
+  $meiliDir = Join-Path $InstallRoot "meilisearch"
+  $meiliExe = Join-Path $meiliDir "meilisearch.exe"
+  $dataDir = Join-Path $meiliDir "data"
+
+  if ((-not (Test-Path $meiliSrc)) -and (-not (Test-Path $meiliExe))) {
+    throw "Meilisearch runtime is missing from the deployment package: $meiliSrc"
+  }
+
+  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+  Get-Process -Name "meilisearch" -ErrorAction SilentlyContinue | ForEach-Object {
+    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+  }
+  Start-Sleep -Seconds 1
+
+  New-Item -ItemType Directory -Force -Path $meiliDir | Out-Null
+  New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+  if (Test-Path $meiliSrc) {
+    Copy-Item $meiliSrc $meiliExe -Force
+  }
+
+  $argument = "--http-addr 127.0.0.1:$port --master-key `"$apiKey`" --db-path `"$dataDir`" --env production"
+  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+  $action = New-ScheduledTaskAction -Execute $meiliExe -Argument $argument -WorkingDirectory $meiliDir
+  $trigger = New-ScheduledTaskTrigger -AtStartup
+  $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+  $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -ExecutionTimeLimit (New-TimeSpan -Days 0)
+  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
+  Write-Host "Registered scheduled task '$taskName' at $meiliUrl"
+
+  if ($StartNow) {
+    Start-ScheduledTask -TaskName $taskName
+    Wait-MeilisearchReady $meiliUrl
+  }
+}
+
 function Escape-SqlLiteral([string]$Value) {
   return $Value.Replace("'", "''")
 }
@@ -1511,9 +1784,18 @@ if (-not $SkipRosieSetup) {
   Write-Host "ROSIE setup skipped (-SkipRosieSetup). ROSIE will be unavailable until the model is installed."
 }
 
+$script:meilisearchConfigModified = $false
+Ensure-RiversideMeilisearchHost $ScriptRoot $installRoot $config (-not $NoStart)
+if ($script:meilisearchConfigModified) {
+  $configJson = $config | ConvertTo-Json -Depth 8
+  Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
+  Write-Host "Saved Meilisearch runtime settings to $ConfigPath." -ForegroundColor Green
+}
+
 $envPath = Join-Path $serverDir ".env"
 Write-ServerEnv $envPath $config $databaseUrl $clientDist $rosieModelPath
 Set-MachineEnvironmentFromServerConfig $config
+Ensure-CloudflaredRosIngress $config $serverPort
 
 if (-not $SkipFirewall) {
   $fwName = $server.firewallRuleName

@@ -41,6 +41,12 @@ pub struct InstalledServerStartStatus {
     pub message: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct InstalledServerRestartStatus {
+    pub restarted: bool,
+    pub message: String,
+}
+
 impl Default for UnifiedServerStatus {
     fn default() -> Self {
         Self {
@@ -248,6 +254,51 @@ fn start_windows_server_task() -> Result<(), String> {
     Err("Automatic server start is only available on the Windows server PC.".to_string())
 }
 
+#[cfg(windows)]
+fn restart_windows_server_task() -> Result<(), String> {
+    let script = r#"
+$taskName = 'Riverside OS Server'
+$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($null -eq $task) {
+  Write-Error 'Riverside OS Server scheduled task was not found. Run Backoffice / Server repair from the deployment package.'
+  exit 2
+}
+Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+"#;
+
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ])
+        .output()
+        .map_err(|e| format!("Could not ask Windows to restart Riverside OS Server: {e}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let detail = if !stderr.is_empty() { stderr } else { stdout };
+    Err(if detail.is_empty() {
+        "Windows could not restart the Riverside OS Server scheduled task.".to_string()
+    } else {
+        detail
+    })
+}
+
+#[cfg(not(windows))]
+fn restart_windows_server_task() -> Result<(), String> {
+    Err("Automatic server restart is only available on the Windows server PC.".to_string())
+}
+
 #[tauri::command]
 pub async fn start_installed_windows_server(
     server_url: String,
@@ -257,6 +308,18 @@ pub async fn start_installed_windows_server(
     Ok(InstalledServerStartStatus {
         started: true,
         message: "Riverside server is running.".to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn restart_installed_windows_server(
+    server_url: String,
+) -> Result<InstalledServerRestartStatus, String> {
+    restart_windows_server_task()?;
+    wait_for_roster_probe(&server_url).await?;
+    Ok(InstalledServerRestartStatus {
+        restarted: true,
+        message: "Riverside server restarted and is responding.".to_string(),
     })
 }
 

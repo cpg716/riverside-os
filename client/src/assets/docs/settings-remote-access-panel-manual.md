@@ -55,9 +55,21 @@ Fix the problem, then try **Start Shop Host** again.
 
 Use the URL shown in this panel for iPads and other satellite browsers that are on the same local network as the host machine. If more than one local path is shown, try the detected LAN IPv4 first. Off-site remote access is separate and still depends on Tailscale.
 
+## Public callbacks
+
+Use **Public Callback Route** to save the public HTTPS Riverside base URL for outside providers such as Helcim and Podium. Enter only the base URL, for example `https://ros.riversidemens.com`; Riverside appends `/api/webhooks/helcim` and `/api/webhooks/podium` automatically.
+
+Saving the callback route updates the running server setting immediately. If Cloudflare Tunnel is used, click **Repair Cloudflare Tunnel** from this panel to point the local tunnel origin at the Riverside server on this host. Cloudflare DNS and WAF records are still managed in Cloudflare. After saving or repairing, use **Run Live Callback Check** to confirm the public URL reaches this Riverside server before relying on Helcim terminal approval or cancel webhooks.
+
+## Restart the Riverside server
+
+Use **Restart Riverside Server** after changing server environment settings, payment callback settings, or Cloudflare Tunnel settings that need the Main Hub API process to reload.
+
+The restart action stops the Windows task named **Riverside OS Server**, closes the running server process if needed, starts the task again, then waits until the API responds. Registers, payment updates, and Back Office screens can lose API access briefly while the restart runs. This does not restart the desktop app window and does not reset the database.
+
 ## Important notes
 
-- Do not use this panel to enter Helcim keys or other production secrets.
+- Do not use this panel to enter Helcim API keys, terminal device codes, webhook signing secrets, or other provider secrets.
 - Host mode is for the **dedicated Windows host machine**, not for the main register by default and not as a public-web shortcut.
 - If you disconnect Tailscale during a remote session, connected off-site devices will lose access.
 

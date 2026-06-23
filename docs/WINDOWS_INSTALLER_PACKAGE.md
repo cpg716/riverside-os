@@ -2,7 +2,7 @@
 
 This package is the guided deployment path for the in-store Windows machines:
 
-- **Main Hub (Backoffice / Server PC)**: PostgreSQL database, Riverside server, web bundle, migrations, firewall rule, startup task, and the Riverside desktop app.
+- **Main Hub (Backoffice / Server PC)**: PostgreSQL database, Riverside server, local Meilisearch search runtime, web bundle, migrations, firewall rule, startup tasks, and the Riverside desktop app.
 - **Standalone App — Register #1**: Riverside desktop app, station API base, printer target, and cash drawer setting. No server or database.
 - **Standalone App — Back Office**: Riverside desktop app, station API base, and optional printer targets. No server or database.
 
@@ -32,6 +32,7 @@ RiversideOS-v0.80.9-Windows-Deployment/
   deployment-app/
   server-manager-app/
   counterpoint-bridge-gui/
+  meilisearch/meilisearch.exe
   rosie/bin/
   rosie/stt/
   rosie/tts/
@@ -85,6 +86,7 @@ The Deployment Manager keeps the password work inside the installer flow:
 - **Riverside database password**: generated automatically if left blank or still set to a placeholder. It is saved to `riverside-deployment.config.json` and written to `C:\RiversideOS\server\.env`.
 - **Riverside app secret**: generated automatically if left blank, too short, or still set to a placeholder.
 - **Integration credential encryption key**: written as `RIVERSIDE_CREDENTIALS_KEY` in `C:\RiversideOS\server\.env` and the Windows machine environment. This must be present before Backoffice Settings can save Helcim, QBO, Counterpoint, or other encrypted integration credentials.
+- **Meilisearch**: the Main Hub installer copies `meilisearch\meilisearch.exe` to `C:\RiversideOS\meilisearch`, registers the **Riverside OS Meilisearch** startup task on `http://127.0.0.1:7700`, and writes `RIVERSIDE_MEILISEARCH_URL` plus `RIVERSIDE_MEILISEARCH_API_KEY` to the server `.env`. After a reset, restore, or Counterpoint import, rebuild search from **Settings → Integrations → Meilisearch**.
 - **Counterpoint Bridge GUI**: included under `counterpoint-bridge-gui\`. Use it on the Counterpoint host to connect Counterpoint SQL directly to Main Hub ROS on port `3000`; no separate SYNC app or bridge-token helper is part of the go-live package path.
 - **Register and Back Office station settings**: written automatically to `C:\ProgramData\RiversideOS\station-config.json`.
 
@@ -131,6 +133,7 @@ Fill in:
 - `DATABASE_URL` parts through the `server.database` fields.
 - `RIVERSIDE_CORS_ORIGINS` through `server.corsOrigins`.
 - Store secrets in `server.environment`.
+- Set `RIVERSIDE_PUBLIC_BASE_URL` and `RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME` in `server.environment` when Helcim/Podium webhooks should use Cloudflare Tunnel.
 - Register #1 API base and printer settings under `register`.
 
 Credentials may be included in this private in-store package. Do not commit the filled `riverside-deployment.config.json` to the repo.
@@ -161,6 +164,7 @@ The script:
 - Applies pending migrations using `psql`.
 - Extracts precompiled ROSIE binaries (llama-server, sherpa-onnx-offline, sherpa-onnx-offline-tts), copies bundled STT/TTS model files, and verifies the Gemma GGUF model hash (matching `MODEL_PIN.json`).
 - Writes `C:\RiversideOS\server\.env`.
+- Verifies or repairs the local `cloudflared` ingress so the configured tunnel hostname points to the Riverside server port.
 - Adds the inbound firewall rule for the configured server port.
 - Creates a startup scheduled task named `Riverside OS Server`.
 - Starts the server and checks the local app URL.

@@ -56,6 +56,7 @@ pub fn run() {
             app_updates::install_app_update,
             unified_server::start_unified_server,
             unified_server::start_installed_windows_server,
+            unified_server::restart_installed_windows_server,
             unified_server::get_unified_server_status,
             unified_server::get_unified_host_network_identity,
             server_updater::check_server_local_status,

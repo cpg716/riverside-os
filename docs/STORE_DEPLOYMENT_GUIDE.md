@@ -20,7 +20,7 @@ If your team uses macOS for local validation before Windows production cutover, 
 
 - `docker context show` should return **`orbstack`**.
 - `docker info` should identify **OrbStack** as the runtime.
-- `docker compose ps` should show expected services healthy (`db`, optional `meilisearch`, optional `metabase` stack).
+- `docker compose ps` should show expected services healthy (`db`, optional local-dev `meilisearch`, optional `metabase` stack).
 
 Record this verification in your deployment log so troubleshooting always starts from a known container runtime.
 
@@ -47,7 +47,7 @@ flowchart TB
 
 - The server listens on **`0.0.0.0:3000`** by default so **LAN and Tailscale** clients can reach it. Override with **`RIVERSIDE_HTTP_BIND`** if you terminate TLS on a reverse proxy and bind the app to loopback only (see [`DEVELOPER.md`](../DEVELOPER.md) environment table).
 
-**Optional Meilisearch:** Many shops run a small **Meilisearch** process on the same server PC (or another host on the LAN) for fuzzy inventory, CRM, wedding, order, transaction, alteration, Help Center, and storefront PLP search. PostgreSQL remains authoritative; the API syncs index documents and falls back to SQL **ILIKE** if Meilisearch is down. Meilisearch does not watch PostgreSQL by itself: full rebuilds are admin-triggered, and automatic updates happen only on ROS write paths that explicitly upsert the affected search document. After deploy, restore, Meilisearch wipe, or major import, admins should run **Settings → Integrations → Meilisearch → Rebuild search index** (or **`POST /api/settings/meilisearch/reindex`**). Details: [`SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md).
+**Meilisearch on Windows Main Hub:** The packaged Windows Main Hub deployment installs a local **Meilisearch** runtime, registers the **Riverside OS Meilisearch** startup task, and configures the API for `http://127.0.0.1:7700`. PostgreSQL remains authoritative; Meilisearch is the fast search copy for inventory, CRM, wedding, order, transaction, alteration, Help Center, and storefront PLP search. Meilisearch does not watch PostgreSQL by itself: full rebuilds are admin-triggered, and automatic updates happen only on ROS write paths that explicitly upsert the affected search document. After deploy, restore, Meilisearch wipe, database reset, or major Counterpoint import, run **Settings → Integrations → Meilisearch → Rebuild search index** (or **`POST /api/settings/meilisearch/reindex`**). Details: [`SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md).
 
 ---
 
@@ -131,16 +131,17 @@ Helcim terminal approvals and terminal cancels are most reliable when Helcim can
 https://ros.riversidemens.com/api/webhooks/helcim
 ```
 
-If that hostname is backed by Cloudflare Tunnel, production must run `cloudflared` as a supervised host service on the machine that can reach the ROS API on port `3000`. Starting the Riverside app alone is not sufficient unless the deployment package also starts or supervises that tunnel service.
+If that hostname is backed by Cloudflare Tunnel, production must run `cloudflared` as a supervised host service on the machine that can reach the ROS API on port `3000`. The deployment installer and **Settings → Remote Access → Repair Cloudflare Tunnel** can repair the local tunnel origin when `RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME` is configured, but Cloudflare DNS/WAF records still live in Cloudflare.
 
 Production checklist:
 
-1. Cloudflare public hostname routes `/api/webhooks/helcim` to `http://127.0.0.1:3000` or the production API origin.
-2. The `cloudflared` service or scheduled task is configured with restart-on-failure behavior.
-3. `HELCIM_WEBHOOK_SECRET` or the encrypted Settings -> Helcim webhook secret matches the Helcim webhook verifier/signing token.
-4. Helcim webhooks are enabled for `cardTransaction` and `terminalCancel`.
-5. A public unsigned probe reaches ROS and fails closed with `400`; Cloudflare `1033`, `403`, or challenge HTML means Helcim cannot reach ROS.
-6. A real terminal approval and terminal cancel both appear in Payments -> Health under Payment Updates.
+1. **Settings → Remote Access** shows the public base URL and Cloudflare tunnel hostname.
+2. **Repair Cloudflare Tunnel** verifies or updates the local `cloudflared` ingress to `http://127.0.0.1:3000`.
+3. The `cloudflared` service or scheduled task is configured with restart-on-failure behavior.
+4. `HELCIM_WEBHOOK_SECRET` or the encrypted Settings -> Helcim webhook secret matches the Helcim webhook verifier/signing token.
+5. Helcim webhooks are enabled for `cardTransaction` and `terminalCancel`.
+6. **Run Live Callback Check** in Settings -> Remote Access reaches this ROS server; Cloudflare `502`, `1033`, `403`, or challenge HTML means Helcim cannot reach ROS.
+7. A real terminal approval and terminal cancel both appear in Payments -> Health under Payment Updates.
 
 #### 3.1.2 Minimum server acceptance checks
 
@@ -151,7 +152,7 @@ Production checklist:
 - [ ] `RIVERSIDE_STRICT_PRODUCTION=true` starts successfully.
 - [ ] Server URL loads from another machine on the store LAN.
 - [ ] Backup path is writable and visible in Settings.
-- [ ] Meilisearch status is understood: configured and rebuilt, or intentionally disabled with SQL fallback.
+- [ ] Meilisearch status is connected on the Main Hub and rebuilt after import/reset.
 - [ ] If Shop Host is used, the local satellite URL opens the sign-in gate from a second device.
 
 ### 3.2 Windows desktop app (Register 1 + Back office)
@@ -296,8 +297,8 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 | Variable | Purpose |
 |----------|---------|
 | **`DATABASE_URL`** | PostgreSQL connection string (server only). |
-| **`RIVERSIDE_MEILISEARCH_URL`** | Optional; e.g. `http://127.0.0.1:7700` (host) or `http://meilisearch:7700` (same Docker network as the API). When unset, all search paths use SQL **ILIKE** only. |
-| **Meilisearch API key** | Configure in **Settings → Integrations → Meilisearch**. The saved encrypted key must match the running Meilisearch `MEILI_MASTER_KEY`; `RIVERSIDE_MEILISEARCH_API_KEY` is a deployment fallback when no saved value exists. |
+| **`RIVERSIDE_MEILISEARCH_URL`** | Windows Main Hub default: `http://127.0.0.1:7700`. The installer writes this and starts the local Meilisearch task. Docker/local-dev may use `http://meilisearch:7700`. |
+| **`RIVERSIDE_MEILISEARCH_API_KEY`** | Windows Main Hub default: `dev_master_key_change_me`. The saved encrypted key in **Settings → Integrations → Meilisearch** must match the running Meilisearch `MEILI_MASTER_KEY`; the env value is the deployment fallback when no saved value exists. |
 | **`RIVERSIDE_CORS_ORIGINS`** | Required for browser-facing production when paired with **`RIVERSIDE_STRICT_PRODUCTION=true`**. Comma-separated **browser** origins (e.g. `https://app.example.com,http://192.168.1.50:3000`). |
 | **`RIVERSIDE_STRICT_PRODUCTION`** | Recommended production hardening switch. Refuses startup without **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, and a valid **`FRONTEND_DIST`**. |
 | **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** | Required if the online store/customer-account routes are reachable. Use a long random secret; never rely on the development fallback in production. |

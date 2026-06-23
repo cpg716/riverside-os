@@ -547,6 +547,7 @@ export default function NexoCheckoutDrawer({
   const selectedTerminalStatus = selectedTerminalKey
     ? terminalStatuses.find((terminal) => terminal.key === selectedTerminalKey)
     : null;
+  const selectedTerminalConfigured = Boolean(selectedTerminalStatus?.configured);
   const selectedTerminalInUseBy = selectedTerminalStatus?.in_use_by_register_lane;
   const selectedTerminalInUseByCurrentRegister =
     selectedTerminalInUseBy != null && registerLane != null && selectedTerminalInUseBy === registerLane;
@@ -559,11 +560,10 @@ export default function NexoCheckoutDrawer({
   const terminalSelectionReady =
     providerSettings?.active_provider === "helcim" &&
     providerSettings.helcim.enabled &&
-    providerSettings.helcim.terminal_payments_ready &&
     !registerLaneUnavailable &&
     Boolean(registerTerminalRoute) &&
     Boolean(selectedTerminalKey) &&
-    Boolean(selectedTerminalStatus?.configured) &&
+    selectedTerminalConfigured &&
     !selectedTerminalInUseByOtherRegister &&
     !helcimAttemptRetryUnavailable &&
     (!selectedTerminalNeedsOverride || terminalOverrideConfirmed);
@@ -573,23 +573,23 @@ export default function NexoCheckoutDrawer({
       ? "Check terminal"
       : !providerSettings?.helcim.enabled
         ? "Not configured"
-        : !providerSettings.helcim.terminal_payments_ready
-          ? "Setup needed"
-          : registerLaneUnavailable
+        : registerLaneUnavailable
             ? "No register"
             : !registerTerminalRoute
               ? "Routing missing"
               : !selectedTerminalKey
                 ? "Choose terminal"
-                : selectedTerminalInUseByOtherRegister
-                  ? `In use R${selectedTerminalInUseBy}`
-                  : selectedTerminalInUseByCurrentRegister
-                    ? "Active here"
-                  : helcimAttemptOutcomeUnverified
-                    ? "Review needed"
-                  : selectedTerminalNeedsOverride && !terminalOverrideConfirmed
-                    ? "Confirm terminal"
-                    : "Ready";
+                : !selectedTerminalConfigured
+                  ? `${terminalLabel(selectedTerminalKey)} not set`
+                  : selectedTerminalInUseByOtherRegister
+                    ? `In use R${selectedTerminalInUseBy}`
+                    : selectedTerminalInUseByCurrentRegister
+                      ? "Active here"
+                      : helcimAttemptOutcomeUnverified
+                        ? "Review needed"
+                      : selectedTerminalNeedsOverride && !terminalOverrideConfirmed
+                        ? "Confirm terminal"
+                        : "Ready";
   const tenderTabIds = useMemo(() => {
     const all = Object.keys(TAB_META) as NexoTenderTab[];
     const isRefundCheckout = amountDueCents < 0;
@@ -1393,13 +1393,6 @@ export default function NexoCheckoutDrawer({
         toast("Helcim is not configured in Settings.", "error");
         return;
       }
-      if (
-        (tab === "card_terminal" || tab === "card_manual" || tab === "card_credit") &&
-        !activeProviderSettings.helcim.terminal_payments_ready
-      ) {
-        toast("Helcim terminal payments are not ready. Confirm Terminal 1 and Terminal 2 in Settings.", "error");
-        return;
-      }
       if (amtCents <= 0 && tab !== "card_credit") {
         toast("Helcim refunds are not enabled yet.", "error");
         return;
@@ -1434,6 +1427,10 @@ export default function NexoCheckoutDrawer({
       }
       if (!selectedTerminalKey) {
         toast("Choose Terminal 1 or Terminal 2 before starting card payment.", "error");
+        return;
+      }
+      if (!selectedTerminalConfigured) {
+        toast(`${terminalLabel(selectedTerminalKey)} is not configured in Settings.`, "error");
         return;
       }
       if (selectedTerminalInUseByOtherRegister) {
@@ -1685,7 +1682,7 @@ export default function NexoCheckoutDrawer({
     setGiftCardCode("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings]);
+  }, [giftCardCode, checkNumber, remainingCents, cashRounding.rounded, tab, providerSettings, providerSettingsLoading, helcimAttempt?.status, helcimAttemptOutcomeUnverified, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, registerLane, registerSessionId, refundOriginalTransactionId, refundOriginalCardPresentConfirmed, baseUrl, backofficeHeaders, customerId, customerCode, toast, setApplied, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, chargeSavedHelcimCard, loadProviderSettings]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     setApplied((prev) => prev.filter((row) => row.id !== line.id));
@@ -1771,12 +1768,13 @@ export default function NexoCheckoutDrawer({
     if (
       providerSettings?.active_provider === "helcim" &&
       providerSettings.helcim.enabled &&
-      !providerSettings.helcim.terminal_payments_ready
+      selectedTerminalKey &&
+      !selectedTerminalConfigured
     ) {
       return {
         title: "Terminal payments are not ready",
-        detail: "Helcim is configured, but live terminal payments are not ready from the loaded provider settings.",
-        action: "Check terminal setup before taking card payments. Cash/check tenders are still available if store policy allows.",
+        detail: `${terminalLabel(selectedTerminalKey)} is not configured in the loaded provider settings.`,
+        action: "Check terminal setup before taking card payments on this register. Cash/check tenders are still available if store policy allows.",
         escalation: "Degraded but operational; escalate if customers need card payment now.",
         tone: "warning",
       };
@@ -2459,10 +2457,10 @@ export default function NexoCheckoutDrawer({
                             (providerSettingsLoading ||
                               (providerSettings?.active_provider === "helcim" &&
                                 (!providerSettings.helcim.enabled ||
-                                  !providerSettings.helcim.terminal_payments_ready ||
                                   registerLaneUnavailable ||
                                   !registerTerminalRoute ||
                                   !selectedTerminalKey ||
+                                  !selectedTerminalConfigured ||
                                   (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) ||
                                   helcimAttemptRetryUnavailable)))) ||
                           (tab === "card_manual" &&
@@ -2470,10 +2468,10 @@ export default function NexoCheckoutDrawer({
                               helcimAttemptLoading ||
                               (providerSettings?.active_provider === "helcim" &&
                                 (!providerSettings.helcim.enabled ||
-                                  !providerSettings.helcim.terminal_payments_ready ||
                                   registerLaneUnavailable ||
                                   !registerTerminalRoute ||
                                   !selectedTerminalKey ||
+                                  !selectedTerminalConfigured ||
                                   (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) ||
                                   helcimAttemptRetryUnavailable)))) ||
                           (tab === "card_credit" &&
@@ -2483,10 +2481,10 @@ export default function NexoCheckoutDrawer({
                               !refundOriginalCardPresentConfirmed ||
                               (providerSettings?.active_provider === "helcim" &&
                                 (!providerSettings.helcim.enabled ||
-                                  !providerSettings.helcim.terminal_payments_ready ||
                                   registerLaneUnavailable ||
                                   !registerTerminalRoute ||
                                   !selectedTerminalKey ||
+                                  !selectedTerminalConfigured ||
                                   (selectedTerminalNeedsOverride && !terminalOverrideConfirmed) ||
                                   helcimAttemptRetryUnavailable)))) ||
                           (tab === "card_saved" &&

@@ -36,12 +36,13 @@ Use this panel when setting up Helcim, rotating credentials, adding or replacing
 - You need Settings admin access.
 - Routine Helcim secrets belong in this Settings panel or server environment configuration, not in notes, chats, screenshots, or customer records.
 - Webhooks require a public HTTPS ROS API URL that Helcim can reach. Do not use localhost, 127.0.0.1, or a register workstation URL in Helcim.
+- Live terminal payments require the API token and the device code for the terminal selected by the active register. Terminal 1 is the default for Register #1, Terminal 2 is the default for Register #2, and Registers #3/#4 choose an available configured terminal.
 
 ## Steps
 
 1. Open Settings, then Helcim.
 2. Check API access and terminal readiness.
-3. Save or replace the API token and Terminal 1 / Terminal 2 device codes in Helcim Credentials.
+3. Save or replace the API token and the Terminal 1 / Terminal 2 device codes needed for the store's active registers.
 4. If public webhooks are enabled, paste the public HTTPS delivery URL into Helcim with this path: `/api/webhooks/helcim`.
 5. Enable only the Helcim events ROS handles: `cardTransaction` and `terminalCancel`.
 6. Save the Helcim webhook signing secret in the Optional webhook signing secret field.

@@ -16,6 +16,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { cn } from "@/lib/utils";
 import QRCode from "qrcode";
+import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 interface TailscaleNode {
   ID: string;
@@ -83,6 +84,22 @@ interface EdgeAccessProbe {
   checked_at: string;
   message: string;
   error: string | null;
+}
+
+interface EdgeAccessRepair {
+  status: "repaired" | "verified" | "failed" | "not_configured" | string;
+  hostname: string | null;
+  service_url: string | null;
+  config_path: string | null;
+  updated: boolean;
+  restarted: boolean;
+  message: string;
+  error: string | null;
+}
+
+interface InstalledServerRestartStatus {
+  restarted: boolean;
+  message: string;
 }
 
 const DEFAULT_DB_URL = "postgresql://postgres:password@localhost:5433/riverside_os";
@@ -243,7 +260,10 @@ export default function RemoteAccessPanel() {
   const [edgeStatus, setEdgeStatus] = useState<EdgeAccessStatus | null>(null);
   const [edgeProbe, setEdgeProbe] = useState<EdgeAccessProbe | null>(null);
   const [edgeProbeBusy, setEdgeProbeBusy] = useState(false);
+  const [edgeRepairBusy, setEdgeRepairBusy] = useState(false);
   const [hostBusy, setHostBusy] = useState(false);
+  const [serverRestartBusy, setServerRestartBusy] = useState(false);
+  const [serverRestartArmed, setServerRestartArmed] = useState(false);
   const [disconnectArmed, setDisconnectArmed] = useState(false);
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
@@ -395,6 +415,33 @@ export default function RemoteAccessPanel() {
     }
   };
 
+  const handleServerRestart = async () => {
+    if (!isTauri()) {
+      toast("Server restart is available in the Riverside OS desktop app on the Main Hub.", "error");
+      return;
+    }
+    if (!serverRestartArmed) {
+      setServerRestartArmed(true);
+      toast("Tap Restart Riverside Server again to briefly stop and start the Main Hub API.", "info");
+      return;
+    }
+
+    setServerRestartBusy(true);
+    try {
+      const result = await invoke<InstalledServerRestartStatus>("restart_installed_windows_server", {
+        serverUrl: baseUrl,
+      });
+      toast(result.message || "Riverside server restarted.", "success");
+      setServerRestartArmed(false);
+      await Promise.all([fetchStatus(), fetchEdgeStatus(), refreshHostStatus()]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast(message, "error");
+    } finally {
+      setServerRestartBusy(false);
+    }
+  };
+
   const handleConnect = async () => {
     if (!authKey.trim()) return;
     setConnecting(true);
@@ -463,6 +510,29 @@ export default function RemoteAccessPanel() {
       toast(message, "error");
     } finally {
       setEdgeProbeBusy(false);
+    }
+  };
+
+  const handleEdgeRepair = async () => {
+    setEdgeRepairBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/edge-access/repair-cloudflare`, {
+        method: "POST",
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      const data = (await res.json().catch(() => ({}))) as Partial<EdgeAccessRepair> & {
+        error?: string;
+      };
+      if (!res.ok || data.status === "failed" || data.status === "not_configured") {
+        throw new Error(data.message || data.error || "Cloudflare tunnel repair failed");
+      }
+      toast(data.message || "Cloudflare tunnel route repaired.", "success");
+      await fetchEdgeStatus();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cloudflare tunnel repair failed";
+      toast(message, "error");
+    } finally {
+      setEdgeRepairBusy(false);
     }
   };
 
@@ -558,13 +628,49 @@ export default function RemoteAccessPanel() {
               </div>
               <p className="mt-2 max-w-2xl text-xs font-medium leading-relaxed text-app-text-muted">
                 Public HTTPS access is only needed for outside services such as Helcim and Podium webhooks.
-                Riverside does not manage Cloudflare DNS or WAF from here; this panel checks the local runtime pieces staff need for callback reliability.
+                Riverside can save the callback host and repair the local Cloudflare Tunnel origin; Cloudflare DNS and WAF records remain in Cloudflare.
               </p>
+              <div className="mt-4">
+                <IntegrationCredentialsCard
+                  baseUrl={baseUrl}
+                  integrationKey="edge_access"
+                  title="Public Callback Route"
+                  description="Save the public HTTPS ROS host used by Helcim and other outside services. This updates the running server environment immediately; use Repair Cloudflare Tunnel to point the local tunnel at this ROS server."
+                  fields={[
+                    {
+                      key: "public_base_url",
+                      label: "Public HTTPS base URL",
+                      type: "url",
+                      placeholder: "https://ros.riversidemens.com",
+                      help: "Do not include /api/webhooks. Riverside appends the Helcim and Podium webhook paths automatically.",
+                    },
+                    {
+                      key: "cloudflare_tunnel_hostname",
+                      label: "Cloudflare tunnel hostname",
+                      type: "text",
+                      placeholder: "ros.riversidemens.com",
+                      help: "Used by readiness checks to know Cloudflare Tunnel is expected on this host.",
+                    },
+                  ]}
+                  onSaved={async () => {
+                    await fetchEdgeStatus();
+                  }}
+                />
+              </div>
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
+                  onClick={() => void handleEdgeRepair()}
+                  disabled={edgeRepairBusy || !edgeStatus?.cloudflare_tunnel_hint_configured}
+                  className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-4 py-2 text-xs font-black uppercase tracking-widest text-app-text transition hover:bg-app-bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Terminal className={cn("h-4 w-4", edgeRepairBusy && "animate-pulse")} />
+                  Repair Cloudflare Tunnel
+                </button>
+                <button
+                  type="button"
                   onClick={() => void handleEdgeProbe()}
-                  disabled={edgeProbeBusy || !edgeStatus?.public_https_configured}
+                  disabled={edgeProbeBusy || edgeRepairBusy || !edgeStatus?.public_https_configured}
                   className="inline-flex items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-xs font-black uppercase tracking-widest text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <RefreshCcw className={cn("h-4 w-4", edgeProbeBusy && "animate-spin")} />
@@ -729,6 +835,45 @@ export default function RemoteAccessPanel() {
               </p>
             )}
           </div>
+        </div>
+      </div>
+
+      <div className="ui-card border-app-border bg-app-surface p-6 shadow-xl">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Riverside Server Restart
+              </h3>
+              <span className="rounded-full bg-app-text-muted/20 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                Main Hub API
+              </span>
+            </div>
+            <p className="max-w-3xl text-xs font-medium leading-relaxed text-app-text-muted">
+              Use this after changing server environment settings, payment callback settings, or tunnel repair settings that require a server process restart. Riverside stops the Windows task named <span className="font-mono text-app-text">Riverside OS Server</span>, closes the running server process if needed, starts the task again, then waits until the API responds.
+            </p>
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] font-semibold leading-5 text-app-text-muted">
+              Registers, payment updates, and Back Office screens can lose API access for a short moment while the server restarts. This does not restart this desktop app window and does not reset the database.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleServerRestart()}
+            disabled={serverRestartBusy}
+            className={cn(
+              "inline-flex shrink-0 items-center justify-center gap-2 rounded-xl px-5 py-3 text-xs font-black uppercase tracking-widest transition disabled:cursor-not-allowed disabled:opacity-50",
+              serverRestartArmed
+                ? "border border-amber-500/40 bg-amber-500 text-white hover:opacity-90"
+                : "border border-app-border bg-app-surface-2 text-app-text hover:bg-app-bg-accent",
+            )}
+          >
+            <RefreshCcw className={cn("h-4 w-4", serverRestartBusy && "animate-spin")} />
+            {serverRestartBusy
+              ? "Restarting..."
+              : serverRestartArmed
+                ? "Confirm Restart"
+                : "Restart Riverside Server"}
+          </button>
         </div>
       </div>
 

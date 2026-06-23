@@ -337,8 +337,9 @@ impl HelcimConfig {
         let terminal_2_device_configured =
             self.device_code_for_terminal_key("terminal_2").is_some();
         let webhook_secret_configured = non_empty_env("HELCIM_WEBHOOK_SECRET").is_some();
-        let live_terminal_payments_ready =
-            api_token_configured && terminal_1_device_configured && terminal_2_device_configured;
+        let any_terminal_device_configured =
+            terminal_1_device_configured || terminal_2_device_configured;
+        let live_terminal_payments_ready = api_token_configured && any_terminal_device_configured;
 
         if !simulator_enabled && !api_token_configured {
             missing_config
