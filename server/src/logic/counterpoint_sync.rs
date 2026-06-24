@@ -25,7 +25,7 @@ use crate::logic::{
 // Reset cleanup markers for fallback products created by earlier import builds.
 const HISTORICAL_FALLBACK_SKU: &str = "HIST-CP-FALLBACK";
 const HISTORICAL_FALLBACK_NAME: &str = "Historical Counterpoint Sale (Item Unresolved)";
-const COUNTERPOINT_IMPORT_HISTORY_START: &str = "2018-01-01";
+const COUNTERPOINT_IMPORT_HISTORY_START: &str = "2024-01-01";
 const COUNTERPOINT_TICKET_SUSPICIOUS_MIN: i64 = 1_000;
 const COUNTERPOINT_OPEN_DOC_SUSPICIOUS_MIN: i64 = 100;
 
@@ -14319,7 +14319,7 @@ mod tests {
         let summary = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2018-01-01".into()),
+                history_start: Some("2024-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14374,7 +14374,7 @@ mod tests {
         let summary = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2018-01-01".into()),
+                history_start: Some("2024-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14431,7 +14431,7 @@ mod tests {
         let summary = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2018-01-01".into()),
+                history_start: Some("2024-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14502,7 +14502,7 @@ mod tests {
         let stale_run = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2018-01-01".into()),
+                history_start: Some("2024-01-01".into()),
                 bridge_hostname: Some("stale-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14533,7 +14533,7 @@ mod tests {
         let preflight = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2018-01-01".into()),
+                history_start: Some("2024-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14655,7 +14655,7 @@ mod tests {
         let preflight = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2018-01-01".into()),
+                history_start: Some("2024-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14805,7 +14805,7 @@ mod tests {
         let summary = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2018-01-01".into()),
+                history_start: Some("2024-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14844,7 +14844,7 @@ mod tests {
         let preflight = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2018-01-01".into()),
+                history_start: Some("2024-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -15003,7 +15003,7 @@ mod tests {
         let preflight = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2018-01-01".into()),
+                history_start: Some("2024-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -15382,7 +15382,7 @@ mod tests {
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 run_kind TEXT NOT NULL DEFAULT 'full_import',
                 status TEXT NOT NULL DEFAULT 'preflight_pending',
-                history_start DATE NOT NULL DEFAULT DATE '2018-01-01',
+                history_start DATE NOT NULL DEFAULT DATE '2024-01-01',
                 bridge_hostname TEXT,
                 bridge_version TEXT,
                 ros_base_url TEXT,

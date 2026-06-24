@@ -275,7 +275,7 @@ Full operating rules live in **[`docs/SCHEMA_CONTRACT_AND_MIGRATIONS.md`](docs/S
 ### Data Provenance & Integrity
 Riverside OS maintains a strict **Source of Truth** policy for Counterpoint integrations:
 - **Calculation over Static Fields**: Customer **Lifetime Sales** are never pulled as a static value. They are calculated dynamically by aggregating all imported `transactions` with `booked_at >= '2018-01-01'`.
-- **Current bridge default**: The shipped Counterpoint bridge now defaults **`CP_IMPORT_SINCE`** to **`2018-01-01`**. This is the accepted migration floor for historical Counterpoint data in ROS and should remain visible in bridge preflight unless operators are intentionally running a narrower rehearsal.
+- **Current bridge default**: The shipped Counterpoint bridge now defaults **`CP_IMPORT_SINCE`** to **`2024-01-01`**. This is the accepted go-live floor for historical Counterpoint data in ROS; older history can be backfilled separately after cutover.
 - **Greedy Open Docs**: The bridge captures ALL open documents (`PS_DOC`) regardless of date to ensure the non-takeaway backlog (Layaways/Quotes) is preserved.
 
 | Path | Role | Audience |

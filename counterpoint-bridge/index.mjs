@@ -262,7 +262,7 @@ const startLocalServer = () => {
                         }));
                         return;
                     }
-                    const since = (process.env.CP_IMPORT_SINCE ?? "2018-01-01").trim();
+                    const since = CP_IMPORT_SINCE;
                     querySqlForError = String(effectiveSql[sqlKey] ?? "").replace(/__CP_IMPORT_SINCE__/g, since);
                     const rows = await executeQuery(querySqlForError);
                     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -469,15 +469,46 @@ function reloadDotEnv() {
 loadDotEnv();
 
 const STATE_FILE = process.env.CURSOR_STATE_FILE ?? path.join(__dirname, ".counterpoint-bridge-state.json");
-const REQUIRED_CP_IMPORT_SINCE = "2018-01-01";
+const REQUIRED_CP_IMPORT_SINCE = "2024-01-01";
 const CP_IMPORT_SINCE = (
   process.env.CP_IMPORT_SINCE ?? REQUIRED_CP_IMPORT_SINCE
 ).trim();
 
-// Helper to get the starting date for queries (either .env default or last success)
+let activeSyncAnchorRunKind = null;
+
+const SYNC_ANCHOR_PARENT_ENTITY = Object.freeze({
+  ticket_lines: "tickets",
+  ticket_payments: "tickets",
+  ticket_cells: "tickets",
+  ticket_notes: "tickets",
+  ticket_gift: "tickets",
+  open_doc_lines: "open_docs",
+  open_doc_pmt: "open_docs",
+  catalog_cells: "catalog",
+});
+
+function syncAnchorRunKindUsesCursor(runKind) {
+  const raw = String(runKind || "").trim().toLowerCase();
+  return ["update", "incremental", "incremental_update", "since_last_run"].includes(raw);
+}
+
+function setSyncAnchorRunKind(runKind) {
+  const previous = activeSyncAnchorRunKind;
+  activeSyncAnchorRunKind = runKind || null;
+  return () => {
+    activeSyncAnchorRunKind = previous;
+  };
+}
+
+// Helper to get the starting date for queries. Full/import-fix runs must use
+// the fixed cutover floor; only incremental updates may use saved cursors.
 function getSyncAnchorDate(entityKey) {
+  if (!syncAnchorRunKindUsesCursor(activeSyncAnchorRunKind ?? process.env.CP_IMPORT_RUN_KIND)) {
+    return CP_IMPORT_SINCE;
+  }
   const state = readState();
-  return state[`${entityKey}_last_date`] || CP_IMPORT_SINCE;
+  const anchorEntity = SYNC_ANCHOR_PARENT_ENTITY[entityKey] || entityKey;
+  return state[`${anchorEntity}_last_date`] || state.global_last_date || CP_IMPORT_SINCE;
 }
 
 /** Pass-through so queries retain the history-floor placeholder until execution. */
@@ -3820,7 +3851,7 @@ function mapTicketLineRow(r) {
 
 function mapTicketPaymentRow(r) {
   return {
-    pmt_typ: String(r.pmt_typ ?? r.pay_cod ?? "CASH").trim(),
+    pmt_typ: String(r.pmt_typ ?? r.pay_cod ?? "").trim(),
     amount: String(r.amount ?? r.pmt_amt ?? "0"),
     gift_cert_no: r.gift_cert_no ?? undefined,
   };
@@ -5683,6 +5714,7 @@ async function runManualBridgeExtraction(entity = "full", mode = null) {
   }
   const runKind = normalizeImportRunKindForBridge(mode, entity);
   const runLabel = importRunKindLabel(runKind);
+  const restoreSyncAnchorRunKind = setSyncAnchorRunKind(runKind);
 
   BRIDGE_STATE.isSyncing = true;
   BRIDGE_STATE.abortRequested = false;
@@ -5742,6 +5774,7 @@ async function runManualBridgeExtraction(entity = "full", mode = null) {
     await completeImportFirstRun({ failed: true, errorMessage: err.message }).catch(() => null);
     throw err;
   } finally {
+    restoreSyncAnchorRunKind();
     BRIDGE_STATE.isSyncing = false;
     BRIDGE_STATE.currentEntity = null;
     BRIDGE_STATE.abortRequested = false;
@@ -5898,7 +5931,14 @@ async function main() {
 
   await rebuildEffectiveSql(pool);
   validateCounterpointSyncDependencyPlan();
-  await runImportFirstSourcePreflight(pool);
+  {
+    const restoreSyncAnchorRunKind = setSyncAnchorRunKind("full_import");
+    try {
+      await runImportFirstSourcePreflight(pool);
+    } finally {
+      restoreSyncAnchorRunKind();
+    }
+  }
 
   console.info(
     `[ingest] Mode: ${
@@ -5962,6 +6002,14 @@ async function main() {
       lastAutoRunTime = now;
     }
 
+    const pendingRequestEntities = hasPendingRequest && hbResp.pending_request_entity
+      ? new Set([...(ENTITY_DEPENDENCIES[hbResp.pending_request_entity] || []), hbResp.pending_request_entity])
+      : null;
+    const requestedEntity = hasPendingRequest ? (hbResp.pending_request_entity || "full") : "full";
+    const runKind = hasPendingRequest
+      ? normalizeImportRunKindForBridge(null, requestedEntity)
+      : "incremental_update";
+    const restoreSyncAnchorRunKind = setSyncAnchorRunKind(runKind);
     let preflightSummary = null;
     try {
       preflightSummary = await runImportFirstSourcePreflight(pool);
@@ -5976,6 +6024,7 @@ async function main() {
         } catch { /* ignore secondary error */ }
       }
       isTickRunning = false;
+      restoreSyncAnchorRunKind();
       return;
     }
 
@@ -5984,13 +6033,6 @@ async function main() {
     BRIDGE_STATE.totalRecordsLastRun = 0;
     const tStart = Date.now();
     pushEvent('start', null, 'Auto-sync cycle started');
-    const pendingRequestEntities = hasPendingRequest && hbResp.pending_request_entity
-      ? new Set([...(ENTITY_DEPENDENCIES[hbResp.pending_request_entity] || []), hbResp.pending_request_entity])
-      : null;
-    const requestedEntity = hasPendingRequest ? (hbResp.pending_request_entity || "full") : "full";
-    const runKind = hasPendingRequest
-      ? normalizeImportRunKindForBridge(null, requestedEntity)
-      : "incremental_update";
 
     try {
       await startImportFirstRun(preflightSummary, {
@@ -6054,6 +6096,7 @@ async function main() {
           } catch (e) { /* ignore secondary error */ }
       }
     } finally {
+      restoreSyncAnchorRunKind();
       BRIDGE_STATE.isSyncing = false;
       BRIDGE_STATE.currentEntity = null;
       isTickRunning = false;

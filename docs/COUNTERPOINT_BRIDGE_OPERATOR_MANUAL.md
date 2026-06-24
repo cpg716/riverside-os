@@ -208,7 +208,7 @@ Conflicting `SYNC_*` combinations exit with `[sync-plan]` errors unless `SYNC_RE
 
 | Env | Meaning |
 |-----|---------|
-| `CP_IMPORT_SINCE` | Current shipped default is **2018-01-01**. This is the accepted migration floor and should stay visible in bridge preflight unless you are intentionally running a narrower rehearsal. |
+| `CP_IMPORT_SINCE` | Current shipped default is **2024-01-01**. This is the accepted go-live floor for historical Counterpoint data; older history can be backfilled separately after cutover. |
 | `CP_IMPORT_SCOPE=maximal` | For **empty** env lines only, substitutes built-in wide SQL for customers, inventory, catalog, vendor_items, category_masters. Non-empty `CP_*_QUERY` still wins. **0.7.2+:** maximal **parent** catalog + inventory SQL is **schema-flex** (probes `INFORMATION_SCHEMA` so missing `LONG_DESCR`, missing `IM_PRC`, or `BARCOD` vs `BARCODE` does not hard-fail the query). |
 | `CP_INVENTORY_LOC_ID` / `CP_CATALOG_INV_LOC_ID` | Stock location for `IM_INV` joins (default **`MAIN`**). If you get no rows or errors, run `SELECT DISTINCT LOC_ID FROM IM_INV` in SSMS and set these to your real code. |
 | `CP_AUTO_SCHEMA=1` (default) | After SQL connect, probes `INFORMATION_SCHEMA`: IM_INV cost column, IM_ITEM vendor column, PO_VEND naming, optional PO_VEND_ITEM link. Logs one `[auto-schema]` line. Set `CP_AUTO_SCHEMA=0` to skip. |

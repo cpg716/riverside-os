@@ -64,6 +64,10 @@ The only active migration files in `migrations/` are:
 | `086_rosie_tool_gap_log.sql` | ROSIE unsupported tool gap logging |
 | `087_open_deposit_ledger_sources.sql` | Open deposit ledger source traceability |
 | `088_drop_counterpoint_review_pack_tables.sql` | Drops retired Counterpoint review-pack tables from the active schema |
+| `089_restore_custom_order_catalog_skus.sql` | Restores protected ROS custom-order catalog SKUs and preserves Counterpoint copies under CP-prefixed SKUs |
+| `090_counterpoint_import_run_kind_modes.sql` | Normalizes Counterpoint import-run kinds for direct live ingest |
+| `091_counterpoint_2024_history_floor.sql` | Sets the Counterpoint import-run history floor default to January 1, 2024 |
+| `092_counterpoint_live_tender_aliases.sql` | Adds live Riverside Counterpoint tender aliases observed in 2024+ history probes |
 
 Historical migration files live under `migrations/legacy_prelaunch_history/`. They are not applied by the normal migration scripts.
 

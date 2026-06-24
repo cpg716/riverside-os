@@ -21,7 +21,7 @@ The Counterpoint screen in **Settings → Integrations → Counterpoint** is the
 
 The Command Center shows a business-area ingest path for Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points. Each one follows the same control pattern: Bridge extraction → ROS import/proof → staff review/fix → PostgreSQL.
 
-Advancement is proof-gated. Bridge-reported row counts alone do not unlock cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, empty required SQL mappings, or a history floor other than January 1, 2018, ROS records a failed preflight and the Bridge blocks the import.
+Advancement is proof-gated. Bridge-reported row counts alone do not unlock cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, empty required SQL mappings, or a history floor other than January 1, 2024, ROS records a failed preflight and the Bridge blocks the import.
 
 During a direct Bridge run, ROS records source-count proof, raw rows, provenance links to landed ROS rows, exceptions, and landed-row proof for the current import run. Ticket and open-doc line/payment proof is counted from the landed source payload child rows for that import run, so repeat proof stays tied to the Bridge input instead of whatever child rows were rewritten in PostgreSQL. Rows that fail validation remain visible as import exceptions until staff fixes them and reruns the affected import area or ROS can prove the source row landed.
 
@@ -333,7 +333,7 @@ Default runtime inventory mapping pulls `IM_INV` rows and `IM_INV_CELL` rows for
 
 **Provenance:** Products created by this sync get `data_source = 'counterpoint'` (migration 85). Products that already exist (matched via their variants' `counterpoint_item_key`) are updated but their `data_source` is not overwritten.
 
-**Default catalog:** the runtime mapper sends Counterpoint parent products that are active now or have evidence since `CP_IMPORT_SINCE` (default January 1, 2018): recent sales, active open docs, receiving activity, or nonzero inventory. It also sends `IM_INV_CELL` matrix cells with their Counterpoint cell keys and quantity fields when that table is visible.
+**Default catalog:** the runtime mapper sends Counterpoint parent products that are active now or have evidence since `CP_IMPORT_SINCE` (default January 1, 2024): recent sales, active open docs, receiving activity, or nonzero inventory. It also sends `IM_INV_CELL` matrix cells with their Counterpoint cell keys and quantity fields when that table is visible.
 
 **Category mapping:** The bridge sends a `category` string from `CATEG_COD`. ROS looks up `counterpoint_category_map` first (admin-configurable), then falls back to a case-insensitive name match in `categories`. Unmapped categories result in `category_id = NULL` on the product.
 
@@ -405,7 +405,7 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 - Loyalty point accrual is **skipped** (no double-counting with Counterpoint's loyalty system)
 - The Transaction Record is identifiable as a historical import in reports and UI
 
-**Payment method mapping:** Pre-seeded in migration 84:
+**Payment method mapping:** Pre-seeded by the Counterpoint hardening migrations:
 
 | Counterpoint `PAY_COD` | ROS `payment_method` |
 |-------------------------|----------------------|
@@ -416,6 +416,11 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | `DEBIT` | `credit_card` |
 | `GIFT CERT` | `gift_card` |
 | `ON ACCOUNT` | `on_account` |
+| `RMS 90 DAY` | `on_account_rms90` |
+| `STORE CRED` | `store_credit` |
+| `LOYALTY` | `gift_card` |
+| `DONATION` | `gift_card` |
+| `PROM GC` | `gift_card` |
 
 ROS ships common Counterpoint tender mappings, and admins can review or change them in **Settings → Counterpoint → Payments**. Unknown tender codes no longer silently fall back to cash; they import as `counterpoint_unmapped`, preserve the original Counterpoint tender code in payment metadata, and create an unresolved sync issue that must be reviewed before sign-off.
 
