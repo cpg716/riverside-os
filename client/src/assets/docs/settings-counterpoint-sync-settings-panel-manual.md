@@ -67,6 +67,8 @@ The proof table compares:
 
 Some rows can intentionally create more than one ROS row, such as matrix variants. ROS proof should explain that clearly; unexplained gaps or failed required areas need review.
 
+If a Bridge import fails before completion, the proof table shows the run as failed and ignores any partial landed rows from that failed run. Fix the Bridge extraction error, rerun the affected area or full import, then refresh proof before reviewing gaps.
+
 ## Exceptions
 
 Import exceptions identify Counterpoint rows that did not land cleanly. Each exception card shows the affected import area, source details from the raw Counterpoint payload, and action buttons.

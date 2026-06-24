@@ -592,6 +592,10 @@ export default function CounterpointSyncSettingsPanel({
   const proofScopeLabel =
     commandCenter?.proof_scope === "current_import_run"
       ? "Current import run"
+      : commandCenter?.proof_scope === "failed_import_run"
+        ? "Failed import run"
+        : commandCenter?.proof_scope === "running_import_run"
+          ? "Running import run"
       : commandCenter?.proof_scope === "preflight_only"
         ? "Preflight only"
         : "No import preflight";
@@ -1224,6 +1228,10 @@ export default function CounterpointSyncSettingsPanel({
                         : "Ready"
                       : row.queuedRows > 0
                         ? "Queued in ROS support queue"
+                        : row.landedStatus === "failed"
+                          ? "Import failed; rerun"
+                          : row.landedStatus === "running"
+                            ? "Import running"
                         : row.landedCount > 0 && row.gap !== 0
                           ? "Proof needs review"
                           : row.sentByBridge > 0

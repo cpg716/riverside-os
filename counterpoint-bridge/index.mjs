@@ -1122,7 +1122,7 @@ function buildFlexMaxCustomersSql(ptsCol, entries) {
 }
 
 function sqlMaxCatalog(costCol) {
-  return `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS item_no, RTRIM(LTRIM(i.DESCR)) AS descr, i.LONG_DESCR AS long_descr, RTRIM(LTRIM(i.CATEG_COD)) AS categ_cod, RTRIM(LTRIM(i.VEND_NO)) AS vend_no, CASE WHEN EXISTS (SELECT 1 FROM IM_INV_CELL g WHERE g.ITEM_NO = i.ITEM_NO) THEN 'Y' ELSE 'N' END AS is_grd, p.PRC_1 AS prc_1, p.PRC_2 AS prc_2, p.PRC_3 AS prc_3, inv.${costCol} AS lst_cost, b.BARCOD AS barcode FROM IM_ITEM i LEFT JOIN IM_PRC p ON p.ITEM_NO = i.ITEM_NO LEFT JOIN IM_INV inv ON inv.ITEM_NO = i.ITEM_NO AND inv.LOC_ID = 'MAIN' LEFT JOIN IM_BARCOD b ON b.ITEM_NO = i.ITEM_NO WHERE RTRIM(LTRIM(i.ITEM_NO)) <> N'' ORDER BY i.ITEM_NO`;
+  return `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS item_no, RTRIM(LTRIM(i.DESCR)) AS descr, i.LONG_DESCR AS long_descr, RTRIM(LTRIM(i.CATEG_COD)) AS categ_cod, RTRIM(LTRIM(i.VEND_NO)) AS vend_no, CASE WHEN EXISTS (SELECT 1 FROM IM_INV_CELL g WHERE g.ITEM_NO = i.ITEM_NO) THEN 'Y' ELSE 'N' END AS is_grd, p.PRC_1 AS prc_1, p.PRC_2 AS prc_2, p.PRC_3 AS prc_3, inv.lst_cost AS lst_cost, b.barcode AS barcode FROM IM_ITEM i LEFT JOIN (SELECT ITEM_NO, MAX(PRC_1) AS PRC_1, MAX(PRC_2) AS PRC_2, MAX(PRC_3) AS PRC_3 FROM IM_PRC GROUP BY ITEM_NO) p ON p.ITEM_NO = i.ITEM_NO LEFT JOIN (SELECT ITEM_NO, MAX(${costCol}) AS lst_cost FROM IM_INV WHERE LOC_ID = 'MAIN' GROUP BY ITEM_NO) inv ON inv.ITEM_NO = i.ITEM_NO LEFT JOIN (SELECT ITEM_NO, MIN(RTRIM(LTRIM(CONVERT(NVARCHAR(128), BARCOD)))) AS barcode FROM IM_BARCOD WHERE NULLIF(RTRIM(LTRIM(CONVERT(NVARCHAR(128), BARCOD))), N'') IS NOT NULL GROUP BY ITEM_NO) b ON b.ITEM_NO = i.ITEM_NO WHERE RTRIM(LTRIM(i.ITEM_NO)) <> N'' ORDER BY i.ITEM_NO`;
 }
 
 function sqlMaxInventory(costCol) {
@@ -1141,6 +1141,34 @@ function sqlLocId() {
 
 function escapeSqlStringLiteral(s) {
   return String(s).replace(/'/g, "''");
+}
+
+function aggregatePriceJoin(tableSet) {
+  const aggregates = [];
+  for (const column of ["PRC_1", "PRC_2", "PRC_3"]) {
+    if (tableSet?.has(column)) {
+      aggregates.push(`MAX([${column}]) AS [${column}]`);
+    }
+  }
+  if (aggregates.length === 0) return "";
+  return `LEFT JOIN (SELECT [ITEM_NO], ${aggregates.join(", ")} FROM IM_PRC GROUP BY [ITEM_NO]) p ON p.[ITEM_NO] = i.[ITEM_NO]`;
+}
+
+function aggregateInventoryCostJoin(tableSet, costField, locId) {
+  if (!tableSet || !costField) return "";
+  const locEsc = escapeSqlStringLiteral(locId);
+  const locWhere = tableSet.has("LOC_ID") ? ` WHERE [LOC_ID] = N'${locEsc}'` : "";
+  return `LEFT JOIN (SELECT [ITEM_NO], MAX([${costField}]) AS [lst_cost] FROM IM_INV${locWhere} GROUP BY [ITEM_NO]) inv ON inv.[ITEM_NO] = i.[ITEM_NO]`;
+}
+
+function aggregateBarcodeJoin(tableSet) {
+  const barcodeColumn = tableSet?.has("BARCOD") ? "BARCOD" : tableSet?.has("BARCODE") ? "BARCODE" : null;
+  if (!barcodeColumn) return { join: "", select: "CAST(NULL AS NVARCHAR(128)) AS barcode" };
+  const normalized = `RTRIM(LTRIM(CONVERT(NVARCHAR(128), [${barcodeColumn}])))`;
+  return {
+    join: `LEFT JOIN (SELECT [ITEM_NO], MIN(${normalized}) AS [barcode] FROM IM_BARCOD WHERE NULLIF(${normalized}, N'') IS NOT NULL GROUP BY [ITEM_NO]) b ON b.[ITEM_NO] = i.[ITEM_NO]`,
+    select: "b.[barcode] AS barcode",
+  };
 }
 
 function normalizedSqlText(alias, column, width = 64) {
@@ -1292,7 +1320,6 @@ function buildCounterpointItemScopePredicate(entries, itemAlias, locId) {
  * INFORMATION_SCHEMA so missing LONG_DESCR, IM_PRC, or IM_BARCOD/BARCOD names do not hard-fail the query.
  */
 function buildFlexMaxCatalogSql(invCostCol, locId, entries) {
-  const locEsc = escapeSqlStringLiteral(locId);
   const imItem = entries ? columnSet(entries, "IM_ITEM") : null;
   const imInv = entries ? columnSet(entries, "IM_INV") : null;
   const imPrc = entries ? columnSet(entries, "IM_PRC") : null;
@@ -1309,14 +1336,11 @@ function buildFlexMaxCatalogSql(invCostCol, locId, entries) {
     ? "CASE WHEN EXISTS (SELECT 1 FROM IM_INV_CELL g WHERE g.ITEM_NO = i.ITEM_NO) THEN 'Y' ELSE 'N' END"
     : "N'N'";
 
-  const prcJoin = imPrc ? "LEFT JOIN IM_PRC p ON p.ITEM_NO = i.ITEM_NO" : "";
-  const prc1 = imPrc?.has("PRC_1") ? "p.PRC_1" : "CAST(NULL AS DECIMAL(18,4))";
-  const prc2 = imPrc?.has("PRC_2") ? "p.PRC_2" : "CAST(NULL AS DECIMAL(18,4))";
-  const prc3 = imPrc?.has("PRC_3") ? "p.PRC_3" : "CAST(NULL AS DECIMAL(18,4))";
+  const prcJoin = aggregatePriceJoin(imPrc);
+  const prc1 = imPrc?.has("PRC_1") ? "p.[PRC_1]" : "CAST(NULL AS DECIMAL(18,4))";
+  const prc2 = imPrc?.has("PRC_2") ? "p.[PRC_2]" : "CAST(NULL AS DECIMAL(18,4))";
+  const prc3 = imPrc?.has("PRC_3") ? "p.[PRC_3]" : "CAST(NULL AS DECIMAL(18,4))";
 
-  const invJoin = imInv
-    ? `LEFT JOIN IM_INV inv ON inv.ITEM_NO = i.ITEM_NO AND inv.LOC_ID = N'${locEsc}'`
-    : "";
   let costField = invCostCol;
   if (imInv && !imInv.has(invCostCol)) {
     costField = imInv.has("LST_COST")
@@ -1327,20 +1351,11 @@ function buildFlexMaxCatalogSql(invCostCol, locId, entries) {
           ? "LAST_COST"
           : null;
   }
+  const invJoin = aggregateInventoryCostJoin(imInv, costField, locId);
   const invCostSql =
-    imInv && costField ? `inv.${costField}` : "CAST(NULL AS DECIMAL(18,4))";
+    imInv && costField ? "inv.[lst_cost]" : "CAST(NULL AS DECIMAL(18,4))";
 
-  let barcodeSelect;
-  let barcodeJoin = "";
-  if (imBar?.has("BARCOD")) {
-    barcodeSelect = "b.BARCOD AS barcode";
-    barcodeJoin = "LEFT JOIN IM_BARCOD b ON b.ITEM_NO = i.ITEM_NO";
-  } else if (imBar?.has("BARCODE")) {
-    barcodeSelect = "b.BARCODE AS barcode";
-    barcodeJoin = "LEFT JOIN IM_BARCOD b ON b.ITEM_NO = i.ITEM_NO";
-  } else {
-    barcodeSelect = "CAST(NULL AS NVARCHAR(64)) AS barcode";
-  }
+  const { join: barcodeJoin, select: barcodeSelect } = aggregateBarcodeJoin(imBar);
 
   const tail = [prcJoin, invJoin, barcodeJoin].filter(Boolean).join(" ");
   const itemScope = buildCounterpointItemScopePredicate(entries, "i", locId);
@@ -4094,8 +4109,7 @@ async function syncCatalog(pool) {
   }
 
   const CATALOG_BATCH_SIZE = 400;
-  const MAX_CONCURRENCY = 4;
-  console.info(`[catalog] Starting ingest (batch=${CATALOG_BATCH_SIZE}, max_parallel=${MAX_CONCURRENCY})...`);
+  console.info(`[catalog] Starting extraction (post batch=${CATALOG_BATCH_SIZE})...`);
 
   const state = readState();
   const processedItemNos = new Set();
@@ -4115,8 +4129,6 @@ async function syncCatalog(pool) {
   const catalogCategoryVendorDiagnosticParts = [];
   const catalogVariantLabelDiagnosticParts = [];
   let skippedDuplicates = 0;
-  let inFlight = 0;
-  const pendingRequests = [];
   const failures = [];
   let lastSuccessfulCursor = null;
 
@@ -4170,7 +4182,7 @@ async function syncCatalog(pool) {
       } else if (totalRowsReceived !== lastLoggedRowsReceived) {
         lastLoggedRowsReceived = totalRowsReceived;
         logToDashboard(
-          `[catalog] streaming: ${totalRowsReceived} SQL rows read, ${totalProcessed} items sent.`,
+          `[catalog] streaming: ${totalRowsReceived} SQL rows read, ${batchBuffer.length} unique item(s) buffered.`,
         );
       } else {
         logToDashboard(
@@ -4207,35 +4219,6 @@ async function syncCatalog(pool) {
         catalogCategoryVendorDiagnosticParts.push(catalogCategoryVendorDiagnosticRow(mapped));
         catalogVariantLabelDiagnosticParts.push(...catalogVariantLabelDiagnosticRows(mapped));
         batchBuffer.push(mapped);
-        if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
-          const chunk = [...batchBuffer];
-          batchBuffer = [];
-
-          const last = chunk[chunk.length - 1].item_no;
-          inFlight++;
-          if (inFlight >= MAX_CONCURRENCY) request.pause();
-
-          const promise = rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } })
-            .then((summary) => {
-              markCatalogActivity();
-              totalProcessed += chunk.length;
-              if (totalProcessed % 500 === 0) {
-                logToDashboard(`[catalog] ingest: ${totalProcessed} items processed...`);
-                console.info(`[catalog] progress: ${totalProcessed} items (skipped ${skippedDuplicates} duplicates)...`);
-              }
-              if (last) lastSuccessfulCursor = last;
-              inFlight--;
-              if (inFlight < MAX_CONCURRENCY) request.resume();
-            })
-            .catch((err) => {
-              markCatalogActivity();
-              console.error("[catalog] batch failed:", err.message);
-              failures.push(err);
-              inFlight--;
-              if (inFlight < MAX_CONCURRENCY) request.resume();
-            });
-          pendingRequests.push(promise);
-        }
       }
     });
 
@@ -4249,25 +4232,28 @@ async function syncCatalog(pool) {
       if (settled) return;
       markCatalogActivity();
       try {
-        if (batchBuffer.length > 0) {
-          const chunk = [...batchBuffer];
+        logToDashboard(
+          `[catalog] SQL extraction complete. Posting ${batchBuffer.length} unique catalog item(s) to ROS.`,
+        );
+        for (let i = 0; i < batchBuffer.length; i += CATALOG_BATCH_SIZE) {
+          const chunk = batchBuffer.slice(i, i + CATALOG_BATCH_SIZE);
           const last = chunk[chunk.length - 1].item_no;
-          pendingRequests.push(
-            rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } })
-              .then((summary) => {
-                console.info("[catalog] batch", summary);
-                markCatalogActivity();
-                totalProcessed += chunk.length;
-                if (last) lastSuccessfulCursor = last;
-              })
-              .catch((err) => {
-                markCatalogActivity();
-                console.error("[catalog] batch failed:", err.message);
-                failures.push(err);
-              }),
-          );
+          try {
+            const summary = await rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } });
+            console.info("[catalog] batch", summary);
+            markCatalogActivity();
+            totalProcessed += chunk.length;
+            if (totalProcessed % 500 === 0 || totalProcessed === batchBuffer.length) {
+              logToDashboard(`[catalog] ingest: ${totalProcessed}/${batchBuffer.length} items processed...`);
+              console.info(`[catalog] progress: ${totalProcessed} items (skipped ${skippedDuplicates} duplicates)...`);
+            }
+            if (last) lastSuccessfulCursor = last;
+          } catch (err) {
+            markCatalogActivity();
+            console.error("[catalog] batch failed:", err.message);
+            failures.push(err);
+          }
         }
-        await Promise.all(pendingRequests);
         throwIfBatchFailures("catalog", failures, totalProcessed, totalMappedRows);
         if (lastSuccessfulCursor) {
           state.catalog_cursor = lastSuccessfulCursor;
