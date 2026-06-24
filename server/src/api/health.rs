@@ -3,7 +3,7 @@
 use axum::{extract::State, http::StatusCode, response::Json};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
 use super::AppState;
@@ -48,6 +48,9 @@ pub struct WorkerStatus {
 // Shared state for tracking worker health
 pub static WORKER_HEALTH: tokio::sync::OnceCell<RwLock<WorkerHealth>> =
     tokio::sync::OnceCell::const_new();
+
+const DATABASE_HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
+const REDIS_HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Default)]
 pub struct WorkerHealth {
@@ -119,7 +122,10 @@ pub async fn ready(State(state): State<AppState>) -> Result<Json<ReadyResponse>,
     // Check database connectivity
     let database_status = match check_database_health(&state.db).await {
         Ok(status) => status,
-        Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
+        Err(error) => {
+            tracing::warn!(%error, "readiness database check failed");
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
     };
 
     // Check background workers using actual heartbeats
@@ -157,9 +163,15 @@ pub async fn live() -> Result<Json<serde_json::Value>, StatusCode> {
     Ok(Json(response))
 }
 
-async fn check_database_health(pool: &PgPool) -> Result<DatabaseStatus, sqlx::Error> {
+async fn check_database_health(pool: &PgPool) -> Result<DatabaseStatus, String> {
     // Test database connectivity with a simple query
-    let _: i32 = sqlx::query_scalar("SELECT 1").fetch_one(pool).await?;
+    let _: i32 = tokio::time::timeout(
+        DATABASE_HEALTH_TIMEOUT,
+        sqlx::query_scalar("SELECT 1").fetch_one(pool),
+    )
+    .await
+    .map_err(|_| "database health check timed out".to_string())?
+    .map_err(|error| error.to_string())?;
 
     let pool_size = pool.size();
     let idle_connections = pool.num_idle() as u32;
@@ -175,10 +187,14 @@ async fn check_database_health(pool: &PgPool) -> Result<DatabaseStatus, sqlx::Er
 
 async fn check_redis_health(cache: &Option<crate::cache::CacheService>) -> bool {
     let Some(svc) = cache else { return false };
-    match svc.redis().ping().await {
-        Ok(_) => true,
-        Err(e) => {
+    match tokio::time::timeout(REDIS_HEALTH_TIMEOUT, svc.redis().ping()).await {
+        Ok(Ok(_)) => true,
+        Ok(Err(e)) => {
             tracing::warn!(error = %e, "Redis health check failed");
+            false
+        }
+        Err(_) => {
+            tracing::warn!("Redis health check timed out");
             false
         }
     }
