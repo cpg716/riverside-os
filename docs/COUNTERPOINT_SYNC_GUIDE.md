@@ -337,6 +337,8 @@ Default runtime inventory mapping pulls `IM_INV` rows and `IM_INV_CELL` rows for
 
 **Category mapping:** The bridge sends a `category` string from `CATEG_COD`. ROS looks up `counterpoint_category_map` first (admin-configurable), then falls back to a case-insensitive name match in `categories`. Unmapped categories result in `category_id = NULL` on the product.
 
+**Generated SKU recovery:** If Counterpoint sends a valid item number such as `I-12345` but the SKU/barcode is blank, non-usable, or duplicated, ROS generates a deterministic SKU from the Counterpoint item key, for example `CP-I-12345` or `CP-I-12345-RED-40`. The original Counterpoint item number remains in `counterpoint_item_key`, the row is not discarded solely because the SKU is missing, and ROS records a `generated_sku` import exception with the original source payload for staff review. Review those exceptions before sign-off, then print tags from Inventory using the generated SKU if the generated value is accepted.
+
 ### 4e. Gift cards
 
 **Source:** `dbo.SY_GFT_CERT` / `dbo.SY_GFC` current issued-card rows.
@@ -415,7 +417,9 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
 ROS ships common Counterpoint tender mappings, and admins can review or change them in **Settings → Counterpoint → Payments**. Unknown tender codes no longer silently fall back to cash; they import as `counterpoint_unmapped`, preserve the original Counterpoint tender code in payment metadata, and create an unresolved sync issue that must be reviewed before sign-off.
 
-Historical tickets and open documents are not dropped solely because Counterpoint omitted line detail or provided only an ambiguous parent item key. When a financial record has payment/header value but no exact ROS variant can be selected, ROS imports it against the `HIST-CP-FALLBACK` item, preserves the original Counterpoint key in `transaction_lines.vendor_reference`, shows the original Counterpoint description/SKU in order review, and raises a review warning for operator cleanup. Imported open documents land as current obligations with line lifecycle set to ready for pickup; they do not need the full new-ROS order lifecycle before go-live review.
+Historical tickets are not dropped solely because Counterpoint omitted line detail or provided only an ambiguous parent item key. When a closed historical record has payment/header value but no exact ROS variant can be selected, ROS imports it against the `HIST-CP-FALLBACK` item, preserves the original Counterpoint key in `transaction_lines.vendor_reference`, shows the original Counterpoint description/SKU in order review, and raises a review warning for operator cleanup.
+
+Open documents are stricter because they are active customer obligations. If an open-doc line cannot resolve to a ROS variant after catalog/SKU recovery, ROS keeps the source payload and opens an import exception instead of creating a placeholder line. Fix or relink the missing item through the catalog/inventory import path, rerun Open Orders, and then use Recheck after ROS can prove the same Counterpoint source key landed.
 
 ### 4f-2. Customer ID Matching & Prefix Logic (v0.8.0+)
 To handle mixed Counterpoint ID formats (plain integers vs. `C-` prefixed strings), the ROS sync service employs a bidirectional resolution strategy during ticket and open-doc imports:

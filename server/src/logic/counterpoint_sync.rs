@@ -323,6 +323,7 @@ pub struct CounterpointInventorySummary {
     pub updated: i32,
     pub skipped: i32,
     pub quarantined: i32,
+    pub generated_skus: i32,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -741,6 +742,18 @@ struct CounterpointIngestQuarantineRecord {
     source_row: serde_json::Value,
 }
 
+#[derive(Debug, Clone)]
+struct CounterpointGeneratedSkuRecord {
+    entity_key: &'static str,
+    source_key: String,
+    original_sku: Option<String>,
+    generated_sku: String,
+    description: Option<String>,
+    vendor: Option<String>,
+    category: Option<String>,
+    source_payload: serde_json::Value,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CounterpointReceivingRow {
     pub vend_no: String,
@@ -860,6 +873,16 @@ fn is_counterpoint_parent_item_sku(normalized_sku: &str) -> bool {
     !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
 }
 
+fn is_counterpoint_recovered_sku(normalized_sku: &str) -> bool {
+    let Some(rest) = normalized_sku.strip_prefix("CP-I-") else {
+        return false;
+    };
+    !rest.is_empty()
+        && rest
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
 fn is_generated_or_service_sku(normalized_sku: &str) -> bool {
     normalized_sku.bytes().all(|b| b.is_ascii_digit()) || normalized_sku == "PAYMENT"
 }
@@ -874,6 +897,28 @@ fn option_values_from_counterpoint_item_key(counterpoint_item_key: Option<&str>)
         .flat_map(|key| key.split('|').skip(1))
         .filter_map(normalize_identity_key)
         .collect()
+}
+
+fn valid_counterpoint_item_key(raw: Option<&str>) -> Option<String> {
+    let normalized = raw.and_then(normalize_identity_key)?;
+    let family = normalize_counterpoint_family_key(&normalized)?;
+    is_counterpoint_parent_item_sku(&family).then_some(normalized)
+}
+
+fn deterministic_counterpoint_recovery_sku(counterpoint_item_key: &str) -> Option<String> {
+    let key = valid_counterpoint_item_key(Some(counterpoint_item_key))?;
+    let safe_key: String = key
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let safe_key = safe_key.trim_matches('-');
+    (!safe_key.is_empty()).then(|| format!("CP-{safe_key}"))
 }
 
 fn option_values_from_variation_label(variation_label: Option<&str>) -> Vec<String> {
@@ -1046,7 +1091,12 @@ fn build_counterpoint_identity_preflight_report(
         let invalid = if entity == "catalog" || entity == "inventory" {
             row.normalized_sku
                 .as_deref()
-                .map(|sku| sku.trim().is_empty())
+                .map(|sku| {
+                    let sku = sku.trim();
+                    sku.is_empty()
+                        || (!is_valid_counterpoint_b_sku(sku)
+                            && !is_counterpoint_recovered_sku(sku))
+                })
                 .unwrap_or(true)
         } else {
             row.normalized_sku
@@ -1063,6 +1113,7 @@ fn build_counterpoint_identity_preflight_report(
                     parent_item_rows.push(row);
                     parent_item_values.insert(sku.to_string());
                 }
+                Some(sku) if is_counterpoint_recovered_sku(sku) => {}
                 Some(sku) if is_generated_or_service_sku(sku) => {
                     generated_or_service_rows.push(row);
                     generated_or_service_values.insert(sku.to_string());
@@ -1407,6 +1458,167 @@ fn build_inventory_quarantine_records(
         }
     }
     records
+}
+
+fn counterpoint_sku_needs_recovery(normalized_sku: Option<&str>, duplicate: bool) -> bool {
+    duplicate
+        || normalized_sku
+            .map(|sku| !is_valid_counterpoint_b_sku(sku) && !is_counterpoint_recovered_sku(sku))
+            .unwrap_or(true)
+}
+
+fn recover_counterpoint_inventory_skus(
+    mut payload: CounterpointInventoryPayload,
+) -> (
+    CounterpointInventoryPayload,
+    Vec<CounterpointGeneratedSkuRecord>,
+) {
+    let mut sku_counts = HashMap::<String, usize>::new();
+    for row in &payload.rows {
+        if let Some(sku) = normalize_identity_key(&row.sku) {
+            *sku_counts.entry(sku).or_default() += 1;
+        }
+    }
+
+    let mut records = Vec::new();
+    for row in &mut payload.rows {
+        let original_sku = trim_str_opt(Some(&row.sku));
+        let normalized_sku = original_sku.as_deref().and_then(normalize_identity_key);
+        let duplicate = normalized_sku
+            .as_ref()
+            .and_then(|sku| sku_counts.get(sku))
+            .copied()
+            .unwrap_or(0)
+            > 1;
+        if !counterpoint_sku_needs_recovery(normalized_sku.as_deref(), duplicate) {
+            continue;
+        }
+        let Some(cp_key) = row
+            .counterpoint_item_key
+            .as_deref()
+            .and_then(deterministic_counterpoint_recovery_sku)
+        else {
+            continue;
+        };
+        let source_key = trim_opt(&row.counterpoint_item_key).unwrap_or_else(|| cp_key.clone());
+        row.sku = cp_key.clone();
+        records.push(CounterpointGeneratedSkuRecord {
+            entity_key: "inventory",
+            source_key,
+            original_sku,
+            generated_sku: cp_key,
+            description: None,
+            vendor: None,
+            category: None,
+            source_payload: serde_json::to_value(row).unwrap_or_else(|_| serde_json::json!({})),
+        });
+    }
+    (payload, records)
+}
+
+fn recover_counterpoint_catalog_skus(
+    mut payload: CounterpointCatalogPayload,
+) -> (
+    CounterpointCatalogPayload,
+    Vec<CounterpointGeneratedSkuRecord>,
+) {
+    let mut sku_counts = HashMap::<String, usize>::new();
+    for row in &payload.rows {
+        let is_grid = row.is_grid.unwrap_or(!row.cells.is_empty());
+        if !is_grid || row.cells.is_empty() {
+            let sku = trim_opt(&row.barcode).unwrap_or_else(|| row.item_no.trim().to_string());
+            if let Some(sku) = normalize_identity_key(&sku) {
+                *sku_counts.entry(sku).or_default() += 1;
+            }
+            continue;
+        }
+        for cell in &row.cells {
+            if let Some(sku) = normalize_identity_key(&cell.sku) {
+                *sku_counts.entry(sku).or_default() += 1;
+            }
+        }
+    }
+
+    let mut records = Vec::new();
+    for row in &mut payload.rows {
+        let is_grid = row.is_grid.unwrap_or(!row.cells.is_empty());
+        if !is_grid || row.cells.is_empty() {
+            let original_sku = trim_opt(&row.barcode);
+            let sku_candidate = original_sku
+                .clone()
+                .unwrap_or_else(|| row.item_no.trim().to_string());
+            let normalized_sku = normalize_identity_key(&sku_candidate);
+            let duplicate = normalized_sku
+                .as_ref()
+                .and_then(|sku| sku_counts.get(sku))
+                .copied()
+                .unwrap_or(0)
+                > 1;
+            if !counterpoint_sku_needs_recovery(normalized_sku.as_deref(), duplicate) {
+                continue;
+            }
+            let Some(generated_sku) = deterministic_counterpoint_recovery_sku(&row.item_no) else {
+                continue;
+            };
+            row.barcode = Some(generated_sku.clone());
+            records.push(CounterpointGeneratedSkuRecord {
+                entity_key: "catalog",
+                source_key: row.item_no.trim().to_string(),
+                original_sku,
+                generated_sku,
+                description: trim_opt(&row.description).or_else(|| trim_opt(&row.long_description)),
+                vendor: trim_opt(&row.vendor_no),
+                category: trim_opt(&row.category),
+                source_payload: serde_json::json!({
+                    "item_no": row.item_no,
+                    "description": row.description,
+                    "long_description": row.long_description,
+                    "vendor_no": row.vendor_no,
+                    "category": row.category,
+                    "generated_barcode": row.barcode,
+                }),
+            });
+            continue;
+        }
+
+        for cell in &mut row.cells {
+            let original_sku = trim_str_opt(Some(&cell.sku));
+            let normalized_sku = original_sku.as_deref().and_then(normalize_identity_key);
+            let duplicate = normalized_sku
+                .as_ref()
+                .and_then(|sku| sku_counts.get(sku))
+                .copied()
+                .unwrap_or(0)
+                > 1;
+            if !counterpoint_sku_needs_recovery(normalized_sku.as_deref(), duplicate) {
+                continue;
+            }
+            let Some(generated_sku) =
+                deterministic_counterpoint_recovery_sku(&cell.counterpoint_item_key)
+            else {
+                continue;
+            };
+            cell.sku = generated_sku.clone();
+            records.push(CounterpointGeneratedSkuRecord {
+                entity_key: "catalog",
+                source_key: cell.counterpoint_item_key.trim().to_string(),
+                original_sku,
+                generated_sku,
+                description: trim_opt(&row.description).or_else(|| trim_opt(&row.long_description)),
+                vendor: trim_opt(&row.vendor_no),
+                category: trim_opt(&row.category),
+                source_payload: serde_json::json!({
+                    "item_no": row.item_no,
+                    "description": row.description,
+                    "long_description": row.long_description,
+                    "vendor_no": row.vendor_no,
+                    "category": row.category,
+                    "cell": cell,
+                }),
+            });
+        }
+    }
+    (payload, records)
 }
 
 pub fn validate_counterpoint_inventory_identity_preflight(
@@ -3392,6 +3604,8 @@ pub async fn execute_counterpoint_inventory_batch(
         ));
     }
 
+    let (payload, sku_recovery_records) = recover_counterpoint_inventory_skus(payload);
+    let generated_skus = sku_recovery_records.len() as i32;
     let filtered = filter_inventory_payload_for_quarantine(payload)?;
     let total_rows = filtered.total_rows;
     let quarantined = filtered.quarantined;
@@ -3414,10 +3628,12 @@ pub async fn execute_counterpoint_inventory_batch(
                 .await;
             }
         }
+        record_counterpoint_generated_sku_exceptions(pool, &sku_recovery_records).await;
         return Ok(CounterpointInventorySummary {
             updated,
             skipped,
             quarantined,
+            generated_skus,
         });
     }
 
@@ -3621,6 +3837,7 @@ pub async fn execute_counterpoint_inventory_batch(
     for (external_key, message) in unmatched_issues {
         record_sync_issue(pool, "inventory", Some(&external_key), "error", &message).await;
     }
+    record_counterpoint_generated_sku_exceptions(pool, &sku_recovery_records).await;
 
     if let Some(ref s) = payload.sync {
         if s.entity == "inventory" {
@@ -3640,6 +3857,7 @@ pub async fn execute_counterpoint_inventory_batch(
         updated,
         skipped,
         quarantined,
+        generated_skus,
     })
 }
 
@@ -6443,6 +6661,40 @@ async fn record_counterpoint_import_exception(
             error = %error,
             "failed to record Counterpoint import exception"
         );
+    }
+}
+
+async fn record_counterpoint_generated_sku_exceptions(
+    pool: &PgPool,
+    records: &[CounterpointGeneratedSkuRecord],
+) {
+    for record in records {
+        let source_payload = serde_json::json!({
+            "counterpoint_item_number": record.source_key,
+            "original_sku": record.original_sku,
+            "generated_sku": record.generated_sku,
+            "description": record.description,
+            "vendor": record.vendor,
+            "category": record.category,
+            "source_row": record.source_payload,
+        });
+        record_counterpoint_import_exception(
+            pool,
+            record.entity_key,
+            Some(&record.source_key),
+            "warning",
+            "generated_sku",
+            &format!(
+                "Generated SKU {} for Counterpoint item {} because the source SKU was blank, invalid, or duplicated.",
+                record.generated_sku, record.source_key
+            ),
+            Some("Review this generated SKU in the Counterpoint exceptions list. If it is correct, print tags from Inventory using the generated SKU; if not, fix the source SKU/mapping and rerun Catalog/Inventory."),
+            false,
+            None,
+            None,
+            source_payload,
+        )
+        .await;
     }
 }
 
@@ -10375,6 +10627,7 @@ pub struct CatalogUpsertSummary {
     pub skipped: i32,
     pub name_quality_warnings: i32,
     pub quarantined: i32,
+    pub generated_skus: i32,
 }
 
 pub fn validate_counterpoint_catalog_identity_preflight(
@@ -10523,6 +10776,8 @@ pub async fn execute_counterpoint_catalog_batch(
         ));
     }
 
+    let (payload, sku_recovery_records) = recover_counterpoint_catalog_skus(payload);
+    let generated_skus = sku_recovery_records.len() as i32;
     let filtered = filter_catalog_payload_for_quarantine(payload)?;
     let payload = filtered.payload;
     let quarantined = filtered.quarantined;
@@ -10536,6 +10791,7 @@ pub async fn execute_counterpoint_catalog_batch(
             skipped: quarantined,
             name_quality_warnings: 0,
             quarantined,
+            generated_skus,
         };
         if let Some(ref s) = payload.sync {
             if s.entity == "catalog" {
@@ -10550,6 +10806,7 @@ pub async fn execute_counterpoint_catalog_batch(
                 .await;
             }
         }
+        record_counterpoint_generated_sku_exceptions(pool, &sku_recovery_records).await;
         return Ok(summary);
     }
 
@@ -10571,6 +10828,7 @@ pub async fn execute_counterpoint_catalog_batch(
         skipped: quarantined,
         name_quality_warnings: 0,
         quarantined,
+        generated_skus,
     };
     let mut name_quality_issues = Vec::new();
 
@@ -10601,6 +10859,7 @@ pub async fn execute_counterpoint_catalog_batch(
     for (external_key, message) in name_quality_issues {
         record_sync_issue(pool, "catalog", Some(&external_key), "warning", &message).await;
     }
+    record_counterpoint_generated_sku_exceptions(pool, &sku_recovery_records).await;
 
     if let Some(ref s) = payload.sync {
         if s.entity == "catalog" {
@@ -11692,7 +11951,7 @@ pub async fn execute_counterpoint_ticket_batch(
                 pool,
                 "tickets",
                 Some(ticket_ref),
-                "review",
+                "warning",
                 "missing_line_items",
                 &format!("Needs review: ticket {ticket_ref} has no source line items."),
                 Some("Fix by importing the missing Counterpoint ticket lines, or removing this source ticket from the import review; then rerun Ticket History / Sales Movement."),
@@ -11754,7 +12013,7 @@ pub async fn execute_counterpoint_ticket_batch(
                     pool,
                     "tickets",
                     Some(source_key),
-                    "review",
+                    "warning",
                     "unresolved_item",
                     &format!(
                         "Needs review: ticket {ticket_ref} has a Counterpoint item that does not match a ROS product/variant yet."
@@ -12528,7 +12787,7 @@ pub async fn execute_counterpoint_open_doc_batch(
                     pool,
                     "open_docs",
                     Some(source_key),
-                    "review",
+                    "warning",
                     "unresolved_item",
                     &format!(
                         "Needs review: open doc {doc_ref} has a Counterpoint item that does not match a ROS product/variant yet."
@@ -15386,6 +15645,155 @@ mod tests {
         (Uuid::new_v4().as_u128() % 1_000_000_000_000u128).to_string()
     }
 
+    #[test]
+    fn counterpoint_catalog_sku_recovery_uses_stable_item_key_skus() {
+        let payload = CounterpointCatalogPayload {
+            rows: vec![catalog_row(
+                "I-12345",
+                None,
+                vec![
+                    catalog_cell("I-12345|RED|40", ""),
+                    catalog_cell("I-12345|BLUE|42", "B-555"),
+                    catalog_cell("I-67890|BLACK|44", "B-555"),
+                ],
+            )],
+            sync: None,
+        };
+
+        let (recovered, records) = recover_counterpoint_catalog_skus(payload);
+        let report =
+            validate_counterpoint_catalog_identity_preflight(&recovered).expect("preflight");
+
+        assert!(!report.summary.has_errors);
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].generated_sku, "CP-I-12345-RED-40");
+        assert_eq!(records[1].generated_sku, "CP-I-12345-BLUE-42");
+        assert_eq!(records[2].generated_sku, "CP-I-67890-BLACK-44");
+        assert_eq!(recovered.rows[0].cells[0].sku, "CP-I-12345-RED-40");
+        assert_eq!(recovered.rows[0].cells[1].sku, "CP-I-12345-BLUE-42");
+        assert_eq!(recovered.rows[0].cells[2].sku, "CP-I-67890-BLACK-44");
+    }
+
+    #[test]
+    fn counterpoint_inventory_sku_recovery_uses_stable_item_key_skus() {
+        let payload = CounterpointInventoryPayload {
+            rows: vec![
+                CounterpointInventoryRow {
+                    sku: "".into(),
+                    stock_on_hand: 5,
+                    counterpoint_item_key: Some("I-22222|NAVY|42".into()),
+                    unit_cost: Some(Decimal::new(1000, 2)),
+                },
+                CounterpointInventoryRow {
+                    sku: "B-777".into(),
+                    stock_on_hand: 2,
+                    counterpoint_item_key: Some("I-33333|BLACK|44".into()),
+                    unit_cost: None,
+                },
+                CounterpointInventoryRow {
+                    sku: "B-777".into(),
+                    stock_on_hand: 3,
+                    counterpoint_item_key: Some("I-44444|GREY|46".into()),
+                    unit_cost: None,
+                },
+            ],
+            sync: None,
+        };
+
+        let (recovered, records) = recover_counterpoint_inventory_skus(payload);
+        let report =
+            validate_counterpoint_inventory_identity_preflight(&recovered).expect("preflight");
+
+        assert!(!report.summary.has_errors);
+        assert_eq!(records.len(), 3);
+        assert_eq!(recovered.rows[0].sku, "CP-I-22222-NAVY-42");
+        assert_eq!(recovered.rows[1].sku, "CP-I-33333-BLACK-44");
+        assert_eq!(recovered.rows[2].sku, "CP-I-44444-GREY-46");
+    }
+
+    #[tokio::test]
+    async fn counterpoint_catalog_import_lands_generated_sku_for_missing_barcode() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let suffix = numeric_identity_suffix();
+        let item_no = format!("I-{suffix}");
+        let generated_sku = format!("CP-{item_no}");
+        let payload = CounterpointCatalogPayload {
+            rows: vec![CounterpointCatalogRow {
+                item_no: item_no.clone(),
+                description: Some(format!("Missing SKU Recovery {suffix}")),
+                long_description: None,
+                brand: None,
+                category: Some("Generated SKU Recovery".into()),
+                vendor_no: None,
+                retail_price: Some(Decimal::new(12500, 2)),
+                prc_2: None,
+                prc_3: None,
+                unit_cost: Some(Decimal::new(5000, 2)),
+                is_grid: Some(false),
+                variation_axes: None,
+                barcode: None,
+                cells: Vec::new(),
+            }],
+            sync: None,
+        };
+
+        let summary = execute_counterpoint_catalog_batch(&pool, payload)
+            .await
+            .expect("catalog import with generated sku");
+        let variant: Option<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT id, product_id FROM product_variants WHERE counterpoint_item_key = $1 AND sku = $2",
+        )
+        .bind(&item_no)
+        .bind(&generated_sku)
+        .fetch_optional(&pool)
+        .await
+        .expect("load generated sku variant");
+        let exception_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM counterpoint_import_exceptions
+            WHERE entity_key = 'catalog'
+              AND source_key = $1
+              AND reason_code = 'generated_sku'
+              AND status = 'open'
+              AND severity = 'warning'
+              AND source_payload->>'generated_sku' = $2
+            "#,
+        )
+        .bind(&item_no)
+        .bind(&generated_sku)
+        .fetch_one(&pool)
+        .await
+        .expect("count generated sku exception");
+
+        let variant_landed = variant.is_some();
+        if let Some((variant_id, product_id)) = variant {
+            sqlx::query("DELETE FROM product_variants WHERE id = $1")
+                .bind(variant_id)
+                .execute(&pool)
+                .await
+                .expect("cleanup generated sku variant");
+            sqlx::query("DELETE FROM products WHERE id = $1")
+                .bind(product_id)
+                .execute(&pool)
+                .await
+                .expect("cleanup generated sku product");
+        }
+        sqlx::query(
+            "DELETE FROM counterpoint_import_exceptions WHERE entity_key = 'catalog' AND source_key = $1 AND reason_code = 'generated_sku'",
+        )
+        .bind(&item_no)
+        .execute(&pool)
+        .await
+        .expect("cleanup generated sku exception");
+
+        assert_eq!(summary.generated_skus, 1);
+        assert_eq!(summary.variants_created, 1);
+        assert!(variant_landed);
+        assert_eq!(exception_count, 1);
+    }
+
     #[tokio::test]
     async fn counterpoint_barcode_alias_preflight_maps_only_deterministic_variants() {
         let pool = connect_test_db().await;
@@ -17177,7 +17585,7 @@ mod tests {
               AND source_key = $1
               AND reason_code = 'missing_line_items'
               AND status = 'open'
-              AND severity = 'review'
+              AND severity = 'warning'
             "#,
         )
         .bind(&ticket_ref)
@@ -18898,7 +19306,7 @@ mod tests {
               AND source_key = $1
               AND reason_code = 'unresolved_item'
               AND status = 'open'
-              AND severity = 'review'
+              AND severity = 'warning'
             "#,
         )
         .bind(&missing_key)
