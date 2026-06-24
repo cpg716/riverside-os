@@ -552,6 +552,38 @@ fn validate_order_payment_shape(
     Ok(out)
 }
 
+async fn validate_wedding_member_checkout_customer(
+    pool: &PgPool,
+    checkout_customer_id: Option<Uuid>,
+    original_checkout_customer_id: Option<Uuid>,
+    wedding_member_id: Option<Uuid>,
+) -> Result<(), CheckoutError> {
+    let Some(member_id) = wedding_member_id else {
+        return Ok(());
+    };
+    let customer_id = checkout_customer_id.ok_or_else(|| {
+        CheckoutError::InvalidPayload(
+            "customer_id is required when checkout includes wedding_member_id".to_string(),
+        )
+    })?;
+    let member_customer_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT customer_id FROM wedding_members WHERE id = $1")
+            .bind(member_id)
+            .fetch_optional(pool)
+            .await?;
+    let member_customer_id = member_customer_id.ok_or_else(|| {
+        CheckoutError::InvalidPayload("wedding_member_id was not found".to_string())
+    })?;
+    if member_customer_id != customer_id
+        && Some(member_customer_id) != original_checkout_customer_id
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "wedding_member_id must belong to checkout customer_id".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_order_payment_against_target(
     payment: &ResolvedOrderPayment,
     target: &ExistingOrderPaymentTarget,
@@ -1766,6 +1798,13 @@ pub async fn execute_checkout(
         payload.customer_id =
             Some(crate::logic::customer_couple::resolve_effective_customer_id(pool, cid).await?);
     }
+    validate_wedding_member_checkout_customer(
+        pool,
+        payload.customer_id,
+        customer_id_orig,
+        payload.wedding_member_id,
+    )
+    .await?;
     let mut order_payments = validate_order_payment_shape(
         payload.customer_id,
         customer_id_orig,
@@ -5558,6 +5597,165 @@ mod tests {
             .await?;
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn execute_checkout_rejects_wedding_member_customer_mismatch() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let party_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        let suffix = Uuid::new_v4().simple().to_string();
+        let member_customer_id = insert_customer(
+            &pool,
+            InsertCustomerParams {
+                customer_code: None,
+                first_name: "Wedding".to_string(),
+                last_name: format!("Member {}", &suffix[0..8]),
+                company_name: None,
+                email: Some(format!("wed-member-{suffix}@example.test")),
+                phone: Some(format!("557{}", &suffix[0..7])),
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                date_of_birth: None,
+                anniversary_date: None,
+                custom_field_1: None,
+                custom_field_2: None,
+                custom_field_3: None,
+                custom_field_4: None,
+                marketing_email_opt_in: false,
+                marketing_sms_opt_in: false,
+                transactional_sms_opt_in: true,
+                transactional_email_opt_in: true,
+                customer_created_source: CustomerCreatedSource::Store,
+            },
+        )
+        .await
+        .expect("insert member customer");
+        let other_customer_id = insert_customer(
+            &pool,
+            InsertCustomerParams {
+                customer_code: None,
+                first_name: "Wrong".to_string(),
+                last_name: format!("Customer {}", &suffix[0..8]),
+                company_name: None,
+                email: Some(format!("wed-wrong-{suffix}@example.test")),
+                phone: Some(format!("558{}", &suffix[0..7])),
+                address_line1: None,
+                address_line2: None,
+                city: None,
+                state: None,
+                postal_code: None,
+                date_of_birth: None,
+                anniversary_date: None,
+                custom_field_1: None,
+                custom_field_2: None,
+                custom_field_3: None,
+                custom_field_4: None,
+                marketing_email_opt_in: false,
+                marketing_sms_opt_in: false,
+                transactional_sms_opt_in: true,
+                transactional_email_opt_in: true,
+                customer_created_source: CustomerCreatedSource::Store,
+            },
+        )
+        .await
+        .expect("insert wrong customer");
+
+        sqlx::query(
+            r#"
+            INSERT INTO wedding_parties (id, party_name, groom_name, event_date, party_type, is_deleted)
+            VALUES ($1, $2, $3, $4, 'Wedding', FALSE)
+            "#,
+        )
+        .bind(party_id)
+        .bind("Wedding Member Customer Guard Regression Party")
+        .bind("Regression Groom")
+        .bind(chrono::NaiveDate::from_ymd_opt(2027, 3, 20).unwrap())
+        .execute(&pool)
+        .await
+        .expect("insert wedding party");
+
+        sqlx::query(
+            r#"
+            INSERT INTO wedding_members (
+                id, wedding_party_id, customer_id, role, status, member_index
+            )
+            VALUES ($1, $2, $3, 'Groomsman', 'active', 1)
+            "#,
+        )
+        .bind(member_id)
+        .bind(party_id)
+        .bind(member_customer_id)
+        .execute(&pool)
+        .await
+        .expect("insert wedding member");
+
+        let mut item = checkout_item_with_client_line(Some("wrong-customer-wedding-line"));
+        item.fulfillment = DbFulfillmentType::WeddingOrder;
+        let payload = CheckoutRequest {
+            session_id: Uuid::new_v4(),
+            operator_staff_id: Uuid::new_v4(),
+            primary_salesperson_id: None,
+            customer_id: Some(other_customer_id),
+            wedding_member_id: Some(member_id),
+            payment_method: "cash".to_string(),
+            total_price: Decimal::new(10000, 2),
+            amount_paid: Decimal::ZERO,
+            items: vec![item],
+            alteration_intakes: vec![],
+            actor_name: Some("Wedding Customer Guard Test".to_string()),
+            payment_splits: Some(vec![]),
+            wedding_disbursements: None,
+            order_payments: vec![],
+            below_cost_approval: None,
+            checkout_client_id: Some(Uuid::new_v4()),
+            shipping_rate_quote_id: None,
+            fulfillment_mode: None,
+            ship_to: None,
+            target_transaction_id: None,
+            booked_at_local: None,
+            is_rush: false,
+            need_by_date: None,
+            is_tax_exempt: true,
+            tax_exempt_reason: Some("test tax-exempt checkout".to_string()),
+            rounding_adjustment: None,
+            final_cash_due: None,
+            is_processing: false,
+        };
+
+        let err = execute_checkout(&pool, &reqwest::Client::new(), Decimal::ZERO, payload)
+            .await
+            .expect_err("mismatched wedding member customer should be rejected");
+        assert!(
+            err.to_string()
+                .contains("wedding_member_id must belong to checkout customer_id"),
+            "unexpected error: {err}"
+        );
+
+        sqlx::query("DELETE FROM wedding_members WHERE id = $1")
+            .bind(member_id)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM wedding_parties WHERE id = $1")
+            .bind(party_id)
+            .execute(&pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM customers WHERE id = ANY($1)")
+            .bind(vec![member_customer_id, other_customer_id])
+            .execute(&pool)
+            .await
+            .ok();
     }
 
     #[tokio::test]
