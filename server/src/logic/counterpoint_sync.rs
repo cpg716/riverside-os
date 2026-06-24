@@ -6296,22 +6296,32 @@ async fn build_counterpoint_import_run_reconciliation(
     Ok(rows)
 }
 
-fn build_counterpoint_import_pending_reconciliation(
+async fn build_counterpoint_import_progress_reconciliation(
+    pool: &PgPool,
+    import_run_id: Uuid,
     source_counts: &[CounterpointImportPreflightRow],
     status: &str,
     note: &str,
-) -> Vec<CounterpointSnapshotReconciliationRow> {
-    source_counts
-        .iter()
-        .map(|source| CounterpointSnapshotReconciliationRow {
+) -> Result<Vec<CounterpointSnapshotReconciliationRow>, CounterpointSyncError> {
+    let mut rows = Vec::with_capacity(source_counts.len());
+    for source in source_counts {
+        let landed_count =
+            import_run_landed_count_for_source_count(pool, import_run_id, &source.entity_key)
+                .await?;
+        let count_difference = if landed_count == 0 {
+            None
+        } else {
+            Some(landed_count - source.source_count)
+        };
+        rows.push(CounterpointSnapshotReconciliationRow {
             key: source.entity_key.clone(),
             label: source.label.clone(),
             required: source.required,
             status: status.to_string(),
             passed: false,
             source_count: Some(source.source_count),
-            landed_count: 0,
-            count_difference: None,
+            landed_count,
+            count_difference,
             source_sum: source.source_sum.clone(),
             landed_sum: Decimal::ZERO.to_string(),
             sum_difference: None,
@@ -6320,8 +6330,9 @@ fn build_counterpoint_import_pending_reconciliation(
             checksum_matched: None,
             note: note.to_string(),
             source_updated_at: None,
-        })
-        .collect()
+        });
+    }
+    Ok(rows)
 }
 
 pub async fn build_counterpoint_import_command_center(
@@ -6347,22 +6358,28 @@ pub async fn build_counterpoint_import_command_center(
         Some(run) if run.status == "completed" => {
             build_counterpoint_import_run_reconciliation(pool, run.id, &source_counts).await?
         }
-        Some(run) if run.status == "failed" => build_counterpoint_import_pending_reconciliation(
+        Some(run) if run.status == "failed" => build_counterpoint_import_progress_reconciliation(
+            pool,
+            run.id,
             &source_counts,
             "failed",
             &format!(
-                "Latest import run failed before completion. Partial landed rows from run {} are ignored; rerun the affected import from the Bridge.",
+                "Latest import run failed before completion. Landed counts from run {} are shown for diagnosis only; rerun the affected import from the Bridge.",
                 run.id
             ),
-        ),
-        Some(run) => build_counterpoint_import_pending_reconciliation(
+        )
+        .await?,
+        Some(run) => build_counterpoint_import_progress_reconciliation(
+            pool,
+            run.id,
             &source_counts,
             "running",
             &format!(
-                "Import run {} is still running. Landed proof is pending until the Bridge completes.",
+                "Import run {} is still running. Landed counts are progress only until the Bridge completes.",
                 run.id
             ),
-        ),
+        )
+        .await?,
         None => Vec::new(),
     };
     let (proof_scope, proof_scope_note) = if latest_import_completed {
@@ -6373,7 +6390,7 @@ pub async fn build_counterpoint_import_command_center(
     } else if latest_import_failed {
         (
             "failed_import_run".to_string(),
-            "The latest Bridge import failed before completion. Partial landed rows are ignored; rerun the affected import from the Bridge.".to_string(),
+            "The latest Bridge import failed before completion. Partial landed counts are shown for diagnosis only; rerun the affected import from the Bridge.".to_string(),
         )
     } else if latest_import_run.is_some() {
         (
@@ -6463,7 +6480,7 @@ pub async fn build_counterpoint_import_command_center(
     } else if latest_import_run.is_none() {
         "READY TO IMPORT: source counts are proved. Run Full Import next.".to_string()
     } else if latest_import_failed {
-        "IMPORT FAILED: fix the Bridge extraction error, then rerun the affected area or full import. Partial landed proof is ignored.".to_string()
+        "IMPORT FAILED: fix the Bridge extraction error, then rerun the affected area or full import. Partial landed counts are diagnostic only.".to_string()
     } else if !latest_import_completed {
         "IMPORT RUNNING: wait for the current import to finish, then refresh proof.".to_string()
     } else if !import_proof_passed {
@@ -14854,7 +14871,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn counterpoint_command_center_ignores_partial_failed_import_proof() {
+    async fn counterpoint_command_center_shows_partial_failed_import_progress() {
         let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
         ensure_counterpoint_import_first_tables(&pool).await;
@@ -14931,12 +14948,12 @@ mod tests {
             .find(|row| row.key == "customers")
             .expect("customers failed reconciliation row");
         assert_eq!(customers_reconciliation.status, "failed");
-        assert_eq!(customers_reconciliation.landed_count, 0);
-        assert_eq!(customers_reconciliation.count_difference, None);
+        assert_eq!(customers_reconciliation.landed_count, 1);
+        assert_eq!(customers_reconciliation.count_difference, Some(1 - 26_579));
         assert!(!customers_reconciliation.passed);
         assert!(customers_reconciliation
             .note
-            .contains("Partial landed rows"));
+            .contains("shown for diagnosis only"));
 
         let _ = sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = ANY($1)")
             .bind(&vec![preflight.import_run_id, import_run.import_run_id])

@@ -982,6 +982,21 @@ let lastAutoConfigChanges = [];
 let rosStagingEnabled = false;
 let bridgeHostnameCached = "";
 let activeImportRunId = null;
+let activeImportSourceCounts = new Map();
+
+function setActiveImportSourceCounts(preflightSummary) {
+  const rows = Array.isArray(preflightSummary?.counts) ? preflightSummary.counts : [];
+  activeImportSourceCounts = new Map(
+    rows
+      .map((row) => [String(row.entity_key ?? "").trim(), Number(row.source_count ?? 0)])
+      .filter(([key, count]) => key && Number.isFinite(count) && count >= 0),
+  );
+}
+
+function activeImportSourceCount(entityKey) {
+  const count = activeImportSourceCounts.get(entityKey);
+  return Number.isFinite(count) && count > 0 ? count : null;
+}
 
 function initEffectiveSqlFromConstants() {
   Object.assign(effectiveSql, {
@@ -2783,6 +2798,7 @@ async function runImportFirstSourcePreflight(pool) {
 
 async function startImportFirstRun(preflightSummary, options = {}) {
   if (!IMPORT_FIRST_MODE || DRY_RUN_MODE) return null;
+  setActiveImportSourceCounts(preflightSummary);
   const requestedEntity = options.requestedEntity || null;
   const runKind = normalizeImportRunKindForBridge(
     options.runKind || process.env.CP_IMPORT_RUN_KIND,
@@ -2829,6 +2845,7 @@ async function completeImportFirstRun({ failed = false, errorMessage = null, tot
     return summary;
   } finally {
     activeImportRunId = null;
+    activeImportSourceCounts = new Map();
   }
 }
 
@@ -4109,9 +4126,11 @@ async function syncCatalog(pool) {
   }
 
   const CATALOG_BATCH_SIZE = 400;
-  console.info(`[catalog] Starting extraction (post batch=${CATALOG_BATCH_SIZE})...`);
+  const MAX_CONCURRENCY = 4;
+  console.info(`[catalog] Starting ingest (batch=${CATALOG_BATCH_SIZE}, max_parallel=${MAX_CONCURRENCY})...`);
 
   const state = readState();
+  const expectedCatalogProducts = activeImportSourceCount("catalog_products");
   const processedItemNos = new Set();
   let batchBuffer = [];
   let totalProcessed = 0;
@@ -4129,6 +4148,8 @@ async function syncCatalog(pool) {
   const catalogCategoryVendorDiagnosticParts = [];
   const catalogVariantLabelDiagnosticParts = [];
   let skippedDuplicates = 0;
+  let inFlight = 0;
+  const pendingRequests = [];
   const failures = [];
   let lastSuccessfulCursor = null;
 
@@ -4149,16 +4170,98 @@ async function syncCatalog(pool) {
     const cleanupCatalogWatchdog = () => {
       clearInterval(catalogWatchdog);
     };
-    const failCatalog = (err) => {
-      if (settled) return;
-      settled = true;
-      cleanupCatalogWatchdog();
+    const cancelCatalogRequest = () => {
       try {
         request.cancel();
       } catch {
         // Best-effort cancellation. The SQL driver may already be closing the stream.
       }
+    };
+    const failCatalog = (err) => {
+      if (settled) return;
+      settled = true;
+      cleanupCatalogWatchdog();
+      cancelCatalogRequest();
       reject(err);
+    };
+    const flushCatalogBatch = () => {
+      if (batchBuffer.length === 0) return;
+      const chunk = [...batchBuffer];
+      batchBuffer = [];
+      const last = chunk[chunk.length - 1].item_no;
+
+      inFlight++;
+      if (!settled && inFlight >= MAX_CONCURRENCY) request.pause();
+
+      const promise = rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } })
+        .then((summary) => {
+          console.info("[catalog] batch", summary);
+          markCatalogActivity();
+          totalProcessed += chunk.length;
+          if (totalProcessed % 500 === 0 || (settled && totalProcessed === totalMappedRows)) {
+            logToDashboard(`[catalog] ingest: ${totalProcessed}/${totalMappedRows} items processed...`);
+            console.info(`[catalog] progress: ${totalProcessed} items (skipped ${skippedDuplicates} duplicates)...`);
+          }
+          if (last) lastSuccessfulCursor = last;
+        })
+        .catch((err) => {
+          markCatalogActivity();
+          console.error("[catalog] batch failed:", err.message);
+          failures.push(err);
+        })
+        .finally(() => {
+          inFlight--;
+          if (!settled && inFlight < MAX_CONCURRENCY) request.resume();
+        });
+      pendingRequests.push(promise);
+    };
+    const finishCatalog = async (reason) => {
+      if (settled) return;
+      settled = true;
+      cleanupCatalogWatchdog();
+      cancelCatalogRequest();
+      try {
+        logToDashboard(`[catalog] ${reason}. Waiting for posted catalog batches to finish.`);
+        flushCatalogBatch();
+        await Promise.all(pendingRequests);
+        throwIfBatchFailures("catalog", failures, totalProcessed, totalMappedRows);
+        if (lastSuccessfulCursor) {
+          state.catalog_cursor = lastSuccessfulCursor;
+          writeState(state);
+        }
+        await postSnapshotReconciliation("catalog_products", totalMappedRows);
+        await postSnapshotReconciliation("catalog_variants", totalMappedVariants);
+        await postSnapshotReconciliation("catalog_variant_skus", totalMappedSkus);
+        await postSnapshotReconciliation("catalog_variant_barcodes", totalMappedBarcodes);
+        await postSnapshotReconciliation("catalog_items_with_vendor", totalMappedItemsWithVendor);
+        await postSnapshotReconciliation("catalog_items_with_category", totalMappedItemsWithCategory);
+        await postSnapshotReconciliation(
+          "catalog_price_cost_fields",
+          catalogPriceCostChecksumParts.length,
+          undefined,
+          checksumRows(catalogPriceCostChecksumParts),
+        );
+        await postSnapshotReconciliation(
+          "catalog_category_vendor_fields",
+          catalogCategoryVendorChecksumParts.length,
+          undefined,
+          checksumRows(catalogCategoryVendorChecksumParts),
+        );
+        await postSnapshotReconciliation(
+          "catalog_variant_label_fields",
+          catalogVariantLabelChecksumParts.length,
+          undefined,
+          checksumRows(catalogVariantLabelChecksumParts),
+        );
+        await postFidelityDiagnostics("catalog_price_cost_fields", catalogPriceCostDiagnosticParts);
+        await postFidelityDiagnostics("catalog_category_vendor_fields", catalogCategoryVendorDiagnosticParts);
+        await postFidelityDiagnostics("catalog_variant_label_fields", catalogVariantLabelDiagnosticParts);
+        logToDashboard(`[catalog] finished. ${totalProcessed} items synced (SQL gave ${totalRowsReceived} rows, skipped ${skippedDuplicates} duplicates).`);
+        console.info(`[catalog] finished. ${totalProcessed} total items synced.`);
+        resolve(totalProcessed);
+      } catch (e) {
+        reject(e);
+      }
     };
     const catalogWatchdog = setInterval(() => {
       const idleMs = Date.now() - lastActivityAt;
@@ -4182,7 +4285,7 @@ async function syncCatalog(pool) {
       } else if (totalRowsReceived !== lastLoggedRowsReceived) {
         lastLoggedRowsReceived = totalRowsReceived;
         logToDashboard(
-          `[catalog] streaming: ${totalRowsReceived} SQL rows read, ${batchBuffer.length} unique item(s) buffered.`,
+          `[catalog] streaming: ${totalRowsReceived} SQL rows read, ${totalProcessed} item(s) sent.`,
         );
       } else {
         logToDashboard(
@@ -4219,6 +4322,12 @@ async function syncCatalog(pool) {
         catalogCategoryVendorDiagnosticParts.push(catalogCategoryVendorDiagnosticRow(mapped));
         catalogVariantLabelDiagnosticParts.push(...catalogVariantLabelDiagnosticRows(mapped));
         batchBuffer.push(mapped);
+        if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
+          flushCatalogBatch();
+        }
+        if (expectedCatalogProducts && totalMappedRows >= expectedCatalogProducts) {
+          void finishCatalog(`expected catalog parent count reached (${expectedCatalogProducts})`);
+        }
       }
     });
 
@@ -4231,69 +4340,7 @@ async function syncCatalog(pool) {
     request.on("done", async () => {
       if (settled) return;
       markCatalogActivity();
-      try {
-        logToDashboard(
-          `[catalog] SQL extraction complete. Posting ${batchBuffer.length} unique catalog item(s) to ROS.`,
-        );
-        for (let i = 0; i < batchBuffer.length; i += CATALOG_BATCH_SIZE) {
-          const chunk = batchBuffer.slice(i, i + CATALOG_BATCH_SIZE);
-          const last = chunk[chunk.length - 1].item_no;
-          try {
-            const summary = await rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } });
-            console.info("[catalog] batch", summary);
-            markCatalogActivity();
-            totalProcessed += chunk.length;
-            if (totalProcessed % 500 === 0 || totalProcessed === batchBuffer.length) {
-              logToDashboard(`[catalog] ingest: ${totalProcessed}/${batchBuffer.length} items processed...`);
-              console.info(`[catalog] progress: ${totalProcessed} items (skipped ${skippedDuplicates} duplicates)...`);
-            }
-            if (last) lastSuccessfulCursor = last;
-          } catch (err) {
-            markCatalogActivity();
-            console.error("[catalog] batch failed:", err.message);
-            failures.push(err);
-          }
-        }
-        throwIfBatchFailures("catalog", failures, totalProcessed, totalMappedRows);
-        if (lastSuccessfulCursor) {
-          state.catalog_cursor = lastSuccessfulCursor;
-          writeState(state);
-        }
-        await postSnapshotReconciliation("catalog_products", totalMappedRows);
-        await postSnapshotReconciliation("catalog_variants", totalMappedVariants);
-        await postSnapshotReconciliation("catalog_variant_skus", totalMappedSkus);
-        await postSnapshotReconciliation("catalog_variant_barcodes", totalMappedBarcodes);
-        await postSnapshotReconciliation("catalog_items_with_vendor", totalMappedItemsWithVendor);
-        await postSnapshotReconciliation("catalog_items_with_category", totalMappedItemsWithCategory);
-        await postSnapshotReconciliation(
-          "catalog_price_cost_fields",
-          catalogPriceCostChecksumParts.length,
-          undefined,
-          checksumRows(catalogPriceCostChecksumParts),
-        );
-        await postSnapshotReconciliation(
-          "catalog_category_vendor_fields",
-          catalogCategoryVendorChecksumParts.length,
-          undefined,
-          checksumRows(catalogCategoryVendorChecksumParts),
-        );
-        await postSnapshotReconciliation(
-          "catalog_variant_label_fields",
-          catalogVariantLabelChecksumParts.length,
-          undefined,
-          checksumRows(catalogVariantLabelChecksumParts),
-        );
-        await postFidelityDiagnostics("catalog_price_cost_fields", catalogPriceCostDiagnosticParts);
-        await postFidelityDiagnostics("catalog_category_vendor_fields", catalogCategoryVendorDiagnosticParts);
-        await postFidelityDiagnostics("catalog_variant_label_fields", catalogVariantLabelDiagnosticParts);
-        logToDashboard(`[catalog] finished. ${totalProcessed} items synced (SQL gave ${totalRowsReceived} rows, skipped ${skippedDuplicates} duplicates).`);
-        console.info(`[catalog] finished. ${totalProcessed} total items synced.`);
-        settled = true;
-        cleanupCatalogWatchdog();
-        resolve(totalProcessed);
-      } catch (e) {
-        failCatalog(e);
-      }
+      await finishCatalog("SQL extraction complete");
     });
 
     request.query(effectiveSql.catalog).catch((err) => {
