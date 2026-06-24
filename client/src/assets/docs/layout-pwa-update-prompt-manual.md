@@ -50,6 +50,7 @@ Use this prompt when Riverside needs the workstation to install the app shell or
 
 - The PWA shell may stay open offline, but only **completed POS checkouts** can queue for later sync.
 - Inventory lookups, most settings changes, and most back-office mutations still need connectivity.
+- If the red **Server connection lost** banner is visible, wait for the Main Hub/server connection to recover before starting new payments, receiving, reports, or settings changes. Use **Recheck** after restoring the network or server.
 
 ## If the app still looks stale
 

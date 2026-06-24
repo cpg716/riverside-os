@@ -16,6 +16,7 @@ export E2E_API_BASE="${E2E_API_BASE:-http://127.0.0.1:43300}"
 export E2E_BASE_URL="${E2E_BASE_URL:-http://localhost:43173}"
 export RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="${RIVERSIDE_ENABLE_E2E_TEST_SUPPORT:-1}"
 export COUNTERPOINT_SYNC_TOKEN="${COUNTERPOINT_SYNC_TOKEN:-e2e-counterpoint-sync-token}"
+export HELCIM_SIMULATOR_ENABLED="${HELCIM_SIMULATOR_ENABLED:-1}"
 
 api_bind="${E2E_API_BASE#http://}"
 api_bind="${api_bind#https://}"

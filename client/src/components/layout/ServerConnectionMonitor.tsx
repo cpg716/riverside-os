@@ -117,7 +117,7 @@ async function probeServer(): Promise<{ ok: boolean; reason: string }> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
   try {
-    const res = await fetch(`${getBaseUrl()}/api/health/`, {
+    const res = await fetch(`${getBaseUrl()}/api/health`, {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
@@ -215,7 +215,7 @@ export default function ServerConnectionMonitor() {
       role="alert"
       aria-live="assertive"
       data-testid="server-connection-lost-banner"
-      className="fixed left-0 right-0 top-0 z-[9998] border-b border-app-danger/30 bg-app-danger px-4 py-3 text-white shadow-2xl"
+      className="pointer-events-none fixed left-0 right-0 top-0 z-[9998] border-b border-app-danger/30 bg-app-danger px-4 py-3 text-white shadow-2xl"
     >
       <div className="mx-auto flex max-w-screen-2xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
@@ -239,7 +239,7 @@ export default function ServerConnectionMonitor() {
         </div>
         <button
           type="button"
-          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-white/30 bg-white/15 px-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white/25"
+          className="pointer-events-auto inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-white/30 bg-white/15 px-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white/25"
           onClick={() => void runProbe()}
         >
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
