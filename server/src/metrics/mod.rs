@@ -131,10 +131,20 @@ impl MetricRegistry {
                     .fold(f64::NEG_INFINITY, f64::max),
             ),
             Some(AggregationType::Percentile(p)) => {
-                let mut sorted_values: Vec<f64> = values.iter().map(|v| v.value).collect();
-                sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                let index = ((p / 100.0) * sorted_values.len() as f64) as usize;
-                sorted_values.get(index).copied()
+                let mut sorted_values: Vec<f64> = values
+                    .iter()
+                    .map(|v| v.value)
+                    .filter(|v| v.is_finite())
+                    .collect();
+                if sorted_values.is_empty() {
+                    None
+                } else {
+                    sorted_values.sort_by(|a, b| a.total_cmp(b));
+                    let percentile = p.clamp(0.0, 100.0);
+                    let index = (((percentile / 100.0) * (sorted_values.len() - 1) as f64).round())
+                        as usize;
+                    sorted_values.get(index).copied()
+                }
             }
             None => None,
         };
@@ -185,4 +195,25 @@ pub enum ExportFormat {
     Json,
     InfluxDB,
     Graphite,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AggregationType, MetricRegistry, MetricsConfig};
+    use std::collections::HashMap;
+
+    #[test]
+    fn percentile_ignores_non_finite_values_and_clamps_bounds() {
+        let mut registry = MetricRegistry::new(MetricsConfig::default());
+
+        registry.record_histogram("checkout_latency", 0.25, HashMap::new());
+        registry.record_histogram("checkout_latency", f64::NAN, HashMap::new());
+        registry.record_histogram("checkout_latency", 1.5, HashMap::new());
+
+        let snapshot = registry
+            .get_snapshot("checkout_latency", Some(AggregationType::Percentile(100.0)))
+            .expect("snapshot should exist");
+
+        assert_eq!(snapshot.aggregated, Some(1.5));
+    }
 }

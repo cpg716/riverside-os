@@ -5,6 +5,7 @@ import PublicStorefront from "./components/storefront/PublicStorefront";
 import PodiumOAuthCallback from "./components/settings/PodiumOAuthCallback";
 import StorefrontEmbedHost from "./components/layout/StorefrontEmbedHost";
 import PwaUpdatePrompt from "./components/layout/PwaUpdatePrompt";
+import ServerConnectionMonitor from "./components/layout/ServerConnectionMonitor";
 import { ToastProvider } from "./components/ui/ToastProvider";
 import { CLIENT_SEMVER, GIT_SHORT } from "./clientBuildMeta";
 import {
@@ -116,6 +117,7 @@ async function init() {
           </AppErrorBoundary>
         )}
         {isPodiumOAuthCallback ? null : <StorefrontEmbedHost />}
+        {!isPublicShop && !isPodiumOAuthCallback ? <ServerConnectionMonitor /> : null}
         <PwaUpdatePrompt />
       </ToastProvider>
     </StrictMode>,

@@ -213,7 +213,8 @@ export function getClientMetaSnapshot(
 export type ErrorCaptureKind =
   | "toast_error_event"
   | "unhandled_error_event"
-  | "manual_bug_report";
+  | "manual_bug_report"
+  | "server_connection_lost";
 
 export interface ErrorCapturePayloadOptions {
   captureType: ErrorCaptureKind;
@@ -246,6 +247,53 @@ export async function buildClientErrorCaptureMeta(
       online: typeof navigator === "undefined" ? false : navigator.onLine,
     })) as Record<string, unknown>,
   );
+}
+
+export async function submitClientErrorEvent(options: {
+  message: string;
+  eventSource: string;
+  severity?: string;
+  route?: string;
+  captureType?: ErrorCaptureKind;
+  extra?: Record<string, unknown>;
+}): Promise<boolean> {
+  const trimmed = redactDiagnosticText(options.message).trim();
+  if (!trimmed || typeof window === "undefined") return false;
+
+  const headers = sessionPollAuthHeaders();
+  if (!headers["x-riverside-staff-code"]) return false;
+
+  const route = redactDiagnosticText(
+    options.route ??
+      `${window.location.pathname}${window.location.search}${window.location.hash}`,
+  );
+
+  try {
+    const clientMeta = await buildClientErrorCaptureMeta({
+      captureType: options.captureType ?? "unhandled_error_event",
+      message: trimmed,
+      route,
+      severity: options.severity ?? "error",
+      extra: options.extra,
+    });
+    const res = await fetch(`${getBaseUrl()}/api/bug-reports/error-events`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify({
+        message: trimmed,
+        event_source: options.eventSource,
+        severity: options.severity ?? "error",
+        route,
+        client_meta: clientMeta,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function recordUnhandledClientErrorEvent(

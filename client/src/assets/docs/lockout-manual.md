@@ -67,6 +67,12 @@ If the login screen displays "Auth server unreachable":
 2. Verify that the computer's network connection is active.
 3. If using an iPad/Satellite, ensure the server computer and the iPad are on the same Tailscale network or local Wi-Fi.
 
+If Riverside displays **Server connection lost** at the top of Register #, Back Office, or an installed PWA:
+1. Stop starting new sales, payments, receiving, or close-register work until the banner clears.
+2. Confirm the Main Hub server is powered on and the Riverside server window is running.
+3. Confirm the workstation or PWA device is on the store network or Tailscale path.
+4. Use **Recheck** after the server is restored. Riverside records the outage as an error event after Staff Access is available again.
+
 ## Diagnostic Feedback
 The login screen provides specific clues:
 - **"Invalid PIN"**: The credential did not match the stored hash.

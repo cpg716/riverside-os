@@ -91,8 +91,16 @@ impl MetricsExporter for PrometheusExporter {
                     latest_value.metric_type,
                     crate::metrics::MetricType::Histogram | crate::metrics::MetricType::Timer
                 ) {
-                    let mut sorted_values: Vec<f64> = values.iter().map(|v| v.value).collect();
-                    sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    let mut sorted_values: Vec<f64> = values
+                        .iter()
+                        .map(|v| v.value)
+                        .filter(|v| v.is_finite())
+                        .collect();
+                    sorted_values.sort_by(|a, b| a.total_cmp(b));
+
+                    if sorted_values.is_empty() {
+                        continue;
+                    }
 
                     // Define standard buckets
                     let buckets = vec![
@@ -126,8 +134,8 @@ impl MetricsExporter for PrometheusExporter {
                     }
 
                     // Export sum and count
-                    let sum: f64 = values.iter().map(|v| v.value).sum();
-                    let count = values.len() as f64;
+                    let sum: f64 = sorted_values.iter().sum();
+                    let count = sorted_values.len() as f64;
 
                     output.push_str(&format!(
                         "{}_sum{} {}\n",
@@ -443,5 +451,28 @@ pub fn create_exporter(
             let graphite_config = config.graphite.as_ref().ok_or("Graphite config required")?;
             Ok(Box::new(GraphiteExporter::new(&graphite_config.prefix)))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MetricsExporter, PrometheusExporter};
+    use crate::metrics::{MetricRegistry, MetricsConfig};
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn prometheus_histograms_ignore_non_finite_samples() {
+        let mut registry = MetricRegistry::new(MetricsConfig::default());
+
+        registry.record_histogram("checkout_latency", 0.25, HashMap::new());
+        registry.record_histogram("checkout_latency", f64::NAN, HashMap::new());
+
+        let output = PrometheusExporter::new("ros")
+            .export(&registry)
+            .await
+            .expect("prometheus export should succeed");
+
+        assert!(output.contains("ros_checkout_latency_count 1"));
+        assert!(!output.contains("NaN"));
     }
 }
