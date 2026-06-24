@@ -4785,13 +4785,32 @@ pub async fn record_counterpoint_import_preflight(
                     "{label} returned {} source rows, below the suspicious minimum of {min_count}.",
                     row.source_count
                 );
-                let has_detail_proof = entity_key == "tickets"
-                    && incoming_counts
-                        .get("ticket_lines")
-                        .copied()
-                        .unwrap_or_default()
-                        > 0;
-                if has_detail_proof {
+                let ticket_line_count = incoming_counts
+                    .get("ticket_lines")
+                    .copied()
+                    .unwrap_or_default();
+                let ticket_payment_count = incoming_counts
+                    .get("ticket_payments")
+                    .copied()
+                    .unwrap_or_default();
+                let ticket_detail_mismatch = entity_key == "tickets"
+                    && row.source_count > 0
+                    && (ticket_line_count > row.source_count.saturating_mul(100)
+                        || ticket_payment_count > row.source_count.saturating_mul(100));
+                if ticket_detail_mismatch {
+                    let detail_msg = format!(
+                        "{label} returned {} ticket headers, but Counterpoint returned {ticket_line_count} ticket lines and {ticket_payment_count} ticket payments. Ticket history cannot be trusted until the PS_TKT_HIST header query/filter matches its line and payment queries.",
+                        row.source_count
+                    );
+                    push_import_preflight_blocker(
+                        &mut blockers,
+                        Some(&entity_key),
+                        "ticket_header_detail_count_mismatch",
+                        detail_msg.clone(),
+                    );
+                    status = "blocked".into();
+                    message.get_or_insert(detail_msg);
+                } else if entity_key == "tickets" && ticket_line_count > 0 {
                     status = "warning".into();
                 } else {
                     push_import_preflight_blocker(
@@ -14336,7 +14355,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn counterpoint_import_preflight_allows_low_ticket_headers_when_details_exist() {
+    async fn counterpoint_import_preflight_blocks_low_ticket_headers_when_details_are_implausibly_high(
+    ) {
         let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
         ensure_counterpoint_import_first_tables(&pool).await;
@@ -14370,14 +14390,18 @@ mod tests {
         .await
         .expect("record preflight");
 
-        assert!(summary.preflight_passed);
-        assert!(summary.blockers.is_empty());
+        assert!(!summary.preflight_passed);
+        assert!(summary
+            .blockers
+            .iter()
+            .any(|blocker| blocker.entity_key.as_deref() == Some("tickets")
+                && blocker.reason_code == "ticket_header_detail_count_mismatch"));
         let ticket_row = summary
             .counts
             .iter()
             .find(|row| row.entity_key == "tickets")
             .expect("ticket count row");
-        assert_eq!(ticket_row.status, "warning");
+        assert_eq!(ticket_row.status, "blocked");
 
         sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = $1")
             .bind(summary.import_run_id)
@@ -14394,7 +14418,7 @@ mod tests {
         let mut counts = realistic_import_preflight_counts();
         for row in &mut counts {
             match row.entity_key.as_str() {
-                "tickets" => row.source_count = 186,
+                "tickets" => row.source_count = 25_000,
                 "ticket_lines" => row.source_count = 109_093,
                 "ticket_payments" => row.source_count = 71_708,
                 "open_docs" => row.source_count = 2_123,
@@ -14430,7 +14454,7 @@ mod tests {
             .iter()
             .find(|row| row.entity_key == "tickets")
             .expect("ticket count row");
-        assert_eq!(ticket_row.status, "warning");
+        assert_eq!(ticket_row.status, "ok");
         let receiving_row = summary
             .counts
             .iter()
@@ -14776,6 +14800,8 @@ mod tests {
         let pool = connect_test_db().await;
         ensure_counterpoint_import_first_tables(&pool).await;
 
+        let counts = realistic_import_preflight_counts();
+        let expected_count_rows = counts.len();
         let summary = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
@@ -14788,7 +14814,7 @@ mod tests {
                 staging_enabled: false,
                 dry_run: false,
                 startup_issues: vec![],
-                counts: realistic_import_preflight_counts(),
+                counts,
                 metadata: serde_json::json!({ "test": true }),
             },
         )
@@ -14797,7 +14823,7 @@ mod tests {
 
         assert!(summary.preflight_passed);
         assert!(summary.blockers.is_empty());
-        assert_eq!(summary.counts.len(), 13);
+        assert_eq!(summary.counts.len(), expected_count_rows);
 
         sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = $1")
             .bind(summary.import_run_id)

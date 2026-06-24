@@ -395,6 +395,8 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 
 **Totals / paid semantics:** The runtime mapper sources the gross historical ticket total from the best visible `PS_TKT_HIST` total column. ROS prefers the summed tender history from `PS_TKT_HIST_PMT` for `amount_paid` and `balance_due` whenever those rows are present. If tender rows are absent, ROS falls back to the header `amount_paid` value.
 
+**Header/detail proof:** Closed ticket headers, lines, and payments must be in the same rough order of magnitude. If `PS_TKT_HIST` returns only a tiny number of ticket headers while `PS_TKT_HIST_LIN` or `PS_TKT_HIST_PMT` returns tens of thousands of rows, ROS blocks preflight because the ticket header query/filter is not aligned with the line/payment queries. Rerun Auto Config and verify the ticket date, identity, join, and optional document-type settings before accepting the import.
+
 **Historical sales posture:** Closed ticket rows are imported for customer history, item history, and reporting comparison. They are not active fulfillment obligations. ROS links historical lines to exact variants when the payload has enough SKU/cell detail; unresolved historical lines use the historical Counterpoint fallback item instead of blocking the import. Open documents remain strict because they are current obligations.
 
 **Tax limitation:** The shipped Counterpoint ticket queries do not currently source line-level or header-level tax columns, so imported historical `transaction_lines.state_tax` and `local_tax` land as `0`. Treat imported ticket history as operational/customer-service history, not as financially authoritative tax history, unless you extend the bridge with proven Counterpoint tax columns from your live schema.
@@ -769,6 +771,8 @@ Normal operation does not require entity SQL in `.env`. The bridge uses the thre
 | `invalid object name` on SQL | Check `Database=` in `SQL_CONNECTION_STRING` — must be the Counterpoint company DB, not `master` |
 | Customers sync but email is missing | Email was on another customer in ROS (unique constraint); check `email_conflicts` in the response |
 | Products created without category | Add a row to `counterpoint_category_map` for the CP category string, or create a matching category name in ROS |
+| Catalog fails with `Catalog SQL made no progress` after many rows were already read | The Bridge is still connected, but SQL Server paused the large catalog stream long enough to trip the stream watchdog. Current Bridge builds allow a longer mid-stream pause by default; if it still happens after update, rerun Auto Config and review Counterpoint SQL performance before raising `CATALOG_SQL_STREAM_STALL_TIMEOUT_MS`. |
+| Closed ticket history has very low headers but very high lines/payments | Treat this as a query alignment problem, not a successful import. Rerun Auto Config, confirm `PS_TKT_HIST` uses the same date/key/doc-type scope as `PS_TKT_HIST_LIN` and `PS_TKT_HIST_PMT`, then rerun the Bridge. |
 | Duplicate ticket warning | Order with that `counterpoint_ticket_ref` already exists — idempotent skip, not an error |
 | Payment method shows as `cash` for everything | Add missing `PAY_COD` values to `counterpoint_payment_method_map` |
 | Payment method shows as `counterpoint_unmapped` | Add the missing Counterpoint tender code in **Settings → Counterpoint → Payments**, then reset/replay the affected import scope before final sign-off |

@@ -29,6 +29,15 @@ struct BridgeProcessState {
     logs: Arc<Mutex<Vec<String>>>,
 }
 
+fn bridge_stderr_log_line(line: &str) -> String {
+    let lower = line.to_ascii_lowercase();
+    if lower.contains("[compat]") || lower.starts_with("warning") || lower.contains(" warning") {
+        format!("[WARN] {line}")
+    } else {
+        format!("[ERROR] {line}")
+    }
+}
+
 fn strip_quotes(s: &str) -> String {
     let mut val = s.trim().to_string();
     if (val.starts_with('"') && val.ends_with('"'))
@@ -503,7 +512,7 @@ fn start_bridge(
                     if logs.len() > 1000 {
                         logs.remove(0);
                     }
-                    logs.push(format!("[ERROR] {line_str}"));
+                    logs.push(bridge_stderr_log_line(&line_str));
                 }
             });
 

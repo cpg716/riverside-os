@@ -610,6 +610,10 @@ const SQL_REQUEST_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.SQL_RE
 const SQL_CONNECT_TIMEOUT_MS = Math.max(5000, Number.parseInt(process.env.SQL_CONNECT_TIMEOUT_MS ?? "60000", 10));
 const SQL_PROGRESS_LOG_MS = Math.max(10000, Number.parseInt(process.env.SQL_PROGRESS_LOG_MS ?? "30000", 10));
 const CATALOG_SQL_STALL_TIMEOUT_MS = Math.max(30000, Number.parseInt(process.env.CATALOG_SQL_STALL_TIMEOUT_MS ?? "180000", 10));
+const CATALOG_SQL_STREAM_STALL_TIMEOUT_MS = Math.max(
+  CATALOG_SQL_STALL_TIMEOUT_MS,
+  Number.parseInt(process.env.CATALOG_SQL_STREAM_STALL_TIMEOUT_MS ?? "900000", 10),
+);
 /** Node fetch has no default body timeout; large vendor/customer batches to ROS need a high ceiling. */
 const ROS_FETCH_TIMEOUT_MS = Math.max(15000, Number.parseInt(process.env.ROS_FETCH_TIMEOUT_MS ?? "300000", 10));
 const ROS_FETCH_MAX_ATTEMPTS = Math.max(1, Number.parseInt(process.env.ROS_FETCH_MAX_ATTEMPTS ?? "6", 10));
@@ -4091,7 +4095,7 @@ async function syncCatalog(pool) {
     request.timeout = SQL_REQUEST_TIMEOUT_MS;
     console.log(`[catalog] executing query...`);
     logToDashboard(
-      `[catalog] SQL query started. Waiting for rows (stall timeout ${Math.round(CATALOG_SQL_STALL_TIMEOUT_MS / 1000)}s).`,
+      `[catalog] SQL query started. Waiting for rows (first-row timeout ${Math.round(CATALOG_SQL_STALL_TIMEOUT_MS / 1000)}s; stream timeout ${Math.round(CATALOG_SQL_STREAM_STALL_TIMEOUT_MS / 1000)}s).`,
     );
     let settled = false;
     let lastActivityAt = Date.now();
@@ -4115,9 +4119,13 @@ async function syncCatalog(pool) {
     };
     const catalogWatchdog = setInterval(() => {
       const idleMs = Date.now() - lastActivityAt;
-      if (idleMs >= CATALOG_SQL_STALL_TIMEOUT_MS) {
+      const activeStallTimeoutMs =
+        totalRowsReceived > 0 ? CATALOG_SQL_STREAM_STALL_TIMEOUT_MS : CATALOG_SQL_STALL_TIMEOUT_MS;
+      if (idleMs >= activeStallTimeoutMs) {
+        const timeoutEnvName =
+          totalRowsReceived > 0 ? "CATALOG_SQL_STREAM_STALL_TIMEOUT_MS" : "CATALOG_SQL_STALL_TIMEOUT_MS";
         const err = new Error(
-          `Catalog SQL made no progress for ${Math.round(idleMs / 1000)}s. Run Auto Config or raise CATALOG_SQL_STALL_TIMEOUT_MS.`,
+          `Catalog SQL made no progress for ${Math.round(idleMs / 1000)}s after reading ${totalRowsReceived} row(s). Run Auto Config or raise ${timeoutEnvName}.`,
         );
         console.error(`[catalog] ${err.message}`);
         logToDashboard(`[catalog] failed: ${err.message}`);
@@ -4132,6 +4140,10 @@ async function syncCatalog(pool) {
         lastLoggedRowsReceived = totalRowsReceived;
         logToDashboard(
           `[catalog] streaming: ${totalRowsReceived} SQL rows read, ${totalProcessed} items sent.`,
+        );
+      } else {
+        logToDashboard(
+          `[catalog] SQL still running after ${totalRowsReceived} row(s); ${Math.round(idleMs / 1000)}s since the last row.`,
         );
       }
     }, SQL_PROGRESS_LOG_MS);

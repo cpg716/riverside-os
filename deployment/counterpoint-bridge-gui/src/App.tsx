@@ -1110,6 +1110,8 @@ function App() {
                       <span className={`break-all ${
                         logLine.toLowerCase().includes("error") || logLine.toLowerCase().includes("failed") || logLine.includes("[ERROR]")
                           ? "text-red-400"
+                          : logLine.toLowerCase().includes("warning") || logLine.includes("[WARN]")
+                          ? "text-amber-300 font-semibold"
                           : logLine.includes("[SYSTEM]")
                           ? "text-amber-400 font-bold"
                           : logLine.toLowerCase().includes("ok") || logLine.toLowerCase().includes("completed") || logLine.toLowerCase().includes("success")
