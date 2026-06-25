@@ -4126,9 +4126,11 @@ async function syncCatalog(pool) {
   }
 
   const CATALOG_BATCH_SIZE = 400;
-  console.info(`[catalog] Starting extraction (post batch=${CATALOG_BATCH_SIZE})...`);
+  const MAX_CONCURRENCY = 4;
+  console.info(`[catalog] Starting ingest (batch=${CATALOG_BATCH_SIZE}, max_parallel=${MAX_CONCURRENCY})...`);
 
   const state = readState();
+  const expectedCatalogProducts = activeImportSourceCount("catalog_products");
   const processedItemNos = new Set();
   let batchBuffer = [];
   let totalProcessed = 0;
@@ -4146,6 +4148,8 @@ async function syncCatalog(pool) {
   const catalogCategoryVendorDiagnosticParts = [];
   const catalogVariantLabelDiagnosticParts = [];
   let skippedDuplicates = 0;
+  let inFlight = 0;
+  const pendingRequests = [];
   const failures = [];
   let lastSuccessfulCursor = null;
 
@@ -4180,34 +4184,46 @@ async function syncCatalog(pool) {
       cancelCatalogRequest();
       reject(err);
     };
-    const postBufferedCatalogRows = async () => {
-      for (let i = 0; i < batchBuffer.length; i += CATALOG_BATCH_SIZE) {
-        const chunk = batchBuffer.slice(i, i + CATALOG_BATCH_SIZE);
-        const last = chunk[chunk.length - 1].item_no;
-        try {
-          const summary = await rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } });
+    const flushCatalogBatch = () => {
+      if (batchBuffer.length === 0) return;
+      const chunk = [...batchBuffer];
+      batchBuffer = [];
+      const last = chunk[chunk.length - 1].item_no;
+
+      inFlight++;
+      if (!settled && inFlight >= MAX_CONCURRENCY) request.pause();
+
+      const promise = rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } })
+        .then((summary) => {
           console.info("[catalog] batch", summary);
           markCatalogActivity();
           totalProcessed += chunk.length;
-          if (totalProcessed % 500 === 0 || totalProcessed === batchBuffer.length) {
-            logToDashboard(`[catalog] ingest: ${totalProcessed}/${batchBuffer.length} items processed...`);
+          if (totalProcessed % 500 === 0 || (settled && totalProcessed === totalMappedRows)) {
+            logToDashboard(`[catalog] ingest: ${totalProcessed}/${totalMappedRows} items processed...`);
             console.info(`[catalog] progress: ${totalProcessed} items (skipped ${skippedDuplicates} duplicates)...`);
           }
           if (last) lastSuccessfulCursor = last;
-        } catch (err) {
+        })
+        .catch((err) => {
           markCatalogActivity();
           console.error("[catalog] batch failed:", err.message);
           failures.push(err);
-        }
-      }
+        })
+        .finally(() => {
+          inFlight--;
+          if (!settled && inFlight < MAX_CONCURRENCY) request.resume();
+        });
+      pendingRequests.push(promise);
     };
     const finishCatalog = async (reason) => {
       if (settled) return;
       settled = true;
       cleanupCatalogWatchdog();
+      cancelCatalogRequest();
       try {
-        logToDashboard(`[catalog] ${reason}. Posting ${batchBuffer.length} unique catalog item(s) to ROS.`);
-        await postBufferedCatalogRows();
+        logToDashboard(`[catalog] ${reason}. Waiting for posted catalog batches to finish.`);
+        flushCatalogBatch();
+        await Promise.all(pendingRequests);
         throwIfBatchFailures("catalog", failures, totalProcessed, totalMappedRows);
         if (lastSuccessfulCursor) {
           state.catalog_cursor = lastSuccessfulCursor;
@@ -4269,7 +4285,7 @@ async function syncCatalog(pool) {
       } else if (totalRowsReceived !== lastLoggedRowsReceived) {
         lastLoggedRowsReceived = totalRowsReceived;
         logToDashboard(
-          `[catalog] streaming: ${totalRowsReceived} SQL rows read, ${batchBuffer.length} unique item(s) buffered.`,
+          `[catalog] streaming: ${totalRowsReceived} SQL rows read, ${totalProcessed} item(s) sent.`,
         );
       } else {
         logToDashboard(
@@ -4306,6 +4322,12 @@ async function syncCatalog(pool) {
         catalogCategoryVendorDiagnosticParts.push(catalogCategoryVendorDiagnosticRow(mapped));
         catalogVariantLabelDiagnosticParts.push(...catalogVariantLabelDiagnosticRows(mapped));
         batchBuffer.push(mapped);
+        if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
+          flushCatalogBatch();
+        }
+        if (expectedCatalogProducts && totalMappedRows >= expectedCatalogProducts) {
+          void finishCatalog(`expected catalog parent count reached (${expectedCatalogProducts})`);
+        }
       }
     });
 
