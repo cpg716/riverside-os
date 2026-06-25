@@ -28,9 +28,9 @@ use crate::logic::counterpoint_sync::{
     execute_counterpoint_vendor_batch, execute_counterpoint_vendor_item_batch,
     get_counterpoint_barcode_alias_health_summary, get_counterpoint_ingest_quarantine_summary,
     get_counterpoint_registry_health_summary, get_lightspeed_normalization_reference_health,
-    import_lightspeed_normalization_reference, list_counterpoint_import_exceptions,
-    list_counterpoint_ingest_quarantine_rows, persist_counterpoint_barcode_aliases,
-    preflight_counterpoint_barcode_aliases,
+    ignore_counterpoint_import_exception, import_lightspeed_normalization_reference,
+    list_counterpoint_import_exceptions, list_counterpoint_ingest_quarantine_rows,
+    persist_counterpoint_barcode_aliases, preflight_counterpoint_barcode_aliases,
     preview_counterpoint_lightspeed_normalization_candidates,
     record_counterpoint_import_batch_failure, record_counterpoint_import_batch_success,
     record_counterpoint_import_preflight, require_counterpoint_import_run_for_batch,
@@ -1111,6 +1111,35 @@ async fn settings_resolve_import_exception(
     }
 }
 
+async fn settings_ignore_import_exception(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path(exception_id): axum::extract::Path<Uuid>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    match ignore_counterpoint_import_exception(&state.db, exception_id, Some(staff.id)).await {
+        Ok(Some(result)) if result.resolved => {
+            Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+        }
+        Ok(Some(result)) => Err((
+            StatusCode::CONFLICT,
+            Json(serde_json::to_value(result).unwrap_or_else(
+                |_| json!({ "resolved": false, "reason": "Exception could not be removed from review." }),
+            )),
+        )),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "exception not found" })),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )),
+    }
+}
+
 async fn settings_request_run(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1819,6 +1848,10 @@ pub fn settings_router() -> Router<AppState> {
         .route(
             "/exceptions/{id}/resolve",
             patch(settings_resolve_import_exception),
+        )
+        .route(
+            "/exceptions/{id}/ignore",
+            patch(settings_ignore_import_exception),
         )
         .route(
             "/inventory-verification",

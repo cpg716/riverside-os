@@ -284,6 +284,24 @@ function sourceFieldText(value: unknown): string | null {
   return null;
 }
 
+function exceptionPayloadField(row: CounterpointImportExceptionRow, key: string): string | null {
+  const payload = sourcePayloadObject(row.source_payload);
+  const source = sourceRowForException(row);
+  return sourceFieldText(source?.[key]) ?? sourceFieldText(payload?.[key]);
+}
+
+function exceptionGeneratedSku(row: CounterpointImportExceptionRow): string | null {
+  return exceptionPayloadField(row, "generated_sku");
+}
+
+function exceptionCounterpointSkuValue(row: CounterpointImportExceptionRow): string | null {
+  return exceptionPayloadField(row, "sku");
+}
+
+function isGeneratedSkuException(row: CounterpointImportExceptionRow): boolean {
+  return row.reason_code === "generated_sku" || Boolean(exceptionGeneratedSku(row));
+}
+
 function exceptionSourceSummary(row: CounterpointImportExceptionRow): string[] {
   const source = sourceRowForException(row);
   if (!source) return [];
@@ -292,7 +310,7 @@ function exceptionSourceSummary(row: CounterpointImportExceptionRow): string[] {
     ["Ticket", "ticket_ref"],
     ["Open order", "doc_ref"],
     ["Item", "counterpoint_item_key"],
-    ["SKU", "sku"],
+    ["Counterpoint SKU value", "sku"],
     ["Tender", "pmt_typ"],
     ["Amount", "amount"],
     ["Total", "total_price"],
@@ -308,6 +326,37 @@ function exceptionSourceSummary(row: CounterpointImportExceptionRow): string[] {
     if (Array.isArray(list)) lines.push(`${label}: ${list.length}`);
   }
   return lines;
+}
+
+function csvCell(value: unknown): string {
+  const text = value == null ? "" : String(value);
+  return `"${text.replaceAll("\"", "\"\"")}"`;
+}
+
+function exceptionCsvRows(rows: CounterpointImportExceptionRow[]): string {
+  const header = [
+    "Status",
+    "Import area",
+    "Reason",
+    "Source key",
+    "Counterpoint SKU value",
+    "Generated SKU",
+    "Message",
+    "Suggested fix",
+    "Created at",
+  ];
+  const body = rows.map((row) => [
+    row.status,
+    formatEntityLabel(row.entity_key),
+    row.reason_code,
+    row.source_key ?? "",
+    exceptionCounterpointSkuValue(row) ?? "",
+    exceptionGeneratedSku(row) ?? "",
+    row.message,
+    row.suggested_fix ?? "",
+    row.created_at ?? "",
+  ]);
+  return [header, ...body].map((cells) => cells.map(csvCell).join(",")).join("\n");
 }
 
 function formatImportRunKind(runKind: string | null | undefined): string {
@@ -426,7 +475,7 @@ export default function CounterpointSyncSettingsPanel({
       return;
     }
     try {
-      const params = new URLSearchParams({ limit: "200" });
+      const params = new URLSearchParams({ limit: "10000" });
       params.set("import_run_id", commandCenter.latest_import_run.id);
       const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/exceptions?${params}`, {
         headers: headers(),
@@ -527,6 +576,27 @@ export default function CounterpointSyncSettingsPanel({
     }
   }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
 
+  const ignoreImportException = useCallback(async (exceptionId: string) => {
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/counterpoint-sync/exceptions/${exceptionId}/ignore`,
+        {
+          method: "PATCH",
+          headers: headers(),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.reason ?? data.error ?? "Could not remove exception from review.");
+      }
+      toast(data.reason ?? "Exception removed from active review.", "success");
+      void fetchImportExceptions();
+      void fetchCommandCenter();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not remove exception from review.", "error");
+    }
+  }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
+
   const requestImportAreaRerun = useCallback(async (entity: string) => {
     const importArea = importAreaForException(entity);
     try {
@@ -557,6 +627,20 @@ export default function CounterpointSyncSettingsPanel({
       () => toast("Could not copy source payload.", "error"),
     );
   }, [toast]);
+
+  const exportImportExceptionsCsv = useCallback(() => {
+    if (importExceptions.length === 0 || typeof window === "undefined") return;
+    const csv = exceptionCsvRows(importExceptions);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `counterpoint-import-exceptions-${commandCenter?.latest_import_run?.id ?? "latest"}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  }, [commandCenter?.latest_import_run?.id, importExceptions]);
 
   const runBaselineReset = async (confirmationPhrase: string): Promise<boolean> => {
     // setResetBusy(true);
@@ -710,6 +794,14 @@ export default function CounterpointSyncSettingsPanel({
     }
     return map;
   }, [importExceptions]);
+  const generatedSkuExceptions = useMemo(
+    () => importExceptions.filter(isGeneratedSkuException),
+    [importExceptions],
+  );
+  const actionableImportExceptions = useMemo(
+    () => importExceptions.filter((row) => row.status === "open" && !isGeneratedSkuException(row)),
+    [importExceptions],
+  );
   const stagingRowsByEntity = useMemo(() => {
     const rows = new Map<string, StagingEntityCountRow>();
     for (const count of status?.staging_entity_counts ?? []) {
@@ -766,7 +858,7 @@ export default function CounterpointSyncSettingsPanel({
     status?.offline_reason ?? "Bridge status is tracked from Main Hub ROS intake heartbeat.";
   const requiredRowsNeedingReview = commandCenterRows.filter((row) => row.required && !row.ready);
   const firstRequiredIssue = requiredRowsNeedingReview[0] ?? null;
-  const firstOpenException = importExceptions.find((row) => row.status === "open") ?? null;
+  const firstOpenException = actionableImportExceptions[0] ?? importExceptions.find((row) => row.status === "open") ?? null;
   const importNextStep = useMemo(() => {
     if (bridgeRuntimeState === "offline") {
       return {
@@ -1256,81 +1348,132 @@ export default function CounterpointSyncSettingsPanel({
 
       {importExceptions.length > 0 ? (
         <div id="counterpoint-import-exceptions" className="scroll-mt-24 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-200">
-            Import exceptions
-          </p>
-          <div className="mt-2 grid gap-2 md:grid-cols-2">
-            {importExceptions.slice(0, 6).map((row) => {
-              const sourceKey = row.source_key?.trim() ?? "";
-              const sourceSummary = exceptionSourceSummary(row);
-              const importArea = importAreaForException(row.entity_key);
-              return (
-                <div key={row.id} className="rounded-md border border-app-border bg-app-bg/60 p-2 text-xs">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="font-bold text-app-text">
-                      {formatEntityLabel(row.entity_key)} {sourceKey ? `#${sourceKey}` : ""}
-                    </p>
-                    <span className="ui-pill bg-amber-500/15 text-[9px] text-amber-700 dark:text-amber-200">
-                      {formatEntityLabel(importArea)}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-app-text-muted">{row.message}</p>
-                  {row.suggested_fix ? <p className="mt-1 font-semibold text-amber-700 dark:text-amber-200">{row.suggested_fix}</p> : null}
-                  {sourceSummary.length > 0 ? (
-                    <div className="mt-2 rounded-md border border-app-border bg-app-surface-2 p-2">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        Source details
-                      </p>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {sourceSummary.map((line) => (
-                          <span key={line} className="ui-pill border border-app-border bg-app-bg/80 text-[10px] text-app-text">
-                            {line}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => copyExceptionSource(row)}
-                      className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
-                    >
-                      Copy source
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void requestImportAreaRerun(row.entity_key)}
-                      className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
-                    >
-                      Rerun {formatEntityLabel(importArea)}
-                    </button>
-                    {sourceKey ? (
-                      <button
-                        type="button"
-                        onClick={() => void recheckImportException(row.id)}
-                        className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
-                      >
-                        Recheck after rerun
-                      </button>
-                    ) : null}
-                    <a
-                      href="http://localhost:3002"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
-                    >
-                      Open Bridge
-                    </a>
-                  </div>
-                  {!sourceKey ? (
-                    <p className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 p-2 font-semibold text-amber-700 dark:text-amber-200">
-                      This is a batch-level exception, not a single Counterpoint row that ROS can recheck. Fix the source or mapping issue, rerun the affected import area from the Bridge, then refresh Import & Proof.
-                    </p>
-                  ) : null}
-                </div>
-              );
-            })}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-200">
+                Import review
+              </p>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                {actionableImportExceptions.length} landing issue(s), {generatedSkuExceptions.length} generated SKU report row(s), {importExceptions.length} total row(s) loaded.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={exportImportExceptionsCsv}
+              className="ui-btn-secondary px-3 py-2 text-[10px] font-bold"
+            >
+              Export full list
+            </button>
+          </div>
+          {generatedSkuExceptions.length > 0 ? (
+            <p className="mt-2 rounded-md border border-app-border bg-app-bg/70 p-2 text-xs font-semibold text-app-text-muted">
+              Generated SKU rows mean Counterpoint did not provide a usable SKU, so ROS assigned a compact CP-&lt;digits&gt; SKU and kept the row visible for tag and cleanup review.
+            </p>
+          ) : null}
+          <div className="mt-3 max-h-[32rem] overflow-auto rounded-md border border-app-border bg-app-bg/70">
+            <table className="w-full min-w-[1120px] text-left text-xs">
+              <thead className="sticky top-0 z-10 bg-app-surface-2 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                <tr>
+                  <th className="px-3 py-2">Area</th>
+                  <th className="px-3 py-2">Issue</th>
+                  <th className="px-3 py-2">Source</th>
+                  <th className="px-3 py-2">Counterpoint SKU value</th>
+                  <th className="px-3 py-2">Generated SKU</th>
+                  <th className="px-3 py-2">Fix</th>
+                  <th className="px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-app-border">
+                {importExceptions.map((row) => {
+                  const sourceKey = row.source_key?.trim() ?? "";
+                  const sourceSummary = exceptionSourceSummary(row);
+                  const importArea = importAreaForException(row.entity_key);
+                  const generatedSku = exceptionGeneratedSku(row);
+                  const counterpointSkuValue = exceptionCounterpointSkuValue(row);
+                  const generatedSkuRow = isGeneratedSkuException(row);
+                  return (
+                    <tr key={row.id} className="align-top">
+                      <td className="px-3 py-3 font-bold text-app-text">
+                        <div>{formatEntityLabel(row.entity_key)}</div>
+                        <span className="ui-pill mt-1 bg-amber-500/15 text-[9px] text-amber-700 dark:text-amber-200">
+                          {formatEntityLabel(importArea)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-app-text">
+                        <div className="font-bold">{formatEntityLabel(row.reason_code)}</div>
+                        <div className="mt-1 text-app-text-muted">{row.message}</div>
+                      </td>
+                      <td className="px-3 py-3 text-app-text-muted">
+                        <div className="font-semibold text-app-text">{sourceKey || "Batch-level"}</div>
+                        {sourceSummary.length > 0 ? (
+                          <div className="mt-1 space-y-1">
+                            {sourceSummary.slice(0, 4).map((line) => (
+                              <div key={line}>{line}</div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-3 font-semibold text-app-text">
+                        {counterpointSkuValue ?? (generatedSkuRow ? "Missing or invalid" : "Not provided")}
+                      </td>
+                      <td className="px-3 py-3 font-bold text-app-text">
+                        {generatedSku ?? "None"}
+                      </td>
+                      <td className="px-3 py-3 text-app-text-muted">
+                        {row.suggested_fix ?? "Rerun the affected import area after correcting the source data."}
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex min-w-48 flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => copyExceptionSource(row)}
+                            className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                          >
+                            Copy source
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void requestImportAreaRerun(row.entity_key)}
+                            className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                          >
+                            Rerun {formatEntityLabel(importArea)}
+                          </button>
+                          {sourceKey ? (
+                            <button
+                              type="button"
+                              onClick={() => void recheckImportException(row.id)}
+                              className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                            >
+                              Recheck landed proof
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => void ignoreImportException(row.id)}
+                            className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                          >
+                            {generatedSkuRow ? "Close generated-SKU report" : "Remove from review"}
+                          </button>
+                          <a
+                            href="http://localhost:3002"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
+                          >
+                            Open Bridge
+                          </a>
+                        </div>
+                        {!sourceKey ? (
+                          <p className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 p-2 font-semibold text-amber-700 dark:text-amber-200">
+                            Batch-level issue: rerun the affected area after fixing the source or mapping problem.
+                          </p>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       ) : null}

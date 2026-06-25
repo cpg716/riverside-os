@@ -41,6 +41,10 @@ fn counterpoint_catalog_variant_sku(cp_key: &str, sku: &str) -> String {
     } else {
         source_key
     };
+    if let Some(generated_sku) = deterministic_counterpoint_recovery_sku(source_key) {
+        return generated_sku;
+    }
+
     let safe_key: String = source_key
         .chars()
         .map(|ch| {
@@ -874,13 +878,10 @@ fn is_counterpoint_parent_item_sku(normalized_sku: &str) -> bool {
 }
 
 fn is_counterpoint_recovered_sku(normalized_sku: &str) -> bool {
-    let Some(rest) = normalized_sku.strip_prefix("CP-I-") else {
+    let Some(rest) = normalized_sku.strip_prefix("CP-") else {
         return false;
     };
-    !rest.is_empty()
-        && rest
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+    !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn is_generated_or_service_sku(normalized_sku: &str) -> bool {
@@ -905,20 +906,29 @@ fn valid_counterpoint_item_key(raw: Option<&str>) -> Option<String> {
     is_counterpoint_parent_item_sku(&family).then_some(normalized)
 }
 
+fn counterpoint_item_number(family_key: &str) -> Option<String> {
+    let rest = family_key.strip_prefix("I-")?;
+    (!rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())).then(|| rest.to_string())
+}
+
+fn stable_counterpoint_numeric_suffix(raw: &str) -> String {
+    let mut hash = 2_166_136_261_u32;
+    for byte in raw.bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(16_777_619);
+    }
+    format!("{:09}", hash % 1_000_000_000)
+}
+
 fn deterministic_counterpoint_recovery_sku(counterpoint_item_key: &str) -> Option<String> {
     let key = valid_counterpoint_item_key(Some(counterpoint_item_key))?;
-    let safe_key: String = key
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
-                ch
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let safe_key = safe_key.trim_matches('-');
-    (!safe_key.is_empty()).then(|| format!("CP-{safe_key}"))
+    let family = normalize_counterpoint_family_key(&key)?;
+    let item_no = counterpoint_item_number(&family)?;
+    if key == family {
+        Some(format!("CP-{item_no}"))
+    } else {
+        Some(format!("CP-{}", stable_counterpoint_numeric_suffix(&key)))
+    }
 }
 
 fn option_values_from_variation_label(variation_label: Option<&str>) -> Vec<String> {
@@ -6521,7 +6531,7 @@ pub async fn list_counterpoint_import_exceptions(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<CounterpointImportExceptionRow>, sqlx::Error> {
-    let limit = limit.clamp(1, 500);
+    let limit = limit.clamp(1, 10_000);
     let offset = offset.max(0);
     sqlx::query_as(
         r#"
@@ -6542,6 +6552,59 @@ pub async fn list_counterpoint_import_exceptions(
     .bind(import_run_id)
     .fetch_all(pool)
     .await
+}
+
+pub async fn ignore_counterpoint_import_exception(
+    pool: &PgPool,
+    exception_id: Uuid,
+    staff_id: Option<Uuid>,
+) -> Result<Option<CounterpointImportExceptionResolveResult>, sqlx::Error> {
+    let row: Option<(Option<String>, Option<Uuid>, String)> = sqlx::query_as(
+        r#"
+        SELECT ros_table, ros_id, status
+        FROM counterpoint_import_exceptions
+        WHERE id = $1
+        "#,
+    )
+    .bind(exception_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((existing_ros_table, existing_ros_id, status)) = row else {
+        return Ok(None);
+    };
+
+    if status != "open" {
+        return Ok(Some(CounterpointImportExceptionResolveResult {
+            resolved: true,
+            reason: "Exception was already closed.".into(),
+            ros_table: existing_ros_table,
+            ros_id: existing_ros_id,
+        }));
+    }
+
+    let result = sqlx::query(
+        r#"
+        UPDATE counterpoint_import_exceptions
+        SET status = 'ignored',
+            resolved_by_staff_id = $2,
+            resolved_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+          AND status = 'open'
+        "#,
+    )
+    .bind(exception_id)
+    .bind(staff_id)
+    .execute(pool)
+    .await?;
+
+    Ok(Some(CounterpointImportExceptionResolveResult {
+        resolved: result.rows_affected() > 0,
+        reason: "Exception removed from active review. ROS did not create missing landed proof for this row; rerun the import area if the Counterpoint source row should land.".into(),
+        ros_table: existing_ros_table,
+        ros_id: existing_ros_id,
+    }))
 }
 
 pub async fn resolve_counterpoint_import_exception(
@@ -14219,10 +14282,13 @@ mod tests {
         assert_eq!(counterpoint_catalog_variant_sku("105", "105"), "CP-105");
         assert_eq!(counterpoint_catalog_variant_sku("110", "110"), "CP-110");
         assert_eq!(counterpoint_catalog_variant_sku("200", "200"), "CP-200");
-        assert_eq!(
-            counterpoint_catalog_variant_sku("I-102119|40901/1|36 R|2BV", "100"),
-            "CP-I-102119-40901-1-36-R-2BV"
-        );
+        let matrix_generated = counterpoint_catalog_variant_sku("I-102119|40901/1|36 R|2BV", "100");
+        assert!(matrix_generated.starts_with("CP-"));
+        assert!(matrix_generated
+            .strip_prefix("CP-")
+            .expect("numeric suffix")
+            .bytes()
+            .all(|b| b.is_ascii_digit()));
         assert_eq!(
             counterpoint_catalog_variant_sku("40901/1", "40901/1"),
             "40901/1"
@@ -15859,12 +15925,21 @@ mod tests {
 
         assert!(!report.summary.has_errors);
         assert_eq!(records.len(), 3);
-        assert_eq!(records[0].generated_sku, "CP-I-12345-RED-40");
-        assert_eq!(records[1].generated_sku, "CP-I-12345-BLUE-42");
-        assert_eq!(records[2].generated_sku, "CP-I-67890-BLACK-44");
-        assert_eq!(recovered.rows[0].cells[0].sku, "CP-I-12345-RED-40");
-        assert_eq!(recovered.rows[0].cells[1].sku, "CP-I-12345-BLUE-42");
-        assert_eq!(recovered.rows[0].cells[2].sku, "CP-I-67890-BLACK-44");
+        assert!(records[0].generated_sku.starts_with("CP-"));
+        assert!(records[1].generated_sku.starts_with("CP-"));
+        assert!(records[2].generated_sku.starts_with("CP-"));
+        assert_ne!(records[0].generated_sku, records[1].generated_sku);
+        assert_eq!(recovered.rows[0].cells[0].sku, records[0].generated_sku);
+        assert_eq!(recovered.rows[0].cells[1].sku, records[1].generated_sku);
+        assert_eq!(recovered.rows[0].cells[2].sku, records[2].generated_sku);
+        for record in records {
+            assert!(record
+                .generated_sku
+                .strip_prefix("CP-")
+                .expect("counterpoint generated sku")
+                .bytes()
+                .all(|b| b.is_ascii_digit()));
+        }
     }
 
     #[test]
@@ -15899,9 +15974,11 @@ mod tests {
 
         assert!(!report.summary.has_errors);
         assert_eq!(records.len(), 3);
-        assert_eq!(recovered.rows[0].sku, "CP-I-22222-NAVY-42");
-        assert_eq!(recovered.rows[1].sku, "CP-I-33333-BLACK-44");
-        assert_eq!(recovered.rows[2].sku, "CP-I-44444-GREY-46");
+        for row in recovered.rows {
+            let suffix = row.sku.strip_prefix("CP-").expect("generated sku");
+            assert!(!suffix.is_empty());
+            assert!(suffix.bytes().all(|b| b.is_ascii_digit()));
+        }
     }
 
     #[tokio::test]
@@ -15910,7 +15987,7 @@ mod tests {
         let pool = connect_test_db().await;
         let suffix = numeric_identity_suffix();
         let item_no = format!("I-{suffix}");
-        let generated_sku = format!("CP-{item_no}");
+        let generated_sku = format!("CP-{suffix}");
         let payload = CounterpointCatalogPayload {
             rows: vec![CounterpointCatalogRow {
                 item_no: item_no.clone(),

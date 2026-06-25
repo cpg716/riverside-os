@@ -339,7 +339,7 @@ Default runtime inventory mapping pulls `IM_INV` rows and `IM_INV_CELL` rows for
 
 **Category mapping:** The bridge sends a `category` string from `CATEG_COD`. ROS looks up `counterpoint_category_map` first (admin-configurable), then falls back to a case-insensitive name match in `categories`. Unmapped categories result in `category_id = NULL` on the product.
 
-**Generated SKU recovery:** If Counterpoint sends a valid item number such as `I-12345` but the SKU/barcode is blank, non-usable, or duplicated, ROS generates a deterministic SKU from the Counterpoint item key, for example `CP-I-12345` or `CP-I-12345-RED-40`. The original Counterpoint item number remains in `counterpoint_item_key`, the row is not discarded solely because the SKU is missing, and ROS records a `generated_sku` import exception with the original source payload for staff review. Review those exceptions before sign-off, then print tags from Inventory using the generated SKU if the generated value is accepted.
+**Generated SKU recovery:** If Counterpoint sends a valid item number such as `I-12345` but the SKU/barcode is blank, non-usable, or duplicated, ROS generates a deterministic compact SKU in the form `CP-<digits>`. The Counterpoint item key remains in `counterpoint_item_key`, the row is not discarded solely because the SKU is missing, and ROS records a `generated_sku` import review row with the source payload for staff review. Review those rows before sign-off, then print tags from Inventory using the generated SKU if the generated value is accepted.
 
 ### 4e. Gift cards
 

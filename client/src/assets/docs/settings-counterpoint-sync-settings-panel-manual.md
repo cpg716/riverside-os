@@ -71,7 +71,7 @@ If a Bridge import fails before completion, the proof table shows the run as fai
 
 ## Exceptions
 
-Import exceptions identify Counterpoint rows that did not land cleanly. Each exception card shows the affected import area, source details from the raw Counterpoint payload, and action buttons.
+Import review identifies Counterpoint rows that need attention. The review table shows the affected import area, source details from the raw Counterpoint payload, the Counterpoint SKU value when one was provided, the generated SKU when ROS had to assign one, and action buttons.
 
 Use **Copy source** when support needs the exact Counterpoint payload. Use **Rerun Tickets**, **Rerun Open Docs**, or the matching import-area rerun after fixing the missing customer, variant, tender, duplicate reference, or mapping data. The Bridge must remain open so it can pick up the rerun request on its next heartbeat.
 
@@ -81,7 +81,7 @@ If an exception has no Counterpoint source key, it is a batch-level blocker rath
 
 Historical Counterpoint sales can include unresolved item lines when Counterpoint provides payment/header value but no exact item variant. ROS preserves the original Counterpoint item key so staff can correct the product when the exact line is known.
 
-Generated SKU exceptions mean Counterpoint supplied a valid item number but the SKU was blank, invalid, or duplicated. ROS assigns a stable `CP-I...` SKU, keeps the original Counterpoint item key, and records the source payload for review. Search that generated SKU in Inventory to confirm the item, then print tags from the normal Inventory tag workflow if the generated SKU is accepted.
+Generated SKU review rows mean Counterpoint supplied a valid item number but the SKU was blank, invalid, or duplicated. ROS assigns a stable compact `CP-<digits>` SKU, keeps the Counterpoint item key, and records the source payload for review. Use **Export full list** to review all generated SKUs, search the generated SKU in Inventory to confirm the item, then print tags from the normal Inventory tag workflow if the generated SKU is accepted.
 
 Open Docs are active customer obligations. ROS does not create a placeholder line for an open order item that still cannot match a variant after catalog/SKU recovery. Fix the item mapping or source record, rerun Open Orders from the Bridge, then use **Recheck after rerun**.
 
