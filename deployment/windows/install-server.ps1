@@ -861,6 +861,47 @@ function Get-CloudflaredConfigPath {
     Select-Object -First 1
 }
 
+function Get-ConfiguredCloudflaredConfigPath($Config) {
+  $configPath = Get-ServerEnvironmentValue $Config @("RIVERSIDE_CLOUDFLARE_CONFIG_PATH", "CLOUDFLARED_CONFIG_PATH")
+  if (-not [string]::IsNullOrWhiteSpace($configPath) -and (Test-Path $configPath)) {
+    return $configPath
+  }
+  return ""
+}
+
+function New-CloudflaredConfigFromServerConfig($Config, [string]$Hostname, [string]$ServiceUrl) {
+  $tunnelId = Get-ServerEnvironmentValue $Config @("RIVERSIDE_CLOUDFLARE_TUNNEL_ID", "CLOUDFLARED_TUNNEL_ID")
+  $credentialsFile = Get-ServerEnvironmentValue $Config @("RIVERSIDE_CLOUDFLARE_CREDENTIALS_FILE", "CLOUDFLARED_CREDENTIALS_FILE")
+  if ([string]::IsNullOrWhiteSpace($tunnelId) -or [string]::IsNullOrWhiteSpace($credentialsFile)) {
+    return ""
+  }
+  if (-not (Test-Path $credentialsFile)) {
+    Write-Warning "Cloudflare tunnel credentials were configured, but the credentials file was not found at $credentialsFile. Cannot create cloudflared config.yml."
+    return ""
+  }
+
+  $configPath = Get-ServerEnvironmentValue $Config @("RIVERSIDE_CLOUDFLARE_CONFIG_PATH", "CLOUDFLARED_CONFIG_PATH")
+  if ([string]::IsNullOrWhiteSpace($configPath)) {
+    $configPath = "C:\ProgramData\cloudflared\config.yml"
+  }
+  $configDir = Split-Path $configPath -Parent
+  if (-not (Test-Path $configDir)) {
+    New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+  }
+
+  $lines = @(
+    "tunnel: $tunnelId",
+    "credentials-file: '$($credentialsFile.Replace("'", "''"))'",
+    "ingress:",
+    "  - hostname: $Hostname",
+    "    service: $ServiceUrl",
+    "  - service: http_status:404"
+  )
+  Set-Content -Path $configPath -Value $lines -Encoding UTF8
+  Write-Host "Created cloudflared config for $Hostname -> $ServiceUrl at $configPath" -ForegroundColor Green
+  return $configPath
+}
+
 function Set-CloudflaredIngressRule([string]$ConfigPath, [string]$Hostname, [string]$ServiceUrl) {
   $lines = @(Get-Content $ConfigPath -ErrorAction Stop)
   $escapedHost = [regex]::Escape($Hostname)
@@ -951,8 +992,14 @@ function Ensure-CloudflaredRosIngress($Config, [int]$ServerPort) {
   $serviceUrl = "http://127.0.0.1:$ServerPort"
   $configPath = Get-CloudflaredConfigPath
   if ([string]::IsNullOrWhiteSpace($configPath)) {
-    Write-Warning "Cloudflare tunnel hostname '$hostname' is configured, but no local cloudflared config.yml was found. Public Helcim callbacks will not work until cloudflared routes $hostname to $serviceUrl."
-    return
+    $configPath = Get-ConfiguredCloudflaredConfigPath $Config
+  }
+  if ([string]::IsNullOrWhiteSpace($configPath)) {
+    $configPath = New-CloudflaredConfigFromServerConfig $Config $hostname $serviceUrl
+    if ([string]::IsNullOrWhiteSpace($configPath)) {
+      Write-Warning "Cloudflare tunnel hostname '$hostname' is configured, but no local cloudflared config.yml was found and no tunnel credentials were supplied. Public Helcim callbacks will not work until cloudflared routes $hostname to $serviceUrl."
+      return
+    }
   }
 
   try {
@@ -1179,9 +1226,10 @@ function Install-RosieStack($PackageRoot) {
   }
   Start-Sleep -Seconds 2
 
-  Write-Host "ROSIE: Delegating to $installerPath with -SkipEnvPatch..."
+  Write-Host "ROSIE: Delegating to $installerPath. The main installer will write server .env after ROSIE resolves the model path..."
   try {
-    # Call the installer script, passing the target install root and -SkipEnvPatch
+    # Call the installer script with -SkipEnvPatch because Write-ServerEnv owns the final
+    # server .env contents for full Main Hub installs.
     & $installerPath -ServerInstallRoot $installRoot -SkipEnvPatch
   } catch {
     Write-Warning "ROSIE: Install-RosieAiStack.ps1 execution failed: $_"

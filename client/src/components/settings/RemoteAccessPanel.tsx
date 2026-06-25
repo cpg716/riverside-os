@@ -523,7 +523,7 @@ export default function RemoteAccessPanel() {
       const data = (await res.json().catch(() => ({}))) as Partial<EdgeAccessRepair> & {
         error?: string;
       };
-      if (!res.ok || data.status === "failed" || data.status === "not_configured") {
+      if (!res.ok || data.status === "failed" || data.status === "not_configured" || data.error) {
         throw new Error(data.message || data.error || "Cloudflare tunnel repair failed");
       }
       toast(data.message || "Cloudflare tunnel route repaired.", "success");
@@ -628,14 +628,14 @@ export default function RemoteAccessPanel() {
               </div>
               <p className="mt-2 max-w-2xl text-xs font-medium leading-relaxed text-app-text-muted">
                 Public HTTPS access is only needed for outside services such as Helcim and Podium webhooks.
-                Riverside can save the callback host and repair the local Cloudflare Tunnel origin; Cloudflare DNS and WAF records remain in Cloudflare.
+                Riverside can save Cloudflare access credentials, create or reuse the tunnel, route DNS, and repair the tunnel origin.
               </p>
               <div className="mt-4">
                 <IntegrationCredentialsCard
                   baseUrl={baseUrl}
                   integrationKey="edge_access"
                   title="Public Callback Route"
-                  description="Save the public HTTPS ROS host used by Helcim and other outside services. This updates the running server environment immediately; use Repair Cloudflare Tunnel to point the local tunnel at this ROS server."
+                  description="Save the public HTTPS ROS host and Cloudflare API credentials used by Helcim and other outside services. Repair Cloudflare Tunnel creates or reuses the tunnel, routes DNS, and points it at this ROS server."
                   fields={[
                     {
                       key: "public_base_url",
@@ -650,6 +650,31 @@ export default function RemoteAccessPanel() {
                       type: "text",
                       placeholder: "ros.riversidemens.com",
                       help: "Used by readiness checks to know Cloudflare Tunnel is expected on this host.",
+                    },
+                    {
+                      key: "cloudflare_api_token",
+                      label: "Cloudflare API token",
+                      type: "password",
+                      help: "Requires Cloudflare Tunnel edit and DNS edit permissions for the Riverside account/zone.",
+                    },
+                    {
+                      key: "cloudflare_account_id",
+                      label: "Cloudflare account ID",
+                      type: "text",
+                      help: "Used by ROS to create or update the named tunnel through Cloudflare.",
+                    },
+                    {
+                      key: "cloudflare_zone_id",
+                      label: "Cloudflare zone ID",
+                      type: "text",
+                      help: "Used by ROS to create or update the public CNAME route.",
+                    },
+                    {
+                      key: "cloudflare_tunnel_name",
+                      label: "Cloudflare tunnel name",
+                      type: "text",
+                      placeholder: "riverside-ros",
+                      help: "Optional. Defaults to riverside-ros when ROS creates a tunnel.",
                     },
                   ]}
                   onSaved={async () => {

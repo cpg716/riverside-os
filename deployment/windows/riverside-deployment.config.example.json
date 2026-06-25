@@ -34,6 +34,9 @@
       "RIVERSIDE_MEILISEARCH_API_KEY": "dev_master_key_change_me",
       "RIVERSIDE_PUBLIC_BASE_URL": "https://ros.riversidemens.com",
       "RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME": "ros.riversidemens.com",
+      "RIVERSIDE_CLOUDFLARE_TUNNEL_ID": "",
+      "RIVERSIDE_CLOUDFLARE_CREDENTIALS_FILE": "",
+      "RIVERSIDE_CLOUDFLARE_CONFIG_PATH": "C:\\ProgramData\\cloudflared\\config.yml",
       "RIVERSIDE_REPO_ROOT": "C:\\RiversideOS\\release"
     }
   },

@@ -14,7 +14,7 @@ export type IntegrationCredentialField = {
   label: string;
   placeholder?: string;
   help?: string;
-  type?: "password" | "url" | "text";
+  type?: "password" | "url" | "text" | "textarea";
 };
 
 type IntegrationCredentialsCardProps = {
@@ -176,10 +176,8 @@ export default function IntegrationCredentialsCard({
                   {isConfigured ? "Saved" : "Needed"}
                 </span>
               </span>
-              <div className="relative">
-                <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-app-text-muted" />
-                <input
-                  type={field.type ?? "password"}
+              {field.type === "textarea" ? (
+                <textarea
                   value={draft[field.key] ?? ""}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -194,9 +192,32 @@ export default function IntegrationCredentialsCard({
                       : "Enter value")
                   }
                   autoComplete="off"
-                  className="min-h-11 w-full rounded-xl border border-app-border bg-app-surface-2 py-2 pl-9 pr-3 text-sm font-semibold text-app-text outline-none transition focus:border-app-accent"
+                  rows={4}
+                  className="min-h-28 w-full rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 font-mono text-xs font-semibold text-app-text outline-none transition focus:border-app-accent"
                 />
-              </div>
+              ) : (
+                <div className="relative">
+                  <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-app-text-muted" />
+                  <input
+                    type={field.type ?? "password"}
+                    value={draft[field.key] ?? ""}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        [field.key]: event.target.value,
+                      }))
+                    }
+                    placeholder={
+                      field.placeholder ??
+                      (isConfigured
+                        ? "Saved - enter only to replace"
+                        : "Enter value")
+                    }
+                    autoComplete="off"
+                    className="min-h-11 w-full rounded-xl border border-app-border bg-app-surface-2 py-2 pl-9 pr-3 text-sm font-semibold text-app-text outline-none transition focus:border-app-accent"
+                  />
+                </div>
+              )}
               {field.help ? (
                 <p className="mt-1 text-[10px] font-semibold leading-4 text-app-text-muted">
                   {field.help}

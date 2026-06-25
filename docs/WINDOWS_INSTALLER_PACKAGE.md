@@ -134,6 +134,7 @@ Fill in:
 - `RIVERSIDE_CORS_ORIGINS` through `server.corsOrigins`.
 - Store secrets in `server.environment`.
 - Set `RIVERSIDE_PUBLIC_BASE_URL` and `RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME` in `server.environment` when Helcim/Podium webhooks should use Cloudflare Tunnel.
+- Optional: set `RIVERSIDE_CLOUDFLARE_TUNNEL_ID`, `RIVERSIDE_CLOUDFLARE_CREDENTIALS_FILE`, and `RIVERSIDE_CLOUDFLARE_CONFIG_PATH` when the installer should create a missing local `cloudflared` config file. The credentials file must already exist on the Main Hub.
 - Register #1 API base and printer settings under `register`.
 
 Credentials may be included in this private in-store package. Do not commit the filled `riverside-deployment.config.json` to the repo.
@@ -164,7 +165,7 @@ The script:
 - Applies pending migrations using `psql`.
 - Extracts precompiled ROSIE binaries (llama-server, sherpa-onnx-offline, sherpa-onnx-offline-tts), copies bundled STT/TTS model files, and verifies the Gemma GGUF model hash (matching `MODEL_PIN.json`).
 - Writes `C:\RiversideOS\server\.env`.
-- Verifies or repairs the local `cloudflared` ingress so the configured tunnel hostname points to the Riverside server port.
+- Verifies or repairs the local `cloudflared` ingress so the configured tunnel hostname points to the Riverside server port. If no local config exists, the installer can create one from `RIVERSIDE_CLOUDFLARE_TUNNEL_ID` and `RIVERSIDE_CLOUDFLARE_CREDENTIALS_FILE`; otherwise it warns that tunnel credentials are still needed.
 - Adds the inbound firewall rule for the configured server port.
 - Creates a startup scheduled task named `Riverside OS Server`.
 - Starts the server and checks the local app URL.

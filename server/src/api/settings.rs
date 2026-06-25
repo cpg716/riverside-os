@@ -1412,6 +1412,27 @@ fn cloudflared_installed() -> bool {
     }
 }
 
+fn cloudflared_executable() -> Option<PathBuf> {
+    if command_available("cloudflared") {
+        return Some(PathBuf::from("cloudflared"));
+    }
+    #[cfg(windows)]
+    {
+        [
+            r"C:\Program Files\cloudflared\cloudflared.exe",
+            r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
+            r"C:\Windows\System32\cloudflared.exe",
+        ]
+        .iter()
+        .map(PathBuf::from)
+        .find(|path| path.is_file())
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 fn cloudflared_service_configured() -> bool {
     let mac_launch_agent = std::env::var("HOME")
         .ok()
@@ -1437,6 +1458,34 @@ fn cloudflared_service_configured() -> bool {
     #[cfg(not(windows))]
     {
         false
+    }
+}
+
+fn configured_cloudflared_config_path() -> Option<PathBuf> {
+    nonempty_env("RIVERSIDE_CLOUDFLARE_CONFIG_PATH")
+        .or_else(|| nonempty_env("CLOUDFLARED_CONFIG_PATH"))
+        .map(PathBuf::from)
+}
+
+fn default_cloudflared_config_path() -> PathBuf {
+    #[cfg(windows)]
+    {
+        PathBuf::from(r"C:\ProgramData\cloudflared\config.yml")
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/etc/cloudflared/config.yml")
+    }
+}
+
+fn default_cloudflared_credentials_path(tunnel_id: &str) -> PathBuf {
+    #[cfg(windows)]
+    {
+        PathBuf::from(format!(r"C:\ProgramData\cloudflared\{tunnel_id}.json"))
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from(format!("/etc/cloudflared/{tunnel_id}.json"))
     }
 }
 
@@ -1487,6 +1536,9 @@ fn cloudflared_config_candidates() -> Vec<PathBuf> {
     if let Some(path) = cloudflared_service_config_argument() {
         candidates.push(path);
     }
+    if let Some(path) = configured_cloudflared_config_path() {
+        candidates.push(path);
+    }
     #[cfg(windows)]
     {
         candidates.push(PathBuf::from(r"C:\ProgramData\cloudflared\config.yml"));
@@ -1513,6 +1565,120 @@ fn cloudflared_config_candidates() -> Vec<PathBuf> {
         }
     }
     unique
+}
+
+fn cloudflare_tunnel_id_from_json(value: &Value) -> Option<String> {
+    ["TunnelID", "tunnel_id", "tunnelID", "TunnelId"]
+        .iter()
+        .find_map(|key| {
+            value
+                .get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+        })
+}
+
+fn cloudflare_tunnel_id_from_file(path: &PathBuf) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+        .and_then(|value| cloudflare_tunnel_id_from_json(&value))
+}
+
+fn write_cloudflared_credentials_from_settings(
+    tunnel_id: Option<String>,
+) -> Result<(String, PathBuf), SettingsError> {
+    let credentials_json = nonempty_env("RIVERSIDE_CLOUDFLARE_CREDENTIALS_JSON");
+    let configured_credentials_path = nonempty_env("RIVERSIDE_CLOUDFLARE_CREDENTIALS_FILE")
+        .or_else(|| nonempty_env("CLOUDFLARED_CREDENTIALS_FILE"))
+        .map(PathBuf::from);
+
+    if let Some(path) = configured_credentials_path
+        .as_ref()
+        .filter(|path| path.is_file())
+    {
+        let resolved_tunnel_id = tunnel_id
+            .or_else(|| cloudflare_tunnel_id_from_file(path))
+            .ok_or_else(|| {
+                SettingsError::InvalidPayload(
+                    "Save a Cloudflare tunnel ID before repairing the tunnel.".to_string(),
+                )
+            })?;
+        return Ok((resolved_tunnel_id, path.clone()));
+    }
+
+    let Some(credentials_json) = credentials_json else {
+        return Err(SettingsError::InvalidPayload(
+            "Save the Cloudflare tunnel credentials JSON in Settings before repairing the tunnel."
+                .to_string(),
+        ));
+    };
+    let parsed: Value = serde_json::from_str(&credentials_json).map_err(|_| {
+        SettingsError::InvalidPayload(
+            "Saved Cloudflare tunnel credentials JSON is invalid.".to_string(),
+        )
+    })?;
+    let resolved_tunnel_id = tunnel_id
+        .or_else(|| cloudflare_tunnel_id_from_json(&parsed))
+        .ok_or_else(|| {
+            SettingsError::InvalidPayload(
+                "Save a Cloudflare tunnel ID before repairing the tunnel.".to_string(),
+            )
+        })?;
+    let credentials_path = configured_credentials_path
+        .unwrap_or_else(|| default_cloudflared_credentials_path(&resolved_tunnel_id));
+    if let Some(parent) = credentials_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            SettingsError::InvalidPayload(format!(
+                "Could not create cloudflared credentials directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+    }
+    std::fs::write(
+        &credentials_path,
+        serde_json::to_string_pretty(&parsed).unwrap_or(credentials_json),
+    )
+    .map_err(|error| {
+        SettingsError::InvalidPayload(format!(
+            "Could not write Cloudflare tunnel credentials to {}: {error}",
+            credentials_path.display()
+        ))
+    })?;
+    Ok((resolved_tunnel_id, credentials_path))
+}
+
+fn create_cloudflared_config_from_settings(
+    hostname: &str,
+    service_url: &str,
+) -> Result<(PathBuf, bool), SettingsError> {
+    let tunnel_id = nonempty_env("RIVERSIDE_CLOUDFLARE_TUNNEL_ID")
+        .or_else(|| nonempty_env("CLOUDFLARED_TUNNEL_ID"));
+    let (resolved_tunnel_id, credentials_path) =
+        write_cloudflared_credentials_from_settings(tunnel_id)?;
+    let config_path =
+        configured_cloudflared_config_path().unwrap_or_else(default_cloudflared_config_path);
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            SettingsError::InvalidPayload(format!(
+                "Could not create cloudflared config directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+    }
+    let content = format!(
+        "tunnel: {resolved_tunnel_id}\ncredentials-file: '{}'\ningress:\n  - hostname: {hostname}\n    service: {service_url}\n  - service: http_status:404\n",
+        credentials_path.display().to_string().replace('\'', "''")
+    );
+    std::fs::write(&config_path, content).map_err(|error| {
+        SettingsError::InvalidPayload(format!(
+            "Could not write cloudflared config {}: {error}",
+            config_path.display()
+        ))
+    })?;
+    Ok((config_path, true))
 }
 
 fn yaml_value_matches_hostname(line: &str, hostname: &str) -> bool {
@@ -1632,6 +1798,236 @@ fn restart_cloudflared_service() -> bool {
     {
         false
     }
+}
+
+fn install_cloudflared_service(config_path: &PathBuf) -> bool {
+    let Some(executable) = cloudflared_executable() else {
+        return false;
+    };
+    let Some(config_path) = config_path.to_str() else {
+        return false;
+    };
+    Command::new(executable)
+        .args(["--config", config_path, "service", "install"])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn install_cloudflared_service_with_token(token: &str) -> bool {
+    let Some(executable) = cloudflared_executable() else {
+        return false;
+    };
+    let install = || {
+        Command::new(&executable)
+            .args(["service", "install", token])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    };
+    if install() {
+        return true;
+    }
+    let _ = Command::new(&executable)
+        .args(["service", "uninstall"])
+        .output();
+    install()
+}
+
+fn cloudflare_error_message(payload: &Value) -> String {
+    payload
+        .get("errors")
+        .and_then(Value::as_array)
+        .and_then(|errors| errors.first())
+        .and_then(|error| {
+            error
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| error.as_str())
+        })
+        .unwrap_or("Cloudflare API request failed.")
+        .to_string()
+}
+
+async fn cloudflare_api_result(
+    client: &reqwest::Client,
+    method: reqwest::Method,
+    url: String,
+    token: &str,
+    body: Option<Value>,
+) -> Result<Value, SettingsError> {
+    let mut request = client.request(method, &url).bearer_auth(token);
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request.send().await.map_err(|error| {
+        SettingsError::InvalidPayload(format!("Cloudflare API is unavailable: {error}"))
+    })?;
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    let payload: Value = serde_json::from_str(&text).map_err(|_| {
+        SettingsError::InvalidPayload(format!(
+            "Cloudflare API returned a non-JSON response with status {status}."
+        ))
+    })?;
+    if !status.is_success()
+        || payload
+            .get("success")
+            .and_then(Value::as_bool)
+            .is_some_and(|success| !success)
+    {
+        return Err(SettingsError::InvalidPayload(cloudflare_error_message(
+            &payload,
+        )));
+    }
+    Ok(payload.get("result").cloned().unwrap_or(Value::Null))
+}
+
+async fn provision_cloudflare_tunnel_from_settings(
+    state: &AppState,
+    hostname: &str,
+    service_url: &str,
+) -> Result<Option<(String, String, bool, bool)>, SettingsError> {
+    let Some(api_token) = nonempty_env("RIVERSIDE_CLOUDFLARE_API_TOKEN") else {
+        return Ok(None);
+    };
+    let account_id = nonempty_env("RIVERSIDE_CLOUDFLARE_ACCOUNT_ID").ok_or_else(|| {
+        SettingsError::InvalidPayload(
+            "Save the Cloudflare account ID in Settings before repairing the tunnel.".to_string(),
+        )
+    })?;
+    let zone_id = nonempty_env("RIVERSIDE_CLOUDFLARE_ZONE_ID").ok_or_else(|| {
+        SettingsError::InvalidPayload(
+            "Save the Cloudflare DNS zone ID in Settings before repairing the tunnel.".to_string(),
+        )
+    })?;
+    let tunnel_name = nonempty_env("RIVERSIDE_CLOUDFLARE_TUNNEL_NAME")
+        .unwrap_or_else(|| "riverside-ros".to_string());
+
+    let existing_tunnel_id = nonempty_env("RIVERSIDE_CLOUDFLARE_TUNNEL_ID");
+    let existing_tunnel_token = nonempty_env("RIVERSIDE_CLOUDFLARE_TUNNEL_TOKEN");
+    let (tunnel_id, tunnel_token, created_tunnel) = if let (Some(tunnel_id), Some(tunnel_token)) =
+        (existing_tunnel_id, existing_tunnel_token)
+    {
+        (tunnel_id, tunnel_token, false)
+    } else {
+        let result = cloudflare_api_result(
+            &state.http_client,
+            reqwest::Method::POST,
+            format!("https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel"),
+            &api_token,
+            Some(json!({
+                "name": tunnel_name,
+                "config_src": "cloudflare",
+            })),
+        )
+        .await?;
+        let tunnel_id = result
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                SettingsError::InvalidPayload("Cloudflare did not return a tunnel ID.".to_string())
+            })?
+            .to_string();
+        let tunnel_token = result
+            .get("token")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                SettingsError::InvalidPayload(
+                    "Cloudflare did not return a tunnel token.".to_string(),
+                )
+            })?
+            .to_string();
+        (tunnel_id, tunnel_token, true)
+    };
+
+    cloudflare_api_result(
+        &state.http_client,
+        reqwest::Method::PUT,
+        format!(
+            "https://api.cloudflare.com/client/v4/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations"
+        ),
+        &api_token,
+        Some(json!({
+            "config": {
+                "ingress": [
+                    {
+                        "hostname": hostname,
+                        "service": service_url,
+                        "originRequest": {}
+                    },
+                    {
+                        "service": "http_status:404"
+                    }
+                ]
+            }
+        })),
+    )
+    .await?;
+
+    let dns_target = format!("{tunnel_id}.cfargotunnel.com");
+    let encoded_hostname = urlencoding::encode(hostname);
+    let dns_records = cloudflare_api_result(
+        &state.http_client,
+        reqwest::Method::GET,
+        format!(
+            "https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records?type=CNAME&name={encoded_hostname}"
+        ),
+        &api_token,
+        None,
+    )
+    .await?;
+    let existing_record_id = dns_records
+        .as_array()
+        .and_then(|records| records.first())
+        .and_then(|record| record.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let dns_body = json!({
+        "type": "CNAME",
+        "proxied": true,
+        "name": hostname,
+        "content": dns_target,
+    });
+    let updated_dns = if let Some(record_id) = existing_record_id {
+        cloudflare_api_result(
+            &state.http_client,
+            reqwest::Method::PUT,
+            format!("https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records/{record_id}"),
+            &api_token,
+            Some(dns_body),
+        )
+        .await?;
+        true
+    } else {
+        cloudflare_api_result(
+            &state.http_client,
+            reqwest::Method::POST,
+            format!("https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"),
+            &api_token,
+            Some(dns_body),
+        )
+        .await?;
+        true
+    };
+
+    if created_tunnel {
+        integration_credentials::save_integration_credentials(
+            &state.db,
+            "edge_access",
+            vec![
+                ("cloudflare_tunnel_id", tunnel_id.clone()),
+                ("cloudflare_tunnel_token", tunnel_token.clone()),
+            ],
+            None,
+        )
+        .await
+        .map_err(map_credential_settings_error)?;
+        std::env::set_var("RIVERSIDE_CLOUDFLARE_TUNNEL_ID", &tunnel_id);
+        std::env::set_var("RIVERSIDE_CLOUDFLARE_TUNNEL_TOKEN", &tunnel_token);
+    }
+
+    Ok(Some((tunnel_id, tunnel_token, created_tunnel, updated_dns)))
 }
 
 fn public_url_with_path(public_base_url: Option<&str>, path: &str) -> Option<String> {
@@ -2026,30 +2422,86 @@ async fn post_edge_access_repair_cloudflare(
     };
 
     let service_url = format!("http://127.0.0.1:{}", configured_riverside_http_port());
-    let Some(config_path) = cloudflared_config_candidates().into_iter().next() else {
+    if let Some((tunnel_id, tunnel_token, created_tunnel, updated_dns)) =
+        provision_cloudflare_tunnel_from_settings(&state, &hostname, &service_url).await?
+    {
+        let installed_service = install_cloudflared_service_with_token(&tunnel_token);
+        let restarted = installed_service && restart_cloudflared_service();
+        let mut detail = String::new();
+        if created_tunnel {
+            detail.push_str(" Cloudflare Tunnel was created from saved Settings credentials.");
+        }
+        if updated_dns {
+            detail.push_str(" Cloudflare DNS was routed to the tunnel.");
+        }
+        if installed_service {
+            detail.push_str(" The cloudflared service was installed from the tunnel token.");
+        } else {
+            detail.push_str(" Riverside could not install the cloudflared service automatically.");
+        }
+        if installed_service && !restarted {
+            detail.push_str(" Riverside could not restart the cloudflared service automatically.");
+        }
         return Ok(Json(EdgeAccessRepairResponse {
-            status: "failed".to_string(),
-            hostname: Some(hostname),
-            service_url: Some(service_url),
-            config_path: None,
-            updated: false,
-            restarted: false,
-            message: "cloudflared is expected, but Riverside could not find a local cloudflared config.yml to repair.".to_string(),
-            error: Some("cloudflared_config_missing".to_string()),
+            status: if installed_service && restarted {
+                "repaired"
+            } else {
+                "failed"
+            }
+            .to_string(),
+            hostname: Some(hostname.clone()),
+            service_url: Some(service_url.clone()),
+            config_path: Some(format!("cloudflare:{tunnel_id}")),
+            updated: created_tunnel || updated_dns,
+            restarted,
+            message: format!(
+                "Cloudflare Tunnel route for {hostname} is set to {service_url}.{detail}"
+            ),
+            error: if !installed_service {
+                Some("cloudflared_service_install_failed".to_string())
+            } else if !restarted {
+                Some("cloudflared_restart_failed".to_string())
+            } else {
+                None
+            },
         }));
+    }
+
+    let (config_path, created_config) =
+        if let Some(config_path) = cloudflared_config_candidates().into_iter().next() {
+            (config_path, false)
+        } else {
+            create_cloudflared_config_from_settings(&hostname, &service_url)?
+        };
+
+    let mut installed_service = false;
+    if !cloudflared_service_configured() {
+        installed_service = install_cloudflared_service(&config_path);
     };
 
     let updated = set_cloudflared_ingress_rule(&config_path, &hostname, &service_url)?;
-    let restarted = if updated {
+    let restarted = if updated || installed_service {
         restart_cloudflared_service()
     } else {
         false
     };
-    let status = if updated { "repaired" } else { "verified" };
-    let restart_detail = if updated && !restarted {
-        " The config was updated, but Riverside could not restart the cloudflared service automatically."
+    let status = if created_config || updated || installed_service {
+        "repaired"
     } else {
-        ""
+        "verified"
+    };
+    let mut detail = String::new();
+    if created_config {
+        detail
+            .push_str(" The local cloudflared config was created from saved Settings credentials.");
+    }
+    if installed_service {
+        detail.push_str(" The cloudflared service was installed.");
+    } else if !cloudflared_service_configured() {
+        detail.push_str(" Riverside could not install the cloudflared service automatically.");
+    }
+    if (updated || installed_service) && !restarted {
+        detail.push_str(" Riverside could not restart the cloudflared service automatically.");
     };
 
     Ok(Json(EdgeAccessRepairResponse {
@@ -2059,11 +2511,11 @@ async fn post_edge_access_repair_cloudflare(
         config_path: Some(config_path.display().to_string()),
         updated,
         restarted,
-        message: format!(
-            "Cloudflare Tunnel route for {hostname} is set to {service_url}.{restart_detail}"
-        ),
-        error: if updated && !restarted {
+        message: format!("Cloudflare Tunnel route for {hostname} is set to {service_url}.{detail}"),
+        error: if (updated || installed_service) && !restarted {
             Some("cloudflared_restart_failed".to_string())
+        } else if !installed_service && !cloudflared_service_configured() {
+            Some("cloudflared_service_install_failed".to_string())
         } else {
             None
         },

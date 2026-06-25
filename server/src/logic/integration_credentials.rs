@@ -282,6 +282,36 @@ pub const INTEGRATION_CREDENTIAL_MAPPINGS: &[IntegrationCredentialMapping] = &[
         env_key: "RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME",
     },
     IntegrationCredentialMapping {
+        integration_key: "edge_access",
+        credential_key: "cloudflare_tunnel_id",
+        env_key: "RIVERSIDE_CLOUDFLARE_TUNNEL_ID",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "edge_access",
+        credential_key: "cloudflare_tunnel_token",
+        env_key: "RIVERSIDE_CLOUDFLARE_TUNNEL_TOKEN",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "edge_access",
+        credential_key: "cloudflare_api_token",
+        env_key: "RIVERSIDE_CLOUDFLARE_API_TOKEN",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "edge_access",
+        credential_key: "cloudflare_account_id",
+        env_key: "RIVERSIDE_CLOUDFLARE_ACCOUNT_ID",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "edge_access",
+        credential_key: "cloudflare_zone_id",
+        env_key: "RIVERSIDE_CLOUDFLARE_ZONE_ID",
+    },
+    IntegrationCredentialMapping {
+        integration_key: "edge_access",
+        credential_key: "cloudflare_tunnel_name",
+        env_key: "RIVERSIDE_CLOUDFLARE_TUNNEL_NAME",
+    },
+    IntegrationCredentialMapping {
         integration_key: "constant_contact",
         credential_key: "client_id",
         env_key: "RIVERSIDE_CC_CLIENT_ID",
@@ -734,5 +764,23 @@ mod tests {
         assert!(keys.contains(&"api_key"));
         assert!(is_supported_integration_credential("geoapify", "api_key"));
         assert_eq!(env_key_for("geoapify", "api_key"), Some("GEOAPIFY_API_KEY"));
+    }
+
+    #[test]
+    fn edge_access_cloudflare_credentials_are_supported() {
+        let keys = credential_keys_for_integration("edge_access");
+
+        assert!(keys.contains(&"public_base_url"));
+        assert!(keys.contains(&"cloudflare_tunnel_hostname"));
+        assert!(keys.contains(&"cloudflare_tunnel_id"));
+        assert!(keys.contains(&"cloudflare_tunnel_token"));
+        assert!(keys.contains(&"cloudflare_api_token"));
+        assert!(keys.contains(&"cloudflare_account_id"));
+        assert!(keys.contains(&"cloudflare_zone_id"));
+        assert!(keys.contains(&"cloudflare_tunnel_name"));
+        assert_eq!(
+            env_key_for("edge_access", "cloudflare_api_token"),
+            Some("RIVERSIDE_CLOUDFLARE_API_TOKEN")
+        );
     }
 }

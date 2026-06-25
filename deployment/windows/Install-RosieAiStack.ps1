@@ -518,7 +518,7 @@ if ($stackReady) {
 # ============================================================
 Write-Host "[5/5] Patching server env..."
 if ($SkipEnvPatch) {
-  Write-Host "      Server .env patch skipped (-SkipEnvPatch)."
+  Write-Host "      Server .env patch skipped by request (-SkipEnvPatch). Full Main Hub installs write .env after ROSIE returns."
 } elseif (-not (Test-Path $serverEnvPath)) {
   Write-Warning "      Server .env not found at: $serverEnvPath - skipping environment variables configuration."
 } else {

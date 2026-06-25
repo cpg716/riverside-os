@@ -131,7 +131,7 @@ Helcim terminal approvals and terminal cancels are most reliable when Helcim can
 https://ros.riversidemens.com/api/webhooks/helcim
 ```
 
-If that hostname is backed by Cloudflare Tunnel, production must run `cloudflared` as a supervised host service on the machine that can reach the ROS API on port `3000`. The deployment installer and **Settings → Remote Access → Repair Cloudflare Tunnel** can repair the local tunnel origin when `RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME` is configured, but Cloudflare DNS/WAF records still live in Cloudflare.
+If that hostname is backed by Cloudflare Tunnel, production must run `cloudflared` as a supervised host service on the machine that can reach the ROS API on port `3000`. The deployment installer and **Settings → Remote Access → Repair Cloudflare Tunnel** can repair the local tunnel origin when `RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME` is configured, but Cloudflare DNS/WAF records still live in Cloudflare. If the Main Hub does not already have a local `cloudflared` config, set `RIVERSIDE_CLOUDFLARE_TUNNEL_ID` and `RIVERSIDE_CLOUDFLARE_CREDENTIALS_FILE` in the deployment config so the installer can create it.
 
 Production checklist:
 
