@@ -88,6 +88,13 @@ function renderMainHubUpdateRunner(source) {
   return rendered.replaceAll("{{", "{").replaceAll("}}", "}");
 }
 
+function assertAsciiOnly(path, source, message) {
+  const offender = [...source].find((char) => char.charCodeAt(0) > 0x7f);
+  if (offender) {
+    fail(`${path}: ${message} (found non-ASCII character ${JSON.stringify(offender)})`);
+  }
+}
+
 const managerApp = "deployment/manager-app/src/App.tsx";
 assertNotIncludes(
   managerApp,
@@ -313,6 +320,7 @@ for (const copy of [
 
 const mainHubUpdater = "client/src-tauri/src/server_updater.rs";
 const mainHubUpdaterSource = read(mainHubUpdater);
+const renderedMainHubUpdateRunner = renderMainHubUpdateRunner(mainHubUpdaterSource);
 assertNotIncludes(
   mainHubUpdater,
   "$($i * 2)s",
@@ -322,6 +330,21 @@ assertIncludes(
   mainHubUpdater,
   "Write-Host ('  Waiting... (' + ($i * 2).ToString() + 's)')",
   "generated update-runner.ps1 wait output must remain parse-safe",
+);
+assertNotIncludes(
+  mainHubUpdater,
+  'Write-Host "Update transcript: $transcriptPath"',
+  "generated update-runner.ps1 transcript output must remain PowerShell 5.1 parse-safe",
+);
+assertNotIncludes(
+  mainHubUpdater,
+  'Write-Error "Update failed: $_"',
+  "generated update-runner.ps1 error output must remain PowerShell 5.1 parse-safe",
+);
+assertAsciiOnly(
+  `${mainHubUpdater}:generated-update-runner.ps1`,
+  renderedMainHubUpdateRunner,
+  "generated update-runner.ps1 must stay ASCII-only for Windows PowerShell 5.1",
 );
 for (const copy of [
   "is_main_hub_update_asset",
@@ -337,7 +360,7 @@ for (const copy of [
 }
 parsePowerShell(
   `${mainHubUpdater}:generated-update-runner.ps1`,
-  renderMainHubUpdateRunner(mainHubUpdaterSource),
+  renderedMainHubUpdateRunner,
 );
 
 for (const copy of [

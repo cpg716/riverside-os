@@ -172,7 +172,7 @@ Use one of these paths:
 
 Record the installer version, GitHub run URL or release URL, and target API base in the deployment log. Do not reuse an older installer just because it is present on the release; confirm **Settings → Updates** shows one expected **Riverside version**.
 
-After first install, desktop station updates are handled in ROS from **Settings → Updates → Windows app**. The release version must still match the server and PWA/web app files. If **Settings → Updates** shows **Update incomplete**, finish the matching server or station update before continuing operations.
+After first install, desktop station updates are handled in ROS from **Settings → Updates → Windows app**. Main Hub full updates are handled from **Settings → Updates → Main Hub update** so server/API, migrations, ROSIE, client files, and the local desktop app stay aligned. If the elevated Main Hub runner fails before the installer scripts start, use **Windows app → Check for update / Install update** on the Main Hub first, relaunch Riverside, then rerun **Main Hub update**. The release version must still match the server and PWA/web app files. If **Settings → Updates** shows **Update incomplete**, finish the matching server or station update before continuing operations.
 
 #### 3.2.1 Tauri station install checklist (per Windows station)
 

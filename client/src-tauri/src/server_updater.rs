@@ -523,9 +523,9 @@ $transcriptPath = '{runner_log_path}'
 try {{
     Start-Transcript -Path $transcriptPath -Force | Out-Null
     $transcriptStarted = $true
-    Write-Host "Transcript: $transcriptPath"
+    Write-Host ('Transcript: ' + $transcriptPath)
 }} catch {{
-    Write-Warning "Could not start transcript: $_"
+    Write-Warning ('Could not start transcript: ' + $_.Exception.Message)
 }}
 Set-Location -Path '{script_dir}'
 Write-Host '========================================='
@@ -567,7 +567,7 @@ try {{
     if (Test-Path -Path $serverBin) {{
         Write-Host 'Step 4: Verifying binary checksum...'
         $hash = Get-FileHash -Path $serverBin -Algorithm SHA256
-        Write-Host "  SHA256: $($hash.Hash)"
+        Write-Host ('  SHA256: ' + $hash.Hash)
     }} else {{
         throw "Server binary was not installed correctly (missing file)."
     }}
@@ -581,9 +581,9 @@ try {{
         Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue |
             ForEach-Object {{ $_.Kill(); $_.WaitForExit(5000) }}
         Start-ScheduledTask -TaskName $taskName
-        Write-Host "  Scheduled task '$taskName' restarted."
+        Write-Host ('  Scheduled task ' + $taskName + ' restarted.')
     }} else {{
-        Write-Warning "  Scheduled task '$taskName' not found — server may need manual restart."
+        Write-Warning ('  Scheduled task ' + $taskName + ' not found - server may need manual restart.')
     }}
 
     Write-Host 'Step 6: Waiting for server to become ready...'
@@ -611,14 +611,14 @@ try {{
         $transcriptStarted = $false
     }}
 }} catch {{
-    Write-Error "Update failed: $_"
+    Write-Error ('Update failed: ' + $_.Exception.Message)
     if (Test-Path -Path $backupBin) {{
         Write-Host 'Rolling back to previous server version...'
         Copy-Item -Path $backupBin -Destination $serverBin -Force -ErrorAction SilentlyContinue
         Write-Host 'Rollback complete.'
     }}
     Write-Host 'Please check server logs for details.'
-    Write-Host "Update transcript: $transcriptPath"
+    Write-Host ('Update transcript: ' + $transcriptPath)
     if ($transcriptStarted) {{
         Stop-Transcript | Out-Null
         $transcriptStarted = $false

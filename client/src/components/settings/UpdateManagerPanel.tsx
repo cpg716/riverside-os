@@ -269,6 +269,8 @@ export default function UpdateManagerPanel() {
     serverUpdateCheck?.update_available === true; // server is behind latest
   const mainHubFullUpdateRequired =
     serverLocalStatus?.is_local && serverUpdateCheck?.update_available === true;
+  const mainHubDesktopRecoveryAvailable =
+    mainHubFullUpdateRequired && updateCheck?.available === true;
   const releaseDiagnostic = [
     `app files ${CLIENT_SEMVER}`,
     tauriShellVersion != null ? `Windows app ${tauriShellVersion}` : null,
@@ -317,8 +319,8 @@ export default function UpdateManagerPanel() {
   };
 
   const handleInstallUpdate = async () => {
-    if (mainHubFullUpdateRequired) {
-      toast("Use the Main Hub update path below so server, migrations, ROSIE, and app files update together.", "error");
+    if (mainHubFullUpdateRequired && !mainHubDesktopRecoveryAvailable) {
+      toast("Check for a Windows app update first. If one is available, install it, relaunch Riverside, then run Main Hub update again.", "error");
       return;
     }
     if (serverNeedsUpdateFirst) {
@@ -478,8 +480,9 @@ export default function UpdateManagerPanel() {
             <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-900">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
-                This is the Main Hub. Use the Main Hub update card so app files, server binaries,
-                database migrations, ROSIE runtime assets, and update metadata move together.
+                This is the Main Hub. Use the Main Hub update card for normal releases. If that
+                runner fails to launch, check and install the Windows app update here first, relaunch
+                Riverside, then run the Main Hub update again.
               </span>
             </div>
           )}
@@ -503,7 +506,11 @@ export default function UpdateManagerPanel() {
             </button>
             <button
               type="button"
-              disabled={desktopBusy || serverNeedsUpdateFirst || mainHubFullUpdateRequired}
+              disabled={
+                desktopBusy ||
+                serverNeedsUpdateFirst ||
+                (mainHubFullUpdateRequired && !mainHubDesktopRecoveryAvailable)
+              }
               onClick={() => void handleInstallUpdate()}
               className="ui-btn-secondary h-11 px-4 text-xs font-black disabled:opacity-50"
             >
@@ -516,7 +523,9 @@ export default function UpdateManagerPanel() {
               : serverNeedsUpdateFirst
                 ? "Waiting for Main Hub to update first."
                 : mainHubFullUpdateRequired
-                  ? "Use Main Hub update below for this release."
+                  ? mainHubDesktopRecoveryAvailable
+                    ? "Recovery update is ready. Install this Windows app update, relaunch Riverside, then run Main Hub update again."
+                    : "Use Main Hub update below for this release. If it fails to launch, check for a Windows app update here first."
                 : updateCheck?.available
                   ? `Update ${updateCheck.version ?? ""}${updateCheck.available_build ? ` (${updateCheck.available_build})` : ""} is ready to install.`
                   : updateCheck?.message ?? "No update check has run yet."}
