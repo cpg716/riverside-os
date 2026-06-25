@@ -29,11 +29,11 @@ Use this panel to verify facts before cutover. Bridge row counts mean data was s
 
 1. Open the Bridge app on the Counterpoint PC.
 2. Confirm the Bridge can reach Main Hub ROS.
-3. Run **Full Import / Recheck All** in the Bridge.
+3. Run **Full Import** in the Bridge.
 4. Open **Import & Proof** in ROS.
 5. Follow **Current next step** at the top of the command center.
 6. Confirm required areas show landed proof.
-7. Resolve import exceptions, then rerun the affected import area if needed.
+7. Resolve import exceptions by fixing supported ROS issues or deleting non-blocking issues from active review.
 8. Review **Customer Duplicates** after customers land.
 9. Confirm final proof is ready before go-live sign-off.
 
@@ -44,7 +44,7 @@ Do not sign off while required rows are failed, missing, or waiting for exceptio
 The command center reads the Bridge heartbeat, source counts, landed proof, import exceptions, and required-area readiness. It then names the next action:
 
 - Start the Bridge if ROS is not receiving a heartbeat.
-- Run Full Import / Recheck All if source-count proof has not landed.
+- Run Full Import from the Counterpoint Bridge PC if source-count proof has not landed.
 - Fix preflight blockers if Counterpoint SQL or mapping proof is blocked.
 - Wait for landed proof if rows were sent but ROS has not written proof yet.
 - Fix the first open exception when a source row cannot land cleanly.
@@ -67,23 +67,23 @@ The proof table compares:
 
 Some rows can intentionally create more than one ROS row, such as matrix variants. ROS proof should explain that clearly; unexplained gaps or failed required areas need review.
 
-If a Bridge import fails before completion, the proof table shows the run as failed and ignores any partial landed rows from that failed run. Fix the Bridge extraction error, rerun the affected area or full import, then refresh proof before reviewing gaps.
+If a Bridge import fails before completion, the proof table shows the run as failed and ignores any partial landed rows from that failed run. Fix the Bridge extraction error on the Counterpoint PC, start a clean import when ready, then refresh proof before reviewing gaps.
 
 ## Exceptions
 
-Import review identifies Counterpoint rows that need attention. The review table shows the affected import area, source details from the raw Counterpoint payload, the Counterpoint SKU value when one was provided, the generated SKU when ROS had to assign one, and action buttons.
+Import review identifies Counterpoint rows that need attention. The review table shows the affected import area, source details from the raw Counterpoint payload, the Counterpoint SKU value when one was provided, and the generated SKU when ROS had to assign one.
 
-Use **Copy source** when support needs the exact Counterpoint payload. Use **Rerun Tickets**, **Rerun Open Docs**, or the matching import-area rerun after fixing the missing customer, variant, tender, duplicate reference, or mapping data. The Bridge must remain open so it can pick up the rerun request on its next heartbeat.
+Generated SKU review rows are report-only rows. They do not require approval and do not show repair actions.
 
-Use **Recheck after rerun** only after the affected import area has been rerun. Recheck closes the exception only when ROS can prove that the same Counterpoint source key now has landed provenance.
+Landing issue rows should be fixed directly in ROS when a direct fix is supported. If the row should not block sign-off, use **Delete issue** to remove it from active review.
 
-If an exception has no Counterpoint source key, it is a batch-level blocker rather than one row ROS can recheck. Fix the source, duplicate, or mapping issue, rerun the affected import area from the Bridge, then refresh **Import & Proof**.
+If an exception has no Counterpoint source key, it is a batch-level blocker rather than one row ROS can repair directly. Fix the source, duplicate, or mapping issue before final sign-off, or delete the issue from active review when it should not block sign-off.
 
 Historical Counterpoint sales can include unresolved item lines when Counterpoint provides payment/header value but no exact item variant. ROS preserves the original Counterpoint item key so staff can correct the product when the exact line is known.
 
-Generated SKU review rows mean Counterpoint supplied a valid item number but the SKU was blank, invalid, or duplicated. ROS assigns a stable compact `CP-<digits>` SKU, keeps the Counterpoint item key, and records the source payload for review. Use **Export full list** to review all generated SKUs, search the generated SKU in Inventory to confirm the item, then print tags from the normal Inventory tag workflow if the generated SKU is accepted.
+Generated SKU review rows mean Counterpoint supplied a valid item number but the SKU was blank, invalid, or duplicated. ROS assigns a stable compact `CP-XXXXXX` SKU, keeps the Counterpoint item key, and records the source payload for review. These rows are report-only, not repair blockers. Use **Export full list** to review all generated SKUs and search the generated SKU in Inventory when tag cleanup is needed.
 
-Open Docs are active customer obligations. ROS does not create a placeholder line for an open order item that still cannot match a variant after catalog/SKU recovery. Fix the item mapping or source record, rerun Open Orders from the Bridge, then use **Recheck after rerun**.
+Open Docs are active customer obligations. ROS does not create a placeholder line for an open order item that still cannot match a variant after catalog/SKU recovery. Fix the item mapping or source record before final sign-off, or delete the active review issue when it should not block sign-off.
 
 ## Duplicate customers
 
@@ -95,7 +95,7 @@ Use **Reset Counterpoint import** from **Import & Proof** or **Support Diagnosti
 
 ## Updating after more Counterpoint work
 
-Before go-live, if staff keep working in Counterpoint after an import, use **Update Since Last Run** in the Bridge without resetting ROS. ROS uses Counterpoint document, customer, product, variant, gift card, and loyalty keys to update existing imported records and land new rows. If a single area needs repair, use that area's **Fix** button. After every rerun, review **Current next step**, proof gaps, exceptions, open orders, deposits, and customer duplicates again before sign-off.
+Before go-live, if staff keep working in Counterpoint after an import, use **Update Since Last Run** in the Bridge without resetting ROS. ROS uses Counterpoint document, customer, product, variant, gift card, and loyalty keys to update existing imported records and land new rows. Review **Current next step**, proof gaps, exceptions, open orders, deposits, and customer duplicates again before sign-off.
 
 Use **Reset Counterpoint import** only when the previous import should be discarded and the store wants a clean baseline.
 

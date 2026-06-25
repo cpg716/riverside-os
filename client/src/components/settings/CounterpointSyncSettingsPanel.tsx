@@ -359,12 +359,40 @@ function exceptionCsvRows(rows: CounterpointImportExceptionRow[]): string {
   return [header, ...body].map((cells) => cells.map(csvCell).join(",")).join("\n");
 }
 
+function generatedSkuCsvRows(rows: CounterpointImportExceptionRow[]): string {
+  const header = [
+    "Area",
+    "Source item",
+    "Original Counterpoint SKU",
+    "Generated SKU",
+    "Description",
+    "Vendor",
+    "Category",
+    "Created at",
+  ];
+  const body = rows.map((row) => {
+    const payload = sourcePayloadObject(row.source_payload);
+    const sourceRow = sourcePayloadObject(payload?.source_row);
+    return [
+      formatEntityLabel(row.entity_key),
+      row.source_key ?? "",
+      exceptionCounterpointSkuValue(row) ?? "Missing or invalid",
+      exceptionGeneratedSku(row) ?? "",
+      sourceFieldText(payload?.description) ?? sourceFieldText(sourceRow?.description) ?? "",
+      sourceFieldText(payload?.vendor) ?? sourceFieldText(sourceRow?.vendor_no) ?? "",
+      sourceFieldText(payload?.category) ?? sourceFieldText(sourceRow?.category) ?? "",
+      row.created_at ?? "",
+    ];
+  });
+  return [header, ...body].map((cells) => cells.map(csvCell).join(",")).join("\n");
+}
+
 function formatImportRunKind(runKind: string | null | undefined): string {
   switch (runKind) {
     case "incremental_update":
       return "Update since last run";
     case "fix_rerun":
-      return "Fix rerun";
+      return "Fix pass";
     case "go_live":
       return "Go-live import";
     case "full_import":
@@ -554,28 +582,6 @@ export default function CounterpointSyncSettingsPanel({
 
   /* ── Event Handlers ── */
 
-  const recheckImportException = useCallback(async (exceptionId: string) => {
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/counterpoint-sync/exceptions/${exceptionId}/resolve`,
-        {
-          method: "PATCH",
-          headers: headers(),
-        },
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.reason ?? data.error ?? "Exception still needs repair before it can be closed.");
-      }
-      const data = await res.json().catch(() => ({}));
-      toast(data.reason ?? "Exception reconciled against landed ROS data.", "success");
-      void fetchImportExceptions();
-      void fetchCommandCenter();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Exception still needs repair before it can be closed.", "error");
-    }
-  }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
-
   const ignoreImportException = useCallback(async (exceptionId: string) => {
     try {
       const res = await fetch(
@@ -589,58 +595,36 @@ export default function CounterpointSyncSettingsPanel({
       if (!res.ok) {
         throw new Error(data.reason ?? data.error ?? "Could not remove exception from review.");
       }
-      toast(data.reason ?? "Exception removed from active review.", "success");
+      toast(data.reason ?? "Issue deleted from active review.", "success");
       void fetchImportExceptions();
       void fetchCommandCenter();
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not remove exception from review.", "error");
+      toast(error instanceof Error ? error.message : "Could not delete issue from review.", "error");
     }
   }, [baseUrl, fetchCommandCenter, fetchImportExceptions, headers, toast]);
 
-  const requestImportAreaRerun = useCallback(async (entity: string) => {
-    const importArea = importAreaForException(entity);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/request-run`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...headers(),
-        },
-        body: JSON.stringify({ entity: importArea }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error ?? "Could not request Bridge rerun.");
-      }
-      toast(`${formatEntityLabel(importArea)} rerun requested. Keep the Bridge open; it will pick up the request on its next heartbeat.`, "success");
-      void fetchStatus();
-      void fetchCommandCenter();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not request Bridge rerun.", "error");
-    }
-  }, [baseUrl, fetchCommandCenter, fetchStatus, headers, toast]);
-
-  const copyExceptionSource = useCallback((row: CounterpointImportExceptionRow) => {
-    const text = JSON.stringify(row.source_payload ?? row, null, 2);
-    void navigator.clipboard?.writeText(text).then(
-      () => toast("Counterpoint source payload copied.", "success"),
-      () => toast("Could not copy source payload.", "error"),
-    );
-  }, [toast]);
-
   const exportImportExceptionsCsv = useCallback(() => {
-    if (importExceptions.length === 0 || typeof window === "undefined") return;
-    const csv = exceptionCsvRows(importExceptions);
+    if (typeof window === "undefined") return;
+    const actionableRows = importExceptions.filter((row) => row.status === "open" && !isGeneratedSkuException(row));
+    const generatedRows = importExceptions.filter(isGeneratedSkuException);
+    const rows = actionableRows.length > 0 ? actionableRows : generatedRows;
+    if (rows.length === 0) {
+      toast("No Counterpoint review rows are available to export.", "info");
+      return;
+    }
+    const exportingGeneratedSkus = actionableRows.length === 0 && generatedRows.length > 0;
+    const csv = exportingGeneratedSkus ? generatedSkuCsvRows(rows) : exceptionCsvRows(rows);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `counterpoint-import-exceptions-${commandCenter?.latest_import_run?.id ?? "latest"}.csv`;
+    link.download = `${exportingGeneratedSkus ? "counterpoint-generated-skus" : "counterpoint-landing-issues"}-${commandCenter?.latest_import_run?.id ?? "latest"}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
-  }, [commandCenter?.latest_import_run?.id, importExceptions]);
+    toast(`Exported ${rows.length} Counterpoint ${exportingGeneratedSkus ? "generated SKU" : "landing issue"} row(s).`, "success");
+  }, [commandCenter?.latest_import_run?.id, importExceptions, toast]);
 
   const runBaselineReset = async (confirmationPhrase: string): Promise<boolean> => {
     // setResetBusy(true);
@@ -864,7 +848,7 @@ export default function CounterpointSyncSettingsPanel({
       return {
         tone: "red",
         title: "Next: start the Bridge on the Counterpoint PC",
-        body: "ROS is not receiving the Bridge heartbeat. Start the Bridge, confirm Main Hub ROS is ready, then run Full Import / Recheck All.",
+        body: "ROS is not receiving the Bridge heartbeat. Start the Bridge on the Counterpoint PC, confirm Main Hub ROS is ready, then run Full Import.",
         actions: ["Start Bridge", "Check Main Hub ROS", "Run Full Import"],
       };
     }
@@ -872,7 +856,7 @@ export default function CounterpointSyncSettingsPanel({
     if (!commandCenter?.preflight_received) {
       return {
         tone: "amber",
-        title: "Next: run Full Import / Recheck All",
+        title: "Next: run Full Import from the Counterpoint Bridge PC",
         body: "The Bridge is online, but ROS has not received Counterpoint source-count proof yet.",
         actions: ["Run Full Import in Bridge", "Wait for source counts", "Refresh Import & Proof"],
       };
@@ -883,7 +867,7 @@ export default function CounterpointSyncSettingsPanel({
         tone: "red",
         title: "Next: fix preflight issues",
         body: "Counterpoint source-count proof needs review. Fix or remove the listed SQL, mapping, or source-data issue before importing.",
-        actions: ["Open Bridge Process Console", "Fix or remove the issue shown there", "Run Full Import again"],
+        actions: ["Review the preflight issue", "Fix the SQL, mapping, or source data", "Refresh Import & Proof"],
       };
     }
 
@@ -901,7 +885,7 @@ export default function CounterpointSyncSettingsPanel({
         tone: "red",
         title: `Next: fix ${formatEntityLabel(firstOpenException.entity_key)} exception`,
         body: firstOpenException.suggested_fix ?? firstOpenException.message,
-        actions: ["Review the exception card below", "Fix the missing source/mapping/linkage", "Rerun the affected import area"],
+        actions: ["Review the exception row below", "Fix it in ROS when supported", "Delete the issue when it should not block sign-off"],
       };
     }
 
@@ -910,7 +894,7 @@ export default function CounterpointSyncSettingsPanel({
         tone: "amber",
         title: `Next: review ${firstRequiredIssue.label}`,
         body: "This required area is not ready for sign-off. Review its gap, failed count, or landed proof status before finalizing.",
-        actions: ["Open the row in the proof table", "Fix or rerun the affected area", "Confirm the row becomes Ready"],
+        actions: ["Review the proof row", "Fix the blocking issue", "Confirm the row becomes Ready"],
       };
     }
 
@@ -927,7 +911,7 @@ export default function CounterpointSyncSettingsPanel({
       tone: "amber",
       title: "Next: refresh import proof",
       body: "ROS has partial import state, but it is not ready for sign-off yet.",
-      actions: ["Refresh Import & Proof", "Review any yellow or red rows", "Rerun the affected import area if needed"],
+      actions: ["Refresh Import & Proof", "Review any yellow or red rows", "Fix or delete active review issues"],
     };
   }, [
     bridgeRuntimeState,
@@ -974,7 +958,7 @@ export default function CounterpointSyncSettingsPanel({
         title: "Run Import",
         detail: importStarted
           ? latestImportRunLabel
-          : "Run Full Import / Recheck All in the Bridge.",
+          : "Run Full Import from the Counterpoint Bridge PC.",
         state: !bridgeConnected ? "waiting" : importStarted ? "done" : "current",
       },
       {
@@ -1053,16 +1037,6 @@ export default function CounterpointSyncSettingsPanel({
               <p className="mt-1 text-[11px] font-semibold">{detail}</p>
               {showActions ? (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {step === "1" || step === "2" ? (
-                    <a
-                      href="http://localhost:3002"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
-                    >
-                      Open Bridge
-                    </a>
-                  ) : null}
                   {step === "3" && importExceptions.length > 0 ? (
                     <button
                       type="button"
@@ -1102,7 +1076,7 @@ export default function CounterpointSyncSettingsPanel({
               Need to start over?
             </p>
             <p className="mt-1 max-w-3xl font-semibold text-app-text-muted">
-              Use Reset Counterpoint import before go-live only when the current landed proof and exceptions should be discarded, then rerun the Bridge import from a clean ROS baseline.
+              Use Reset Counterpoint import before go-live only when the current landed proof and exceptions should be discarded, then start a clean import from the Counterpoint Bridge PC.
             </p>
           </div>
           <button
@@ -1237,7 +1211,7 @@ export default function CounterpointSyncSettingsPanel({
                 </div>
                 <p className="mt-2 text-[11px] font-semibold text-app-text-muted">{item.path}</p>
                 <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                  Rerun this area from the Bridge if the proof table or exceptions name it as needing review.
+                  Repair or delete active ROS review issues before final sign-off.
                 </p>
               </div>
           ))}
@@ -1321,7 +1295,7 @@ export default function CounterpointSyncSettingsPanel({
                       : row.queuedRows > 0
                         ? "Queued in ROS support queue"
                         : row.landedStatus === "failed"
-                          ? "Import failed; rerun"
+                          ? "Import failed"
                           : row.landedStatus === "running"
                             ? "Import running"
                         : row.landedCount > 0 && row.gap !== 0
@@ -1367,7 +1341,7 @@ export default function CounterpointSyncSettingsPanel({
           </div>
           {generatedSkuExceptions.length > 0 ? (
             <p className="mt-2 rounded-md border border-app-border bg-app-bg/70 p-2 text-xs font-semibold text-app-text-muted">
-              Generated SKU rows mean Counterpoint did not provide a usable SKU, so ROS assigned a compact CP-&lt;digits&gt; SKU and kept the row visible for tag and cleanup review.
+              Generated SKU rows mean Counterpoint did not provide a usable SKU, so ROS assigned a compact CP-XXXXXX SKU and kept the row visible for tag and cleanup review.
             </p>
           ) : null}
           <div className="mt-3 max-h-[32rem] overflow-auto rounded-md border border-app-border bg-app-bg/70">
@@ -1420,52 +1394,25 @@ export default function CounterpointSyncSettingsPanel({
                         {generatedSku ?? "None"}
                       </td>
                       <td className="px-3 py-3 text-app-text-muted">
-                        {row.suggested_fix ?? "Rerun the affected import area after correcting the source data."}
+                        {generatedSkuRow
+                          ? "Report-only row. ROS generated this SKU because Counterpoint did not provide a usable one."
+                          : row.suggested_fix ?? "Fix the source row in ROS if a direct fix is available, or delete this issue from active review."}
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex min-w-48 flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => copyExceptionSource(row)}
-                            className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
-                          >
-                            Copy source
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void requestImportAreaRerun(row.entity_key)}
-                            className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
-                          >
-                            Rerun {formatEntityLabel(importArea)}
-                          </button>
-                          {sourceKey ? (
+                          {!generatedSkuRow && row.status === "open" ? (
                             <button
                               type="button"
-                              onClick={() => void recheckImportException(row.id)}
+                              onClick={() => void ignoreImportException(row.id)}
                               className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
                             >
-                              Recheck landed proof
+                              Delete issue
                             </button>
                           ) : null}
-                          <button
-                            type="button"
-                            onClick={() => void ignoreImportException(row.id)}
-                            className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
-                          >
-                            {generatedSkuRow ? "Close generated-SKU report" : "Remove from review"}
-                          </button>
-                          <a
-                            href="http://localhost:3002"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="ui-btn-secondary px-2 py-1 text-[10px] font-bold"
-                          >
-                            Open Bridge
-                          </a>
                         </div>
-                        {!sourceKey ? (
+                        {!generatedSkuRow && row.status === "open" && !sourceKey ? (
                           <p className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 p-2 font-semibold text-amber-700 dark:text-amber-200">
-                            Batch-level issue: rerun the affected area after fixing the source or mapping problem.
+                            Batch-level issue: fix the source or mapping problem in ROS review, or delete this issue from active review.
                           </p>
                         ) : null}
                       </td>
