@@ -1473,7 +1473,36 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
   $ConfigPath = Join-Path $ScriptRoot "riverside-deployment.config.json"
 }
 if (-not (Test-Path $ConfigPath)) {
-  throw "Config file not found: $ConfigPath. Copy riverside-deployment.config.example.json to riverside-deployment.config.json and fill it in."
+  $configFileName = "riverside-deployment.config.json"
+  $candidateConfigPaths = @(
+    $ConfigPath,
+    (Join-Path $ScriptRoot $configFileName),
+    (Join-Path (Split-Path -Parent $ScriptRoot) $configFileName),
+    "C:\RiversideOS\$configFileName",
+    "C:\ProgramData\RiversideOS\$configFileName",
+    "C:\ProgramData\riverside-os\$configFileName"
+  )
+  $downloadsDir = Join-Path $env:USERPROFILE "Downloads"
+  if (Test-Path $downloadsDir) {
+    $downloadPackageConfigs = Get-ChildItem -Path $downloadsDir -Directory -Filter "RiversideOS-*-Windows-Deployment*" -ErrorAction SilentlyContinue |
+      Sort-Object LastWriteTime -Descending |
+      ForEach-Object { Join-Path $_.FullName $configFileName }
+    $candidateConfigPaths += $downloadPackageConfigs
+  }
+  $resolvedConfigPath = $null
+  foreach ($candidateConfigPath in $candidateConfigPaths) {
+    if (-not [string]::IsNullOrWhiteSpace($candidateConfigPath) -and (Test-Path $candidateConfigPath)) {
+      $resolvedConfigPath = $candidateConfigPath
+      break
+    }
+  }
+  if ($resolvedConfigPath) {
+    Write-Host "Using deployment config from $resolvedConfigPath" -ForegroundColor Yellow
+    $ConfigPath = $resolvedConfigPath
+  } else {
+    $searchedConfigPaths = ($candidateConfigPaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique) -join "; "
+    throw "Config file not found. Searched: $searchedConfigPaths. Save the PostgreSQL Admin Password in Riverside before running Main Hub update."
+  }
 }
 
 $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
@@ -1671,6 +1700,13 @@ $packageReleaseDocs = Join-Path $ScriptRoot "docs"
 
 foreach ($dir in @($installRoot, $serverDir, $clientDist, $releaseDir, $backupDir, $logDir)) {
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
+}
+
+$installRootConfigPath = Join-Path $installRoot "riverside-deployment.config.json"
+if ($ConfigPath -ne $installRootConfigPath) {
+  Copy-Item -Path $ConfigPath -Destination $installRootConfigPath -Force
+  $ConfigPath = $installRootConfigPath
+  Write-Host "Persisted deployment config to $ConfigPath." -ForegroundColor Green
 }
 
 # Lockdown C:\RiversideOS directory so only SYSTEM and Administrators have access

@@ -207,9 +207,90 @@ fn verify_deployment_package_build(
     Ok(Some(actual_build_short))
 }
 
+fn candidate_deployment_config_paths(
+    install_root: &Path,
+    script_dir: &Path,
+    extraction_dir: &Path,
+) -> Vec<PathBuf> {
+    let config_file = contract::DEPLOY_CONFIG_FILE;
+    let mut candidates = vec![install_root.join(config_file), script_dir.join(config_file)];
+
+    let mut current = Some(script_dir);
+    while let Some(dir) = current {
+        candidates.push(dir.join(config_file));
+        if dir == extraction_dir {
+            break;
+        }
+        current = dir.parent();
+    }
+
+    #[cfg(windows)]
+    {
+        if let Some(program_data) = std::env::var_os("ProgramData") {
+            let program_data = PathBuf::from(program_data);
+            candidates.push(program_data.join("RiversideOS").join(config_file));
+            candidates.push(program_data.join("riverside-os").join(config_file));
+        }
+        if let Some(user_profile) = std::env::var_os("USERPROFILE") {
+            let downloads_dir = PathBuf::from(user_profile).join("Downloads");
+            if let Ok(entries) = std::fs::read_dir(downloads_dir) {
+                let mut package_config_paths = entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|path| {
+                        path.is_dir()
+                            && path
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .is_some_and(|name| {
+                                    name.starts_with("RiversideOS-")
+                                        && name.contains("Windows-Deployment")
+                                })
+                    })
+                    .map(|path| path.join(config_file))
+                    .collect::<Vec<_>>();
+                package_config_paths.sort_by(|left, right| right.cmp(left));
+                candidates.extend(package_config_paths);
+            }
+        }
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                candidates.push(exe_dir.join(config_file));
+                if let Some(parent) = exe_dir.parent() {
+                    candidates.push(parent.join(config_file));
+                }
+            }
+        }
+    }
+
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        if !unique
+            .iter()
+            .any(|existing: &PathBuf| existing == &candidate)
+        {
+            unique.push(candidate);
+        }
+    }
+    unique
+}
+
+fn resolve_existing_deployment_config(
+    install_root: &Path,
+    script_dir: &Path,
+    extraction_dir: &Path,
+) -> Option<PathBuf> {
+    candidate_deployment_config_paths(install_root, script_dir, extraction_dir)
+        .into_iter()
+        .find(|candidate| candidate.exists())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{build_ids_match, select_deployment_asset, GithubAsset};
+    use super::{
+        build_ids_match, candidate_deployment_config_paths, select_deployment_asset, GithubAsset,
+    };
+    use std::path::Path;
 
     fn asset(name: &str) -> GithubAsset {
         GithubAsset {
@@ -290,6 +371,26 @@ mod tests {
         .expect_err("missing exact build should fail");
 
         assert!(err.contains("does not contain a Main Hub update package or Windows Deployment ZIP for build e96a3e50"));
+    }
+
+    #[test]
+    fn main_hub_update_config_candidates_include_install_root_and_package() {
+        let install_root = Path::new("C:\\RiversideOS");
+        let extraction_dir =
+            Path::new("C:\\Users\\Admin\\AppData\\Local\\Temp\\riverside-update-0.90.0\\extracted");
+        let script_dir = extraction_dir.join("deployment").join("windows");
+        let candidates =
+            candidate_deployment_config_paths(install_root, &script_dir, extraction_dir);
+
+        let candidate_text = candidates
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(candidate_text.contains("C:\\RiversideOS"));
+        assert!(candidate_text.contains("deployment"));
+        assert!(candidate_text.contains("windows"));
+        assert!(candidate_text.contains("extracted"));
     }
 }
 
@@ -514,7 +615,34 @@ pub async fn download_and_run_server_installer(
         let install_root = check_server_local_status()
             .map(|s| s.install_root)
             .unwrap_or_else(|_| contract::DEFAULT_INSTALL_ROOT.to_string());
-        let config_path = format!("{}\\{}", install_root, contract::DEPLOY_CONFIG_FILE);
+        let install_root_path = PathBuf::from(&install_root);
+        let staged_config_path = script_dir.join(contract::DEPLOY_CONFIG_FILE);
+        let resolved_config_path = if let Some(path) =
+            resolve_existing_deployment_config(&install_root_path, &script_dir, &extraction_dir)
+        {
+            path
+        } else {
+            let searched =
+                candidate_deployment_config_paths(&install_root_path, &script_dir, &extraction_dir)
+                    .into_iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+            return Err(format!(
+                "Could not find {config_file} for the Main Hub update. Searched: {searched}",
+                config_file = contract::DEPLOY_CONFIG_FILE
+            ));
+        };
+        if resolved_config_path != staged_config_path {
+            std::fs::copy(&resolved_config_path, &staged_config_path).map_err(|e| {
+                format!(
+                    "Failed to stage deployment config from {} to {}: {e}",
+                    resolved_config_path.display(),
+                    staged_config_path.display()
+                )
+            })?;
+        }
+        let config_path = staged_config_path.to_string_lossy().to_string();
 
         let runner_content = format!(
             r#"$ErrorActionPreference = 'Stop'
@@ -533,6 +661,7 @@ Write-Host 'Riverside OS: Running Main Hub Update'
 Write-Host '========================================='
 
 $installRoot = '{install_root}'
+$configPath = '{config_path}'
 $serverBin = "$installRoot\server\riverside-server.exe"
 $backupBin = "$installRoot\server\riverside-server.exe.bak"
 
@@ -555,13 +684,17 @@ if (Test-Path -Path $serverBin) {{
 
 try {{
     Write-Host 'Step 1: Running install-server.ps1...'
-    ./install-server.ps1 -ConfigPath '{config_path}'
+    ./install-server.ps1 -ConfigPath $configPath
+    $installRootConfig = Join-Path $installRoot '{config_file}'
+    if (Test-Path -Path $installRootConfig) {{
+        $configPath = $installRootConfig
+    }}
 
     Write-Host 'Step 2: Running repair-bootstrap-admin.ps1...'
-    ./repair-bootstrap-admin.ps1 -ConfigPath '{config_path}'
+    ./repair-bootstrap-admin.ps1 -ConfigPath $configPath
 
     Write-Host 'Step 3: Updating client app on this PC (preserving existing config)...'
-    ./install-register.ps1 -ConfigPath '{config_path}' -StationMode mainhub
+    ./install-register.ps1 -ConfigPath $configPath -StationMode mainhub
 
     # Checksum verification
     if (Test-Path -Path $serverBin) {{
@@ -632,6 +765,7 @@ Read-Host 'Press Enter to close this window'
             runner_log_path = runner_log_path.to_string_lossy().replace('\'', "''"),
             install_root = install_root.replace('\'', "''"),
             config_path = config_path.replace('\'', "''"),
+            config_file = contract::DEPLOY_CONFIG_FILE,
             task_name = contract::SERVER_TASK_NAME,
             server_port = contract::DEFAULT_SERVER_PORT,
             health_ep = contract::HEALTH_ENDPOINT,

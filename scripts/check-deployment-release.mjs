@@ -76,6 +76,7 @@ function renderMainHubUpdateRunner(source) {
       "C:\\Users\\Admin\\AppData\\Local\\Temp\\riverside-update-0.90.0\\deployment\\windows",
     install_root: "C:\\ProgramData\\riverside-os",
     config_path: "C:\\ProgramData\\riverside-os\\riverside-deployment.config.json",
+    config_file: "riverside-deployment.config.json",
     task_name: "Riverside OS Server",
     server_port: "3000",
     health_ep: "/api/health",
@@ -346,6 +347,19 @@ assertAsciiOnly(
   renderedMainHubUpdateRunner,
   "generated update-runner.ps1 must stay ASCII-only for Windows PowerShell 5.1",
 );
+for (const copy of [
+  "resolve_existing_deployment_config",
+  "candidate_deployment_config_paths",
+  "Windows-Deployment",
+  "Failed to stage deployment config",
+  "$configPath = $installRootConfig",
+]) {
+  assertIncludes(
+    mainHubUpdater,
+    copy,
+    "Main Hub updater must stage an existing deployment config before launching the elevated update runner",
+  );
+}
 for (const copy of [
   "is_main_hub_update_asset",
   "RiversideOS-v0.90.0-e96a3e50-MainHub-Update.zip",
