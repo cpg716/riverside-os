@@ -2766,6 +2766,42 @@ async function countCounterpointSourceRows(pool, probe) {
     };
   }
   try {
+    if (probe.entityKey === "open_docs") {
+      const result = await pool.request().query(sqlText);
+      return {
+        entity_key: probe.entityKey,
+        label: probe.label,
+        source_count: dedupeByNonEmptyKey(result.recordset ?? [], openDocHeaderDedupeKey).length,
+        query_key: queryKey,
+        required: probe.required === true,
+        suspicious_min_count: probe.suspiciousMinCount,
+        status: "ok",
+      };
+    }
+    if (probe.entityKey === "open_doc_lines") {
+      const result = await pool.request().query(sqlText);
+      return {
+        entity_key: probe.entityKey,
+        label: probe.label,
+        source_count: dedupeByNonEmptyKey(result.recordset ?? [], ticketLineDedupeKey).length,
+        query_key: queryKey,
+        required: probe.required === true,
+        suspicious_min_count: probe.suspiciousMinCount,
+        status: "ok",
+      };
+    }
+    if (probe.entityKey === "open_doc_payments") {
+      const result = await pool.request().query(sqlText);
+      return {
+        entity_key: probe.entityKey,
+        label: probe.label,
+        source_count: dedupeByNonEmptyKey(result.recordset ?? [], ticketPaymentDedupeKey).length,
+        query_key: queryKey,
+        required: probe.required === true,
+        suspicious_min_count: probe.suspiciousMinCount,
+        status: "ok",
+      };
+    }
     const result = await pool.request().query(sourceCountSql(sqlText, probe));
     const first = normalizeRowKeys((result.recordset ?? [])[0] ?? {});
     const sourceCount = Number(first.source_count ?? first[""] ?? 0);
@@ -3725,6 +3761,7 @@ async function loadHistoricalRecoveryCatalogCells(pool, barcodeLookup) {
   const queries = [
     ["ticket_lines", effectiveSql.ticket_lines],
     ["open_doc_lines", effectiveSql.open_doc_lines],
+    ["inventory", effectiveSql.inventory],
   ].filter(([, sqlText]) => String(sqlText ?? "").trim());
 
   for (const [label, sqlText] of queries) {
@@ -4188,6 +4225,27 @@ function dedupeByStableJson(rows, keyFn) {
     out.push(row);
   }
   return out;
+}
+
+function dedupeByNonEmptyKey(rows, keyFn) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows ?? []) {
+    const key = String(keyFn(row) ?? "").trim();
+    if (!key) {
+      out.push(row);
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+function openDocHeaderDedupeKey(row) {
+  const r = normalizeRowKeys(row);
+  return String(r.doc_ref ?? r.doc_id ?? "").trim();
 }
 
 function ticketLineDedupeKey(row) {
@@ -5063,7 +5121,10 @@ async function syncOpenDocs(pool) {
   }
 
   const headerResult = await pool.request().query(effectiveSql.open_docs);
-  const headerRows = (headerResult.recordset ?? []).map((r) => normalizeRowKeys(r));
+  const headerRows = dedupeByNonEmptyKey(
+    (headerResult.recordset ?? []).map((r) => normalizeRowKeys(r)),
+    openDocHeaderDedupeKey,
+  );
   if (headerRows.length === 0) {
     console.info("[open_docs] no rows");
     return;
@@ -5072,7 +5133,7 @@ async function syncOpenDocs(pool) {
   let lineLookup = {};
   if (String(effectiveSql.open_doc_lines ?? "").trim()) {
     const lineResult = await pool.request().query(effectiveSql.open_doc_lines);
-    for (const lr of dedupeByStableJson(lineResult.recordset ?? [], ticketLineDedupeKey)) {
+    for (const lr of dedupeByNonEmptyKey(lineResult.recordset ?? [], ticketLineDedupeKey)) {
       const nr = normalizeRowKeys(lr);
       const ref = String(nr.doc_ref ?? nr.doc_id ?? "").trim();
       if (!ref) continue;
@@ -5084,7 +5145,7 @@ async function syncOpenDocs(pool) {
   let pmtLookup = {};
   if (String(effectiveSql.open_doc_pmt ?? "").trim()) {
     const pmtResult = await pool.request().query(effectiveSql.open_doc_pmt);
-    for (const pr of dedupeByStableJson(pmtResult.recordset ?? [], ticketPaymentDedupeKey)) {
+    for (const pr of dedupeByNonEmptyKey(pmtResult.recordset ?? [], ticketPaymentDedupeKey)) {
       const nr = normalizeRowKeys(pr);
       const ref = String(nr.doc_ref ?? nr.doc_id ?? "").trim();
       if (!ref) continue;

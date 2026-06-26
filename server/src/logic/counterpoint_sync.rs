@@ -7353,22 +7353,22 @@ fn normalize_diag_decimal(value: Option<&str>) -> String {
         .and_then(|v| v.trim().parse::<Decimal>().ok())
         .map(|d| {
             format!(
-                "{:.4}",
-                d.round_dp_with_strategy(4, RoundingStrategy::MidpointAwayFromZero)
+                "{:.2}",
+                d.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
             )
         })
-        .unwrap_or_else(|| "0.0000".into())
+        .unwrap_or_else(|| "0.00".into())
 }
 
 fn normalize_diag_decimal_value(value: Option<Decimal>) -> String {
     value
         .map(|d| {
             format!(
-                "{:.4}",
-                d.round_dp_with_strategy(4, RoundingStrategy::MidpointAwayFromZero)
+                "{:.2}",
+                d.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
             )
         })
-        .unwrap_or_else(|| "0.0000".into())
+        .unwrap_or_else(|| "0.00".into())
 }
 
 fn push_fidelity_mismatch(
