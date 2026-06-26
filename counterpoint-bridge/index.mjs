@@ -3658,9 +3658,18 @@ function stableCounterpointRecoverySuffix(raw) {
   return hash.toString(36).toUpperCase().padStart(13, "0");
 }
 
+function counterpointRecoverySkuFormat() {
+  return String(process.env.CP_RECOVERY_SKU_FORMAT ?? "").trim().toLowerCase();
+}
+
+function legacyCounterpointRecoverySuffix(raw) {
+  return stableCounterpointNumericSuffix(raw);
+}
+
 function deterministicCounterpointRecoverySku(counterpointItemKey) {
   const key = collapseWhitespaceUpper(canonicalCounterpointMatrixKey(counterpointItemKey));
   if (!key) return undefined;
+  const useLegacySix = counterpointRecoverySkuFormat() === "legacy6";
   const [family, ...options] = key.split("|");
   const itemMatch = /^I-(\d+)$/.exec(family);
   if (itemMatch) {
@@ -3668,11 +3677,13 @@ function deterministicCounterpointRecoverySku(counterpointItemKey) {
       const option = String(part ?? "").trim();
       return option !== "" && option !== "*";
     });
-    if (hasConcreteOption) return `CP-${stableCounterpointRecoverySuffix(key)}`;
+    if (hasConcreteOption) {
+      return `CP-${useLegacySix ? legacyCounterpointRecoverySuffix(key) : stableCounterpointRecoverySuffix(key)}`;
+    }
     return `CP-${String(Number(itemMatch[1]) % 1000000).padStart(6, "0")}`;
   }
   if (/^\d+$/.test(key)) return `CP-${String(Number(key) % 1000000).padStart(6, "0")}`;
-  return `CP-${stableCounterpointRecoverySuffix(key)}`;
+  return `CP-${useLegacySix ? legacyCounterpointRecoverySuffix(key) : stableCounterpointRecoverySuffix(key)}`;
 }
 
 function normalizeCounterpointLineSku(rawSku, counterpointItemKey) {

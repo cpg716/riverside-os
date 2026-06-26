@@ -3742,7 +3742,6 @@ pub async fn execute_counterpoint_inventory_batch(
                 cost_override = COALESCE(u.cost, v.cost_override)
             FROM UNNEST($1::text[], $2::text[], $3::int[], $4::numeric[]) AS u(key, sku, soh, cost)
             WHERE v.counterpoint_item_key = u.key
-              AND lower(trim(v.sku)) = lower(trim(u.sku))
             "#,
         )
         .bind(&keyed_keys)
@@ -3808,22 +3807,6 @@ pub async fn execute_counterpoint_inventory_batch(
         .into_iter()
         .collect()
     };
-    let key_owner_skus: HashMap<String, String> = if requested_keys.is_empty() {
-        HashMap::new()
-    } else {
-        sqlx::query_as::<_, (String, String)>(
-            r#"
-            SELECT counterpoint_item_key, lower(trim(sku))
-            FROM product_variants
-            WHERE counterpoint_item_key = ANY($1)
-            "#,
-        )
-        .bind(&requested_keys)
-        .fetch_all(&mut *tx)
-        .await?
-        .into_iter()
-        .collect()
-    };
     let matched_skus: HashSet<String> = if requested_skus.is_empty() {
         HashSet::new()
     } else {
@@ -3847,22 +3830,10 @@ pub async fn execute_counterpoint_inventory_batch(
         }
         let key = trim_opt(&row.counterpoint_item_key);
         let normalized_sku = sku.to_lowercase();
-        let conflicting_key_owner = key
-            .as_ref()
-            .and_then(|k| key_owner_skus.get(k).map(|owner_sku| (k, owner_sku)))
-            .filter(|(_, owner_sku)| owner_sku.as_str() != normalized_sku.as_str());
-        let matched = conflicting_key_owner.is_none()
-            && (key.as_ref().is_some_and(|k| matched_keys.contains(k))
-                || matched_skus.contains(&normalized_sku));
+        let matched = key.as_ref().is_some_and(|k| matched_keys.contains(k))
+            || matched_skus.contains(&normalized_sku);
         let external_key = key.clone().unwrap_or_else(|| sku.to_string());
-        if let Some((conflicting_key, owner_sku)) = conflicting_key_owner {
-            unmatched_issues.push((
-                external_key,
-                format!(
-                    "Inventory item-key conflict: counterpoint_item_key={conflicting_key:?} is already linked to ROS sku={owner_sku:?}, but this Counterpoint row has sku={sku:?}. Fix the Counterpoint catalog/inventory mapping and rerun Inventory."
-                ),
-            ));
-        } else if matched {
+        if matched {
             matched_row_count += 1;
             matched_issue_keys.push(external_key.clone());
             if let Some((parent_key, _)) = external_key.split_once('|') {
@@ -15950,7 +15921,7 @@ mod tests {
         assert_eq!(report.summary.total_rows, 6);
         assert_eq!(report.summary.variant_rows_checked, 6);
         assert!(report.summary.has_errors);
-        assert_eq!(report.summary.invalid_sku_rows, 1);
+        assert_eq!(report.summary.invalid_sku_rows, 2);
         assert_eq!(report.summary.duplicate_normalized_b_sku_values, 1);
         assert_eq!(report.summary.duplicate_counterpoint_item_key_values, 1);
         assert_eq!(report.summary.conflicting_sku_family_values, 1);
@@ -15959,11 +15930,12 @@ mod tests {
             1
         );
         assert_eq!(report.summary.info_count, 0);
-        assert_eq!(report.summary.warning_count, 0);
+        assert_eq!(report.summary.warning_count, 1);
         assert_eq!(report.summary.quarantine_count, 1);
         assert_eq!(report.summary.blocking_count, 4);
         assert!(report.summary.has_blocking_issues);
         assert!(issue_types.contains("blank_sku"));
+        assert!(issue_types.contains("generated_or_service_non_b_sku"));
         assert!(issue_types.contains("duplicate_normalized_b_sku"));
         assert!(issue_types.contains("duplicate_counterpoint_item_key"));
         assert!(issue_types.contains("conflicting_sku_family_mapping"));
@@ -17023,13 +16995,13 @@ mod tests {
             .await
             .expect("cleanup quarantine inventory product");
 
-        assert_eq!(summary.updated, 2);
-        assert_eq!(summary.skipped, 2);
-        assert_eq!(summary.quarantined, 2);
+        assert_eq!(summary.updated, 1);
+        assert_eq!(summary.skipped, 3);
+        assert_eq!(summary.quarantined, 3);
         assert_eq!(clean_stock, 7);
         assert_eq!(duplicate_stock, 0);
-        assert_eq!(generated_stock, 11);
-        assert_eq!(quarantine_count, 2);
+        assert_eq!(generated_stock, 0);
+        assert_eq!(quarantine_count, 3);
         assert_eq!(duplicate_issue_count, 2);
     }
 
@@ -19899,7 +19871,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn counterpoint_inventory_item_key_conflict_is_review_issue_not_batch_failure() {
+    async fn counterpoint_inventory_item_key_match_updates_owner_despite_sku_conflict() {
         let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
         let pool = connect_test_db().await;
         let suffix = numeric_identity_suffix();
@@ -19964,7 +19936,7 @@ mod tests {
             },
         )
         .await
-        .expect("conflicting inventory row becomes review issue");
+        .expect("conflicting inventory row updates key owner");
 
         let owner_stock: i32 =
             sqlx::query_scalar("SELECT stock_on_hand FROM product_variants WHERE id = $1")
@@ -20012,12 +19984,12 @@ mod tests {
             .await
             .expect("cleanup conflict products");
 
-        assert_eq!(summary.updated, 0);
-        assert_eq!(summary.skipped, 1);
-        assert_eq!(owner_stock, 2);
+        assert_eq!(summary.updated, 1);
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(owner_stock, 7);
         assert_eq!(source_row.0, 3);
         assert_eq!(source_row.1, None);
-        assert_eq!(issue_count, 1);
+        assert_eq!(issue_count, 0);
     }
 
     #[tokio::test]
