@@ -472,7 +472,7 @@ const STATE_FILE = process.env.CURSOR_STATE_FILE ?? path.join(__dirname, ".count
 const REQUIRED_CP_IMPORT_SINCE = (
   process.env.CP_REQUIRED_IMPORT_SINCE ??
   process.env.COUNTERPOINT_IMPORT_HISTORY_START ??
-  "2024-01-01"
+  "2018-01-01"
 ).trim();
 const CP_IMPORT_SINCE = (
   process.env.CP_IMPORT_SINCE ?? REQUIRED_CP_IMPORT_SINCE
@@ -3649,6 +3649,15 @@ function stableCounterpointNumericSuffix(raw) {
   return String(hash % 1000000).padStart(6, "0");
 }
 
+function stableCounterpointRecoverySuffix(raw) {
+  let hash = 14695981039346656037n;
+  for (const byte of Buffer.from(String(raw), "utf8")) {
+    hash ^= BigInt(byte);
+    hash = (hash * 1099511628211n) & 0xffffffffffffffffn;
+  }
+  return hash.toString(36).toUpperCase().padStart(13, "0");
+}
+
 function deterministicCounterpointRecoverySku(counterpointItemKey) {
   const key = collapseWhitespaceUpper(canonicalCounterpointMatrixKey(counterpointItemKey));
   if (!key) return undefined;
@@ -3659,11 +3668,11 @@ function deterministicCounterpointRecoverySku(counterpointItemKey) {
       const option = String(part ?? "").trim();
       return option !== "" && option !== "*";
     });
-    if (hasConcreteOption) return `CP-${stableCounterpointNumericSuffix(key)}`;
+    if (hasConcreteOption) return `CP-${stableCounterpointRecoverySuffix(key)}`;
     return `CP-${String(Number(itemMatch[1]) % 1000000).padStart(6, "0")}`;
   }
   if (/^\d+$/.test(key)) return `CP-${String(Number(key) % 1000000).padStart(6, "0")}`;
-  return `CP-${stableCounterpointNumericSuffix(key)}`;
+  return `CP-${stableCounterpointRecoverySuffix(key)}`;
 }
 
 function normalizeCounterpointLineSku(rawSku, counterpointItemKey) {
@@ -3682,7 +3691,7 @@ function recoveryCellFromLineRow(row, barcodeLookup) {
   if (isCounterpointBSku(rawSku)) return null;
   const [, d1 = "", d2 = "", d3 = ""] = key.split("|");
   const sku = barcodeLookup?.get(matrixLookupKey(parent, d1, d2, d3)) ?? normalizeCounterpointLineSku(rawSku, key);
-  if (!isCounterpointBSku(sku) && !/^CP-\d{6}$/.test(sku)) return null;
+  if (!isCounterpointBSku(sku) && !/^CP-[A-Z0-9]{6,13}$/.test(sku)) return null;
   const options = key
     .split("|")
     .slice(1)

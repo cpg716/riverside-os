@@ -39,8 +39,8 @@ Do not store live SQL passwords or sync tokens in this document.
 - Counterpoint ticket headers with no matching line rows must be excluded from closed-ticket import. They are not valid ROS sale records.
 - Counterpoint zero-sale positive-payment ticket artifacts must not be surfaced as customer purchases. Those rows represent payment/deposit activity, not fulfilled merchandise sales.
 - Open-doc payments imported from Counterpoint are deposits on the order even when they do not carry POS checkout `applied_deposit_amount` metadata.
-- If a Counterpoint item/cell has no usable `B-XXXXX` barcode, the importer must generate and reuse a deterministic `CP-######` recovery SKU from the Counterpoint item key. Catalog, inventory, ticket lines, and open-doc lines must all derive the same recovery SKU for the same key.
-- Catalog must create recovery variants before inventory, ticket history, or open docs are posted. If inventory/ticket proof shows unresolved `CP-######` rows, rerun catalog first.
+- If a Counterpoint item/cell has no usable `B-XXXXX` barcode, the importer must generate and reuse a deterministic `CP-*` recovery SKU from the Counterpoint item key. Catalog, inventory, ticket lines, and open-doc lines must all derive the same recovery SKU for the same key, and matrix-cell recovery SKUs must be collision-resistant across the full historical catalog.
+- Catalog must create recovery variants before inventory, ticket history, or open docs are posted. If inventory/ticket proof shows unresolved `CP-*` rows, rerun catalog first.
 - Rerunning ticket history must rebuild existing Counterpoint-imported ticket rows, not skip them. Existing imported lines and Counterpoint-tagged payments are safe to replace from source.
 
 ## June 26, 2026 Live Import Finding

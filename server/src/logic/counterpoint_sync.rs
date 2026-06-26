@@ -25,7 +25,7 @@ use crate::logic::{
 // Reset cleanup markers for fallback products created by earlier import builds.
 const HISTORICAL_FALLBACK_SKU: &str = "HIST-CP-FALLBACK";
 const HISTORICAL_FALLBACK_NAME: &str = "Historical Counterpoint Sale (Item Unresolved)";
-const DEFAULT_COUNTERPOINT_IMPORT_HISTORY_START: &str = "2024-01-01";
+const DEFAULT_COUNTERPOINT_IMPORT_HISTORY_START: &str = "2018-01-01";
 const COUNTERPOINT_TICKET_SUSPICIOUS_MIN: i64 = 1_000;
 const COUNTERPOINT_OPEN_DOC_SUSPICIOUS_MIN: i64 = 100;
 
@@ -873,7 +873,7 @@ fn is_counterpoint_recovered_sku(normalized_sku: &str) -> bool {
     let Some(rest) = normalized_sku.strip_prefix("CP-") else {
         return false;
     };
-    rest.len() == 6 && rest.bytes().all(|b| b.is_ascii_digit())
+    (6..=13).contains(&rest.len()) && rest.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
 fn is_generated_or_service_sku(normalized_sku: &str) -> bool {
@@ -912,13 +912,37 @@ fn stable_counterpoint_numeric_suffix(raw: &str) -> String {
     format!("{:06}", hash % 1_000_000)
 }
 
+fn stable_counterpoint_recovery_suffix(raw: &str) -> String {
+    let mut hash = 14_695_981_039_346_656_037_u64;
+    for byte in raw.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(1_099_511_628_211);
+    }
+    let suffix = base36_u64(hash);
+    format!("{suffix:0>13}")
+}
+
+fn base36_u64(mut value: u64) -> String {
+    const DIGITS: &[u8; 36] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    if value == 0 {
+        return "0".into();
+    }
+    let mut out = Vec::new();
+    while value > 0 {
+        let idx = (value % 36) as usize;
+        out.push(DIGITS[idx] as char);
+        value /= 36;
+    }
+    out.iter().rev().collect()
+}
+
 fn deterministic_counterpoint_recovery_sku(counterpoint_item_key: &str) -> Option<String> {
     let raw = counterpoint_item_key.trim();
     if let Some(key) = valid_counterpoint_item_key(Some(raw)) {
         let family = normalize_counterpoint_family_key(&key)?;
         let item_no = counterpoint_item_number(&family)?;
         if key != family {
-            return Some(format!("CP-{}", stable_counterpoint_numeric_suffix(&key)));
+            return Some(format!("CP-{}", stable_counterpoint_recovery_suffix(&key)));
         }
         let item_no = item_no.parse::<u32>().unwrap_or(0) % 1_000_000;
         return Some(format!("CP-{item_no:06}"));
@@ -930,7 +954,7 @@ fn deterministic_counterpoint_recovery_sku(counterpoint_item_key: &str) -> Optio
         let item_no = raw.parse::<u32>().unwrap_or(0) % 1_000_000;
         Some(format!("CP-{item_no:06}"))
     } else {
-        Some(format!("CP-{}", stable_counterpoint_numeric_suffix(raw)))
+        Some(format!("CP-{}", stable_counterpoint_recovery_suffix(raw)))
     }
 }
 
@@ -939,15 +963,7 @@ fn reserve_unique_counterpoint_recovery_sku(
     used_skus: &mut HashSet<String>,
 ) -> Option<String> {
     let base = deterministic_counterpoint_recovery_sku(counterpoint_item_key)?;
-    let mut suffix = base.strip_prefix("CP-")?.parse::<u32>().ok()?;
-    for _ in 0..1_000_000 {
-        let candidate = format!("CP-{suffix:06}");
-        if used_skus.insert(candidate.clone()) {
-            return Some(candidate);
-        }
-        suffix = (suffix + 1) % 1_000_000;
-    }
-    None
+    used_skus.insert(base.clone()).then_some(base)
 }
 
 fn option_values_from_variation_label(variation_label: Option<&str>) -> Vec<String> {
@@ -14394,9 +14410,9 @@ mod tests {
         assert!(matrix_generated.starts_with("CP-"));
         let matrix_suffix = matrix_generated
             .strip_prefix("CP-")
-            .expect("numeric suffix");
-        assert_eq!(matrix_suffix.len(), 6);
-        assert!(matrix_suffix.bytes().all(|b| b.is_ascii_digit()));
+            .expect("recovery suffix");
+        assert_eq!(matrix_suffix.len(), 13);
+        assert!(matrix_suffix.bytes().all(|b| b.is_ascii_alphanumeric()));
         assert_eq!(
             counterpoint_catalog_variant_sku("40901/1", "40901/1"),
             "40901/1"
@@ -14569,7 +14585,7 @@ mod tests {
         let summary = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2024-01-01".into()),
+                history_start: Some("2018-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14624,7 +14640,7 @@ mod tests {
         let summary = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2024-01-01".into()),
+                history_start: Some("2018-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14681,7 +14697,7 @@ mod tests {
         let summary = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2024-01-01".into()),
+                history_start: Some("2018-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14752,7 +14768,7 @@ mod tests {
         let stale_run = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2024-01-01".into()),
+                history_start: Some("2018-01-01".into()),
                 bridge_hostname: Some("stale-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14783,7 +14799,7 @@ mod tests {
         let preflight = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2024-01-01".into()),
+                history_start: Some("2018-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -14906,7 +14922,7 @@ mod tests {
         let preflight = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2024-01-01".into()),
+                history_start: Some("2018-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -15056,7 +15072,7 @@ mod tests {
         let preflight = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2024-01-01".into()),
+                history_start: Some("2018-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -15149,7 +15165,7 @@ mod tests {
         let summary = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2024-01-01".into()),
+                history_start: Some("2018-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -15188,7 +15204,7 @@ mod tests {
         let preflight = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2024-01-01".into()),
+                history_start: Some("2018-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -15348,7 +15364,7 @@ mod tests {
         let preflight = record_counterpoint_import_preflight(
             &pool,
             CounterpointImportPreflightPayload {
-                history_start: Some("2024-01-01".into()),
+                history_start: Some("2018-01-01".into()),
                 bridge_hostname: Some("test-bridge".into()),
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
@@ -15728,7 +15744,7 @@ mod tests {
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 run_kind TEXT NOT NULL DEFAULT 'full_import',
                 status TEXT NOT NULL DEFAULT 'preflight_pending',
-                history_start DATE NOT NULL DEFAULT DATE '2024-01-01',
+                history_start DATE NOT NULL DEFAULT DATE '2018-01-01',
                 bridge_hostname TEXT,
                 bridge_version TEXT,
                 ros_base_url TEXT,
@@ -16050,8 +16066,8 @@ mod tests {
                 .generated_sku
                 .strip_prefix("CP-")
                 .expect("counterpoint generated sku");
-            assert_eq!(suffix.len(), 6);
-            assert!(suffix.bytes().all(|b| b.is_ascii_digit()));
+            assert_eq!(suffix.len(), 13);
+            assert!(suffix.bytes().all(|b| b.is_ascii_alphanumeric()));
         }
     }
 
@@ -16089,8 +16105,8 @@ mod tests {
         assert_eq!(records.len(), 3);
         for row in recovered.rows {
             let suffix = row.sku.strip_prefix("CP-").expect("generated sku");
-            assert_eq!(suffix.len(), 6);
-            assert!(suffix.bytes().all(|b| b.is_ascii_digit()));
+            assert_eq!(suffix.len(), 13);
+            assert!(suffix.bytes().all(|b| b.is_ascii_alphanumeric()));
         }
     }
 
