@@ -17,7 +17,7 @@ function read(path) {
 }
 
 function sha256(path) {
-  return createHash("sha256").update(read(path)).digest("hex");
+  return createHash("sha256").update(read(path).replace(/\r\n/g, "\n")).digest("hex");
 }
 
 function assertIncludes(path, text, reason) {
