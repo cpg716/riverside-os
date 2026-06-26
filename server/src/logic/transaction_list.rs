@@ -444,6 +444,14 @@ pub async fn query_paged_transactions(
         LEFT JOIN product_variants pv ON pv.id = oi.variant_id
         LEFT JOIN fulfillment_orders fo ON fo.id = oi.fulfillment_order_id
         WHERE 1=1
+          AND NOT (
+              COALESCE(o.is_counterpoint_import, false)
+              AND o.counterpoint_ticket_ref IS NOT NULL
+              AND o.counterpoint_doc_ref IS NULL
+              AND COALESCE(o.total_price, 0) <= 0
+              AND COALESCE(o.amount_paid, 0) > 0
+              AND COALESCE(o.balance_due, 0) < 0
+          )
         "#
     ));
 

@@ -85,7 +85,7 @@ async fn cp_health(
         "service": "counterpoint_sync",
         "counterpoint_staging_enabled": counterpoint_staging_enabled,
         "import_first_default": true,
-        "required_history_start": "2024-01-01"
+        "required_history_start": counterpoint_sync::counterpoint_import_history_start()
     })))
 }
 

@@ -8,6 +8,7 @@ End-to-end reference for setting up and operating the one-way Counterpoint trans
 - [`PLAN_COUNTERPOINT_ROS_SYNC.md`](PLAN_COUNTERPOINT_ROS_SYNC.md) — implementation roadmap and schema mapping tables
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
 - [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — Bridge connection template
+- [`COUNTERPOINT_DIRECT_IMPORT_RUNBOOK.md`](COUNTERPOINT_DIRECT_IMPORT_RUNBOOK.md) — recorded go-live direct import path and historical backfill guardrails
 
 **Import Command Center:**
 The Counterpoint screen in **Settings → Integrations → Counterpoint** is the ROS final approval surface. The operator workflow is Bridge connection, source-count proof, direct ROS import, import exceptions, customer duplicate review, final proof, and support diagnostics.

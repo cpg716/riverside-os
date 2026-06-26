@@ -25,9 +25,17 @@ use crate::logic::{
 // Reset cleanup markers for fallback products created by earlier import builds.
 const HISTORICAL_FALLBACK_SKU: &str = "HIST-CP-FALLBACK";
 const HISTORICAL_FALLBACK_NAME: &str = "Historical Counterpoint Sale (Item Unresolved)";
-const COUNTERPOINT_IMPORT_HISTORY_START: &str = "2024-01-01";
+const DEFAULT_COUNTERPOINT_IMPORT_HISTORY_START: &str = "2024-01-01";
 const COUNTERPOINT_TICKET_SUSPICIOUS_MIN: i64 = 1_000;
 const COUNTERPOINT_OPEN_DOC_SUSPICIOUS_MIN: i64 = 100;
+
+pub fn counterpoint_import_history_start() -> String {
+    std::env::var("COUNTERPOINT_IMPORT_HISTORY_START")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_COUNTERPOINT_IMPORT_HISTORY_START.to_string())
+}
 
 fn counterpoint_catalog_variant_sku(cp_key: &str, sku: &str) -> String {
     let sku = sku.trim();
@@ -176,6 +184,8 @@ pub struct CounterpointImportRunStartPayload {
     pub ros_base_url: Option<String>,
     #[serde(default)]
     pub source_fingerprint: Option<String>,
+    #[serde(default)]
+    pub allow_import_with_preflight_blockers: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -4672,22 +4682,23 @@ pub async fn record_counterpoint_import_preflight(
         .get("sync_package_contract")
         .and_then(JsonValue::as_bool)
         .unwrap_or(false);
+    let required_history_start = counterpoint_import_history_start();
     let history_start = payload
         .history_start
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(COUNTERPOINT_IMPORT_HISTORY_START)
+        .unwrap_or(required_history_start.as_str())
         .to_string();
 
     let mut blockers = Vec::new();
-    if history_start != COUNTERPOINT_IMPORT_HISTORY_START {
+    if history_start != required_history_start {
         push_import_preflight_blocker(
             &mut blockers,
             None,
             "history_start_mismatch",
             format!(
-                "Bridge history start must be {COUNTERPOINT_IMPORT_HISTORY_START}; received {history_start}"
+                "Bridge history start must be {required_history_start}; received {history_start}"
             ),
         );
     }
@@ -5220,9 +5231,16 @@ pub async fn start_counterpoint_import_run(
         )
     })?;
 
+    let override_preflight_blockers = payload.allow_import_with_preflight_blockers
+        && preflight.run_kind == "preflight"
+        && preflight
+            .preflight_blockers
+            .as_array()
+            .map(|blockers| !blockers.is_empty())
+            .unwrap_or(false);
     if preflight.run_kind != "preflight"
-        || preflight.status != "preflight_passed"
-        || !preflight.preflight_passed
+        || (!override_preflight_blockers
+            && (preflight.status != "preflight_passed" || !preflight.preflight_passed))
     {
         return Err(CounterpointSyncError::InvalidPayload(
             "latest Counterpoint source-count preflight has issues that need review; import cannot start"
@@ -5248,7 +5266,8 @@ pub async fn start_counterpoint_import_run(
             jsonb_build_object(
                 'preflight_import_run_id', $12::uuid,
                 'requested_entity', NULLIF(BTRIM($13), ''),
-                'trigger', NULLIF(BTRIM($14), '')
+                'trigger', NULLIF(BTRIM($14), ''),
+                'allow_import_with_preflight_blockers', $15::boolean
             )
         )
         RETURNING id
@@ -5268,6 +5287,7 @@ pub async fn start_counterpoint_import_run(
     .bind(preflight.id)
     .bind(payload.requested_entity.as_deref())
     .bind(payload.trigger.as_deref())
+    .bind(payload.allow_import_with_preflight_blockers)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -6525,7 +6545,7 @@ pub async fn build_counterpoint_import_command_center(
     Ok(CounterpointImportCommandCenterSummary {
         generated_at: Utc::now(),
         mode: "import_first".into(),
-        required_history_start: COUNTERPOINT_IMPORT_HISTORY_START.into(),
+        required_history_start: counterpoint_import_history_start(),
         token_configured: true,
         preflight_received: latest_preflight.is_some(),
         import_run_received: latest_import_run.is_some(),
@@ -12080,11 +12100,16 @@ pub async fn execute_counterpoint_ticket_batch(
         map
     };
 
-    let existing_ticket_refs: HashSet<String> = if ticket_refs.is_empty() {
-        HashSet::new()
+    let existing_ticket_ids: HashMap<String, Uuid> = if ticket_refs.is_empty() {
+        HashMap::new()
     } else {
-        sqlx::query_scalar::<_, String>(
-            "SELECT counterpoint_ticket_ref FROM transactions WHERE counterpoint_ticket_ref = ANY($1)",
+        sqlx::query_as::<_, (String, Uuid)>(
+            r#"
+            SELECT counterpoint_ticket_ref, id
+            FROM transactions
+            WHERE counterpoint_ticket_ref = ANY($1)
+              AND counterpoint_ticket_ref IS NOT NULL
+            "#,
         )
         .bind(&ticket_refs)
         .fetch_all(pool)
@@ -12116,11 +12141,6 @@ pub async fn execute_counterpoint_ticket_batch(
         let ticket_ref = tkt.ticket_ref.trim();
         if ticket_ref.is_empty() {
             summary.skipped += 1;
-            continue;
-        }
-
-        if existing_ticket_refs.contains(ticket_ref) {
-            summary.transactions_skipped_existing += 1;
             continue;
         }
 
@@ -12274,36 +12294,104 @@ pub async fn execute_counterpoint_ticket_batch(
             .and_then(|c| staff_map.get(c.trim()))
             .copied();
 
-        let transaction_id: Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO transactions (
-                customer_id, counterpoint_ticket_ref,
-                is_counterpoint_import, status, booked_at, business_date, fulfilled_at, total_price,
-                amount_paid, balance_due, processed_by_staff_id,
-                primary_salesperson_id, notes
+        let transaction_id: Uuid = if let Some(transaction_id) =
+            existing_ticket_ids.get(ticket_ref).copied()
+        {
+            summary.transactions_skipped_existing += 1;
+            sqlx::query(
+                r#"
+                UPDATE transactions
+                SET customer_id = COALESCE($2, customer_id),
+                    status = $3::order_status,
+                    booked_at = $4,
+                    business_date = ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                    fulfilled_at = CASE WHEN $3::order_status = 'fulfilled'::order_status THEN $4 ELSE NULL END,
+                    total_price = $5,
+                    amount_paid = $6,
+                    balance_due = $7,
+                    processed_by_staff_id = COALESCE($8, processed_by_staff_id),
+                    primary_salesperson_id = COALESCE($9, primary_salesperson_id),
+                    notes = COALESCE($10, notes)
+                WHERE id = $1
+                  AND is_counterpoint_import
+                  AND counterpoint_ticket_ref = $11
+                "#,
             )
-            VALUES (
-                $1, $2, TRUE, $3::order_status, $4,
-                ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
-                CASE WHEN $3::order_status = 'fulfilled'::order_status THEN $4 ELSE NULL END,
-                $5, $6, $7, $8, $9, $10
+            .bind(transaction_id)
+            .bind(customer_id)
+            .bind(status)
+            .bind(booked_at)
+            .bind(tkt.total_price)
+            .bind(normalized_amount_paid)
+            .bind(balance)
+            .bind(processed_by)
+            .bind(salesperson)
+            .bind(tkt.notes.as_deref())
+            .bind(ticket_ref)
+            .execute(&mut *tx)
+            .await?;
+
+            let payment_ids: Vec<Uuid> = sqlx::query_scalar(
+                r#"
+                SELECT pa.transaction_id
+                FROM payment_allocations pa
+                JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = $1
+                  AND pt.metadata->>'counterpoint_ticket_ref' = $2
+                "#,
             )
-            RETURNING id
-            "#,
-        )
-        .bind(customer_id)
-        .bind(ticket_ref)
-        .bind(status)
-        .bind(booked_at)
-        .bind(tkt.total_price)
-        .bind(normalized_amount_paid)
-        .bind(balance)
-        .bind(processed_by)
-        .bind(salesperson)
-        .bind(tkt.notes.as_deref())
-        .fetch_one(&mut *tx)
-        .await?;
-        summary.transactions_created += 1;
+            .bind(transaction_id)
+            .bind(ticket_ref)
+            .fetch_all(&mut *tx)
+            .await?;
+            if !payment_ids.is_empty() {
+                sqlx::query("DELETE FROM payment_allocations WHERE transaction_id = ANY($1)")
+                    .bind(&payment_ids)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
+                    .bind(&payment_ids)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            sqlx::query("DELETE FROM transaction_lines WHERE transaction_id = $1")
+                .bind(transaction_id)
+                .execute(&mut *tx)
+                .await?;
+            transaction_id
+        } else {
+            let transaction_id: Uuid = sqlx::query_scalar(
+                r#"
+                INSERT INTO transactions (
+                    customer_id, counterpoint_ticket_ref,
+                    is_counterpoint_import, status, booked_at, business_date, fulfilled_at, total_price,
+                    amount_paid, balance_due, processed_by_staff_id,
+                    primary_salesperson_id, notes
+                )
+                VALUES (
+                    $1, $2, TRUE, $3::order_status, $4,
+                    ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                    CASE WHEN $3::order_status = 'fulfilled'::order_status THEN $4 ELSE NULL END,
+                    $5, $6, $7, $8, $9, $10
+                )
+                RETURNING id
+                "#,
+            )
+            .bind(customer_id)
+            .bind(ticket_ref)
+            .bind(status)
+            .bind(booked_at)
+            .bind(tkt.total_price)
+            .bind(normalized_amount_paid)
+            .bind(balance)
+            .bind(processed_by)
+            .bind(salesperson)
+            .bind(tkt.notes.as_deref())
+            .fetch_one(&mut *tx)
+            .await?;
+            summary.transactions_created += 1;
+            transaction_id
+        };
 
         for (((variant_id, product_id), line), vendor_ref) in resolved_lines
             .iter()
@@ -14721,6 +14809,7 @@ mod tests {
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
                 source_fingerprint: Some(format!("current-command-center-{unique}")),
+                allow_import_with_preflight_blockers: false,
             },
         )
         .await
@@ -14843,6 +14932,7 @@ mod tests {
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
                 source_fingerprint: Some(format!("row-grain-{unique}")),
+                allow_import_with_preflight_blockers: false,
             },
         )
         .await
@@ -14992,6 +15082,7 @@ mod tests {
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
                 source_fingerprint: Some(format!("failed-proof-{unique}")),
+                allow_import_with_preflight_blockers: false,
             },
         )
         .await
@@ -15124,6 +15215,7 @@ mod tests {
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
                 source_fingerprint: Some(format!("proof-{unique}")),
+                allow_import_with_preflight_blockers: false,
             },
         )
         .await
@@ -15282,6 +15374,7 @@ mod tests {
                 bridge_version: Some("test".into()),
                 ros_base_url: Some("http://127.0.0.1:3000".into()),
                 source_fingerprint: Some(format!("inventory-proof-{unique}")),
+                allow_import_with_preflight_blockers: false,
             },
         )
         .await

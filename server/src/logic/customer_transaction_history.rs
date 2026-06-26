@@ -132,7 +132,17 @@ pub async fn query_customer_transaction_history(
     match q.record_scope {
         CustomerHistoryRecordScope::Transactions => {
             // Counterpoint tickets belong in Transactions; Counterpoint open docs do not.
-            qb.push(" AND o.counterpoint_doc_ref IS NULL ");
+            // Payment/deposit-only Counterpoint ticket artifacts are not purchases.
+            qb.push(
+                r#" AND o.counterpoint_doc_ref IS NULL
+                AND NOT (
+                    COALESCE(o.is_counterpoint_import, false)
+                    AND o.counterpoint_ticket_ref IS NOT NULL
+                    AND COALESCE(o.total_price, 0) <= 0
+                    AND COALESCE(o.amount_paid, 0) > 0
+                    AND COALESCE(o.balance_due, 0) < 0
+                ) "#,
+            );
         }
         CustomerHistoryRecordScope::Orders => {
             // Orders are only unfulfilled fulfillment work: Special, Custom, Wedding, and Counterpoint open docs.

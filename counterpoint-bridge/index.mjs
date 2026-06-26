@@ -469,9 +469,16 @@ function reloadDotEnv() {
 loadDotEnv();
 
 const STATE_FILE = process.env.CURSOR_STATE_FILE ?? path.join(__dirname, ".counterpoint-bridge-state.json");
-const REQUIRED_CP_IMPORT_SINCE = "2024-01-01";
+const REQUIRED_CP_IMPORT_SINCE = (
+  process.env.CP_REQUIRED_IMPORT_SINCE ??
+  process.env.COUNTERPOINT_IMPORT_HISTORY_START ??
+  "2024-01-01"
+).trim();
 const CP_IMPORT_SINCE = (
   process.env.CP_IMPORT_SINCE ?? REQUIRED_CP_IMPORT_SINCE
+).trim();
+const CP_PREFLIGHT_HISTORY_START = (
+  process.env.CP_PREFLIGHT_HISTORY_START ?? CP_IMPORT_SINCE
 ).trim();
 
 let activeSyncAnchorRunKind = null;
@@ -1384,6 +1391,7 @@ function buildFlexMaxInventorySql(invCostCol, locId, entries) {
   const locEsc = escapeSqlStringLiteral(locId);
   const imInv = entries ? columnSet(entries, "IM_INV") : null;
   const imCell = entries ? columnSet(entries, "IM_INV_CELL") : null;
+  const imBar = entries ? columnSet(entries, "IM_BARCOD") : null;
   let costField = invCostCol;
   if (imInv && !imInv.has(invCostCol)) {
     costField = imInv.has("LST_COST") ? "LST_COST" : imInv.has("AVG_COST") ? "AVG_COST" : imInv.has("LAST_COST") ? "LAST_COST" : null;
@@ -1396,7 +1404,14 @@ function buildFlexMaxInventorySql(invCostCol, locId, entries) {
   const itemScope = imItem?.has("ITEM_NO")
     ? buildCounterpointItemScopePredicate(entries, "item", locId)
     : "i.ITEM_NO IS NOT NULL";
-  const parentSql = `SELECT RTRIM(LTRIM(i.ITEM_NO)) AS sku, CAST(i.QTY_ON_HND AS INT) AS stock_on_hand, RTRIM(LTRIM(i.ITEM_NO)) AS counterpoint_item_key, ${parentCost} AS last_cost FROM IM_INV i${itemJoin} WHERE ${itemScope}${locFilter}`;
+  const { join: parentBarcodeJoin } = aggregateBarcodeJoin(imBar);
+  const parentSku = parentBarcodeJoin
+    ? "COALESCE(NULLIF(RTRIM(LTRIM(CAST(b.[barcode] AS NVARCHAR(128)))), N''), RTRIM(LTRIM(i.ITEM_NO)))"
+    : "RTRIM(LTRIM(i.ITEM_NO))";
+  const matrixParentFilter = imCell?.has("ITEM_NO")
+    ? ` AND NOT EXISTS (SELECT 1 FROM IM_INV_CELL cscope WHERE cscope.ITEM_NO = i.ITEM_NO${imCell.has("LOC_ID") && imInv?.has("LOC_ID") ? " AND cscope.LOC_ID = i.LOC_ID" : ""})`
+    : "";
+  const parentSql = `SELECT ${parentSku} AS sku, CAST(i.QTY_ON_HND AS INT) AS stock_on_hand, RTRIM(LTRIM(i.ITEM_NO)) AS counterpoint_item_key, ${parentCost} AS last_cost, RTRIM(LTRIM(i.ITEM_NO)) AS parent_item_no, CAST(NULL AS NVARCHAR(80)) AS dim_1_value, CAST(NULL AS NVARCHAR(80)) AS dim_2_value, CAST(NULL AS NVARCHAR(80)) AS dim_3_value FROM IM_INV i${itemJoin}${parentBarcodeJoin ? ` ${parentBarcodeJoin}` : ""} WHERE ${itemScope}${locFilter}${matrixParentFilter}`;
   if (!imCell?.has("ITEM_NO") || !imCell.has("QTY_ON_HND")) {
     return parentSql;
   }
@@ -1404,6 +1419,11 @@ function buildFlexMaxInventorySql(invCostCol, locId, entries) {
   const dim2 = pickColumn(imCell, ["DIM_2_UPR", "DIM_2_VAL", "DIM_2", "GRID_2_VAL"]);
   const dim3 = pickColumn(imCell, ["DIM_3_UPR", "DIM_3_VAL", "DIM_3", "GRID_3_VAL"]);
   const keyExpr = matrixKeySql("c", [dim1, dim2, dim3]);
+  const dimSelects = [
+    dim1 ? `RTRIM(LTRIM(CONVERT(NVARCHAR(80), c.[${dim1}])))` : "N''",
+    dim2 ? `RTRIM(LTRIM(CONVERT(NVARCHAR(80), c.[${dim2}])))` : "N''",
+    dim3 ? `RTRIM(LTRIM(CONVERT(NVARCHAR(80), c.[${dim3}])))` : "N''",
+  ];
   const cellCostJoin = imInv?.has("ITEM_NO")
     ? ` LEFT JOIN IM_INV inv ON inv.ITEM_NO = c.ITEM_NO${imInv.has("LOC_ID") && imCell.has("LOC_ID") ? " AND inv.LOC_ID = c.LOC_ID" : ""}`
     : "";
@@ -1412,7 +1432,12 @@ function buildFlexMaxInventorySql(invCostCol, locId, entries) {
   const cellItemScope = imItem?.has("ITEM_NO")
     ? buildCounterpointItemScopePredicate(entries, "item", locId)
     : "c.ITEM_NO IS NOT NULL";
-  const cellSql = `SELECT ${keyExpr} AS sku, CAST(c.QTY_ON_HND AS INT) AS stock_on_hand, ${keyExpr} AS counterpoint_item_key, ${costExpr} AS last_cost FROM IM_INV_CELL c${cellItemJoin}${cellCostJoin} WHERE ${cellItemScope}${cellLocFilter}`;
+  const cellBarcodeApply = matrixBarcodeApplySql("cb", "c", "ITEM_NO", [dim1, dim2, dim3], imBar);
+  const cellBarcode = cellBarcodeApply
+    ? "NULLIF(RTRIM(LTRIM(CAST(cb.[BARCOD] AS NVARCHAR(128)))), N'')"
+    : null;
+  const cellSku = cellBarcode ? `COALESCE(${cellBarcode}, ${keyExpr})` : keyExpr;
+  const cellSql = `SELECT ${cellSku} AS sku, CAST(c.QTY_ON_HND AS INT) AS stock_on_hand, ${keyExpr} AS counterpoint_item_key, ${costExpr} AS last_cost, RTRIM(LTRIM(c.ITEM_NO)) AS parent_item_no, ${dimSelects[0]} AS dim_1_value, ${dimSelects[1]} AS dim_2_value, ${dimSelects[2]} AS dim_3_value FROM IM_INV_CELL c${cellItemJoin}${cellCostJoin}${cellBarcodeApply} WHERE ${cellItemScope}${cellLocFilter}`;
   return `${parentSql} UNION ALL ${cellSql}`;
 }
 
@@ -1513,6 +1538,25 @@ function matrixKeySql(alias, dims) {
   return `CONCAT(RTRIM(LTRIM(${alias}.[ITEM_NO])), N'|', ${parts[0]}, N'|', ${parts[1]}, N'|', ${parts[2]})`;
 }
 
+function matrixBarcodeApplySql(applyAlias, lineAlias, itemColumn, lineDims, barcodeSet) {
+  if (!itemColumn || !barcodeSet?.has("ITEM_NO") || !barcodeSet.has("BARCOD")) return "";
+  const barcodeDims = ["DIM_1_UPR", "DIM_2_UPR", "DIM_3_UPR"];
+  const dimPredicates = [];
+  for (let i = 0; i < barcodeDims.length; i += 1) {
+    const lineDim = lineDims[i];
+    const barcodeDim = barcodeDims[i];
+    if (!lineDim || !barcodeSet.has(barcodeDim)) continue;
+    const normalizedBarcodeDim = `CASE WHEN RTRIM(LTRIM(CONVERT(NVARCHAR(80), ${applyAlias}_src.[${barcodeDim}]))) IN (N'', N'*') THEN N'' ELSE RTRIM(LTRIM(CONVERT(NVARCHAR(80), ${applyAlias}_src.[${barcodeDim}]))) END`;
+    const normalizedLineDim = `CASE WHEN RTRIM(LTRIM(CONVERT(NVARCHAR(80), ${lineAlias}.[${lineDim}]))) IN (N'', N'*') THEN N'' ELSE RTRIM(LTRIM(CONVERT(NVARCHAR(80), ${lineAlias}.[${lineDim}]))) END`;
+    dimPredicates.push(
+      `${normalizedBarcodeDim} = ${normalizedLineDim}`,
+    );
+  }
+  if (dimPredicates.length === 0) return "";
+  const seqOrder = barcodeSet.has("SEQ_NO") ? `${applyAlias}_src.[SEQ_NO], ` : "";
+  return ` OUTER APPLY (SELECT TOP 1 RTRIM(LTRIM(CONVERT(NVARCHAR(128), ${applyAlias}_src.[BARCOD]))) AS BARCOD FROM IM_BARCOD ${applyAlias}_src WHERE ${applyAlias}_src.[ITEM_NO] = ${lineAlias}.[${itemColumn}] AND NULLIF(RTRIM(LTRIM(CONVERT(NVARCHAR(128), ${applyAlias}_src.[BARCOD]))), N'') IS NOT NULL AND ${dimPredicates.join(" AND ")} ORDER BY ${seqOrder}${applyAlias}_src.[BARCOD]) ${applyAlias}`;
+}
+
 function matrixLabelSql(alias, dims) {
   const [d1, d2, d3] = dims;
   const part = (dim) => `RTRIM(LTRIM(CONVERT(NVARCHAR(80), ${alias}.[${dim}])))`;
@@ -1522,6 +1566,53 @@ function matrixLabelSql(alias, dims) {
     d2 ? `CASE WHEN ${alias}.[${d2}] IS NOT NULL THEN N' / ' + ${part(d2)} ELSE N'' END` : "N''",
     d3 ? `CASE WHEN ${alias}.[${d3}] IS NOT NULL THEN N' / ' + ${part(d3)} ELSE N'' END` : "N''",
   ].join(" + ");
+}
+
+function matrixLookupKey(parentItemNo, d1, d2, d3) {
+  const parent = String(parentItemNo ?? "").trim();
+  if (!parent) return "";
+  return `${parent}|${normalizeMatrixDimensionValue(d1)}|${normalizeMatrixDimensionValue(d2)}|${normalizeMatrixDimensionValue(d3)}`;
+}
+
+let matrixBarcodeLookupCache = null;
+
+async function loadMatrixBarcodeLookup(pool) {
+  if (matrixBarcodeLookupCache) return matrixBarcodeLookupCache;
+  const result = await pool.request().query(`
+    SELECT
+      RTRIM(LTRIM(ITEM_NO)) AS item_no,
+      RTRIM(LTRIM(ISNULL(DIM_1_UPR, N''))) AS dim_1_value,
+      RTRIM(LTRIM(ISNULL(DIM_2_UPR, N''))) AS dim_2_value,
+      RTRIM(LTRIM(ISNULL(DIM_3_UPR, N''))) AS dim_3_value,
+      RTRIM(LTRIM(CONVERT(NVARCHAR(128), BARCOD))) AS barcode,
+      SEQ_NO AS seq_no
+    FROM IM_BARCOD
+    WHERE NULLIF(RTRIM(LTRIM(CONVERT(NVARCHAR(128), BARCOD))), N'') IS NOT NULL
+    ORDER BY ITEM_NO, DIM_1_UPR, DIM_2_UPR, DIM_3_UPR, SEQ_NO, BARCOD
+  `);
+  const lookup = new Map();
+  for (const raw of result.recordset ?? []) {
+    const row = normalizeRowKeys(raw);
+    const key = matrixLookupKey(row.item_no, row.dim_1_value, row.dim_2_value, row.dim_3_value);
+    const barcode = String(row.barcode ?? "").trim();
+    if (!key || !barcode || lookup.has(key)) continue;
+    lookup.set(key, barcode);
+  }
+  console.info(`[barcode] Buffered ${lookup.size} matrix barcode key(s).`);
+  matrixBarcodeLookupCache = lookup;
+  return lookup;
+}
+
+function applyMatrixBarcode(row, barcodeLookup) {
+  const parent = row.parent_item_no ?? row.item_no ?? row.counterpoint_parent_item_no;
+  const key = matrixLookupKey(parent, row.dim_1_value, row.dim_2_value, row.dim_3_value);
+  const barcode = key ? barcodeLookup?.get(key) : null;
+  if (!barcode) return row;
+  return {
+    ...row,
+    sku: barcode,
+    barcode,
+  };
 }
 
 function buildFlexCatalogCellsSql(invCostCol, locId, entries) {
@@ -1554,7 +1645,12 @@ function buildFlexCatalogCellsSql(invCostCol, locId, entries) {
   const itemScope = imItem?.has("ITEM_NO")
     ? buildCounterpointItemScopePredicate(entries, "item", locId)
     : "c.ITEM_NO IS NOT NULL";
-  return `SELECT RTRIM(LTRIM(c.ITEM_NO)) AS parent_item_no, ${keyExpr} AS counterpoint_item_key, ${keyExpr} AS sku, ${labelExpr} AS variation_label, ${qty} AS stock_on_hand, ${minQty} AS min_qty, ${prc1} AS retail_price, ${prc2} AS prc_2, ${prc3} AS prc_3, ${unitCost} AS unit_cost, CAST(NULL AS NVARCHAR(50)) AS barcode FROM IM_INV_CELL c${itemJoin}${prcJoin}${invJoin} WHERE ${itemScope}${locFilter}`;
+  const dimSelects = [
+    dim1 ? `RTRIM(LTRIM(CONVERT(NVARCHAR(80), c.[${dim1}])))` : "N''",
+    dim2 ? `RTRIM(LTRIM(CONVERT(NVARCHAR(80), c.[${dim2}])))` : "N''",
+    dim3 ? `RTRIM(LTRIM(CONVERT(NVARCHAR(80), c.[${dim3}])))` : "N''",
+  ];
+  return `SELECT RTRIM(LTRIM(c.ITEM_NO)) AS parent_item_no, ${dimSelects[0]} AS dim_1_value, ${dimSelects[1]} AS dim_2_value, ${dimSelects[2]} AS dim_3_value, ${keyExpr} AS counterpoint_item_key, ${keyExpr} AS sku, ${labelExpr} AS variation_label, ${qty} AS stock_on_hand, ${minQty} AS min_qty, ${prc1} AS retail_price, ${prc2} AS prc_2, ${prc3} AS prc_3, ${unitCost} AS unit_cost, CAST(NULL AS NVARCHAR(128)) AS barcode FROM IM_INV_CELL c${itemJoin}${prcJoin}${invJoin} WHERE ${itemScope}${locFilter}`;
 }
 
 function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
@@ -1652,6 +1748,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
   }
 
   const tkt = set("PS_TKT_HIST");
+  const imBar = set("IM_BARCOD");
   const tktNo = pickColumn(tkt, ["TKT_NO", "DOC_NO"]);
   const tktDate = pickColumn(tkt, ["BUS_DAT", "TKT_DT", "DOC_DT"]);
   const tktJoin = pickColumn(tkt, ["DOC_ID", "TKT_NO", "DOC_NO"]);
@@ -1671,21 +1768,42 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       typeColumn && !omitPsTktDocTypFilterEnabled()
         ? ` AND h.[${typeColumn}] = N'T'`
         : "";
-    sqlMap.tickets = `SELECT ${ticketRefSelect}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter} ORDER BY h.[${tktDate}], h.[${tktNo}]`;
-    changes.push(`PS_TKT_HIST tickets enabled; date=${tktDate}; key=${ticketRefColumns.join("+")}`);
-
     const lin = set("PS_TKT_HIST_LIN");
     const linJoin = pickColumn(lin, [tktJoin, "DOC_ID", "TKT_NO"]);
     const linJoinPairs = ticketJoinPairs(tkt, lin, tktJoin, linJoin);
     const linJoinPredicate = ticketJoinPredicate("h", "l", linJoinPairs);
+    const ticketLineExistsFilter = lin && linJoinPredicate
+      ? ` AND EXISTS (SELECT 1 FROM PS_TKT_HIST_LIN line_scope WHERE ${ticketJoinPredicate("h", "line_scope", linJoinPairs)})`
+      : "";
+    sqlMap.tickets = `SELECT ${ticketRefSelect}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter} ORDER BY h.[${tktDate}], h.[${tktNo}]`;
+    changes.push(`PS_TKT_HIST tickets enabled; date=${tktDate}; key=${ticketRefColumns.join("+")}`);
+
     if (lin && linJoinPredicate) {
       const item = pickColumn(lin, ["ITEM_NO"]);
+      const barcod = pickColumn(lin, ["BARCOD"]);
+      const lineDim1 = pickColumn(lin, ["DIM_1_UPR", "DIM_1_VAL", "DIM_1", "GRID_1_VAL"]);
+      const lineDim2 = pickColumn(lin, ["DIM_2_UPR", "DIM_2_VAL", "DIM_2", "GRID_2_VAL"]);
+      const lineDim3 = pickColumn(lin, ["DIM_3_UPR", "DIM_3_VAL", "DIM_3", "GRID_3_VAL"]);
+      const lineBarcodeApply = matrixBarcodeApplySql("lb", "l", item, [lineDim1, lineDim2, lineDim3], imBar);
+      const lineBarcodeFallback = lineBarcodeApply
+        ? "NULLIF(RTRIM(LTRIM(CAST(lb.[BARCOD] AS NVARCHAR(128)))), N'')"
+        : null;
+      const lineItemKey = item && (lineDim1 || lineDim2 || lineDim3)
+        ? matrixKeySql("l", [lineDim1, lineDim2, lineDim3])
+        : item
+          ? `RTRIM(LTRIM(CAST(l.[${item}] AS NVARCHAR(128))))`
+          : "CAST(NULL AS NVARCHAR(128))";
+      const lineSku = `COALESCE(${[
+        barcod ? `NULLIF(RTRIM(LTRIM(CAST(l.[${barcod}] AS NVARCHAR(128)))), N'')` : null,
+        lineBarcodeFallback,
+        lineItemKey,
+      ].filter(Boolean).join(", ")})`;
       const seq = pickColumn(lin, ["LIN_SEQ_NO", "SEQ_NO"]);
       const qty = pickColumn(lin, ["QTY_SOLD", "QTY"]);
       const price = pickColumn(lin, ["PRC", "PRICE"]);
       const cost = pickColumn(lin, ["UNIT_COST", "COST"]);
       const reason = pickColumn(lin, ["RET_REAS", "REAS_COD"]);
-      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${sqlText("l", lin, [item], "sku")}, ${sqlText("l", lin, [item], "counterpoint_item_key")}, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price ? `l.[${price}]` : "CAST(0 AS DECIMAL(18,4))"} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${lineSku} AS sku, ${lineItemKey} AS counterpoint_item_key, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price ? `l.[${price}]` : "CAST(0 AS DECIMAL(18,4))"} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l${lineBarcodeApply} INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
       changes.push(`PS_TKT_HIST_LIN ticket lines enabled; join=${linJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
 
@@ -1696,7 +1814,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     if (pmt && pmtJoinPredicate) {
       const payCod = pickColumn(pmt, ["PAY_COD", "PMT_TYP"]);
       const amt = pickColumn(pmt, ["AMT", "PMT_AMT"]);
-      sqlMap.ticket_payments = `SELECT ${ticketRefSelect}, ${sqlText("p", pmt, [payCod], "pmt_typ")}, ${amt ? `p.[${amt}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_TKT_HIST_PMT p INNER JOIN PS_TKT_HIST h ON ${pmtJoinPredicate} WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      sqlMap.ticket_payments = `SELECT ${ticketRefSelect}, ${sqlText("p", pmt, [payCod], "pmt_typ")}, ${amt ? `p.[${amt}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_TKT_HIST_PMT p INNER JOIN PS_TKT_HIST h ON ${pmtJoinPredicate} WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter}`;
       changes.push(`PS_TKT_HIST_PMT ticket payments enabled; join=${pmtJoinPairs.map(([h, p]) => `${h}=${p}`).join("+")}`);
     }
 
@@ -1764,11 +1882,21 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       const lineDim3 = pickColumn(psDocLin, ["DIM_3_UPR", "DIM_3_VAL", "DIM_3", "GRID_3_VAL"]);
       const lineItemNo = pickColumn(psDocLin, ["ITEM_NO"]);
       const hasLineGrid = Boolean(lineItemNo && (lineDim1 || lineDim2 || lineDim3));
+      const openDocBarcodeApply = matrixBarcodeApplySql("lb", "l", lineItemNo, [lineDim1, lineDim2, lineDim3], imBar);
+      const openDocBarcodeFallback = openDocBarcodeApply
+        ? "NULLIF(RTRIM(LTRIM(CAST(lb.[BARCOD] AS NVARCHAR(128)))), N'')"
+        : null;
       const openDocLineKey = hasLineGrid
         ? matrixKeySql("l", [lineDim1, lineDim2, lineDim3])
         : lineItemNo
           ? `RTRIM(LTRIM(CAST(l.[${lineItemNo}] AS NVARCHAR(128))))`
           : "CAST(NULL AS NVARCHAR(128))";
+      const lineBarcode = pickColumn(psDocLin, ["BARCOD"]);
+      const openDocLineSku = `COALESCE(${[
+        lineBarcode ? `NULLIF(RTRIM(LTRIM(CAST(l.[${lineBarcode}] AS NVARCHAR(128)))), N'')` : null,
+        openDocBarcodeFallback,
+        openDocLineKey,
+      ].filter(Boolean).join(", ")})`;
       const lineDescriptionCol = pickColumn(psDocLin, ["DESCR", "ITEM_DESCR", "ITEM_DESC", "DESCRIPTION", "DESC_1", "DESC_2"]);
       const itemDescriptionCol = imItemForCatalog?.has("ITEM_NO") ? pickColumn(imItemForCatalog, ["DESCR", "ITEM_DESCR", "ITEM_DESC", "DESCRIPTION"]) : null;
       const itemDescriptionJoin = itemDescriptionCol && lineItemNo ? ` LEFT JOIN IM_ITEM i ON i.ITEM_NO = l.[${lineItemNo}]` : "";
@@ -1779,7 +1907,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
         ? `NULLIF(RTRIM(LTRIM(CAST(i.[${itemDescriptionCol}] AS NVARCHAR(255)))), N'')`
         : "CAST(NULL AS NVARCHAR(255))";
       const openDocDescriptionSelect = `COALESCE(${lineDescriptionExpr}, ${itemDescriptionExpr}) AS description`;
-      sqlMap.open_doc_lines = `SELECT ${docRefSelect}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${openDocLineKey} AS sku, ${openDocLineKey} AS counterpoint_item_key, ${sqlNumber("l", psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"], "quantity", "CAST(1 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, ${openDocDescriptionSelect} FROM PS_DOC_LIN l INNER JOIN ${psDocTable} h ON ${lineJoinPredicate}${docTotJoinForChildren}${itemDescriptionJoin} WHERE ${activeDocWhere}`;
+      sqlMap.open_doc_lines = `SELECT ${docRefSelect}, ${sqlNumber("l", psDocLin, ["LIN_SEQ_NO", "SEQ_NO"], "lin_seq_no")}, ${openDocLineSku} AS sku, ${openDocLineKey} AS counterpoint_item_key, ${sqlNumber("l", psDocLin, ["QTY_ORD", "QTY_SOLD", "QTY"], "quantity", "CAST(1 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["PRC", "PRICE"], "unit_price", "CAST(0 AS DECIMAL(18,4))")}, ${sqlNumber("l", psDocLin, ["UNIT_COST", "COST"], "unit_cost")}, ${openDocDescriptionSelect} FROM PS_DOC_LIN l${openDocBarcodeApply} INNER JOIN ${psDocTable} h ON ${lineJoinPredicate}${docTotJoinForChildren}${itemDescriptionJoin} WHERE ${activeDocWhere}`;
       changes.push(`PS_DOC_LIN open-doc lines enabled; join=${lineJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
     const pmtDoc = pickColumn(psDocPmt, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
@@ -1928,13 +2056,17 @@ async function rebuildEffectiveSql(pool) {
   }
 
   {
-    const envQ = configuredSql("CP_CATALOG_QUERY").trim();
+    const envQ = (
+      process.env.CP_CATALOG_PARENT_SQL_OVERRIDE ?? configuredSql("CP_CATALOG_QUERY")
+    ).trim();
     let src = envQ;
     if (!src && scope === "maximal") {
       src = schemaEntries ? generated.sqlMap.catalog : sqlMaxCatalog("LST_COST");
       console.info(
         "[maximal] parent catalog SQL LOC_ID=" + locId + (schemaEntries ? " (schema-flex)" : " (static fallback)"),
       );
+    } else if (process.env.CP_CATALOG_PARENT_SQL_OVERRIDE?.trim()) {
+      console.info("[maximal] parent catalog SQL override active; other runtime mappings remain schema-flex.");
     }
     if (src) {
       effectiveSql.catalog = applyCounterpointSqlCompat(expandImportSince(src));
@@ -2715,8 +2847,8 @@ function importFirstProbePlan() {
 
 function bridgeStartupIssuesForImportFirst() {
   const issues = [];
-  if (CP_IMPORT_SINCE !== REQUIRED_CP_IMPORT_SINCE) {
-    issues.push(`CP_IMPORT_SINCE must be ${REQUIRED_CP_IMPORT_SINCE}; received ${CP_IMPORT_SINCE}.`);
+  if (CP_PREFLIGHT_HISTORY_START !== REQUIRED_CP_IMPORT_SINCE) {
+    issues.push(`CP_PREFLIGHT_HISTORY_START must be ${REQUIRED_CP_IMPORT_SINCE}; received ${CP_PREFLIGHT_HISTORY_START}.`);
   }
   if (!IMPORT_FIRST_MODE) {
     issues.push("CP_IMPORT_FIRST_MODE is disabled.");
@@ -2759,7 +2891,7 @@ async function runImportFirstSourcePreflight(pool) {
   const summary = await rosFetch(
     "/api/sync/counterpoint/preflight",
     {
-      history_start: CP_IMPORT_SINCE,
+      history_start: CP_PREFLIGHT_HISTORY_START,
       bridge_hostname: bridgeHostnameCached || os.hostname(),
       bridge_version: BRIDGE_VERSION,
       ros_base_url: ROS_BASE_URL,
@@ -2770,6 +2902,7 @@ async function runImportFirstSourcePreflight(pool) {
       startup_issues: bridgeStartupIssuesForImportFirst(),
       counts,
       metadata: {
+        actual_import_since: CP_IMPORT_SINCE,
         required_history_start: REQUIRED_CP_IMPORT_SINCE,
         allow_import_with_preflight_blockers: ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS,
       },
@@ -2815,6 +2948,7 @@ async function startImportFirstRun(preflightSummary, options = {}) {
       bridge_version: BRIDGE_VERSION,
       ros_base_url: ROS_BASE_URL,
       source_fingerprint: preflightSummary?.source_fingerprint ?? null,
+      allow_import_with_preflight_blockers: ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS,
     },
     "POST",
     bridgeIngestHeaders(),
@@ -3473,14 +3607,130 @@ async function signalRunStart(entity, cursor = null) {
 }
 
 /** Same matrix key convention as IM_INV_CELL / catalog (parent|dim1|dim2|dim3). */
+function normalizeMatrixDimensionValue(value) {
+  const v = String(value ?? "").trim();
+  return v === "*" ? "" : v;
+}
+
+function canonicalCounterpointMatrixKey(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw.includes("|")) return raw;
+  const [parent, d1 = "", d2 = "", d3 = ""] = raw.split("|");
+  const p = parent.trim();
+  if (!p) return raw;
+  return [
+    p,
+    normalizeMatrixDimensionValue(d1),
+    normalizeMatrixDimensionValue(d2),
+    normalizeMatrixDimensionValue(d3),
+  ].join("|");
+}
+
 function cpMatrixItemKey(parentItemNo, d1, d2, d3) {
   const p = String(parentItemNo ?? "").trim();
   if (!p) return undefined;
-  const norm = (v) => {
-    if (v == null || v === "") return "";
-    return String(v).trim();
+  return `${p}|${normalizeMatrixDimensionValue(d1)}|${normalizeMatrixDimensionValue(d2)}|${normalizeMatrixDimensionValue(d3)}`;
+}
+
+function collapseWhitespaceUpper(value) {
+  return String(value ?? "").trim().split(/\s+/).filter(Boolean).join(" ").toUpperCase();
+}
+
+function isCounterpointBSku(value) {
+  return /^B-\d+$/i.test(String(value ?? "").trim());
+}
+
+function stableCounterpointNumericSuffix(raw) {
+  let hash = 2166136261 >>> 0;
+  for (const byte of Buffer.from(String(raw), "utf8")) {
+    hash ^= byte;
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return String(hash % 1000000).padStart(6, "0");
+}
+
+function deterministicCounterpointRecoverySku(counterpointItemKey) {
+  const key = collapseWhitespaceUpper(canonicalCounterpointMatrixKey(counterpointItemKey));
+  if (!key) return undefined;
+  const [family, ...options] = key.split("|");
+  const itemMatch = /^I-(\d+)$/.exec(family);
+  if (itemMatch) {
+    const hasConcreteOption = options.some((part) => {
+      const option = String(part ?? "").trim();
+      return option !== "" && option !== "*";
+    });
+    if (hasConcreteOption) return `CP-${stableCounterpointNumericSuffix(key)}`;
+    return `CP-${String(Number(itemMatch[1]) % 1000000).padStart(6, "0")}`;
+  }
+  if (/^\d+$/.test(key)) return `CP-${String(Number(key) % 1000000).padStart(6, "0")}`;
+  return `CP-${stableCounterpointNumericSuffix(key)}`;
+}
+
+function normalizeCounterpointLineSku(rawSku, counterpointItemKey) {
+  const sku = String(rawSku ?? "").trim();
+  if (isCounterpointBSku(sku)) return sku;
+  return deterministicCounterpointRecoverySku(counterpointItemKey) ?? sku;
+}
+
+function recoveryCellFromLineRow(row, barcodeLookup) {
+  const nr = normalizeRowKeys(row);
+  const key = collapseWhitespaceUpper(canonicalCounterpointMatrixKey(nr.counterpoint_item_key ?? nr.sku ?? nr.item_no));
+  if (!key) return null;
+  const parent = key.split("|")[0];
+  if (!/^I-\d+$/.test(parent)) return null;
+  const rawSku = String(nr.sku ?? "").trim();
+  if (isCounterpointBSku(rawSku)) return null;
+  const [, d1 = "", d2 = "", d3 = ""] = key.split("|");
+  const sku = barcodeLookup?.get(matrixLookupKey(parent, d1, d2, d3)) ?? normalizeCounterpointLineSku(rawSku, key);
+  if (!isCounterpointBSku(sku) && !/^CP-\d{6}$/.test(sku)) return null;
+  const options = key
+    .split("|")
+    .slice(1)
+    .map((part) => String(part ?? "").trim())
+    .filter((part) => part && part !== "*");
+  return {
+    parent_item_no: parent,
+    counterpoint_item_key: key,
+    sku,
+    variation_label: options.length > 0 ? options.join(" / ") : "Parent item",
+    retail_price: nr.unit_price != null ? String(nr.unit_price) : undefined,
+    unit_cost: nr.unit_cost != null ? String(nr.unit_cost) : undefined,
+    stock_on_hand: 0,
   };
-  return `${p}|${norm(d1)}|${norm(d2)}|${norm(d3)}`;
+}
+
+async function loadHistoricalRecoveryCatalogCells(pool, barcodeLookup) {
+  const cellMap = {};
+  const seen = new Set();
+  const queries = [
+    ["ticket_lines", effectiveSql.ticket_lines],
+    ["open_doc_lines", effectiveSql.open_doc_lines],
+  ].filter(([, sqlText]) => String(sqlText ?? "").trim());
+
+  for (const [label, sqlText] of queries) {
+    try {
+      const request = pool.request();
+      request.timeout = SQL_REQUEST_TIMEOUT_MS;
+      const result = await request.query(sqlText);
+      for (const row of result.recordset ?? []) {
+        const cell = recoveryCellFromLineRow(row, barcodeLookup);
+        if (!cell) continue;
+        const dedupeKey = `${cell.parent_item_no}|${cell.counterpoint_item_key}|${cell.sku}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        if (!cellMap[cell.parent_item_no]) cellMap[cell.parent_item_no] = [];
+        cellMap[cell.parent_item_no].push(cell);
+      }
+    } catch (err) {
+      console.warn(`[catalog] could not scan ${label} for recovery variants:`, err?.message ?? err);
+    }
+  }
+
+  const count = Object.values(cellMap).reduce((sum, rows) => sum + rows.length, 0);
+  if (count > 0) {
+    console.info(`[catalog] Buffered ${count} historical no-barcode recovery variant(s).`);
+  }
+  return cellMap;
 }
 
 /** SQL Server often returns column names in upper case; ROS expects lowercase JSON keys. */
@@ -3738,12 +3988,13 @@ function mapCustomerRow(r) {
 }
 
 function mapInventoryRow(r) {
+  const counterpointItemKey = r.counterpoint_item_key
+    ? canonicalCounterpointMatrixKey(r.counterpoint_item_key)
+    : undefined;
   return {
-    sku: String(r.sku ?? "").trim(),
+    sku: normalizeCounterpointLineSku(r.sku, counterpointItemKey),
     stock_on_hand: Number.parseInt(String(r.stock_on_hand ?? "0"), 10) || 0,
-    counterpoint_item_key: r.counterpoint_item_key
-      ? String(r.counterpoint_item_key).trim()
-      : undefined,
+    counterpoint_item_key: counterpointItemKey,
     unit_cost:
       r.unit_cost !== undefined && r.unit_cost !== null
         ? String(r.unit_cost)
@@ -3757,9 +4008,17 @@ function mapInventoryRow(r) {
 
 function mapCatalogRow(r, cellRows) {
   const itemNo = String(r.item_no ?? r.sku ?? "").trim();
+  const normalizedCells = (cellRows ?? []).map((c) => {
+    const counterpointItemKey = canonicalCounterpointMatrixKey(c.counterpoint_item_key ?? c.cell_descr ?? "");
+    return {
+      ...c,
+      counterpoint_item_key: counterpointItemKey,
+      sku: normalizeCounterpointLineSku(c.sku, counterpointItemKey),
+    };
+  });
 
   // Filter out redundant "dummy" or "parent-only" variations that lack real dimension data
-  const validCells = (cellRows ?? []).filter(c => {
+  const validCells = normalizedCells.filter(c => {
     const sku = String(c.sku ?? "").trim();
     const label = String(c.variation_label ?? "").trim();
     // A valid variation must have a non-empty SKU and a label that isn't just whitespace or " / / "
@@ -3795,7 +4054,7 @@ function mapCatalogRow(r, cellRows) {
     is_grid: isGrid,
     barcode: r.barcode ?? undefined,
     cells: validCells.map((c) => ({
-      counterpoint_item_key: String(c.counterpoint_item_key ?? c.cell_descr ?? "").trim(),
+      counterpoint_item_key: c.counterpoint_item_key,
       sku: String(c.sku ?? "").trim(),
       barcode: c.barcode ?? undefined,
       variation_label: String(c.variation_label ?? c.descr ?? "").trim(),
@@ -3869,9 +4128,12 @@ function mapTicketRow(r) {
 }
 
 function mapTicketLineRow(r) {
+  const counterpointItemKey = r.counterpoint_item_key
+    ? canonicalCounterpointMatrixKey(r.counterpoint_item_key)
+    : undefined;
   return {
-    sku: r.sku ? String(r.sku).trim() : undefined,
-    counterpoint_item_key: r.counterpoint_item_key ? String(r.counterpoint_item_key).trim() : undefined,
+    sku: normalizeCounterpointLineSku(r.sku, counterpointItemKey),
+    counterpoint_item_key: counterpointItemKey,
     lin_seq_no: r.lin_seq_no != null ? Number(r.lin_seq_no) : r.lin_seq != null ? Number(r.lin_seq) : undefined,
     quantity: Number(r.quantity ?? r.qty ?? r.qty_sold ?? 1),
     unit_price: String(r.unit_price ?? r.prc ?? "0"),
@@ -3881,12 +4143,55 @@ function mapTicketLineRow(r) {
   };
 }
 
+function normalizeCounterpointPaymentType(value) {
+  const raw = String(value ?? "").trim();
+  const key = raw.toUpperCase().replace(/[\s_-]+/g, "");
+  if (key === "SQUARE" || key === "SQUAREPAYMENT") return "CREDITCARD";
+  return raw;
+}
+
 function mapTicketPaymentRow(r) {
   return {
-    pmt_typ: String(r.pmt_typ ?? r.pay_cod ?? "").trim(),
+    pmt_typ: normalizeCounterpointPaymentType(r.pmt_typ ?? r.pay_cod),
     amount: String(r.amount ?? r.pmt_amt ?? "0"),
     gift_cert_no: r.gift_cert_no ?? undefined,
   };
+}
+
+function dedupeByStableJson(rows, keyFn) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows ?? []) {
+    const key = keyFn(row);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+function ticketLineDedupeKey(row) {
+  const r = normalizeRowKeys(row);
+  return JSON.stringify({
+    ref: String(r.ticket_ref ?? r.doc_ref ?? r.tkt_no ?? r.doc_id ?? "").trim(),
+    seq: r.lin_seq_no != null ? Number(r.lin_seq_no) : r.lin_seq != null ? Number(r.lin_seq) : null,
+    key: canonicalCounterpointMatrixKey(r.counterpoint_item_key ?? r.sku ?? r.item_no ?? ""),
+    sku: String(r.sku ?? "").trim(),
+    qty: String(r.quantity ?? r.qty ?? r.qty_sold ?? ""),
+    price: String(r.unit_price ?? r.prc ?? ""),
+    cost: String(r.unit_cost ?? r.lst_cost ?? r.last_cost ?? ""),
+    description: String(r.description ?? r.descr ?? "").trim(),
+  });
+}
+
+function ticketPaymentDedupeKey(row) {
+  const r = normalizeRowKeys(row);
+  return JSON.stringify({
+    ref: String(r.ticket_ref ?? r.doc_ref ?? r.tkt_no ?? r.doc_id ?? "").trim(),
+    type: normalizeCounterpointPaymentType(r.pmt_typ ?? r.pay_cod ?? r.tender_type ?? "").toUpperCase(),
+    amount: String(r.amount ?? r.pmt_amt ?? r.amt ?? "0"),
+    gift: String(r.gift_cert_no ?? r.gft_cert_no ?? "").trim(),
+  });
 }
 
 /** PS_DOC header → ROS `open-docs` payload row (align column aliases in CP_OPEN_DOCS_QUERY with SSMS). */
@@ -3991,7 +4296,10 @@ async function syncInventory(pool) {
   const result = await pool.request().query(effectiveSql.inventory);
   const rows = result.recordset ?? [];
   logToDashboard(`[inventory] SQL returned ${rows.length} item(s)`);
-  const mapped = rows.map((row) => mapInventoryRow(normalizeRowKeys(row))).filter((r) => r.sku);
+  const barcodeLookup = await loadMatrixBarcodeLookup(pool);
+  const mapped = rows
+    .map((row) => mapInventoryRow(applyMatrixBarcode(normalizeRowKeys(row), barcodeLookup)))
+    .filter((r) => r.sku);
   const quantityCostChecksumRows = mapped.map(inventoryQuantityCostChecksumRow);
   const quantityCostDiagnosticRows = mapped.map(inventoryQuantityCostDiagnosticRow);
 
@@ -4090,6 +4398,7 @@ async function syncCatalog(pool) {
 
   // Load cells first (usually small enough to buffer in safe chunks)
   let cellLookup = {};
+  const barcodeLookup = await loadMatrixBarcodeLookup(pool);
   if (String(effectiveSql.catalog_cells ?? "").trim()) {
     try {
       console.info("[catalog] Fetching matrix variations...");
@@ -4105,13 +4414,18 @@ async function syncCatalog(pool) {
         seenCells.add(dedupeKey);
 
         if (!cellLookup[parentKey]) cellLookup[parentKey] = [];
-        cellLookup[parentKey].push(nr);
+        cellLookup[parentKey].push(applyMatrixBarcode(nr, barcodeLookup));
       }
       console.info(`[catalog] Buffered ${Object.keys(cellLookup).length} matrix parents.`);
     } catch (cellErr) {
       console.error("[catalog] IM_INV_CELL query failed:", cellErr?.message ?? cellErr);
       cellLookup = {};
     }
+  }
+  const recoveryCellLookup = await loadHistoricalRecoveryCatalogCells(pool, barcodeLookup);
+  for (const [parentKey, rows] of Object.entries(recoveryCellLookup)) {
+    if (!cellLookup[parentKey]) cellLookup[parentKey] = [];
+    cellLookup[parentKey].push(...rows);
   }
 
   /**
@@ -4125,9 +4439,21 @@ async function syncCatalog(pool) {
     return true;
   }
 
-  const CATALOG_BATCH_SIZE = 400;
-  const MAX_CONCURRENCY = 4;
-  console.info(`[catalog] Starting ingest (batch=${CATALOG_BATCH_SIZE}, max_parallel=${MAX_CONCURRENCY})...`);
+  const CATALOG_BATCH_SIZE = Math.max(
+    1,
+    Number.parseInt(process.env.CATALOG_BATCH_SIZE ?? "400", 10),
+  );
+  const MAX_CONCURRENCY = Math.max(
+    1,
+    Number.parseInt(process.env.CATALOG_CONCURRENCY ?? "4", 10),
+  );
+  const CATALOG_MAX_VARIANTS_PER_BATCH = Math.max(
+    0,
+    Number.parseInt(process.env.CATALOG_MAX_VARIANTS_PER_BATCH ?? "0", 10),
+  );
+  console.info(
+    `[catalog] Starting ingest (batch=${CATALOG_BATCH_SIZE}, max_parallel=${MAX_CONCURRENCY}, max_variants_per_batch=${CATALOG_MAX_VARIANTS_PER_BATCH || "off"})...`,
+  );
 
   const state = readState();
   const expectedCatalogProducts = activeImportSourceCount("catalog_products");
@@ -4152,6 +4478,7 @@ async function syncCatalog(pool) {
   const pendingRequests = [];
   const failures = [];
   let lastSuccessfulCursor = null;
+  let batchVariantCount = 0;
 
   return new Promise((resolve, reject) => {
     const request = pool.request();
@@ -4188,6 +4515,7 @@ async function syncCatalog(pool) {
       if (batchBuffer.length === 0) return;
       const chunk = [...batchBuffer];
       batchBuffer = [];
+      batchVariantCount = 0;
       const last = chunk[chunk.length - 1].item_no;
 
       inFlight++;
@@ -4309,8 +4637,16 @@ async function syncCatalog(pool) {
       const mapped = mapCatalogRow(normalized, cellLookup[itemNo] ?? []);
 
       if (mapped.item_no) {
+        const mappedVariantCount = catalogVariantSourceCount(mapped);
+        if (
+          CATALOG_MAX_VARIANTS_PER_BATCH > 0 &&
+          batchBuffer.length > 0 &&
+          batchVariantCount + mappedVariantCount > CATALOG_MAX_VARIANTS_PER_BATCH
+        ) {
+          flushCatalogBatch();
+        }
         totalMappedRows++;
-        totalMappedVariants += catalogVariantSourceCount(mapped);
+        totalMappedVariants += mappedVariantCount;
         totalMappedSkus += catalogSkuSourceCount(mapped);
         totalMappedBarcodes += catalogBarcodeSourceCount(mapped);
         if (String(mapped.vendor_no ?? "").trim()) totalMappedItemsWithVendor++;
@@ -4322,6 +4658,7 @@ async function syncCatalog(pool) {
         catalogCategoryVendorDiagnosticParts.push(catalogCategoryVendorDiagnosticRow(mapped));
         catalogVariantLabelDiagnosticParts.push(...catalogVariantLabelDiagnosticRows(mapped));
         batchBuffer.push(mapped);
+        batchVariantCount += mappedVariantCount;
         if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
           flushCatalogBatch();
         }
@@ -4453,7 +4790,7 @@ async function syncTickets(pool) {
   if (String(effectiveSql.ticket_lines ?? "").trim()) {
     try {
       const lineResult = await pool.request().query(effectiveSql.ticket_lines);
-      for (const lr of lineResult.recordset ?? []) {
+      for (const lr of dedupeByStableJson(lineResult.recordset ?? [], ticketLineDedupeKey)) {
         const nr = normalizeRowKeys(lr);
         const ref = String(nr.ticket_ref ?? nr.tkt_no ?? "").trim();
         if (!lineLookup[ref]) lineLookup[ref] = [];
@@ -4469,7 +4806,7 @@ async function syncTickets(pool) {
   let pmtLookup = {};
   if (String(effectiveSql.ticket_payments ?? "").trim()) {
     const pmtResult = await pool.request().query(effectiveSql.ticket_payments);
-    for (const pr of pmtResult.recordset ?? []) {
+    for (const pr of dedupeByStableJson(pmtResult.recordset ?? [], ticketPaymentDedupeKey)) {
       const nr = normalizeRowKeys(pr);
       const ref = String(nr.ticket_ref ?? nr.tkt_no ?? "").trim();
       if (!pmtLookup[ref]) pmtLookup[ref] = [];
@@ -4715,7 +5052,7 @@ async function syncOpenDocs(pool) {
   let lineLookup = {};
   if (String(effectiveSql.open_doc_lines ?? "").trim()) {
     const lineResult = await pool.request().query(effectiveSql.open_doc_lines);
-    for (const lr of lineResult.recordset ?? []) {
+    for (const lr of dedupeByStableJson(lineResult.recordset ?? [], ticketLineDedupeKey)) {
       const nr = normalizeRowKeys(lr);
       const ref = String(nr.doc_ref ?? nr.doc_id ?? "").trim();
       if (!ref) continue;
@@ -4727,7 +5064,7 @@ async function syncOpenDocs(pool) {
   let pmtLookup = {};
   if (String(effectiveSql.open_doc_pmt ?? "").trim()) {
     const pmtResult = await pool.request().query(effectiveSql.open_doc_pmt);
-    for (const pr of pmtResult.recordset ?? []) {
+    for (const pr of dedupeByStableJson(pmtResult.recordset ?? [], ticketPaymentDedupeKey)) {
       const nr = normalizeRowKeys(pr);
       const ref = String(nr.doc_ref ?? nr.doc_id ?? "").trim();
       if (!ref) continue;
@@ -6041,7 +6378,9 @@ async function main() {
     const requestedEntity = hasPendingRequest ? (hbResp.pending_request_entity || "full") : "full";
     const runKind = hasPendingRequest
       ? normalizeImportRunKindForBridge(null, requestedEntity)
-      : "incremental_update";
+      : RUN_ONCE
+        ? normalizeImportRunKindForBridge(process.env.CP_IMPORT_RUN_KIND || "full_import", requestedEntity)
+        : "incremental_update";
     const restoreSyncAnchorRunKind = setSyncAnchorRunKind(runKind);
     let preflightSummary = null;
     try {

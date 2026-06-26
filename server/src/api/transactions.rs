@@ -6018,7 +6018,7 @@ pub(crate) async fn load_transaction_detail(
             r#"
             SELECT
                 COALESCE(SUM(pa.amount_allocated)::numeric(14,2), 0::numeric) AS total_allocated_payments,
-                COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0::numeric) AS total_applied_deposit_amount
+                COALESCE(SUM(NULLIF(pa.metadata->>'applied_deposit_amount', '')::numeric(14,2)), 0::numeric) AS total_applied_deposit_amount
             FROM payment_allocations pa
             WHERE pa.target_transaction_id = $1
             "#,
@@ -6109,6 +6109,24 @@ pub(crate) async fn load_transaction_detail(
         (false, "escpos".to_string())
     };
     let void_record = load_void_record(pool, transaction_id).await?;
+    let has_order_fulfillment = items.iter().any(|item| {
+        matches!(
+            item.fulfillment,
+            DbFulfillmentType::SpecialOrder
+                | DbFulfillmentType::Custom
+                | DbFulfillmentType::WeddingOrder
+                | DbFulfillmentType::Layaway
+        )
+    });
+    let allocated_payment_total = total_allocated_payments.unwrap_or(Decimal::ZERO);
+    let explicit_deposit_total = total_applied_deposit_amount.unwrap_or(Decimal::ZERO);
+    let deposit_total = if has_order_fulfillment {
+        explicit_deposit_total
+            .max(allocated_payment_total)
+            .max(h.amount_paid)
+    } else {
+        explicit_deposit_total
+    };
 
     Ok(TransactionDetailResponse {
         transaction_id: h.id,
@@ -6143,8 +6161,8 @@ pub(crate) async fn load_transaction_detail(
         register_session_id: h.register_session_id,
         customer,
         financial_summary: TransactionFinancialSummary {
-            total_allocated_payments: total_allocated_payments.unwrap_or(Decimal::ZERO),
-            total_applied_deposit_amount: total_applied_deposit_amount.unwrap_or(Decimal::ZERO),
+            total_allocated_payments: allocated_payment_total,
+            total_applied_deposit_amount: deposit_total,
         },
         linked_alteration_summary,
         linked_alterations,
