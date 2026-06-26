@@ -656,6 +656,23 @@ function Test-RiversideApiEndpoint([string]$Url, [string]$ExpectedPrefixPattern)
   }
 }
 
+function Get-RiversideServerStartupStatus {
+  $taskSummary = "task unavailable"
+  try {
+    $task = Get-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
+    if ($task) {
+      $info = Get-ScheduledTaskInfo -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
+      $lastResult = if ($info) { $info.LastTaskResult } else { "unknown" }
+      $taskSummary = "task state: $($task.State), last result: $lastResult"
+    }
+  } catch {
+    $taskSummary = "task diagnostic failed: $($_.Exception.Message)"
+  }
+
+  $processCount = @(Get-Process -Name "riverside-server" -ErrorAction SilentlyContinue).Count
+  return "$taskSummary; riverside-server process count: $processCount"
+}
+
 function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
   $script:lastRiversideApiReadyError = $null
   $healthUrl = "$BaseUrl/api/health"
@@ -665,11 +682,17 @@ function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
   Write-Host "Waiting for Riverside OS Server process on port $Port..."
   $deadline = (Get-Date).AddSeconds(180)
   $healthPassed = $false
+  $lastStartupStatusAt = (Get-Date).AddSeconds(-30)
   do {
     if ((Test-RiversideServerProcess $Port) -and (Test-RiversideApiEndpoint $healthUrl '^\{')) {
       Write-Host "Riverside OS Server health check passed at $healthUrl"
       $healthPassed = $true
       break
+    }
+    if ((Get-Date) -ge $lastStartupStatusAt.AddSeconds(10)) {
+      $startupStatus = Get-RiversideServerStartupStatus
+      Write-Host "Riverside OS Server not listening yet ($startupStatus)."
+      $lastStartupStatusAt = Get-Date
     }
     if ($script:lastRiversideApiReadyError) {
       Write-Host "API health check is not ready yet: $script:lastRiversideApiReadyError"
@@ -678,7 +701,7 @@ function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
   } while ((Get-Date) -lt $deadline)
 
   if (-not $healthPassed) {
-    throw "Riverside OS Server did not pass the health check at $healthUrl. Check the Riverside OS Server scheduled task and C:\RiversideOS\server\.env."
+    throw "Riverside OS Server did not pass the health check at $healthUrl. $(Get-RiversideServerStartupStatus). Check the Riverside OS Server scheduled task and C:\RiversideOS\server\.env."
   }
 
   Write-Host "Waiting for Riverside OS database readiness at $readyUrl..."
@@ -1822,7 +1845,11 @@ if ($script:postgresReachable) {
         Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
       }
     } catch {
-      Write-Warning "Migrations/seeds failed: $($_.Exception.Message). Continuing with server installation."
+      $migrationFailure = "$($_.Exception.Message)"
+      if ($migrationFailure -match "Migration checksum drift detected") {
+        throw "Migrations/seeds failed: $migrationFailure"
+      }
+      Write-Warning "Migrations/seeds failed: $migrationFailure. Continuing with server installation."
     }
   }
 

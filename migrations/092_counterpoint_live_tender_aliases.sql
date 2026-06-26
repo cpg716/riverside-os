@@ -5,7 +5,6 @@ VALUES
   ('STORE CRED', 'store_credit'),
   ('LOYALTY', 'gift_card'),
   ('DONATION', 'gift_card'),
-  ('PROM GC', 'gift_card'),
-  ('SQUARE', 'credit_card')
+  ('PROM GC', 'gift_card')
 ON CONFLICT (cp_pmt_typ) DO UPDATE
 SET ros_method = EXCLUDED.ros_method;

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,10 @@ function fail(message) {
 
 function read(path) {
   return readFileSync(join(repoRoot, path), "utf8");
+}
+
+function sha256(path) {
+  return createHash("sha256").update(read(path)).digest("hex");
 }
 
 function assertIncludes(path, text, reason) {
@@ -164,6 +169,26 @@ assertIncludes(
   deploymentConfigExample,
   '"language": "epl"',
   "deployment config example must carry the Riverside LP 2844 EPL tag-printer default",
+);
+
+const counterpointTender092 = "migrations/092_counterpoint_live_tender_aliases.sql";
+const counterpointSquare093 = "migrations/093_counterpoint_square_tender_alias.sql";
+const expectedCounterpointTender092Sha =
+  "def5b71eb0e7bcbb8bcf80341afc29dc0bfcbb6b46563a14b7e79ecc1eb968b4";
+if (sha256(counterpointTender092) !== expectedCounterpointTender092Sha) {
+  fail(
+    `${counterpointTender092}: applied migration checksum changed; add a new numbered migration instead`,
+  );
+}
+assertNotIncludes(
+  counterpointTender092,
+  "SQUARE",
+  "applied Counterpoint tender migration must not be edited for Square",
+);
+assertIncludes(
+  counterpointSquare093,
+  "'SQUARE', 'credit_card'",
+  "Square tender alias must live in a new migration after 092",
 );
 
 const deploymentPackageBuilder = "deployment/windows/build-deployment-package.ps1";
