@@ -1615,6 +1615,12 @@ function applyMatrixBarcode(row, barcodeLookup) {
   };
 }
 
+function catalogCellKeyIsValid(nr) {
+  const key = String(nr.counterpoint_item_key ?? nr.sku ?? "").trim();
+  if (!key) return false;
+  return key !== String(nr.parent_item_no ?? "").trim();
+}
+
 function buildFlexCatalogCellsSql(invCostCol, locId, entries) {
   const locEsc = escapeSqlStringLiteral(locId);
   const imCell = columnSet(entries, "IM_INV_CELL");
@@ -2766,6 +2772,17 @@ async function countCounterpointSourceRows(pool, probe) {
     };
   }
   try {
+    if (probe.entityKey === "catalog_variants" && queryKey === "catalog_cells") {
+      return {
+        entity_key: probe.entityKey,
+        label: probe.label,
+        source_count: await countCatalogVariantsWithRecovery(pool, sqlText),
+        query_key: queryKey,
+        required: probe.required === true,
+        suspicious_min_count: probe.suspiciousMinCount,
+        status: "ok",
+      };
+    }
     if (probe.entityKey === "open_docs") {
       const result = await pool.request().query(sqlText);
       return {
@@ -2826,6 +2843,43 @@ async function countCounterpointSourceRows(pool, probe) {
       message: `Source-count query failed for ${probe.label}: ${err?.message ?? err}`,
     };
   }
+}
+
+async function countCatalogVariantsWithRecovery(pool, catalogCellsSql) {
+  const cellLookup = {};
+  const barcodeLookup = await loadMatrixBarcodeLookup(pool);
+  const cellResult = await pool.request().query(catalogCellsSql);
+  const seenCells = new Set();
+  for (const cr of cellResult.recordset ?? []) {
+    const nr = normalizeRowKeys(cr);
+    const parentKey = String(nr.parent_item_no ?? nr.item_no ?? "").trim();
+    const ckey = String(nr.counterpoint_item_key ?? nr.sku ?? "").trim();
+    const dedupeKey = `${parentKey}|${ckey}`;
+
+    if (!catalogCellKeyIsValid(nr) || seenCells.has(dedupeKey)) continue;
+    seenCells.add(dedupeKey);
+
+    if (!cellLookup[parentKey]) cellLookup[parentKey] = [];
+    cellLookup[parentKey].push(applyMatrixBarcode(nr, barcodeLookup));
+  }
+
+  const recoveryCellLookup = await loadHistoricalRecoveryCatalogCells(pool, barcodeLookup);
+  for (const [parentKey, rows] of Object.entries(recoveryCellLookup)) {
+    if (!cellLookup[parentKey]) cellLookup[parentKey] = [];
+    const existingCellKeys = new Set(
+      cellLookup[parentKey].map((cell) =>
+        collapseWhitespaceUpper(canonicalCounterpointMatrixKey(cell.counterpoint_item_key ?? cell.sku ?? "")),
+      ),
+    );
+    for (const row of rows) {
+      const cellKey = collapseWhitespaceUpper(canonicalCounterpointMatrixKey(row.counterpoint_item_key ?? row.sku ?? ""));
+      if (!cellKey || existingCellKeys.has(cellKey)) continue;
+      existingCellKeys.add(cellKey);
+      cellLookup[parentKey].push(row);
+    }
+  }
+
+  return Object.values(cellLookup).reduce((sum, rows) => sum + rows.length, 0);
 }
 
 function importFirstProbePlan() {
@@ -3735,7 +3789,6 @@ function recoveryCellFromLineRow(row, barcodeLookup) {
   const parent = key.split("|")[0];
   if (!/^I-\d+$/.test(parent)) return null;
   const rawSku = String(nr.sku ?? "").trim();
-  if (isCounterpointBSku(rawSku)) return null;
   const [, d1 = "", d2 = "", d3 = ""] = key.split("|");
   const sku = barcodeLookup?.get(matrixLookupKey(parent, d1, d2, d3)) ?? normalizeCounterpointLineSku(rawSku, key);
   if (!isCounterpointBSku(sku) && !/^CP-[A-Z0-9]{6,13}$/.test(sku)) return null;
@@ -3772,7 +3825,7 @@ async function loadHistoricalRecoveryCatalogCells(pool, barcodeLookup) {
       for (const row of result.recordset ?? []) {
         const cell = recoveryCellFromLineRow(row, barcodeLookup);
         if (!cell) continue;
-        const dedupeKey = `${cell.parent_item_no}|${cell.counterpoint_item_key}|${cell.sku}`;
+        const dedupeKey = `${cell.parent_item_no}|${cell.counterpoint_item_key}`;
         if (seen.has(dedupeKey)) continue;
         seen.add(dedupeKey);
         if (!cellMap[cell.parent_item_no]) cellMap[cell.parent_item_no] = [];
@@ -4488,7 +4541,7 @@ async function syncCatalog(pool) {
         const ckey = String(nr.counterpoint_item_key ?? nr.sku ?? "").trim();
         const dedupeKey = `${parentKey}|${ckey}`;
 
-        if (!cellKeyIsValid(nr) || seenCells.has(dedupeKey)) continue;
+        if (!catalogCellKeyIsValid(nr) || seenCells.has(dedupeKey)) continue;
         seenCells.add(dedupeKey);
 
         if (!cellLookup[parentKey]) cellLookup[parentKey] = [];
@@ -4503,18 +4556,17 @@ async function syncCatalog(pool) {
   const recoveryCellLookup = await loadHistoricalRecoveryCatalogCells(pool, barcodeLookup);
   for (const [parentKey, rows] of Object.entries(recoveryCellLookup)) {
     if (!cellLookup[parentKey]) cellLookup[parentKey] = [];
-    cellLookup[parentKey].push(...rows);
-  }
-
-  /**
-   * Helper to check if a cell record is non-empty logic-wise.
-   */
-  function cellKeyIsValid(nr) {
-    const key = String(nr.counterpoint_item_key ?? nr.sku ?? "").trim();
-    if (!key) return false;
-    // Skip records where the key is just the parent item no (redundant)
-    if (key === String(nr.parent_item_no ?? "").trim()) return false;
-    return true;
+    const existingCellKeys = new Set(
+      cellLookup[parentKey].map((cell) =>
+        collapseWhitespaceUpper(canonicalCounterpointMatrixKey(cell.counterpoint_item_key ?? cell.sku ?? "")),
+      ),
+    );
+    for (const row of rows) {
+      const cellKey = collapseWhitespaceUpper(canonicalCounterpointMatrixKey(row.counterpoint_item_key ?? row.sku ?? ""));
+      if (!cellKey || existingCellKeys.has(cellKey)) continue;
+      existingCellKeys.add(cellKey);
+      cellLookup[parentKey].push(row);
+    }
   }
 
   const CATALOG_BATCH_SIZE = Math.max(

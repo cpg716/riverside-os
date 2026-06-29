@@ -1009,7 +1009,10 @@ async fn load_customer_profile_row(
         FROM customers c
         LEFT JOIN LATERAL (
             SELECT
-                SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
+                SUM(balance_due) FILTER (
+                    WHERE status = 'open'::order_status
+                      AND counterpoint_ticket_ref IS NULL
+                ) AS balance_sum,
                 SUM(CASE WHEN status = 'fulfilled'::order_status AND booked_at >= '2018-01-01' THEN COALESCE((
                     SELECT SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2))
                     FROM transaction_lines tl
@@ -1101,7 +1104,10 @@ async fn load_customer_lifecycle_signals(
                     FROM transaction_lines tl
                     WHERE tl.transaction_id = transactions.id
                 ), 0) ELSE 0 END) AS lifetime_sales,
-                COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
+                COUNT(*) FILTER (
+                    WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)
+                      AND counterpoint_ticket_ref IS NULL
+                ) AS open_orders_count,
                 COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
             FROM transactions
             WHERE customer_id = c.id
@@ -3933,13 +3939,19 @@ async fn browse_customers(
                 FROM customers c
                 LEFT JOIN LATERAL (
                     SELECT
-                        SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
+                        SUM(balance_due) FILTER (
+                            WHERE status = 'open'::order_status
+                              AND counterpoint_ticket_ref IS NULL
+                        ) AS balance_sum,
                         SUM(CASE WHEN status = 'fulfilled'::order_status AND booked_at >= '2018-01-01' THEN COALESCE((
                             SELECT SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2))
                             FROM transaction_lines tl
                             WHERE tl.transaction_id = transactions.id
                         ), 0) ELSE 0 END) AS lifetime_sales,
-                        COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
+                        COUNT(*) FILTER (
+                            WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)
+                              AND counterpoint_ticket_ref IS NULL
+                        ) AS open_orders_count,
                         COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
                     FROM transactions
                     WHERE customer_id = c.id
@@ -4094,13 +4106,19 @@ async fn browse_customers(
                 FROM customers c
                 LEFT JOIN LATERAL (
                     SELECT
-                        SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
+                        SUM(balance_due) FILTER (
+                            WHERE status = 'open'::order_status
+                              AND counterpoint_ticket_ref IS NULL
+                        ) AS balance_sum,
                         SUM(CASE WHEN status = 'fulfilled'::order_status AND booked_at >= '2018-01-01' THEN COALESCE((
                             SELECT SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2))
                             FROM transaction_lines tl
                             WHERE tl.transaction_id = transactions.id
                         ), 0) ELSE 0 END) AS lifetime_sales,
-                        COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
+                        COUNT(*) FILTER (
+                            WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)
+                              AND counterpoint_ticket_ref IS NULL
+                        ) AS open_orders_count,
                         COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
                     FROM transactions
                     WHERE customer_id = c.id
@@ -4422,13 +4440,19 @@ async fn browse_customers(
                 FROM customers c
                 LEFT JOIN LATERAL (
                     SELECT
-                        SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
+                        SUM(balance_due) FILTER (
+                            WHERE status = 'open'::order_status
+                              AND counterpoint_ticket_ref IS NULL
+                        ) AS balance_sum,
                         SUM(CASE WHEN status = 'fulfilled'::order_status AND booked_at >= '2018-01-01' THEN COALESCE((
                             SELECT SUM(((tl.unit_price - COALESCE(tl.discount_amount, 0)) * tl.quantity)::numeric(14,2))
                             FROM transaction_lines tl
                             WHERE tl.transaction_id = transactions.id
                         ), 0) ELSE 0 END) AS lifetime_sales,
-                        COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
+                        COUNT(*) FILTER (
+                            WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)
+                              AND counterpoint_ticket_ref IS NULL
+                        ) AS open_orders_count,
                         COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
                     FROM transactions
                     WHERE customer_id = c.id
@@ -4601,7 +4625,9 @@ async fn browse_customer_pipeline_stats(
             (
                 SELECT COUNT(DISTINCT customer_id)::bigint
                 FROM transactions
-                WHERE status = 'open' AND balance_due > 0
+                WHERE status = 'open'
+                  AND counterpoint_ticket_ref IS NULL
+                  AND balance_due > 0
             ) AS with_balance,
             (
                 SELECT COUNT(DISTINCT wm.customer_id)::bigint

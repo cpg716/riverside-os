@@ -12260,15 +12260,12 @@ pub async fn execute_counterpoint_ticket_batch(
             })
             .unwrap_or_else(Utc::now);
 
-        let normalized_amount_paid =
-            sum_counterpoint_ticket_tenders(&tkt.payments, &tkt.gift_applications)
-                .unwrap_or(tkt.amount_paid);
-        let balance = tkt.total_price - normalized_amount_paid;
-        let status = if balance <= Decimal::ZERO {
-            "fulfilled"
-        } else {
-            "open"
-        };
+        // Counterpoint ticket imports are closed sales history. Tender offsets can span
+        // related tickets/open docs, so keep source tender rows but present ticket rows
+        // as fulfilled and balance-clear in ROS customer/order surfaces.
+        let presentation_amount_paid = tkt.total_price;
+        let presentation_balance = Decimal::ZERO;
+        let status = "fulfilled";
 
         let processed_by = tkt
             .usr_id
@@ -12309,8 +12306,8 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(status)
             .bind(booked_at)
             .bind(tkt.total_price)
-            .bind(normalized_amount_paid)
-            .bind(balance)
+            .bind(presentation_amount_paid)
+            .bind(presentation_balance)
             .bind(processed_by)
             .bind(salesperson)
             .bind(tkt.notes.as_deref())
@@ -12369,8 +12366,8 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(status)
             .bind(booked_at)
             .bind(tkt.total_price)
-            .bind(normalized_amount_paid)
-            .bind(balance)
+            .bind(presentation_amount_paid)
+            .bind(presentation_balance)
             .bind(processed_by)
             .bind(salesperson)
             .bind(tkt.notes.as_deref())

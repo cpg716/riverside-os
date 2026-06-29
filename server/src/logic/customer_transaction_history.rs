@@ -80,11 +80,20 @@ pub async fn query_customer_transaction_history(
             o.id AS transaction_id,
             o.display_id AS transaction_display_id,
             o.booked_at,
-            o.status,
+            CASE
+                WHEN o.counterpoint_ticket_ref IS NOT NULL THEN 'fulfilled'::order_status
+                ELSE o.status
+            END AS status,
             o.sale_channel,
             o.total_price,
-            o.amount_paid,
-            o.balance_due,
+            CASE
+                WHEN o.counterpoint_ticket_ref IS NOT NULL THEN o.total_price
+                ELSE o.amount_paid
+            END AS amount_paid,
+            CASE
+                WHEN o.counterpoint_ticket_ref IS NOT NULL THEN 0::numeric
+                ELSE o.balance_due
+            END AS balance_due,
             COUNT(oi.id)::bigint AS item_count,
             EXISTS(
                 SELECT 1

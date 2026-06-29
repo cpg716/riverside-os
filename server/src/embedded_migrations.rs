@@ -94,4 +94,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("091_counterpoint_2024_history_floor.sql", include_str!("../../migrations/091_counterpoint_2024_history_floor.sql")),
     ("092_counterpoint_live_tender_aliases.sql", include_str!("../../migrations/092_counterpoint_live_tender_aliases.sql")),
     ("093_counterpoint_square_tender_alias.sql", include_str!("../../migrations/093_counterpoint_square_tender_alias.sql")),
+    ("094_counterpoint_closed_ticket_balance_presentation.sql", include_str!("../../migrations/094_counterpoint_closed_ticket_balance_presentation.sql")),
 ];

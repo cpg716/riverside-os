@@ -132,6 +132,7 @@ pub async fn fetch_customer_snapshot_items(
                 FROM transactions t
                 WHERE t.customer_id = $1
                   AND t.status IN ('open'::order_status, 'pending_measurement'::order_status)
+                  AND t.counterpoint_ticket_ref IS NULL
             ) AS open_orders_count,
             COALESCE((
                 SELECT sca.balance
@@ -341,6 +342,7 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
             FROM transactions
             WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
               AND status = 'open'::order_status
+              AND counterpoint_ticket_ref IS NULL
               AND balance_due > 0
             "#,
         )
@@ -368,6 +370,7 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
                 )
             )
               AND t.status = 'open'::order_status
+              AND t.counterpoint_ticket_ref IS NULL
               AND t.balance_due > 0
             "#,
         )
