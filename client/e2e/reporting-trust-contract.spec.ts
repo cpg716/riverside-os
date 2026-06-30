@@ -452,10 +452,17 @@ async function fetchDailySalesActivity(
   return JSON.parse(bodyText) as RegisterDaySummary;
 }
 
-async function markPickup(request: APIRequestContext, transactionId: string): Promise<void> {
+async function markPickup(
+  request: APIRequestContext,
+  transactionId: string,
+  sessionId: string,
+  sessionToken: string,
+): Promise<void> {
   const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/pickup`, {
     headers: {
       ...staffHeaders(),
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
     },
     data: {
@@ -463,6 +470,7 @@ async function markPickup(request: APIRequestContext, transactionId: string): Pr
       actor: "Reporting trust contract",
       override_readiness: true,
       override_reason: "Reporting trust fixture controls pickup recognition timing.",
+      register_session_id: sessionId,
     },
     failOnStatusCode: false,
   });
@@ -723,7 +731,12 @@ test.describe("Reporting trust contracts", () => {
       quantity: 2,
     });
 
-    await markPickup(request, checkout.transaction_id);
+    await markPickup(
+      request,
+      checkout.transaction_id,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
     await assignFulfillmentTimestamp(
       request,
       checkout.transaction_id,
@@ -779,7 +792,12 @@ test.describe("Reporting trust contracts", () => {
     const artifacts = await getTransactionArtifacts(request, checkout.transaction_id);
     expect(parseMoneyToCents(artifacts.total_price)).toBe(10875);
 
-    await markPickup(request, checkout.transaction_id);
+    await markPickup(
+      request,
+      checkout.transaction_id,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
     await assignFulfillmentTimestamp(
       request,
       checkout.transaction_id,
@@ -838,7 +856,12 @@ test.describe("Reporting trust contracts", () => {
     const artifacts = await getTransactionArtifacts(request, checkout.transaction_id);
     expect(parseMoneyToCents(artifacts.total_price)).toBe(10875);
 
-    await markPickup(request, checkout.transaction_id);
+    await markPickup(
+      request,
+      checkout.transaction_id,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
     await assignFulfillmentTimestamp(
       request,
       checkout.transaction_id,
@@ -906,7 +929,12 @@ test.describe("Reporting trust contracts", () => {
       ),
     ).toBe(false);
 
-    await markPickup(request, checkout.transaction_id);
+    await markPickup(
+      request,
+      checkout.transaction_id,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
     await assignFulfillmentTimestamp(
       request,
       checkout.transaction_id,

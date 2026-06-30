@@ -78,6 +78,8 @@ async function installApiMocks(
   options: {
     staffCurrentSessionStatus: 200 | 404;
     healthStatus?: 200 | 503;
+    listOpenStatus?: 200 | 503;
+    openSessionStatus?: 409 | 503;
     posCurrentSessionStatus?: 200 | 503;
     posCurrentSessionFailureAfterFirst?: boolean;
   },
@@ -148,10 +150,16 @@ async function installApiMocks(
     }
 
     if (path === "/api/sessions/list-open") {
+      if (options.listOpenStatus === 503) {
+        return json(route, { error: "Main Hub unavailable" }, 503);
+      }
       return json(route, [registerSession]);
     }
 
     if (method === "POST" && path === "/api/sessions/open") {
+      if (options.openSessionStatus === 503) {
+        return json(route, { error: "Main Hub unavailable" }, 503);
+      }
       return json(
         route,
         { error: "register_lane_in_use", register_lane: 1 },
@@ -237,10 +245,12 @@ test.describe("register state stability", () => {
       await page.getByTestId(`pin-key-${digit}`).click();
     }
 
-    await expect(registerPanel).toHaveAttribute("data-register-state", "mounted", {
+    const posShell = page.getByTestId("pos-shell-root");
+    await expect(posShell).toHaveAttribute("data-register-open", "true", {
       timeout: 20_000,
     });
-    await expect(page.getByTestId("pos-register-cart-shell")).toBeVisible();
+    await expect(posShell).toHaveAttribute("data-register-session-ready", "true");
+    await expect(page.getByText(/Register #1/i).first()).toBeVisible();
     await expect(page.getByText(/already has an open session/i)).toHaveCount(0);
   });
 
@@ -268,5 +278,33 @@ test.describe("register state stability", () => {
     });
     await expect(posShell).toHaveAttribute("data-register-open", "true");
     await expect(page.getByRole("dialog", { name: "Open Register" })).toHaveCount(0);
+  });
+
+  test("Register #1 open during Main Hub outage keeps operator on the recovery screen", async ({
+    page,
+  }) => {
+    await seedBackofficeSession(page, "Register #1");
+    await installApiMocks(page, {
+      staffCurrentSessionStatus: 404,
+      healthStatus: 503,
+      listOpenStatus: 503,
+      openSessionStatus: 503,
+    });
+
+    await page.goto("/pos", { waitUntil: "domcontentloaded" });
+
+    const registerPanel = page.getByTestId("pos-register-panel");
+    await expect(registerPanel).toHaveAttribute("data-register-state", "needs-open", {
+      timeout: 20_000,
+    });
+
+    for (const digit of "1234") {
+      await page.getByTestId(`pin-key-${digit}`).click();
+    }
+
+    const dialog = page.getByRole("dialog", { name: "Open Register" });
+    await expect(dialog.getByText(/Main Hub is unavailable/i)).toBeVisible();
+    await expect(dialog.getByText(/already has an open session/i)).toHaveCount(0);
+    await expect(registerPanel).toHaveAttribute("data-register-state", "needs-open");
   });
 });

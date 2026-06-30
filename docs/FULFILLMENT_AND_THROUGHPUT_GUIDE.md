@@ -25,10 +25,10 @@ The fulfillment queue ([fulfillment_queue.rs](file:///server/src/logic/fulfillme
 ## ORDER Pick up Guards
 
 ### Inventory Availability Check
-- **Purpose**: Prevent pickup when insufficient stock is available
-- **Check**: Verifies `stock_on_hand >= quantity` for all unfulfilled lines before allowing pickup
-- **Error Message**: Shows which items have insufficient inventory with need/have counts
-- **Override**: Manager can bypass with explicit reason (minimum 12 characters) and manager PIN
+- **Purpose**: Warn and audit when pickup causes negative stock, without blocking the sale or customer release
+- **Check**: Captures `stock_on_hand < quantity` for unfulfilled lines before pickup
+- **Warning**: Register completes the pickup and records a negative-stock alert with need/have counts
+- **Override**: Not required for stock shortage. Balance Due and readiness status remain hard guards.
 - **Applies To**: All fulfillment types (special_order, custom, wedding_order, layaway) and all unfulfilled transactions
 
 ### Received Status Check
@@ -45,8 +45,8 @@ The fulfillment queue ([fulfillment_queue.rs](file:///server/src/logic/fulfillme
 
 ### Manager Override Mechanism
 - **Required**: Manager PIN and clear reason (minimum 12 characters)
-- **Scope**: Bypasses inventory availability check, received status check, and alteration pending check
-- **Use Case**: Exceptional cases where pickup must proceed despite missing inventory or un-received items
+- **Scope**: Bypasses readiness/received status checks and alteration pending checks
+- **Use Case**: Exceptional cases where pickup must proceed despite un-received or otherwise unready items
 - **Audit**: Override reason is logged for accountability
 
 ## API Integration
@@ -58,8 +58,8 @@ The `GET /api/transactions/fulfillment-queue` endpoint returns a summary of thes
 ### Pickup API
 - **Endpoint**: `POST /api/transactions/{transaction_id}/pickup`
 - **Request Body**: `PickupTransactionRequest` with optional `override_readiness`, `override_reason`, `delivered_item_ids`
-- **Checks Performed**: Balance due, readiness status, inventory availability
-- **Permissions**: Requires appropriate transaction access
+- **Checks Performed**: Balance due and readiness status. Inventory shortages are warnings/alerts, not blockers.
+- **Permissions**: Requires an open Register session token
 
 ### Order Lifecycle API
 - **Endpoint**: `PATCH /api/order-lifecycle/{transaction_line_id}/transition`

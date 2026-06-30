@@ -68,7 +68,7 @@ Inspected `/api/insights`, Metabase proxy/launch references, reporting docs, fro
 
 ## Risks
 
-- Critical: tax audit data, register day activity, commission adjustments, margin/cost visibility, negative stock report correctness.
+- Critical: tax audit data, register day activity, commission adjustments, margin/cost visibility, negative stock and negative transaction item report correctness.
 - High: sales basis/date semantics, Metabase launch authentication, RMS charge reports.
 
 ## Recommended Follow-Up

@@ -450,12 +450,15 @@ test.describe("commission audit contract", () => {
     const pickupRes = await request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`, {
       headers: {
         ...staffHeaders(),
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
         "Content-Type": "application/json",
       },
       data: {
         actor: "E2E Commission Timing",
         override_readiness: true,
         override_reason: "Commission audit fixture controls pickup timing explicitly.",
+        register_session_id: sessionId,
       },
       failOnStatusCode: false,
     });

@@ -721,10 +721,17 @@ async function assignQboForfeitureTimestamp(
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
-async function markPickup(request: APIRequestContext, transactionId: string) {
+async function markPickup(
+  request: APIRequestContext,
+  transactionId: string,
+  sessionId: string,
+  sessionToken: string,
+) {
   const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/pickup`, {
     headers: {
       ...staffHeaders(),
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
     },
     data: {
@@ -732,6 +739,7 @@ async function markPickup(request: APIRequestContext, transactionId: string) {
       actor: "QBO layaway audit",
       override_readiness: true,
       override_reason: "QBO audit fixture releases controlled layaway transaction.",
+      register_session_id: sessionId,
     },
     failOnStatusCode: false,
   });
@@ -1534,7 +1542,7 @@ test.describe("QBO audit contract", () => {
       paymentMethod: "open_deposit",
     });
     await assignQboDate(request, openDepositCheckout.transaction_id, activityDate);
-    await markPickup(request, openDepositCheckout.transaction_id);
+    await markPickup(request, openDepositCheckout.transaction_id, sessionId, sessionToken);
     await assignQboFulfillmentTimestamp(
       request,
       openDepositCheckout.transaction_id,
@@ -1837,7 +1845,7 @@ test.describe("QBO audit contract", () => {
       balanceBefore: layawayDetail.balance_due,
     });
     await assignQboDate(request, payoff.transaction_id, pickupDate);
-    await markPickup(request, layaway.transaction_id);
+    await markPickup(request, layaway.transaction_id, sessionId, sessionToken);
     await assignQboFulfillmentTimestamp(
       request,
       layaway.transaction_id,

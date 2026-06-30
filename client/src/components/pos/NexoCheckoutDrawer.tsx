@@ -142,6 +142,14 @@ const HELCIM_UNVERIFIED_OUTCOME_MESSAGE =
   "Card outcome is unresolved. Review it in Payments Health before another card attempt.";
 const HELCIM_TERMINAL_ATTENTION_AFTER_MS = 2 * 60 * 1000;
 
+function isAmbiguousProviderStartStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function isAmbiguousProviderStartException(error: unknown): boolean {
+  return !(error instanceof Error) || error.name === "TypeError" || error.name === "AbortError";
+}
+
 function helcimAttemptElapsedMs(attempt: HelcimAttempt): number {
   const started = new Date(attempt.created_at).getTime();
   if (!Number.isFinite(started)) return 0;
@@ -1235,6 +1243,7 @@ export default function NexoCheckoutDrawer({
         return;
       }
       setHelcimAttemptLoading(true);
+      let startAmbiguous = false;
       try {
         const res = await fetch(`${baseUrl}/api/payments/providers/helcim/card-token/purchase`, {
           method: "POST",
@@ -1258,6 +1267,10 @@ export default function NexoCheckoutDrawer({
           body = { error: text || `Helcim saved card failed (${res.status})` };
         }
         if (!res.ok || !("status" in body)) {
+          if (isAmbiguousProviderStartStatus(res.status)) {
+            startAmbiguous = true;
+            setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+          }
           throw new Error(
             "error" in body ? body.error ?? "Helcim saved card failed." : "Helcim saved card failed.",
           );
@@ -1272,6 +1285,9 @@ export default function NexoCheckoutDrawer({
           toast(body.error_message ?? "Helcim saved card was not approved.", "error");
         }
       } catch (error) {
+        if (startAmbiguous || isAmbiguousProviderStartException(error)) {
+          setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+        }
         toast(error instanceof Error ? error.message : "Could not charge Helcim saved card.", "error");
       } finally {
         setHelcimAttemptLoading(false);
@@ -1455,6 +1471,7 @@ export default function NexoCheckoutDrawer({
           return;
         }
 
+        let startAmbiguous = false;
         try {
           pendingHelcimCentsRef.current = amtCents;
           pendingHelcimTenderRef.current = {
@@ -1483,6 +1500,11 @@ export default function NexoCheckoutDrawer({
             | HelcimAttempt
             | { error?: string };
           if (!res.ok) {
+            if (isAmbiguousProviderStartStatus(res.status)) {
+              startAmbiguous = true;
+              setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+              void loadProviderSettings();
+            }
             throw new Error(
               "error" in body ? body.error ?? "Helcim terminal refund failed." : "Helcim terminal refund failed.",
             );
@@ -1493,8 +1515,14 @@ export default function NexoCheckoutDrawer({
           setKeypad("");
           toast("Refund sent to terminal. Waiting for the card outcome.", "info");
         } catch (error) {
-          pendingHelcimCentsRef.current = 0;
-          pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+          const ambiguousStart = startAmbiguous || isAmbiguousProviderStartException(error);
+          if (ambiguousStart) {
+            setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+            void loadProviderSettings();
+          } else {
+            pendingHelcimCentsRef.current = 0;
+            pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+          }
           toast(
             error instanceof Error ? error.message : "Error initializing Helcim refund",
             "error",
@@ -1503,6 +1531,7 @@ export default function NexoCheckoutDrawer({
         return;
       }
 
+      let startAmbiguous = false;
       try {
         const tenderMethod = tab === "card_manual" ? "card_manual" : "card_terminal";
         pendingHelcimTenderRef.current = {
@@ -1529,6 +1558,11 @@ export default function NexoCheckoutDrawer({
           | HelcimAttempt
           | { error?: string };
         if (!res.ok) {
+          if (isAmbiguousProviderStartStatus(res.status)) {
+            startAmbiguous = true;
+            setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+            void loadProviderSettings();
+          }
           throw new Error("error" in body ? body.error ?? "Helcim payment failed." : "Helcim payment failed.");
         }
         const attempt = body as HelcimAttempt;
@@ -1543,7 +1577,13 @@ export default function NexoCheckoutDrawer({
           "info",
         );
       } catch (error) {
-        pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+        const ambiguousStart = startAmbiguous || isAmbiguousProviderStartException(error);
+        if (ambiguousStart) {
+          setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+          void loadProviderSettings();
+        } else {
+          pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+        }
         toast(
           error instanceof Error ? error.message : "Error initializing Helcim payment",
           "error",

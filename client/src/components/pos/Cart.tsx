@@ -1847,9 +1847,13 @@ export default function Cart({
           );
           return false;
         }
-        setExchangeWizardInitialTransactionId(detail.transaction_id);
-        setExchangeWizardOpen(true);
-        return true;
+        setExchangeWizardOpen(false);
+        setExchangeWizardInitialTransactionId(null);
+        toast(
+          "This order has no open order lines to load. Use the Register Return button only if the customer is returning or exchanging items.",
+          "info",
+        );
+        return false;
       }
 
       if (!detail.customer) {

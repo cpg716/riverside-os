@@ -43,6 +43,8 @@ pub struct HelcimPurchaseRequest {
     pub currency: String,
     #[serde(rename = "transactionAmount")]
     pub transaction_amount: String,
+    #[serde(rename = "invoiceNumber")]
+    pub invoice_number: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -752,6 +754,10 @@ pub fn parse_batch_transaction_snapshots(
     }
 }
 
+pub fn invoice_number_from_payload(payload: &Value) -> Option<String> {
+    first_string_field(payload, &["invoiceNumber", "invoice_number"])
+}
+
 fn first_decimal_field(payload: &Value, fields: &[&str]) -> Option<(String, Decimal)> {
     match payload {
         Value::Object(map) => {
@@ -1178,10 +1184,12 @@ pub fn simulated_card_transaction(
 pub fn build_purchase_request_payload(
     amount_cents: i64,
     currency: impl Into<String>,
+    invoice_number: impl Into<String>,
 ) -> HelcimPurchaseRequest {
     HelcimPurchaseRequest {
         currency: currency.into().to_uppercase(),
         transaction_amount: cents_to_decimal_string(amount_cents),
+        invoice_number: invoice_number.into(),
     }
 }
 
@@ -1197,8 +1205,10 @@ pub fn build_terminal_refund_request_payload(
 
 fn terminal_purchase_request_body(request: &HelcimPurchaseRequest) -> Result<String, String> {
     let currency = serde_json::to_string(&request.currency).map_err(|e| e.to_string())?;
+    let invoice_number =
+        serde_json::to_string(&request.invoice_number).map_err(|e| e.to_string())?;
     Ok(format!(
-        r#"{{"currency":{currency},"transactionAmount":{}}}"#,
+        r#"{{"currency":{currency},"transactionAmount":{},"invoiceNumber":{invoice_number}}}"#,
         request.transaction_amount
     ))
 }
@@ -1987,13 +1997,32 @@ mod tests {
 
     #[test]
     fn terminal_purchase_body_serializes_amount_as_json_number() {
-        let request = build_purchase_request_payload(1099, "usd");
+        let request = build_purchase_request_payload(1099, "usd", "ROS-123");
         let body = terminal_purchase_request_body(&request).expect("purchase body");
         let value: Value = serde_json::from_str(&body).expect("valid json");
 
         assert_eq!(value["currency"], "USD");
         assert!(value["transactionAmount"].is_number());
         assert_eq!(value["transactionAmount"].to_string(), "10.99");
+        assert_eq!(value["invoiceNumber"], "ROS-123");
+    }
+
+    #[test]
+    fn extracts_invoice_number_from_nested_provider_payload() {
+        let payload = json!({
+            "cardTransactions": [
+                {
+                    "transactionId": "123",
+                    "invoiceNumber": "ROS-abc",
+                    "amount": "12.34"
+                }
+            ]
+        });
+
+        assert_eq!(
+            invoice_number_from_payload(&payload).as_deref(),
+            Some("ROS-abc")
+        );
     }
 
     #[test]

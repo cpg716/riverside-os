@@ -1092,12 +1092,15 @@ test.describe("Orders custom vs special contract", () => {
     const pickupRes = await request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`, {
       headers: {
         ...staffHeaders(),
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
         "Content-Type": "application/json",
       },
       data: {
         actor: "E2E Balance Due Guard",
         override_readiness: true,
         override_reason: "Balance guard should still block release.",
+        register_session_id: sessionId,
       },
       failOnStatusCode: false,
     });
@@ -1135,12 +1138,15 @@ test.describe("Orders custom vs special contract", () => {
     const pickupRes = await request.post(`${apiBase()}/api/transactions/${body.transaction_id}/pickup`, {
       headers: {
         ...staffHeaders(),
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
         "Content-Type": "application/json",
       },
       data: {
         actor: "E2E Pickup Lifecycle",
         override_readiness: true,
         override_reason: "Lifecycle contract confirms item endpoint after explicit release.",
+        register_session_id: sessionId,
       },
       failOnStatusCode: false,
     });

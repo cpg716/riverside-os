@@ -91,6 +91,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | `best_sellers` | `GET /api/insights/best-sellers` | **`insights.view`** |
 | `dead_stock` | `GET /api/insights/dead-stock` | **`insights.view`** |
 | `negative_stock` | `GET /api/insights/negative-stock` | **`insights.view`** |
+| `negative_transaction_items` | `GET /api/insights/negative-transaction-items` | **`insights.view`** |
 | `wedding_health` | `GET /api/insights/wedding-health` | **`insights.view`** |
 | `commission_ledger` | `GET /api/insights/commission-ledger` | **`insights.view`** (read snapshot; finalize elsewhere) |
 | `nys_tax_audit` | `GET /api/insights/nys-tax-audit` | **`insights.view`** |
@@ -151,6 +152,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | GET | `/api/insights/best-sellers` | **`insights.view`**. Query: **`from`**, **`to`**, **`basis`** (booked vs fulfilled — same as sales pivot), **`limit`** (default 100, max 500). Response: **`rows`** with **`variant_id`**, **`units_sold`**, **`net_sales`** (pre-tax line revenue `unit_price * quantity`), **`avg_unit_price`**, etc. |
 | GET | `/api/insights/dead-stock` | **`insights.view`**. Same date/`basis` params + **`limit`**; optional **`max_units_sold`** (default **0** — on-hand SKUs with at most that many units sold in the window). Response: **`rows`** with on-hand, reserved, **`units_sold_in_period`**, **`retail_value_on_hand`** (list at variant retail). |
 | GET | `/api/insights/negative-stock` | **`insights.view`**. Curated Reports tile for products with negative stock, vendor/category context, available stock, estimated value exposure, last sold, and last received timestamps. |
+| GET | `/api/insights/negative-transaction-items` | **`insights.view`**. Curated Reports tile for transaction-driven sale/pickup inventory movements in a selected period where reconstructed stock after the transaction movement is below zero. Rows include business date, transaction, SKU, item name, quantity sold, stock before/after movement, current stock, and movement source. |
 | GET | `/api/insights/loyalty-velocity` | **`insights.view`**. Curated Reports tile for daily loyalty point movement: earned, used, and net velocity. Metabase can slice the same area through **`reporting.loyalty_daily_velocity`**. |
 | GET | `/api/insights/merchant-activity` | **`insights.view`**. Merchant/payment activity by business date, including gross volume, fees, refunds, and net amount where available. Align Metabase dashboards with **`reporting.payment_ledger`** and **`reporting.merchant_reconciliation`**. |
 | GET | `/api/insights/payment-exception-review` | **`insights.view`**. Curated Reports tile for declined, failed, voided, cancelled, or error-status payments grouped by business date, method, provider, and provider status. Backed by readable **`reporting.payment_ledger`**. |

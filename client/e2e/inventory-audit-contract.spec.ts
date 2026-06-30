@@ -351,16 +351,21 @@ async function fetchTransactionDetail(
 async function pickupTransaction(
   request: APIRequestContext,
   transactionId: string,
+  sessionId: string,
+  sessionToken: string,
 ): Promise<{ status: number; bodyText: string }> {
   const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/pickup`, {
     headers: {
       ...staffHeaders(),
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
     },
     data: {
       actor: "E2E Inventory Audit",
       override_readiness: true,
       override_reason: "Inventory audit uses controlled fixture readiness.",
+      register_session_id: sessionId,
     },
     failOnStatusCode: false,
   });
@@ -436,10 +441,13 @@ test.describe("inventory audit contract", () => {
     const blockedPickupRes = await request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`, {
       headers: {
         ...staffHeaders(),
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
         "Content-Type": "application/json",
       },
       data: {
         actor: "E2E Inventory Audit",
+        register_session_id: sessionId,
       },
       failOnStatusCode: false,
     });
@@ -450,12 +458,15 @@ test.describe("inventory audit contract", () => {
     const pickupRes = await request.post(`${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`, {
       headers: {
         ...staffHeaders(),
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
         "Content-Type": "application/json",
       },
       data: {
         actor: "E2E Inventory Audit",
         override_readiness: true,
         override_reason: "Inventory audit confirms stock movement after explicit override.",
+        register_session_id: sessionId,
       },
       failOnStatusCode: false,
     });
@@ -512,8 +523,8 @@ test.describe("inventory audit contract", () => {
     expect(beforePickup.available_stock).toBe(0);
 
     const attempts = await Promise.all([
-      pickupTransaction(request, checkout.transaction_id),
-      pickupTransaction(request, checkout.transaction_id),
+      pickupTransaction(request, checkout.transaction_id, sessionId, sessionToken),
+      pickupTransaction(request, checkout.transaction_id, sessionId, sessionToken),
     ]);
 
     for (const attempt of attempts) {

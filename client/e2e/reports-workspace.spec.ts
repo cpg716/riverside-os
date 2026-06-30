@@ -82,6 +82,23 @@ test.describe("Reports workspace", () => {
     }
   });
 
+  test("negative transaction items report returns transaction-driven stock research rows", async ({ request }) => {
+    const response = await request.get(
+      `${apiBase()}/api/insights/negative-transaction-items?from=2026-01-01&to=2026-12-31`,
+      { headers: adminHeaders(), failOnStatusCode: false },
+    );
+    expect(response.status()).toBe(200);
+    const body = (await response.json()) as Array<Record<string, unknown>>;
+    expect(Array.isArray(body)).toBeTruthy();
+    if (body.length > 0) {
+      expect(body[0]).toHaveProperty("sku");
+      expect(body[0]).toHaveProperty("product_name");
+      expect(body[0]).toHaveProperty("quantity_sold");
+      expect(body[0]).toHaveProperty("stock_after_transaction");
+      expect(body[0]).toHaveProperty("transaction_id");
+    }
+  });
+
   test("wedding program profit exposes party-level margin fields", async ({ request }) => {
     const response = await request.get(
       `${apiBase()}/api/insights/wedding-program-profit?basis=booked&from=2026-01-01&to=2026-12-31`,

@@ -236,7 +236,13 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
     const completeDetail = await fetchTransactionDetail(request, completeCheckout.transaction_id);
     const completeLine = completeDetail.items[0]!.transaction_line_id;
     await markLineReadyForPickup(request, completeLine, "Phase 4 walkthrough complete wedding");
-    await pickupLine(request, completeCheckout.transaction_id, completeLine);
+    await pickupLine(
+      request,
+      completeCheckout.transaction_id,
+      completeLine,
+      completeCheckout.sessionId,
+      completeCheckout.sessionToken,
+    );
     const completeReadiness = await fetchReadiness(request, completeMember.wedding_party_id);
     expect(completeReadiness.status).toBe("complete");
     expect(completeReadiness.blockers).toHaveLength(0);

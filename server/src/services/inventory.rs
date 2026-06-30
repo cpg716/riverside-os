@@ -257,7 +257,8 @@ mod tests {
 }
 
 /// Resolve POS entry by **SKU** (case-insensitive), **barcode** (when set on variant),
-/// **catalog handle**, or **product name** (substring, min 3 chars). Name matches must be unique.
+/// active barcode alias, **catalog handle**, or **product name** (substring, min 3 chars).
+/// Name matches must be unique.
 pub async fn resolve_sku(
     pool: &PgPool,
     raw: &str,
@@ -304,7 +305,27 @@ pub async fn resolve_sku(
         return Ok(join_row_to_resolved(row, global_employee_markup_percent));
     }
 
-    // 3) Product catalog handle
+    // 3) Active scan alias (Counterpoint B-SKUs and reviewed manual aliases)
+    let by_alias = fetch_variants_where(
+        pool,
+        "EXISTS (
+            SELECT 1
+            FROM product_variant_barcode_aliases a
+            WHERE a.variant_id = v.id
+              AND a.status = 'active'
+              AND a.normalized_alias = lower(btrim($1))
+        )",
+        needle,
+        2,
+    )
+    .await
+    .map_err(InventoryError::Database)?;
+    if !by_alias.is_empty() {
+        let row = try_unique(by_alias, "barcode alias")?;
+        return Ok(join_row_to_resolved(row, global_employee_markup_percent));
+    }
+
+    // 4) Product catalog handle
     let by_handle = fetch_variants_where(
         pool,
         "p.catalog_handle IS NOT NULL AND btrim(p.catalog_handle::text) <> '' \
@@ -319,7 +340,7 @@ pub async fn resolve_sku(
         return Ok(join_row_to_resolved(row, global_employee_markup_percent));
     }
 
-    // 4) Product name (title) — substring, must be unique
+    // 5) Product name (title) — substring, must be unique
     if needle.chars().count() < 3 {
         return Err(InventoryError::SkuNotFound(needle.to_string()));
     }

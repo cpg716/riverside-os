@@ -27,6 +27,8 @@ This is the **Register Access** screen shown before the POS cart can be used. It
 
 If the register overlay blocks entry, read the displayed readiness message before retrying. The fix may be opening a till, selecting the correct register, confirming staff access, or restoring server/API connectivity. Do not bypass register access with another staff member's PIN; the register session owner and acting staff must remain auditable.
 
+If the Main Hub connection drops while opening or joining a register, keep the register screen open. Check again after the red connection banner clears; do not try to force a second drawer open for the same Register #.
+
 
 ## Tips
 

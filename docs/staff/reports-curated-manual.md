@@ -107,6 +107,8 @@ Exact titles in the app may vary slightly as the catalog is updated; trust the *
 | Error after open | Note the message; retry **Refresh** | IT if it persists |
 | Need a custom cut beyond the built-in charts | Use **Open Insights (Metabase)** | Metabase training |
 
+Use **Negative Items from Transactions** when researching sale, pickup, or shipping recognition movements that drove a SKU below zero in a selected period. The report is for follow-up and inventory correction after the transaction completes; staff should not block a customer sale or pickup solely because the item is already negative.
+
 ---
 
 ## When to get a manager

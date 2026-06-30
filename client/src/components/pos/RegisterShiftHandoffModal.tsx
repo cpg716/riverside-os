@@ -16,8 +16,6 @@ interface RegisterShiftHandoffModalProps {
   onClose: () => void;
   sessionId: string;
   onHandoffComplete: () => Promise<void>;
-  /** Align Back Office staff headers with the new shift primary (4-digit code). */
-  onAdoptShiftCredentials?: (cashierCode: string) => void;
 }
 
 export default function RegisterShiftHandoffModal({
@@ -25,7 +23,6 @@ export default function RegisterShiftHandoffModal({
   onClose,
   sessionId,
   onHandoffComplete,
-  onAdoptShiftCredentials,
 }: RegisterShiftHandoffModalProps) {
   useShellBackdropLayer(isOpen);
   const { toast } = useToast();
@@ -88,7 +85,6 @@ export default function RegisterShiftHandoffModal({
       if (!res.ok) {
         throw new Error(errData.error ?? `Handoff failed (${res.status})`);
       }
-      onAdoptShiftCredentials?.(code);
       await onHandoffComplete();
       toast("Shift primary updated.", "success");
       onClose();

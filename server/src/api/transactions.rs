@@ -2551,14 +2551,21 @@ async fn mark_transaction_pickup(
     headers: HeaderMap,
     Json(body): Json<PickupTransactionRequest>,
 ) -> Result<Json<serde_json::Value>, TransactionError> {
-    let actor_staff_id = authorize_transaction_modify_bo_or_register(
-        &state,
-        &headers,
-        transaction_id,
-        body.register_session_id,
-        None,
-    )
-    .await?;
+    let register_session_id = body.register_session_id.ok_or_else(|| {
+        TransactionError::InvalidPayload(
+            "Pickup completion must be run from an open Register session.".to_string(),
+        )
+    })?;
+    middleware::require_pos_register_session_for_checkout(&state, &headers, register_session_id)
+        .await
+        .map_err(map_perm_err)?;
+
+    let actor_staff_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT opened_by FROM register_sessions WHERE id = $1")
+            .bind(register_session_id)
+            .fetch_optional(&state.db)
+            .await?
+            .flatten();
 
     let mut tx = state.db.begin().await?;
     let _locked_transaction: Uuid =
@@ -2705,33 +2712,41 @@ async fn mark_transaction_pickup(
         ));
     }
 
-    // Check inventory availability for pickup (can be overridden by manager)
     let insufficient_stock_lines = pickup_guard_lines
         .iter()
         .filter(|line| line.stock_on_hand < line.quantity)
         .collect::<Vec<_>>();
-    if !insufficient_stock_lines.is_empty() && !body.override_readiness {
+    let inventory_shortage_details = insufficient_stock_lines
+        .iter()
+        .map(|line| {
+            json!({
+                "sku": line.sku,
+                "product_name": line.product_name,
+                "quantity": line.quantity,
+                "stock_on_hand_before_pickup": line.stock_on_hand,
+            })
+        })
+        .collect::<Vec<_>>();
+    let has_inventory_shortage = !inventory_shortage_details.is_empty();
+    let inventory_shortage_alert = if insufficient_stock_lines.is_empty() {
+        None
+    } else {
         let examples = insufficient_stock_lines
             .iter()
             .take(3)
             .map(|line| {
                 format!(
-                    "{} ({}): need {}, have {}",
+                    "{} ({}): need {}, had {}",
                     line.product_name, line.sku, line.quantity, line.stock_on_hand
                 )
             })
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(TransactionError::InvalidPayload(format!(
-            "Pickup blocked: {count} item(s) have insufficient inventory. {examples}. Receive stock through vendor invoice before pickup, or use a manager override with reason to allow negative inventory.",
+        Some(format!(
+            "Inventory Reconciliation Over-Allocation: pickup completed with insufficient stock on {count} item(s). {examples}",
             count = insufficient_stock_lines.len()
-        )));
-    }
-    if !insufficient_stock_lines.is_empty() && override_reason.len() < 12 {
-        return Err(TransactionError::InvalidPayload(
-            "Inventory override requires a clear reason (manager approval required).".to_string(),
-        ));
-    }
+        ))
+    };
 
     let claimed_fulfillment_line_ids: Vec<Uuid> = if body.delivered_item_ids.is_empty() {
         sqlx::query_scalar(
@@ -2951,16 +2966,33 @@ async fn mark_transaction_pickup(
             "requested_delivered_item_count": body.delivered_item_ids.len(),
             "readiness_override": body.override_readiness,
             "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
+            "inventory_shortage_warning": has_inventory_shortage,
+            "inventory_shortage_lines": inventory_shortage_details,
         }),
     )
     .await?;
+
+    if let Some(alert_msg) = inventory_shortage_alert {
+        if let Err(e) =
+            crate::logic::notifications::broadcast_system_alert(&state.db, &alert_msg).await
+        {
+            tracing::error!(error = %e, "Failed to broadcast system alert for pickup negative stock");
+        }
+    }
 
     // Accrue loyalty points if this pickup caused the order to become fully fulfilled.
     if let Err(e) = loyalty_logic::try_accrue_for_order(&state.db, transaction_id).await {
         tracing::error!(error = %e, transaction_id = %transaction_id, "loyalty accrual failed after pickup");
     }
 
-    Ok(Json(json!({ "status": "ok" })))
+    Ok(Json(json!({
+        "status": "ok",
+        "warnings": if has_inventory_shortage {
+            vec!["Pickup completed with insufficient inventory; negative stock alert recorded.".to_string()]
+        } else {
+            Vec::<String>::new()
+        }
+    })))
 }
 
 async fn get_transaction_audit(

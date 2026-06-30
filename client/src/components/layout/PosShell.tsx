@@ -191,7 +191,6 @@ export default function PosShell({
   const {
     hasPermission,
     permissionsLoaded,
-    setStaffCredentials,
     staffDisplayName,
   } = useBackofficeAuth();
   const weddingActorName = staffDisplayName.trim() || cashierName?.trim() || null;
@@ -239,8 +238,6 @@ export default function PosShell({
   ]);
 
   const handleSessionOpenedWithAuth: typeof onSessionOpened = (p) => {
-    const code = p.cashierCode.trim();
-    if (code.length === 4) { setStaffCredentials(code, code); }
     onSessionOpened(p);
   };
 
@@ -605,7 +602,7 @@ export default function PosShell({
       )}
 
       {shiftHandoffOpen && sessionId ? (
-        <RegisterShiftHandoffModal isOpen={shiftHandoffOpen} onClose={() => setShiftHandoffOpen(false)} sessionId={sessionId} onHandoffComplete={refreshOpenSessionMeta} onAdoptShiftCredentials={(code) => setStaffCredentials(code, code)} />
+        <RegisterShiftHandoffModal isOpen={shiftHandoffOpen} onClose={() => setShiftHandoffOpen(false)} sessionId={sessionId} onHandoffComplete={refreshOpenSessionMeta} />
       ) : null}
     </div>
   );

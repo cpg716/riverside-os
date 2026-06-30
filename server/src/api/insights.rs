@@ -2644,6 +2644,27 @@ pub struct NegativeStockRow {
     pub last_received_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct NegativeTransactionItemRow {
+    pub business_date: NaiveDate,
+    pub event_at: DateTime<Utc>,
+    pub transaction_id: Uuid,
+    pub transaction_display_id: Option<String>,
+    pub customer_name: Option<String>,
+    pub sku: String,
+    pub product_name: String,
+    pub category_name: Option<String>,
+    pub vendor_name: Option<String>,
+    pub quantity_sold: i32,
+    pub stock_before_transaction: i32,
+    pub stock_after_transaction: i32,
+    pub current_stock_on_hand: i32,
+    pub current_reserved_stock: i32,
+    pub current_available_stock: i32,
+    pub movement_source: String,
+    pub movement_notes: Option<String>,
+}
+
 async fn negative_stock_report(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2689,6 +2710,85 @@ async fn negative_stock_report(
         LIMIT 500
         "#,
     )
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+async fn negative_transaction_items_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<NegativeTransactionItemRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, NegativeTransactionItemRow>(
+        r#"
+        WITH transaction_movements AS (
+            SELECT
+                (it.created_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
+                it.created_at AS event_at,
+                o.id AS transaction_id,
+                o.display_id AS transaction_display_id,
+                NULLIF(TRIM(concat_ws(' ', c.first_name, c.last_name)), '') AS customer_name,
+                COALESCE(NULLIF(TRIM(pv.sku), ''), 'Unknown SKU') AS sku,
+                COALESCE(NULLIF(TRIM(p.name), ''), NULLIF(TRIM(pv.sku), ''), 'Unknown item') AS product_name,
+                cat.name AS category_name,
+                v.name AS vendor_name,
+                ABS(it.quantity_delta)::int AS quantity_sold,
+                (
+                    COALESCE(pv.stock_on_hand, 0)
+                    - COALESCE(later.quantity_delta_after, 0)
+                    - it.quantity_delta
+                )::int AS stock_before_transaction,
+                (
+                    COALESCE(pv.stock_on_hand, 0)
+                    - COALESCE(later.quantity_delta_after, 0)
+                )::int AS stock_after_transaction,
+                COALESCE(pv.stock_on_hand, 0)::int AS current_stock_on_hand,
+                COALESCE(pv.reserved_stock, 0)::int AS current_reserved_stock,
+                (
+                    COALESCE(pv.stock_on_hand, 0)
+                    - COALESCE(pv.reserved_stock, 0)
+                    - COALESCE(pv.on_layaway, 0)
+                )::int AS current_available_stock,
+                CASE
+                    WHEN COALESCE(it.notes, '') ILIKE 'Pickup%' THEN 'pickup'
+                    ELSE 'checkout'
+                END AS movement_source,
+                it.notes AS movement_notes
+            FROM inventory_transactions it
+            INNER JOIN transactions o
+                ON it.reference_table = 'transactions'
+               AND it.reference_id = o.id
+            INNER JOIN product_variants pv ON pv.id = it.variant_id
+            INNER JOIN products p ON p.id = pv.product_id
+            LEFT JOIN customers c ON c.id = o.customer_id
+            LEFT JOIN categories cat ON cat.id = p.category_id
+            LEFT JOIN vendors v ON v.id = p.primary_vendor_id
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(SUM(later.quantity_delta), 0)::int AS quantity_delta_after
+                FROM inventory_transactions later
+                WHERE later.variant_id = it.variant_id
+                  AND (
+                    later.created_at > it.created_at
+                    OR (later.created_at = it.created_at AND later.id::text > it.id::text)
+                  )
+            ) later ON TRUE
+            WHERE it.created_at >= $1
+              AND it.created_at < $2
+              AND it.tx_type::text = 'sale'
+              AND it.quantity_delta < 0
+        )
+        SELECT *
+        FROM transaction_movements
+        WHERE stock_after_transaction < 0
+        ORDER BY event_at DESC, sku ASC
+        LIMIT 1000
+        "#,
+    )
+    .bind(start)
+    .bind(end)
     .fetch_all(&state.db)
     .await?;
     Ok(Json(rows))
@@ -4291,6 +4391,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/customer-follow-up", get(customer_follow_up_report))
         .route("/negative-stock", get(negative_stock_report))
+        .route(
+            "/negative-transaction-items",
+            get(negative_transaction_items_report),
+        )
         .route("/exception-risk", get(exception_risk_report))
         .route("/sales-by-day", get(sales_by_day_report))
         .route("/sales-trend-pace", get(sales_trend_pace_report))

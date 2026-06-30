@@ -21,6 +21,7 @@ use crate::logic::shipment::{
 };
 use crate::logic::shippo::ParcelInput;
 use crate::middleware;
+use crate::models::DbShipmentSource;
 
 #[derive(Debug, serde::Deserialize, Default)]
 pub struct RatesQuery {
@@ -131,6 +132,7 @@ async fn post_purchase_label(
     let staff = middleware::require_staff_with_permission(&state, &headers, SHIPMENTS_MANAGE)
         .await
         .map_err(map_perm)?;
+    require_register_for_pos_order_recognition(&state, &headers, id).await?;
     let label_file_type = body
         .as_ref()
         .and_then(|Json(body)| body.label_file_type.as_deref());
@@ -238,6 +240,9 @@ async fn patch_shipment_handler(
     let staff = middleware::require_staff_with_permission(&state, &headers, SHIPMENTS_MANAGE)
         .await
         .map_err(map_perm)?;
+    if shipment_status_recognizes_fulfillment(body.status.as_deref()) {
+        require_register_for_pos_order_recognition(&state, &headers, id).await?;
+    }
     patch_shipment(&state.db, id, body, staff.id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -272,6 +277,47 @@ fn map_perm(e: (StatusCode, axum::Json<serde_json::Value>)) -> ShipmentsApiError
         .unwrap_or("forbidden")
         .to_string();
     ShipmentsApiError::Perm(st, msg)
+}
+
+fn shipment_status_recognizes_fulfillment(status: Option<&str>) -> bool {
+    matches!(
+        status.map(str::trim),
+        Some("label_purchased" | "in_transit" | "delivered")
+    )
+}
+
+async fn require_register_for_pos_order_recognition(
+    state: &AppState,
+    headers: &HeaderMap,
+    shipment_id: Uuid,
+) -> Result<(), ShipmentsApiError> {
+    let Some(row) = get_shipment_detail(&state.db, shipment_id).await? else {
+        return Err(ShipmentError::NotFound.into());
+    };
+    if row.transaction_id.is_none() || row.source != DbShipmentSource::PosOrder {
+        return Ok(());
+    }
+
+    let Some((session_id, token)) = crate::auth::pos_session::pos_session_headers(headers) else {
+        return Err(ShipmentsApiError::Perm(
+            StatusCode::UNAUTHORIZED,
+            "Transaction-linked shipments must be completed from Register Shipping.".to_string(),
+        ));
+    };
+    match crate::auth::pos_session::verify_pos_session_token(&state.db, session_id, &token).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(ShipmentsApiError::Perm(
+            StatusCode::UNAUTHORIZED,
+            "invalid or expired register session token".to_string(),
+        )),
+        Err(e) => {
+            tracing::error!(error = %e, "shipment register session token verify failed");
+            Err(ShipmentsApiError::Perm(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "session verification failed".to_string(),
+            ))
+        }
+    }
 }
 
 impl IntoResponse for ShipmentsApiError {

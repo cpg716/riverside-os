@@ -8,7 +8,11 @@ import {
 } from "./rmsCharge";
 import type { CreatedProduct } from "./inventoryReceiving";
 
-export type CheckoutResponse = { transaction_id: string };
+export type CheckoutResponse = {
+  transaction_id: string;
+  sessionId: string;
+  sessionToken: string;
+};
 
 export type AttachedWeddingMember = {
   id: string;
@@ -114,7 +118,11 @@ export async function checkoutWeddingOrderSeed(
   });
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
-  return JSON.parse(bodyText) as CheckoutResponse;
+  return {
+    ...(JSON.parse(bodyText) as { transaction_id: string }),
+    sessionId,
+    sessionToken,
+  };
 }
 
 export async function attachToNewWedding(
@@ -224,15 +232,20 @@ export async function pickupLine(
   request: APIRequestContext,
   transactionId: string,
   lineId: string,
+  sessionId: string,
+  sessionToken: string,
 ) {
   const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/pickup`, {
     headers: {
       ...staffHeaders(),
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
     },
     data: {
       actor: "Phase 4 Readiness Certification",
       delivered_item_ids: [lineId],
+      register_session_id: sessionId,
     },
     failOnStatusCode: false,
   });

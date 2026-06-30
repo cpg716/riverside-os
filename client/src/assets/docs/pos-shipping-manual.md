@@ -29,7 +29,7 @@ Use this guide for shipping quotes at checkout and for the follow-up shipment wo
 1. Link the correct customer profile before quoting shipment at the register.
 2. Add **Ship current sale** in the POS cart and confirm the quoted rate.
 3. Complete checkout with shipping paid correctly.
-4. Move into the **Shipments Hub** afterward to buy/open labels, request return labels, create carrier handoffs, and post tracking/status updates.
+4. Use **Register Shipping** afterward to buy/open labels or move a POS order into a shipped/fulfilled state. The Shipments Hub can still review the shipment, post notes, and manage non-recognition follow-up.
 
 ## 1. Shipping from the POS (Register)
 
@@ -65,7 +65,7 @@ Navigate to the standalone **Shipping** workspace in the Back Office sidebar, or
 Click on any shipment to open the **Shipment Detail** panel:
 1. **Enter Tracking**: Add the tracking number provided by your carrier.
 2. **Post Note**: Add internal notes (e.g., "Box 1 of 2") to the shipment timeline.
-3. **Change Status**: Once the parcel is picked up by the carrier, change the status to **Shipped**. This will update the order's timeline and notify the customer (if Podium is integrated).
+3. **Complete POS-order shipping from Register Shipping**: POS-order label purchase and shipped/delivered recognition require an open Register session, so shipment completion stays connected to the register workflow.
 4. **Request unused-label refund**: If a label was purchased but the package will not ship, request the unused-label refund before handing anything to the carrier. ROS logs the request, and Shippo/carrier acceptance remains external.
 5. **Create return label**: If a customer needs to ship merchandise back, create the return-label workflow from the purchased outbound shipment, apply a return rate, and buy the return label.
 6. **Carrier handoff**: Select purchased labels that use the same carrier account, then create a manifest/SCAN form or schedule a pickup window.

@@ -384,6 +384,41 @@ export const REPORTS_CATALOG: ReportDef[] = [
     buildPath: () => `/api/insights/negative-stock`,
   },
   {
+    id: "negative_transaction_items",
+    title: "Negative Items from Transactions",
+    description:
+      "Transaction-driven sale and pickup movements in the selected period that pushed an item below zero, with SKU, item name, quantity sold, stock before/after, and transaction reference.",
+    category: "Inventory",
+    aliases: ["negative transaction items", "negative items from sales", "negative pickup stock", "below zero transactions"],
+    keywords: ["negative stock", "transactions", "pickup", "ship", "checkout", "sku", "quantity sold", "inventory research"],
+    questions: ["Which transactions made inventory negative?", "What sold below zero this period?", "Which pickup or checkout caused negative stock?"],
+    audience: "Manager",
+    sensitivity: "Manager",
+    adminOnly: false,
+    permissionsAll: ["insights.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: true,
+    usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Largest negative after transaction",
+        labelKey: "sku",
+        valueKey: "stock_after_transaction",
+        valueFormat: "number",
+        limit: 10,
+      },
+      {
+        title: "Units sold into negative",
+        labelKey: "sku",
+        valueKey: "quantity_sold",
+        valueFormat: "number",
+        limit: 10,
+      },
+    ],
+    buildPath: ({ fromYmd, toYmd }) =>
+      `/api/insights/negative-transaction-items?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
+  },
+  {
     id: "wedding_health",
     title: "Wedding Pipeline",
     description: "Upcoming wedding parties, members still needing orders, and open balances.",

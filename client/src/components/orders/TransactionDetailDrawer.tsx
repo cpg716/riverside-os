@@ -1097,16 +1097,6 @@ export default function TransactionDetailDrawer({
     setReadyError(null);
   }, [readyBusy]);
 
-  const openPickupReleaseModal = useCallback((item?: TransactionDrawerItem) => {
-    setPickupOverride(false);
-    setPickupOverrideReason("");
-    setPickupTargetLineIds(
-      item?.transaction_line_id ? [item.transaction_line_id] : null,
-    );
-    setPickupError(null);
-    setShowPickupReleaseModal(true);
-  }, []);
-
   const closePickupReleaseModal = useCallback(() => {
     if (pickupBusy) return;
     setShowPickupReleaseModal(false);
@@ -1529,19 +1519,7 @@ export default function TransactionDetailDrawer({
               <Printer size={16} />
               Reprint Receipt
             </button>
-            {detail &&
-            detail.fulfillment_method !== "ship" &&
-            !["fulfilled", "cancelled"].includes(detail.status) ? (
-              <button
-                type="button"
-                onClick={() => openPickupReleaseModal()}
-                disabled={pickupReleaseLines.open.length === 0}
-                className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-success bg-app-success px-3 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all duration-150 hover:opacity-90 active:translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <ShieldCheck size={16} />
-                Review Pickup
-              </button>
-            ) : null}
+            <div className="hidden lg:block" aria-hidden />
             {detail && orderActions?.onOpenInRegister ? (
               <button
                 type="button"
@@ -2177,8 +2155,6 @@ export default function TransactionDetailDrawer({
                             item.transaction_line_id &&
                             !item.is_fulfilled,
                         );
-                        const isReadyForPickup =
-                          item.order_lifecycle_status === "ready_for_pickup";
                         return (
                           <div
                             key={itemId ?? `${item.sku}-${item.product_name}`}
@@ -2278,24 +2254,6 @@ export default function TransactionDetailDrawer({
                                     className="rounded-lg border border-emerald-500/20 bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-sm transition-colors hover:bg-emerald-700"
                                   >
                                     Mark Ready + Notify
-                                  </button>
-                                ) : null}
-                                {detail.fulfillment_method !== "ship" &&
-                                item.transaction_line_id &&
-                                !item.is_internal &&
-                                !item.is_fulfilled ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => openPickupReleaseModal(item)}
-                                    className={`rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
-                                      isReadyForPickup
-                                        ? "text-app-success hover:bg-app-success/10"
-                                        : "text-app-warning hover:bg-app-warning/10"
-                                    }`}
-                                  >
-                                    {isReadyForPickup
-                                      ? "Pick Up"
-                                      : "Review Pickup"}
                                   </button>
                                 ) : null}
                                 {orderActions?.canModify &&

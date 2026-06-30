@@ -86,6 +86,8 @@ type AdminPrimaryPath = null | "opening_lane1" | "waiting_lane1_elsewhere";
 type ReadinessStatus = "checking" | "ready" | "warning" | "error";
 const PRIMARY_OPENING_FLOAT_DEFAULT = "300.00";
 const SATELLITE_OPENING_FLOAT = "0.00";
+const MAIN_HUB_UNAVAILABLE_MESSAGE =
+  "Main Hub is unavailable. Keep this register screen open and check again after the server connection returns.";
 
 interface ReadinessCheck {
   status: ReadinessStatus;
@@ -114,6 +116,10 @@ function readinessTone(status: ReadinessStatus): string {
     return "ui-tint-danger text-app-danger";
   }
   return "ui-tint-neutral text-app-text-muted";
+}
+
+function isTransientMainHubStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
 }
 
 function ReadinessIcon({ status }: { status: ReadinessStatus }) {
@@ -383,9 +389,15 @@ export default function RegisterOverlay({
     try {
       const posHeaders = posRegisterAuthHeaders();
       if (posHeaders["x-riverside-pos-session-id"]) {
-        const cur = await fetch(`${baseUrl}/api/sessions/current`, {
-          headers: posHeaders,
-        });
+        let cur: Response;
+        try {
+          cur = await fetch(`${baseUrl}/api/sessions/current`, {
+            headers: posHeaders,
+          });
+        } catch {
+          setError(MAIN_HUB_UNAVAILABLE_MESSAGE);
+          return;
+        }
         if (cur.ok) {
           const data = (await cur.json()) as CurrentSessionJson;
           const auth = getPosRegisterAuth();
@@ -395,6 +407,10 @@ export default function RegisterOverlay({
             );
           }
           onOpenedRef.current(payloadFromSessionJson(data, auth.token));
+          return;
+        }
+        if (isTransientMainHubStatus(cur.status)) {
+          setError(MAIN_HUB_UNAVAILABLE_MESSAGE);
           return;
         }
       }
@@ -411,10 +427,18 @@ export default function RegisterOverlay({
   }, [baseUrl]);
 
   const attachOpenLane = async (lane: number): Promise<boolean> => {
-    const listRes = await fetch(`${baseUrl}/api/sessions/list-open`, {
-      headers: mergedPosStaffHeaders(backofficeHeaders),
-    });
+    let listRes: Response;
+    try {
+      listRes = await fetch(`${baseUrl}/api/sessions/list-open`, {
+        headers: mergedPosStaffHeaders(backofficeHeaders),
+      });
+    } catch {
+      throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+    }
     if (!listRes.ok) {
+      if (isTransientMainHubStatus(listRes.status)) {
+        throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+      }
       return false;
     }
 
@@ -424,15 +448,23 @@ export default function RegisterOverlay({
       return false;
     }
 
-    const attachRes = await fetch(
-      `${baseUrl}/api/sessions/${encodeURIComponent(existing.session_id)}/attach`,
-      {
-        method: "POST",
-        headers: jsonAuthHeaders(),
-        body: "{}",
-      },
-    );
+    let attachRes: Response;
+    try {
+      attachRes = await fetch(
+        `${baseUrl}/api/sessions/${encodeURIComponent(existing.session_id)}/attach`,
+        {
+          method: "POST",
+          headers: jsonAuthHeaders(),
+          body: "{}",
+        },
+      );
+    } catch {
+      throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+    }
     if (!attachRes.ok) {
+      if (isTransientMainHubStatus(attachRes.status)) {
+        throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+      }
       return false;
     }
 
@@ -442,13 +474,21 @@ export default function RegisterOverlay({
       return false;
     }
 
-    const cur = await fetch(`${baseUrl}/api/sessions/current`, {
-      headers: {
-        "x-riverside-pos-session-id": existing.session_id,
-        "x-riverside-pos-session-token": token,
-      },
-    });
+    let cur: Response;
+    try {
+      cur = await fetch(`${baseUrl}/api/sessions/current`, {
+        headers: {
+          "x-riverside-pos-session-id": existing.session_id,
+          "x-riverside-pos-session-token": token,
+        },
+      });
+    } catch {
+      throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+    }
     if (!cur.ok) {
+      if (isTransientMainHubStatus(cur.status)) {
+        throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+      }
       return false;
     }
 
@@ -475,6 +515,9 @@ export default function RegisterOverlay({
           : "Register #1 must be open before opening this lane.",
       );
     }
+    if (stationLocksRegisterLane && (await attachOpenLane(lane))) {
+      return;
+    }
     const floatStr = centsToFixed2(parseMoneyToCents(openingFloatRef.current));
     const body: Record<string, unknown> = {
       cashier_code: code,
@@ -485,11 +528,16 @@ export default function RegisterOverlay({
     if (lane > 1 && primarySessionId) {
       body.primary_session_id = primarySessionId;
     }
-    const res = await fetch(`${baseUrl}/api/sessions/open`, {
-      method: "POST",
-      headers: jsonAuthHeaders(),
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/api/sessions/open`, {
+        method: "POST",
+        headers: jsonAuthHeaders(),
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+    }
 
     if (res.status === 409) {
       const body = (await res.json().catch(() => ({}))) as {
@@ -508,26 +556,42 @@ export default function RegisterOverlay({
       }
       const sid = body.session_id?.trim();
       if (sid) {
-        const tokRes = await fetch(
-          `${baseUrl}/api/sessions/${encodeURIComponent(sid)}/pos-api-token`,
-          {
-            method: "POST",
-            headers: jsonAuthHeaders(),
-            body: JSON.stringify({ cashier_code: code, pin: code }),
-          },
-        );
+        let tokRes: Response;
+        try {
+          tokRes = await fetch(
+            `${baseUrl}/api/sessions/${encodeURIComponent(sid)}/pos-api-token`,
+            {
+              method: "POST",
+              headers: jsonAuthHeaders(),
+              body: JSON.stringify({ cashier_code: code, pin: code }),
+            },
+          );
+        } catch {
+          throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+        }
+        if (!tokRes.ok && isTransientMainHubStatus(tokRes.status)) {
+          throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+        }
         if (tokRes.ok) {
           const tokJson = (await tokRes.json()) as {
             pos_api_token?: string;
           };
           const token = tokJson.pos_api_token;
           if (token) {
-            const cur = await fetch(`${baseUrl}/api/sessions/current`, {
-              headers: {
-                "x-riverside-pos-session-id": sid,
-                "x-riverside-pos-session-token": token,
-              },
-            });
+            let cur: Response;
+            try {
+              cur = await fetch(`${baseUrl}/api/sessions/current`, {
+                headers: {
+                  "x-riverside-pos-session-id": sid,
+                  "x-riverside-pos-session-token": token,
+                },
+              });
+            } catch {
+              throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+            }
+            if (!cur.ok && isTransientMainHubStatus(cur.status)) {
+              throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+            }
             if (cur.ok) {
               const data = (await cur.json()) as CurrentSessionJson;
               onOpenedRef.current(payloadFromSessionJson(data, token));
@@ -544,6 +608,9 @@ export default function RegisterOverlay({
     }
 
     if (!res.ok) {
+      if (isTransientMainHubStatus(res.status)) {
+        throw new Error(MAIN_HUB_UNAVAILABLE_MESSAGE);
+      }
       let message = "Failed to open register";
       try {
         const errData = (await res.json()) as { error?: string };
@@ -710,7 +777,11 @@ export default function RegisterOverlay({
     </button>
   ) : null;
 
-  const adminGate = staffRole === "admin" && permissionsLoaded && !booting;
+  const adminGate =
+    staffRole === "admin" &&
+    permissionsLoaded &&
+    !booting &&
+    !stationLocksRegisterLane;
   const adminCheckingPrimary = adminGate && register1OpenForAdmin === null;
   const adminChoosePrimaryPath =
     adminGate && register1OpenForAdmin === false && adminPrimaryPath === null;

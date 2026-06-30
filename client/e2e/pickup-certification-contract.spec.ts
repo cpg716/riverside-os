@@ -169,15 +169,20 @@ async function markLineReady(
 async function pickup(
   request: APIRequestContext,
   transactionId: string,
+  sessionId: string,
+  sessionToken: string,
   data: Record<string, unknown>,
 ): Promise<{ status: number; bodyText: string }> {
   const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/pickup`, {
     headers: {
       ...staffHeaders(),
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
     },
     data: {
       actor: "Pickup Certification",
+      register_session_id: sessionId,
       ...data,
     },
     failOnStatusCode: false,
@@ -209,7 +214,7 @@ test.describe("pickup launch certification contract", () => {
       operatorStaffId,
       amountPaid: "0.00",
     });
-    const unpaidAttempt = await pickup(request, unpaidCheckout.transaction_id, {
+    const unpaidAttempt = await pickup(request, unpaidCheckout.transaction_id, sessionId, sessionToken, {
       delivered_item_ids: [],
       override_readiness: true,
       override_reason: "Certification confirms balance due remains a hard stop.",
@@ -242,13 +247,13 @@ test.describe("pickup launch certification contract", () => {
 
     await markLineReady(request, readyLine!.transaction_line_id);
 
-    const mixedBulkAttempt = await pickup(request, mixedCheckout.transaction_id, {
+    const mixedBulkAttempt = await pickup(request, mixedCheckout.transaction_id, sessionId, sessionToken, {
       delivered_item_ids: [],
     });
     expect(mixedBulkAttempt.status, mixedBulkAttempt.bodyText.slice(0, 1000)).toBe(400);
     expect(mixedBulkAttempt.bodyText).toContain("not Ready for Pickup");
 
-    const partialRelease = await pickup(request, mixedCheckout.transaction_id, {
+    const partialRelease = await pickup(request, mixedCheckout.transaction_id, sessionId, sessionToken, {
       delivered_item_ids: [readyLine!.transaction_line_id],
     });
     expect(partialRelease.status, partialRelease.bodyText.slice(0, 1000)).toBe(200);
@@ -258,7 +263,7 @@ test.describe("pickup launch certification contract", () => {
     expect(detail.items.find((item) => item.sku === readyProduct.sku)?.is_fulfilled).toBe(true);
     expect(detail.items.find((item) => item.sku === blockedProduct.sku)?.is_fulfilled).toBe(false);
 
-    const blockedRelease = await pickup(request, mixedCheckout.transaction_id, {
+    const blockedRelease = await pickup(request, mixedCheckout.transaction_id, sessionId, sessionToken, {
       delivered_item_ids: [blockedLine!.transaction_line_id],
     });
     expect(blockedRelease.status, blockedRelease.bodyText.slice(0, 1000)).toBe(400);
@@ -266,7 +271,7 @@ test.describe("pickup launch certification contract", () => {
 
     const overrideReason =
       "Customer present with manager-approved garment release during certification.";
-    const overrideRelease = await pickup(request, mixedCheckout.transaction_id, {
+    const overrideRelease = await pickup(request, mixedCheckout.transaction_id, sessionId, sessionToken, {
       delivered_item_ids: [blockedLine!.transaction_line_id],
       override_readiness: true,
       override_reason: overrideReason,

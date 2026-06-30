@@ -61,6 +61,7 @@ Use Reports when the store needs a repeatable answer with the same filters, basi
 - **Daily Sales Weather** shows sales by store day alongside the captured weather snapshot for that day.
 - **Best Sellers** can group by parent product or by variation/SKU, depending on whether staff need the broad product winner or the exact size/color/SKU winner.
 - **Wedding Program Profit** is Admin-only and shows the free-groom suit program by wedding party and selected date basis, including paid wedding members, free-suit promo members, discounts, cost, profit, and margin.
+- **Negative Items from Transactions** is the period report for researching sale, pickup, or shipping recognition movements that drove SKU stock below zero. Use it after the transaction is complete; negative stock is an inventory follow-up, not a reason to block a customer sale or pickup.
 
 ## What happens next
 

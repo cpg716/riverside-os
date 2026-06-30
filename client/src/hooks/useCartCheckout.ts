@@ -112,6 +112,10 @@ function hasProviderBackedPayment(applied: AppliedPaymentLine[]): boolean {
   });
 }
 
+function isTransientSessionProbeStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
 async function checkoutResponseError(response: Response): Promise<string> {
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
@@ -213,18 +217,31 @@ export function useCartCheckout({
       return null;
     }
 
-    // Verify session is still open before tendering (gives early feedback if closed by another terminal)
-    try {
-      const sessionRes = await fetch(`${baseUrl}/api/sessions/current`, {
-        headers: { ...apiAuth(), "Content-Type": "application/json" },
-        cache: "no-store",
-      });
-      if (!sessionRes.ok) {
-        toast("Your register session is no longer active. Re-open the till to continue.", "error");
+    if (navigator.onLine) {
+      // Verify session is still open before tendering (gives early feedback if closed by another terminal)
+      try {
+        const sessionRes = await fetch(`${baseUrl}/api/sessions/current`, {
+          headers: { ...apiAuth(), "Content-Type": "application/json" },
+          cache: "no-store",
+        });
+        if (!sessionRes.ok) {
+          if (isTransientSessionProbeStatus(sessionRes.status)) {
+            toast(
+              "Main Hub is unavailable. Keep this checkout open and retry when the connection banner clears.",
+              "error",
+            );
+          } else {
+            toast("Your register session is no longer active. Re-open the till to continue.", "error");
+          }
+          return null;
+        }
+      } catch {
+        toast(
+          "Main Hub is unavailable. Keep this checkout open and retry when the connection banner clears.",
+          "error",
+        );
         return null;
       }
-    } catch {
-      // Network hiccup during probe — proceed; server will validate anyway
     }
 
     setCheckoutBusy(true);
@@ -285,6 +302,10 @@ export function useCartCheckout({
           throw new Error(b.error || `Pickup failed (${pickupRes.status})`);
         }
 
+        const pickupBody = (await pickupRes.json().catch(() => ({}))) as { warnings?: string[] };
+        for (const warning of pickupBody.warnings ?? []) {
+          if (warning.trim()) toast(warning, "info");
+        }
         toast("Pickup completed successfully.", "success");
         setLastTransactionId(pickupTransactionId);
         void clearBlockedCheckoutRecovery({ recoveryTransactionId: pickupTransactionId });
@@ -537,11 +558,28 @@ export function useCartCheckout({
         return null;
       }
 
-      const res = await fetch(`${baseUrl}/api/transactions/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify(payload),
-      });
+      let res: Response;
+      try {
+        res = await fetch(`${baseUrl}/api/transactions/checkout`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...apiAuth() },
+          body: JSON.stringify(payload),
+        });
+      } catch (error) {
+        const detail =
+          error instanceof Error ? error.message : "Network failure while recording checkout.";
+        await recordBlockedCheckoutRecovery(payload, 0, detail, {
+          recoveryKind: "online_unconfirmed",
+          recoveryKey: checkoutClientId,
+          authHeaders: apiAuth(),
+        });
+        const tenderText = providerBackedPayment
+          ? "Do not run the card again."
+          : "Do not re-enter or queue this sale blindly.";
+        throw new Error(
+          `Riverside OS could not confirm whether this checkout saved. ${tenderText} Keep the cart open and retry Record Sale after checking recovery.`,
+        );
+      }
 
       if (!res.ok) {
         if (res.status >= 500) {
@@ -592,7 +630,12 @@ export function useCartCheckout({
             }),
           });
           if (pickupRes.ok) {
+            const pickupBody = (await pickupRes.json().catch(() => ({}))) as { warnings?: string[] };
+            for (const warning of pickupBody.warnings ?? []) {
+              if (warning.trim()) toast(warning, "info");
+            }
             toast("Pickup completed successfully.", "success");
+            const alterationPickupFailures: string[] = [];
             for (const alterationId of pickupAlterationIds) {
               try {
                 const alterationPickupRes = await fetch(`${baseUrl}/api/alterations/${alterationId}/pickup`, {
@@ -601,11 +644,25 @@ export function useCartCheckout({
                 });
                 if (!alterationPickupRes.ok) {
                   const body = await alterationPickupRes.json().catch(() => ({})) as { error?: string };
-                  toast(body.error ?? "Ready alteration could not be marked picked up.", "error");
+                  alterationPickupFailures.push(
+                    body.error ?? `Ready alteration ${alterationId} could not be marked picked up.`,
+                  );
                 }
               } catch {
-                toast("Ready alteration pickup update failed after order pickup.", "error");
+                alterationPickupFailures.push(
+                  `Ready alteration ${alterationId} pickup update failed after order pickup.`,
+                );
               }
+            }
+            if (alterationPickupFailures.length > 0) {
+              const message = alterationPickupFailures.join(" ");
+              await recordBlockedCheckoutRecovery(payload, 0, message, {
+                recoveryKind: "pickup_after_payment",
+                recoveryKey: pickupTransactionId,
+                recoveryTransactionId: pickupTransactionId,
+                authHeaders: apiAuth(),
+              });
+              toast("Pickup saved, but alteration pickup recovery needs review before closing.", "error");
             }
             receiptTransactionId = pickupTransactionId;
           } else {

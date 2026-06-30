@@ -49,6 +49,8 @@ Register #1 defaults to Terminal 1, Register #2 defaults to Terminal 2, and Regi
 
 If a card attempt is canceled and retried, use the current checkout status before sending another request. A message that a Helcim attempt does not belong to the register session means the pending terminal attempt no longer matches the active checkout attempt. Cancel the stale attempt, confirm the till is still open, then send a fresh card request.
 
+If the terminal approves but the drawer still shows the card attempt as pending, use **Check** before running the card again. ROS sends a unique invoice reference with each terminal request and can recover the approved Helcim transaction by that reference and amount when the terminal response is delayed.
+
 ## Keypad and amount controls
 
 Use **Full balance** for the normal path. Use **Split payment** only when the customer is paying with more than one tender.
@@ -60,6 +62,10 @@ The amount keypad is sized for register use while keeping the payment status, sa
 ## Completing the sale
 
 The **Complete sale** button stays unavailable until the payment rules are satisfied. After completion, Riverside OS opens the sale complete screen with print, view, text, email, and gift receipt actions.
+
+If the Main Hub connection drops before the sale completes, keep the checkout drawer open and wait for the connection banner to clear. Do not run the card again unless the drawer and Payments Health confirm that no current or unresolved card request is pending.
+
+If payment saves but pickup or alteration pickup follow-up does not complete, Riverside OS creates checkout recovery for manager review. Resolve that recovery before closing the register.
 
 ## What to watch for
 
