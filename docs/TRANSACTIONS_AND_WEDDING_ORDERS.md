@@ -52,6 +52,8 @@ The lifecycle belongs to each ordered item, not only to the Transaction Record o
 
 Lifecycle changes write audit events in `transaction_line_lifecycle_events`. Manual lifecycle repair paths require `orders.lifecycle_manage`; risky transitions must continue through receiving and pickup workflows so inventory, revenue, commission, and reporting contracts stay intact.
 
+Customer History must keep the Transaction Record booked date, each payment date, and the pickup or shipment date as separate events. For Special, Custom, Wedding, and shipped order lines, the 60-day return/exchange window starts on pickup or shipment, not on the original booked date.
+
 ### Mid-Season Wedding Cutover
 
 When ROS starts mid-year, existing wedding parties may be imported into Wedding Manager while their current sales/orders arrive from Counterpoint sync. Use the cutover linking workflow in [`WEDDING_COUNTERPOINT_CUTOVER_LINKING.md`](WEDDING_COUNTERPOINT_CUTOVER_LINKING.md):
@@ -136,4 +138,4 @@ Failure to maintain distinct naming leads to **Foreign Key violations** in the `
 
 ### Case-Insensitive Tax Categories
 
-Always treat `tax_category` strings (e.g., `Clothing`, `Footwear`) as case-insensitive in both the Rust and TypeScript logic. The POS and server must normalize these categories to lowercase before evaluating $110 tax exemption thresholds to prevent parity mismatches.
+Always treat `tax_category` strings (for example, the internal `clothing` value used for the staff-facing **Clothing & Footwear** rule) as case-insensitive in both the Rust and TypeScript logic. The POS and server must normalize these categories to lowercase before evaluating $110 tax exemption thresholds to prevent parity mismatches.

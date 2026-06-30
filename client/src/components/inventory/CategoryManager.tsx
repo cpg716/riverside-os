@@ -315,8 +315,8 @@ export default function CategoryManager() {
                         : "border-app-border bg-app-surface-2 text-app-text-muted"
                     }`}
                 >
-                    <option value="standard">Standard taxable</option>
-                    <option value="clothing_footwear">Clothing / footwear</option>
+                    <option value="standard">Regular</option>
+                    <option value="clothing_footwear">Clothing & Footwear</option>
                 </select>
             </div>
 
@@ -327,7 +327,7 @@ export default function CategoryManager() {
                     Status
                 </span>
                 <span className={`text-[10px] font-black uppercase italic ${effectiveExempt ? 'text-app-success' : 'text-app-text-muted'}`}>
-                    {effectiveExempt ? 'Tax-Protected' : 'Global Rate'}
+                    {effectiveExempt ? 'Clothing & Footwear' : 'Regular'}
                 </span>
             </div>
           </div>
@@ -418,14 +418,14 @@ export default function CategoryManager() {
 	            ))}
             <div className="flex flex-col justify-end gap-3">
                  <label className="space-y-1 px-1">
-                    <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted">Tax Category</span>
+                    <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted">Tax Rule</span>
                     <select
                         value={createIsClothing ? "clothing_footwear" : "standard"}
                         onChange={(e) => setCreateIsClothing(e.target.value === "clothing_footwear")}
                         className="h-10 w-full rounded-xl border border-app-border bg-app-surface px-3 text-[10px] font-black uppercase tracking-tight text-app-text"
                     >
-                        <option value="standard">Standard taxable</option>
-                        <option value="clothing_footwear">Clothing / footwear</option>
+                        <option value="standard">Regular</option>
+                        <option value="clothing_footwear">Clothing & Footwear</option>
                     </select>
                  </label>
                  <button

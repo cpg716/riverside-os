@@ -83,7 +83,7 @@ When "Publish to Web" is enabled, the catalog wizard inserts a dedicated **Web L
 1. **Inventory** → **Add/Edit Catalog** → **Categories**.
 2. **Add** or **rename** nodes per SOP; avoid duplicate names that confuse receivers.
 3. Set up to three default option types, such as **Size**, **Color**, and **Fit**. Add Item loads these defaults when that category is selected.
-4. Tax classification is item-level: categories or product overrides should identify **Clothing / footwear** items versus standard taxable merchandise/services.
+4. Tax classification is item-level: categories or product-level rules should identify **Clothing & Footwear** items versus **Regular** taxable merchandise/services.
 5. **Drag** to reparent only when **buying** and **reporting** agree — large moves need **manager** sign-off.
 6. After big changes, spot-check **Find Item** filters and one **Insights** slice if your role can.
 

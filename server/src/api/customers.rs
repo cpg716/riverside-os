@@ -51,6 +51,7 @@ use crate::logic::lightspeed_customers::{
 };
 use crate::logic::podium;
 use crate::logic::podium_messaging;
+use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 use crate::logic::shippo::{self, ShippoAddressFields};
 
 pub(crate) async fn rosie_customer_hub_snapshot(
@@ -6386,6 +6387,15 @@ struct ShipmentTimelineRow {
     staff_name: Option<String>,
 }
 
+#[derive(Debug, FromRow)]
+struct FulfillmentTimelineRow {
+    transaction_id: Uuid,
+    display_id: Option<String>,
+    fulfilled_at: DateTime<Utc>,
+    line_count: i64,
+    fulfillment_method: String,
+}
+
 #[derive(Debug, sqlx::FromRow)]
 struct MarketingEmailEventTimelineRow {
     id: Uuid,
@@ -6624,6 +6634,74 @@ async fn build_customer_timeline(
     .fetch_all(pool)
     .await?;
 
+    let recognition_ts = ORDER_RECOGNITION_TS_SQL.trim();
+    let fulfillment_events = sqlx::query_as::<_, FulfillmentTimelineRow>(&format!(
+        r#"
+        SELECT
+            o.id AS transaction_id,
+            COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
+            COALESCE(
+                ({recognition_ts}),
+                MAX(COALESCE(oi.fulfilled_at, oi.picked_up_at)),
+                o.fulfilled_at
+            ) AS fulfilled_at,
+            COUNT(oi.id) FILTER (WHERE COALESCE(oi.is_internal, false) = false)::bigint AS line_count,
+            COALESCE(NULLIF(TRIM(o.fulfillment_method::text), ''), 'pickup') AS fulfillment_method
+        FROM transactions o
+        LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+        WHERE (
+            o.customer_id = $1
+            OR EXISTS (
+                SELECT 1
+                FROM customer_relationship_periods crp
+                WHERE (
+                    (crp.parent_customer_id = $1 AND crp.child_customer_id = o.customer_id)
+                    OR
+                    (crp.child_customer_id = $1 AND crp.parent_customer_id = o.customer_id)
+                )
+                  AND o.booked_at >= crp.linked_at
+                  AND (crp.unlinked_at IS NULL OR o.booked_at <= crp.unlinked_at)
+                  AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+            )
+        )
+          AND (
+              COALESCE(NULLIF(TRIM(o.fulfillment_method::text), ''), 'pickup') <> 'pickup'
+              OR EXISTS (
+                  SELECT 1
+                  FROM transaction_lines order_line
+                  WHERE order_line.transaction_id = o.id
+                    AND order_line.fulfillment::text <> 'takeaway'
+              )
+          )
+          AND (
+              o.status::text = 'fulfilled'
+              OR o.fulfilled_at IS NOT NULL
+              OR EXISTS (
+                  SELECT 1
+                  FROM transaction_lines done_line
+                  WHERE done_line.transaction_id = o.id
+                    AND (
+                        done_line.is_fulfilled = true
+                        OR done_line.fulfilled_at IS NOT NULL
+                        OR done_line.picked_up_at IS NOT NULL
+                    )
+              )
+              OR ({recognition_ts}) IS NOT NULL
+          )
+        GROUP BY o.id, o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.fulfillment_method, o.fulfilled_at
+        HAVING COALESCE(
+            ({recognition_ts}),
+            MAX(COALESCE(oi.fulfilled_at, oi.picked_up_at)),
+            o.fulfilled_at
+        ) IS NOT NULL
+        ORDER BY fulfilled_at DESC
+        LIMIT 30
+        "#
+    ))
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
+
     let marketing_events = sqlx::query_as::<_, MarketingEmailEventTimelineRow>(
         r#"
         SELECT id, event_type, occurred_at, campaign_name, provider
@@ -6781,6 +6859,27 @@ async fn build_customer_timeline(
             ),
             reference_id: Some(se.shipment_id),
             reference_type: Some("shipment".to_string()),
+            wedding_party_id: None,
+        });
+    }
+
+    for f in fulfillment_events {
+        let display_id = f
+            .display_id
+            .unwrap_or_else(|| short_order_ref(f.transaction_id));
+        let line_label = if f.line_count == 1 {
+            "1 line".to_string()
+        } else {
+            format!("{} lines", f.line_count)
+        };
+        let shipped = f.fulfillment_method.eq_ignore_ascii_case("ship");
+        let action = if shipped { "shipped" } else { "picked up" };
+        events.push(CustomerTimelineEvent {
+            at: f.fulfilled_at,
+            kind: if shipped { "shipping" } else { "pickup" }.to_string(),
+            summary: format!("Transaction {display_id} {action} ({line_label})"),
+            reference_id: Some(f.transaction_id),
+            reference_type: Some("transaction".to_string()),
             wedding_party_id: None,
         });
     }

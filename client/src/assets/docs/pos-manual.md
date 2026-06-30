@@ -99,6 +99,8 @@ Use this when a customer is exchanging or returning items tied to a completed tr
 4. Follow the wizard instructions for refund, replacement sale, or manager approval.
 5. Complete any replacement checkout before handing the customer their final receipt.
 
+For Special, Custom, Wedding, and shipped order lines, the return window starts on pickup or shipment, not the original booked order date. If Riverside asks for Manager Access, follow the prompt.
+
 Inventory and bookkeeping follow server rules for takeaway, order, and wedding lines; ask a lead if you are unsure.
 
 ---

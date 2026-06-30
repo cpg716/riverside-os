@@ -67,7 +67,7 @@ interface ProductMasterFormProps {
 }
 
 type FormStep = "shell" | "financials" | "matrix" | "web" | "review";
-type ProductTaxOverride = "" | "clothing" | "footwear" | "accessory" | "service";
+type ProductTaxOverride = "" | "clothing" | "accessory" | "service";
 
 interface WebCategory {
   id: string;
@@ -767,7 +767,7 @@ export default function ProductMasterForm({
                     className="h-4 w-4 rounded border-app-border text-app-accent"
                   />
                   <div>
-                    <span className="text-xs font-bold text-app-text block">Tax Override</span>
+                    <span className="text-xs font-bold text-app-text block">Product Tax Rule</span>
                     {taxCategoryOverride && (
                       <select
                         value={taxCategoryOverride}
@@ -775,12 +775,14 @@ export default function ProductMasterForm({
                         onClick={(e) => e.stopPropagation()}
                         className="mt-1 h-8 w-full rounded-lg border border-app-border bg-app-surface px-2 text-[10px] font-bold text-app-text"
                       >
-                        <option value="clothing">Clothing</option>
-                        <option value="footwear">Footwear</option>
-                        <option value="accessory">Accessory / taxable</option>
+                        <option value="clothing">Clothing & Footwear</option>
+                        <option value="accessory">Regular taxable</option>
                         <option value="service">Service / non-taxable</option>
                       </select>
                     )}
+                    <span className="text-[10px] text-app-text-muted block mt-0.5">
+                      Use only when this item differs from its category.
+                    </span>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 rounded-2xl border border-app-border/40 bg-app-surface-2 p-3 cursor-pointer group hover:border-app-accent/40 transition-all">
@@ -846,8 +848,8 @@ export default function ProductMasterForm({
                 <span className={`h-2 w-2 rounded-full ${categoryBadge?.is_clothing_footwear ? "bg-emerald-500" : "bg-app-text-muted/40"}`} />
                 <span className="text-xs font-bold text-app-text leading-tight">
                   {categoryBadge?.is_clothing_footwear
-                    ? "Clothing exemption — NY sales under $110 are tax-free."
-                    : "Standard merchandise tax rules apply."}
+                    ? "Clothing & Footwear — NY state tax is exempt under $110."
+                    : "Regular taxable merchandise rules apply."}
                 </span>
               </div>
             </div>

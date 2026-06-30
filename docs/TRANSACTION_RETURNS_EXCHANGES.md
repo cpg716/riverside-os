@@ -29,8 +29,9 @@ For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **sp
 When the client cannot send Back Office staff headers (e.g. receipt modal on the till), some routes accept **`register_session_id`** so a **single open register session** can authorize read or modify.
 
 **Policy Note (60-Day Window)**:
- - **Transactions <= 60 days old**: Can be modified by any staff member on an active session.
- - **Transactions > 60 days old**: Always requires a **Manager Access** override (`orders.modify` permission) even if a session ID is provided.
+ - **Fulfilled items <= 60 days from pickup or shipment**: Can be modified by any staff member on an active session.
+ - **Fulfilled items > 60 days from pickup or shipment**: Always require a **Manager Access** override (`orders.modify` permission) even if a session ID is provided.
+ - **Legacy records without fulfillment evidence**: Fall back to the original booked date so the return flow remains deterministic and auditable.
 
 | Operation | Query / body | Requirement |
 |-----------|----------------|-------------|

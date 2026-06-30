@@ -46,7 +46,7 @@ The workspace now also shows a `Customer Completeness` summary above the list. T
 Use the main Customers workspace and relationship hub when you need to review:
 
 - customer profile details
-- notes and timeline history
+- notes and timeline history. Order history should show the booked Transaction Record, payment events, and pickup or shipment events as separate facts.
 - measurements
 - Transaction Records and fulfillment-order history
 - shipment history

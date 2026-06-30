@@ -10617,10 +10617,12 @@ pub struct CategoryMasterSummary {
 
 async fn get_or_create_category_id_for_cp(
     tx: &mut Transaction<'_, Postgres>,
+    cp_category: &str,
     display_label: &str,
     summary: &mut CategoryMasterSummary,
 ) -> Result<Uuid, sqlx::Error> {
     let label = display_label.trim();
+    let is_clothing_footwear = counterpoint_category_is_clothing_footwear(cp_category, label);
     if let Some(id) =
         sqlx::query_scalar("SELECT id FROM categories WHERE lower(trim(name)) = lower(trim($1))")
             .bind(label)
@@ -10632,13 +10634,14 @@ async fn get_or_create_category_id_for_cp(
 
     if let Some(id) = sqlx::query_scalar(
         r#"
-        INSERT INTO categories (name)
-        VALUES ($1)
+        INSERT INTO categories (name, is_clothing_footwear)
+        VALUES ($1, $2)
         ON CONFLICT (name) DO NOTHING
         RETURNING id
         "#,
     )
     .bind(label)
+    .bind(is_clothing_footwear)
     .fetch_optional(&mut **tx)
     .await?
     {
@@ -10652,6 +10655,52 @@ async fn get_or_create_category_id_for_cp(
             .fetch_one(&mut **tx)
             .await?;
     Ok(id)
+}
+
+fn counterpoint_category_is_clothing_footwear(cp_category: &str, display_label: &str) -> bool {
+    let raw_haystack = format!(
+        "{} {}",
+        cp_category.trim().to_ascii_lowercase(),
+        display_label.trim().to_ascii_lowercase()
+    );
+    let haystack: String = raw_haystack
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let regular_markers = [
+        "alteration",
+        "aftershave",
+        "bag",
+        "cologne",
+        "cleaning",
+        "discount",
+        "fee",
+        "fragrance",
+        "freight",
+        "gift card",
+        "gift certificate",
+        "grooming",
+        "jewelry",
+        "misc",
+        "non clothing",
+        "payment",
+        "perfume",
+        "postage",
+        "rental",
+        "service",
+        "shipping",
+        "tax",
+        "toiletry",
+        "wallet",
+        "watch",
+    ];
+
+    !regular_markers
+        .iter()
+        .any(|marker| haystack.contains(marker) || raw_haystack.contains(&marker.replace(' ', "_")))
 }
 
 /// Upserts `categories` + `counterpoint_category_map`. Skips rows that already have a non-null `ros_category_id`
@@ -10696,7 +10745,7 @@ pub async fn execute_counterpoint_category_masters_batch(
         let label_src = trim_opt(&row.display_name).unwrap_or_else(|| cp.to_string());
         let label = clamp_chars(&label_src, 500);
 
-        let cat_id = get_or_create_category_id_for_cp(&mut tx, &label, &mut summary).await?;
+        let cat_id = get_or_create_category_id_for_cp(&mut tx, cp, &label, &mut summary).await?;
 
         sqlx::query(
             r#"
@@ -14527,6 +14576,29 @@ mod tests {
         tokio::sync::Mutex::const_new(());
     static COUNTERPOINT_HEALTH_TEST_LOCK: tokio::sync::Mutex<()> =
         tokio::sync::Mutex::const_new(());
+
+    #[test]
+    fn counterpoint_category_tax_classifier_defaults_to_clothing_footwear() {
+        assert!(counterpoint_category_is_clothing_footwear(
+            "SUITS", "Suiting"
+        ));
+        assert!(counterpoint_category_is_clothing_footwear(
+            "SHOES",
+            "Formal Footwear"
+        ));
+        assert!(!counterpoint_category_is_clothing_footwear(
+            "COLOGNE",
+            "Fragrance / Cologne"
+        ));
+        assert!(!counterpoint_category_is_clothing_footwear(
+            "GIFT",
+            "Gift Cards"
+        ));
+        assert!(!counterpoint_category_is_clothing_footwear(
+            "GIFT_CARD",
+            "Stored Value"
+        ));
+    }
 
     #[test]
     fn counterpoint_import_run_kind_tracks_full_fix_and_update_modes() {

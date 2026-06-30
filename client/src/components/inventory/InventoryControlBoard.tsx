@@ -1604,7 +1604,7 @@ export default function InventoryControlBoard({
           {discoveryBtn(negativeStockOnly, "Negative Stock", () =>
             setNegativeStockOnly(!negativeStockOnly),
           )}
-          {discoveryBtn(clothingOnly, "Clothing / footwear", () =>
+          {discoveryBtn(clothingOnly, "Clothing & Footwear", () =>
             setClothingOnly(!clothingOnly),
           )}
           {discoveryBtn(unlabeledOnly, "Missing Labels", () =>

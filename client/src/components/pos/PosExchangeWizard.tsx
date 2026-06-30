@@ -24,6 +24,9 @@ interface TransactionItemRow {
   state_tax: string;
   local_tax: string;
   fulfillment: FulfillmentKind;
+  is_fulfilled?: boolean;
+  fulfilled_at?: string | null;
+  picked_up_at?: string | null;
 }
 
 interface TransactionDetailLite {
@@ -93,6 +96,21 @@ const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
 ];
 
 const RETURN_MANAGER_APPROVAL_WINDOW_DAYS = 60;
+
+function returnWindowBasisAt(detail: TransactionDetailLite): string {
+  const lineDates = detail.items
+    .filter((item) => item.quantity - (item.quantity_returned ?? 0) > 0)
+    .map((item) => item.fulfilled_at ?? item.picked_up_at)
+    .filter((value): value is string => Boolean(value));
+
+  if (lineDates.length > 0) {
+    return lineDates.reduce((latest, value) =>
+      new Date(value).getTime() > new Date(latest).getTime() ? value : latest,
+    );
+  }
+
+  return detail.booked_at;
+}
 
 function refundableCreditCents(detail: TransactionDetailLite): number {
   const paidCents = parseMoneyToCents(detail.amount_paid);
@@ -199,7 +217,7 @@ export default function PosExchangeWizard({
         return;
       }
       
-      const daysOld = (Date.now() - new Date(d.booked_at).getTime()) / (1000 * 60 * 60 * 24);
+      const daysOld = (Date.now() - new Date(returnWindowBasisAt(d)).getTime()) / (1000 * 60 * 60 * 24);
       const hasReturnableLines = d.items.some((item) => item.quantity - (item.quantity_returned ?? 0) > 0);
       const existingRefundableCents = refundableCreditCents(d);
       if (!hasReturnableLines && existingRefundableCents > 0) {
@@ -499,8 +517,8 @@ export default function PosExchangeWizard({
                  />
               </div>
               <p className="text-[10px] text-app-text-muted leading-relaxed opacity-60">
-                Transactions older than {RETURN_MANAGER_APPROVAL_WINDOW_DAYS} days require Manager Access. For uneven wedding group payments,
-                confirm return quantities against the correct member record before refunding.
+                Returns older than {RETURN_MANAGER_APPROVAL_WINDOW_DAYS} days from pickup or shipment require Manager Access.
+                For uneven wedding group payments, confirm return quantities against the correct member record before refunding.
               </p>
             </div>
           )}
@@ -753,7 +771,7 @@ export default function PosExchangeWizard({
         <ManagerApprovalModal
           isOpen={true}
           title="Return Deadline Exceeded"
-          message={`This original sale is older than ${RETURN_MANAGER_APPROVAL_WINDOW_DAYS} days. Manager Access is required to process an exchange/return.`}
+          message={`This return is more than ${RETURN_MANAGER_APPROVAL_WINDOW_DAYS} days after pickup or shipment. Manager Access is required to process an exchange/return.`}
           onClose={() => {
             setPendingManagerApproval(null);
             setLoading(false);

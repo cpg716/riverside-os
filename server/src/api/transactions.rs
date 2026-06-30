@@ -43,6 +43,7 @@ use crate::logic::receipt_escpos;
 use crate::logic::receipt_plain_text;
 use crate::logic::receipt_shared;
 use crate::logic::receipt_studio_html;
+use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 use crate::logic::store_credit;
 use crate::logic::suit_component_swap::{self, SuitSwapInput, SuitSwapOutcome};
 use crate::logic::transaction_recalc;
@@ -278,6 +279,8 @@ pub struct TransactionDetailItem {
     pub ready_for_pickup_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picked_up_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fulfilled_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -1471,6 +1474,7 @@ struct OrderItemRow {
     received_at: Option<DateTime<Utc>>,
     ready_for_pickup_at: Option<DateTime<Utc>>,
     picked_up_at: Option<DateTime<Utc>>,
+    fulfilled_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, FromRow)]
@@ -2141,6 +2145,33 @@ async fn authorize_transaction_read_bo_or_register(
     Ok(())
 }
 
+async fn transaction_return_window_basis_at(
+    pool: &PgPool,
+    transaction_id: Uuid,
+) -> Result<DateTime<Utc>, TransactionError> {
+    let recognition_ts = ORDER_RECOGNITION_TS_SQL.trim();
+    let sql = format!(
+        r#"
+        SELECT COALESCE(
+            ({recognition_ts}),
+            MAX(COALESCE(tl.fulfilled_at, tl.picked_up_at)),
+            o.fulfilled_at,
+            o.booked_at
+        ) AS return_window_basis_at
+        FROM transactions o
+        LEFT JOIN transaction_lines tl ON tl.transaction_id = o.id
+        WHERE o.id = $1
+        GROUP BY o.id
+        "#
+    );
+
+    sqlx::query_scalar::<_, DateTime<Utc>>(&sql)
+        .bind(transaction_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(TransactionError::NotFound)
+}
+
 /// `Ok(Some(staff_id))` when BO headers were used; `Ok(None)` for register-session authorization.
 async fn authorize_transaction_modify_bo_or_register(
     state: &AppState,
@@ -2166,16 +2197,13 @@ async fn authorize_transaction_modify_bo_or_register(
             return Ok(None);
         }
 
-        // 2. Not in session? Check age against the store return window.
-        let booked_at = sqlx::query_scalar::<_, DateTime<Utc>>(
-            "SELECT booked_at FROM transactions WHERE id = $1",
-        )
-        .bind(transaction_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(TransactionError::NotFound)?;
+        // 2. Not in session? Check age against the return window.
+        // For orders, the clock starts when the goods are picked up or shipped,
+        // not when the order was originally booked.
+        let return_window_basis_at =
+            transaction_return_window_basis_at(&state.db, transaction_id).await?;
 
-        let days_old = (Utc::now() - booked_at).num_days();
+        let days_old = (Utc::now() - return_window_basis_at).num_days();
         if days_old <= RETURN_MANAGER_APPROVAL_WINDOW_DAYS {
             // Within the return window, any register session can process the return/exchange.
             return Ok(None);
@@ -2206,6 +2234,7 @@ async fn authorize_transaction_modify_bo_or_register(
                 json!({
                     "transaction_id": transaction_id,
                     "days_old": days_old,
+                    "return_window_basis_at": return_window_basis_at,
                     "reason": reason,
                 }),
             )
@@ -5835,7 +5864,8 @@ pub(crate) async fn load_transaction_detail(
             oi.ordered_at,
             oi.received_at,
             oi.ready_for_pickup_at,
-            oi.picked_up_at
+            oi.picked_up_at,
+            oi.fulfilled_at
         FROM transaction_lines oi
         INNER JOIN products p ON p.id = oi.product_id
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
@@ -6012,6 +6042,7 @@ pub(crate) async fn load_transaction_detail(
             received_at: r.received_at,
             ready_for_pickup_at: r.ready_for_pickup_at,
             picked_up_at: r.picked_up_at,
+            fulfilled_at: r.fulfilled_at,
         })
         .collect();
     let transaction_line_ids = items

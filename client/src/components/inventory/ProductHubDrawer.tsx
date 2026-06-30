@@ -29,7 +29,20 @@ import { isCustomOrderSku } from "../../lib/customOrders";
 const VENDOR_ICON = getAppIcon("vendor");
 
 type HubTab = "general" | "variations" | "history";
-type ProductTaxOverride = "" | "clothing" | "footwear" | "accessory" | "service";
+type ProductTaxOverride = "" | "clothing" | "accessory" | "service";
+
+function productTaxRuleLabel(rule: ProductTaxOverride | null | undefined): string {
+  switch (rule) {
+    case "clothing":
+      return "Clothing & Footwear";
+    case "accessory":
+      return "Regular taxable";
+    case "service":
+      return "Service / non-taxable";
+    default:
+      return "Inherit from category";
+  }
+}
 
 interface ProductHubProduct {
   id: string;
@@ -1091,12 +1104,12 @@ export default function ProductHubDrawer({
                 <div className="mb-4 flex flex-wrap items-center gap-3">
                   {hub.product.is_clothing_footwear ? (
                     <span className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-success">
-                      Clothing / footwear tax class
+                      Clothing & Footwear tax rule
                     </span>
                   ) : null}
                   {hub.product.tax_category_override ? (
                     <span className="rounded-lg border border-amber-300/50 bg-amber-100 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800">
-                      Product tax override: {hub.product.tax_category_override}
+                      Product tax rule: {productTaxRuleLabel(hub.product.tax_category_override)}
                     </span>
                   ) : null}
                 </div>
@@ -1850,7 +1863,7 @@ export default function ProductHubDrawer({
                 <div className="space-y-3">
                   <label className="block rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
                     <span className="text-sm font-bold text-app-text">
-                      Tax category
+                      Product tax rule
                     </span>
                     <select
                       value={hub.product.tax_category_override ?? ""}
@@ -1865,13 +1878,12 @@ export default function ProductHubDrawer({
                       className="mt-2 h-11 w-full rounded-xl border border-app-border bg-app-surface px-3 text-xs font-bold text-app-text"
                     >
                       <option value="">Inherit from category</option>
-                      <option value="clothing">Clothing</option>
-                      <option value="footwear">Footwear</option>
-                      <option value="accessory">Accessory / taxable item</option>
+                      <option value="clothing">Clothing & Footwear</option>
+                      <option value="accessory">Regular taxable</option>
                       <option value="service">Service / non-taxable</option>
                     </select>
                     <span className="mt-2 block text-xs text-app-text-muted">
-                      Product overrides apply to every SKU under this parent item. Leave inherited unless this product differs from the category rule.
+                      Product-level rules apply to every SKU under this parent item. Leave inherited unless this product differs from the category rule.
                     </span>
                   </label>
 
