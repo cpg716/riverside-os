@@ -93,6 +93,7 @@ export default function GlobalTopBar({
   onThemeToggle,
   cashierName,
   cashierAvatarKey,
+  cashierAvatarPhotoUrl,
   onNavigateToTab,
 }: GlobalTopBarProps) {
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -124,6 +125,13 @@ export default function GlobalTopBar({
   const { isOnline, queueCount, pendingCount, blockedCount } = useOfflineSync(baseUrl, apiAuth);
   const isPosVariant = searchVariant === "pos";
   const showBackofficePosShortcut = !isPosVariant && !onShellReturn;
+  const profileDisplayName =
+    staffDisplayName.trim() ||
+    (isPosVariant && isRegisterOpen ? cashierName?.trim() || "Cashier" : "User");
+  const profileAvatarKey =
+    staffAvatarKey || (isPosVariant && isRegisterOpen ? cashierAvatarKey : null);
+  const profileAvatarPhotoUrl =
+    staffAvatarPhotoUrl || (isPosVariant && isRegisterOpen ? cashierAvatarPhotoUrl : null);
 
   const isTailscaleRemote = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -274,7 +282,7 @@ export default function GlobalTopBar({
             )}
             <div className="hidden text-right lg:block">
             <p className="text-xs font-bold text-app-text leading-tight">
-              {staffDisplayName || (isRegisterOpen ? (cashierName || "Cashier") : "User")}
+              {profileDisplayName}
             </p>
             <div className="flex items-center justify-end gap-1.5">
                <div className={cn("h-1.5 w-1.5 rounded-full", isRegisterOpen ? "bg-emerald-500" : "bg-rose-500")} />
@@ -300,8 +308,8 @@ export default function GlobalTopBar({
             >
               <img
                 src={staffAvatarUrl(
-                  staffAvatarKey || (isRegisterOpen ? cashierAvatarKey : null),
-                  staffAvatarPhotoUrl,
+                  profileAvatarKey,
+                  profileAvatarPhotoUrl,
                 )}
                 alt=""
                 className="h-full w-full object-cover"

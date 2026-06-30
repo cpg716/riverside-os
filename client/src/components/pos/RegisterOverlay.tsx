@@ -90,6 +90,17 @@ interface ReadinessCheck {
   detail: string;
 }
 
+function installedRegisterLane(): number | null {
+  if (typeof window === "undefined") return null;
+  const label = window.localStorage.getItem("ros.station.label")?.trim() ?? "";
+  const registerMatch = label.match(/^Register\s*#?\s*(\d+)$/i);
+  if (registerMatch) {
+    const lane = Number(registerMatch[1]);
+    return Number.isInteger(lane) && lane > 0 ? lane : null;
+  }
+  return /back\s*office|backoffice/i.test(label) ? 3 : null;
+}
+
 function readinessTone(status: ReadinessStatus): string {
   if (status === "ready") {
     return "ui-tint-success text-app-success";
@@ -153,6 +164,8 @@ export default function RegisterOverlay({
   const { backofficeHeaders, staffRole, permissionsLoaded } =
     useBackofficeAuth();
   const [credential, setCredential] = useState("");
+  const stationRegisterLane = useMemo(() => installedRegisterLane(), []);
+  const stationLocksRegisterLane = stationRegisterLane != null;
 
   const baseUrl = getBaseUrl();
 
@@ -176,16 +189,16 @@ export default function RegisterOverlay({
         if (res.ok) {
           const data = (await res.json()) as { max_register_lanes?: number };
           if (typeof data.max_register_lanes === "number" && data.max_register_lanes > 0) {
-            setMaxRegisterLanes(data.max_register_lanes);
+            setMaxRegisterLanes(Math.max(data.max_register_lanes, stationRegisterLane ?? 1));
           }
         }
       } catch (e) {
         console.error("Failed to load station config", e);
       }
     })();
-  }, [baseUrl]);
+  }, [baseUrl, stationRegisterLane]);
 
-  const [registerLane, setRegisterLane] = useState(1);
+  const [registerLane, setRegisterLane] = useState(() => stationRegisterLane ?? 1);
   /** After the user picks a lane, do not auto-switch (e.g. admin default to #2). */
   const registerLaneUserChosenRef = useRef(false);
   const [maxRegisterLanes, setMaxRegisterLanes] = useState(4);
@@ -284,13 +297,20 @@ export default function RegisterOverlay({
     if (
       permissionsLoaded &&
       staffRole === "admin" &&
+      !stationLocksRegisterLane &&
       !registerLaneUserChosenRef.current &&
       register1OpenForAdmin === true &&
       adminPrimaryPath !== "opening_lane1"
     ) {
       setRegisterLane(3); // Default BO activity to Register 3 (Back Office)
     }
-  }, [permissionsLoaded, staffRole, register1OpenForAdmin, adminPrimaryPath]);
+  }, [
+    permissionsLoaded,
+    staffRole,
+    stationLocksRegisterLane,
+    register1OpenForAdmin,
+    adminPrimaryPath,
+  ]);
 
   useEffect(() => {
     if (registerLane <= 1) {
@@ -388,6 +408,58 @@ export default function RegisterOverlay({
     }
   }, [baseUrl]);
 
+  const attachOpenLane = async (lane: number): Promise<boolean> => {
+    const listRes = await fetch(`${baseUrl}/api/sessions/list-open`, {
+      headers: mergedPosStaffHeaders(backofficeHeaders),
+    });
+    if (!listRes.ok) {
+      return false;
+    }
+
+    const rows = (await listRes.json()) as OpenSessionSummaryJson[];
+    const existing = rows.find((row) => row.register_lane === lane);
+    if (!existing?.session_id) {
+      return false;
+    }
+
+    const attachRes = await fetch(
+      `${baseUrl}/api/sessions/${encodeURIComponent(existing.session_id)}/attach`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(),
+        body: "{}",
+      },
+    );
+    if (!attachRes.ok) {
+      return false;
+    }
+
+    const attachJson = (await attachRes.json()) as { pos_api_token?: string };
+    const token = attachJson.pos_api_token?.trim();
+    if (!token) {
+      return false;
+    }
+
+    const cur = await fetch(`${baseUrl}/api/sessions/current`, {
+      headers: {
+        "x-riverside-pos-session-id": existing.session_id,
+        "x-riverside-pos-session-token": token,
+      },
+    });
+    if (!cur.ok) {
+      return false;
+    }
+
+    const data = (await cur.json()) as CurrentSessionJson;
+    onOpenedRef.current(payloadFromSessionJson(data, token));
+    void syncPrinterConfigToServer(
+      baseUrl,
+      mergedPosStaffHeaders(backofficeHeaders),
+      lane,
+    );
+    return true;
+  };
+
   useEffect(() => {
     void tryResumeOrBypass();
   }, [tryResumeOrBypass]);
@@ -424,8 +496,12 @@ export default function RegisterOverlay({
         register_lane?: number;
       };
       if (body.error === "register_lane_in_use") {
+        const laneInUse = body.register_lane ?? registerLaneRef.current;
+        if (await attachOpenLane(laneInUse)) {
+          return;
+        }
         throw new Error(
-          `Register #${body.register_lane ?? registerLaneRef.current} already has an open session. Pick another register number or join that session from Back Office.`,
+          `Register #${laneInUse} already has an open session. Pick another register number or join that session from Back Office.`,
         );
       }
       const sid = body.session_id?.trim();
@@ -951,9 +1027,11 @@ export default function RegisterOverlay({
                     <select
                       value={registerLane}
                       onChange={(e) => {
+                        if (stationLocksRegisterLane) return;
                         registerLaneUserChosenRef.current = true;
                         setRegisterLane(Number(e.target.value));
                       }}
+                      disabled={stationLocksRegisterLane}
                       className="ui-input h-14 w-full bg-app-surface/50 text-center text-base font-black"
                     >
                       {Array.from({ length: maxRegisterLanes }, (_, i) => {
