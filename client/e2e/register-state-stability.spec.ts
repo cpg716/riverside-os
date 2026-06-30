@@ -23,7 +23,7 @@ const registerSession = {
   lifecycle_status: "open",
   role: "salesperson",
   receipt_timezone: "America/New_York",
-  opening_float: "200.00",
+  opening_float: "300.00",
   opened_at: "2026-06-30T13:00:00.000Z",
   till_close_group_id: "till-group-1",
 };
@@ -186,6 +186,9 @@ test.describe("register state stability", () => {
       .getByRole("combobox");
     await expect(terminalSelect).toHaveValue("1");
     await expect(terminalSelect).toBeDisabled();
+    await expect(
+      page.getByRole("dialog", { name: "Open Register" }).getByRole("spinbutton"),
+    ).toHaveValue("300.00");
 
     for (const digit of "1234") {
       await page.getByTestId(`pin-key-${digit}`).click();

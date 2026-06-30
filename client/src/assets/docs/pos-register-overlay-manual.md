@@ -20,7 +20,7 @@ This is the **Register Access** screen shown before the POS cart can be used. It
 2. Review the **Station Readiness** panel.
 3. Confirm the Riverside API is reachable and the receipt printer is responding for this station.
 4. Pick the correct register lane for this terminal.
-5. If you are at the main cash drawer, open **Register #1** and enter the opening float.
+5. If you are at the main cash drawer, open **Register #1** and confirm the opening float. The default starting drawer is **$300.00**.
 6. If you are opening another lane, wait until **Register #1** is already active, then continue.
 
 ## Recovery and escalation

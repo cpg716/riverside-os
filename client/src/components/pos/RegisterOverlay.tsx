@@ -84,6 +84,8 @@ type OpenSessionSummaryJson = {
 /** Admin POS path when Register #1 is not open yet. */
 type AdminPrimaryPath = null | "opening_lane1" | "waiting_lane1_elsewhere";
 type ReadinessStatus = "checking" | "ready" | "warning" | "error";
+const PRIMARY_OPENING_FLOAT_DEFAULT = "300.00";
+const SATELLITE_OPENING_FLOAT = "0.00";
 
 interface ReadinessCheck {
   status: ReadinessStatus;
@@ -202,7 +204,7 @@ export default function RegisterOverlay({
   /** After the user picks a lane, do not auto-switch (e.g. admin default to #2). */
   const registerLaneUserChosenRef = useRef(false);
   const [maxRegisterLanes, setMaxRegisterLanes] = useState(4);
-  const [openingFloat, setOpeningFloat] = useState("200.00");
+  const [openingFloat, setOpeningFloat] = useState(PRIMARY_OPENING_FLOAT_DEFAULT);
   const [booting, setBooting] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -367,9 +369,9 @@ export default function RegisterOverlay({
 
   useEffect(() => {
     if (registerLane > 1) {
-      setOpeningFloat("0.00");
+      setOpeningFloat(SATELLITE_OPENING_FLOAT);
     } else {
-      setOpeningFloat("200.00");
+      setOpeningFloat(PRIMARY_OPENING_FLOAT_DEFAULT);
     }
     // Hydrate printer config for this lane from server
     void hydratePrinterConfigFromServer(baseUrl, registerLane);
