@@ -28,21 +28,40 @@ const registerSession = {
   till_close_group_id: "till-group-1",
 };
 
-async function seedBackofficeSession(page: Page, stationLabel?: string) {
+async function seedBackofficeSession(
+  page: Page,
+  stationLabel?: string,
+  options?: { posSession?: boolean },
+) {
   await page.addInitScript(
-    ({ boKey, posKey, label }) => {
+    ({ boKey, posKey, label, posSession }) => {
       window.sessionStorage.setItem(
         boKey,
         JSON.stringify({ staffCode: "1234", staffPin: "1234" }),
       );
-      window.sessionStorage.removeItem(posKey);
+      if (posSession) {
+        window.sessionStorage.setItem(
+          posKey,
+          JSON.stringify({
+            sessionId: "session-register-1",
+            token: "attached-token-1",
+          }),
+        );
+      } else {
+        window.sessionStorage.removeItem(posKey);
+      }
       if (label) {
         window.localStorage.setItem("ros.station.label", label);
       } else {
         window.localStorage.removeItem("ros.station.label");
       }
     },
-    { boKey: BO_SESSION_KEY, posKey: POS_SESSION_KEY, label: stationLabel },
+    {
+      boKey: BO_SESSION_KEY,
+      posKey: POS_SESSION_KEY,
+      label: stationLabel,
+      posSession: options?.posSession ?? false,
+    },
   );
 }
 
@@ -56,8 +75,14 @@ function json(route: Route, body: unknown, status = 200) {
 
 async function installApiMocks(
   page: Page,
-  options: { staffCurrentSessionStatus: 200 | 404 },
+  options: {
+    staffCurrentSessionStatus: 200 | 404;
+    healthStatus?: 200 | 503;
+    posCurrentSessionStatus?: 200 | 503;
+    posCurrentSessionFailureAfterFirst?: boolean;
+  },
 ) {
+  let posCurrentSessionCount = 0;
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -96,8 +121,26 @@ async function installApiMocks(
       return json(route, { max_register_lanes: 4 });
     }
 
+    if (path === "/api/health") {
+      return json(
+        route,
+        options.healthStatus === 503 ? { status: "offline" } : { status: "ok" },
+        options.healthStatus ?? 200,
+      );
+    }
+
     if (path === "/api/sessions/current") {
       const hasPosToken = Boolean(request.headers()["x-riverside-pos-session-id"]);
+      if (hasPosToken) {
+        posCurrentSessionCount += 1;
+      }
+      if (
+        hasPosToken &&
+        (options.posCurrentSessionStatus === 503 ||
+          (options.posCurrentSessionFailureAfterFirst && posCurrentSessionCount > 1))
+      ) {
+        return json(route, { error: "Main Hub unavailable" }, 503);
+      }
       if (!hasPosToken && options.staffCurrentSessionStatus === 404) {
         return json(route, { error: "No active session found" }, 404);
       }
@@ -199,5 +242,31 @@ test.describe("register state stability", () => {
     });
     await expect(page.getByTestId("pos-register-cart-shell")).toBeVisible();
     await expect(page.getByText(/already has an open session/i)).toHaveCount(0);
+  });
+
+  test("transient Main Hub failure keeps Register #1 mounted and shows connection banner", async ({
+    page,
+  }) => {
+    await seedBackofficeSession(page, "Register #1", { posSession: true });
+    await installApiMocks(page, {
+      staffCurrentSessionStatus: 200,
+      healthStatus: 503,
+      posCurrentSessionFailureAfterFirst: true,
+    });
+
+    await page.goto("/pos", { waitUntil: "domcontentloaded" });
+
+    const posShell = page.getByTestId("pos-shell-root");
+    await expect(posShell).toHaveAttribute("data-register-open", "true", {
+      timeout: 20_000,
+    });
+    await expect(page.getByTestId("server-connection-lost-banner")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent("ros-backoffice-session-changed"));
+    });
+    await expect(posShell).toHaveAttribute("data-register-open", "true");
+    await expect(page.getByRole("dialog", { name: "Open Register" })).toHaveCount(0);
   });
 });

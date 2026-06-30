@@ -24,6 +24,10 @@ import RegisterPickModal, {
 
 const SESSION_CURRENT_FETCH_MS = 12_000;
 
+function shouldPreserveRegisterState(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
 async function fetchSessionCurrent(
   url: string,
   headers: Record<string, string>,
@@ -339,6 +343,8 @@ export default function RegisterSessionBootstrap({
             applyShellForLoggedInRole(staffRole, setActiveTab, setPosMode);
             lastNoSessionShellKeyRef.current = noSessionKey;
           }
+        } else if (shouldPreserveRegisterState(res.status)) {
+          return;
         } else {
           setRegisterPickSessions(null);
           const hadSession = lastShellApplySessionIdRef.current !== null;
