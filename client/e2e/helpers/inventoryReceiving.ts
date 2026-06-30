@@ -220,6 +220,7 @@ export async function createSingleVariantProduct(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       category_id: categoryId,

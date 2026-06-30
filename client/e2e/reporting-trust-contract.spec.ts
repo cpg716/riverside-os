@@ -149,6 +149,7 @@ async function issuePosToken(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       cashier_code: staffCode(),
@@ -172,6 +173,7 @@ async function fetchReconciliation(
     headers: {
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     failOnStatusCode: false,
   });
@@ -191,6 +193,7 @@ async function closeRegisterGroup(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       actual_cash: recon.expected_cash,
@@ -218,6 +221,7 @@ async function openFreshPrimarySession(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       cashier_code: staffCode(),
@@ -266,6 +270,7 @@ async function createReportingTrustProduct(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       name: categoryName,
@@ -285,6 +290,7 @@ async function createReportingTrustProduct(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       category_id: category.id,
@@ -348,6 +354,7 @@ async function checkoutCashSale(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -412,6 +419,7 @@ async function returnFirstTransactionLine(
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": options.sessionId,
         "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         lines: [
@@ -464,6 +472,7 @@ async function markPickup(
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       delivered_item_ids: [],
@@ -489,6 +498,7 @@ async function assignFulfillmentTimestamp(
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         transaction_id: transactionId,

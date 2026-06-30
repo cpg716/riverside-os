@@ -6867,7 +6867,7 @@ async fn post_suit_component_swap(
     Json(body): Json<SuitComponentSwapRequest>,
 ) -> Result<Json<SuitSwapOutcome>, TransactionError> {
     let staff_id_for_event: Option<Uuid> = if let Some(reg_sid) = body.register_session_id {
-        let Some((h_sid, tok)) = pos_session::pos_session_headers(&headers) else {
+        let Some((h_sid, tok, station_key)) = pos_session::pos_session_headers(&headers) else {
             return Err(TransactionError::Unauthorized(
                 "register suit swap requires x-riverside-pos-session-id and x-riverside-pos-session-token"
                     .to_string(),
@@ -6878,7 +6878,7 @@ async fn post_suit_component_swap(
                 "register_session_id must match x-riverside-pos-session-id header".to_string(),
             ));
         }
-        let ok = pos_session::verify_pos_session_token(&state.db, h_sid, &tok)
+        let ok = pos_session::verify_pos_session_token(&state.db, h_sid, &tok, &station_key)
             .await
             .map_err(TransactionError::Database)?;
         if !ok {

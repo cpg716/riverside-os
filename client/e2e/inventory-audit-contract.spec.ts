@@ -124,6 +124,7 @@ async function createNonClothingCategory(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       name: `E2E Inventory ${label}`,
@@ -194,6 +195,7 @@ async function createPhysicalInventorySession(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       scope: "category",
@@ -217,6 +219,7 @@ async function addPhysicalInventoryCount(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       variant_id: variantId,
@@ -250,6 +253,7 @@ async function publishPhysicalInventorySession(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       manager_staff_id: managerStaffId,
@@ -298,6 +302,7 @@ async function checkoutInventoryProduct(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -360,6 +365,7 @@ async function pickupTransaction(
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       actor: "E2E Inventory Audit",
@@ -444,6 +450,7 @@ test.describe("inventory audit contract", () => {
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         actor: "E2E Inventory Audit",
@@ -461,6 +468,7 @@ test.describe("inventory audit contract", () => {
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         actor: "E2E Inventory Audit",
@@ -618,6 +626,7 @@ test.describe("inventory audit contract", () => {
       headers: {
         ...adminHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         invoice_number: `PHY-${suffix}`,
@@ -665,6 +674,7 @@ test.describe("inventory audit contract", () => {
         headers: {
           ...adminHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           variant_id: product.variantId,
@@ -727,6 +737,7 @@ test.describe("inventory audit contract", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         lines: [

@@ -1672,6 +1672,7 @@ async fn validate_helcim_payment_splits(
         let provider_attempt_id =
             metadata_optional_text(&split.metadata, "payment_provider_attempt_id")
                 .and_then(|value| Uuid::parse_str(&value).ok());
+        let provider_attempt_id_text = provider_attempt_id.map(|value| value.to_string());
 
         if provider_transaction_id.is_none()
             && provider_payment_id.is_none()
@@ -1752,12 +1753,14 @@ async fn validate_helcim_payment_splits(
                   AND (
                     ($1::text IS NOT NULL AND provider_transaction_id = $1)
                     OR ($2::text IS NOT NULL AND provider_payment_id = $2)
+                    OR ($3::text IS NOT NULL AND metadata->>'payment_provider_attempt_id' = $3)
                   )
             )
             "#,
         )
         .bind(provider_transaction_id)
         .bind(provider_payment_id)
+        .bind(provider_attempt_id_text.as_deref())
         .fetch_one(pool)
         .await?;
         if already_recorded {

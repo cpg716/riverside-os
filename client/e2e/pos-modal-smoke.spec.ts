@@ -36,11 +36,12 @@ async function addGiftCardLoadLine(
   page: Parameters<typeof test>[0]["page"],
   codeSeed: string,
 ): Promise<void> {
+  const uniqueCode = `E2E-MODAL-${codeSeed}-${Date.now()}`;
   await page.getByTestId("pos-action-gift-card").click();
   const giftDialog = page.getByRole("dialog", { name: /gift card/i });
   await expect(giftDialog).toBeVisible({ timeout: 10_000 });
   await giftDialog.getByRole("button", { name: "5", exact: true }).click();
-  await giftDialog.getByLabel(/card code/i).fill(`E2E-MODAL-${codeSeed}`);
+  await giftDialog.getByLabel(/card code/i).fill(uniqueCode);
   await giftDialog.getByRole("button", { name: /add to cart/i }).click();
   await expect(giftDialog).toBeHidden({ timeout: 10_000 });
 }

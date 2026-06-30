@@ -72,6 +72,7 @@ test.describe("UI Portaling and Stacking", () => {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: sessionId,
@@ -109,6 +110,7 @@ test.describe("UI Portaling and Stacking", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         lines: [
@@ -188,6 +190,7 @@ test.describe("UI Portaling and Stacking", () => {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: sessionId,

@@ -37,6 +37,7 @@ Use this panel when setting up Helcim, rotating credentials, adding or replacing
 - Routine Helcim secrets belong in this Settings panel or server environment configuration, not in notes, chats, screenshots, or customer records.
 - Webhooks require a public HTTPS ROS API URL that Helcim can reach. Do not use localhost, 127.0.0.1, or a register workstation URL in Helcim.
 - Live terminal payments require the API token and the device code for the terminal selected by the active register. Terminal 1 is the default for Register #1, Terminal 2 is the default for Register #2, and Registers #3/#4 choose an available configured terminal.
+- Helcim terminal/device receipt printing should be off for Riverside lanes. ROS receipts are the customer/store receipt source after checkout.
 
 ## Steps
 
@@ -55,6 +56,7 @@ Use this panel when setting up Helcim, rotating credentials, adding or replacing
 - **Provider event attached to ROS checkout** means ROS matched that stored provider event to one safe pending terminal checkout attempt.
 - Webhook receipt does not by itself create a ROS payment ledger row, finish checkout, or prove that ROS recorded the payment.
 - POS terminal requests also send a ROS invoice reference to Helcim. If a terminal approves but the live drawer response is delayed, the checkout drawer status check can recover the provider transaction by that invoice reference and exact amount.
+- If a Helcim terminal prints a card receipt, fix the terminal/dashboard receipt setting before live processing continues; do not treat the terminal printout as the ROS receipt.
 - If Payments Health shows **Provider event not attached to ROS checkout**, treat it as provider evidence requiring review.
 - If the signing secret is missing or wrong, ROS rejects the delivery before it appears in Payments Health. Ask an admin to check server logs and the Settings secret.
 - Test mode is for local checkout testing only. Keep it off for live Helcim payments.

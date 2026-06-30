@@ -194,6 +194,7 @@ async function checkoutSeededProduct(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,
@@ -263,6 +264,7 @@ async function returnFirstLine(
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": options.sessionId,
         "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         lines: [

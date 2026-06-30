@@ -283,6 +283,7 @@ async function sendJson<T>(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data,
     failOnStatusCode: false,

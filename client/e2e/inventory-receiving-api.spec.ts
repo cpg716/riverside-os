@@ -43,6 +43,7 @@ test.describe("Inventory receiving API regressions", () => {
       headers: {
         ...adminHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: [
         {

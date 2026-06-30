@@ -211,6 +211,28 @@ function helcimAttemptDetail(attempt: HelcimAttempt): string {
   return attempt.error_message ?? "Card attempt was not approved.";
 }
 
+function paymentMetadataText(line: AppliedPaymentLine, key: string): string {
+  const value = line.metadata?.[key];
+  if (value === null || value === undefined) return "";
+  return String(value).trim();
+}
+
+function hasAppliedHelcimAttempt(lines: AppliedPaymentLine[], attempt: HelcimAttempt): boolean {
+  const attemptId = attempt.id.trim();
+  const providerPaymentId = attempt.provider_payment_id?.trim() ?? "";
+  const providerTransactionId = attempt.provider_transaction_id?.trim() ?? "";
+
+  return lines.some((line) => {
+    if (paymentMetadataText(line, "payment_provider") !== "helcim") return false;
+    return (
+      (attemptId.length > 0 && paymentMetadataText(line, "payment_provider_attempt_id") === attemptId) ||
+      (providerPaymentId.length > 0 && paymentMetadataText(line, "provider_payment_id") === providerPaymentId) ||
+      (providerTransactionId.length > 0 &&
+        paymentMetadataText(line, "provider_transaction_id") === providerTransactionId)
+    );
+  });
+}
+
 function normalizeRegisterLane(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 4
     ? value
@@ -966,37 +988,49 @@ export default function NexoCheckoutDrawer({
       const amtCents =
         pendingHelcimCentsRef.current ||
         (isRefundAttempt ? -Math.abs(attempt.amount_cents) : attempt.amount_cents);
-      if (amtCents === 0) return;
-      setApplied((prev) => [
-        ...prev,
-        {
-          id: newId(),
-          method: isRefundAttempt ? "card_credit" : method,
-          amountCents: amtCents,
-          label: isRefundAttempt ? "HELCIM REFUND" : label,
-          metadata: {
-            payment_provider: "helcim",
-            payment_provider_attempt_id: attempt.id,
-            provider_status: attempt.status,
-            provider_payment_id: attempt.provider_payment_id ?? undefined,
-            provider_transaction_id: attempt.provider_transaction_id ?? undefined,
-            provider_terminal_id: attempt.terminal_id ?? undefined,
-            selected_terminal_key: attempt.selected_terminal_key ?? undefined,
-            terminal_route_source: attempt.terminal_route_source ?? undefined,
-            provider_auth_code: attempt.provider_auth_code ?? undefined,
-            provider_card_type: attempt.provider_card_type ?? undefined,
-            card_brand: attempt.card_brand ?? undefined,
-            card_last4: attempt.card_last4 ?? undefined,
+      if (amtCents === 0) return false;
+      if (hasAppliedHelcimAttempt(applied, attempt)) {
+        setKeypad("");
+        setHelcimAttempt(null);
+        setHelcimUnverifiedNotice(null);
+        pendingHelcimCentsRef.current = 0;
+        pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+        return false;
+      }
+      setApplied((prev) => {
+        if (hasAppliedHelcimAttempt(prev, attempt)) return prev;
+        return [
+          ...prev,
+          {
+            id: newId(),
+            method: isRefundAttempt ? "card_credit" : method,
+            amountCents: amtCents,
+            label: isRefundAttempt ? "HELCIM REFUND" : label,
+            metadata: {
+              payment_provider: "helcim",
+              payment_provider_attempt_id: attempt.id,
+              provider_status: attempt.status,
+              provider_payment_id: attempt.provider_payment_id ?? undefined,
+              provider_transaction_id: attempt.provider_transaction_id ?? undefined,
+              provider_terminal_id: attempt.terminal_id ?? undefined,
+              selected_terminal_key: attempt.selected_terminal_key ?? undefined,
+              terminal_route_source: attempt.terminal_route_source ?? undefined,
+              provider_auth_code: attempt.provider_auth_code ?? undefined,
+              provider_card_type: attempt.provider_card_type ?? undefined,
+              card_brand: attempt.card_brand ?? undefined,
+              card_last4: attempt.card_last4 ?? undefined,
+            },
           },
-        },
-      ]);
+        ];
+      });
       setKeypad("");
       setHelcimAttempt(null);
       setHelcimUnverifiedNotice(null);
       pendingHelcimCentsRef.current = 0;
       pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+      return true;
     },
-    [setApplied],
+    [applied, setApplied],
   );
 
   const applyHelcimAttemptUpdate = useCallback(
@@ -1004,13 +1038,18 @@ export default function NexoCheckoutDrawer({
       setHelcimAttempt(attempt);
       setHelcimUnverifiedNotice(null);
       if (attempt.status === "approved" || attempt.status === "captured") {
-        addApprovedHelcimAttempt(
+        const addedPayment = addApprovedHelcimAttempt(
           attempt,
           pendingHelcimTenderRef.current.method,
           pendingHelcimTenderRef.current.label,
         );
         if (!options.quietFinal) {
-          toast("Card approved. Finish checkout so ROS records the payment.", "success");
+          toast(
+            addedPayment
+              ? "Card approved. Finish checkout so ROS records the payment."
+              : "Card approval is already applied to this checkout.",
+            addedPayment ? "success" : "info",
+          );
         }
       } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
         pendingHelcimCentsRef.current = 0;
@@ -1880,7 +1919,7 @@ export default function NexoCheckoutDrawer({
                   onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
                   className="min-h-9 rounded-lg border border-app-border bg-app-bg px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted disabled:opacity-50"
                 >
-                  {helcimAttemptLoading ? "Refreshing" : "Refresh now"}
+                  {helcimAttemptLoading ? "Checking" : "Recover payment"}
                 </button>
                 <button
                   type="button"
@@ -2209,7 +2248,7 @@ export default function NexoCheckoutDrawer({
                   disabled={helcimAttemptLoading}
                   className="min-h-10 rounded-xl border border-current/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-50"
                 >
-                  {helcimAttemptLoading ? "Refreshing" : activeTerminalAttemptIdForRefresh ? "Refresh now" : "Review Terminal"}
+                  {helcimAttemptLoading ? "Checking" : activeTerminalAttemptIdForRefresh ? "Recover payment" : "Review Terminal"}
                 </button>
                 {helcimAttempt?.status === "pending" ? (
                   <button
@@ -2967,7 +3006,7 @@ export default function NexoCheckoutDrawer({
                                onClick={() => void refreshHelcimAttempt(helcimAttempt.id)}
                                className="min-h-9 rounded-lg border border-white/10 bg-app-surface-2/50 px-2.5 text-[9px] font-black uppercase tracking-widest text-zinc-300 transition-colors hover:bg-app-surface-2 disabled:opacity-50"
                              >
-                               {helcimAttemptLoading ? "Refreshing" : "Refresh now"}
+                               {helcimAttemptLoading ? "Checking" : "Recover payment"}
                              </button>
                              {providerSettings?.helcim.simulator_enabled && (
                                <button

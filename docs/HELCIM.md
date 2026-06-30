@@ -134,6 +134,8 @@ All outbound Helcim API calls use centralized retry logic with exponential backo
 - POS **Manual Card** also sends the amount to the selected Helcim terminal. Staff key phone-order cards on the Helcim terminal; ROS must not collect PAN or CVV.
 - POS **Card Refund** is available for refund/negative checkout totals and sends the refund to the selected Helcim terminal using the original Helcim transaction id when available. If the original id is not supplied by the calling workflow, staff must enter the original Helcim transaction id before the refund can be sent.
 - Register routing uses Terminal 1 / Terminal 2 naming. Register #1 defaults to Terminal 1, Register #2 defaults to Terminal 2, and other registers must choose an available terminal before sending a terminal payment/refund.
+- ROS sends each terminal purchase with a unique `ROS-{attempt}` invoice reference. If the live terminal response or webhook is delayed, the checkout drawer **Recover payment** action asks the server to refresh the attempt and match by that invoice reference and exact amount before staff retry the card.
+- Customer receipts must come from ROS, not the Helcim terminal. The Helcim terminal/device configuration must have terminal receipt printing disabled for Riverside lanes; if a terminal prints a card receipt, correct the Helcim device/dashboard setting and still use the ROS receipt as the store receipt.
 
 ## Webhook behavior
 

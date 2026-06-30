@@ -35,6 +35,7 @@ async function createTransactionForAuditSurface(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,

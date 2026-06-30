@@ -85,6 +85,7 @@ export async function checkoutWeddingOrderSeed(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,
@@ -141,6 +142,7 @@ export async function attachToNewWedding(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       transaction_id: transactionId,
@@ -195,6 +197,7 @@ export async function transitionLine(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data,
     failOnStatusCode: false,
@@ -241,6 +244,7 @@ export async function pickupLine(
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       actor: "Phase 4 Readiness Certification",

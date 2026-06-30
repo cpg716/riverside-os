@@ -89,6 +89,7 @@ async function doCheckout(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -141,6 +142,7 @@ async function doVoid(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       register_session_id: options.sessionId,
@@ -172,6 +174,7 @@ async function doReturn(
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": options.sessionId,
         "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: { lines: [{ transaction_line_id: options.lineId, quantity: options.qty, reason: "e2e_split_tender_test" }] },
       failOnStatusCode: false,

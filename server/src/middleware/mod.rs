@@ -131,8 +131,8 @@ pub async fn require_staff_or_pos_register_session(
         None
     };
 
-    if let Some((sid, tok)) = pos_session::pos_session_headers(headers) {
-        match pos_session::verify_pos_session_token(&state.db, sid, &tok).await {
+    if let Some((sid, tok, station_key)) = pos_session::pos_session_headers(headers) {
+        match pos_session::verify_pos_session_token(&state.db, sid, &tok, &station_key).await {
             Ok(true) => return Ok(StaffOrPosSession::PosSession { session_id: sid }),
             Ok(false) => {
                 return Err((
@@ -175,9 +175,9 @@ pub async fn require_pos_session_secret_or_permission(
         None
     };
 
-    if let Some((sid, tok)) = pos_session::pos_session_headers(headers) {
+    if let Some((sid, tok, station_key)) = pos_session::pos_session_headers(headers) {
         if sid == session_id {
-            match pos_session::verify_pos_session_token(&state.db, sid, &tok).await {
+            match pos_session::verify_pos_session_token(&state.db, sid, &tok, &station_key).await {
                 Ok(true) => return Ok(()),
                 Ok(false) => {
                     return Err((
@@ -219,8 +219,8 @@ pub async fn require_staff_perm_or_pos_session(
         None
     };
 
-    if let Some((sid, tok)) = pos_session::pos_session_headers(headers) {
-        match pos_session::verify_pos_session_token(&state.db, sid, &tok).await {
+    if let Some((sid, tok, station_key)) = pos_session::pos_session_headers(headers) {
+        match pos_session::verify_pos_session_token(&state.db, sid, &tok, &station_key).await {
             Ok(true) => return Ok(StaffOrPosSession::PosSession { session_id: sid }),
             Ok(false) => {
                 return Err((
@@ -250,7 +250,7 @@ pub async fn require_pos_register_session_for_checkout(
     headers: &HeaderMap,
     body_session_id: Uuid,
 ) -> Result<(), (StatusCode, axum::Json<serde_json::Value>)> {
-    let Some((sid, tok)) = pos_session::pos_session_headers(headers) else {
+    let Some((sid, tok, station_key)) = pos_session::pos_session_headers(headers) else {
         return Err((
             StatusCode::UNAUTHORIZED,
             axum::Json(json!({
@@ -264,7 +264,7 @@ pub async fn require_pos_register_session_for_checkout(
             axum::Json(json!({ "error": "pos session id must match checkout session_id" })),
         ));
     }
-    match pos_session::verify_pos_session_token(&state.db, sid, &tok).await {
+    match pos_session::verify_pos_session_token(&state.db, sid, &tok, &station_key).await {
         Ok(true) => Ok(()),
         Ok(false) => Err((
             StatusCode::UNAUTHORIZED,
@@ -293,8 +293,8 @@ pub async fn require_notification_viewer(
 
     let staff = if !code.is_empty() {
         require_authenticated_staff_headers(state, headers).await?
-    } else if let Some((sid, tok)) = pos_session::pos_session_headers(headers) {
-        match pos_session::verify_pos_session_token(&state.db, sid, &tok).await {
+    } else if let Some((sid, tok, station_key)) = pos_session::pos_session_headers(headers) {
+        match pos_session::verify_pos_session_token(&state.db, sid, &tok, &station_key).await {
             Ok(true) => {}
             Ok(false) => {
                 return Err((
@@ -391,8 +391,8 @@ pub async fn require_help_viewer(
         }
     }
 
-    if let Some((sid, tok)) = pos_session::pos_session_headers(headers) {
-        match pos_session::verify_pos_session_token(&state.db, sid, &tok).await {
+    if let Some((sid, tok, station_key)) = pos_session::pos_session_headers(headers) {
+        match pos_session::verify_pos_session_token(&state.db, sid, &tok, &station_key).await {
             Ok(true) => return Ok(()),
             Ok(false) => {
                 return Err((

@@ -118,6 +118,7 @@ async function addAlterationItem(
         headers: {
             ...staffHeaders(),
             "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: item,
         failOnStatusCode: false,
@@ -134,6 +135,7 @@ test.describe("Alteration unit totals API", () => {
             headers: {
                 ...staffHeaders(),
                 "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
             },
             data: {
                 customer_id: fixture.customer.id,

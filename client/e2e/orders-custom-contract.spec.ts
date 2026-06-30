@@ -170,6 +170,7 @@ async function createKnownCustomCatalogSku(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       category_id: CUSTOM_CATALOG_CATEGORY_ID,
@@ -369,6 +370,7 @@ async function checkoutOrder(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -481,6 +483,7 @@ async function attachOrderToWedding(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       transaction_id: transactionId,
@@ -516,6 +519,7 @@ async function checkoutWeddingGroupPay(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -608,6 +612,7 @@ test.describe("Orders custom vs special contract", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           custom_order_details: {
@@ -1045,6 +1050,7 @@ test.describe("Orders custom vs special contract", () => {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: sessionId,
@@ -1095,6 +1101,7 @@ test.describe("Orders custom vs special contract", () => {
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         actor: "E2E Balance Due Guard",
@@ -1141,6 +1148,7 @@ test.describe("Orders custom vs special contract", () => {
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         actor: "E2E Pickup Lifecycle",

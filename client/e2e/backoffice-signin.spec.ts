@@ -35,6 +35,7 @@ async function closeOpenRegisterSessions(request: APIRequestContext) {
       headers: {
         ...headers,
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         actual_cash: "0.00",

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIResponse } from "@playwright/test";
 
 function apiBase(): string {
   const raw =
@@ -92,6 +92,7 @@ async function ensureVendorId(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       name: `E2E Register Vendor ${suffix}`,
@@ -195,6 +196,7 @@ async function issuePosToken(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       cashier_code: e2eAdminCode(),
@@ -217,6 +219,7 @@ async function fetchReconciliation(
     headers: {
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     failOnStatusCode: false,
   });
@@ -232,6 +235,7 @@ async function beginReconcile(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       active: true,
@@ -253,6 +257,7 @@ async function closeRegisterGroup(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       actual_cash: recon.expected_cash,
@@ -275,6 +280,7 @@ async function expectCloseBlockedForHelcimReview(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       actual_cash: recon.expected_cash,
@@ -299,6 +305,7 @@ async function startHelcimPurchaseOrSkip(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       amount_cents: amountCents,
@@ -331,6 +338,7 @@ async function simulateHelcimAttempt(
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: { outcome },
       failOnStatusCode: false,
@@ -341,19 +349,20 @@ async function simulateHelcimAttempt(
   return JSON.parse(bodyText) as HelcimAttemptResponse;
 }
 
-async function checkoutWithApprovedHelcimAttempt(
+async function postCheckoutWithApprovedHelcimAttempt(
   request: Parameters<typeof test>[0]["request"],
   sessionId: string,
   sessionToken: string,
   operatorStaffId: string,
   product: { productId: string; variantId: string },
   attempt: HelcimAttemptResponse,
-): Promise<void> {
-  const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
+): Promise<APIResponse> {
+  return request.post(`${apiBase()}/api/transactions/checkout`, {
     headers: {
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,
@@ -393,6 +402,24 @@ async function checkoutWithApprovedHelcimAttempt(
     },
     failOnStatusCode: false,
   });
+}
+
+async function checkoutWithApprovedHelcimAttempt(
+  request: Parameters<typeof test>[0]["request"],
+  sessionId: string,
+  sessionToken: string,
+  operatorStaffId: string,
+  product: { productId: string; variantId: string },
+  attempt: HelcimAttemptResponse,
+): Promise<void> {
+  const res = await postCheckoutWithApprovedHelcimAttempt(
+    request,
+    sessionId,
+    sessionToken,
+    operatorStaffId,
+    product,
+    attempt,
+  );
   const bodyText = await res.text();
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
@@ -409,6 +436,7 @@ async function checkoutWithCash(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,
@@ -452,6 +480,7 @@ async function fetchTransactionDetail(
         ...adminHeaders(),
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       failOnStatusCode: false,
     },
@@ -476,6 +505,7 @@ async function createReturnQueue(
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         lines: [
@@ -504,6 +534,7 @@ async function closeRegisterGroupWithNote(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       actual_cash: recon.expected_cash,
@@ -525,6 +556,7 @@ async function processCashRefund(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,
@@ -553,6 +585,7 @@ async function openFreshPrimarySession(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       cashier_code: e2eAdminCode(),
@@ -578,6 +611,7 @@ async function createDeterministicProduct(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       name: `E2E Register Close ${suffix}`,
@@ -596,6 +630,7 @@ async function createDeterministicProduct(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       category_id: category.id,
@@ -661,6 +696,7 @@ test.describe("Register close / reconciliation", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": opened.session_id,
           "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           actual_cash: shortBySix,
@@ -683,6 +719,7 @@ test.describe("Register close / reconciliation", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": opened.session_id,
           "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           actual_cash: shortBySix,
@@ -759,6 +796,50 @@ test.describe("Register close / reconciliation", () => {
       product,
       approvedAttempt,
     );
+    await closeRegisterGroup(request, opened.session_id, opened.pos_api_token ?? "");
+  });
+
+  test("approved Helcim attempt cannot be used twice", async ({ request }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const operatorStaffId = await verifyAdminStaffId(request);
+    const opened = await openFreshPrimarySession(request);
+    const product = await createDeterministicProduct(request, operatorStaffId);
+    const pendingAttempt = await startHelcimPurchaseOrSkip(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      10875,
+    );
+    const approvedAttempt = await simulateHelcimAttempt(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      pendingAttempt.id,
+      "approve",
+    );
+
+    await checkoutWithApprovedHelcimAttempt(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      operatorStaffId,
+      product,
+      approvedAttempt,
+    );
+
+    const duplicateCheckout = await postCheckoutWithApprovedHelcimAttempt(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+      operatorStaffId,
+      product,
+      approvedAttempt,
+    );
+    const duplicateBody = await duplicateCheckout.text();
+    expect(duplicateCheckout.status(), duplicateBody.slice(0, 1000)).toBe(400);
+    expect(duplicateBody).toMatch(/already been used/i);
+
     await closeRegisterGroup(request, opened.session_id, opened.pos_api_token ?? "");
   });
 
@@ -846,6 +927,7 @@ test.describe("Register close / reconciliation", () => {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": satellite?.session_id ?? "",
         "x-riverside-pos-session-token": lane2Token,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: satellite?.session_id,
@@ -880,6 +962,7 @@ test.describe("Register close / reconciliation", () => {
         headers: {
           "x-riverside-pos-session-id": satellite?.session_id ?? "",
           "x-riverside-pos-session-token": lane2Token,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },

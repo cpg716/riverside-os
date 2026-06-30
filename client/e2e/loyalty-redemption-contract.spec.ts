@@ -76,6 +76,7 @@ async function adjustPoints(
   const res = await request.post(`${apiBase()}/api/loyalty/adjust-points`, {
     headers: {
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       ...staffHeaders(),
     },
     data: {
@@ -135,6 +136,7 @@ async function linkCouple(
   const res = await request.post(`${apiBase()}/api/customers/${primaryId}/couple-link`, {
     headers: {
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       ...staffHeaders(),
     },
     data: { partner_id: partnerId },
@@ -180,6 +182,7 @@ async function checkoutFixtureSale(
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,
@@ -252,6 +255,7 @@ test.describe("Loyalty redemption contract", () => {
     const redeemRes = await request.post(`${apiBase()}/api/loyalty/redeem-reward`, {
       headers: {
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         ...staffHeaders(),
       },
       data: {
@@ -323,6 +327,7 @@ test.describe("Loyalty redemption contract", () => {
     const redeemRes = await request.post(`${apiBase()}/api/loyalty/redeem-reward`, {
       headers: {
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         ...staffHeaders(),
       },
       data: {
@@ -354,6 +359,7 @@ test.describe("Loyalty redemption contract", () => {
     const issueRes = await request.post(`${apiBase()}/api/gift-cards/pos-load-purchased`, {
       headers: {
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         ...staffHeaders(),
       },
       data: {
@@ -367,6 +373,7 @@ test.describe("Loyalty redemption contract", () => {
     const redeemRes = await request.post(`${apiBase()}/api/loyalty/redeem-reward`, {
       headers: {
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         ...staffHeaders(),
       },
       data: {
@@ -402,6 +409,7 @@ test.describe("Loyalty redemption contract", () => {
     const redeemRes = await request.post(`${apiBase()}/api/loyalty/redeem-reward`, {
       headers: {
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         ...staffHeaders(),
       },
       data: {

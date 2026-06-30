@@ -74,6 +74,7 @@ test.describe("Alterations safety", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         customer_id: fixture.customer.id,
@@ -116,6 +117,7 @@ test.describe("Alterations safety", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         customer_id: fixture.customer.id,
@@ -162,6 +164,7 @@ test.describe("Alterations safety", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         customer_id: fixture.customer.id,
@@ -183,6 +186,7 @@ test.describe("Alterations safety", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         customer_id: fixture.customer.id,
@@ -207,6 +211,7 @@ test.describe("Alterations safety", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         customer_id: fixture.customer.id,
@@ -223,6 +228,7 @@ test.describe("Alterations safety", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: { status: "finished" },
         failOnStatusCode: false,

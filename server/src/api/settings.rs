@@ -110,8 +110,10 @@ async fn require_printer_config_writer(
     headers: &HeaderMap,
     register_lane: i16,
 ) -> Result<(), SettingsError> {
-    if let Some((session_id, token)) = pos_session::pos_session_headers(headers) {
-        match pos_session::verify_pos_session_token(&state.db, session_id, &token).await {
+    if let Some((session_id, token, station_key)) = pos_session::pos_session_headers(headers) {
+        match pos_session::verify_pos_session_token(&state.db, session_id, &token, &station_key)
+            .await
+        {
             Ok(true) => {
                 let active_lane: Option<i16> = sqlx::query_scalar(
                     "SELECT register_lane FROM register_sessions WHERE id = $1 AND is_open = TRUE",

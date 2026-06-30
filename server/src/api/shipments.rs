@@ -298,13 +298,22 @@ async fn require_register_for_pos_order_recognition(
         return Ok(());
     }
 
-    let Some((session_id, token)) = crate::auth::pos_session::pos_session_headers(headers) else {
+    let Some((session_id, token, station_key)) =
+        crate::auth::pos_session::pos_session_headers(headers)
+    else {
         return Err(ShipmentsApiError::Perm(
             StatusCode::UNAUTHORIZED,
             "Transaction-linked shipments must be completed from Register Shipping.".to_string(),
         ));
     };
-    match crate::auth::pos_session::verify_pos_session_token(&state.db, session_id, &token).await {
+    match crate::auth::pos_session::verify_pos_session_token(
+        &state.db,
+        session_id,
+        &token,
+        &station_key,
+    )
+    .await
+    {
         Ok(true) => Ok(()),
         Ok(false) => Err(ShipmentsApiError::Perm(
             StatusCode::UNAUTHORIZED,

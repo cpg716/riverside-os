@@ -81,6 +81,7 @@ async function issuePosToken(request: APIRequestContext, sessionId: string): Pro
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       cashier_code: staffCode(),
@@ -120,6 +121,7 @@ async function fetchReconciliation(
     headers: {
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     failOnStatusCode: false,
   });
@@ -139,6 +141,7 @@ async function createParkedSale(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       parked_by_staff_id: staffId,
@@ -200,6 +203,7 @@ async function closeGroupExactly(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       actual_cash: recon.expected_cash,
@@ -222,6 +226,7 @@ async function postStaffClose(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       actual_cash: actualCash,
@@ -247,6 +252,7 @@ async function postStaleCheckout(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,
@@ -288,6 +294,7 @@ async function openPrimaryRegister(request: APIRequestContext): Promise<OpenSess
   const res = await request.post(`${apiBase()}/api/sessions/open`, {
     headers: {
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       cashier_code: staffCode(),
@@ -317,6 +324,7 @@ test.describe("register audit contract", () => {
       request.post(`${apiBase()}/api/sessions/open`, {
         headers: {
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           cashier_code: staffCode(),
@@ -368,6 +376,7 @@ test.describe("register audit contract", () => {
     const duplicatePrimary = await request.post(`${apiBase()}/api/sessions/open`, {
       headers: {
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         cashier_code: staffCode(),
@@ -380,12 +389,22 @@ test.describe("register audit contract", () => {
     expect(duplicatePrimary.status()).toBe(409);
     await expect(duplicatePrimary.text()).resolves.toMatch(/register_lane_in_use/i);
 
+    const currentWithOtherStation = await request.get(`${apiBase()}/api/sessions/current`, {
+      headers: {
+        "x-riverside-pos-session-id": opened.session_id,
+        "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+        "x-riverside-station-key": "station-e2e-other",
+      },
+      failOnStatusCode: false,
+    });
+    expect(currentWithOtherStation.status()).toBe(401);
+
     const satellite = groupRows.find((row) => row.register_lane === 2);
     expect(satellite).toBeTruthy();
     const satelliteAttach = await request.post(
       `${apiBase()}/api/sessions/${satellite?.session_id}/attach`,
       {
-        headers: staffHeaders(),
+        headers: { ...staffHeaders(), "x-riverside-station-key": "station-e2e" },
         failOnStatusCode: false,
       },
     );
@@ -402,6 +421,7 @@ test.describe("register audit contract", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": satellite?.session_id ?? "",
           "x-riverside-pos-session-token": satelliteToken ?? "",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           actual_cash: "0.00",
@@ -433,6 +453,7 @@ test.describe("register audit contract", () => {
       headers: {
         "x-riverside-pos-session-id": opened.session_id,
         "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+      "x-riverside-station-key": "station-e2e",
       },
       failOnStatusCode: false,
     });
@@ -443,6 +464,7 @@ test.describe("register audit contract", () => {
       {
         headers: {
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           cashier_code: staffCode(),
@@ -486,6 +508,7 @@ test.describe("register audit contract", () => {
       headers: {
         "x-riverside-pos-session-id": opened.session_id,
         "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+      "x-riverside-station-key": "station-e2e",
       },
       failOnStatusCode: false,
     });

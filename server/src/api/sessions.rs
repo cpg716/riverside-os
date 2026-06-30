@@ -133,6 +133,72 @@ fn is_unique_violation(error: &sqlx::Error) -> bool {
     )
 }
 
+fn station_key_from_request(
+    headers: &HeaderMap,
+    body_station_key: Option<&str>,
+) -> Result<String, SessionError> {
+    let station_key = body_station_key
+        .or_else(|| {
+            headers
+                .get(pos_session::HEADER_STATION_KEY)
+                .and_then(|value| value.to_str().ok())
+        })
+        .unwrap_or("")
+        .trim();
+    if !(8..=128).contains(&station_key.len()) {
+        return Err(SessionError::InvalidPayload(
+            "station_key is required for Register session tokens".to_string(),
+        ));
+    }
+    Ok(station_key.to_string())
+}
+
+async fn upsert_station_pos_token(
+    db: &sqlx::PgPool,
+    session_id: Uuid,
+    station_key: &str,
+) -> Result<String, SessionError> {
+    let token = pos_session::new_pos_api_token();
+    upsert_station_pos_token_value(db, session_id, station_key, token).await
+}
+
+async fn upsert_station_pos_token_value(
+    db: &sqlx::PgPool,
+    session_id: Uuid,
+    station_key: &str,
+    token: String,
+) -> Result<String, SessionError> {
+    sqlx::query(
+        r#"
+        INSERT INTO register_session_station_tokens (
+            register_session_id, station_key, pos_api_token
+        )
+        VALUES ($1, $2, $3)
+        ON CONFLICT (register_session_id, station_key)
+        DO UPDATE SET
+            pos_api_token = EXCLUDED.pos_api_token,
+            last_used_at = now()
+        "#,
+    )
+    .bind(session_id)
+    .bind(station_key)
+    .bind(&token)
+    .execute(db)
+    .await?;
+    sqlx::query(
+        r#"
+        UPDATE register_sessions
+        SET pos_api_token = $2
+        WHERE id = $1 AND is_open = true
+        "#,
+    )
+    .bind(session_id)
+    .bind(&token)
+    .execute(db)
+    .await?;
+    Ok(token)
+}
+
 fn default_register_lane() -> i16 {
     1
 }
@@ -161,6 +227,8 @@ pub struct OpenSessionRequest {
     /// When `register_lane > 1`, required: open Register #1 session id to join its till shift.
     #[serde(default)]
     pub primary_session_id: Option<Uuid>,
+    #[serde(default)]
+    pub station_key: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -436,6 +504,8 @@ pub struct IssuePosTokenRequest {
     pub cashier_code: String,
     #[serde(default)]
     pub pin: Option<String>,
+    #[serde(default)]
+    pub station_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -640,23 +710,22 @@ async fn post_session_attach(
     Path(session_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<IssuePosTokenResponse>, SessionError> {
+    let station_key = station_key_from_request(&headers, None)?;
     middleware::require_staff_with_permission(&state, &headers, REGISTER_SESSION_ATTACH)
         .await
         .map_err(map_session_gate_err)?;
 
-    let tok = sqlx::query_scalar::<_, Option<String>>(
-        r#"SELECT pos_api_token FROM register_sessions WHERE id = $1 AND is_open = true"#,
+    let open_session_exists: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS(SELECT 1 FROM register_sessions WHERE id = $1 AND is_open = true)"#,
     )
     .bind(session_id)
-    .fetch_optional(&state.db)
+    .fetch_one(&state.db)
     .await?;
 
-    let Some(Some(token)) = tok else {
-        return Err(SessionError::SessionNotFound);
-    };
-    if token.is_empty() {
+    if !open_session_exists {
         return Err(SessionError::SessionNotFound);
     }
+    let token = upsert_station_pos_token(&state.db, session_id, &station_key).await?;
 
     Ok(Json(IssuePosTokenResponse {
         pos_api_token: token,
@@ -834,8 +903,10 @@ async fn post_shift_primary(
 
 async fn open_session(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<OpenSessionRequest>,
 ) -> Result<Json<SessionResponse>, SessionError> {
+    let station_key = station_key_from_request(&headers, payload.station_key.as_deref())?;
     let lane = payload.register_lane;
     if !(1..=4).contains(&lane) {
         return Err(SessionError::InvalidPayload(
@@ -954,6 +1025,7 @@ async fn open_session(
             SessionError::Database(e)
         }
     })?;
+    let token = upsert_station_pos_token_value(&state.db, inserted.id, &station_key, token).await?;
 
     let receipt_timezone = load_receipt_timezone(&state.db).await;
 
@@ -1013,8 +1085,10 @@ async fn open_session(
 async fn issue_pos_api_token(
     State(state): State<AppState>,
     Path(session_id): Path<Uuid>,
+    headers: HeaderMap,
     Json(payload): Json<IssuePosTokenRequest>,
 ) -> Result<Json<IssuePosTokenResponse>, SessionError> {
+    let station_key = station_key_from_request(&headers, payload.station_key.as_deref())?;
     let code = payload.cashier_code.trim();
     if !is_valid_staff_credential(code) {
         return Err(SessionError::InvalidPayload(
@@ -1043,23 +1117,7 @@ async fn issue_pos_api_token(
         ));
     }
 
-    let token = pos_session::new_pos_api_token();
-    let n = sqlx::query(
-        r#"
-        UPDATE register_sessions
-        SET pos_api_token = $1
-        WHERE id = $2 AND is_open = true
-        "#,
-    )
-    .bind(&token)
-    .bind(session_id)
-    .execute(&state.db)
-    .await?
-    .rows_affected();
-
-    if n == 0 {
-        return Err(SessionError::SessionNotFound);
-    }
+    let token = upsert_station_pos_token(&state.db, session_id, &station_key).await?;
 
     Ok(Json(IssuePosTokenResponse {
         pos_api_token: token,
@@ -2276,6 +2334,21 @@ async fn close_session(
         &group_ids,
         Some(close_actor_id),
     )
+    .await
+    .map_err(SessionError::Database)?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM register_session_station_tokens
+        WHERE register_session_id IN (
+            SELECT id
+            FROM register_sessions
+            WHERE till_close_group_id = $1 AND is_open = true
+        )
+        "#,
+    )
+    .bind(till_gid)
+    .execute(&mut *tx)
     .await
     .map_err(SessionError::Database)?;
 

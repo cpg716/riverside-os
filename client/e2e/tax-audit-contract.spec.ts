@@ -119,6 +119,7 @@ async function createTaxCategory(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       name: `E2E Tax ${label}`,
@@ -165,6 +166,7 @@ async function createTaxProduct(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       category_id: categoryId,
@@ -222,6 +224,7 @@ async function createCustomerWithProfileDiscount(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       first_name: "Profile",
@@ -240,6 +243,7 @@ async function createCustomerWithProfileDiscount(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       profile_discount_percent: percent,
@@ -263,6 +267,7 @@ async function createVariantDiscountEvent(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       name: `E2E Below Cost Promo ${suffix}`,
@@ -285,6 +290,7 @@ async function createVariantDiscountEvent(
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         variant_id: product.variantId,
@@ -329,6 +335,7 @@ async function checkoutTaxProduct(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -386,6 +393,7 @@ async function seedShippingQuote(request: APIRequestContext, amountUsd: string):
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       amount_usd: amountUsd,
@@ -628,6 +636,7 @@ test.describe("tax audit contract", () => {
           ...staffHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -834,6 +843,7 @@ test.describe("tax audit contract", () => {
           ...staffHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -858,6 +868,7 @@ test.describe("tax audit contract", () => {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: sessionId,
@@ -898,6 +909,7 @@ test.describe("tax audit contract", () => {
           ...staffHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -931,6 +943,7 @@ test.describe("tax audit contract", () => {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: sessionId,
@@ -969,6 +982,7 @@ test.describe("tax audit contract", () => {
           ...staffHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -999,6 +1013,7 @@ test.describe("tax audit contract", () => {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: sessionId,
@@ -1069,6 +1084,7 @@ test.describe("tax audit contract", () => {
           ...staffHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -1086,6 +1102,7 @@ test.describe("tax audit contract", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           lines: [
@@ -1108,6 +1125,7 @@ test.describe("tax audit contract", () => {
           ...staffHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -1146,6 +1164,7 @@ test.describe("tax audit contract", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         category_id: product.categoryId,
@@ -1171,6 +1190,7 @@ test.describe("tax audit contract", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         activity_date: activityDate,

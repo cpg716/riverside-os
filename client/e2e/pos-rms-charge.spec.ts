@@ -94,6 +94,7 @@ test.describe("POS RMS Charge", () => {
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           session_id: sessionId,

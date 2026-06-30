@@ -83,6 +83,7 @@ async function createCommissionStaff(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       full_name: `E2E Commission ${label} ${uniqueSuffix("staff")}`,
@@ -109,6 +110,7 @@ async function patchStaffRate(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       base_commission_rate: rate,
@@ -131,6 +133,7 @@ async function createCommissionCategory(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       name: `E2E Commission ${label}`,
@@ -168,6 +171,7 @@ async function createCommissionProduct(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       category_id: categoryId,
@@ -227,6 +231,7 @@ async function upsertCommissionRule(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       match_type: matchType,
@@ -250,6 +255,7 @@ async function expectLegacyCategoryCommissionRejected(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       commission_rate: rate,
@@ -295,6 +301,7 @@ async function checkoutProducts(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -387,6 +394,7 @@ async function addManualAdjustment(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       staff_id: staffId,
@@ -453,6 +461,7 @@ test.describe("commission audit contract", () => {
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         actor: "E2E Commission Timing",
@@ -606,6 +615,7 @@ test.describe("commission audit contract", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         label: `E2E Combo SPIFF ${uniqueSuffix("combo")}`,
@@ -637,6 +647,7 @@ test.describe("commission audit contract", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         label: `E2E Invalid Combo ${uniqueSuffix("combo")}`,
@@ -677,6 +688,7 @@ test.describe("commission audit contract", () => {
           ...staffHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },

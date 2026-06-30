@@ -177,6 +177,7 @@ test.describe("Phase 2: Help policy lifecycle", () => {
         headers: {
           ...adminHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: updatePayload,
         failOnStatusCode: false,
@@ -285,6 +286,7 @@ test.describe("Phase 2: Help policy lifecycle", () => {
         headers: {
           ...nonAdminHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: sampleBody,
         failOnStatusCode: false,

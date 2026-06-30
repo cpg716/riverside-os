@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { setPosRegisterAuth } from "../../lib/posRegisterAuth";
+import { stationKeyHeader } from "../../lib/stationIdentity";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "./ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
@@ -44,6 +45,9 @@ function headersFromBackoffice(backofficeHeaders: () => HeadersInit): Headers {
         : {},
   );
   h.set("Content-Type", "application/json");
+  Object.entries(stationKeyHeader()).forEach(([key, value]) =>
+    h.set(key, value),
+  );
   return h;
 }
 
@@ -54,7 +58,8 @@ export default function RegisterPickModal({
   onDismiss,
   onSuccess,
 }: RegisterPickModalProps) {
-  const { backofficeHeaders, hasPermission, permissionsLoaded } = useBackofficeAuth();
+  const { backofficeHeaders, hasPermission, permissionsLoaded } =
+    useBackofficeAuth();
   const { toast } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -80,7 +85,9 @@ export default function RegisterPickModal({
           { method: "POST", headers, body: "{}" },
         );
         if (!attachRes.ok) {
-          const b = (await attachRes.json().catch(() => ({}))) as { error?: string };
+          const b = (await attachRes.json().catch(() => ({}))) as {
+            error?: string;
+          };
           toast(b.error ?? "Could not join that register.", "error");
           return;
         }
@@ -94,10 +101,18 @@ export default function RegisterPickModal({
         const curHeaders = headersFromBackoffice(backofficeHeaders);
         curHeaders.set("x-riverside-pos-session-id", sessionId);
         curHeaders.set("x-riverside-pos-session-token", token);
-        const cur = await fetch(`${baseUrl}/api/sessions/current`, { headers: curHeaders });
+        Object.entries(stationKeyHeader()).forEach(([key, value]) =>
+          curHeaders.set(key, value),
+        );
+        const cur = await fetch(`${baseUrl}/api/sessions/current`, {
+          headers: curHeaders,
+        });
         if (!cur.ok) {
           const b = (await cur.json().catch(() => ({}))) as { error?: string };
-          toast(b.error ?? "Could not load register session after joining.", "error");
+          toast(
+            b.error ?? "Could not load register session after joining.",
+            "error",
+          );
           return;
         }
         const data = (await cur.json()) as CurrentSessionJson;
@@ -143,15 +158,15 @@ export default function RegisterPickModal({
               Choose a register
             </h2>
             <p className="mt-2 ui-type-instruction text-xs">
-              Sales and checkout post to the register you select. Pick the physical terminal you are
-              working on.
+              Sales and checkout post to the register you select. Pick the
+              physical terminal you are working on.
             </p>
           </div>
 
           {!canAttach ? (
             <p className="rounded-2xl border border-app-danger/20 bg-app-danger/5 p-4 text-center text-xs font-bold text-app-danger">
-              Your role does not allow joining an open register. Ask a manager to adjust permissions
-              or use a profile that can use the till.
+              Your role does not allow joining an open register. Ask a manager
+              to adjust permissions or use a profile that can use the till.
             </p>
           ) : (
             <ul className="max-h-[min(50vh,320px)] space-y-2 overflow-auto">

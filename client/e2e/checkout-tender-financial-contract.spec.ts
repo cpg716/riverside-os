@@ -111,6 +111,7 @@ async function checkoutFixtureProduct(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -164,6 +165,7 @@ async function seedQboMappings(request: APIRequestContext, activityDate: string)
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       category_id: E2E_RMS_CATEGORY_ID,
@@ -184,6 +186,7 @@ async function assignQboDate(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       transaction_id: transactionId,
@@ -203,6 +206,7 @@ async function proposeJournal(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       activity_date: activityDate,

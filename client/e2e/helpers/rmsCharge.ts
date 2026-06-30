@@ -131,6 +131,7 @@ export async function ensureSessionAuth(
       headers: {
         ...staffHeaders(code),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         cashier_code: staffCode(code),
@@ -153,6 +154,7 @@ export async function ensureSessionAuth(
     headers: {
       ...staffHeaders(code),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     failOnStatusCode: false,
   });
@@ -184,6 +186,7 @@ export async function resetOpenRegisterSessions(request: APIRequestContext) {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         actual_cash: "0.00",
@@ -233,6 +236,7 @@ export async function seedRmsFixture(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       fixture,
@@ -277,6 +281,7 @@ export async function prepareRmsRecord(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       mode,
@@ -347,6 +352,7 @@ export async function checkoutFinancedSale(
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,
@@ -411,6 +417,7 @@ export async function checkoutRmsPaymentCollection(
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,

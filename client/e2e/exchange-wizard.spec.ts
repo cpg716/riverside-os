@@ -133,11 +133,13 @@ async function ensureSessionToken(
 
   if (rows.length === 0) {
     const openRes = await request.post(`${apiBase()}/api/sessions/open`, {
+      headers: { ...adminHeaders(), "x-riverside-station-key": "station-e2e" },
       data: {
         cashier_code: e2eAdminCode(),
         pin: e2eAdminCode(),
         opening_float: "200.00",
         register_lane: 1,
+        station_key: "station-e2e",
       },
       failOnStatusCode: false,
     });
@@ -156,7 +158,7 @@ async function ensureSessionToken(
   const tokenRes = await request.post(
     `${apiBase()}/api/sessions/${sessionId}/attach`,
     {
-      headers: adminHeaders(),
+      headers: { ...adminHeaders(), "x-riverside-station-key": "station-e2e" },
       failOnStatusCode: false,
     },
   );
@@ -185,7 +187,7 @@ async function ensureAlternateSessionToken(
     const tokenRes = await request.post(
       `${apiBase()}/api/sessions/${existing.session_id}/attach`,
       {
-        headers: adminHeaders(),
+        headers: { ...adminHeaders(), "x-riverside-station-key": "station-e2e" },
         failOnStatusCode: false,
       },
     );
@@ -199,11 +201,13 @@ async function ensureAlternateSessionToken(
   }
 
   const openRes = await request.post(`${apiBase()}/api/sessions/open`, {
+    headers: { ...adminHeaders(), "x-riverside-station-key": "station-e2e" },
     data: {
       cashier_code: e2eAdminCode(),
       pin: e2eAdminCode(),
       opening_float: "200.00",
       register_lane: 2,
+      station_key: "station-e2e",
     },
     failOnStatusCode: false,
   });
@@ -226,6 +230,7 @@ async function createDeterministicProduct(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       name: `E2E Returns ${suffix}`,
@@ -245,6 +250,7 @@ async function createDeterministicProduct(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       category_id: category.id,
@@ -297,6 +303,7 @@ async function assignTransactionAge(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       transaction_id: transactionId,
@@ -323,6 +330,7 @@ async function createReturnPolicyFixture(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,
@@ -359,6 +367,7 @@ async function createReturnPolicyFixture(
         ...adminHeaders(),
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       failOnStatusCode: false,
     },
@@ -448,6 +457,7 @@ test.describe("POS exchange wizard", () => {
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: sessionId,
@@ -484,6 +494,7 @@ test.describe("POS exchange wizard", () => {
           ...adminHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -501,6 +512,7 @@ test.describe("POS exchange wizard", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           lines: [
@@ -523,6 +535,7 @@ test.describe("POS exchange wizard", () => {
           ...adminHeaders(),
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -574,6 +587,7 @@ test.describe("POS exchange wizard", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": alternateSession.sessionId,
           "x-riverside-pos-session-token": alternateSession.sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           lines: [
@@ -618,6 +632,7 @@ test.describe("POS exchange wizard", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": alternateSession.sessionId,
           "x-riverside-pos-session-token": alternateSession.sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           lines: [
@@ -642,6 +657,7 @@ test.describe("POS exchange wizard", () => {
           "Content-Type": "application/json",
           "x-riverside-pos-session-id": alternateSession.sessionId,
           "x-riverside-pos-session-token": alternateSession.sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           manager_staff_id: operatorStaffId,

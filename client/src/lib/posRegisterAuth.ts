@@ -1,4 +1,5 @@
 import { readPersistedBackofficeSession } from "./backofficeSessionPersistence";
+import { getStableStationKey, stationKeyHeader } from "./stationIdentity";
 
 /**
  * Opaque register-session token from `POST /api/sessions/open` (or re-issue).
@@ -10,11 +11,20 @@ const STORAGE_KEY = "ros.posRegisterAuth.v1";
 export type PosRegisterAuth = {
   sessionId: string;
   token: string;
+  stationKey: string;
 };
 
-export function setPosRegisterAuth(auth: PosRegisterAuth): void {
+export function setPosRegisterAuth(
+  auth: Omit<PosRegisterAuth, "stationKey"> & { stationKey?: string },
+): void {
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
+    sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...auth,
+        stationKey: auth.stationKey?.trim() || getStableStationKey(),
+      }),
+    );
   } catch {
     /* ignore quota */
   }
@@ -32,8 +42,14 @@ export function getPosRegisterAuth(): PosRegisterAuth | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const o = JSON.parse(raw) as PosRegisterAuth;
-    if (o?.sessionId && o?.token) return o;
+    const o = JSON.parse(raw) as Partial<PosRegisterAuth>;
+    if (o?.sessionId && o?.token) {
+      return {
+        sessionId: o.sessionId,
+        token: o.token,
+        stationKey: getStableStationKey(),
+      };
+    }
     return null;
   } catch {
     return null;
@@ -54,6 +70,7 @@ export function posRegisterAuthHeaders(): Record<string, string> {
   return {
     "x-riverside-pos-session-id": a.sessionId,
     "x-riverside-pos-session-token": a.token,
+    "x-riverside-station-key": a.stationKey,
   };
 }
 
@@ -71,6 +88,7 @@ export function sessionPollAuthHeaders(): Record<string, string> {
       out["x-riverside-staff-pin"] = bo.staffPin.trim();
     }
   }
+  Object.assign(out, stationKeyHeader());
   return out;
 }
 
@@ -80,7 +98,8 @@ export function hasRegisterSessionPollCredentials(
 ): boolean {
   return Boolean(
     (h["x-riverside-staff-code"] ?? "").trim() ||
-      (h["x-riverside-pos-session-id"] ?? "").trim(),
+    ((h["x-riverside-pos-session-id"] ?? "").trim() &&
+      (h["x-riverside-station-key"] ?? "").trim()),
   );
 }
 
@@ -88,8 +107,9 @@ export function hasStaffOrPosAuthHeaders(h: Record<string, string>): boolean {
   return Boolean(
     ((h["x-riverside-staff-code"] ?? "").trim() &&
       (h["x-riverside-staff-pin"] ?? "").trim()) ||
-      ((h["x-riverside-pos-session-id"] ?? "").trim() &&
-        (h["x-riverside-pos-session-token"] ?? "").trim()),
+    ((h["x-riverside-pos-session-id"] ?? "").trim() &&
+      (h["x-riverside-pos-session-token"] ?? "").trim() &&
+      (h["x-riverside-station-key"] ?? "").trim()),
   );
 }
 
@@ -124,7 +144,7 @@ export function mergedPosStaffHeaders(
       : sh instanceof Headers
         ? Object.fromEntries(sh.entries())
         : {};
-  return { ...base, ...posRegisterAuthHeaders() };
+  return { ...base, ...stationKeyHeader(), ...posRegisterAuthHeaders() };
 }
 
 export type HydratePosRegisterAuthArgs = {
@@ -166,7 +186,11 @@ export async function hydratePosRegisterAuthIfNeeded(
     `${root}/api/sessions/${encodeURIComponent(sid)}/attach`,
     {
       method: "POST",
-      headers: { ...headersBase, "Content-Type": "application/json" },
+      headers: {
+        ...headersBase,
+        ...stationKeyHeader(),
+        "Content-Type": "application/json",
+      },
       body: "{}",
     },
   );
@@ -186,10 +210,15 @@ export async function hydratePosRegisterAuthIfNeeded(
       `${root}/api/sessions/${encodeURIComponent(sid)}/pos-api-token`,
       {
         method: "POST",
-        headers: { ...headersBase, "Content-Type": "application/json" },
+        headers: {
+          ...headersBase,
+          ...stationKeyHeader(),
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           cashier_code: code,
           pin: pinRaw.length > 0 ? pinRaw : code,
+          station_key: getStableStationKey(),
         }),
       },
     );

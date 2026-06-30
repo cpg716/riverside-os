@@ -519,9 +519,9 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
 
   await expect.poll(() => profilePatch?.profile_discount_percent).toBe("15.00");
   expect(profilePatch).toMatchObject({
-    tax_exempt: true,
     tax_exempt_id: "NY-EXEMPT-999",
   });
+  expect(profilePatch?.tax_exempt).toBeUndefined();
 
   await dialog.getByRole("tab", { name: /^History$/i }).click();
     await expect(dialog.getByText(/customer notes, visits, and past purchases/i)).toBeVisible();

@@ -60,6 +60,7 @@ async function createSpecialOrder(
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": sessionId,
         "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: sessionId,
@@ -130,6 +131,7 @@ async function createLinkedOverdueAlteration(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       customer_id: order.customerId,
@@ -438,6 +440,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           quantity: 2,

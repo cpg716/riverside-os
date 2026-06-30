@@ -425,16 +425,19 @@ test("customer lifecycle filter and hub badge use the same explicit state", asyn
   await openCustomersWorkspace(page);
 
   await expect(
-    page.getByRole("button", {
-      name: new RegExp(`${pendingCustomer.first_name}.*Pending`, "i"),
-    }),
+    page
+      .getByRole("row")
+      .filter({ hasText: pendingCustomer.first_name })
+      .filter({ hasText: "Pending" }),
   ).toBeVisible();
   await page.getByRole("combobox", { name: /^status$/i }).selectOption("issue");
 
+  const issueRow = page
+    .getByRole("row")
+    .filter({ hasText: issueCustomer.first_name })
+    .filter({ hasText: "Issue" });
   await expect(
-    page.getByRole("button", {
-      name: new RegExp(`${issueCustomer.first_name}.*Issue`, "i"),
-    }),
+    issueRow,
   ).toBeVisible();
   await expect(
     page.getByRole("button", {
@@ -442,7 +445,7 @@ test("customer lifecycle filter and hub badge use the same explicit state", asyn
     }),
   ).toHaveCount(0);
 
-  await page.getByRole("button", { name: new RegExp(issueCustomer.first_name, "i") }).click();
+  await issueRow.getByRole("button", { name: new RegExp(issueCustomer.customer_code, "i") }).click();
 
   const dialog = page.getByRole("dialog", { name: /iris issue/i });
   await expect(dialog).toBeVisible({ timeout: 20_000 });

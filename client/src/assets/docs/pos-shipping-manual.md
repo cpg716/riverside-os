@@ -65,7 +65,7 @@ Navigate to the standalone **Shipping** workspace in the Back Office sidebar, or
 Click on any shipment to open the **Shipment Detail** panel:
 1. **Enter Tracking**: Add the tracking number provided by your carrier.
 2. **Post Note**: Add internal notes (e.g., "Box 1 of 2") to the shipment timeline.
-3. **Complete POS-order shipping from Register Shipping**: POS-order label purchase and shipped/delivered recognition require an open Register session, so shipment completion stays connected to the register workflow.
+3. **Complete POS-order shipping from Register Shipping**: POS-order label purchase and shipped/delivered recognition require an open Register session on the device doing the work, so shipment completion stays connected to the register workflow.
 4. **Request unused-label refund**: If a label was purchased but the package will not ship, request the unused-label refund before handing anything to the carrier. ROS logs the request, and Shippo/carrier acceptance remains external.
 5. **Create return label**: If a customer needs to ship merchandise back, create the return-label workflow from the purchased outbound shipment, apply a return rate, and buy the return label.
 6. **Carrier handoff**: Select purchased labels that use the same carrier account, then create a manifest/SCAN form or schedule a pickup window.

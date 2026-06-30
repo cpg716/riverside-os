@@ -35,6 +35,10 @@ import {
 } from "../../lib/printerBridge";
 import RiversideJustLogo from "../../assets/images/logo1.png";
 import { CLIENT_SEMVER } from "../../clientBuildMeta";
+import {
+  getStableStationKey,
+  stationKeyHeader,
+} from "../../lib/stationIdentity";
 
 export interface SessionOpenedPayload {
   cashierName: string;
@@ -55,7 +59,6 @@ interface RegisterOverlayProps {
   onSessionOpened: (payload: SessionOpenedPayload) => void;
   onCancel?: () => void;
 }
-
 
 type CurrentSessionJson = {
   cashier_name: string;
@@ -129,9 +132,7 @@ function ReadinessIcon({ status }: { status: ReadinessStatus }) {
   if (status === "warning" || status === "error") {
     return <AlertTriangle size={16} className="shrink-0" aria-hidden />;
   }
-  return (
-    <RefreshCw size={16} className="shrink-0 animate-spin" aria-hidden />
-  );
+  return <RefreshCw size={16} className="shrink-0 animate-spin" aria-hidden />;
 }
 
 function payloadFromSessionJson(
@@ -193,11 +194,18 @@ export default function RegisterOverlay({
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch(`${baseUrl}/api/settings/pos-station-config/public`);
+        const res = await fetch(
+          `${baseUrl}/api/settings/pos-station-config/public`,
+        );
         if (res.ok) {
           const data = (await res.json()) as { max_register_lanes?: number };
-          if (typeof data.max_register_lanes === "number" && data.max_register_lanes > 0) {
-            setMaxRegisterLanes(Math.max(data.max_register_lanes, stationRegisterLane ?? 1));
+          if (
+            typeof data.max_register_lanes === "number" &&
+            data.max_register_lanes > 0
+          ) {
+            setMaxRegisterLanes(
+              Math.max(data.max_register_lanes, stationRegisterLane ?? 1),
+            );
           }
         }
       } catch (e) {
@@ -206,11 +214,15 @@ export default function RegisterOverlay({
     })();
   }, [baseUrl, stationRegisterLane]);
 
-  const [registerLane, setRegisterLane] = useState(() => stationRegisterLane ?? 1);
+  const [registerLane, setRegisterLane] = useState(
+    () => stationRegisterLane ?? 1,
+  );
   /** After the user picks a lane, do not auto-switch (e.g. admin default to #2). */
   const registerLaneUserChosenRef = useRef(false);
   const [maxRegisterLanes, setMaxRegisterLanes] = useState(4);
-  const [openingFloat, setOpeningFloat] = useState(PRIMARY_OPENING_FLOAT_DEFAULT);
+  const [openingFloat, setOpeningFloat] = useState(
+    PRIMARY_OPENING_FLOAT_DEFAULT,
+  );
   const [booting, setBooting] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -414,7 +426,6 @@ export default function RegisterOverlay({
           return;
         }
       }
-
     } catch (err: unknown) {
       const message =
         err instanceof Error
@@ -480,6 +491,7 @@ export default function RegisterOverlay({
         headers: {
           "x-riverside-pos-session-id": existing.session_id,
           "x-riverside-pos-session-token": token,
+          ...stationKeyHeader(),
         },
       });
     } catch {
@@ -524,6 +536,7 @@ export default function RegisterOverlay({
       pin: code,
       opening_float: floatStr,
       register_lane: lane,
+      station_key: getStableStationKey(),
     };
     if (lane > 1 && primarySessionId) {
       body.primary_session_id = primarySessionId;
@@ -563,7 +576,11 @@ export default function RegisterOverlay({
             {
               method: "POST",
               headers: jsonAuthHeaders(),
-              body: JSON.stringify({ cashier_code: code, pin: code }),
+              body: JSON.stringify({
+                cashier_code: code,
+                pin: code,
+                station_key: getStableStationKey(),
+              }),
             },
           );
         } catch {
@@ -584,6 +601,7 @@ export default function RegisterOverlay({
                 headers: {
                   "x-riverside-pos-session-id": sid,
                   "x-riverside-pos-session-token": token,
+                  ...stationKeyHeader(),
                 },
               });
             } catch {
@@ -595,7 +613,11 @@ export default function RegisterOverlay({
             if (cur.ok) {
               const data = (await cur.json()) as CurrentSessionJson;
               onOpenedRef.current(payloadFromSessionJson(data, token));
-              void syncPrinterConfigToServer(baseUrl, mergedPosStaffHeaders(backofficeHeaders), registerLaneRef.current);
+              void syncPrinterConfigToServer(
+                baseUrl,
+                mergedPosStaffHeaders(backofficeHeaders),
+                registerLaneRef.current,
+              );
               return;
             }
           }
@@ -625,7 +647,11 @@ export default function RegisterOverlay({
       pos_api_token?: string;
     };
     onOpenedRef.current(payloadFromSessionJson(data, data.pos_api_token));
-    void syncPrinterConfigToServer(baseUrl, mergedPosStaffHeaders(backofficeHeaders), registerLaneRef.current);
+    void syncPrinterConfigToServer(
+      baseUrl,
+      mergedPosStaffHeaders(backofficeHeaders),
+      registerLaneRef.current,
+    );
   };
 
   const onSubmit = async (e?: React.FormEvent) => {
@@ -689,7 +715,9 @@ export default function RegisterOverlay({
           setApiReadiness({
             status: "ready",
             detail: `Riverside API is reachable${
-              Array.isArray(data) ? ` (${data.length} staff records loaded).` : "."
+              Array.isArray(data)
+                ? ` (${data.length} staff records loaded).`
+                : "."
             }`,
           });
         }
@@ -714,13 +742,19 @@ export default function RegisterOverlay({
           detail:
             "Printer diagnostics run only in the Riverside desktop app. Use the Windows register app for live receipt readiness.",
         });
-      } else if (receiptPrinter.mode === "system" && !receiptPrinter.printerName.trim()) {
+      } else if (
+        receiptPrinter.mode === "system" &&
+        !receiptPrinter.printerName.trim()
+      ) {
         setPrinterReadiness({
           status: "warning",
           detail:
             "Receipt printer is not selected for this station. Set it in Printers & Scanners before customer checkout.",
         });
-      } else if (receiptPrinter.mode === "network" && !receiptPrinter.ip.trim()) {
+      } else if (
+        receiptPrinter.mode === "network" &&
+        !receiptPrinter.ip.trim()
+      ) {
         setPrinterReadiness({
           status: "warning",
           detail:
@@ -828,7 +862,7 @@ export default function RegisterOverlay({
           </div>
         </div>
       </div>,
-      root
+      root,
     );
   }
 
@@ -909,7 +943,7 @@ export default function RegisterOverlay({
           </div>
         </div>
       </div>,
-      root
+      root,
     );
   }
 
@@ -934,9 +968,9 @@ export default function RegisterOverlay({
                 Waiting for Register #1
               </h2>
               <p className="mt-3 text-xs font-medium text-app-text-muted leading-relaxed">
-                Stay on this screen. This satellite lane will automatically enable the
-                sign-in keypad as soon as the physical cash drawer is opened at
-                the main terminal.
+                Stay on this screen. This satellite lane will automatically
+                enable the sign-in keypad as soon as the physical cash drawer is
+                opened at the main terminal.
               </p>
             </div>
             <div className="grid gap-3 pt-4">
@@ -975,7 +1009,7 @@ export default function RegisterOverlay({
           </div>
         </div>
       </div>,
-      root
+      root,
     );
   }
 
@@ -1071,8 +1105,8 @@ export default function RegisterOverlay({
             </div>
 
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-50">
-              <span className="h-1.5 w-1.5 rounded-full bg-current" />
-              v{CLIENT_SEMVER} Production Build
+              <span className="h-1.5 w-1.5 rounded-full bg-current" />v
+              {CLIENT_SEMVER} Production Build
             </div>
           </div>
 
@@ -1162,10 +1196,7 @@ export default function RegisterOverlay({
                 )}
 
                 <div className="space-y-4 py-2">
-                  <PinDots
-                    length={credential.length}
-                    className="gap-2"
-                  />
+                  <PinDots length={credential.length} className="gap-2" />
                   {error && (
                     <p className="text-center text-[10px] font-bold text-app-danger animate-shake">
                       {error}
@@ -1173,9 +1204,13 @@ export default function RegisterOverlay({
                   )}
                   {hasBlockingReadinessIssue && (
                     <div className="rounded-xl border border-app-danger/20 bg-app-danger/5 p-3 flex gap-3">
-                      <AlertTriangle size={14} className="shrink-0 text-app-danger" />
+                      <AlertTriangle
+                        size={14}
+                        className="shrink-0 text-app-danger"
+                      />
                       <p className="text-[10px] font-bold leading-relaxed text-app-danger">
-                        Cannot open register until diagnostics pass. Check API connectivity.
+                        Cannot open register until diagnostics pass. Check API
+                        connectivity.
                       </p>
                     </div>
                   )}
@@ -1239,6 +1274,6 @@ export default function RegisterOverlay({
         </div>
       </div>
     </div>,
-    root
+    root,
   );
 }

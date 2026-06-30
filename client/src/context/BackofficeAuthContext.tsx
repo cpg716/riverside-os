@@ -20,18 +20,9 @@ import {
   parseStaffRole,
   type StaffRole,
 } from "./BackofficeAuthContextLogic";
+import { getStableStationKey } from "../lib/stationIdentity";
 
 const baseUrl = getBaseUrl();
-const STATION_KEY_STORAGE = "ros_station_key";
-
-function getStableStationKey(): string {
-  const existing = window.localStorage.getItem(STATION_KEY_STORAGE)?.trim();
-  if (existing) return existing;
-  const generated = (window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`).toString();
-  const value = `station-${generated}`;
-  window.localStorage.setItem(STATION_KEY_STORAGE, value);
-  return value;
-}
 
 export function BackofficeAuthProvider({
   children,
@@ -52,7 +43,9 @@ export function BackofficeAuthProvider({
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [staffDisplayName, setStaffDisplayName] = useState("");
   const [staffAvatarKey, setStaffAvatarKey] = useState("ros_default");
-  const [staffAvatarPhotoUrl, setStaffAvatarPhotoUrl] = useState<string | null>(null);
+  const [staffAvatarPhotoUrl, setStaffAvatarPhotoUrl] = useState<string | null>(
+    null,
+  );
   const [staffId, setStaffId] = useState("");
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
   const [employeeCustomerId, setEmployeeCustomerId] = useState<string | null>(
@@ -120,7 +113,12 @@ export function BackofficeAuthProvider({
       setPermissions(Array.isArray(d.permissions) ? d.permissions : []);
       const n = typeof d.full_name === "string" ? d.full_name.trim() : "";
       setStaffDisplayName(n);
-      const sid = typeof d.staff_id === "string" ? d.staff_id.trim() : (typeof d.id === "string" ? d.id.trim() : "");
+      const sid =
+        typeof d.staff_id === "string"
+          ? d.staff_id.trim()
+          : typeof d.id === "string"
+            ? d.id.trim()
+            : "";
       setStaffId(sid);
       const ak =
         typeof d.avatar_key === "string" && d.avatar_key.trim()

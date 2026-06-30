@@ -125,6 +125,7 @@ async function ensureSessionAuth(
       headers: {
         ...adminHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         cashier_code: e2eAdminCode(),
@@ -150,6 +151,7 @@ async function ensureSessionAuth(
       headers: {
         ...adminHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       failOnStatusCode: false,
     },
@@ -226,6 +228,7 @@ test.describe("Tender matrix payment-intent contract", () => {
         headers: {
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },
@@ -242,6 +245,7 @@ test.describe("Tender matrix payment-intent contract", () => {
         headers: {
           "x-riverside-pos-session-id": sessionId,
           "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
         },
         failOnStatusCode: false,
       },

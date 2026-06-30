@@ -170,6 +170,7 @@ async function createQboProduct(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       name: `E2E QBO ${suffix}`,
@@ -189,6 +190,7 @@ async function createQboProduct(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       category_id: category.id,
@@ -279,6 +281,7 @@ async function checkoutQboProduct(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -317,6 +320,7 @@ async function createQboCustomer(request: APIRequestContext): Promise<CustomerRe
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       first_name: "QBO",
@@ -360,6 +364,7 @@ async function checkoutPurchasedGiftCardLoad(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -413,6 +418,7 @@ async function issueGiftCardForQbo(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       code: options.code,
@@ -473,6 +479,7 @@ async function payExistingTransaction(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": options.sessionId,
       "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -518,6 +525,7 @@ async function seedQboMappings(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       category_id: categoryId,
@@ -546,6 +554,7 @@ async function seedQboInventoryCogsFallbackMappings(request: APIRequestContext) 
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: mapping,
       failOnStatusCode: false,
@@ -567,6 +576,7 @@ async function seedCustomerLiability(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       customer_id: options.customerId,
@@ -604,6 +614,7 @@ async function assignQboTimestamp(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       transaction_id: transactionId,
@@ -624,6 +635,7 @@ async function assignQboDate(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       transaction_id: transactionId,
@@ -644,6 +656,7 @@ async function assignQboReturnDate(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       transaction_id: transactionId,
@@ -664,6 +677,7 @@ async function assignQboRefundPaymentDate(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       transaction_id: transactionId,
@@ -686,6 +700,7 @@ async function assignQboFulfillmentTimestamp(
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         transaction_id: transactionId,
@@ -709,6 +724,7 @@ async function assignQboForfeitureTimestamp(
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         transaction_id: transactionId,
@@ -733,6 +749,7 @@ async function markPickup(
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       delivered_item_ids: [],
@@ -752,6 +769,7 @@ async function forfeitLayaway(request: APIRequestContext, transactionId: string)
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       status: "Cancelled",
@@ -772,6 +790,7 @@ async function assignQboShippingRecognition(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       transaction_id: transactionId,
@@ -791,6 +810,7 @@ async function proposeJournal(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       activity_date: activityDate,
@@ -824,6 +844,7 @@ async function returnFirstQboLine(
         "Content-Type": "application/json",
         "x-riverside-pos-session-id": options.sessionId,
         "x-riverside-pos-session-token": options.sessionToken,
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         lines: [
@@ -859,6 +880,7 @@ async function createSalespersonStaff(request: APIRequestContext): Promise<{ id:
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       full_name: `E2E Legacy Refund Salesperson ${suffix}`,
@@ -888,6 +910,7 @@ async function processManualLegacyRefund(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: options.sessionId,
@@ -916,6 +939,7 @@ async function processCashRefund(
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         session_id: options.sessionId,
@@ -1130,6 +1154,7 @@ test.describe("QBO audit contract", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           session_id: sessionId,
@@ -1191,6 +1216,7 @@ test.describe("QBO audit contract", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           session_id: sessionId,
@@ -1222,6 +1248,7 @@ test.describe("QBO audit contract", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           session_id: sessionId,
@@ -1924,6 +1951,7 @@ test.describe("QBO audit contract", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           status: "Cancelled",
@@ -1964,6 +1992,7 @@ test.describe("QBO audit contract", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           transaction_id: checkout.transaction_id,
@@ -2030,6 +2059,7 @@ test.describe("QBO audit contract", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           transaction_id: secondCheckout.transaction_id,
@@ -2154,6 +2184,7 @@ test.describe("QBO audit contract", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           business_date: businessDate,
@@ -2179,6 +2210,7 @@ test.describe("QBO audit contract", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           product_id: product.productId,
@@ -2209,6 +2241,7 @@ test.describe("QBO audit contract", () => {
         headers: {
           ...staffHeaders(),
           "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
         },
         data: {
           quantity: 2,

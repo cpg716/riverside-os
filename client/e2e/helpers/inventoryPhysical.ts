@@ -39,6 +39,7 @@ export async function createCategory(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       name,
@@ -105,6 +106,7 @@ export async function createCategoryScopedPhysicalInventorySession(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       scope: "category",
@@ -126,6 +128,7 @@ export async function addPhysicalInventoryCount(
     headers: {
       ...adminHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       variant_id: variantId,

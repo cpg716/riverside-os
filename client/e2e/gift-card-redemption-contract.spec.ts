@@ -70,6 +70,7 @@ async function issueGiftCard(
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       code,
@@ -144,6 +145,7 @@ async function checkoutGiftCardRedemption(
       "Content-Type": "application/json",
       "x-riverside-pos-session-id": sessionId,
       "x-riverside-pos-session-token": sessionToken,
+      "x-riverside-station-key": "station-e2e",
     },
     data: {
       session_id: sessionId,
@@ -231,6 +233,7 @@ test.describe("Gift card redemption accounting contract", () => {
       headers: {
         ...staffHeaders(),
         "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
       },
       data: {
         code: `GC-BO-BLOCKED-${Date.now()}`,
