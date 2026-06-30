@@ -210,7 +210,7 @@ jobs:
 
       - name: Open default register session for contract suites
         run: |
-          payload='{"cashier_code":"1234","pin":"1234","opening_float":"200.00","register_lane":1}'
+          payload='{"cashier_code":"1234","pin":"1234","opening_float":"200.00","register_lane":1,"station_key":"station-e2e"}'
           body="$(curl -sS -X POST "http://127.0.0.1:3000/api/sessions/open" \
             -H "Content-Type: application/json" \
             -d "$payload")"
@@ -615,7 +615,7 @@ jobs:
 
       - name: Open default register session for contract suites
         run: |
-          payload='{"cashier_code":"1234","pin":"1234","opening_float":"200.00","register_lane":1}'
+          payload='{"cashier_code":"1234","pin":"1234","opening_float":"200.00","register_lane":1,"station_key":"station-e2e"}'
           body="$(curl -sS -X POST "http://127.0.0.1:3000/api/sessions/open" \
             -H "Content-Type: application/json" \
             -d "$payload")"
