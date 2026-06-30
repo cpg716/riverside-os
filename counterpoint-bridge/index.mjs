@@ -2883,7 +2883,7 @@ async function countCatalogVariantsWithRecovery(pool, catalogCellsSql) {
 }
 
 function importFirstProbePlan() {
-  return [
+  const plan = [
     {
       entityKey: "counterpoint_categories",
       label: "Counterpoint categories by name",
@@ -2933,6 +2933,37 @@ function importFirstProbePlan() {
     { entityKey: "gift_cards", label: "Gift card current balances", queryKey: "gift_cards", required: true },
     { entityKey: "store_credit_opening", label: "Store credit opening balances", queryKey: "store_credit", required: false },
   ];
+  if (!envFlag("CP_PREFLIGHT_ENABLED_ONLY", false)) return plan;
+  return plan.filter((probe) => {
+    switch (probe.entityKey) {
+      case "counterpoint_categories":
+        return SYNC_CATEGORY_MASTERS;
+      case "counterpoint_vendors":
+        return SYNC_VENDORS;
+      case "catalog_products":
+      case "catalog_variants":
+        return SYNC_CATALOG;
+      case "inventory_quantity_rows":
+        return SYNC_INVENTORY;
+      case "customers":
+      case "loyalty_points":
+        return SYNC_CUSTOMERS;
+      case "tickets":
+      case "ticket_lines":
+      case "ticket_payments":
+        return SYNC_TICKETS;
+      case "open_docs":
+      case "open_doc_lines":
+      case "open_doc_payments":
+        return SYNC_OPEN_DOCS;
+      case "gift_cards":
+        return SYNC_GIFT_CARDS;
+      case "store_credit_opening":
+        return SYNC_STORE_CREDIT_OPENING;
+      default:
+        return true;
+    }
+  });
 }
 
 function bridgeStartupIssuesForImportFirst() {
@@ -6077,6 +6108,23 @@ async function runSqlSmoke(pool) {
 
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
+function formatLocalSqlTimestamp(ms) {
+  const dt = new Date(ms);
+  return (
+    dt.getFullYear() +
+    "-" +
+    String(dt.getMonth() + 1).padStart(2, "0") +
+    "-" +
+    String(dt.getDate()).padStart(2, "0") +
+    "T" +
+    String(dt.getHours()).padStart(2, "0") +
+    ":" +
+    String(dt.getMinutes()).padStart(2, "0") +
+    ":" +
+    String(dt.getSeconds()).padStart(2, "0")
+  );
+}
+
 /** Isolate entity failures so one bad SQL query does not hide which entity failed. */
 async function runSyncEntity(entityLabel, fn) {
   const t0 = Date.now();
@@ -6093,8 +6141,7 @@ async function runSyncEntity(entityLabel, fn) {
     // Only advance the anchor date if we pulled something, OR if it's already set.
     // This prevents a failed/empty initial run from locking us to "today".
     if (count > 0 || state[`${entityLabel}_last_date`]) {
-      const dt = new Date(Date.now() - (86400000 * 2));
-      const dtStr = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, '0') + "-" + String(dt.getDate()).padStart(2, '0');
+      const dtStr = formatLocalSqlTimestamp(t0);
       state[`${entityLabel}_last_date`] = dtStr;
       state.global_last_date = dtStr;
       writeState(state);

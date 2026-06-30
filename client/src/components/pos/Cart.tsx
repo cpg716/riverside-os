@@ -1837,6 +1837,16 @@ export default function Cart({
       );
 
       if (unfulfilled.length === 0) {
+        if (forPickup) {
+          setPickupTransactionId(null);
+          setManagerOverrideApproved(false);
+          setManagerOverrideReason("");
+          toast(
+            "This order has no open lines available for pickup. It may already be picked up or closed.",
+            "info",
+          );
+          return false;
+        }
         setExchangeWizardInitialTransactionId(detail.transaction_id);
         setExchangeWizardOpen(true);
         return true;
@@ -1859,6 +1869,8 @@ export default function Cart({
 
       if (forPickup) {
         // Pickup mode: load unfulfilled items into cart
+        setExchangeWizardOpen(false);
+        setExchangeWizardInitialTransactionId(null);
         setPickupTransactionId(detail.transaction_id);
         setPickupPaidAmountCents(parseMoneyToCents(detail.amount_paid ?? "0"));
         setPickupReadyAlterations((detail.linked_alterations ?? []).filter((alteration) => alteration.status === "ready"));
@@ -1961,14 +1973,14 @@ export default function Cart({
     ],
   );
 
-  const handleManagerApproveReadiness = useCallback(async (pin: string) => {
+  const handleManagerApproveReadiness = useCallback(async (pin: string, managerId: string) => {
     try {
       const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...apiAuth() },
         body: JSON.stringify({
           pin,
-          role: "Admin",
+          staff_id: managerId,
           authorize_action: "pos_pickup_readiness_override",
           authorize_metadata: {
             transaction_id: pickupTransactionId,

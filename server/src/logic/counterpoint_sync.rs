@@ -11764,6 +11764,7 @@ struct ParentVariantCandidate {
 #[derive(Debug, Default)]
 struct VariantResolutionCache {
     exact: HashMap<String, (Uuid, Uuid)>,
+    parent_placeholder_variants: HashSet<Uuid>,
     parent: HashMap<String, Vec<ParentVariantCandidate>>,
 }
 
@@ -11836,9 +11837,9 @@ async fn build_variant_resolution_cache<'a>(
 
     if !item_keys.is_empty() {
         let keys: Vec<String> = item_keys.into_iter().collect();
-        let rows: Vec<(String, Uuid, Uuid)> = sqlx::query_as(
+        let rows: Vec<(String, Uuid, Uuid, Option<String>)> = sqlx::query_as(
             r#"
-            SELECT lower(trim(counterpoint_item_key)), id, product_id
+            SELECT lower(trim(counterpoint_item_key)), id, product_id, variation_label
             FROM product_variants
             WHERE lower(trim(counterpoint_item_key)) = ANY($1)
             "#,
@@ -11846,16 +11847,19 @@ async fn build_variant_resolution_cache<'a>(
         .bind(&keys)
         .fetch_all(pool)
         .await?;
-        for (key, variant_id, product_id) in rows {
+        for (key, variant_id, product_id, variation_label) in rows {
+            if counterpoint_variant_is_parent_placeholder(variation_label.as_deref()) {
+                cache.parent_placeholder_variants.insert(variant_id);
+            }
             cache.exact.insert(key, (variant_id, product_id));
         }
     }
 
     if !skus.is_empty() {
         let sku_values: Vec<String> = skus.into_iter().collect();
-        let rows: Vec<(String, Uuid, Uuid)> = sqlx::query_as(
+        let rows: Vec<(String, Uuid, Uuid, Option<String>)> = sqlx::query_as(
             r#"
-            SELECT lower(trim(sku)), id, product_id
+            SELECT lower(trim(sku)), id, product_id, variation_label
             FROM product_variants
             WHERE lower(trim(sku)) = ANY($1)
             "#,
@@ -11863,7 +11867,10 @@ async fn build_variant_resolution_cache<'a>(
         .bind(&sku_values)
         .fetch_all(pool)
         .await?;
-        for (sku, variant_id, product_id) in rows {
+        for (sku, variant_id, product_id, variation_label) in rows {
+            if counterpoint_variant_is_parent_placeholder(variation_label.as_deref()) {
+                cache.parent_placeholder_variants.insert(variant_id);
+            }
             cache.exact.entry(sku).or_insert((variant_id, product_id));
         }
     }
@@ -11912,6 +11919,31 @@ async fn build_variant_resolution_cache<'a>(
     }
 
     Ok(cache)
+}
+
+fn counterpoint_variant_is_parent_placeholder(variation_label: Option<&str>) -> bool {
+    variation_label
+        .map(|label| label.trim().eq_ignore_ascii_case("Parent item"))
+        .unwrap_or(false)
+}
+
+fn counterpoint_line_has_matrix_identity(line: &TicketLineRow) -> bool {
+    [line.counterpoint_item_key.as_deref(), line.sku.as_deref()]
+        .into_iter()
+        .flatten()
+        .any(|value| {
+            let trimmed = value.trim();
+            trimmed.contains('|') || trimmed.to_ascii_uppercase().starts_with("B-")
+        })
+}
+
+fn counterpoint_open_doc_line_resolves_to_parent_placeholder(
+    cache: &VariantResolutionCache,
+    line: &TicketLineRow,
+    resolved: (Uuid, Uuid),
+) -> bool {
+    !counterpoint_line_has_matrix_identity(line)
+        && cache.parent_placeholder_variants.contains(&resolved.0)
 }
 
 fn resolve_variant_from_cache(
@@ -12767,6 +12799,127 @@ fn dedupe_counterpoint_open_doc_payments(payments: Vec<TicketPaymentRow>) -> Vec
         .collect()
 }
 
+async fn counterpoint_open_doc_matches_existing_ticket_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+    customer_id: Option<Uuid>,
+    booked_at: DateTime<Utc>,
+    total_price: Decimal,
+    amount_paid: Decimal,
+    lines: &[TicketLineRow],
+) -> Result<bool, sqlx::Error> {
+    let Some(customer_id) = customer_id else {
+        return Ok(false);
+    };
+    if lines.is_empty() {
+        return Ok(false);
+    }
+
+    let line_count = lines.len() as i64;
+    let candidates: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT t.id
+        FROM transactions t
+        WHERE COALESCE(t.is_counterpoint_import, false)
+          AND t.counterpoint_ticket_ref IS NOT NULL
+          AND t.customer_id = $1
+          AND ABS(EXTRACT(EPOCH FROM (t.booked_at - $2))) <= 300
+          AND (
+              ABS(COALESCE(t.total_price, 0) - $3) <= 0.01
+              OR ABS(COALESCE(t.amount_paid, 0) - $4) <= 0.01
+          )
+          AND (
+              SELECT COUNT(*)::bigint
+              FROM transaction_lines tl
+              WHERE tl.transaction_id = t.id
+          ) = $5
+        ORDER BY t.booked_at DESC
+        LIMIT 20
+        "#,
+    )
+    .bind(customer_id)
+    .bind(booked_at)
+    .bind(total_price)
+    .bind(amount_paid)
+    .bind(line_count)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for candidate_id in candidates {
+        let mut all_lines_match = true;
+        for line in lines {
+            let line_matches: bool = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM transaction_lines tl
+                    JOIN product_variants pv ON pv.id = tl.variant_id
+                    WHERE tl.transaction_id = $1
+                      AND COALESCE(pv.variation_label, '') <> 'Parent item'
+                      AND tl.quantity = $2
+                      AND ABS(COALESCE(tl.unit_price, 0) - $3) <= 0.01
+                )
+                "#,
+            )
+            .bind(candidate_id)
+            .bind(line.quantity)
+            .bind(line.unit_price)
+            .fetch_one(&mut **tx)
+            .await?;
+            if !line_matches {
+                all_lines_match = false;
+                break;
+            }
+        }
+        if all_lines_match {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+async fn delete_counterpoint_open_doc_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    doc_ref: &str,
+) -> Result<u64, sqlx::Error> {
+    let payment_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT pt.id
+        FROM payment_transactions pt
+        JOIN payment_allocations pa ON pa.transaction_id = pt.id
+        WHERE pa.target_transaction_id = $1
+          AND pt.metadata->>'counterpoint_doc_ref' = $2
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(doc_ref)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    if !payment_ids.is_empty() {
+        sqlx::query("DELETE FROM payment_transactions WHERE id = ANY($1)")
+            .bind(&payment_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    let result = sqlx::query(
+        r#"
+        DELETE FROM transactions
+        WHERE id = $1
+          AND is_counterpoint_import
+          AND counterpoint_doc_ref = $2
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(doc_ref)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
 fn merge_counterpoint_open_doc_rows(
     rows: Vec<CounterpointOpenDocRow>,
 ) -> Vec<CounterpointOpenDocRow> {
@@ -12995,7 +13148,13 @@ pub async fn execute_counterpoint_open_doc_batch(
         let mut unresolved_count = 0;
 
         for line in &doc.lines {
-            if let Some(pair) = resolve_variant_from_cache(&variant_cache, line) {
+            if let Some(pair) = resolve_variant_from_cache(&variant_cache, line).filter(|pair| {
+                !counterpoint_open_doc_line_resolves_to_parent_placeholder(
+                    &variant_cache,
+                    line,
+                    *pair,
+                )
+            }) {
                 resolved_lines.push(pair);
                 line_vendor_refs.push(None);
             } else {
@@ -13013,6 +13172,29 @@ pub async fn execute_counterpoint_open_doc_batch(
             }
         }
         if unresolved_count > 0 {
+            if counterpoint_open_doc_matches_existing_ticket_transaction(
+                &mut tx,
+                customer_id,
+                booked_at,
+                doc.total_price,
+                normalized_amount_paid,
+                &doc.lines,
+            )
+            .await?
+            {
+                if let Some(existing_transaction_id) = existing_doc_ids.get(doc_ref).copied() {
+                    delete_counterpoint_open_doc_transaction(
+                        &mut tx,
+                        existing_transaction_id,
+                        doc_ref,
+                    )
+                    .await?;
+                }
+                resolve_sync_issue_by_key(pool, "open_docs", doc_ref).await;
+                summary.skipped += 1;
+                continue;
+            }
+
             sqlx::query(
                 r#"
                 UPDATE counterpoint_sync_issue
@@ -19609,6 +19791,395 @@ mod tests {
         assert_eq!(line.3, "ready_for_pickup");
         assert_eq!(payment_summary.0, 1);
         assert_eq!(payment_summary.1, Decimal::new(14000, 2));
+    }
+
+    #[tokio::test]
+    async fn counterpoint_open_doc_parent_placeholder_line_needs_review() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let suffix = Uuid::new_v4().simple().to_string();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let item_no = format!("I-OPEN-PARENT-{suffix}");
+        let sku = format!("CP-OPEN-PARENT-{suffix}");
+        let doc_ref = format!("CP-OPEN-PARENT-DOC-{suffix}");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, $3, $4, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("Parent placeholder fixture {suffix}"))
+        .bind(Decimal::new(26000, 2))
+        .bind(Decimal::new(10000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert parent placeholder product fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, variation_label, stock_on_hand, counterpoint_item_key
+            )
+            VALUES ($1, $2, $3, '{}'::jsonb, 'Parent item', 0, $4)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .bind(&item_no)
+        .execute(&pool)
+        .await
+        .expect("insert parent placeholder variant fixture");
+
+        let summary = execute_counterpoint_open_doc_batch(
+            &pool,
+            CounterpointOpenDocsPayload {
+                rows: vec![CounterpointOpenDocRow {
+                    doc_ref: doc_ref.clone(),
+                    cust_no: None,
+                    booked_at: Some(Utc::now().to_rfc3339()),
+                    total_price: Decimal::new(28275, 2),
+                    amount_paid: Decimal::new(28275, 2),
+                    usr_id: None,
+                    sls_rep: None,
+                    cp_status: None,
+                    doc_typ: Some("O".into()),
+                    lines: vec![TicketLineRow {
+                        sku: Some(item_no.clone()),
+                        counterpoint_item_key: Some(item_no.clone()),
+                        lin_seq_no: Some(1),
+                        quantity: 1,
+                        unit_price: Decimal::new(26000, 2),
+                        unit_cost: Some(Decimal::new(10000, 2)),
+                        description: Some("Matrix open-doc line missing barcode".into()),
+                        reason_code: None,
+                    }],
+                    payments: vec![],
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("parent placeholder open doc import");
+
+        let transaction_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM transactions WHERE counterpoint_doc_ref = $1",
+        )
+        .bind(&doc_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("count parent placeholder transaction");
+
+        sqlx::query("DELETE FROM counterpoint_import_exceptions WHERE entity_key = 'open_docs' AND source_key = $1")
+            .bind(&item_no)
+            .execute(&pool)
+            .await
+            .expect("cleanup parent placeholder import exception");
+        sqlx::query(
+            "DELETE FROM counterpoint_sync_issue WHERE entity = 'open_docs' AND external_key = $1",
+        )
+        .bind(&doc_ref)
+        .execute(&pool)
+        .await
+        .expect("cleanup parent placeholder issue");
+        sqlx::query("DELETE FROM product_variants WHERE id = $1")
+            .bind(variant_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup parent placeholder variant");
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup parent placeholder product");
+
+        assert_eq!(summary.transactions_created, 0);
+        assert_eq!(summary.line_items_created, 0);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(transaction_count, 0);
+    }
+
+    #[tokio::test]
+    async fn counterpoint_open_doc_parent_duplicate_skips_when_ticket_exists() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        let suffix = Uuid::new_v4().simple().to_string();
+        let customer_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let parent_variant_id = Uuid::new_v4();
+        let matrix_variant_id = Uuid::new_v4();
+        let ticket_transaction_id = Uuid::new_v4();
+        let duplicate_doc_transaction_id = Uuid::new_v4();
+        let duplicate_payment_id = Uuid::new_v4();
+        let item_no = format!("I-OPEN-DUPE-{suffix}");
+        let matrix_sku = format!("B-OPEN-MATRIX-{suffix}");
+        let matrix_key = format!("{item_no}|46306/2|52 R|J BOND");
+        let doc_ref = format!("CP-OPEN-DUPE-DOC-{suffix}");
+        let ticket_ref = format!("CP-OPEN-DUPE-TKT-{suffix}");
+        let cust_no = format!("CP-OPEN-DUPE-CUST-{suffix}");
+        let booked_at = Utc::now();
+
+        sqlx::query(
+            r#"
+            INSERT INTO customers (id, customer_code, first_name, last_name, customer_created_source)
+            VALUES ($1, $2, 'Open', 'Duplicate', 'counterpoint')
+            "#,
+        )
+        .bind(customer_id)
+        .bind(&cust_no)
+        .execute(&pool)
+        .await
+        .expect("insert duplicate customer fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active, data_source)
+            VALUES ($1, $2, $3, $4, TRUE, 'counterpoint')
+            "#,
+        )
+        .bind(product_id)
+        .bind(format!("Duplicate suppression fixture {suffix}"))
+        .bind(Decimal::new(26000, 2))
+        .bind(Decimal::new(10000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert duplicate product fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, variation_label, stock_on_hand, counterpoint_item_key
+            )
+            VALUES
+                ($1, $3, $4, '{}'::jsonb, 'Parent item', 0, $5),
+                ($2, $3, $6, '{}'::jsonb, '46306/2 / 52 R / J BOND', 1, $7)
+            "#,
+        )
+        .bind(parent_variant_id)
+        .bind(matrix_variant_id)
+        .bind(product_id)
+        .bind(format!("CP-OPEN-DUPE-PARENT-{suffix}"))
+        .bind(&item_no)
+        .bind(&matrix_sku)
+        .bind(&matrix_key)
+        .execute(&pool)
+        .await
+        .expect("insert duplicate variant fixtures");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, customer_id, counterpoint_ticket_ref, is_counterpoint_import,
+                status, booked_at, business_date, fulfilled_at, total_price, amount_paid, balance_due
+            )
+            VALUES (
+                $1, $2, $3, TRUE, 'fulfilled'::order_status, $4,
+                ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                $4, $5, $6, 0
+            )
+            "#,
+        )
+        .bind(ticket_transaction_id)
+        .bind(customer_id)
+        .bind(&ticket_ref)
+        .bind(booked_at)
+        .bind(Decimal::new(28275, 2))
+        .bind(Decimal::new(28275, 2))
+        .execute(&pool)
+        .await
+        .expect("insert matching ticket transaction fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_lines (
+                transaction_id, product_id, variant_id, fulfillment, quantity, unit_price, unit_cost,
+                state_tax, local_tax, applied_spiff, calculated_commission, is_fulfilled, fulfilled_at
+            )
+            VALUES ($1, $2, $3, 'takeaway'::fulfillment_type, 1, $4, $5, 0, 0, 0, 0, TRUE, $6)
+            "#,
+        )
+        .bind(ticket_transaction_id)
+        .bind(product_id)
+        .bind(matrix_variant_id)
+        .bind(Decimal::new(26000, 2))
+        .bind(Decimal::new(10000, 2))
+        .bind(booked_at)
+        .execute(&pool)
+        .await
+        .expect("insert matching ticket line fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, customer_id, counterpoint_doc_ref, is_counterpoint_import,
+                status, booked_at, business_date, total_price, amount_paid, balance_due
+            )
+            VALUES (
+                $1, $2, $3, TRUE, 'open'::order_status, $4,
+                ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                $5, $6, 0
+            )
+            "#,
+        )
+        .bind(duplicate_doc_transaction_id)
+        .bind(customer_id)
+        .bind(&doc_ref)
+        .bind(booked_at)
+        .bind(Decimal::new(28275, 2))
+        .bind(Decimal::new(28275, 2))
+        .execute(&pool)
+        .await
+        .expect("insert preexisting duplicate open-doc transaction fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_lines (
+                transaction_id, product_id, variant_id, fulfillment, quantity, unit_price, unit_cost,
+                state_tax, local_tax, applied_spiff, calculated_commission
+            )
+            VALUES ($1, $2, $3, 'special_order'::fulfillment_type, 1, $4, $5, 0, 0, 0, 0)
+            "#,
+        )
+        .bind(duplicate_doc_transaction_id)
+        .bind(product_id)
+        .bind(parent_variant_id)
+        .bind(Decimal::new(26000, 2))
+        .bind(Decimal::new(10000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert preexisting duplicate parent line fixture");
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_transactions (
+                id, payer_id, category, payment_method, amount, created_at, effective_date, metadata
+            )
+            VALUES (
+                $1, $2, 'retail_sale', 'cash', $3, $4,
+                ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
+                $5
+            )
+            "#,
+        )
+        .bind(duplicate_payment_id)
+        .bind(customer_id)
+        .bind(Decimal::new(28275, 2))
+        .bind(booked_at)
+        .bind(serde_json::json!({ "counterpoint_doc_ref": doc_ref }))
+        .execute(&pool)
+        .await
+        .expect("insert preexisting duplicate payment fixture");
+
+        sqlx::query(
+            "INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated) VALUES ($1, $2, $3)",
+        )
+        .bind(duplicate_payment_id)
+        .bind(duplicate_doc_transaction_id)
+        .bind(Decimal::new(28275, 2))
+        .execute(&pool)
+        .await
+        .expect("insert preexisting duplicate payment allocation fixture");
+
+        let summary = execute_counterpoint_open_doc_batch(
+            &pool,
+            CounterpointOpenDocsPayload {
+                rows: vec![CounterpointOpenDocRow {
+                    doc_ref: doc_ref.clone(),
+                    cust_no: Some(cust_no.clone()),
+                    booked_at: Some(booked_at.to_rfc3339()),
+                    total_price: Decimal::new(28275, 2),
+                    amount_paid: Decimal::new(28275, 2),
+                    usr_id: None,
+                    sls_rep: None,
+                    cp_status: None,
+                    doc_typ: Some("O".into()),
+                    lines: vec![TicketLineRow {
+                        sku: Some(item_no.clone()),
+                        counterpoint_item_key: Some(item_no.clone()),
+                        lin_seq_no: Some(1),
+                        quantity: 1,
+                        unit_price: Decimal::new(26000, 2),
+                        unit_cost: Some(Decimal::new(10000, 2)),
+                        description: Some("Duplicate parent-only open doc line".into()),
+                        reason_code: None,
+                    }],
+                    payments: vec![],
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("duplicate parent open doc import");
+
+        let open_doc_transaction_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM transactions WHERE counterpoint_doc_ref = $1",
+        )
+        .bind(&doc_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("count duplicate open doc transactions");
+
+        let duplicate_payment_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*)::bigint FROM payment_transactions WHERE id = $1")
+                .bind(duplicate_payment_id)
+                .fetch_one(&pool)
+                .await
+                .expect("count duplicate open doc payment");
+
+        let issue_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM counterpoint_sync_issue WHERE entity = 'open_docs' AND external_key = $1 AND NOT resolved",
+        )
+        .bind(&doc_ref)
+        .fetch_one(&pool)
+        .await
+        .expect("count duplicate open doc issues");
+
+        sqlx::query(
+            "DELETE FROM counterpoint_sync_issue WHERE entity = 'open_docs' AND external_key = $1",
+        )
+        .bind(&doc_ref)
+        .execute(&pool)
+        .await
+        .expect("cleanup duplicate open doc issues");
+        sqlx::query(
+            "DELETE FROM transaction_lines WHERE transaction_id = $1 OR variant_id = ANY($2)",
+        )
+        .bind(ticket_transaction_id)
+        .bind(&vec![parent_variant_id, matrix_variant_id])
+        .execute(&pool)
+        .await
+        .expect("cleanup duplicate transaction lines");
+        sqlx::query("DELETE FROM transactions WHERE id = $1 OR counterpoint_doc_ref = $2")
+            .bind(ticket_transaction_id)
+            .bind(&doc_ref)
+            .execute(&pool)
+            .await
+            .expect("cleanup duplicate transactions");
+        sqlx::query("DELETE FROM product_variants WHERE id = ANY($1)")
+            .bind(&vec![parent_variant_id, matrix_variant_id])
+            .execute(&pool)
+            .await
+            .expect("cleanup duplicate variants");
+        sqlx::query("DELETE FROM products WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup duplicate product");
+        sqlx::query("DELETE FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup duplicate customer");
+
+        assert_eq!(summary.transactions_created, 0);
+        assert_eq!(summary.line_items_created, 0);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(open_doc_transaction_count, 0);
+        assert_eq!(duplicate_payment_count, 0);
+        assert_eq!(issue_count, 0);
     }
 
     #[tokio::test]
