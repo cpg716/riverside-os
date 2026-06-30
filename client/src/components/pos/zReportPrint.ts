@@ -118,7 +118,6 @@ async function finishPrintDocument(
       text: directReportText,
       width: 950,
       height: 950,
-      preferFormattedPreview: true,
     });
     return true;
   } catch (error) {

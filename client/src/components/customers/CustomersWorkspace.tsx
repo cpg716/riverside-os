@@ -16,6 +16,8 @@ import {
   Wallet,
   Heart,
   CheckCircle2,
+  Mail,
+  Phone,
   Truck,
   ShoppingBag,
   ChevronRight,
@@ -1354,8 +1356,8 @@ export default function CustomersWorkspace({
               )}
               <table className="w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="sticky top-0 z-10">
-                  <tr className="bg-app-surface-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted transition-colors">
-                    <th className="w-12 px-5 py-4 border-b border-app-border">
+                  <tr className="bg-app-surface-3 text-[11px] font-black uppercase tracking-[0.13em] text-app-text-muted transition-colors">
+                    <th className="w-12 px-4 py-3 border-b border-app-border">
                       <input
                         type="checkbox"
                         checked={
@@ -1365,25 +1367,25 @@ export default function CustomersWorkspace({
                         className="h-4 w-4 rounded border-app-border text-app-accent focus:ring-0"
                       />
                     </th>
-                    <th className="px-5 py-4 border-b border-app-border">
+                    <th className="px-4 py-3 border-b border-app-border">
                       Customer & ID
                     </th>
-                    <th className="px-5 py-4 border-b border-app-border">
+                    <th className="px-4 py-3 border-b border-app-border">
                       Contact Details
                     </th>
-                    <th className="px-5 py-4 border-b border-app-border text-right">
+                    <th className="px-4 py-3 border-b border-app-border text-right">
                       Open Balance
                     </th>
-                    <th className="px-5 py-4 border-b border-app-border text-right">
+                    <th className="px-4 py-3 border-b border-app-border text-right">
                       Lifetime Sales
                     </th>
-                    <th className="px-5 py-4 border-b border-app-border text-center">
+                    <th className="px-4 py-3 border-b border-app-border text-center">
                       Wedding Party
                     </th>
-                    <th className="px-5 py-4 border-b border-app-border text-center">
+                    <th className="px-4 py-3 border-b border-app-border text-center">
                       Stats
                     </th>
-                    <th className="w-16 px-5 py-4 border-b border-app-border text-center">
+                    <th className="w-16 px-4 py-3 border-b border-app-border text-center">
                       VIP
                     </th>
                   </tr>
@@ -1397,7 +1399,7 @@ export default function CustomersWorkspace({
                         key={r.id}
                         className={`group transition-all hover:bg-app-accent/[0.04] ${selected.has(r.id) ? "bg-app-accent/[0.08]" : ""}`}
                       >
-                        <td className="px-5 py-4 align-middle">
+                        <td className="px-4 py-3 align-middle">
                           <input
                             type="checkbox"
                             checked={selected.has(r.id)}
@@ -1405,100 +1407,107 @@ export default function CustomersWorkspace({
                             className="h-4 w-4 rounded border-app-border text-app-accent focus:ring-0"
                           />
                         </td>
-                        <td className="px-5 py-4 align-middle">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setHubInitialTab(null);
-                              setPicked(rowToCustomer(r));
-                            }}
-                            className="flex flex-col text-left group-hover:translate-x-1 transition-transform"
-                          >
-                            <span className="text-sm font-black tracking-tight text-app-text group-hover:text-app-accent">
-                              {r.first_name} {r.last_name}
-                            </span>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="font-mono text-[9px] uppercase tracking-widest text-app-text-disabled">
-                                {r.customer_code}
+                        <td className="px-4 py-3 align-middle">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHubInitialTab(null);
+                                setPicked(rowToCustomer(r));
+                              }}
+                              className="min-w-0 flex-1 text-left group-hover:translate-x-1 transition-transform"
+                            >
+                              <span className="block truncate text-base font-black tracking-tight text-app-text group-hover:text-app-accent">
+                                {r.first_name} {r.last_name}
                               </span>
-                              {r.company_name && (
-                                <>
-                                  <span className="h-1 w-1 rounded-full bg-app-border" />
-                                  <span className="text-[9px] font-black uppercase tracking-tight text-app-accent">
-                                    {r.company_name}
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-app-text-muted">
+                                  {r.customer_code}
+                                </span>
+                                {r.company_name && (
+                                  <>
+                                    <span className="h-1 w-1 rounded-full bg-app-border" />
+                                    <span className="max-w-[220px] truncate text-[11px] font-black uppercase tracking-[0.08em] text-app-accent">
+                                      {r.company_name}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                <span
+                                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] ${customerLifecycleBadgeClassName(
+                                    r.lifecycle_state,
+                                  )}`}
+                                >
+                                  {customerLifecycleLabel(r.lifecycle_state)}
+                                </span>
+                                {!customerProfileComplete(r) ? (
+                                  <span className="inline-flex items-center rounded-full border border-app-warning/16 bg-app-warning/8 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-app-warning">
+                                    Profile incomplete
                                   </span>
+                                ) : null}
+                                {r.couple_id ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/20 bg-app-accent/10 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-app-accent">
+                                    <Heart size={12} fill="currentColor" />
+                                    Linked
+                                  </span>
+                                ) : null}
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                startSaleFromBrowseRow(r);
+                              }}
+                              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-success/20 bg-app-success/10 text-app-success transition-all hover:bg-app-success/15 active:scale-95"
+                              title="Start sale"
+                              aria-label={`Start sale for ${r.first_name} ${r.last_name}`}
+                            >
+                              <ShoppingBag size={18} />
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 align-middle">
+                          <div className="flex flex-col gap-1">
+                            <span className="flex items-center gap-2 text-sm font-bold text-app-text">
+                              {r.phone ? (
+                                <>
+                                  <Phone size={14} className="text-app-text-muted" />
+                                  {r.phone}
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 size={14} className="text-app-text-disabled" />
+                                  <span className="text-app-text-muted">No phone</span>
                                 </>
                               )}
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <span
-                                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${customerLifecycleBadgeClassName(
-                                  r.lifecycle_state,
-                                )}`}
-                              >
-                                {customerLifecycleLabel(r.lifecycle_state)}
-                              </span>
-                              {!customerProfileComplete(r) ? (
-                                <span className="inline-flex items-center rounded-full border border-app-warning/16 bg-app-warning/8 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
-                                  Profile incomplete
-                                </span>
-                              ) : null}
-                              {r.couple_id ? (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/20 bg-app-accent/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent">
-                                  <Heart size={10} fill="currentColor" />
-                                  Linked
-                                </span>
-                              ) : null}
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              startSaleFromBrowseRow(r);
-                            }}
-                            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-app-success/20 bg-app-success/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-app-success hover:bg-app-success/15"
-                          >
-                            <ShoppingBag size={12} />
-                            Start Sale
-                          </button>
-                        </td>
-                        <td className="px-5 py-4 align-middle">
-                          <div className="flex flex-col">
-                            <span className="flex items-center gap-1.5 text-xs font-bold text-app-text">
-                              {r.phone ? (
-                                r.phone
-                              ) : (
-                                <CheckCircle2
-                                  size={12}
-                                  className="text-app-text-disabled"
-                                />
-                              )}
                             </span>
-                            <span className="text-[10px] font-medium lowercase tracking-tight text-app-text-muted">
+                            <span className="flex items-center gap-2 text-xs font-semibold lowercase tracking-tight text-app-text-muted">
+                              <Mail size={14} className="text-app-text-disabled" />
                               {r.email || "No email"}
                             </span>
                           </div>
                         </td>
-                        <td className="px-5 py-4 align-middle text-right">
+                        <td className="px-4 py-3 align-middle text-right">
                           <div
-                            className={`font-mono text-sm font-black tabular-nums transition-colors ${hasBalance ? "text-app-danger" : "text-app-text-disabled"}`}
+                            className={`font-mono text-base font-black tabular-nums transition-colors ${hasBalance ? "text-app-danger" : "text-app-text-disabled"}`}
                           >
                             {moneyDec(r.open_balance_due)}
                           </div>
-                          <div className="text-[8px] font-black uppercase tracking-[0.2em] text-app-text-disabled">
+                          <div className="text-[10px] font-black uppercase tracking-[0.14em] text-app-text-disabled">
                             Balance Due
                           </div>
                         </td>
-                        <td className="px-5 py-4 align-middle text-right">
-                          <div className="font-mono text-sm font-black tabular-nums text-app-success">
+                        <td className="px-4 py-3 align-middle text-right">
+                          <div className="font-mono text-base font-black tabular-nums text-app-success">
                             {moneyDec(r.lifetime_sales)}
                           </div>
-                          <div className="text-[8px] font-black uppercase tracking-[0.2em] text-app-text-disabled">
+                          <div className="text-[10px] font-black uppercase tracking-[0.14em] text-app-text-disabled">
                             LTV Sales
                           </div>
                         </td>
-                        <td className="px-5 py-4 align-middle text-center">
+                        <td className="px-4 py-3 align-middle text-center">
                           {r.wedding_active ? (
                             <button
                               type="button"
@@ -1506,28 +1515,28 @@ export default function CustomersWorkspace({
                                 r.wedding_party_id &&
                                 onOpenWeddingParty(r.wedding_party_id)
                               }
-                              className="inline-flex items-center gap-2 rounded-full border border-app-danger/16 bg-app-danger/8 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger shadow-sm transition-all hover:bg-app-danger/12 active:scale-95"
+                              className="inline-flex items-center gap-2 rounded-full border border-app-danger/16 bg-app-danger/8 px-3 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-app-danger shadow-sm transition-all hover:bg-app-danger/12 active:scale-95"
                             >
-                              <Heart size={10} fill="currentColor" />
+                              <Heart size={12} fill="currentColor" />
                               {r.wedding_party_name || "Active Party"}
                             </button>
                           ) : r.wedding_soon ? (
-                            <div className="inline-flex items-center gap-2 rounded-full border border-app-warning/16 bg-app-warning/8 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
-                              <Clock size={10} />
+                            <div className="inline-flex items-center gap-2 rounded-full border border-app-warning/16 bg-app-warning/8 px-3 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-app-warning">
+                              <Clock size={12} />
                               Party Soon
                             </div>
                           ) : (
                             <span className="text-app-text-disabled">—</span>
                           )}
                         </td>
-                        <td className="px-5 py-4 align-middle text-center">
+                        <td className="px-4 py-3 align-middle text-center">
                           <div className="flex items-center justify-center gap-3">
                             <div className="flex flex-col items-center group/ord">
                               <ShoppingBag
-                                size={14}
+                                size={16}
                                 className={`transition-colors ${r.open_orders_count > 0 ? "text-app-accent" : "text-app-text-disabled"}`}
                               />
-                              <span className="text-[9px] font-black tabular-nums text-app-text-muted">
+                              <span className="text-[11px] font-black tabular-nums text-app-text-muted">
                                 {r.open_orders_count > 0
                                   ? r.open_orders_count
                                   : 0}
@@ -1536,10 +1545,10 @@ export default function CustomersWorkspace({
                             <div className="h-6 w-[1px] bg-app-border/20" />
                             <div className="flex flex-col items-center">
                               <Truck
-                                size={14}
+                                size={16}
                                 className={`transition-colors ${r.active_shipment_status ? "text-app-info" : "text-app-text-disabled"}`}
                               />
-                              <span className="text-[9px] font-black uppercase tracking-tighter text-app-text-muted">
+                              <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted">
                                 {r.active_shipment_status
                                   ? r.active_shipment_status.replace(/_/g, " ")
                                   : "Ship"}
@@ -1547,7 +1556,7 @@ export default function CustomersWorkspace({
                             </div>
                           </div>
                         </td>
-                        <td className="px-5 py-4 align-middle text-center">
+                        <td className="px-4 py-3 align-middle text-center">
                           {r.is_vip ? (
                             <div className="flex items-center justify-center">
                               <div className="relative">

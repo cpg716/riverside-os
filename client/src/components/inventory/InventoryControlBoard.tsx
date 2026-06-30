@@ -1286,11 +1286,11 @@ export default function InventoryControlBoard({
 
   const renderPriceRange = (min: number, max: number) => (
     <div className="flex flex-col items-end">
-      <span className="font-mono text-[11px] font-black tracking-tighter text-app-text">
+      <span className="font-mono text-sm font-black tracking-tight text-app-text">
         {money(max)}
       </span>
       {min !== max && (
-        <span className="text-[10px] font-bold text-app-text-muted opacity-40">
+        <span className="text-xs font-bold text-app-text-muted opacity-70">
           from {money(min)}
         </span>
       )}
@@ -1340,12 +1340,12 @@ export default function InventoryControlBoard({
           setTableFocus(true);
         }}
         onDoubleClick={() => openProductHub(row)}
-        className={`group relative flex items-center gap-4 px-6 py-4 transition-all duration-300 border-b border-app-border/10 ${
+        className={`group relative flex items-center gap-4 px-5 py-3 transition-all duration-300 border-b border-app-border/20 ${
           focused
             ? "bg-app-accent/5 ring-1 ring-inset ring-app-accent/20 backdrop-blur-md"
             : isSelected
               ? "bg-app-accent/10 backdrop-blur-md"
-              : "bg-transparent hover:bg-app-surface/30 hover:backdrop-blur-sm"
+              : "bg-transparent hover:bg-app-surface/40 hover:backdrop-blur-sm"
         }`}
       >
         {/* Selection Indicator */}
@@ -1362,26 +1362,26 @@ export default function InventoryControlBoard({
 
         {/* Product Identity Cluster */}
         <div className="flex min-w-0 flex-[3.9] items-center gap-3">
-          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 shadow-inner group-hover:scale-105 transition-transform ${oos ? 'opacity-40 grayscale' : ''}`}>
-             {row.is_clothing_footwear ? <Gem size={16} className="text-violet-500" /> : <Box size={16} className="text-app-text-muted" />}
+          <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 shadow-inner group-hover:scale-105 transition-transform ${oos ? 'opacity-50 grayscale' : ''}`}>
+             {row.is_clothing_footwear ? <Gem size={18} className="text-violet-500" /> : <Box size={18} className="text-app-text-muted" />}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="truncate text-[1rem] font-black tracking-tight text-app-text leading-none group-hover:text-app-accent transition-colors">
+              <h3 className="truncate text-lg font-black tracking-tight text-app-text leading-tight group-hover:text-app-accent transition-colors">
                 {row.product_name}
               </h3>
               {highValue && (
-                <span className="flex items-center gap-0.5 rounded-full border border-app-warning/20 bg-app-warning/10 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-widest text-app-warning">
-                  <Gem size={7} /> High current-cost value
+                <span className="flex items-center gap-1 rounded-full border border-app-warning/20 bg-app-warning/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-app-warning">
+                  <Gem size={11} /> High value
                 </span>
               )}
               {isNonStockSaleItem ? (
-                <span className="rounded-full bg-app-info/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-info">
+                <span className="rounded-full bg-app-info/10 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-app-info">
                   Sale item
                 </span>
               ) : (
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase tracking-widest ${
+                  className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] ${
                     unavailable
                       ? "bg-app-danger/10 text-app-danger"
                       : low
@@ -1396,23 +1396,23 @@ export default function InventoryControlBoard({
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               {showVariantIdentity && primaryVariant ? (
                 <>
-                  <span className="font-mono text-[12px] font-black text-app-text-muted">
+                  <span className="font-mono text-sm font-black text-app-text-muted">
                     {primaryVariant.sku || "NO SKU"}
                   </span>
-                  <span className="text-[12px] font-semibold text-app-text-muted">
+                  <span className="text-sm font-semibold text-app-text-muted">
                     {primaryVariant.variation_label ?? "Standard"}
                   </span>
                 </>
               ) : (
-                <span className="text-[12px] font-semibold text-app-text-muted">
+                <span className="text-sm font-semibold text-app-text-muted">
                   {row.variant_count} variation{row.variant_count === 1 ? "" : "s"}
                 </span>
               )}
-              <span className="text-[10px] font-black uppercase tracking-tighter text-app-text-muted/70">
+              <span className="text-xs font-black uppercase tracking-[0.08em] text-app-text-muted">
                 {row.category_name || "Misc"}
               </span>
               {row.primary_vendor_name ? (
-                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-app-text-muted/50">
+                <span className="max-w-[260px] truncate text-xs font-bold uppercase tracking-[0.12em] text-app-text-muted/70">
                   {row.primary_vendor_name}
                 </span>
               ) : null}
@@ -1424,27 +1424,27 @@ export default function InventoryControlBoard({
         <div className="flex shrink-0 flex-[1.5] items-center gap-4">
           {isNonStockSaleItem ? (
             <div className="min-w-[150px] rounded-xl border border-app-info/15 bg-app-info/8 px-3 py-2">
-              <p className="text-[8px] font-black uppercase tracking-widest text-app-info">
+              <p className="text-[10px] font-black uppercase tracking-[0.12em] text-app-info">
                 Not stock counted
               </p>
-              <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
                 Track sales history, not on-hand quantity.
               </p>
             </div>
           ) : (
             <>
-              <div className="text-center min-w-[60px]">
-                 <p className={`text-xl font-black tabular-nums tracking-tighter ${oos ? 'text-app-danger' : low ? 'text-app-warning' : 'text-app-success'}`}>
+              <div className="text-center min-w-[70px]">
+                 <p className={`text-2xl font-black tabular-nums tracking-tight ${oos ? 'text-app-danger' : low ? 'text-app-warning' : 'text-app-success'}`}>
                    {totalSoh}
                  </p>
-                 <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-50">On hand</p>
+                 <p className="text-[10px] font-black uppercase tracking-[0.12em] text-app-text-muted">On hand</p>
               </div>
-              <div className="flex-1 max-w-[80px]">
-                <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-[0.1em] text-app-text-muted mb-1 opacity-50">
+              <div className="flex-1 max-w-[115px]">
+                <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.1em] text-app-text-muted mb-1">
                    <span>Available</span>
                    <span>{totalAvailable}</span>
                 </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-app-border/20">
+                <div className="h-2 overflow-hidden rounded-full bg-app-border/25">
                   <div
                     className={`h-full transition-all duration-700 ${unavailable ? 'bg-app-danger/60' : low ? 'bg-app-warning/60' : 'bg-app-success/60'}`}
                     style={{ width: `${Math.min(100, (Math.max(0, totalAvailable) / 10) * 100)}%` }}
@@ -1463,12 +1463,12 @@ export default function InventoryControlBoard({
         {/* Channel Badges */}
         <div className="flex shrink-0 flex-1 flex-wrap gap-1.5 justify-end">
            {row.web_published_count > 0 && (
-             <div className="flex items-center gap-1 rounded-lg border border-app-success/16 bg-app-success/8 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-app-success">
-               <Globe size={9} /> Online
+             <div className="flex items-center gap-1.5 rounded-lg border border-app-success/16 bg-app-success/8 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-app-success">
+               <Globe size={12} /> Online
              </div>
            )}
            {row.unlabeled_count > 0 && (
-             <div className="rounded-lg border border-app-danger/16 bg-app-danger/8 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-app-danger">Needs tag</div>
+             <div className="rounded-lg border border-app-danger/16 bg-app-danger/8 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-app-danger">Needs tag</div>
            )}
         </div>
 
@@ -1487,10 +1487,10 @@ export default function InventoryControlBoard({
                 e.stopPropagation();
                 setPrintTarget(row);
               }}
-              className="p-1.5 rounded-xl border border-app-border bg-app-surface text-app-text-muted hover:text-app-accent hover:border-app-accent transition-all"
+              className="rounded-xl border border-app-border bg-app-surface p-2 text-app-text-muted hover:text-app-accent hover:border-app-accent transition-all"
               title="Print inventory tags"
             >
-              <Printer size={14} />
+              <Printer size={16} />
             </button>
             {!isPosSurface && (
               <button
@@ -1504,10 +1504,10 @@ export default function InventoryControlBoard({
                     openProductHub(row);
                   }
                 }}
-                className="rounded-xl border border-app-border bg-app-surface p-1.5 text-app-text-muted transition-all hover:border-app-success hover:text-app-success"
+                className="rounded-xl border border-app-border bg-app-surface p-2 text-app-text-muted transition-all hover:border-app-success hover:text-app-success"
                 title="Quick Adjust"
               >
-                <BarChart3 size={14} />
+                <BarChart3 size={16} />
               </button>
             )}
             <button
@@ -1516,10 +1516,10 @@ export default function InventoryControlBoard({
                 e.stopPropagation();
                 openProductHub(row);
               }}
-              className="p-1.5 rounded-xl border border-app-border bg-app-surface text-app-text-muted hover:text-app-accent hover:border-app-accent transition-all"
+              className="rounded-xl border border-app-border bg-app-surface p-2 text-app-text-muted hover:text-app-accent hover:border-app-accent transition-all"
               title="Manage"
             >
-              <MoreHorizontal size={14} />
+              <MoreHorizontal size={16} />
             </button>
           </div>
         </div>
