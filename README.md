@@ -1,6 +1,6 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.90.0 is the current release. It preserves the v0.85.x GO LIVE readiness baseline and adds explicit QBO mapping enforcement, pre-go-live local review fixes, Helcim/Shippo health-test hardening, refreshed help manuals, and updated release documentation.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.90.0 is the current release; the latest same-version release build is `6064e91c` from 2026-07-01. It preserves the v0.85.x GO LIVE readiness baseline and adds explicit QBO mapping enforcement, Counterpoint go-live import hardening, Register and Back Office connectivity recovery, direct layaway-deposit QBO journal handling, refreshed help manuals, and updated release documentation.
 
 Current Version: **v0.90.0** (See [CHANGELOG.md](CHANGELOG.md))
 
@@ -166,13 +166,13 @@ Environment variables:
 | `HELCIM_TERMINAL_1_DEVICE_CODE` / `HELCIM_TERMINAL_2_DEVICE_CODE` | unset | Deployment fallback for Terminal 1 and Terminal 2 Helcim device codes. Routine terminal setup should be saved in Backoffice Settings. Terminal payments use the terminal assigned to the active register session. |
 | `HELCIM_WEBHOOK_SECRET` | unset | Optional deployment fallback for Helcim webhook signing secret. Required for production Helcim terminal webhooks when Helcim can reach a public ROS API URL such as `https://ros.riversidemens.com/api/webhooks/helcim`. If that URL is served through Cloudflare Tunnel, `cloudflared` must run as a supervised host service. |
 | `RIVERSIDE_PUBLIC_BASE_URL` | unset | Optional public HTTPS origin used for edge/webhook diagnostics in Settings → Remote Access. Example: `https://ros.riversidemens.com` (no path). |
-| `RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME` | unset | Optional Cloudflare Tunnel hostname hint for Settings → Remote Access. When set, the edge diagnostics expect `cloudflared` to be installed and supervised on the server PC. |
+| `RIVERSIDE_CLOUDFLARE_TUNNEL_HOSTNAME` | unset | Optional Cloudflare Tunnel hostname hint for Settings → Remote Access. When set, the edge diagnostics expect `cloudflared` to be installed and supervised on the Main Hub. |
 | `RIVERSIDE_CREDENTIALS_KEY` | unset | Root encryption key for Backoffice-managed integration credentials, including QBO client credentials and OAuth tokens. Must be non-default and at least 32 characters before credentials can be saved. `QBO_TOKEN_ENC_KEY` remains accepted as a transitional fallback. |
 | `RIVERSIDE_BACKUP_DIR` | `backups` | Local backup directory. Strict production requires this to be set to an absolute, durable path; Settings and ROS Dev Center show the effective path. |
 | `RIVERSIDE_BACKUP_ENCRYPTION_KEY` | unset | Required when Settings → Backups enables encrypted archives. Must be preserved outside Git and outside the database; losing it makes `.dump.enc` backups unrecoverable. |
 | `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` | unset | S3-compatible off-site backup credentials. Routine credentials may be saved through Backoffice Settings. |
 | `BACKUP_CLOUD_ACCESS_TOKEN` / `BACKUP_CLOUD_REFRESH_TOKEN` / `BACKUP_CLOUD_CLIENT_ID` / `BACKUP_CLOUD_CLIENT_SECRET` | unset | Direct OneDrive, Google Drive, or Dropbox backup credentials. Prefer refresh token + client ID for scheduled backups. |
-| `VITE_API_BASE` | unset → same-origin in browser/PWA, else `http://127.0.0.1:3000` fallback for non-HTTP shells | API origin for client; set explicitly for production when UI and API are on different origins |
+| `VITE_API_BASE` | unset → same-origin in browser/PWA, else the desktop/runtime-selected Main Hub API base with `http://127.0.0.1:3000` as the local non-HTTP fallback | API origin for client. Set explicitly for production builds when a workstation/PWA must always target a known Main Hub LAN, Tailscale, or HTTPS origin. |
 | `VITE_STOREFRONT_EMBEDS` | _(unset)_ | When **`true`**, loads **`GET /api/public/storefront-embeds`** once (Podium widget when configured) — public storefront builds only — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
 | `VITE_PODIUM_OAUTH_REDIRECT_URI` | _(unset)_ | Optional. Override Podium OAuth callback URL (must match Podium app); default is **`${origin}/callback`** — **`client/.env.example`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
 | `RIVERSIDE_PODIUM_CLIENT_ID` | _(unset)_ | Deployment fallback for Podium OAuth client id; routine setup belongs in Backoffice Settings — **`DEVELOPER.md`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
@@ -244,16 +244,16 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm 
 Current CI note:
 
 - The POS UI subset (`phase2-tender-ui`, `pos-golden`, `tax-exempt-and-helcim-branding`, and the UI-open path in `exchange-wizard`) is back in the release gate. The old `ROS_QUARANTINE_UNSTABLE_POS_E2E=1` quarantine has been removed after adding explicit POS readiness contracts.
-- Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, QBO, Payments Operations, register reconciliation, high-risk API, intelligence/finance, and visual baseline contracts. The v0.70.0 release notes are recorded in [`docs/releases/v0.70.0-release-notes.md`](docs/releases/v0.70.0-release-notes.md), carrying forward the v0.60.2 certification baseline and adding the current deployment hotfix validation results.
-- See [`docs/releases/v0.70.0-release-notes.md`](docs/releases/v0.70.0-release-notes.md), [`docs/E2E_REGRESSION_MATRIX.md`](docs/E2E_REGRESSION_MATRIX.md), [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](docs/POS_E2E_TESTABILITY_FOLLOWUP.md), and [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md).
+- Production hardening coverage now includes checkout tender, tax, commission, inventory, offline recovery, register close, QBO, Payments Operations, register reconciliation, high-risk API, intelligence/finance, connectivity recovery, and visual baseline contracts. The current v0.90.0 release notes are recorded in [`docs/releases/v0.90.0-release-notes.md`](docs/releases/v0.90.0-release-notes.md), with certification evidence in [`docs/releases/v0.90.0-certification.md`](docs/releases/v0.90.0-certification.md).
+- See [`docs/releases/v0.90.0-release-notes.md`](docs/releases/v0.90.0-release-notes.md), [`docs/E2E_REGRESSION_MATRIX.md`](docs/E2E_REGRESSION_MATRIX.md), [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](docs/POS_E2E_TESTABILITY_FOLLOWUP.md), and [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md).
 
 For complete pre-release validation (service boot order, lint/build gates, and E2E checklist), see **`docs/RELEASE_QA_CHECKLIST.md`**.
 
 ## Schema Contract, Migrations, And Seeds
 
-Fresh installs use the schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through **`migrations/081_counterpoint_import_first_proof.sql`**. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
+Fresh installs use the schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through **`migrations/099_transaction_line_shipping_release.sql`**. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
 
-Apply active migrations with **`./scripts/apply-migrations-docker.sh`** or **`./scripts/apply-migrations-psql.sh`**. The ledger is the table **`public.ros_schema_migrations`** and should contain the 81 active baseline filenames after a fresh baseline build. Runtime startup verifies the ledger and refuses pending migrations unless `RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP=true` is set intentionally for a non-production startup apply.
+Apply active migrations with **`./scripts/apply-migrations-docker.sh`** or **`./scripts/apply-migrations-psql.sh`**. The ledger is the table **`public.ros_schema_migrations`** and should contain the active baseline filenames after a fresh baseline build. Runtime startup verifies the ledger and refuses pending migrations unless `RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP=true` is set intentionally for a non-production startup apply.
 
 Seed data is separate from schema:
 

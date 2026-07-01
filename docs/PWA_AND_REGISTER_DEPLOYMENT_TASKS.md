@@ -76,7 +76,7 @@ Use one of these paths for each Windows station:
 
 Station role rules:
 
-- **Backoffice / Server PC:** may run the server and Shop Host; do not confuse it with Register #1.
+- **Main Hub:** may run the server and Shop Host; do not confuse it with Register #1.
 - **Register #1:** Windows Tauri cashier station; owns the cash drawer and physical receipt workflow.
 - **Other Windows laptops:** use browser-installed PWA unless the station needs native Tauri hardware paths.
 - **iPad Register #2:** PWA satellite lane; receipt printing can use server-side network dispatch only when the API host can reach the Epson printer IP. Register #1 remains the primary receipt and cash-drawer station.

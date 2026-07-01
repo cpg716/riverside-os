@@ -211,6 +211,8 @@ Riverside OS generates a daily balanced journal by tracking payments against ful
 | Cash / Card Clearing | $100.00 | |
 | `liability_deposit` | | $100.00 |
 
+Direct layaway cash/card deposits follow this same new-inflow path on the payment date. They are visible in QBO staging as deposit liability and drilldown evidence immediately, while merchandise revenue, tax, COGS, and inventory relief remain deferred until pickup/fulfillment.
+
 **Fulfillment (releasing $250 sale with $100 prior deposit + $150 final payment):**
 | Account | Debit | Credit |
 |---------|-------|--------|

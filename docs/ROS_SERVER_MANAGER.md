@@ -1,6 +1,6 @@
 # ROS Server Manager
 
-`ROS-ServerManager.exe` is a separate Windows app for local Riverside OS server operations. It is intended for the Server PC when the Riverside app cannot load because the API, database, scheduled task, or local AI host is down.
+`ROS-ServerManager.exe` is a separate Windows app for local Riverside OS server operations. It is intended for the Main Hub when the Riverside app cannot load because the API, database, scheduled task, or local AI host is down.
 
 ## What it checks
 

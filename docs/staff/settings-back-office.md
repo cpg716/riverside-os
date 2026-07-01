@@ -193,7 +193,7 @@ Typical areas (labels may group differently by build):
 
 1. Confirm **Shop Host** is running if this machine serves local-network satellite clients.
 2. View the **local satellite URL** and **LAN IPv4** for in-store devices.
-3. View **Tailscale connection status** — shows whether the server PC is connected to the Tailscale private network.
+3. View **Tailscale connection status** — shows whether the Main Hub is connected to the Tailscale private network.
 4. Use the **Tailscale / Remote Address** saver in the **sign-in gate** (not in this panel) to save the store's Tailscale address on client devices for quick-pick remote access.
 
 For full setup and per-device Tailscale instructions, see [remote-access-tailscale.md](remote-access-tailscale.md) (staff) and [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) (IT/owner).

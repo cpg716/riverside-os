@@ -2,7 +2,7 @@
 
 This package is the guided deployment path for the in-store Windows machines:
 
-- **Main Hub (Backoffice / Server PC)**: PostgreSQL database, Riverside server, local Meilisearch search runtime, web bundle, migrations, firewall rule, startup tasks, and the Riverside desktop app.
+- **Main Hub**: PostgreSQL database, Riverside server, local Meilisearch search runtime, web bundle, migrations, firewall rule, startup tasks, and the Riverside desktop app.
 - **Standalone App — Register #1**: Riverside desktop app, station API base, printer target, and cash drawer setting. No server or database.
 - **Standalone App — Back Office**: Riverside desktop app, station API base, and optional printer targets. No server or database.
 
@@ -13,7 +13,7 @@ The normal entry point is **`Install-ROSDeploymentApps.cmd`**. It installs the R
 Build output:
 
 ```text
-RiversideOS-v0.80.9-Windows-Deployment/
+RiversideOS-v0.90.0-Windows-Deployment/
   Start-RiversideDeployment.cmd
   Start-RiversideDeployment.ps1
   Install-ROSDeploymentApps.cmd
@@ -44,7 +44,7 @@ RiversideOS-v0.80.9-Windows-Deployment/
 From a Windows release machine after building the server, client, and Tauri bundle:
 
 ```powershell
-.\deployment\windows\build-deployment-package.ps1 -Version "0.80.9"
+.\deployment\windows\build-deployment-package.ps1 -Version "0.90.0"
 ```
 
 If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`. For v0.80.0 and later, do not mix the `server/`, `client-dist/`, or `register/` folders from different release zips. Updater manifests, signatures, and standalone updater installers are published as GitHub release assets instead of being duplicated inside the deployment ZIP.
@@ -59,9 +59,9 @@ Double-click Install-ROSDeploymentApps.cmd, install the Deployment Manager and/o
 
 Then choose one of the three roles:
 
-- **Main Hub** for the server PC (PostgreSQL + Riverside Server + desktop app).
+- **Main Hub** for the store server machine (PostgreSQL + Riverside Server + desktop app).
 - **Standalone App — Register #1** for the primary cashier lane.
-- **Standalone App — Back Office** for a non-server PC that runs Riverside against the Main Hub.
+- **Standalone App — Back Office** for a non-Main-Hub PC that runs Riverside against the Main Hub.
 
 Click **Check**, then choose the action:
 
@@ -114,12 +114,12 @@ If Riverside Settings cannot open because the API is down, manage the server fro
 2. Run **`Start-RiversideDeployment.cmd`**.
 3. Select **Main Hub**.
 4. Use **Refresh Server Status**.
-5. If the package version is newer than the installed server version, run **Update This Server PC**.
+5. If the package version is newer than the installed server version, run **Update This Main Hub**.
 6. If the server task is missing or the API is unreachable, run **Repair Server** or use **Start Server** / **Restart Server**.
 
-Hotfix/support actions included in v0.80.9 packages:
+Hotfix/support actions included in v0.90.0 packages:
 
-- **`Install-RosieAiStack.cmd`** copies the precompiled ROSIE AI binaries (llama-server, sherpa-onnx) and bundled STT/TTS model files, verifies the Gemma GGUF model integrity, patches the server `.env` to make the local LLM reachable, and restarts the server. Use this to restore ROSIE AI features on existing Server PCs without a full reinstall.
+- **`Install-RosieAiStack.cmd`** copies the precompiled ROSIE AI binaries (llama-server, sherpa-onnx) and bundled STT/TTS model files, verifies the Gemma GGUF model integrity, patches the server `.env` to make the local LLM reachable, and restarts the server. Use this to restore ROSIE AI features on existing Main Hubs without a full reinstall.
 - **`Repair-RiversideCredentialsKey.cmd`** repairs the installed server credential key, writes it to both `C:\RiversideOS\server\.env` and the Windows machine environment, and restarts the `Riverside OS Server` task. Use this when Backoffice Settings says `RIVERSIDE_CREDENTIALS_KEY` must be set before integration credentials can be saved.
 Manual fallback:
 
@@ -172,7 +172,7 @@ The script:
 
 If Riverside starts but a screen reports a missing database table, use **Apply-RiversideMigrations.cmd** from the release package. It only applies pending migrations; it does not replace the server, web bundle, or desktop app.
 
-The Backoffice / Server desktop app also has a local recovery path: if it opens on the server PC, is pointed at `localhost` / `127.0.0.1`, and the roster check cannot reach the API, it asks Windows to start the installed `Riverside OS Server` scheduled task and then retries the roster check. If the task is missing, run **Repair** from the Deployment Manager instead of manually creating a different task name.
+The Main Hub desktop app also has a local recovery path: if it opens on the Main Hub, is pointed at `localhost` / `127.0.0.1`, and the roster check cannot reach the API, it asks Windows to start the installed `Riverside OS Server` scheduled task and then retries the roster check. If the task is missing, run **Repair** from the Deployment Manager instead of manually creating a different task name.
 
 PostgreSQL and `psql.exe` must be installed or referenced by `server.database.psqlPath`. The Deployment Manager can find common PostgreSQL installs and write the path into the config.
 

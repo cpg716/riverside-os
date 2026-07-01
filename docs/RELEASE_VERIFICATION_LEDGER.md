@@ -1,6 +1,6 @@
 # Release Verification Ledger — Riverside OS
 
-Last updated: 2026-06-05
+Last updated: 2026-07-01
 
 This ledger separates **code patched** from **behavior proven**. A workflow is not considered fixed for go-live unless the required proof level is met.
 
@@ -24,7 +24,7 @@ This ledger separates **code patched** from **behavior proven**. A workflow is n
 | `cargo check --manifest-path deployment/server-manager-app/src-tauri/Cargo.toml` | Passed |
 | `npm --prefix client run typecheck` | Passed |
 | `npm --prefix deployment/manager-app run build` | Passed |
-| Static deployment assertion: no `psql ... -tAc -w`, no broken sherpa `win-x64.tar.bz2`, no stale visible “Server PC” updater copy | Passed |
+| Static deployment assertion: no `psql ... -tAc -w`, no broken sherpa `win-x64.tar.bz2`, no stale visible legacy Main Hub updater copy | Passed |
 | Upstream sherpa asset check: `sherpa-onnx-v1.13.2-win-x64-shared-MD-Release.tar.bz2` | Reachable |
 | `npm run check:version` | Passed: Riverside version parity OK `0.90.0` |
 | `npm run check:updater-release -- --repo cpg716/riverside-os --tag v0.90.0 --platform windows-x86_64 ...` | Passed: published v0.90.0 POS, Deployment Manager, Server Manager, and Counterpoint Bridge GUI updater manifests/assets/signatures are structurally present |
@@ -40,16 +40,19 @@ This ledger separates **code patched** from **behavior proven**. A workflow is n
 | `npm --prefix client run test:e2e -- e2e/alterations-smart-scheduler.spec.ts e2e/wedding-readiness-certification.spec.ts e2e/wedding-readiness-walkthrough.spec.ts --workers=1` | Passed: 6 tests, 1.5m after fixing alteration fixture totals, lifecycle override credential fixture, and invalid `transaction_lines.updated_at` write |
 | `npm --prefix client run test:e2e -- e2e/staff-scheduler.spec.ts e2e/scheduler-mobile-ergonomics.spec.ts e2e/alterations-smart-scheduler.spec.ts e2e/wedding-readiness-certification.spec.ts e2e/wedding-readiness-ui.spec.ts e2e/wedding-readiness-walkthrough.spec.ts --workers=1` | Passed: 16 tests, 2.1m |
 | Windows PowerShell runtime rehearsal | Not run here; this workspace is macOS and `pwsh` is unavailable |
+| Same-version `v0.90.0` release rerun | Published from commit `6064e91c`; GitHub release is Latest with `RiversideOS-v0.90.0-6064e91c-Windows-Deployment.zip` |
+| `npm --prefix client run test:e2e -- --workers=1` on release commit `6064e91c` | Passed: 373 passed, 11 skipped |
+| GitHub release workflows on `6064e91c` | Passed: Lint Checks, Playwright E2E, macOS ROS Dev Center Release, Windows deployment package |
 
-Important: the published `v0.90.0` updater asset verification proves the existing release artifacts are structurally present and signed. It does **not** prove that today’s uncommitted deployment/ROSIE fixes are included in those assets. Those fixes require a rebuilt Windows deployment package and republished updater artifacts before the Windows Main Hub can consume them through normal update channels.
+Important: the published `v0.90.0` updater and deployment assets now include the same-version rebuild fixes through commit `6064e91c`. That proves source inclusion and release workflow publication, but it still does **not** prove Windows Main Hub install/update behavior, hardware paths, live credentials, or target-device smoke unless those real environments are exercised and recorded.
 
 ## Verification Matrix
 
 | Area | Prior claim risk | Current proof | Current status | Required proof before go-live |
 |---|---|---|---|---|
-| Windows Deployment Manager install/update flow | High: screenshots showed real failures after prior “fixed” claims | Deployment Manager TypeScript build passed; Tauri cargo check passed; Main Hub install/update now passes `-StationMode mainhub`; child PowerShell consoles suppressed; existing published v0.90.0 updater assets are structurally present but do not contain today's uncommitted patch until rebuilt | **Patched, not target verified** | Build Windows package, run Main Hub install/update/repair/uninstall on the Windows Main Hub, capture logs and final station config |
-| In-app Main Hub updater | High: update instructions and runner path were unclear/unreliable | Tauri cargo check passed; runner now writes transcript and invokes `install-register.ps1 -StationMode mainhub`; release asset verifier passed for published v0.90.0 assets only | **Patched, not target verified** | Rebuild/republish assets, then run from installed Windows app, confirm UAC launch, transcript creation, server/app update, relaunch, and version/build detection |
-| ROSIE LLM/STT/TTS install/update | High: screenshots showed sherpa 404 and missing model/runtime | Corrected sherpa release asset; package builder now bundles sherpa binaries/DLLs; asset HEAD request passed | **Patched, not target verified** | Rebuild Windows deployment asset, install on Main Hub, verify `llama-server.exe`, `sherpa-onnx-offline.exe`, `sherpa-onnx-offline-tts.exe`, scheduled task, LLM health, STT, and TTS |
+| Windows Deployment Manager install/update flow | High: screenshots showed real failures after prior “fixed” claims | Deployment Manager TypeScript build passed; Tauri cargo check passed; Main Hub install/update now passes `-StationMode mainhub`; child PowerShell consoles suppressed; refreshed v0.90.0 assets were published from `6064e91c` | **Patched, not target verified** | Run Main Hub install/update/repair/uninstall on the Windows Main Hub from the published package, capture logs and final station config |
+| In-app Main Hub updater | High: update instructions and runner path were unclear/unreliable | Tauri cargo check passed; runner now writes transcript and invokes `install-register.ps1 -StationMode mainhub`; refreshed v0.90.0 assets were published from `6064e91c` | **Patched, not target verified** | Run from installed Windows app, confirm UAC launch, transcript creation, server/app update, relaunch, and version/build detection |
+| ROSIE LLM/STT/TTS install/update | High: screenshots showed sherpa 404 and missing model/runtime | Corrected sherpa release asset; package builder now bundles sherpa binaries/DLLs; asset HEAD request passed; refreshed v0.90.0 deployment package was published from `6064e91c` | **Patched, not target verified** | Install on Main Hub, verify `llama-server.exe`, `sherpa-onnx-offline.exe`, `sherpa-onnx-offline-tts.exe`, scheduled task, LLM health, STT, and TTS |
 | PostgreSQL install/migration bootstrap | High: screenshots showed `syntax error at or near "-" LINE 1: -w` | Corrected `psql -w -tAc` flag ordering in install/migration/credential scripts; static bad-pattern scan passed | **Patched, not target verified** | Run install-server/update/repair on Windows against existing and fresh DB states; confirm migrations ledger and UTF-8 checks pass |
 | Station role labeling: Main Hub/Register/Back Office | High: screenshots showed Main Hub detected but station label not installed or Back Office | Main Hub fallback added in in-app updater panel; Main Hub station config can apply loopback API; Deployment Manager and scripts now use Main Hub wording | **Patched, not target verified** | Verify `C:\ProgramData\RiversideOS\station-config.json`, in-app Settings → Updates station label, and register/back-office labels on actual machines |
 | Counterpoint Bridge GUI | High: prior claims involved packaging/runtime reliability | No current bridge GUI runtime test in this pass | **Unverified** | Run packaged Bridge GUI without developer tooling, connect to Counterpoint SQL, verify schema probe, sync progress, errors, and logs |

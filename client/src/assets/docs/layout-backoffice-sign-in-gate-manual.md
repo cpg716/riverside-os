@@ -34,13 +34,13 @@ Use this gate to select the current staff identity and enter the correct **Acces
 
 Use **API Host Settings** only when this device needs to point at a different Riverside host URL. The menu shows known host choices first, and the text field still allows a manually typed IP or DNS name.
 
-- **Backoffice / Server direct** on the server PC
+- **Main Hub direct** on the Main Hub machine
 - the dedicated host machine on your local network
 - the store's Tailscale remote-access URL when this device is off-site
 
 Example values:
 
-- `http://127.0.0.1:3000` on the Backoffice / Server PC
+- `http://127.0.0.1:3000` on the Main Hub
 - `http://ros-host.local:3000`
 - `http://10.64.70.196:3000`
 - `https://ros-host.tailnet.ts.net`
@@ -48,7 +48,7 @@ Example values:
 ## Notes
 
 - The last selected staff member is remembered on that device.
-- On the Backoffice / Server PC, if the app is pointed at `localhost` or `127.0.0.1` and the staff roster cannot load, Riverside tries to start the installed **Riverside OS Server** Windows scheduled task and then retries the roster check.
+- On the Main Hub, if the app is pointed at `localhost` or `127.0.0.1` and the staff roster cannot load, Riverside tries to start the installed **Riverside OS Server** Windows scheduled task and then retries the roster check.
 - If your name does not appear, the device may be pointed at the wrong host URL for its current role or location.
 - If a red **Server connection lost** banner appears after sign-in, Riverside cannot reach the Main Hub/server. Do not start new Back Office work until the banner clears; confirm the server is running or the host URL is correct, then use **Recheck**.
 - For lockout recovery, use the in-app **Lockout Recovery Manual** from Help.

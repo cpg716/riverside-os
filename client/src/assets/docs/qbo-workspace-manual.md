@@ -27,7 +27,7 @@ QBO Workspace is the review and staging area for QuickBooks Online journal propo
 
 1. Open the proposal for the accounting date being reviewed.
 2. Confirm the proposal is balanced.
-3. Review drilldown evidence for sales, shipping income, refunds, gift cards, store credit, and open deposits.
+3. Review drilldown evidence for sales, shipping income, refunds, gift cards, store credit, layaway deposits, and open deposits.
 4. Sync only after the proposal and evidence match the expected activity.
 
 ## Review proposals
@@ -67,6 +67,8 @@ Store credit and open deposit redemptions are liability-release activity. They s
 
 Manual store-credit adjustments are audit-sensitive and should only post to QBO when the configured accounting path intentionally includes them.
 
+Direct layaway cash/card deposits are deposit-liability inflows. They should appear in the QBO proposal and drilldown evidence on the payment date as `liability_deposit`, while the merchandise revenue and tax remain deferred until pickup/fulfillment.
+
 ## Shipping, alterations, and clearing accounts
 
 Customer-charged shipping posts to the mapped Shipping income account on the same completed business date as the sale. Alteration service lines, refund queue clearing, forfeited deposit income, and RMS clearing each require their own mapped accounts before syncing days that contain that activity. Cash rounding is currently off; when enabled later, cash rounding requires its own mapped account and must post from the rounding adjustment on the main Transaction Record, not from a separate Transaction Record, pickup, deposit, or orphaned payment activity.
@@ -90,7 +92,7 @@ Historical imported Counterpoint activity should remain auditable but should not
 ## What to watch for
 
 - Do not sync an unbalanced proposal.
-- Confirm refund, shipping, clearing, and liability evidence before syncing days with returns, store credit, deposits, shipping charges, or gift card activity.
+- Confirm refund, shipping, clearing, and liability evidence before syncing days with returns, store credit, layaway deposits, open deposits, shipping charges, or gift card activity.
 - If drilldown evidence does not match the visible transaction history, stop and ask for accounting review.
 
 ## Inline Mapping Resolution (v0.85.0+)

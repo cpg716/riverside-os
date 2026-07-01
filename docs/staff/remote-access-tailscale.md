@@ -8,7 +8,7 @@
 
 ## How it works (plain language)
 
-Riverside runs on a Windows server PC at the store. When you're in the store, your device connects directly over the store Wi-Fi. When you're off-site, **Tailscale** creates a secure private tunnel between your device and that same server PC — so Riverside works the same way, just through the internet.
+Riverside runs on the Windows **Main Hub** at the store. When you're in the store, your device connects directly over the store Wi-Fi. When you're off-site, **Tailscale** creates a secure private tunnel between your device and that same Main Hub — so Riverside works the same way, just through the internet.
 
 You do not need to do anything special inside Riverside. You just need:
 
@@ -106,7 +106,7 @@ Everything in Riverside works the same remotely as in-store:
 | Purple "Cannot reach server" banner | Open Tailscale → tap connect → try again |
 | Staff list loads but sign-in fails | Wrong PIN or server is correct — try again |
 | Riverside stuck on spinner | Server may be offline at the store — check with manager |
-| Tailscale shows "Connected" but server still unreachable | Manager needs to check that Tailscale is running on the server PC |
+| Tailscale shows "Connected" but server still unreachable | Manager needs to check that Tailscale is running on the Main Hub |
 | "CORS" error in browser console | IT needs to add your Tailscale origin to `RIVERSIDE_CORS_ORIGINS` |
 
 ---
@@ -116,7 +116,7 @@ Everything in Riverside works the same remotely as in-store:
 The store's Tailscale address is:
 
 1. Log in at [login.tailscale.com/admin/machines](https://login.tailscale.com/admin/machines).
-2. Find the server PC in the list.
+2. Find the Main Hub in the list.
 3. The **Tailscale IP** (`100.x.x.x`) is shown next to it. The **MagicDNS name** (e.g. `ros-server.ts.net`) is shown if MagicDNS is enabled.
 4. Share the full address with staff: `http://100.x.x.x:3000` or `https://ros-server.ts.net` (if HTTPS/Tailscale Serve is configured).
 

@@ -2,7 +2,7 @@
 
 The **Riverside OS Deployment Manager** is the universal graphical hub for installing, updating, auditing, repairing, and resetting in-store Riverside OS workstations and server installations. Current Windows deployment packages include `Install-ROSDeploymentApps.cmd` so the Deployment Manager and ROS Server Manager can be installed as normal Windows apps before use.
 
-For day-to-day Server PC operations after installation, use the separate **ROS Server Manager** (`ROS-ServerManager.exe`). It runs locally, does not require the Riverside API to be online, and is focused on server health, repairs, cleanup, updates, and recovery. See [`ROS_SERVER_MANAGER.md`](ROS_SERVER_MANAGER.md).
+For day-to-day Main Hub operations after installation, use the separate **ROS Server Manager** (`ROS-ServerManager.exe`). It runs locally, does not require the Riverside API to be online, and is focused on server health, repairs, cleanup, updates, and recovery. See [`ROS_SERVER_MANAGER.md`](ROS_SERVER_MANAGER.md).
 
 Replacing the legacy WinForms-based and command-line scripts, it provides a unified, cross-station desktop dashboard that interfaces directly with local system configuration, services, database engines, and diagnostic tools.
 
@@ -222,7 +222,7 @@ As of v0.80.9, **routine updates no longer require the Deployment Manager**. All
 | **Daily update check** | The server checks GitHub for new releases every hour, once per calendar day. Admin staff receive an in-app notification when a newer version is available. |
 | **Safe window enforcement** | The update check reports whether the current time is within the safe update window (before 10 AM or after 6 PM). The UI warns if an update is attempted during store hours. |
 
-### Update Flow — Main Hub (Server PC)
+### Update Flow — Main Hub
 
 On the Main Hub station, **Settings → Updates → Server update** shows a live version status banner and a one-click update button. When clicked, the system:
 

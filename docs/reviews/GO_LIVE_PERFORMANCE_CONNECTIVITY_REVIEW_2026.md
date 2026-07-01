@@ -2,6 +2,8 @@
 
 Status: CAUTION until production-sized data and real device/network smoke tests are complete.
 
+Release evidence update: the reviewed fixes were included in the `v0.90.0` same-version rebuild published from build `6064e91c` on 2026-07-01. Local full Playwright passed on the release commit (`373 passed`, `11 skipped`), and GitHub Lint Checks, Playwright E2E, macOS ROS Dev Center Release, and Windows deployment package workflows passed on the released commit.
+
 ## Scope Reviewed
 
 - Register startup, session hydration, checkout replay, close/Z-report blocking.
@@ -68,3 +70,5 @@ ROS is closer to smooth multi-device operation after the fixes in this review, b
 | `npm run check:server` | Passed with existing `imap-proto` future-incompat warning |
 | `bash scripts/cargo-server.sh test transaction_fulfillment` | Passed, 3 targeted tests |
 | `cargo fmt --manifest-path server/Cargo.toml --check` | Passed |
+| `npm --prefix client run test:e2e -- --workers=1` on release commit `6064e91c` | Passed, 373 passed and 11 skipped |
+| GitHub release workflows for release commit `6064e91c` | Passed: Lint Checks, Playwright E2E, macOS ROS Dev Center Release, Windows deployment package |

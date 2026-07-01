@@ -49,6 +49,7 @@ These are explicit accounts used by global financial logic:
 - **Sales Tax**: Map to your "Sales Tax Payable" liability account.
 - **Shipping Expense**: Map to your outbound shipping freight account.
 - **Receiving clearing**: Map `INV_RECEIVING_CLEARING` before relying on receiving or freight journal rows. This is the receiving-clearing role used for same-day received merchandise and inbound freight distributions; inbound freight stays separate and is not added into item cost.
+- **Deposit liability**: Map `liability_deposit` before posting layaway, wedding/order deposit, open-deposit, or fulfillment-release days. Direct layaway cash/card deposits credit this liability on the payment date; fulfillment later debits the same liability when revenue is recognized.
 - **Gift Card Breakage Income**: Map expired purchased-card breakage separately from normal sales revenue.
 
 ## How to map an account

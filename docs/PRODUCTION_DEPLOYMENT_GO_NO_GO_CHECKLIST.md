@@ -2,15 +2,17 @@
 
 Target: Hybrid Tauri Host retail deployment.
 
-### Current Deployment Status (2026-06-05)
+### Current Deployment Status (2026-07-01)
 
 - [x] Target source release version is **`v0.90.0`** across root, client, server, Tauri, standalone apps, ROS Dev Center, and Windows deployment metadata.
 - [x] Source-side QBO fallback mapping has been removed; exportable financial activity must resolve to an explicit Chart of Accounts mapping before posting.
 - [x] Source-side local review evidence is recorded in [`docs/reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md`](reviews/legacy/2026-06/PRE_GO_LIVE_LOCAL_REVIEW_2026_06_05.md).
 - [x] v0.90.0 release notes and certification evidence are recorded in [`docs/releases/v0.90.0-release-notes.md`](releases/v0.90.0-release-notes.md) and [`docs/releases/v0.90.0-certification.md`](releases/v0.90.0-certification.md).
-- [x] GitHub release **`v0.90.0`** is published as Latest.
+- [x] GitHub release **`v0.90.0`** is published as Latest from build `6064e91c`.
 - [x] Release workflows published fresh v0.90.0 Windows updater, Windows deployment package, Counterpoint Bridge GUI, Server Manager, Deployment Manager, and macOS ROS Dev Center assets.
 - [x] Local Lint/Clippy/Cargo checks pass for the v0.90.0 release source tree.
+- [x] Full local Playwright passed on the released commit: 373 passed, 11 skipped.
+- [x] GitHub Actions passed on release commit `6064e91c`: Lint Checks, Playwright E2E, macOS ROS Dev Center Release, and Windows deployment package.
 - [x] Financial, register, Counterpoint, Help/ROSIE, backup/restore, and reporting launch-critical local suites passed on 2026-06-05.
 - [ ] Production station deployment log is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA / optional Tauri clients.
 
@@ -24,12 +26,14 @@ v0.90.0 preserves the v0.85.x GO LIVE readiness baseline and adds the source-sid
 - [x] **Helcim Test Isolation** — unit tests serialize credential-environment mutation so local and CI cargo runs do not fail nondeterministically.
 - [x] **Shippo Health Test Coverage** — disabled, missing-token, and healthy credential states are covered without requiring live label purchases.
 - [x] **Help and Manual Refresh** — active Help Center source manuals and release docs are updated to v0.90.0 current-release guidance.
+- [x] **GO-LIVE Connectivity Hardening** — Register and Back Office startup/recovery paths now use bounded API calls, shared runtime API-base handling, explicit Main Hub recovery guidance, and focused E2E coverage for outage/recheck behavior.
+- [x] **Direct Layaway Deposit QBO Handling** — daily QBO staging now includes direct layaway cash/card deposit inflows as `liability_deposit` evidence without changing fulfillment-time revenue recognition.
 
 ## v0.90.0 Release Readiness Gates
 
 - [x] `v0.90.0` GitHub release exists and is marked Latest.
 - [x] `v0.90.0` Windows updater assets exist: `latest.json`, `riverside-updater-build-manifest.json`, MSI, and `.sig`.
-- [x] `v0.90.0` Windows deployment package exists: `RiversideOS-v0.90.0-1e630a1-Windows-Deployment.zip`.
+- [x] `v0.90.0` Windows deployment package exists: `RiversideOS-v0.90.0-6064e91c-Windows-Deployment.zip`.
 - [x] `v0.90.0` standalone app assets exist for Deployment Manager, Server Manager, Counterpoint Bridge GUI, and ROS Dev Center where applicable.
 - [ ] Physical station smoke is complete for Main Hub, Register #1 Windows Tauri, Register #2 iPad PWA, and other Windows laptop PWA devices.
 - [ ] Real external credential workflows have been tested where required for go-live: QBO sandbox/production, Helcim, Podium, Shippo, and Counterpoint SQL.
@@ -38,7 +42,7 @@ v0.90.0 preserves the v0.85.x GO LIVE readiness baseline and adds the source-sid
 
 - [x] v0.90.0 source validation list is defined in [`docs/releases/v0.90.0-certification.md`](releases/v0.90.0-certification.md).
 - [x] v0.90.0 local validation commands pass before tagging: `git diff --check`, help manifest generation, version parity, client lint/typecheck, Rust fmt, cargo check, cargo clippy, standalone Tauri cargo checks, and targeted release-critical Rust tests.
-- [ ] Latest GitHub Actions checks pass on the final v0.90.0 follow-up commit; original release commit Lint passed, original Playwright failed on stale Orders E2E assertions now fixed locally.
+- [x] Latest GitHub Actions checks pass on final release commit `6064e91c`.
 - [ ] `scripts/production_audit_probes.sql` runs read-only against the release database and all P0/P1 probes are explained or zero-row.
 
 ## In-App Update System (v0.80.9+)

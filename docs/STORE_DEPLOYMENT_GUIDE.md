@@ -2,10 +2,10 @@
 
 This document is the **canonical production deployment** reference for a typical shop layout:
 
-- **One Windows PC** is the **HOST machine**. It runs **PostgreSQL** and the **Riverside OS server** (Rust Axum API + static web UI from `client/dist`) and may also run the hardened Tauri **Shop Host** surface.
+- **One Windows PC** is the **Main Hub**. It runs **PostgreSQL** and the **Riverside OS server** (Rust Axum API + static web UI from `client/dist`) and may also run the hardened Tauri **Shop Host** surface.
 - **A different Windows PC** is the **MAIN REGISTER**. It uses the **Windows desktop app** (Tauri 2) as the primary cashier station.
 - **Local-network iPads and phones** use the **Progressive Web App** against the host machine while they are on the same shop network.
-- **Remote access** is separate: off-site PWA devices use **Tailscale** to reach the same host machine over a private remote path.
+- **Remote access** is separate: off-site PWA devices use **Tailscale** to reach the same Main Hub over a private remote path.
 - **Other office PCs** use a browser or optional Tauri against the same API origin.
 
 Deeper checklists and remote access detail live in linked docs at the end.
@@ -24,11 +24,11 @@ If your team uses macOS for local validation before Windows production cutover, 
 
 Record this verification in your deployment log so troubleshooting always starts from a known container runtime.
 
-There is **one application backend** and **one database**. Every client device talks to the **same API origin** (for example `https://ros.yourstore.tld` or `http://server-pc:3000` on the LAN).
+There is **one application backend** and **one database**. Every client device talks to the **same API origin** (for example `https://ros.yourstore.tld` or `http://main-hub:3000` on the LAN).
 
 ```mermaid
 flowchart TB
-  subgraph serverHost [Server PC]
+  subgraph serverHost [Main Hub]
     Axum[Axum API plus static SPA]
     PG[(PostgreSQL)]
     Axum --> PG
@@ -55,27 +55,27 @@ flowchart TB
 
 | Role | Recommended client | Notes |
 |------|-------------------|--------|
-| **Backoffice / Server PC** | Windows PC running services + optional Tauri | Run PostgreSQL and `riverside-server` here. If you use Shop Host, this is the one Tauri machine that should serve local-network satellite clients. This PC should stay on and be on UPS if possible. |
+| **Main Hub** | Windows PC running services + optional Tauri | Run PostgreSQL and `riverside-server` here. If you use Shop Host, this is the one Tauri machine that should serve local-network satellite clients. This PC should stay on and be on UPS if possible. |
 | **Register #1** | **Tauri (Windows)** | Separate from the host machine. This is the primary cashier station and the preferred surface for **physical receipt print** from the post-sale flow (see section 6). |
 | **Register #2** | **iPad PWA** | Use the local satellite URL shown by the host when the iPad is in the store. Add to Home Screen. Network printer dispatch can work when the API host can reach the printer IP; installed-printer dropdowns and local readiness checks require a Windows Tauri station. |
 | **Back office workstation** | Browser or optional Tauri | Same API origin and auth model; optional Tauri if you want a dedicated shell. |
 | **Other Windows PCs / laptops** | **PWA or optional Tauri** | Use a browser-installed PWA for Back Office/POS where hardware printing is not required; use Tauri where native printer/scanner reliability is required. |
 | **Off-site phones / laptops** | **PWA over Tailscale** | Use **Tailscale** (or equivalent private mesh) and **HTTPS** when the device is not on the same local network as the host. Do not expose plain HTTP to the public internet for staff apps ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)). |
 
-### 2.1 Current deployment status snapshot (2026-06-04)
+### 2.1 Current deployment status snapshot (2026-07-01)
 
 This is the current repo/deployment status to verify before a live install:
 
 | Item | Current status | Deployment impact |
 |------|----------------|-------------------|
 | Target release version | **`v0.90.0`** | Root, client/PWA bundle, server, Tauri, standalone apps, and deployment metadata must all match. Run `npm run check:version` before publishing artifacts. |
-| Latest published GitHub release | **`v0.90.0`** | Use the release workflow output for the current release; do not mix installer assets from older releases. |
+| Latest published GitHub release | **`v0.90.0` build `6064e91c`** | Use the release workflow output for the current release; do not mix installer assets from older releases. |
 | Windows installer/updater assets | **Required for the same Riverside release** | The release must contain `latest.json`, one current Windows MSI, and the matching `.sig`; old Riverside MSI/signature assets must be removed before upload. |
 | Windows deployment package | **Required as GitHub release asset for Main Hub/full go-live updates** | `RiversideOS-v0.90.0-*-Windows-Deployment.zip` includes server, client bundle, register installer, Deployment Manager, migrations, seeds, and PowerShell scripts. |
 | Windows app updater-only release | **Available for faster Back Office/Register desktop app updates** | Workflow scope `app-updater-only` publishes the signed Tauri app updater assets without rebuilding the full deployment ZIP or unchanged companion apps. |
 | macOS ROS Dev Center | **Required as GitHub release asset** | Universal Apple Silicon / Intel DMG for Mac-based DevOps companion access and system management. |
-| Latest Playwright E2E on `main` | Must pass on the final `v0.90.0` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
-| Latest Lint Checks on `main` | Must pass on the final `v0.90.0` release commit | Rerun GitHub checks on the release commit before calling the code gate green. |
+| Latest Playwright E2E on `main` | Passed on final `v0.90.0` release commit `6064e91c` | Local full Playwright also passed on the released commit: 373 passed, 11 skipped. |
+| Latest Lint Checks on `main` | Passed on final `v0.90.0` release commit `6064e91c` | GitHub Lint Checks passed for the released commit. |
 | Local go-live checklist | Human/hardware/accounting gates still open | Retail deployment remains **pilot/validation**, not unattended go-live. |
 
 Before installing the two Windows PCs and PWA devices for production use, publish one complete Riverside release and record its release/run URL in the deployment log. The Windows app, server API, and PWA/web app files must all report the same Riverside version.
@@ -90,17 +90,17 @@ The app supports **multiple open register terminals** sharing one **till close g
 
 ## 3. Build and release artifacts
 
-### 3.1 Server (shop server PC)
+### 3.1 Main Hub (shop server)
 
 - **Rust binary** for the API (`cargo build --release` in `server/`, or your CI artifact). The server pins **Rust 1.88+** in **`server/rust-toolchain.toml`** (**`ort`** / **fastembed** for staff-help embeddings); use that toolchain in CI and release builds.
 - **Production web bundle** `client/dist` copied next to the deployment layout your runbook uses (Axum serves this folder in production).
 - **Database**: PostgreSQL reachable via **`DATABASE_URL`**. Apply the active schema-contract baseline and approved seed set (see [`DEVELOPER.md`](../DEVELOPER.md) and [`SCHEMA_CONTRACT_AND_MIGRATIONS.md`](SCHEMA_CONTRACT_AND_MIGRATIONS.md)). If you ship ROS-AI help, set **`RIVERSIDE_REPO_ROOT`** to the deployed tree that contains **`docs/staff/CORPUS.manifest.json`** and run **`POST /api/ai/admin/reindex-docs`** after upgrades that change staff docs — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
 
-#### 3.1.1 Backoffice / Server PC first-time setup
+#### 3.1.1 Main Hub first-time setup
 
 Use this checklist for the Windows PC that owns the store database and API:
 
-**Automated path:** Build the Windows deployment package, run **`Start-RiversideDeployment.cmd`** as Administrator on the Server PC, and select the **Backoffice / Server** target (see [`DEPLOYMENT_MANAGER.md`](DEPLOYMENT_MANAGER.md)).
+**Automated path:** Build or download the Windows deployment package, run **`Start-RiversideDeployment.cmd`** as Administrator on the Main Hub, and select the **Main Hub** target (see [`DEPLOYMENT_MANAGER.md`](DEPLOYMENT_MANAGER.md)).
 
 1. Install **PostgreSQL 16** (or a vetted hosted/local PostgreSQL 16 equivalent) and create the Riverside database/user.
 2. Install or place the **`riverside-server.exe`** release binary in a stable folder, for example `C:\RiversideOS\server\`.
@@ -117,9 +117,9 @@ Use this checklist for the Windows PC that owns the store database and API:
 6. Start the API manually once and confirm the log says it is listening on the expected bind address.
 7. Open Windows Firewall inbound **TCP 3000** only for trusted LAN/Tailscale networks.
 8. Configure the final run method:
-   - The Windows deployment package creates the scheduled task **`Riverside OS Server`**. Keep that exact task name so the Backoffice / Server desktop app can recover the local server automatically when it opens and `localhost` is not responding.
+   - The Windows deployment package creates the scheduled task **`Riverside OS Server`**. Keep that exact task name so the Main Hub desktop app can recover the local server automatically when it opens and `localhost` is not responding.
    - If using a store-specific Windows service instead, record the exact start/stop command in the store deployment log and do not expect desktop app auto-start recovery to control that service.
-9. Open the app from the server PC browser and confirm staff sign-in, **Settings → General → About this build**, **Settings → Updates**, and **Settings → Remote Access**.
+9. Open the app from the Main Hub browser or desktop app and confirm staff sign-in, **Settings → General → About this build**, **Settings → Updates**, and **Settings → Remote Access**.
 10. If this PC is also the **Shop Host**, start **Shop Host** from **Settings → Remote Access** and smoke-test a second device on the same network before opening.
 11. Confirm the ROSIE AI stack is available by checking the **Bug Reports** panel or triggering an AI action (requires the installer to have downloaded the local model successfully).
 
@@ -190,7 +190,7 @@ After first install, desktop station updates are handled in ROS from **Settings 
 #### 3.2.2 Register #1 Windows install checklist
 
 - [ ] Confirm this PC is **Register #1**, not the server/host role.
-- [ ] Confirm **`VITE_API_BASE`** points at the Backoffice / Server PC or production HTTPS origin.
+- [ ] Confirm **`VITE_API_BASE`** points at the Main Hub LAN API, Tailscale/HTTPS origin, or production HTTPS origin.
 - [ ] Sign in with a cashier/manager and open **Register #1**.
 - [ ] Confirm scanner input reaches product search.
 - [ ] Confirm receipt-printer settings are station-local and correct.
@@ -200,7 +200,7 @@ After first install, desktop station updates are handled in ROS from **Settings 
 
 #### 3.2.3 Backoffice Windows app install checklist
 
-- [ ] Confirm whether this PC is the **Backoffice / Server PC** or only a client workstation.
+- [ ] Confirm whether this PC is the **Main Hub** or only a client workstation.
 - [ ] If it is a client workstation, do not start **Shop Host** there.
 - [ ] Confirm staff sign-in, Customers, Orders, Inventory, Reports, and Settings load against the intended API.
 - [ ] Confirm any local printer/scanner needs are configured for that station.
@@ -317,7 +317,7 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 
 **Network**
 
-- **Windows Firewall** on the server PC: allow inbound **TCP 3000** (or your chosen port) from **trusted subnets** (LAN, Tailscale interface), not from the entire internet.
+- **Windows Firewall** on the Main Hub: allow inbound **TCP 3000** (or your chosen port) from **trusted subnets** (LAN, Tailscale interface), not from the entire internet.
 - **HTTPS** for production PWA access; follow [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) (Tailscale Serve, reverse proxy, etc.).
 
 **Counterpoint bridge** (if used): set `ROS_BASE_URL` to the same base URL browsers use; bridge must reach the API ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)).

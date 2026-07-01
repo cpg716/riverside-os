@@ -28,6 +28,7 @@ Layaways can be managed from two locations:
 
 - **Initial Deposit**: Captured as a Liability (`liability_deposit`). No revenue or tax recognized.
 - **Interim Payments**: Captured as Liability.
+- **QBO timing**: Direct layaway cash/card deposits appear in the daily QBO proposal on the payment date as `liability_deposit` inflows. Revenue and tax are still recognized only on pickup/fulfillment.
 - **Final Pickup (Fulfillment)**:
     - Entire layaway transaction value recognized as **Revenue**.
     - **Sales Tax** recognized.

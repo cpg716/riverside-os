@@ -48,7 +48,7 @@ If a specific entity (e.g., `inventory` or `tickets`) gets stuck:
 
 ## 4. Bridge Environment Secrets
 Ensure these values in `counterpoint-bridge/.env` are intact:
-- `ROS_BASE_URL`: should point to the Riverside Backoffice / Server PC API, for example `http://10.64.70.196:3000`. Do not point this at PostgreSQL or the Counterpoint SQL host unless that same machine is also running Riverside Server.
+- `ROS_BASE_URL`: should point to the Riverside Main Hub ROS API, for example `http://10.64.70.196:3000`. Do not point this at PostgreSQL or the Counterpoint SQL host unless that same machine is also running Riverside Server.
 - `SQL_REQUEST_TIMEOUT_MS`: Default is `600000` (10 minutes). Increase this if you are syncing more than 50k tickets.
 
 ### health 503

@@ -6,7 +6,7 @@ Riverside OS supports high-velocity hardware bridging for thermal receipt printe
 
 Hardware communication in Riverside OS is **platform-aware**. The application detects its environment (Tauri Desktop vs. PWA/Browser) and chooses the most appropriate protocol for dispatch.
 
-- **Tauri Native (Desktop)**: Receipts print from the Register #1 desktop station, reports print through the selected installed Reports printer, and inventory tags route through the Main Hub print hub so the Zebra station is owned by the server PC.
+- **Tauri Native (Desktop)**: Receipts print from the Register #1 desktop station, reports print through the selected installed Reports printer, and inventory tags route through the Main Hub print hub so the Zebra station is owned by the Main Hub.
 - **PWA / Browser**: Fallback to **Fetch/HTTP** (server-mediated dispatch) or supervised browser print dialogs.
 
 The core logic resides in `client/src/lib/printerBridge.ts` via the `autoRoutePrint` function.
