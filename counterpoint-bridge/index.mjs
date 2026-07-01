@@ -1756,10 +1756,11 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
   const tkt = set("PS_TKT_HIST");
   const imBar = set("IM_BARCOD");
   const tktNo = pickColumn(tkt, ["TKT_NO", "DOC_NO"]);
-  const tktDate = pickColumn(tkt, ["BUS_DAT", "TKT_DT", "DOC_DT"]);
+  const tktIdentityDate = pickColumn(tkt, ["BUS_DAT", "TKT_DT", "DOC_DT"]);
+  const tktActivityDate = pickColumn(tkt, ["TKT_DT", "BUS_DAT", "DOC_DT"]);
   const tktJoin = pickColumn(tkt, ["DOC_ID", "TKT_NO", "DOC_NO"]);
-  if (tkt && tktNo && tktDate) {
-    const ticketRefColumns = ticketIdentityColumns(tkt, tktNo, tktDate);
+  if (tkt && tktNo && tktIdentityDate && tktActivityDate) {
+    const ticketRefColumns = ticketIdentityColumns(tkt, tktNo, tktIdentityDate);
     const ticketRefSelect = ticketRefSql("h", tkt, ticketRefColumns);
     const total = pickColumn(tkt, ["TOT", "TOT_EXTD_PRC", "TKT_TOT"]);
     const due = pickColumn(tkt, ["TOT_AMT_DUE", "AMT_DUE"]);
@@ -1781,8 +1782,8 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const ticketLineExistsFilter = lin && linJoinPredicate
       ? ` AND EXISTS (SELECT 1 FROM PS_TKT_HIST_LIN line_scope WHERE ${ticketJoinPredicate("h", "line_scope", linJoinPairs)})`
       : "";
-    sqlMap.tickets = `SELECT ${ticketRefSelect}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter} ORDER BY h.[${tktDate}], h.[${tktNo}]`;
-    changes.push(`PS_TKT_HIST tickets enabled; date=${tktDate}; key=${ticketRefColumns.join("+")}`);
+    sqlMap.tickets = `SELECT ${ticketRefSelect}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktActivityDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter} ORDER BY h.[${tktActivityDate}], h.[${tktNo}]`;
+    changes.push(`PS_TKT_HIST tickets enabled; activity_date=${tktActivityDate}; key=${ticketRefColumns.join("+")}`);
 
     if (lin && linJoinPredicate) {
       const item = pickColumn(lin, ["ITEM_NO"]);
@@ -1809,7 +1810,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       const price = pickColumn(lin, ["PRC", "PRICE"]);
       const cost = pickColumn(lin, ["UNIT_COST", "COST"]);
       const reason = pickColumn(lin, ["RET_REAS", "REAS_COD"]);
-      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${lineSku} AS sku, ${lineItemKey} AS counterpoint_item_key, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price ? `l.[${price}]` : "CAST(0 AS DECIMAL(18,4))"} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l${lineBarcodeApply} INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${lineSku} AS sku, ${lineItemKey} AS counterpoint_item_key, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price ? `l.[${price}]` : "CAST(0 AS DECIMAL(18,4))"} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l${lineBarcodeApply} INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
       changes.push(`PS_TKT_HIST_LIN ticket lines enabled; join=${linJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
 
@@ -1820,7 +1821,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     if (pmt && pmtJoinPredicate) {
       const payCod = pickColumn(pmt, ["PAY_COD", "PMT_TYP"]);
       const amt = pickColumn(pmt, ["AMT", "PMT_AMT"]);
-      sqlMap.ticket_payments = `SELECT ${ticketRefSelect}, ${sqlText("p", pmt, [payCod], "pmt_typ")}, ${amt ? `p.[${amt}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_TKT_HIST_PMT p INNER JOIN PS_TKT_HIST h ON ${pmtJoinPredicate} WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter}`;
+      sqlMap.ticket_payments = `SELECT ${ticketRefSelect}, ${sqlText("p", pmt, [payCod], "pmt_typ")}, ${amt ? `p.[${amt}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_TKT_HIST_PMT p INNER JOIN PS_TKT_HIST h ON ${pmtJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter}`;
       changes.push(`PS_TKT_HIST_PMT ticket payments enabled; join=${pmtJoinPairs.map(([h, p]) => `${h}=${p}`).join("+")}`);
     }
 
@@ -1830,7 +1831,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const noteJoinPairs = ticketJoinPairs(tkt, tktNote, tktJoin, noteJoin);
     const noteJoinPredicate = ticketJoinPredicate("h", "n", noteJoinPairs);
     if (tktNote && noteJoinPredicate && noteCol) {
-      sqlMap.ticket_notes = `SELECT ${ticketRefSelect}, n.[${noteCol}] AS note FROM PS_TKT_HIST_NOTE n INNER JOIN PS_TKT_HIST h ON ${noteJoinPredicate} WHERE h.[${tktDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      sqlMap.ticket_notes = `SELECT ${ticketRefSelect}, n.[${noteCol}] AS note FROM PS_TKT_HIST_NOTE n INNER JOIN PS_TKT_HIST h ON ${noteJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
       changes.push("PS_TKT_HIST_NOTE ticket notes enabled");
     }
   }
