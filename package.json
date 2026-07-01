@@ -16,6 +16,7 @@
     "check:go-live-blockers": "node scripts/check-go-live-blockers.mjs",
     "check:dirty-migration-rehearsal": "node scripts/check-dirty-migration-rehearsal.mjs",
     "check:pre-retag": "node scripts/check-pre-retag.mjs",
+    "wedding:cutover:preview": "node scripts/wedding-cutover-import-preview.mjs",
     "release:retag": "node scripts/release-retag.mjs",
     "help:aidocs:check": "uvx --from aidocs aidocs check",
     "generate:help": "cd client && npm run generate:help",
