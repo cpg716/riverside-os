@@ -510,6 +510,12 @@ function setSyncAnchorRunKind(runKind) {
 // Helper to get the starting date for queries. Full/import-fix runs must use
 // the fixed cutover floor; only incremental updates may use saved cursors.
 function getSyncAnchorDate(entityKey) {
+  const forceHistoryFloor = String(process.env.CP_FORCE_HISTORY_FLOOR ?? "")
+    .trim()
+    .toLowerCase();
+  if (["1", "true", "yes", "on"].includes(forceHistoryFloor)) {
+    return CP_IMPORT_SINCE;
+  }
   if (!syncAnchorRunKindUsesCursor(activeSyncAnchorRunKind ?? process.env.CP_IMPORT_RUN_KIND)) {
     return CP_IMPORT_SINCE;
   }
@@ -1820,7 +1826,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     if (pmt && pmtJoinPredicate) {
       const payCod = pickColumn(pmt, ["PAY_COD", "PMT_TYP"]);
       const amt = pickColumn(pmt, ["AMT", "PMT_AMT"]);
-      sqlMap.ticket_payments = `SELECT ${ticketRefSelect}, ${sqlText("p", pmt, [payCod], "pmt_typ")}, ${amt ? `p.[${amt}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_TKT_HIST_PMT p INNER JOIN PS_TKT_HIST h ON ${pmtJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter}`;
+      sqlMap.ticket_payments = `SELECT ${ticketRefSelect}, ${sqlNumber("p", pmt, ["PMT_SEQ_NO", "SEQ_NO"], "pmt_seq_no", "CAST(NULL AS INT)")}, ${sqlText("p", pmt, [payCod], "pmt_typ")}, ${amt ? `p.[${amt}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_TKT_HIST_PMT p INNER JOIN PS_TKT_HIST h ON ${pmtJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter}`;
       changes.push(`PS_TKT_HIST_PMT ticket payments enabled; join=${pmtJoinPairs.map(([h, p]) => `${h}=${p}`).join("+")}`);
     }
 
@@ -1920,7 +1926,7 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const pmtJoinPairs = ticketJoinPairs(psDocHdr, psDocPmt, docRef, pmtDoc);
     const pmtJoinPredicate = ticketJoinPredicate("h", "p", pmtJoinPairs);
     if (psDocPmt && pmtJoinPredicate) {
-      sqlMap.open_doc_pmt = `SELECT ${docRefSelect}, ${sqlText("p", psDocPmt, ["PAY_COD", "PMT_TYP"], "pmt_typ")}, ${sqlNumber("p", psDocPmt, ["AMT", "PMT_AMT"], "amount", "CAST(0 AS DECIMAL(18,2))")}, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_DOC_PMT p INNER JOIN ${psDocTable} h ON ${pmtJoinPredicate}${docTotJoinForChildren} WHERE ${activeDocWhere}`;
+      sqlMap.open_doc_pmt = `SELECT ${docRefSelect}, ${sqlNumber("p", psDocPmt, ["PMT_SEQ_NO", "SEQ_NO"], "pmt_seq_no", "CAST(NULL AS INT)")}, ${sqlText("p", psDocPmt, ["PAY_COD", "PMT_TYP"], "pmt_typ")}, ${sqlNumber("p", psDocPmt, ["AMT", "PMT_AMT"], "amount", "CAST(0 AS DECIMAL(18,2))")}, CAST(NULL AS NVARCHAR(32)) AS gift_cert_no FROM PS_DOC_PMT p INNER JOIN ${psDocTable} h ON ${pmtJoinPredicate}${docTotJoinForChildren} WHERE ${activeDocWhere}`;
       changes.push(`PS_DOC_PMT open-doc payments enabled; join=${pmtJoinPairs.map(([h, p]) => `${h}=${p}`).join("+")}`);
     }
   }
@@ -4347,6 +4353,7 @@ function ticketPaymentDedupeKey(row) {
   const r = normalizeRowKeys(row);
   return JSON.stringify({
     ref: String(r.ticket_ref ?? r.doc_ref ?? r.tkt_no ?? r.doc_id ?? "").trim(),
+    seq: r.pmt_seq_no != null ? Number(r.pmt_seq_no) : null,
     type: normalizeCounterpointPaymentType(r.pmt_typ ?? r.pay_cod ?? r.tender_type ?? "").toUpperCase(),
     amount: String(r.amount ?? r.pmt_amt ?? r.amt ?? "0"),
     gift: String(r.gift_cert_no ?? r.gft_cert_no ?? "").trim(),
