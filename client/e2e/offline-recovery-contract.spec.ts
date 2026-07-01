@@ -3,7 +3,6 @@ import { signInToBackOffice } from "./helpers/backofficeSignIn";
 import {
   enterPosShell,
   ensurePosRegisterSessionOpen,
-  ensurePosSaleCashierSignedIn,
 } from "./helpers/openPosRegister";
 import { ensureSessionAuth } from "./helpers/rmsCharge";
 
@@ -152,7 +151,11 @@ test.describe("offline checkout recovery contract", () => {
     await signInToBackOffice(page);
     await enterPosShell(page);
     await ensurePosRegisterSessionOpen(page);
-    await ensurePosSaleCashierSignedIn(page);
+    const cashierOverlay = page.getByTestId("pos-sale-cashier-overlay");
+    if (await cashierOverlay.isVisible().catch(() => false)) {
+      await cashierOverlay.getByRole("button", { name: /^cancel$/i }).click();
+      await expect(cashierOverlay).toBeHidden({ timeout: 10_000 });
+    }
     await clearCheckoutQueue(page);
 
     await putCheckoutQueueItem(page, {

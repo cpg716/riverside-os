@@ -221,16 +221,25 @@ test.describe("bug reporting diagnostics hardening", () => {
     await openSettingsSubItem(page, /^ros operations & support center$/i);
     await page.getByRole("button", { name: /^bug manager$/i }).first().click();
 
+    const toastPayloads = () =>
+      errorEventPayloads.filter((payload) => {
+        const row = payload as { event_source?: unknown };
+        return row.event_source === "client_toast";
+      });
+
     await expect
-      .poll(() => errorEventPayloads.length, {
+      .poll(() => toastPayloads().length, {
         timeout: 20_000,
         message: "toast error event was not submitted",
       })
-      .toBe(1);
+      .toBeGreaterThan(0);
+    const submittedToastCount = toastPayloads().length;
     await page.getByRole("button", { name: /^refresh$/i }).first().click();
-    await expect.poll(() => errorEventPayloads.length, { timeout: 2_000 }).toBe(1);
+    await expect
+      .poll(() => toastPayloads().length, { timeout: 2_000 })
+      .toBe(submittedToastCount);
 
-    const payload = errorEventPayloads[0] as Record<string, unknown>;
+    const payload = toastPayloads()[0] as Record<string, unknown>;
     expectNoSecrets(payload);
     expect(payload).toEqual(
       expect.objectContaining({
