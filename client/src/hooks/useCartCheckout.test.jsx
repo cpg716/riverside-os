@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCheckoutPaymentSplits, maxCollectableTenderCents } from "./useCartCheckout";
+import { buildCheckoutPaymentSplits, maxCollectableTenderCents, optionalCentsField } from "./useCartCheckout";
 
 function payment(amountCents, overrides = {}) {
   return {
@@ -57,5 +57,15 @@ describe("maxCollectableTenderCents", () => {
 
   it("keeps normal sale collection as the upper bound when it exceeds the deposit", () => {
     expect(maxCollectableTenderCents(20000, 12500)).toBe(20000);
+  });
+});
+
+describe("optionalCentsField", () => {
+  it("preserves an intentional zero-cent value for checkout audit fields", () => {
+    expect(optionalCentsField(0)).toBe("0.00");
+  });
+
+  it("omits only undefined checkout audit fields", () => {
+    expect(optionalCentsField(undefined)).toBeUndefined();
   });
 });

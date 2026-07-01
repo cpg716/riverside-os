@@ -17,8 +17,8 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    effective_permissions_for_staff, staff_has_permission, ORDERS_LIFECYCLE_MANAGE, ORDERS_VIEW,
-    PROCUREMENT_MUTATE,
+    effective_permissions_for_staff, staff_has_permission, MANAGER_APPROVAL,
+    ORDERS_LIFECYCLE_MANAGE, ORDERS_VIEW, PROCUREMENT_MUTATE,
 };
 use crate::auth::pins;
 use crate::logic::messaging::MessagingService;
@@ -321,11 +321,42 @@ pub struct TransitionRequest {
     pub vendor_id: Option<Uuid>,
     pub vendor_eta: Option<NaiveDate>,
     pub vendor_reference: Option<String>,
-    pub manager_staff_code: Option<String>,
+    pub manager_staff_id: Option<Uuid>,
     pub manager_pin: Option<String>,
     pub metadata: Option<Value>,
     #[serde(default)]
     pub override_checks: bool,
+}
+
+async fn authenticate_manager_access(
+    state: &AppState,
+    staff_id: Option<Uuid>,
+    pin: Option<&str>,
+    reason: &'static str,
+) -> Result<pins::AuthenticatedStaff, OrderLifecycleError> {
+    let staff_id = staff_id.ok_or_else(|| {
+        OrderLifecycleError::Forbidden(format!("{reason}: choose a staff approver."))
+    })?;
+    let pin = pin
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            OrderLifecycleError::Forbidden(format!("{reason}: Access PIN is required."))
+        })?;
+    let manager = pins::authenticate_staff_by_id(&state.db, staff_id, Some(pin))
+        .await
+        .map_err(|_| {
+            OrderLifecycleError::Forbidden(format!("{reason}: Access PIN was not approved."))
+        })?;
+    let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role)
+        .await
+        .map_err(OrderLifecycleError::Database)?;
+    if !staff_has_permission(&effective, MANAGER_APPROVAL) {
+        return Err(OrderLifecycleError::Forbidden(format!(
+            "{reason}: manager.approval permission required."
+        )));
+    }
+    Ok(manager)
 }
 
 async fn transition_item(
@@ -340,36 +371,15 @@ async fn transition_item(
         {
             Ok(staff) => staff,
             Err(permission_error) => {
-                let manager_code = payload
-                    .manager_staff_code
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| {
-                        let mapped = map_perm_err(permission_error);
-                        OrderLifecycleError::Forbidden(format!(
-                            "{mapped}. Manager Access PIN is required for lifecycle repair."
-                        ))
-                    })?;
-                let manager_pin = payload
-                    .manager_pin
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| {
-                        OrderLifecycleError::Forbidden(
-                            "Manager Access PIN is required for lifecycle repair.".to_string(),
-                        )
-                    })?;
-                let manager =
-                    pins::authenticate_pos_staff(&state.db, manager_code, Some(manager_pin))
-                        .await
-                        .map_err(|_| {
-                            OrderLifecycleError::Forbidden(
-                                "Manager Access PIN could not authorize lifecycle repair."
-                                    .to_string(),
-                            )
-                        })?;
+                let mapped = map_perm_err(permission_error);
+                let manager = authenticate_manager_access(
+                    &state,
+                    payload.manager_staff_id,
+                    payload.manager_pin.as_deref(),
+                    "Manager Access is required for lifecycle repair",
+                )
+                .await
+                .map_err(|err| OrderLifecycleError::Forbidden(format!("{mapped}. {err}")))?;
                 let effective =
                     effective_permissions_for_staff(&state.db, manager.id, manager.role)
                         .await
@@ -379,6 +389,23 @@ async fn transition_item(
                         "Manager Access does not include orders.lifecycle_manage.".to_string(),
                     ));
                 }
+                let _ = pins::log_staff_access(
+                    &state.db,
+                    manager.id,
+                    "order_lifecycle_repair_approval",
+                    json!({
+                        "transaction_line_id": transaction_line_id,
+                        "next_status": payload.next_status,
+                        "reason": payload.reason,
+                        "metadata": payload.metadata,
+                        "approved_by_staff_id": manager.id,
+                        "approved_by_staff_name": manager.full_name,
+                        "approved_by_role": manager.role,
+                        "approval_method": "staff_id_access_pin",
+                        "approved_at": Utc::now(),
+                    }),
+                )
+                .await;
                 manager
             }
         };
@@ -405,15 +432,19 @@ async fn transition_item(
     }
 
     if next_status == DbOrderItemLifecycleStatus::ReadyForPickup && payload.override_checks {
-        // Require manager PIN for override
-        if payload.manager_pin.is_none()
-            || payload
-                .manager_pin
-                .as_ref()
-                .map_or(true, |p| p.trim().is_empty())
-        {
+        let manager = authenticate_manager_access(
+            &state,
+            payload.manager_staff_id,
+            payload.manager_pin.as_deref(),
+            "Manager Access is required for lifecycle override",
+        )
+        .await?;
+        let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role)
+            .await
+            .map_err(OrderLifecycleError::Database)?;
+        if !staff_has_permission(&effective, ORDERS_LIFECYCLE_MANAGE) {
             return Err(OrderLifecycleError::Forbidden(
-                "Manager Access PIN is required for lifecycle override.".to_string(),
+                "Manager Access does not include orders.lifecycle_manage.".to_string(),
             ));
         }
         if payload.reason.is_none()
@@ -426,6 +457,23 @@ async fn transition_item(
                 "Lifecycle override requires a clear reason (minimum 12 characters).".to_string(),
             ));
         }
+        let _ = pins::log_staff_access(
+            &state.db,
+            manager.id,
+            "order_lifecycle_ready_override",
+            json!({
+                "transaction_line_id": transaction_line_id,
+                "next_status": payload.next_status,
+                "reason": payload.reason,
+                "metadata": payload.metadata,
+                "approved_by_staff_id": manager.id,
+                "approved_by_staff_name": manager.full_name,
+                "approved_by_role": manager.role,
+                "approval_method": "staff_id_access_pin",
+                "approved_at": Utc::now(),
+            }),
+        )
+        .await;
     }
 
     let mut tx = state.db.begin().await?;

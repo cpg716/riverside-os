@@ -10,6 +10,7 @@ export const STAFF_PERMISSION_CATALOG: {
   { key: "staff.manage_commission", label: "Manage commission incentives", group: "Staff" },
   { key: "staff.view_audit", label: "View access audit log", group: "Staff" },
   { key: "staff.manage_access", label: "Manage staff access", group: "Staff" },
+  { key: "manager.approval", label: "Approve Manager Access prompts", group: "Staff" },
   { key: "qbo.view", label: "View QuickBooks data", group: "QuickBooks" },
   { key: "qbo.mapping_edit", label: "Manage QuickBooks setup", group: "QuickBooks" },
   { key: "qbo.staging_approve", label: "Approve QuickBooks entries", group: "QuickBooks" },
@@ -22,7 +23,7 @@ export const STAFF_PERMISSION_CATALOG: {
     group: "Inventory",
   },
   { key: "orders.view", label: "View transactions & transaction history", group: "Transactions" },
-  { key: "orders.modify", label: "Edit transaction lines & pickup (Manager PIN required after 60 days)", group: "Transactions" },
+  { key: "orders.modify", label: "Edit transaction lines & pickup (Manager Access required after 60 days)", group: "Transactions" },
   { key: "orders.cancel", label: "Cancel transactions and review refunds", group: "Transactions" },
   {
     key: "orders.void_sale",

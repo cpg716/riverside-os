@@ -45,6 +45,11 @@ function fmtMoney(v: string | number): string {
 
 const baseUrl = getBaseUrl();
 
+interface StaffApproverRow {
+  id: string;
+  full_name: string;
+}
+
 export interface TransactionDrawerItem {
   transaction_line_id?: string;
   order_item_id?: string;
@@ -912,8 +917,11 @@ export default function TransactionDetailDrawer({
     prep: false,
     customer: false,
   });
-  const [managerCode, setManagerCode] = useState("");
+  const [managerStaffId, setManagerStaffId] = useState(
+    () => localStorage.getItem("ros_last_staff_id") || "",
+  );
   const [managerPin, setManagerPin] = useState("");
+  const [staffApprovers, setStaffApprovers] = useState<StaffApproverRow[]>([]);
   const [readyBusy, setReadyBusy] = useState(false);
   const [readyError, setReadyError] = useState<string | null>(null);
   const [showPickupReleaseModal, setShowPickupReleaseModal] = useState(false);
@@ -1086,10 +1094,21 @@ export default function TransactionDetailDrawer({
   const openReadyModal = useCallback((item: TransactionDrawerItem) => {
     setReadyTarget(item);
     setReadyChecklist({ received: false, prep: false, customer: false });
-    setManagerCode("");
     setManagerPin("");
     setReadyError(null);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    void (async () => {
+      const res = await fetch(`${baseUrl}/api/staff/list-for-pos`, {
+        headers: auth(),
+      });
+      if (res.ok) {
+        setStaffApprovers((await res.json()) as StaffApproverRow[]);
+      }
+    })();
+  }, [auth, isOpen]);
 
   const closeReadyModal = useCallback(() => {
     if (readyBusy) return;
@@ -1130,7 +1149,7 @@ export default function TransactionDetailDrawer({
           body: JSON.stringify({
             next_status: "ready_for_pickup",
             reason: "Ready-for-pickup checklist confirmed",
-            manager_staff_code: managerCode.trim() || undefined,
+            manager_staff_id: managerStaffId || undefined,
             manager_pin: managerPin.trim() || undefined,
             metadata: {
               checklist: {
@@ -1163,7 +1182,7 @@ export default function TransactionDetailDrawer({
   }, [
     auth,
     load,
-    managerCode,
+    managerStaffId,
     managerPin,
     onLifecycleChanged,
     readyChecklist,
@@ -2955,14 +2974,23 @@ export default function TransactionDetailDrawer({
                   ))}
                   <div className="grid gap-3 rounded-xl border border-app-border bg-app-surface-2 p-3 sm:grid-cols-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Manager Code
-                      <input
-                        value={managerCode}
-                        onChange={(event) => setManagerCode(event.target.value)}
+                      Staff Approver
+                      <select
+                        value={managerStaffId}
+                        onChange={(event) => {
+                          setManagerStaffId(event.target.value);
+                          localStorage.setItem("ros_last_staff_id", event.target.value);
+                        }}
                         disabled={readyBusy}
                         className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
-                        placeholder="Optional"
-                      />
+                      >
+                        <option value="">Optional</option>
+                        {staffApprovers.map((staff) => (
+                          <option key={staff.id} value={staff.id}>
+                            {staff.full_name}
+                          </option>
+                        ))}
+                      </select>
                     </label>
                     <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Manager Access PIN
@@ -2977,8 +3005,8 @@ export default function TransactionDetailDrawer({
                       />
                     </label>
                     <p className="sm:col-span-2 text-xs font-semibold text-app-text-muted">
-                      Use Manager Access only when your current staff access
-                      cannot perform lifecycle repair.
+                      Use Manager Access only when your current Staff Access
+                      cannot perform lifecycle repair or when bypassing ready checks.
                     </p>
                   </div>
                   {readyError ? (

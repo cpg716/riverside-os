@@ -27,6 +27,7 @@ type TransactionDetail = {
     product_name: string;
     order_lifecycle_status: string;
     is_fulfilled: boolean;
+    shipped_at?: string | null;
   }>;
 };
 
@@ -34,6 +35,7 @@ type TransactionAuditEvent = {
   event_kind: string;
   metadata?: {
     delivered_item_count?: number;
+    shipped_item_count?: number;
     readiness_override?: boolean;
     override_reason?: string | null;
   };
@@ -143,18 +145,19 @@ async function markLineReady(
   request: APIRequestContext,
   transactionLineId: string,
 ): Promise<void> {
+  const managerStaffId = await verifyStaffId(request);
   const res = await request.post(
     `${apiBase()}/api/order-lifecycle/items/${transactionLineId}/transition`,
     {
       headers: {
-        ...staffHeaders(),
-        "Content-Type": "application/json",
-      "x-riverside-station-key": "station-e2e",
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
       },
       data: {
         next_status: "ready_for_pickup",
         override_checks: true,
-        manager_staff_code: staffCode(),
+        manager_staff_id: managerStaffId,
         manager_pin: staffCode(),
         reason: "Pickup certification readiness simulation",
         metadata: {
@@ -185,6 +188,34 @@ async function pickup(
     },
     data: {
       actor: "Pickup Certification",
+      register_session_id: sessionId,
+      ...data,
+    },
+    failOnStatusCode: false,
+  });
+  return {
+    status: res.status(),
+    bodyText: await res.text(),
+  };
+}
+
+async function ship(
+  request: APIRequestContext,
+  transactionId: string,
+  sessionId: string,
+  sessionToken: string,
+  data: Record<string, unknown>,
+): Promise<{ status: number; bodyText: string }> {
+  const res = await request.post(`${apiBase()}/api/transactions/${transactionId}/ship`, {
+    headers: {
+      ...staffHeaders(),
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
+      "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
+    },
+    data: {
+      actor: "Shipping Certification",
       register_session_id: sessionId,
       ...data,
     },
@@ -292,5 +323,79 @@ test.describe("pickup launch certification contract", () => {
     expect(overrideAudit, "pickup override audit event missing").toBeTruthy();
     expect(overrideAudit?.metadata?.override_reason).toBe(overrideReason);
     expect(overrideAudit?.metadata?.delivered_item_count).toBe(1);
+  });
+
+  test("certifies selected-line shipping release and audit path", async ({ request }) => {
+    test.setTimeout(120_000);
+
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+
+    const readyProduct = await createSingleVariantProduct(request, uniqueSuffix("ship-ready"), {
+      stockOnHand: 1,
+      namePrefix: "Ship Ready Guard",
+      skuPrefix: "SHR",
+    });
+    const blockedProduct = await createSingleVariantProduct(request, uniqueSuffix("ship-blocked"), {
+      stockOnHand: 1,
+      namePrefix: "Ship Blocked Guard",
+      skuPrefix: "SHB",
+    });
+    const checkout = await checkoutSpecialOrder(request, {
+      products: [readyProduct, blockedProduct],
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+    });
+
+    let detail = await fetchTransactionDetail(request, checkout.transaction_id);
+    const readyLine = detail.items.find((item) => item.sku === readyProduct.sku);
+    const blockedLine = detail.items.find((item) => item.sku === blockedProduct.sku);
+    expect(readyLine, "ready shipping fixture line missing").toBeTruthy();
+    expect(blockedLine, "blocked shipping fixture line missing").toBeTruthy();
+
+    await markLineReady(request, readyLine!.transaction_line_id);
+
+    const bulkBlocked = await ship(request, checkout.transaction_id, sessionId, sessionToken, {
+      shipped_item_ids: [],
+    });
+    expect(bulkBlocked.status, bulkBlocked.bodyText.slice(0, 1000)).toBe(400);
+    expect(bulkBlocked.bodyText).toContain("not Ready for Pickup/Shipping");
+
+    const partialRelease = await ship(request, checkout.transaction_id, sessionId, sessionToken, {
+      shipped_item_ids: [readyLine!.transaction_line_id],
+    });
+    expect(partialRelease.status, partialRelease.bodyText.slice(0, 1000)).toBe(200);
+
+    detail = await fetchTransactionDetail(request, checkout.transaction_id);
+    const shippedReadyLine = detail.items.find((item) => item.sku === readyProduct.sku);
+    const unshippedBlockedLine = detail.items.find((item) => item.sku === blockedProduct.sku);
+    expect(detail.status.toLowerCase()).toBe("open");
+    expect(shippedReadyLine?.is_fulfilled).toBe(true);
+    expect(shippedReadyLine?.shipped_at).toBeTruthy();
+    expect(unshippedBlockedLine?.is_fulfilled).toBe(false);
+    expect(unshippedBlockedLine?.shipped_at ?? null).toBeNull();
+
+    const overrideReason =
+      "Customer requested shipment and staff confirmed release during certification.";
+    const overrideRelease = await ship(request, checkout.transaction_id, sessionId, sessionToken, {
+      shipped_item_ids: [blockedLine!.transaction_line_id],
+      override_readiness: true,
+      override_reason: overrideReason,
+    });
+    expect(overrideRelease.status, overrideRelease.bodyText.slice(0, 1000)).toBe(200);
+
+    detail = await fetchTransactionDetail(request, checkout.transaction_id);
+    expect(detail.status.toLowerCase()).toBe("fulfilled");
+    expect(detail.items.every((item) => item.is_fulfilled)).toBe(true);
+    expect(detail.items.every((item) => Boolean(item.shipped_at))).toBe(true);
+
+    const audit = await fetchTransactionAudit(request, checkout.transaction_id);
+    const overrideAudit = audit.find(
+      (event) => event.event_kind === "shipping" && event.metadata?.readiness_override === true,
+    );
+    expect(overrideAudit, "shipping override audit event missing").toBeTruthy();
+    expect(overrideAudit?.metadata?.override_reason).toBe(overrideReason);
+    expect(overrideAudit?.metadata?.shipped_item_count).toBe(1);
   });
 });

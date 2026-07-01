@@ -47,9 +47,9 @@ export default function TransactionAttributionModal({
   onClose,
   onSaved,
 }: Props) {
-  const { backofficeHeaders, staffRole, staffPin } = useBackofficeAuth();
+  const { backofficeHeaders, staffId, staffPin, hasPermission } = useBackofficeAuth();
 
-  const hasAccess = staffRole === "admin";
+  const hasAccess = hasPermission("orders.edit_attribution") && hasPermission("manager.approval");
 
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
@@ -64,6 +64,7 @@ export default function TransactionAttributionModal({
   const [lineMap, setLineMap] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("");
   const [managerPin, setManagerPin] = useState("");
+  const [managerStaffId, setManagerStaffId] = useState(() => localStorage.getItem("ros_last_staff_id") || "");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -118,10 +119,7 @@ export default function TransactionAttributionModal({
     [staff],
   );
 
-  const managers = useMemo(
-    () => staff.filter((s) => s.role === "admin"),
-    [staff],
-  );
+  const managers = useMemo(() => staff, [staff]);
 
   const save = async () => {
     if (!detail) return;
@@ -130,6 +128,11 @@ export default function TransactionAttributionModal({
     const pin = (hasAccess ? staffPin : managerPin).trim();
     if (pin.length !== 4) {
       setErr(hasAccess ? "Auth session expired. Please re-sign in." : "4-digit Manager PIN is required for approval.");
+      return;
+    }
+    const approvalStaffId = hasAccess ? staffId : managerStaffId;
+    if (!approvalStaffId) {
+      setErr("Select the staff approver.");
       return;
     }
 
@@ -153,7 +156,7 @@ export default function TransactionAttributionModal({
           method: "PATCH",
           headers: h,
           body: JSON.stringify({
-            manager_cashier_code: pin,
+            manager_staff_id: approvalStaffId,
             manager_pin: pin,
             reason: reason.trim() || null,
             primary_salesperson_id,
@@ -293,19 +296,22 @@ export default function TransactionAttributionModal({
                     <div className="text-center space-y-2">
                       <h3 className="text-sm font-black uppercase tracking-[0.3em] text-app-text italic">Manager Approval</h3>
                       <p className="text-[11px] font-medium text-app-text-muted leading-relaxed">
-                        Changes to commission attribution require a manager PIN for audit compliance.
+                        Changes to commission attribution require a staff approver and Access PIN for audit compliance.
                       </p>
                     </div>
 
                     <div className="space-y-6">
                       <div className="space-y-2 text-center">
-                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted block">Current Manager</label>
+                        <label className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted block">Staff Approver</label>
                         <select
                           className="ui-input w-full p-3 text-center font-black bg-app-surface-2/50 border-app-border/40"
-                          value={localStorage.getItem("ros_last_staff_id") || ""}
-                          onChange={(e) => localStorage.setItem("ros_last_staff_id", e.target.value)}
+                          value={managerStaffId}
+                          onChange={(e) => {
+                            setManagerStaffId(e.target.value);
+                            localStorage.setItem("ros_last_staff_id", e.target.value);
+                          }}
                         >
-                          <option value="">-- Choose Manager --</option>
+                          <option value="">-- Choose Staff Approver --</option>
                           {managers.map(m => (
                             <option key={m.id} value={m.id}>{m.full_name}</option>
                           ))}

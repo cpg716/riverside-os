@@ -226,6 +226,7 @@ struct TestSupportTransactionArtifacts {
     amount_paid: String,
     balance_due: String,
     rounding_adjustment: String,
+    final_cash_due: Option<String>,
     metadata: Value,
     payment_rows: Vec<TestSupportPaymentRow>,
     allocation_rows: Vec<TestSupportPaymentAllocationRow>,
@@ -1008,6 +1009,7 @@ async fn get_transaction_artifacts(
         amount_paid,
         balance_due,
         rounding_adjustment,
+        final_cash_due,
         metadata,
     ) = sqlx::query_as::<
         _,
@@ -1017,6 +1019,7 @@ async fn get_transaction_artifacts(
             rust_decimal::Decimal,
             rust_decimal::Decimal,
             rust_decimal::Decimal,
+            Option<rust_decimal::Decimal>,
             Value,
         ),
     >(
@@ -1027,6 +1030,7 @@ async fn get_transaction_artifacts(
             COALESCE(amount_paid, 0)::numeric(14, 2),
             COALESCE(balance_due, 0)::numeric(14, 2),
             COALESCE(rounding_adjustment, 0)::numeric(14, 2),
+            final_cash_due::numeric(14, 2),
             COALESCE(metadata, '{}'::jsonb)
         FROM transactions
         WHERE id = $1
@@ -1215,6 +1219,7 @@ async fn get_transaction_artifacts(
         amount_paid: amount_paid.to_string(),
         balance_due: balance_due.to_string(),
         rounding_adjustment: rounding_adjustment.to_string(),
+        final_cash_due: final_cash_due.map(|value| value.to_string()),
         metadata,
         payment_rows,
         allocation_rows,

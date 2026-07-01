@@ -12,7 +12,9 @@ Shipping is a delivery method, not automatically an Order.
 - **Ship existing order work**: staff can ship an already-open Special, Custom, or Wedding line from the Orders or Shipments workflow. This is fulfillment/release work against existing transaction lines.
 - **Pickup existing order work**: staff use the pickup/release flow to mark open transaction lines fulfilled for in-store handoff.
 
-The historical endpoint for marking lines fulfilled is still `POST /api/transactions/{transaction_id}/pickup`; staff-facing UI should distinguish **Release for Pickup** from **Shipping** even when shared fulfillment internals are reused.
+Pickup and shipping use separate release endpoints so the audit trail can distinguish in-store handoff from shipped fulfillment:
+- `POST /api/transactions/{transaction_id}/pickup`
+- `POST /api/transactions/{transaction_id}/ship`
 
 ## Overview
 
@@ -35,9 +37,9 @@ Customer Transaction Lifecycle:
 
 Located in the **Cart toolbar** (next to Layaway toggle). Activates only when a customer is selected.
 
-**Endpoint**: `GET /api/transactions?customer_id={customer_id}&register_session_id={session_id}`
+**Endpoint**: `GET /api/transactions?customer_id={customer_id}&register_session_id={session_id}&record_scope=orders&status_scope=all`
 
-Returns the customer's open Special, Custom, and Wedding fulfillment work for register review. The button is labeled **Orders** because staff are managing open fulfillment/payment work, while the complete sale remains the financial `transactions` ledger.
+Returns the customer's Special, Custom, and Wedding fulfillment work across open, ready, picked up, fulfilled, and cancelled statuses for register review. The button is labeled **Orders** because staff are managing fulfillment/payment work, while the complete sale remains the financial `transactions` ledger.
 
 ### Customer Orders Modal
 
@@ -49,7 +51,9 @@ Displays the customer's open order work with:
 Actions per order:
 - **View Lines** - View order line items
 - **Add Payment** - Attach a new payment to the linked Transaction Record
-- **Copy Items** - Start a new register sale from unfulfilled lines without paying the original Transaction Record
+- **Pick Up** - Opens line checkboxes; all open lines are selected by default, and staff can uncheck items that are not being released
+- **Ship** - For ship-method orders, opens the same line checkboxes and records shipped-line release instead of pickup release
+- **Cancel** - Cancels the original Transaction Record and queues paid deposits/payments for refund processing
 
 ### Transaction Lines View
 
@@ -69,7 +73,7 @@ The system supports **picking up or shipping individual items** from a multi-ite
 
 ### Mark Items as Fulfilled
 
-**Endpoint**: `POST /api/transactions/{transaction_id}/pickup`
+**Pickup endpoint**: `POST /api/transactions/{transaction_id}/pickup`
 
 ```json
 {
@@ -78,12 +82,30 @@ The system supports **picking up or shipping individual items** from a multi-ite
 }
 ```
 
+**Shipping endpoint**: `POST /api/transactions/{transaction_id}/ship`
+
+```json
+{
+  "register_session_id": "uuid",
+  "shipped_item_ids": ["uuid1", "uuid2"],
+  "shipment_id": "optional-shipment-uuid",
+  "tracking_number": "optional tracking number"
+}
+```
+
 - Empty array = fulfill ALL items
 - Non-empty array = fulfill only those specified
+- Payment enforcement is line-aware: selected pickup/shipping value plus already released merchandise must be covered by payments, and any remaining open merchandise must still retain at least a 50% deposit.
+- Shipping release writes `transaction_lines.shipped_at`, optional `shipment_id`, and a shipment event when linked to a shipment record.
+- Imported Counterpoint open-doc lines are treated as physically present and start at **Ready for Pickup**; staff still must collect any required payment before release.
+
+### Adding Items to an Existing Order
+
+Register and Back Office can add items to the original Transaction Record. New lines keep the same parent transaction, but their own `transaction_lines.booked_at` timestamp is set when the item is added. Booked sales pivots use that line timestamp so later-added items count on the day they were added, not the original order date.
 
 ### Balance Recalculation
 
-After pickup, `recalc_transaction_totals()` recomputes:
+After pickup or shipping release, `recalc_transaction_totals()` recomputes:
 1. **Total price**: SUM(item price + tax × remaining qty) + shipping
 2. **Balance due**: total_price - amount_paid
 3. **Status**: fulfilled if all items fulfilled AND balance_due <= 0
@@ -95,13 +117,13 @@ After pickup, `recalc_transaction_totals()` recomputes:
 To prevent prematurely releasing unfulfilled or unready stock:
 - **Rule**: Items must be marked `Ready for Pickup` (or alterations complete) to allow pickup fulfillment.
 - **Tender Enforcement**: During register pickup checkout, if any items in the cart are not yet marked ready for pickup, the checkout is blocked.
-- **Override**: A manager PIN must be entered via the `ManagerApprovalModal` to bypass the readiness check. When authorized, the checkout payload sends `overrideReadiness: true` and the metadata log records the event.
+- **Override**: A staff approver with `manager.approval` must be selected in `ManagerApprovalModal` and confirm with their Access PIN to bypass the readiness check. When authorized, the checkout payload sends `overrideReadiness: true` and the metadata log records the event with approver, timestamp, customer/transaction context, and reason metadata supplied by the caller.
 
 ---
 
 ## Inventory Impact
 
-At pickup (`POST /api/transactions/{transaction_id}/pickup`):
+At pickup or shipping release (`POST /api/transactions/{transaction_id}/pickup` or `/ship`):
 
 | Fulfillment Type | stock_on_hand | reserved_stock | on_layaway |
 |-------------------|---------------|-----------------|------------|
@@ -191,7 +213,7 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 |------|---------|
 | `client/src/components/pos/TransactionLoadModal.tsx` | Customer transaction loader UI |
 | `client/src/components/pos/TransactionReviewModal.tsx` | Transaction review before payment |
-| `server/src/api/transactions.rs` | API: list_transactions, mark_transaction_pickup |
+| `server/src/api/transactions.rs` | API: list_transactions, mark_transaction_pickup, mark_transaction_ship |
 | `server/src/logic/transaction_recalc.rs` | Balance recalculation |
 | `server/src/logic/transaction_checkout.rs` | Checkout with fulfillment fields |
 | `migrations/legacy_prelaunch_history/142_transactions_and_fulfillment.sql` | card_payment_method_id column |
@@ -204,7 +226,9 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 - [ ] Transaction list shows Rush/Due badges
 - [ ] Items view shows fulfillment status per line
 - [ ] Partial pickup (some items) works
+- [ ] Partial shipping (some items) works
 - [ ] Full pickup marks transaction fulfilled
+- [ ] Full shipping marks transaction fulfilled and records shipped line timestamps
 - [ ] Balance recalculates after pickup
 - [ ] Inventory decrements appropriately
 - [ ] Card saved for future charges

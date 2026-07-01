@@ -2,7 +2,7 @@
 //!
 //! - Settings (view/update threshold + reward amount)
 //! - Monthly eligible customer list
-//! - Admin point adjustment (requires badge + PIN)
+//! - Admin point adjustment (requires Staff Access approval)
 //! - Redeem reward: deduct threshold pts and issue the reward to a loyalty gift card.
 //!   Customer notice is handled by the existing physical loyalty letter workflow.
 
@@ -23,7 +23,8 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    staff_has_permission, LOYALTY_ADJUST_POINTS, LOYALTY_PROGRAM_SETTINGS,
+    effective_permissions_for_staff, staff_has_permission, LOYALTY_ADJUST_POINTS,
+    LOYALTY_PROGRAM_SETTINGS, MANAGER_APPROVAL,
 };
 use crate::auth::pins::{self, log_staff_access};
 use crate::middleware;
@@ -292,9 +293,8 @@ pub struct AdjustPointsRequest {
     pub customer_id: Uuid,
     pub delta_points: i32,
     pub reason: String,
-    pub manager_cashier_code: String,
-    #[serde(default)]
-    pub manager_pin: Option<String>,
+    pub manager_staff_id: Uuid,
+    pub manager_pin: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -319,18 +319,21 @@ async fn adjust_points(
         ));
     }
 
-    let admin = pins::authenticate_pos_staff(
+    let admin = pins::authenticate_staff_by_id(
         &state.db,
-        &body.manager_cashier_code,
-        body.manager_pin.as_deref(),
+        body.manager_staff_id,
+        Some(body.manager_pin.trim()),
     )
     .await
     .map_err(|_| {
-        LoyaltyError::Unauthorized("Valid manager cashier code and PIN required".to_string())
+        LoyaltyError::Unauthorized("Valid Manager Access staff and PIN required".to_string())
     })?;
-    let eff =
-        crate::auth::permissions::effective_permissions_for_staff(&state.db, admin.id, admin.role)
-            .await?;
+    let eff = effective_permissions_for_staff(&state.db, admin.id, admin.role).await?;
+    if !staff_has_permission(&eff, MANAGER_APPROVAL) {
+        return Err(LoyaltyError::Forbidden(
+            "manager.approval permission required".to_string(),
+        ));
+    }
     if !staff_has_permission(&eff, LOYALTY_ADJUST_POINTS) {
         return Err(LoyaltyError::Forbidden(
             "loyalty.adjust_points permission required".to_string(),
@@ -389,6 +392,11 @@ async fn adjust_points(
             "delta_points": body.delta_points,
             "new_balance": new_balance,
             "reason": body.reason,
+            "approved_by_staff_id": admin.id,
+            "approved_by_staff_name": admin.full_name,
+            "approved_by_role": admin.role,
+            "approval_method": "staff_id_access_pin",
+            "approved_at": Utc::now(),
         }),
     )
     .await;

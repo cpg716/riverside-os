@@ -56,7 +56,7 @@ export default function ManagerApprovalModal({
         });
         if (res.ok) {
           const data = await res.json();
-          setRoster(data.filter((s: { id: string; full_name: string; role?: string }) => s.role === "admin"));
+          setRoster(data);
         }
       } catch (e) {
         console.error("Could not load managers for approval", e);
@@ -70,7 +70,7 @@ export default function ManagerApprovalModal({
       return;
     }
     if (!selectedManagerId) {
-      setError("Select a manager.");
+      setError("Select a staff approver.");
       return;
     }
     setBusy(true);

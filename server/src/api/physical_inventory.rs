@@ -13,14 +13,16 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::api::AppState;
-use crate::auth::permissions::{PHYSICAL_INVENTORY_MUTATE, PHYSICAL_INVENTORY_VIEW};
+use crate::auth::permissions::{
+    effective_permissions_for_staff, staff_has_permission, MANAGER_APPROVAL,
+    PHYSICAL_INVENTORY_MUTATE, PHYSICAL_INVENTORY_VIEW,
+};
 use crate::auth::pins;
 use crate::logic::physical_inventory::{
     self, AddCountRequest, CreateSessionRequest, RecordDiscoveredItemRequest,
     ResolveDiscoveredItemRequest,
 };
 use crate::middleware::require_staff_with_permission;
-use crate::models::DbStaffRole;
 
 const DEFAULT_COUNT_LIMIT: i64 = 500;
 const DEFAULT_REVIEW_LIMIT: usize = 500;
@@ -592,7 +594,8 @@ async fn publish_session(
         pins::authenticate_staff_by_id(&state.db, body.manager_staff_id, Some(&body.manager_pin))
             .await
             .map_err(|_| anyhow::anyhow!("Manager Access PIN was not approved"))?;
-    if manager.role != DbStaffRole::Admin {
+    let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role).await?;
+    if !staff_has_permission(&effective, MANAGER_APPROVAL) {
         return Err(anyhow::anyhow!("Manager Access is required to publish").into());
     }
 

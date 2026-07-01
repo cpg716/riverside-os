@@ -38,6 +38,12 @@ interface LoyaltyPipelineStats {
   active_30d_adjustments: number;
 }
 
+interface StaffApproverRow {
+  id: string;
+  full_name: string;
+  role?: string;
+}
+
 const BASE = getBaseUrl();
 const ELIGIBLE_PAGE_SIZE = 100;
 
@@ -431,12 +437,24 @@ function AdjustPanel() {
   const [customerLabel, setCustomerLabel] = useState("");
   const [delta, setDelta] = useState("");
   const [reason, setReason] = useState("");
-  const [badge, setBadge] = useState("");
+  const [managerStaffId, setManagerStaffId] = useState(() => localStorage.getItem("ros_last_staff_id") || "");
   const [pin, setPin] = useState("");
+  const [staffApprovers, setStaffApprovers] = useState<StaffApproverRow[]>([]);
   const [ledger, setLedger] = useState<LoyaltyLedgerEntry[]>([]);
   const [result, setResult] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      const res = await fetch(`${BASE}/api/staff/list-for-pos`, {
+        headers: backofficeHeaders(),
+      });
+      if (res.ok) {
+        setStaffApprovers((await res.json()) as StaffApproverRow[]);
+      }
+    })();
+  }, [backofficeHeaders]);
 
   useEffect(() => {
     if (!customerId) { setLedger([]); return; }
@@ -454,18 +472,19 @@ function AdjustPanel() {
     const d = parseInt(delta);
     if (!Number.isFinite(d) || d === 0) { setErr("Enter a points adjustment other than zero."); return; }
     if (!reason.trim()) { setErr("Enter a reason for the adjustment."); return; }
-    if (!badge.trim()) { setErr("Enter the manager staff code."); return; }
+    if (!managerStaffId) { setErr("Select the staff approver."); return; }
+    if (pin.trim().length !== 4) { setErr("Enter the approver Access PIN."); return; }
     setBusy(true);
     try {
       const res = await fetch(`${BASE}/api/loyalty/adjust-points`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...backofficeHeaders() },
         body: JSON.stringify({
           customer_id: customerId.trim(),
           delta_points: d,
           reason: reason.trim(),
-          manager_cashier_code: badge.trim(),
-          manager_pin: pin.trim() || undefined,
+          manager_staff_id: managerStaffId,
+          manager_pin: pin.trim(),
         }),
       });
       if (!res.ok) {
@@ -542,8 +561,20 @@ function AdjustPanel() {
                 <input type="number" value={delta} onChange={e => setDelta(e.target.value)} className="ui-input w-full bg-app-surface font-black tabular-nums border-app-border" placeholder="0" />
               </label>
               <label className="block space-y-2">
-                <span className="px-1 text-xs font-bold text-app-text-muted">Manager code</span>
-                <input value={badge} onChange={e => setBadge(e.target.value)} className="ui-input w-full border-app-border bg-app-surface font-black" placeholder="Staff code" />
+                <span className="px-1 text-xs font-bold text-app-text-muted">Staff approver</span>
+                <select
+                  value={managerStaffId}
+                  onChange={e => {
+                    setManagerStaffId(e.target.value);
+                    localStorage.setItem("ros_last_staff_id", e.target.value);
+                  }}
+                  className="ui-input w-full border-app-border bg-app-surface font-black"
+                >
+                  <option value="">Choose approver</option>
+                  {staffApprovers.map((staff) => (
+                    <option key={staff.id} value={staff.id}>{staff.full_name}</option>
+                  ))}
+                </select>
               </label>
             </div>
 

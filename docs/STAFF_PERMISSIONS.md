@@ -159,6 +159,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `staff.manage_commission` | Commission Manager: fixed SPIFF setup, combo incentive setup, and manual adjustments. |
 | `staff.view_audit` | Staff access log. |
 | `staff.manage_access` | Edit **per-person** permission checklists on staff profiles; use **Settings → Staff access defaults** for role **template** matrix and template discount caps (**`settings.admin`** may also open Settings; templates are policy-sensitive). |
+| `manager.approval` | Approve elevated **Manager Access** prompts with a selected staff identity plus **Access PIN**. Admin receives this by default; it can be granted to other trusted staff from the access checklist. |
 | `qbo.view` | QBO workspace read-oriented actions. |
 | `qbo.mapping_edit` | Save ledger / granular mappings. |
 | `qbo.staging_approve` | Approve staging. |
@@ -172,7 +173,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `physical_inventory.view` | List/read physical inventory sessions. |
 | `physical_inventory.mutate` | Create, count, review, publish sessions. |
 | `orders.view` | List/read orders, audit, receipt ZPL (Back Office headers; or `register_session_id` when tied to that session). |
-| `orders.modify` | Edit transaction lines, pickup, line returns, exchange link. **(Manager PIN required after 60 days)** |
+| `orders.modify` | Edit transaction lines, pickup, line returns, exchange link. **(Manager Access required after 60 days)** |
 | `orders.cancel` | Set order status to cancelled (queues refunds when payments exist). |
 | `orders.refund_process` | `GET /refunds/due`, `POST .../refunds/process`, and completed-sale POS voids that open refund/reversal work. |
 | `orders.edit_attribution` | Patch order attribution. |
@@ -238,6 +239,8 @@ Base path: **`/api/staff`**. Gated routes expect headers:
 | POST | `/admin/{staff_id}/apply-role-defaults` | `staff.manage_access` | Reset person’s permissions + cap from templates for their **`staff.role`**. |
 
 Sensitive changes are logged to **`staff_access_log`** (e.g. template saves, **`staff_permission_save`**, **`staff_apply_role_defaults`**) where implemented in `staff.rs`.
+
+Manager Access approvals use `manager.approval`, a selected staff approver, and that approver's **Access PIN**. Approval writes `staff_access_log` metadata with the action name, approver id/name/role, approval timestamp, `approval_method = staff_id_access_pin`, and any workflow metadata supplied by the caller such as customer, transaction, override reason, or register session.
 
 ---
 

@@ -4167,18 +4167,20 @@ export default function Cart({
         onClose={() => setShowVoidAllConfirm(false)}
         title="Authorize Void All"
         message="Clearing every line in the cart requires Manager Access for audit logging."
-        onApprove={async (pin) => {
+        onApprove={async (pin, managerId) => {
           try {
             const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
               method: "POST",
               headers: { "Content-Type": "application/json", ...apiAuth() },
               body: JSON.stringify({
                 pin,
-                role: "Admin",
+                staff_id: managerId,
                 authorize_action: "pos_sale_void_all",
                 authorize_metadata: {
                   item_count: lines.length,
                   subtotal: totals.subtotalCents,
+                  customer_id: selectedCustomer?.id ?? null,
+                  register_session_id: sessionId,
                   cart_summary: lines.map(l => `${l.quantity}x ${l.sku}`).join(", ")
                 }
               }),
@@ -4213,17 +4215,18 @@ export default function Cart({
         onClose={() => setShowSuitSwapApproval(false)}
         title="Authorize Suit Component Swap"
         message="Suit/component swaps modify inventory and financial records. Manager Access is required for audit logging."
-        onApprove={async (pin) => {
+        onApprove={async (pin, managerId) => {
           try {
             const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
               method: "POST",
               headers: { "Content-Type": "application/json", ...apiAuth() },
               body: JSON.stringify({
                 pin,
-                role: "Admin",
+                staff_id: managerId,
                 authorize_action: "pos_suit_component_swap",
                 authorize_metadata: {
                   register_session_id: sessionId,
+                  customer_id: selectedCustomer?.id ?? null,
                 }
               }),
             });
@@ -4355,21 +4358,23 @@ export default function Cart({
         onClose={() => setDiscountPrompt(null)}
         title="Override Authority"
         message={`Large discounts (>${roleMaxDiscountPct.toFixed(0)}%) require Manager Access authorization for audit logging.`}
-        onApprove={async (pin) => {
+        onApprove={async (pin, managerId) => {
           if (!discountPrompt) return false;
           try {
-            const res = await fetch(`${baseUrl}/api/auth/verify-pin`, {
+            const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", ...apiAuth() },
               body: JSON.stringify({
                 pin,
-                role: "Admin",
+                staff_id: managerId,
                 authorize_action: "pos_price_override",
                 authorize_metadata: {
                   variant_id: discountPrompt.variantId,
                   original_cents: discountPrompt.originalPriceCents,
                   next_cents: discountPrompt.nextPriceCents,
                   reason: discountPrompt.reason,
+                  customer_id: selectedCustomer?.id ?? null,
+                  register_session_id: sessionId,
                   discount_pct: Math.round((1 - discountPrompt.nextPriceCents / discountPrompt.originalPriceCents) * 100)
                 }
               }),
@@ -4420,6 +4425,8 @@ export default function Cart({
                 authorize_metadata: {
                   line_count: belowCostManualDiscountLines.length,
                   line_signature: belowCostLineSignature,
+                  customer_id: selectedCustomer?.id ?? null,
+                  register_session_id: sessionId,
                   lines: belowCostManualDiscountLines.map((line) => ({
                     variant_id: line.variantId,
                     sku: line.sku,
@@ -4573,11 +4580,6 @@ export default function Cart({
             onAddItemToOrder={addItemToExistingOrder}
             onUpdateOrderItem={updateExistingOrderItem}
             onDeleteOrderItem={deleteExistingOrderItem}
-            onOpenInRegisterForPickup={(orderId) => {
-              setPickupTransactionId(orderId);
-              setOrderLoadOpen(false);
-              void loadTransactionIntoRegister(orderId, true);
-            }}
           />
 
           <OrderReviewModal

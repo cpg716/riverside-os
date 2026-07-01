@@ -13408,11 +13408,11 @@ pub async fn execute_counterpoint_open_doc_batch(
                     quantity, unit_price, unit_cost,
                     state_tax, local_tax, applied_spiff, calculated_commission,
                     counterpoint_reason_code, size_specs, vendor_reference,
-                    order_lifecycle_status, ready_for_pickup_at, ready_for_pickup_by
+                    order_lifecycle_status, ready_for_pickup_at, ready_for_pickup_by, booked_at
                 )
                 VALUES (
                     $1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, 0, 0, 0, 0,
-                    $9, $10, $11, 'ready_for_pickup'::order_item_lifecycle_status, $12, $13
+                    $9, $10, $11, 'ready_for_pickup'::order_item_lifecycle_status, $12, $13, $14
                 )
                 "#,
             )
@@ -13434,6 +13434,7 @@ pub async fn execute_counterpoint_open_doc_batch(
             .bind(vendor_ref.as_deref())
             .bind(booked_at)
             .bind(processed_by.or(salesperson))
+            .bind(booked_at)
             .execute(&mut *tx)
             .await?;
             summary.line_items_created += 1;

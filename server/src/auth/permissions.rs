@@ -13,6 +13,8 @@ pub const STAFF_MANAGE_PINS: &str = "staff.manage_pins";
 pub const STAFF_MANAGE_COMMISSION: &str = "staff.manage_commission";
 pub const STAFF_VIEW_AUDIT: &str = "staff.view_audit";
 pub const STAFF_MANAGE_ACCESS: &str = "staff.manage_access";
+/// Approve elevated POS/Back Office workflows that show as Manager Access in the UI.
+pub const MANAGER_APPROVAL: &str = "manager.approval";
 
 pub const QBO_VIEW: &str = "qbo.view";
 pub const QBO_MAPPING_EDIT: &str = "qbo.mapping_edit";
@@ -150,6 +152,7 @@ pub static ALL_PERMISSION_KEYS: &[&str] = &[
     STAFF_MANAGE_COMMISSION,
     STAFF_VIEW_AUDIT,
     STAFF_MANAGE_ACCESS,
+    MANAGER_APPROVAL,
     QBO_VIEW,
     QBO_MAPPING_EDIT,
     QBO_STAGING_APPROVE,

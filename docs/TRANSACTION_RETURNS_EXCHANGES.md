@@ -12,6 +12,7 @@ For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **sp
 |-----|-----|
 | `orders.view` | List transactions, read detail, audit trail, receipt ZPL (with BO headers). |
 | `orders.modify` | Edit transaction lines, pickup, returns, exchanges. **(Manager Access required after 60 days)** |
+| `manager.approval` | Approve elevated Manager Access prompts with staff id + Access PIN; approvals are audited with approver, timestamp, reason, transaction/customer metadata when supplied. |
 | `orders.suit_component_swap` | `POST /api/transactions/{id}/items/{line}/suit-swap` — requires **`orders.modify`** as well; BO staff only (no register_session bypass). Seeded by **`scripts/seeds/seed_rbac.sql`**. |
 | `orders.cancel` | `PATCH` transaction to `cancelled` when **payment allocations** exist (queues refund). |
 | `orders.void_sale` | `PATCH` to `cancelled` when the transaction has **no** payment allocations (void mistaken / unpaid cart). Either **`orders.cancel`** or **`orders.void_sale`** suffices when there are no allocations. Seeded by **`scripts/seeds/seed_rbac.sql`**. |
@@ -30,7 +31,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 **Policy Note (60-Day Window)**:
  - **Fulfilled items <= 60 days from pickup or shipment**: Can be modified by any staff member on an active session.
- - **Fulfilled items > 60 days from pickup or shipment**: Always require a **Manager Access** override (`orders.modify` permission) even if a session ID is provided.
+ - **Fulfilled items > 60 days from pickup or shipment**: Always require a **Manager Access** override (`manager.approval`) even if a session ID is provided.
  - **Legacy records without fulfillment evidence**: Fall back to the original booked date so the return flow remains deterministic and auditable.
 
 | Operation | Query / body | Requirement |
@@ -73,7 +74,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 - **`POST /api/transactions/{id}/void`**
   Body: `{ "register_session_id", "manager_staff_id", "manager_pin", "reason" }`
-  Requires an open register session, **`orders.refund_process`**, and Manager Access.
+  Requires an open register session, **`orders.refund_process`**, and Manager Access from a staff approver with **`manager.approval`**.
 
 - **Rules**
   - A void is never a delete. The original Transaction Record, payment rows, receipt references, timestamps, and audit feed remain visible.
@@ -86,6 +87,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 - **POS UI**
   - Register → Daily Sales → Activity exposes **Void** beside the receipt action.
   - The modal explains customer/payment history retention, refund queue impact, inventory handling, and accounting handoff before requiring Manager Access.
+  - Manager Access is selected staff identity + Access PIN, not a legacy cashier-code shortcut.
   - Completion tells staff whether a refund workflow was opened or no paid balance remained.
   - Back Office Transaction Record shows the void record, reversal status, original total, refundable amount, Manager Access approver, reason, and restock impact for review.
 

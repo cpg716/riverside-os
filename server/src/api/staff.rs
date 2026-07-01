@@ -17,9 +17,9 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    self, all_permissions_set, staff_has_permission, ALL_PERMISSION_KEYS, SETTINGS_ADMIN,
-    STAFF_EDIT, STAFF_MANAGE_ACCESS, STAFF_MANAGE_COMMISSION, STAFF_MANAGE_PINS, STAFF_VIEW,
-    STAFF_VIEW_AUDIT,
+    self, all_permissions_set, effective_permissions_for_staff, staff_has_permission,
+    ALL_PERMISSION_KEYS, MANAGER_APPROVAL, SETTINGS_ADMIN, STAFF_EDIT, STAFF_MANAGE_ACCESS,
+    STAFF_MANAGE_COMMISSION, STAFF_MANAGE_PINS, STAFF_VIEW, STAFF_VIEW_AUDIT,
 };
 use crate::auth::pins::{self, hash_pin, is_valid_staff_credential, log_staff_access};
 use crate::auth::staff_avatar;
@@ -972,7 +972,40 @@ pub async fn legacy_verify_pin(
     };
 
     if let Some(action) = body.authorize_action {
-        let meta = body.authorize_metadata.unwrap_or_else(|| json!({}));
+        if body.staff_id.is_none() {
+            return Err(StaffApiError::InvalidPayload(
+                "Manager Access approvals require staff_id plus Access PIN".to_string(),
+            ));
+        }
+        let effective = effective_permissions_for_staff(&state.db, staff.id, staff.role).await?;
+        if !staff_has_permission(&effective, MANAGER_APPROVAL) {
+            return Err(StaffApiError::Forbidden);
+        }
+        let approved_at = Utc::now();
+        let meta = match body.authorize_metadata.unwrap_or_else(|| json!({})) {
+            serde_json::Value::Object(mut object) => {
+                object.insert(
+                    "approved_by_staff_id".to_string(),
+                    serde_json::Value::String(staff.id.to_string()),
+                );
+                object.insert(
+                    "approved_by_staff_name".to_string(),
+                    serde_json::Value::String(staff.full_name.clone()),
+                );
+                object.insert("approved_by_role".to_string(), json!(staff.role));
+                object.insert("approved_at".to_string(), json!(approved_at));
+                object.insert("approval_method".to_string(), json!("staff_id_access_pin"));
+                serde_json::Value::Object(object)
+            }
+            value => json!({
+                "details": value,
+                "approved_by_staff_id": staff.id,
+                "approved_by_staff_name": staff.full_name,
+                "approved_by_role": staff.role,
+                "approved_at": approved_at,
+                "approval_method": "staff_id_access_pin",
+            }),
+        };
         let _ = pins::log_staff_access(&state.db, staff.id, &action, meta).await;
     }
 

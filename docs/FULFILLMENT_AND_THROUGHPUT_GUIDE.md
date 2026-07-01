@@ -35,7 +35,7 @@ The fulfillment queue ([fulfillment_queue.rs](file:///server/src/logic/fulfillme
 - **Purpose**: Ensure items physically arrived before marking ready for pickup
 - **Check**: Verifies `received_at` is not NULL (item went through ordered → received lifecycle via vendor invoice)
 - **Error Message**: "Cannot mark ready for pickup: item must be received first (ordered and received via vendor invoice)"
-- **Override**: Manager can bypass with `override_checks` flag, manager PIN, and clear reason
+- **Override**: Staff with `manager.approval` and `orders.lifecycle_manage` can bypass with `override_checks`, selected staff approver + Access PIN, and a clear reason
 - **Allows**: Negative inventory for exceptional cases (receiving later brings stock positive)
 
 ### Payment Screen Recognition

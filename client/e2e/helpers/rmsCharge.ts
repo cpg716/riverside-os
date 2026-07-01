@@ -74,6 +74,7 @@ export type TransactionArtifacts = {
   amount_paid: string;
   balance_due: string;
   rounding_adjustment: string;
+  final_cash_due?: string | null;
   metadata: Record<string, unknown>;
   payment_rows: Array<{
     payment_method: string;

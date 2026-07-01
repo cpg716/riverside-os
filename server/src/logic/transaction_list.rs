@@ -71,6 +71,7 @@ pub struct TransactionListRow {
     pub has_custom: bool,
     pub is_fulfillment_order: bool,
     pub status: DbOrderStatus,
+    pub fulfillment_method: String,
     pub is_counterpoint_import: bool,
     pub counterpoint_doc_ref: Option<String>,
     pub counterpoint_ticket_ref: Option<String>,
@@ -117,6 +118,7 @@ pub struct TransactionListResponse {
     pub order_payment_display_id: String,
     pub booked_at: DateTime<Utc>,
     pub status: DbOrderStatus,
+    pub fulfillment_method: String,
     pub total_price: Decimal,
     pub amount_paid: Decimal,
     pub balance_due: Decimal,
@@ -279,6 +281,7 @@ pub async fn query_paged_transactions(
             o.wedding_member_id,
             wm.wedding_party_id,
             o.status,
+            COALESCE(o.fulfillment_method::text, 'pickup') AS fulfillment_method,
             COALESCE(o.is_counterpoint_import, false) AS is_counterpoint_import,
             NULLIF(TRIM(o.counterpoint_doc_ref), '') AS counterpoint_doc_ref,
             NULLIF(TRIM(o.counterpoint_ticket_ref), '') AS counterpoint_ticket_ref,
@@ -471,7 +474,7 @@ pub async fn query_paged_transactions(
     }
 
     let open_orders_predicate =
-        "((COALESCE(o.is_counterpoint_import, false) AND o.counterpoint_doc_ref IS NOT NULL) OR EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order') AND tl.is_fulfilled = false))";
+        "EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order') AND tl.is_fulfilled = false)";
     let open_work_predicate = if is_layaway_filter {
         "EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text = 'layaway' AND tl.is_fulfilled = false)"
     } else {
@@ -664,6 +667,7 @@ pub async fn query_paged_transactions(
                 is_rush: r.is_rush,
                 need_by_date: r.need_by_date,
                 status: r.status,
+                fulfillment_method: r.fulfillment_method,
                 order_kind,
                 has_special_order: r.has_special_order,
                 has_wedding_order: r.has_wedding_order,

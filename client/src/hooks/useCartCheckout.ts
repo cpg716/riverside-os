@@ -149,6 +149,10 @@ export function maxCollectableTenderCents(
   return Math.max(collectTotalCents, Math.max(0, depositCents)) + roundingAdjustmentCents;
 }
 
+export function optionalCentsField(cents: number | undefined): string | undefined {
+  return cents != null ? centsToFixed2(cents) : undefined;
+}
+
 export function useCartCheckout({
   sessionId,
   baseUrl,
@@ -469,8 +473,8 @@ export function useCartCheckout({
           : {}),
         is_tax_exempt: ledgerSignals.isTaxExempt,
         tax_exempt_reason: ledgerSignals.isTaxExempt ? (ledgerSignals.taxExemptReason ?? "Other") : undefined,
-        rounding_adjustment: ledgerSignals.roundingAdjustmentCents ? centsToFixed2(ledgerSignals.roundingAdjustmentCents) : undefined,
-        final_cash_due: ledgerSignals.finalCashDueCents ? centsToFixed2(ledgerSignals.finalCashDueCents) : undefined,
+        rounding_adjustment: optionalCentsField(ledgerSignals.roundingAdjustmentCents),
+        final_cash_due: optionalCentsField(ledgerSignals.finalCashDueCents),
         items: checkoutLines
           .filter((l) => !l.transaction_line_id)
           .map((l) => {

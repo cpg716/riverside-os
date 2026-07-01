@@ -142,8 +142,8 @@ async function checkoutFixtureProduct(
         },
       ],
       order_payments: options.orderPayments ?? [],
-      ...(options.roundingAdjustment ? { rounding_adjustment: options.roundingAdjustment } : {}),
-      ...(options.finalCashDue ? { final_cash_due: options.finalCashDue } : {}),
+      ...(options.roundingAdjustment != null ? { rounding_adjustment: options.roundingAdjustment } : {}),
+      ...(options.finalCashDue != null ? { final_cash_due: options.finalCashDue } : {}),
       is_tax_exempt: false,
       tax_exempt_reason: null,
     },
@@ -516,6 +516,35 @@ test.describe("checkout tender financial contract", () => {
         }),
       ]),
     );
+  });
+
+  test("explicit zero cash due is persisted for cash rounding audit", async ({ request }) => {
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Tender Cash Zero Due");
+
+    const checkoutRes = await checkoutFixtureProduct(request, {
+      fixture,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId: fixture.customer.id,
+      amountPaid: "244.69",
+      paymentSplits: [{ payment_method: "cash", amount: "244.69" }],
+      roundingAdjustment: "0.00",
+      finalCashDue: "0.00",
+    });
+    const checkout = await expectSuccessfulCheckout(checkoutRes);
+
+    const artifacts: TransactionArtifacts = await getTransactionArtifacts(
+      request,
+      checkout.transaction_id,
+    );
+    expect(artifacts.final_cash_due).toBeDefined();
+    expect(artifacts.final_cash_due).not.toBeNull();
+    expect(moneyToCents(artifacts.final_cash_due)).toBe(0);
+    expect(moneyToCents(artifacts.rounding_adjustment)).toBe(0);
+    expect(moneyToCents(artifacts.balance_due)).toBe(0);
   });
 
   test("non-cash tender uses exact cents without rounding adjustment", async ({ request }) => {

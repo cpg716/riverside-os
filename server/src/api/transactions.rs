@@ -20,9 +20,9 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    effective_permissions_for_staff, staff_has_permission, ORDERS_CANCEL, ORDERS_EDIT_ATTRIBUTION,
-    ORDERS_MODIFY, ORDERS_REFUND_PROCESS, ORDERS_SUIT_COMPONENT_SWAP, ORDERS_VIEW,
-    ORDERS_VOID_SALE, QBO_STAGING_APPROVE,
+    effective_permissions_for_staff, staff_has_permission, MANAGER_APPROVAL, ORDERS_CANCEL,
+    ORDERS_EDIT_ATTRIBUTION, ORDERS_MODIFY, ORDERS_REFUND_PROCESS, ORDERS_SUIT_COMPONENT_SWAP,
+    ORDERS_VIEW, ORDERS_VOID_SALE, QBO_STAGING_APPROVE,
 };
 use crate::auth::pins::{self, log_staff_access};
 use crate::auth::pos_session;
@@ -223,6 +223,7 @@ pub struct TransactionWeddingSummary {
 #[derive(Debug, Serialize)]
 pub struct TransactionDetailItem {
     pub transaction_line_id: Uuid,
+    pub booked_at: DateTime<Utc>,
     pub product_id: Uuid,
     pub variant_id: Uuid,
     pub sku: String,
@@ -279,6 +280,10 @@ pub struct TransactionDetailItem {
     pub ready_for_pickup_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picked_up_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shipped_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shipment_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fulfilled_at: Option<DateTime<Utc>>,
 }
@@ -717,6 +722,9 @@ mod tests {
             received_at: None,
             ready_for_pickup_at: None,
             picked_up_at: None,
+            shipped_at: None,
+            shipment_id: None,
+            fulfilled_at: None,
         }
     }
 
@@ -1440,6 +1448,7 @@ struct OrderHeaderRow {
 #[derive(Debug, FromRow)]
 struct OrderItemRow {
     transaction_line_id: Uuid,
+    booked_at: DateTime<Utc>,
     product_id: Uuid,
     variant_id: Uuid,
     sku: String,
@@ -1474,6 +1483,8 @@ struct OrderItemRow {
     received_at: Option<DateTime<Utc>>,
     ready_for_pickup_at: Option<DateTime<Utc>>,
     picked_up_at: Option<DateTime<Utc>>,
+    shipped_at: Option<DateTime<Utc>>,
+    shipment_id: Option<Uuid>,
     fulfilled_at: Option<DateTime<Utc>>,
 }
 
@@ -1527,6 +1538,25 @@ pub struct PickupTransactionRequest {
     /// POS pickup without BO headers when this session has a positive allocation to the order.
     #[serde(default)]
     pub register_session_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ShipTransactionRequest {
+    #[serde(default)]
+    pub shipped_item_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub actor: Option<String>,
+    #[serde(default)]
+    pub override_readiness: bool,
+    #[serde(default)]
+    pub override_reason: Option<String>,
+    /// POS shipping release without BO headers when the register session is active.
+    #[serde(default)]
+    pub register_session_id: Option<Uuid>,
+    #[serde(default)]
+    pub shipment_id: Option<Uuid>,
+    #[serde(default)]
+    pub tracking_number: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1693,10 +1723,8 @@ pub struct TransactionExchangeLinkBody {
 
 #[derive(Debug, Deserialize)]
 pub struct PatchTransactionAttributionRequest {
-    pub manager_cashier_code: String,
-    /// Required when the manager has a hashed PIN set (`staff.pin_hash`).
-    #[serde(default)]
-    pub manager_pin: Option<String>,
+    pub manager_staff_id: Uuid,
+    pub manager_pin: String,
     #[serde(default)]
     pub reason: Option<String>,
     #[serde(default)]
@@ -1728,6 +1756,7 @@ pub fn router() -> Router<AppState> {
             patch(patch_transaction_financial_date),
         )
         .route("/{transaction_id}/pickup", post(mark_transaction_pickup))
+        .route("/{transaction_id}/ship", post(mark_transaction_ship))
         .route(
             "/{transaction_id}/review-invite",
             post(post_transaction_review_invite),
@@ -2172,6 +2201,26 @@ async fn transaction_return_window_basis_at(
         .ok_or(TransactionError::NotFound)
 }
 
+async fn authenticate_manager_approval(
+    state: &AppState,
+    staff_id: Uuid,
+    pin: &str,
+    denied_message: &'static str,
+) -> Result<pins::AuthenticatedStaff, TransactionError> {
+    let manager = pins::authenticate_staff_by_id(&state.db, staff_id, Some(pin))
+        .await
+        .map_err(|_| {
+            TransactionError::InvalidPayload("Manager Access was not approved".to_string())
+        })?;
+    let effective = effective_permissions_for_staff(&state.db, manager.id, manager.role)
+        .await
+        .map_err(TransactionError::Database)?;
+    if !staff_has_permission(&effective, MANAGER_APPROVAL) {
+        return Err(TransactionError::Forbidden(denied_message.to_string()));
+    }
+    Ok(manager)
+}
+
 /// `Ok(Some(staff_id))` when BO headers were used; `Ok(None)` for register-session authorization.
 async fn authorize_transaction_modify_bo_or_register(
     state: &AppState,
@@ -2210,19 +2259,13 @@ async fn authorize_transaction_modify_bo_or_register(
         }
 
         if let Some((manager_staff_id, manager_pin, manager_reason)) = manager_approval {
-            let manager =
-                pins::authenticate_staff_by_id(&state.db, manager_staff_id, Some(manager_pin))
-                    .await
-                    .map_err(|_| {
-                        TransactionError::InvalidPayload(
-                            "Manager Access was not approved".to_string(),
-                        )
-                    })?;
-            if manager.role != crate::models::DbStaffRole::Admin {
-                return Err(TransactionError::Forbidden(
-                    "Manager Access required for older return".to_string(),
-                ));
-            }
+            let manager = authenticate_manager_approval(
+                state,
+                manager_staff_id,
+                manager_pin,
+                "Manager Access approval permission required for older return",
+            )
+            .await?;
             let reason = manager_reason
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -2603,18 +2646,6 @@ async fn mark_transaction_pickup(
             .fetch_one(&mut *tx)
             .await?;
 
-    let balance_due: Decimal = sqlx::query_scalar(
-        "SELECT COALESCE(balance_due, 0)::numeric(14,2) FROM transactions WHERE id = $1",
-    )
-    .bind(transaction_id)
-    .fetch_one(&mut *tx)
-    .await?;
-    if balance_due > Decimal::ZERO {
-        return Err(TransactionError::InvalidPayload(format!(
-            "Pickup blocked: Balance Due is ${balance_due}. Collect the balance before release."
-        )));
-    }
-
     let pickup_guard_lines: Vec<PickupGuardLine> = if body.delivered_item_ids.is_empty() {
         sqlx::query_as(
             r#"
@@ -2739,6 +2770,68 @@ async fn mark_transaction_pickup(
         return Err(TransactionError::InvalidPayload(
             "Pickup readiness override requires a clear reason.".to_string(),
         ));
+    }
+
+    let (amount_paid, already_released_value, selected_pickup_value, remaining_open_value): (
+        Decimal,
+        Decimal,
+        Decimal,
+        Decimal,
+    ) = sqlx::query_as(
+        r#"
+        WITH line_values AS (
+            SELECT
+                oi.id,
+                oi.is_fulfilled,
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)
+                  * (COALESCE(oi.unit_price, 0) + COALESCE(oi.state_tax, 0) + COALESCE(oi.local_tax, 0)) AS line_total
+            FROM transaction_lines oi
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE oi.transaction_id = $1
+              AND COALESCE(oi.is_internal, false) = FALSE
+        )
+        SELECT
+            COALESCE(MAX(o.amount_paid), 0)::numeric(14,2) AS amount_paid,
+            COALESCE(SUM(line_total) FILTER (WHERE line_values.is_fulfilled), 0)::numeric(14,2) AS already_released_value,
+            COALESCE(SUM(line_total) FILTER (
+                WHERE line_values.is_fulfilled = false
+                  AND ($2::boolean OR line_values.id = ANY($3))
+            ), 0)::numeric(14,2) AS selected_pickup_value,
+            COALESCE(SUM(line_total) FILTER (
+                WHERE line_values.is_fulfilled = false
+                  AND NOT ($2::boolean OR line_values.id = ANY($3))
+            ), 0)::numeric(14,2) AS remaining_open_value
+        FROM transactions o
+        LEFT JOIN line_values ON TRUE
+        WHERE o.id = $1
+        GROUP BY o.id
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(body.delivered_item_ids.is_empty())
+    .bind(&body.delivered_item_ids)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let required_after_pickup = already_released_value + selected_pickup_value;
+    if amount_paid < required_after_pickup {
+        let shortage = required_after_pickup - amount_paid;
+        return Err(TransactionError::InvalidPayload(format!(
+            "Pickup blocked: Balance Due remains because selected item value exceeds payments by ${shortage}. Collect payment before release."
+        )));
+    }
+
+    let remaining_deposit_required = (remaining_open_value * Decimal::new(50, 2)).round_dp(2);
+    let remaining_paid_credit = amount_paid - required_after_pickup;
+    if remaining_open_value > Decimal::ZERO && remaining_paid_credit < remaining_deposit_required {
+        let shortage = remaining_deposit_required - remaining_paid_credit;
+        return Err(TransactionError::InvalidPayload(format!(
+            "Pickup blocked: remaining open items need at least a 50% deposit after this pickup. Collect ${shortage} more before release."
+        )));
     }
 
     let insufficient_stock_lines = pickup_guard_lines
@@ -3024,6 +3117,559 @@ async fn mark_transaction_pickup(
     })))
 }
 
+async fn mark_transaction_ship(
+    State(state): State<AppState>,
+    Path(transaction_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<ShipTransactionRequest>,
+) -> Result<Json<serde_json::Value>, TransactionError> {
+    let register_session_id = body.register_session_id.ok_or_else(|| {
+        TransactionError::InvalidPayload(
+            "Shipping completion must be run from an open Register session.".to_string(),
+        )
+    })?;
+    middleware::require_pos_register_session_for_checkout(&state, &headers, register_session_id)
+        .await
+        .map_err(map_perm_err)?;
+
+    let actor_staff_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT opened_by FROM register_sessions WHERE id = $1")
+            .bind(register_session_id)
+            .fetch_optional(&state.db)
+            .await?
+            .flatten();
+
+    let mut tx = state.db.begin().await?;
+    let _locked_transaction: Uuid =
+        sqlx::query_scalar("SELECT id FROM transactions WHERE id = $1 FOR UPDATE")
+            .bind(transaction_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    if let Some(shipment_id) = body.shipment_id {
+        let shipment_transaction_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT transaction_id FROM shipment WHERE id = $1")
+                .bind(shipment_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+        if shipment_transaction_id != Some(transaction_id) {
+            return Err(TransactionError::InvalidPayload(
+                "Shipment does not belong to this Transaction Record.".to_string(),
+            ));
+        }
+    }
+
+    let ship_guard_lines: Vec<PickupGuardLine> = if body.shipped_item_ids.is_empty() {
+        sqlx::query_as(
+            r#"
+            SELECT
+                COALESCE(
+                    CASE
+                        WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                        THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_sku'), '')
+                        ELSE NULL
+                    END,
+                    pv.sku,
+                    'Unknown SKU'
+                ) AS sku,
+                COALESCE(
+                    CASE
+                        WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                        THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_description'), '')
+                        ELSE NULL
+                    END,
+                    NULLIF(TRIM(p.name), ''),
+                    pv.sku,
+                    'Unknown item'
+                ) AS product_name,
+                oi.order_lifecycle_status,
+                oi.variant_id,
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity,
+                COALESCE(pv.stock_on_hand, 0)::int AS stock_on_hand
+            FROM transaction_lines oi
+            LEFT JOIN product_variants pv ON pv.id = oi.variant_id
+            LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE oi.transaction_id = $1
+              AND oi.is_fulfilled = FALSE
+              AND COALESCE(oi.is_internal, false) = FALSE
+              AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
+            ORDER BY p.name, pv.sku, oi.id
+            FOR UPDATE OF oi
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_all(&mut *tx)
+        .await?
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT
+                COALESCE(
+                    CASE
+                        WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                        THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_sku'), '')
+                        ELSE NULL
+                    END,
+                    pv.sku,
+                    'Unknown SKU'
+                ) AS sku,
+                COALESCE(
+                    CASE
+                        WHEN COALESCE(pv.sku, '') = 'HIST-CP-FALLBACK'
+                        THEN NULLIF(TRIM(oi.size_specs->>'counterpoint_description'), '')
+                        ELSE NULL
+                    END,
+                    NULLIF(TRIM(p.name), ''),
+                    pv.sku,
+                    'Unknown item'
+                ) AS product_name,
+                oi.order_lifecycle_status,
+                oi.variant_id,
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity,
+                COALESCE(pv.stock_on_hand, 0)::int AS stock_on_hand
+            FROM transaction_lines oi
+            LEFT JOIN product_variants pv ON pv.id = oi.variant_id
+            LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE oi.transaction_id = $1
+              AND oi.id = ANY($2)
+              AND oi.is_fulfilled = FALSE
+              AND COALESCE(oi.is_internal, false) = FALSE
+              AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
+            ORDER BY p.name, pv.sku, oi.id
+            FOR UPDATE OF oi
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(&body.shipped_item_ids)
+        .fetch_all(&mut *tx)
+        .await?
+    };
+
+    if ship_guard_lines.is_empty() {
+        return Err(TransactionError::InvalidPayload(
+            "No open order lines are available for shipping.".to_string(),
+        ));
+    }
+
+    let unready_lines = ship_guard_lines
+        .iter()
+        .filter(|line| line.order_lifecycle_status != DbOrderItemLifecycleStatus::ReadyForPickup)
+        .collect::<Vec<_>>();
+    let override_reason = body.override_reason.as_deref().map(str::trim).unwrap_or("");
+    if !unready_lines.is_empty() && !body.override_readiness {
+        let examples = unready_lines
+            .iter()
+            .take(3)
+            .map(|line| {
+                format!(
+                    "{} ({}, {})",
+                    line.product_name,
+                    line.sku,
+                    line.order_lifecycle_status.as_str()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(TransactionError::InvalidPayload(format!(
+            "Shipping blocked: {count} item(s) are not Ready for Pickup/Shipping. {examples}. Mark items ready first, or use an explicit readiness override with a reason.",
+            count = unready_lines.len()
+        )));
+    }
+    if !unready_lines.is_empty() && override_reason.len() < 12 {
+        return Err(TransactionError::InvalidPayload(
+            "Shipping readiness override requires a clear reason.".to_string(),
+        ));
+    }
+
+    let (amount_paid, already_released_value, selected_ship_value, remaining_open_value): (
+        Decimal,
+        Decimal,
+        Decimal,
+        Decimal,
+    ) = sqlx::query_as(
+        r#"
+        WITH line_values AS (
+            SELECT
+                oi.id,
+                oi.is_fulfilled,
+                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)
+                  * (COALESCE(oi.unit_price, 0) + COALESCE(oi.state_tax, 0) + COALESCE(oi.local_tax, 0)) AS line_total
+            FROM transaction_lines oi
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE oi.transaction_id = $1
+              AND COALESCE(oi.is_internal, false) = FALSE
+        )
+        SELECT
+            COALESCE(MAX(o.amount_paid), 0)::numeric(14,2) AS amount_paid,
+            COALESCE(SUM(line_total) FILTER (WHERE line_values.is_fulfilled), 0)::numeric(14,2) AS already_released_value,
+            COALESCE(SUM(line_total) FILTER (
+                WHERE line_values.is_fulfilled = false
+                  AND ($2::boolean OR line_values.id = ANY($3))
+            ), 0)::numeric(14,2) AS selected_ship_value,
+            COALESCE(SUM(line_total) FILTER (
+                WHERE line_values.is_fulfilled = false
+                  AND NOT ($2::boolean OR line_values.id = ANY($3))
+            ), 0)::numeric(14,2) AS remaining_open_value
+        FROM transactions o
+        LEFT JOIN line_values ON TRUE
+        WHERE o.id = $1
+        GROUP BY o.id
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(body.shipped_item_ids.is_empty())
+    .bind(&body.shipped_item_ids)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let required_after_ship = already_released_value + selected_ship_value;
+    if amount_paid < required_after_ship {
+        let shortage = required_after_ship - amount_paid;
+        return Err(TransactionError::InvalidPayload(format!(
+            "Shipping blocked: selected item value exceeds payments by ${shortage}. Collect payment before release."
+        )));
+    }
+
+    let remaining_deposit_required = (remaining_open_value * Decimal::new(50, 2)).round_dp(2);
+    let remaining_paid_credit = amount_paid - required_after_ship;
+    if remaining_open_value > Decimal::ZERO && remaining_paid_credit < remaining_deposit_required {
+        let shortage = remaining_deposit_required - remaining_paid_credit;
+        return Err(TransactionError::InvalidPayload(format!(
+            "Shipping blocked: remaining open items need at least a 50% deposit after this shipment. Collect ${shortage} more before release."
+        )));
+    }
+
+    let insufficient_stock_lines = ship_guard_lines
+        .iter()
+        .filter(|line| line.stock_on_hand < line.quantity)
+        .collect::<Vec<_>>();
+    let inventory_shortage_details = insufficient_stock_lines
+        .iter()
+        .map(|line| {
+            json!({
+                "sku": line.sku,
+                "product_name": line.product_name,
+                "quantity": line.quantity,
+                "stock_on_hand_before_ship": line.stock_on_hand,
+            })
+        })
+        .collect::<Vec<_>>();
+    let has_inventory_shortage = !inventory_shortage_details.is_empty();
+    let inventory_shortage_alert = if insufficient_stock_lines.is_empty() {
+        None
+    } else {
+        let examples = insufficient_stock_lines
+            .iter()
+            .take(3)
+            .map(|line| {
+                format!(
+                    "{} ({}): need {}, had {}",
+                    line.product_name, line.sku, line.quantity, line.stock_on_hand
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        Some(format!(
+            "Inventory Reconciliation Over-Allocation: shipping completed with insufficient stock on {count} item(s). {examples}",
+            count = insufficient_stock_lines.len()
+        ))
+    };
+
+    let shipped_ids: Vec<Uuid> = if body.shipped_item_ids.is_empty() {
+        sqlx::query_scalar(
+            r#"
+            WITH target AS (
+                SELECT id
+                FROM transaction_lines
+                WHERE transaction_id = $1
+                  AND is_fulfilled = FALSE
+                FOR UPDATE
+            ),
+            claimed AS (
+                UPDATE transaction_lines oi
+                SET
+                    is_fulfilled = TRUE,
+                    fulfilled_at = COALESCE(oi.fulfilled_at, CURRENT_TIMESTAMP),
+                    shipped_at = COALESCE(oi.shipped_at, CURRENT_TIMESTAMP),
+                    shipped_by = COALESCE(oi.shipped_by, $2),
+                    shipment_id = COALESCE(oi.shipment_id, $3)
+                FROM target
+                WHERE oi.id = target.id
+                RETURNING oi.id
+            )
+            SELECT id FROM claimed
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(actor_staff_id)
+        .bind(body.shipment_id)
+        .fetch_all(&mut *tx)
+        .await?
+    } else {
+        sqlx::query_scalar(
+            r#"
+            WITH target AS (
+                SELECT id
+                FROM transaction_lines
+                WHERE transaction_id = $1
+                  AND id = ANY($2)
+                  AND is_fulfilled = FALSE
+                FOR UPDATE
+            ),
+            claimed AS (
+                UPDATE transaction_lines oi
+                SET
+                    is_fulfilled = TRUE,
+                    fulfilled_at = COALESCE(oi.fulfilled_at, CURRENT_TIMESTAMP),
+                    shipped_at = COALESCE(oi.shipped_at, CURRENT_TIMESTAMP),
+                    shipped_by = COALESCE(oi.shipped_by, $3),
+                    shipment_id = COALESCE(oi.shipment_id, $4)
+                FROM target
+                WHERE oi.id = target.id
+                RETURNING oi.id
+            )
+            SELECT id FROM claimed
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(&body.shipped_item_ids)
+        .bind(actor_staff_id)
+        .bind(body.shipment_id)
+        .fetch_all(&mut *tx)
+        .await?
+    };
+
+    let remaining_unfulfilled: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM transaction_lines oi
+        LEFT JOIN (
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ) orl ON orl.transaction_line_id = oi.id
+        WHERE oi.transaction_id = $1
+          AND oi.is_fulfilled = FALSE
+          AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if remaining_unfulfilled == 0 {
+        sqlx::query(
+            "UPDATE transactions SET status = 'fulfilled'::order_status, fulfillment_method = 'ship'::order_fulfillment_method, fulfilled_at = COALESCE(fulfilled_at, CURRENT_TIMESTAMP), tracking_number = COALESCE($2, tracking_number) WHERE id = $1",
+        )
+        .bind(transaction_id)
+        .bind(body.tracking_number.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query(
+            "UPDATE transactions SET fulfillment_method = 'ship'::order_fulfillment_method, tracking_number = COALESCE($2, tracking_number) WHERE id = $1",
+        )
+        .bind(transaction_id)
+        .bind(body.tracking_number.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if let Some(shipment_id) = body.shipment_id {
+        sqlx::query(
+            "UPDATE shipment SET status = 'in_transit'::shipment_status, tracking_number = COALESCE($2, tracking_number), updated_at = NOW() WHERE id = $1",
+        )
+        .bind(shipment_id)
+        .bind(body.tracking_number.as_deref().map(str::trim).filter(|v| !v.is_empty()))
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO shipment_event (shipment_id, kind, message, metadata, staff_id)
+            VALUES ($1, 'in_transit', $2, $3, $4)
+            "#,
+        )
+        .bind(shipment_id)
+        .bind("Selected transaction lines released for shipping from Register.")
+        .bind(json!({
+            "transaction_id": transaction_id,
+            "shipped_item_count": shipped_ids.len(),
+            "tracking_number": body.tracking_number.as_deref().map(str::trim).filter(|v| !v.is_empty()),
+        }))
+        .bind(actor_staff_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if !shipped_ids.is_empty() {
+        crate::logic::commission_recalc::recalc_transaction_commissions_after_fulfillment(
+            &mut tx,
+            transaction_id,
+            &shipped_ids,
+        )
+        .await?;
+        crate::logic::commission_events::upsert_fulfilled_transaction_events(
+            &mut tx,
+            transaction_id,
+            &shipped_ids,
+        )
+        .await?;
+    }
+
+    if !shipped_ids.is_empty() {
+        let ship_stock_movements: Vec<(Uuid, i32)> = sqlx::query_as(
+            r#"
+            WITH movement AS (
+                SELECT
+                    oi.variant_id,
+                    SUM(oi.quantity)::int AS qty,
+                    SUM(CASE WHEN oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END)::int AS qty_reserved,
+                    SUM(CASE WHEN oi.fulfillment::text = 'layaway' THEN oi.quantity ELSE 0 END)::int AS qty_layaway
+                FROM transaction_lines oi
+                WHERE oi.transaction_id = $1
+                  AND oi.id = ANY($2)
+                  AND oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order', 'layaway')
+                GROUP BY oi.variant_id
+            ),
+            locked AS (
+                SELECT pv.id, movement.qty, movement.qty_reserved, movement.qty_layaway
+                FROM product_variants pv
+                JOIN movement ON movement.variant_id = pv.id
+                FOR UPDATE OF pv
+            ),
+            updated AS (
+                UPDATE product_variants pv
+                SET
+                    stock_on_hand  = pv.stock_on_hand - locked.qty,
+                    reserved_stock = GREATEST(pv.reserved_stock - locked.qty_reserved, 0),
+                    on_layaway     = GREATEST(pv.on_layaway     - locked.qty_layaway, 0)
+                FROM locked
+                WHERE pv.id = locked.id
+                RETURNING pv.id, locked.qty
+            )
+            SELECT id, qty FROM updated
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(&shipped_ids)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for (variant_id, qty) in ship_stock_movements {
+            if qty <= 0 {
+                continue;
+            }
+            sqlx::query(
+                r#"
+                INSERT INTO inventory_transactions (
+                    variant_id, tx_type, quantity_delta, reference_table, reference_id, notes
+                )
+                VALUES ($1, 'sale', $2, 'transactions', $3, $4)
+                "#,
+            )
+            .bind(variant_id)
+            .bind(-qty)
+            .bind(transaction_id)
+            .bind(format!(
+                "Shipping fulfillment stock decrement for transaction {transaction_id}"
+            ))
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
+        .await
+        .map_err(TransactionError::Database)?;
+
+    let status_after: DbOrderStatus =
+        sqlx::query_scalar("SELECT status FROM transactions WHERE id = $1")
+            .bind(transaction_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    tx.commit().await?;
+
+    spawn_meilisearch_transaction_upsert(&state, transaction_id);
+
+    if status_after == DbOrderStatus::Fulfilled {
+        let pool = state.db.clone();
+        let oid = transaction_id;
+        let label = {
+            let s = oid.to_string();
+            s.chars().take(8).collect::<String>()
+        };
+        tokio::spawn(async move {
+            if let Err(e) =
+                crate::logic::notifications::emit_order_fully_fulfilled(&pool, oid, &label).await
+            {
+                tracing::error!(error = %e, "emit_order_fully_fulfilled");
+            }
+        });
+    }
+
+    let customer_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
+            .bind(transaction_id)
+            .fetch_optional(&state.db)
+            .await?
+            .flatten();
+    let who = body.actor.unwrap_or_else(|| "Register".to_string());
+    log_order_activity(
+        &state.db,
+        transaction_id,
+        customer_id,
+        "shipping",
+        &format!("Shipping release completed in Register by {}", who.trim()),
+        json!({
+            "shipped_item_count": shipped_ids.len(),
+            "requested_shipped_item_count": body.shipped_item_ids.len(),
+            "shipment_id": body.shipment_id,
+            "tracking_number": body.tracking_number.as_deref().map(str::trim).filter(|v| !v.is_empty()),
+            "readiness_override": body.override_readiness,
+            "override_reason": if body.override_readiness { Some(override_reason) } else { None::<&str> },
+            "inventory_shortage_warning": has_inventory_shortage,
+            "inventory_shortage_lines": inventory_shortage_details,
+        }),
+    )
+    .await?;
+
+    if let Some(alert_msg) = inventory_shortage_alert {
+        if let Err(e) =
+            crate::logic::notifications::broadcast_system_alert(&state.db, &alert_msg).await
+        {
+            tracing::error!(error = %e, "Failed to broadcast system alert for shipping negative stock");
+        }
+    }
+
+    if let Err(e) = loyalty_logic::try_accrue_for_order(&state.db, transaction_id).await {
+        tracing::error!(error = %e, transaction_id = %transaction_id, "loyalty accrual failed after shipping");
+    }
+
+    Ok(Json(json!({
+        "status": "ok",
+        "warnings": if has_inventory_shortage {
+            vec!["Shipping completed with insufficient inventory; negative stock alert recorded.".to_string()]
+        } else {
+            Vec::<String>::new()
+        }
+    })))
+}
+
 async fn get_transaction_audit(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,
@@ -3261,17 +3907,13 @@ async fn post_transaction_void(
         ));
     }
 
-    let manager =
-        pins::authenticate_staff_by_id(&state.db, body.manager_staff_id, Some(&body.manager_pin))
-            .await
-            .map_err(|_| {
-                TransactionError::InvalidPayload("Manager Access was not approved".to_string())
-            })?;
-    if manager.role != crate::models::DbStaffRole::Admin {
-        return Err(TransactionError::Forbidden(
-            "Manager Access required to void a completed transaction".to_string(),
-        ));
-    }
+    let manager = authenticate_manager_approval(
+        &state,
+        body.manager_staff_id,
+        &body.manager_pin,
+        "Manager Access approval permission required to void a completed transaction",
+    )
+    .await?;
 
     let mut tx = state.db.begin().await?;
     type VoidTransactionHeader = (
@@ -4034,21 +4676,13 @@ async fn process_refund(
             // Check if this is a governed manual legacy refund override.
             if let (Some(m_id), Some(m_pin)) = (body.manager_staff_id, body.manager_pin.as_deref())
             {
-                let manager =
-                    crate::auth::pins::authenticate_staff_by_id(&state.db, m_id, Some(m_pin))
-                        .await
-                        .map_err(|_| {
-                            TransactionError::InvalidPayload(
-                                "Manager Access was not approved".to_string(),
-                            )
-                        })?;
-
-                // The current role model has no Manager role; Admin is the manager-equivalent step-up.
-                if manager.role != crate::models::DbStaffRole::Admin {
-                    return Err(TransactionError::Forbidden(
-                        "Manager Access required for legacy manual refund".to_string(),
-                    ));
-                }
+                let manager = authenticate_manager_approval(
+                    &state,
+                    m_id,
+                    m_pin,
+                    "Manager Access approval permission required for legacy manual refund",
+                )
+                .await?;
 
                 let reason = body
                     .manager_reason
@@ -5796,6 +6430,7 @@ pub(crate) async fn load_transaction_detail(
         r#"
         SELECT
             oi.id AS transaction_line_id,
+            COALESCE(oi.booked_at, o.booked_at) AS booked_at,
             oi.product_id,
             oi.variant_id,
             COALESCE(
@@ -5865,8 +6500,11 @@ pub(crate) async fn load_transaction_detail(
             oi.received_at,
             oi.ready_for_pickup_at,
             oi.picked_up_at,
+            oi.shipped_at,
+            oi.shipment_id,
             oi.fulfilled_at
         FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN products p ON p.id = oi.product_id
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
         LEFT JOIN staff sp ON sp.id = oi.salesperson_id
@@ -6008,6 +6646,7 @@ pub(crate) async fn load_transaction_detail(
         .into_iter()
         .map(|r| TransactionDetailItem {
             transaction_line_id: r.transaction_line_id,
+            booked_at: r.booked_at,
             product_id: r.product_id,
             variant_id: r.variant_id,
             sku: r.sku,
@@ -6042,6 +6681,8 @@ pub(crate) async fn load_transaction_detail(
             received_at: r.received_at,
             ready_for_pickup_at: r.ready_for_pickup_at,
             picked_up_at: r.picked_up_at,
+            shipped_at: r.shipped_at,
+            shipment_id: r.shipment_id,
             fulfilled_at: r.fulfilled_at,
         })
         .collect();
@@ -6606,9 +7247,9 @@ async fn add_transaction_line(
         r#"
         INSERT INTO transaction_lines (
             transaction_id, product_id, variant_id, fulfillment, quantity,
-            unit_price, unit_cost, state_tax, local_tax, is_fulfilled, salesperson_id
+            unit_price, unit_cost, state_tax, local_tax, is_fulfilled, salesperson_id, booked_at
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CURRENT_TIMESTAMP)
         RETURNING id
         "#,
     )
@@ -7216,18 +7857,18 @@ async fn patch_transaction_attribution(
     Path(transaction_id): Path<Uuid>,
     Json(body): Json<PatchTransactionAttributionRequest>,
 ) -> Result<Json<serde_json::Value>, TransactionError> {
-    let code = body.manager_cashier_code.trim();
-    if code.is_empty() {
+    let pin = body.manager_pin.trim();
+    if pin.is_empty() {
         return Err(TransactionError::InvalidPayload(
-            "manager_cashier_code is required".to_string(),
+            "manager_pin is required".to_string(),
         ));
     }
 
-    let admin = pins::authenticate_pos_staff(&state.db, code, body.manager_pin.as_deref())
+    let admin = pins::authenticate_staff_by_id(&state.db, body.manager_staff_id, Some(pin))
         .await
         .map_err(|_| {
             TransactionError::Unauthorized(
-                "valid manager cashier code and PIN required".to_string(),
+                "valid Manager Access staff and PIN required".to_string(),
             )
         })?;
     let eff =
@@ -7236,7 +7877,12 @@ async fn patch_transaction_attribution(
             .map_err(TransactionError::Database)?;
     if !staff_has_permission(&eff, ORDERS_EDIT_ATTRIBUTION) {
         return Err(TransactionError::Forbidden(
-            "transactions.edit_attribution permission required".to_string(),
+            "orders.edit_attribution permission required".to_string(),
+        ));
+    }
+    if !staff_has_permission(&eff, MANAGER_APPROVAL) {
+        return Err(TransactionError::Forbidden(
+            "manager.approval permission required".to_string(),
         ));
     }
     let corrector_id = admin.id;

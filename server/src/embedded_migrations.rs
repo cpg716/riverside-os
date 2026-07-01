@@ -97,4 +97,7 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("094_counterpoint_closed_ticket_balance_presentation.sql", include_str!("../../migrations/094_counterpoint_closed_ticket_balance_presentation.sql")),
     ("095_register_session_station_tokens.sql", include_str!("../../migrations/095_register_session_station_tokens.sql")),
     ("096_counterpoint_category_tax_defaults.sql", include_str!("../../migrations/096_counterpoint_category_tax_defaults.sql")),
+    ("097_manager_approval_permission.sql", include_str!("../../migrations/097_manager_approval_permission.sql")),
+    ("098_transaction_line_booked_at.sql", include_str!("../../migrations/098_transaction_line_booked_at.sql")),
+    ("099_transaction_line_shipping_release.sql", include_str!("../../migrations/099_transaction_line_shipping_release.sql")),
 ];

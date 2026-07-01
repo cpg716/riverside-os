@@ -4,6 +4,9 @@ use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::auth::permissions::{
+    effective_permissions_for_staff, staff_has_permission, MANAGER_APPROVAL,
+};
 use crate::models::DbStaffRole;
 
 pub async fn max_discount_percent_for_staff(
@@ -32,15 +35,16 @@ pub async fn max_discount_percent_for_staff(
     Ok(pct)
 }
 pub async fn is_admin_or_manager(pool: &PgPool, staff_id: Uuid) -> Result<bool, sqlx::Error> {
-    let role: Option<DbStaffRole> =
-        sqlx::query_scalar("SELECT role FROM staff WHERE id = $1 AND is_active = TRUE")
+    let row: Option<(DbStaffRole,)> =
+        sqlx::query_as("SELECT role FROM staff WHERE id = $1 AND is_active = TRUE")
             .bind(staff_id)
             .fetch_optional(pool)
             .await?;
 
-    let Some(r) = role else {
+    let Some((role,)) = row else {
         return Ok(false);
     };
 
-    Ok(r == DbStaffRole::Admin)
+    let effective = effective_permissions_for_staff(pool, staff_id, role).await?;
+    Ok(staff_has_permission(&effective, MANAGER_APPROVAL))
 }

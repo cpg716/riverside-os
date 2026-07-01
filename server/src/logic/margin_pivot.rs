@@ -11,7 +11,7 @@ use sqlx::{FromRow, PgPool};
 use thiserror::Error;
 use uuid::Uuid;
 
-use super::report_basis::{order_date_filter_sql, ReportBasis, ORDER_RECOGNITION_TS_SQL};
+use super::report_basis::{ReportBasis, ORDER_RECOGNITION_TS_SQL};
 
 #[derive(Debug, Error)]
 pub enum MarginPivotError {
@@ -69,12 +69,13 @@ pub async fn run_margin_pivot(
             AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
             AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
     "#;
+    let booked_line_date_filter = "o.status::text NOT IN ('cancelled') AND COALESCE(o.business_date, (COALESCE(oi.booked_at, o.booked_at) AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date AND COALESCE(o.business_date, (COALESCE(oi.booked_at, o.booked_at) AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date";
 
     if gb == "customer" {
         let date_filter = if completed {
             completed_store_local_filter.clone()
         } else {
-            order_date_filter_sql(ReportBasis::Booked)
+            booked_line_date_filter.to_string()
         };
         let sql = format!(
             r#"
@@ -141,7 +142,7 @@ pub async fn run_margin_pivot(
     let date_filter = if completed {
         completed_store_local_filter
     } else {
-        order_date_filter_sql(ReportBasis::Booked)
+        booked_line_date_filter.to_string()
     };
 
     let sql = if gb == "date" {
@@ -151,7 +152,7 @@ pub async fn run_margin_pivot(
                 ts = ORDER_RECOGNITION_TS_SQL.trim()
             )
         } else {
-            "(o.booked_at AT TIME ZONE 'UTC')::date".to_string()
+            "(COALESCE(oi.booked_at, o.booked_at) AT TIME ZONE reporting.effective_store_timezone())::date".to_string()
         };
         let session_day_key = if completed {
             "(rs.opened_at AT TIME ZONE reporting.effective_store_timezone())::date"

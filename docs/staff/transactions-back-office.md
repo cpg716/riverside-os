@@ -59,7 +59,7 @@
 2. Set **date range** first to avoid huge lists.
 3. Search **Transaction Record #**, **receipt**, **customer name**, **SKU**, or **fulfillment order #** if fields exist.
 4. Open Transaction Record → **receipt** copy, **audit** timeline, or reprint per policy.
-5. **Correct salesperson/attribution**: Click the **Correct** link next to **Primary Salesperson** in the transaction detail panel to correct the salesperson attribution. To prevent commission errors or unauthorized modifications, this action requires manager PIN authorization (unless signed in with an Admin role).
+5. **Correct salesperson/attribution**: Click the **Correct** link next to **Primary Salesperson** in the transaction detail panel to correct the salesperson attribution. To prevent commission errors or unauthorized modifications, this action requires Manager Access with a staff approver and Access PIN unless the signed-in staff member already has the required approval permission.
 
 ## Returns, refunds, exchanges
 
@@ -68,7 +68,9 @@
 
 ## Till / POS coordination
 
-POS may read the same Transaction Record through the register. Staff can add an item to the original Transaction Record, correct an unfulfilled line, or collect an existing balance without starting a separate sale. Adding or saving a line refreshes the original booked total for that Transaction Record. Payments taken later stay attached to the original Transaction Record but keep their own payment movement date for QBO review.
+POS may read the same Transaction Record through the register. Staff can add an item to the original Transaction Record, correct an unfulfilled line, collect an existing balance, pick up or ship selected lines, or cancel the order without starting a separate sale. New items stay on the same Transaction Record but get their own booked date when added, so booked sales count on the item-added day. Payments taken later stay attached to the original Transaction Record but keep their own payment movement date for QBO review.
+
+For partial pickup or shipping, select only the lines being released. ROS blocks release when payments do not cover the selected merchandise or when the remaining open items would fall below the required 50% deposit. Shipping releases record shipped-line timestamps and shipment audit events when the Transaction Record is linked to a shipment.
 
 If **Back Office** and **POS** disagree, **refresh** both; if persistent, note the transaction number and time for IT.
 

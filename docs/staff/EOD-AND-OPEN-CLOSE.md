@@ -26,7 +26,7 @@
 
 - **Sales:** [pos-register-cart.md](pos-register-cart.md).
 - **Lookup / add from browse:** [pos-inventory.md](pos-inventory.md).
-- **Overrides:** manager PIN when over cap — see [staff-administration.md](staff-administration.md) (**Discount caps**).
+- **Overrides:** Manager Access with a staff approver and Access PIN when over cap — see [staff-administration.md](staff-administration.md) (**Discount caps**).
 - **Stuck errors:** [ERROR-AND-TOAST-GUIDE.md](ERROR-AND-TOAST-GUIDE.md).
 
 ---
