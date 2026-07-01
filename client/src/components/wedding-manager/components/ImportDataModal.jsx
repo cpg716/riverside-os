@@ -218,10 +218,15 @@ const ImportDataModal = ({ isOpen, onClose, onImport }) => {
                 // --- INSTRUCTION / INFO ROW DETECTION ---
                 // Check if the row is actually an instruction or note
                 const nameUpper = name ? name.toString().toUpperCase() : '';
-                const instructionKeywords = ['COLOR', 'SUIT', 'VEST', 'TIE', 'POCKET', 'BELT', 'SUSPENDER', 'NOTE', 'IMPORTANT', 'DIRECTIONS', 'PRICE', 'STYLE', 'OPTIONAL'];
+                const instructionKeywords = ['COLOR', 'SUIT', 'VEST', 'TIE', 'POCKET', 'BELT', 'SUSPENDER', 'NOTE', 'IMPORTANT', 'DIRECTIONS', 'PRICE', 'STYLE', 'OPTIONAL', 'GROOM'];
 
                 let isInfoRow = false;
-                if (instructionKeywords.some(kw => nameUpper.startsWith(kw)) || nameUpper.includes("OPTIONS") || nameUpper.includes("ONLY")) {
+                if (
+                    instructionKeywords.some(kw => nameUpper.startsWith(kw)) ||
+                    nameUpper.includes("OPTIONS") ||
+                    nameUpper.includes("ONLY") ||
+                    (!phone && /^\s*\(.+\)\s*$/.test(nameUpper))
+                ) {
                     isInfoRow = true;
                 }
 
@@ -229,6 +234,10 @@ const ImportDataModal = ({ isOpen, onClose, onImport }) => {
 
                 // Skip if no name (and wasn't metadata)
                 if (!name) continue;
+                if (isInfoRow) {
+                    currentParty.notes = [currentParty.notes, `Worksheet note: ${name}`].filter(Boolean).join('\n');
+                    continue;
+                }
 
                 // OOT Detection
                 let isOOT = false;
@@ -260,10 +269,7 @@ const ImportDataModal = ({ isOpen, onClose, onImport }) => {
 
                 // Role detection
                 let role = 'Groomsman';
-                if (isInfoRow) {
-                    role = 'Info'; // Special role for instruction rows
-                    cleanName = name; // Keep full text for info rows
-                } else if (i === 5) {
+                if (i === 5) {
                     role = 'Groom'; // First member is Groom
                 } else if (typeof name === 'string') {
                     if (name.toUpperCase().includes('FATHER')) role = 'Father';
@@ -284,14 +290,7 @@ const ImportDataModal = ({ isOpen, onClose, onImport }) => {
                 // Col 6 is "P/ U" ?
                 const shoe = row[7];
 
-                const dateReceived = row[8];
-                const fitting = row[9];
-                const pickup = row[10];
-
                 const measured = !!(suit || waist || vest || shirt);
-                const received = !!dateReceived;
-                const isFitted = !!fitting; // Checkmark or value
-                const isPickedUp = !!pickup;
 
                 currentParty.members.push({
                     id: currentParty.members.length + 1,
@@ -304,10 +303,10 @@ const ImportDataModal = ({ isOpen, onClose, onImport }) => {
                     shirt: shirt || '',
                     shoe: shoe || '',
                     measured: measured,
-                    ordered: received, // Assumption
-                    received: received,
-                    fitting: isFitted,
-                    pickup: isPickedUp,
+                    ordered: false,
+                    received: false,
+                    fitting: false,
+                    pickup: false,
                     contactHistory: [],
                     oot: isOOT
                 });

@@ -79,6 +79,8 @@ If ROS starts while weddings are already in progress, managers should use **Cuto
 
 Plain rule: **do not retype money into Wedding Manager.** Counterpoint-synced Transaction Records carry the paid amount, balance, and line items. Staff only confirm which party/member owns each imported sale or fulfillment line and where each item currently stands.
 
+Imported worksheet rows that are instructions, notes, or suit/color comments are kept as party notes. They should not create party members. Worksheet status cells from paper workflows, such as received/fitted/picked-up markings, do not automatically mark ROS member workflow steps complete; use **Cutover Review** to confirm those states after the import. When a worksheet row has a phone number, ROS matches existing customers with normalized phone formats before creating a new customer record.
+
 Recommended review order:
 
 1. Confirm the party and member list imported correctly.

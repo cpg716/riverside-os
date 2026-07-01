@@ -297,6 +297,32 @@ function parseLegacyName(name = "") {
   return { first_name, last_name };
 }
 
+function importSizingPatch(member = {}) {
+  const patch = {};
+  for (const key of ["suit", "waist", "vest", "shirt", "shoe"]) {
+    const value = String(member[key] ?? "").trim();
+    if (value) patch[key] = value;
+  }
+  return patch;
+}
+
+function hasImportSizing(member = {}) {
+  return Object.keys(importSizingPatch(member)).length > 0;
+}
+
+function memberNameKey(value = "") {
+  return String(value).trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function findImportedGroomMember(party, groom) {
+  const members = Array.isArray(party?.members) ? party.members : [];
+  const groomKey = memberNameKey(groom?.name);
+  return (
+    members.find((m) => String(m.role || "").toLowerCase() === "groom" && memberNameKey(m.name) === groomKey) ||
+    members.find((m) => String(m.role || "").toLowerCase() === "groom")
+  );
+}
+
 function normalizeStaffRows(rows, roleFilter = null) {
   const seen = new Set();
   return (Array.isArray(rows) ? rows : [])
@@ -414,6 +440,7 @@ export const api = {
         groom_name,
         event_date: p.date || p.event_date,
         salesperson: p.salesperson || null,
+        sign_up_date: p.signUpDate || p.sign_up_date || null,
         notes: p.notes || null,
         party_type: p.type || p.party_type || "Wedding",
         style_info: p.styleInfo || null,
@@ -432,13 +459,22 @@ export const api = {
         throw new Error("Create party response missing id");
       }
       const members = Array.isArray(p.members) ? p.members : [];
+      const importedGroom = members.find((m) => String(m.role || "").toLowerCase() === "groom");
+      if (importedGroom && hasImportSizing(importedGroom)) {
+        const createdParty = await api.getParty(partyId);
+        const groomMember = findImportedGroomMember(createdParty, importedGroom);
+        if (groomMember?.id) {
+          await api.updateMember(groomMember.id, importSizingPatch(importedGroom));
+        }
+      }
       for (const m of members) {
-        if (String(m.role || "").toLowerCase() === "groom") continue;
+        const role = String(m.role || "").toLowerCase();
+        if (role === "groom" || role === "info") continue;
         const name = parseLegacyName(m.name);
         
         // Pass import tracking info so server can try to match existing customers
         // If no match found, customer_verified will be false (needs linking)
-        await wmJson("POST", `${API_URL}/weddings/parties/${partyId}/members`, {
+        const createdMember = await wmJson("POST", `${API_URL}/weddings/parties/${partyId}/members`, {
           body: {
             first_name: name.first_name,
             last_name: name.last_name,
@@ -451,6 +487,10 @@ export const api = {
             import_customer_phone: m.phone || null,
           },
         });
+        const memberId = createdMember?.id || createdMember?.wedding_member_id;
+        if (memberId && hasImportSizing(m)) {
+          await api.updateMember(memberId, importSizingPatch(m));
+        }
       }
       created.push(createdBody);
     }

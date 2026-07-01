@@ -16,7 +16,7 @@ use futures_core::stream::Stream;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::{QueryBuilder, Row};
+use sqlx::{PgPool, QueryBuilder, Row};
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
@@ -89,6 +89,67 @@ fn spawn_meilisearch_appointment_upsert(state: &AppState, appt_id: Uuid) {
     crate::logic::meilisearch_sync::spawn_meili(async move {
         crate::logic::meilisearch_sync::upsert_appointment_document(&client, &pool, appt_id).await;
     });
+}
+
+async fn get_or_create_wedding_import_customer(
+    pool: &PgPool,
+    first: &str,
+    last: &str,
+    phone: Option<&str>,
+) -> Result<(Uuid, bool), sqlx::Error> {
+    let phone = phone.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(phone) = phone {
+        let phone_digits = digits_only(phone);
+        if let Some(existing_id) = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT id
+            FROM customers
+            WHERE phone = $1
+               OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') = $2
+               OR (
+                    LENGTH($2) = 10
+                    AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = $2
+               )
+               OR (
+                    LENGTH($2) = 7
+                    AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 7) = $2
+               )
+               OR (
+                    LENGTH($2) = 7
+                    AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = CONCAT('716', $2)
+               )
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(phone)
+        .bind(&phone_digits)
+        .fetch_optional(pool)
+        .await?
+        {
+            return Ok((existing_id, true));
+        }
+    }
+
+    let customer_id = Uuid::new_v4();
+    let inserted_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO customers (
+            id, first_name, last_name, phone, customer_code, customer_created_source, created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, 'wedding_import', NOW())
+        RETURNING id
+        "#,
+    )
+    .bind(customer_id)
+    .bind(first)
+    .bind(last)
+    .bind(phone)
+    .bind(format!("Wedding-{}", &customer_id.to_string()[..8]))
+    .fetch_one(pool)
+    .await?;
+
+    Ok((inserted_id, false))
 }
 
 pub use crate::logic::wedding_api_types::{
@@ -992,8 +1053,7 @@ async fn insert_party_and_respond(
         }
         Some(gcid)
     } else if !gp.is_empty() || !groom.is_empty() {
-        // Create/update groom customer by phone or name
-        let customer_id = Uuid::new_v4();
+        // Create or reuse an imported groom customer by normalized phone.
         let first = groom.split_whitespace().next().unwrap_or(groom);
         let last = groom
             .split_whitespace()
@@ -1007,21 +1067,8 @@ async fn insert_party_and_respond(
         };
         let _phone_clean = gpc.clone();
 
-        let cid: Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO customers (id, first_name, last_name, phone, customer_code, created_source, created_at)
-            VALUES ($1, $2, $3, $4, $5, 'wedding_import', NOW())
-            ON CONFLICT (phone) WHERE phone IS NOT NULL DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name
-            RETURNING id
-            "#,
-        )
-        .bind(customer_id)
-        .bind(first)
-        .bind(&last)
-        .bind(gp)
-        .bind(format!("Wedding-{}", &customer_id.to_string()[..8]))
-        .fetch_one(&state.db)
-        .await?;
+        let (cid, _) =
+            get_or_create_wedding_import_customer(&state.db, first, &last, Some(gp)).await?;
         Some(cid)
     } else {
         None
@@ -1045,8 +1092,7 @@ async fn insert_party_and_respond(
             .map(|s| !s.is_empty())
             .unwrap_or(false)
     {
-        // Create/update bride customer by phone or name
-        let customer_id = Uuid::new_v4();
+        // Create or reuse an imported bride customer by normalized phone.
         let bride_name = body.bride_name.as_deref().unwrap_or("").trim();
         let first = bride_name.split_whitespace().next().unwrap_or("Bride");
         let last = bride_name
@@ -1060,21 +1106,8 @@ async fn insert_party_and_respond(
             last
         };
 
-        let cid: Uuid = sqlx::query_scalar(
-            r#"
-            INSERT INTO customers (id, first_name, last_name, phone, customer_code, created_source, created_at)
-            VALUES ($1, $2, $3, $4, $5, 'wedding_import', NOW())
-            ON CONFLICT (phone) WHERE phone IS NOT NULL DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name
-            RETURNING id
-            "#,
-        )
-        .bind(customer_id)
-        .bind(first)
-        .bind(&last)
-        .bind(bp)
-        .bind(format!("Wedding-{}", &customer_id.to_string()[..8]))
-        .fetch_one(&state.db)
-        .await?;
+        let (cid, _) =
+            get_or_create_wedding_import_customer(&state.db, first, &last, Some(bp)).await?;
         Some(cid)
     } else {
         None
@@ -1496,46 +1529,9 @@ async fn add_member(
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(ToOwned::to_owned);
-            let customer_id = Uuid::new_v4();
-
-            // Try to find existing customer by phone
-            let existing_by_phone: Option<Uuid> = if let Some(ref p) = phone {
-                sqlx::query_scalar("SELECT id FROM customers WHERE phone = $1")
-                    .bind(p)
-                    .fetch_optional(&state.db)
-                    .await
-                    .ok()
-                    .flatten()
-            } else {
-                None
-            };
-
-            let (cid, _is_verified) = if let Some(existing_id) = existing_by_phone {
-                // Found existing customer by phone - this is a verified match
-                (existing_id, true)
-            } else {
-                // Create new customer
-                let new_id: Uuid = match sqlx::query_scalar(
-                    r#"
-                    INSERT INTO customers (id, first_name, last_name, phone, customer_code, created_source, created_at)
-                    VALUES ($1, $2, $3, $4, $5, 'wedding_import', NOW())
-                    ON CONFLICT (phone) WHERE phone IS NOT NULL DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name
-                    RETURNING id
-                    "#,
-                )
-                .bind(customer_id)
-                .bind(first)
-                .bind(last)
-                .bind(&phone)
-                .bind(format!("Wedding-{}", &customer_id.to_string()[..8]))
-                .fetch_one(&state.db)
-                .await
-                {
-                    Ok(id) => id,
-                    Err(e) => return Err(WeddingError::Database(e)),
-                };
-                (new_id, false) // New customers are not verified yet
-            };
+            let (cid, _is_verified) =
+                get_or_create_wedding_import_customer(&state.db, first, last, phone.as_deref())
+                    .await?;
 
             // Store import tracking info
             let import_name = import_customer_name.or_else(|| Some(format!("{first} {last}")));
