@@ -96,6 +96,14 @@ expected=(
   "090_counterpoint_import_run_kind_modes.sql"
   "091_counterpoint_2024_history_floor.sql"
   "092_counterpoint_live_tender_aliases.sql"
+  "093_counterpoint_square_tender_alias.sql"
+  "094_counterpoint_closed_ticket_balance_presentation.sql"
+  "095_register_session_station_tokens.sql"
+  "096_counterpoint_category_tax_defaults.sql"
+  "097_manager_approval_permission.sql"
+  "098_transaction_line_booked_at.sql"
+  "099_transaction_line_shipping_release.sql"
+  "100_allow_wedding_import_customer_source.sql"
 )
 
 active=()
@@ -147,6 +155,7 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
   --glob '!*042_seed_admin_account.sql' \
   --glob '!*049_constant_contact_permissions.sql' \
   --glob '!*089_restore_custom_order_catalog_skus.sql' \
+  --glob '!*097_manager_approval_permission.sql' \
   >/tmp/ros_migration_seed_hits.$$; then
   echo "Seed-like data is not allowed in active schema migrations:" >&2
   cat /tmp/ros_migration_seed_hits.$$ >&2
@@ -155,4 +164,4 @@ if rg -n "INSERT INTO (public\\.)?(staff\\b|staff_permission|store_settings|prod
 fi
 rm -f /tmp/ros_migration_seed_hits.$$
 
-echo "Migration layout OK: active baseline 001-092."
+echo "Migration layout OK: active baseline 001-100."

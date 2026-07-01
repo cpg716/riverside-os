@@ -13,12 +13,14 @@ function usage(exitCode = 0) {
   stream.write(`Wedding cutover import preview
 
 Usage:
-  node scripts/wedding-cutover-import-preview.mjs --file "/path/Wedding Parties 2026 .xlsx" [--out preview.json] [--match-db]
+  node scripts/wedding-cutover-import-preview.mjs --file "/path/Wedding Parties 2026 .xlsx" [--out preview.json] [--match-db] [--local-area-code 716]
 
 Options:
   --file <path>   Excel workbook to preview. Required.
   --out <path>    Write full JSON preview report.
   --match-db      Read-only customer matching using DATABASE_URL and psql.
+  --local-area-code <digits>
+                 Area code to try for 7-digit worksheet phones. Default: 716.
   --help          Show this help.
 
 This script never writes to the ROS database.
@@ -41,6 +43,7 @@ if (args.includes("--help") || args.includes("-h")) usage(0);
 const workbookPath = takeArg("--file");
 const outputPath = takeArg("--out");
 const shouldMatchDb = args.includes("--match-db");
+const localAreaCode = normalizePhoneDigits(takeArg("--local-area-code") ?? "716");
 
 if (!workbookPath) usage(1);
 
@@ -67,6 +70,14 @@ function phoneMatchKey(value) {
   if (digits.length >= 10) return digits.slice(-10);
   if (digits.length === 7) return digits;
   return digits;
+}
+
+function phoneMatchKeys(value) {
+  const digits = normalizePhoneDigits(value);
+  if (digits.length >= 10) return [digits.slice(-10)];
+  if (digits.length === 7 && localAreaCode.length === 3) return [digits, `${localAreaCode}${digits}`];
+  if (digits.length === 7) return [digits];
+  return digits ? [digits] : [];
 }
 
 function excelDateToIso(value) {
@@ -169,7 +180,7 @@ function parseWorksheet(worksheet) {
   const priceInfo = normalizeName(cellValue(worksheet, 3, 1));
   const accessories = {};
   const members = [];
-  const workflowSignals = [];
+  const ignoredStatusCells = [];
   const infoRows = [];
   let brideName = "";
   let brideEmail = "";
@@ -232,6 +243,7 @@ function parseWorksheet(worksheet) {
       phone,
       phone_digits: normalizePhoneDigits(phone),
       phone_match_key: phoneMatchKey(phone),
+      phone_match_keys: phoneMatchKeys(phone),
       role,
       flags,
       sizing: {
@@ -241,7 +253,7 @@ function parseWorksheet(worksheet) {
         shirt: normalizeName(values[5]),
         shoe: normalizeName(values[7]),
       },
-      spreadsheet_status: {
+      ignored_worksheet_status: {
         date_received: excelDateToIso(values[8]),
         fitting: normalizeName(values[9]),
         pickup: normalizeName(values[10]),
@@ -253,15 +265,16 @@ function parseWorksheet(worksheet) {
     else if (![7, 10, 11].includes(member.phone_digits.length)) {
       member.warnings.push("unusual_phone_length");
     }
-    if (member.spreadsheet_status.date_received) workflowSignals.push(`${cleanName}:date_received`);
-    if (member.spreadsheet_status.fitting) workflowSignals.push(`${cleanName}:fitting`);
-    if (member.spreadsheet_status.pickup) workflowSignals.push(`${cleanName}:pickup`);
+    if (member.ignored_worksheet_status.date_received) {
+      ignoredStatusCells.push(`${cleanName}:date_received`);
+    }
+    if (member.ignored_worksheet_status.fitting) ignoredStatusCells.push(`${cleanName}:fitting`);
+    if (member.ignored_worksheet_status.pickup) ignoredStatusCells.push(`${cleanName}:pickup`);
     members.push(member);
   }
 
   if (!brideName) warnings.push("missing_bride_name");
   if (!members.length) warnings.push("no_members");
-  if (workflowSignals.length) warnings.push("spreadsheet_workflow_cells_present_review_only");
 
   return {
     source_sheet: worksheet.name,
@@ -281,13 +294,13 @@ function parseWorksheet(worksheet) {
     accessories,
     notes: partyNotes,
     info_rows: infoRows,
-    workflow_signals: workflowSignals,
+    ignored_worksheet_status_cells: ignoredStatusCells,
     members,
     warnings,
     import_policy: {
       source: "wedding_excel_cutover_preview",
       cutover_review_status: "needs_review",
-      workflow_cells_are_review_only: true,
+      worksheet_status_columns_are_ignored: true,
     },
   };
 }
@@ -303,7 +316,7 @@ function loadCustomerMatches(parties) {
   const keys = [
     ...new Set(
       parties
-        .flatMap((party) => party.members.map((member) => member.phone_match_key))
+        .flatMap((party) => party.members.flatMap((member) => member.phone_match_keys ?? [member.phone_match_key]))
         .filter((key) => key.length >= 7),
     ),
   ];
@@ -371,7 +384,15 @@ FROM (
 function applyMatches(parties, byKey) {
   for (const party of parties) {
     for (const member of party.members) {
-      const matches = byKey.get(member.phone_match_key) ?? [];
+      const seen = new Set();
+      const matches = [];
+      for (const key of member.phone_match_keys ?? [member.phone_match_key]) {
+        for (const match of byKey.get(key) ?? []) {
+          if (seen.has(match.id)) continue;
+          seen.add(match.id);
+          matches.push(match);
+        }
+      }
       member.customer_matches = matches.map((match) => ({
         customer_id: match.id,
         customer_code: match.customer_code,
@@ -381,7 +402,7 @@ function applyMatches(parties, byKey) {
         source: match.customer_created_source,
       }));
       if (matches.length === 1) {
-        member.match_confidence = member.phone_match_key.length >= 10 ? "high" : "medium";
+        member.match_confidence = member.phone_digits.length >= 10 ? "high" : "medium";
       } else if (matches.length > 1) {
         member.match_confidence = "ambiguous";
         member.warnings.push("multiple_customer_phone_matches");
@@ -399,13 +420,13 @@ function summarize(parties, dbWarnings = []) {
   let matched = 0;
   let ambiguous = 0;
   let noMatch = 0;
-  let workflowSignals = 0;
+  let ignoredStatusCells = 0;
 
   for (const warning of dbWarnings) {
     warningCounts.set(warning, (warningCounts.get(warning) ?? 0) + 1);
   }
   for (const party of parties) {
-    workflowSignals += party.workflow_signals.length;
+    ignoredStatusCells += party.ignored_worksheet_status_cells.length;
     for (const warning of party.warnings) {
       warningCounts.set(warning, (warningCounts.get(warning) ?? 0) + 1);
     }
@@ -424,7 +445,7 @@ function summarize(parties, dbWarnings = []) {
     member_count: memberCount,
     member_count_min: Math.min(...parties.map((party) => party.members.length)),
     member_count_max: Math.max(...parties.map((party) => party.members.length)),
-    workflow_signal_count: workflowSignals,
+    ignored_worksheet_status_cell_count: ignoredStatusCells,
     customer_match_counts: {
       matched,
       ambiguous,
@@ -486,7 +507,7 @@ async function main() {
   console.log(`- Source: ${absoluteWorkbookPath}`);
   console.log(`- Parties: ${s.party_count}`);
   console.log(`- Members: ${s.member_count} (${s.member_count_min}-${s.member_count_max} per party)`);
-  console.log(`- Workflow cells found, review-only: ${s.workflow_signal_count}`);
+  console.log(`- Ignored worksheet status cells: ${s.ignored_worksheet_status_cell_count}`);
   if (shouldMatchDb) {
     console.log(
       `- Customer matches: ${s.customer_match_counts.matched} matched, ${s.customer_match_counts.ambiguous} ambiguous, ${s.customer_match_counts.no_match} no match`,
