@@ -157,12 +157,13 @@ max_replication_slots = 3
 archive_mode = on
 archive_command = 'cp %p /var/lib/postgresql/wal_archive/%f'
 archive_timeout = 300
-wal_keep_segments = 64
+wal_keep_size = 1GB
 
 # Checkpoint Settings
 checkpoint_completion_target = 0.9
 wal_buffers = 64MB
-checkpoint_segments = 32
+max_wal_size = 4GB
+min_wal_size = 1GB
 
 # Logging
 log_destination = 'stderr'

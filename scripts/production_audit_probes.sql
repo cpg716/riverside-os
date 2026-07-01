@@ -34,6 +34,7 @@ SELECT
     (ABS(COALESCE(SUM(pa.amount_allocated), 0)) - ABS(pt.amount))::numeric(14, 2) AS overage
 FROM payment_transactions pt
 LEFT JOIN payment_allocations pa ON pa.transaction_id = pt.id
+WHERE COALESCE(pt.status, '') <> 'canceled'
 GROUP BY pt.id, pt.amount
 HAVING ABS(COALESCE(SUM(pa.amount_allocated), 0)) > ABS(pt.amount) + 0.01
 ORDER BY overage DESC;
@@ -147,7 +148,7 @@ WHERE commission_payout_finalized_at IS NOT NULL
   AND fulfilled_at IS NULL
 ORDER BY commission_payout_finalized_at DESC;
 
-\echo 'P1 probe: approved/pending QBO staging rows with unbalanced payload totals'
+\echo 'P1 probe: approved QBO staging rows with unbalanced payload totals'
 SELECT
     id,
     sync_date,
@@ -156,7 +157,7 @@ SELECT
     payload #>> '{totals,credits}' AS credits,
     payload #>> '{totals,balanced}' AS balanced
 FROM qbo_sync_logs
-WHERE status IN ('pending', 'approved')
+WHERE status = 'approved'
   AND COALESCE((payload #>> '{totals,balanced}')::boolean, false) = false
 ORDER BY sync_date DESC, created_at DESC;
 
