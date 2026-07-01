@@ -1848,6 +1848,32 @@ async fn staging_drilldown(
                     WHERE codl.reason = 'party_split_deposit'
                       AND codl.transaction_id IS NOT NULL
                       AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+
+                    UNION ALL
+
+                    SELECT
+                        o.id AS transaction_id,
+                        o.amount_paid AS amount,
+                        NULL::uuid AS source_payment_transaction_id,
+                        NULL::text AS payment_method
+                    FROM transactions o
+                    WHERE COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+                      AND COALESCE(o.amount_paid, 0) > 0::numeric
+                      AND EXISTS (
+                          SELECT 1
+                          FROM transaction_lines tl
+                          WHERE tl.transaction_id = o.id
+                            AND tl.fulfillment::text = 'layaway'
+                      )
+                      AND (({order_recognition_ts}) IS NULL OR (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date > $1::date)
+                      AND o.status::text NOT IN ('cancelled')
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM payment_allocations pa
+                          WHERE pa.target_transaction_id = o.id
+                            AND pa.amount_allocated > 0::numeric
+                            AND NULLIF(TRIM(pa.metadata->>'applied_deposit_amount'), '') IS NOT NULL
+                      )
                 ) contributors
                 GROUP BY transaction_id, source_payment_transaction_id, payment_method
                 ORDER BY amount DESC

@@ -1718,6 +1718,33 @@ pub async fn propose_daily_journal(
     .fetch_one(pool)
     .await?;
 
+    let direct_layaway_deposit_inflow: Decimal = sqlx::query_scalar(&format!(
+        r#"
+        SELECT COALESCE(SUM(o.amount_paid), 0)::numeric(14,2)
+        FROM transactions o
+        WHERE COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) = $1::date
+          AND COALESCE(o.amount_paid, 0) > 0::numeric
+          AND EXISTS (
+              SELECT 1
+              FROM transaction_lines tl
+              WHERE tl.transaction_id = o.id
+                AND tl.fulfillment::text = 'layaway'
+          )
+          AND (({order_recognition_ts}) IS NULL OR (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date > $1::date)
+          AND o.status::text NOT IN ('cancelled')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM payment_allocations pa
+              WHERE pa.target_transaction_id = o.id
+                AND pa.amount_allocated > 0::numeric
+                AND NULLIF(TRIM(pa.metadata->>'applied_deposit_amount'), '') IS NOT NULL
+          )
+        "#
+    ))
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
     let open_deposit_inflow: (Decimal, Option<Value>) = sqlx::query_as(
         r#"
         SELECT
@@ -1748,7 +1775,9 @@ pub async fn propose_daily_journal(
     .await?;
 
     let open_deposit_inflow_amount = open_deposit_inflow.0.round_dp(2);
-    let deposit_inflow = (allocation_deposit_inflow + open_deposit_inflow_amount).round_dp(2);
+    let deposit_inflow =
+        (allocation_deposit_inflow + direct_layaway_deposit_inflow + open_deposit_inflow_amount)
+            .round_dp(2);
 
     if !deposit_inflow.is_zero() {
         if let Some((lid, lnm)) =
@@ -1774,6 +1803,7 @@ pub async fn propose_daily_journal(
                     "kind": "new_deposit_inflow",
                     "amount": deposit_inflow,
                     "allocation_deposit_amount": allocation_deposit_inflow,
+                    "direct_layaway_deposit_amount": direct_layaway_deposit_inflow,
                     "open_deposit_party_split_amount": open_deposit_inflow_amount,
                     "open_deposit_sources": open_deposit_inflow.1.unwrap_or_else(|| json!([]))
                 })],
