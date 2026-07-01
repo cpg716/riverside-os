@@ -73,6 +73,7 @@ async function adjustPoints(
   deltaPoints: number,
   reason: string,
 ): Promise<{ new_balance: number; effective_customer_id?: string }> {
+  const managerStaffId = await verifyStaffId(request);
   const res = await request.post(`${apiBase()}/api/loyalty/adjust-points`, {
     headers: {
       "Content-Type": "application/json",
@@ -83,7 +84,7 @@ async function adjustPoints(
       customer_id: customerId,
       delta_points: deltaPoints,
       reason,
-      manager_cashier_code: "1234",
+      manager_staff_id: managerStaffId,
       manager_pin: "1234",
     },
     failOnStatusCode: false,

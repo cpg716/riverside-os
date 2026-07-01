@@ -222,10 +222,11 @@ export async function markLineReadyForPickup(
   lineId: string,
   reason = "Phase 4 readiness item ready after receipt",
 ) {
+  const managerStaffId = await verifyStaffId(request);
   await transitionLine(request, lineId, {
     next_status: "ready_for_pickup",
     override_checks: true,
-    manager_staff_code: staffCode(),
+    manager_staff_id: managerStaffId,
     manager_pin: staffCode(),
     reason,
   });

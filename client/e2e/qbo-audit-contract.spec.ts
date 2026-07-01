@@ -1309,7 +1309,7 @@ test.describe("QBO audit contract", () => {
     const salespersonAttemptText = await salespersonAttempt.text();
     expect(salespersonAttempt.status(), salespersonAttemptText.slice(0, 1000)).toBe(403);
     expect(salespersonAttemptText).toContain(
-      "Manager Access required for legacy manual refund",
+      "Manager Access approval permission required for legacy manual refund",
     );
 
     const missingReasonAttempt = await processManualLegacyRefund(request, {

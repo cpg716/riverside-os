@@ -127,14 +127,15 @@ INSERT INTO payment_provider_batch_transactions (
 INSERT INTO payment_settlement_items (
   id, run_id, provider, item_type, severity, status, provider_batch_id,
   provider_transaction_id, payment_transaction_id, payment_provider_batch_id,
-  processor_values, ros_values, message
+  processor_values, ros_values, message, created_at
 ) VALUES (
   ${sqlLiteral(row.itemId)}, ${sqlLiteral(row.runId)}, 'helcim', 'amount_mismatch',
-  'warning', 'open', ${sqlLiteral(row.providerBatchId)}, ${sqlLiteral(row.providerTransactionId)},
+  'critical', 'open', ${sqlLiteral(row.providerBatchId)}, ${sqlLiteral(row.providerTransactionId)},
   ${sqlLiteral(row.paymentId)}, ${sqlLiteral(row.batchId)},
   jsonb_build_object('amount', '100.00', 'provider_transaction_id', ${sqlLiteral(row.providerTransactionId)}),
   jsonb_build_object('amount', '99.00'),
-  'E2E payment needs review'
+  'E2E payment needs review',
+  now() + interval '1 hour'
 );
 
 INSERT INTO payment_actual_deposits (
