@@ -688,6 +688,7 @@ mod tests {
     fn sample_item(quantity: i32, quantity_returned: i32) -> TransactionDetailItem {
         TransactionDetailItem {
             transaction_line_id: Uuid::new_v4(),
+            booked_at: Utc::now(),
             product_id: Uuid::new_v4(),
             variant_id: Uuid::new_v4(),
             sku: "SKU-1".to_string(),

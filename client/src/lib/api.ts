@@ -3,8 +3,7 @@
  */
 
 import { getJwtToken } from "./jwt";
-
-const API_BASE_URL = "http://localhost:5173/api";
+import { getBaseUrl } from "./apiConfig";
 
 async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const token = getJwtToken();
@@ -14,7 +13,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
       Authorization: `Bearer ${token}`,
     };
   }
-  return fetch(`${API_BASE_URL}${url}`, options);
+  return fetch(`${getBaseUrl()}/api${url}`, options);
 }
 
 export async function getUser(): Promise<unknown> {

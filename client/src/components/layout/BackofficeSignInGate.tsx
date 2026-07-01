@@ -27,6 +27,26 @@ interface ApiHostOption {
   helper: string;
 }
 
+const SIGN_IN_BOOTSTRAP_TIMEOUT_MS = 6_000;
+const SIGN_IN_REQUEST_TIMEOUT_MS = 12_000;
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = SIGN_IN_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 function isLoopbackServerUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -224,9 +244,14 @@ export default function BackofficeSignInGate({
     let cancelled = false;
 
     void (async () => {
+      let connectionFailed = false;
       try {
         // Check version first — if server is ahead of client, gate the UI.
-        const verRes = await fetch(`${serverUrl}/api/version`, { cache: "no-store" }).catch(() => null);
+        const verRes = await fetchWithTimeout(
+          `${serverUrl}/api/version`,
+          { cache: "no-store" },
+          SIGN_IN_BOOTSTRAP_TIMEOUT_MS,
+        ).catch(() => null);
         if (verRes?.ok) {
           const verData = await verRes.json() as { version: string };
           if (cancelled) return;
@@ -237,7 +262,11 @@ export default function BackofficeSignInGate({
           }
         }
 
-        const res = await fetch(`${serverUrl}/api/staff/list-for-pos`);
+        const res = await fetchWithTimeout(
+          `${serverUrl}/api/staff/list-for-pos`,
+          {},
+          SIGN_IN_BOOTSTRAP_TIMEOUT_MS,
+        );
         if (res.ok) {
           const data = await res.json();
           if (cancelled) return;
@@ -246,6 +275,7 @@ export default function BackofficeSignInGate({
           return;
         }
       } catch {
+        connectionFailed = true;
         // The Windows server app can recover the installed local server task below.
       }
 
@@ -253,6 +283,11 @@ export default function BackofficeSignInGate({
       setRoster([]);
 
       if (!shouldAutoStartLocalServer(serverUrl)) {
+        setServerStartupNotice(
+          connectionFailed && !isTailscaleUrl(serverUrl)
+            ? "Cannot reach the Main Hub server. Check the server address, Wi-Fi, and that Riverside Server is running."
+            : null,
+        );
         return;
       }
 
@@ -265,7 +300,11 @@ export default function BackofficeSignInGate({
         if (cancelled) return;
         setServerStartupNotice(startResult.message);
 
-        const retry = await fetch(`${serverUrl}/api/staff/list-for-pos`);
+        const retry = await fetchWithTimeout(
+          `${serverUrl}/api/staff/list-for-pos`,
+          {},
+          SIGN_IN_BOOTSTRAP_TIMEOUT_MS,
+        );
         if (retry.ok) {
           const data = await retry.json();
           if (cancelled) return;
@@ -313,12 +352,15 @@ export default function BackofficeSignInGate({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${serverUrl}/api/staff/effective-permissions`, {
-        headers: {
-          "x-riverside-staff-code": code,
-          "x-riverside-staff-pin": code,
+      const res = await fetchWithTimeout(
+        `${serverUrl}/api/staff/effective-permissions`,
+        {
+          headers: {
+            "x-riverside-staff-code": code,
+            "x-riverside-staff-pin": code,
+          },
         },
-      });
+      );
       if (!res.ok) {
         const b = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(b.error ?? "Invalid PIN");

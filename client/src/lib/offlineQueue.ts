@@ -46,6 +46,8 @@ const checkoutStore = localforage.createInstance({
   storeName: "checkout_queue",
 });
 
+const CHECKOUT_REPLAY_TIMEOUT_MS = 15_000;
+
 /** Enqueue a POS checkout when the network is unreachable. */
 export async function enqueueCheckout(
   payload: CheckoutPayload,
@@ -222,17 +224,24 @@ export async function flushCheckoutQueue(
       const stored = item.authHeaders ?? {};
       const auth = { ...stored, ...live };
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      const response = await fetch(`${baseUrl}/api/transactions/checkout`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...auth,
-        },
-        body: JSON.stringify(item.payload),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
+      const timeout = window.setTimeout(
+        () => controller.abort(),
+        CHECKOUT_REPLAY_TIMEOUT_MS,
+      );
+      let response: Response;
+      try {
+        response = await fetch(`${baseUrl}/api/transactions/checkout`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...auth,
+          },
+          body: JSON.stringify(item.payload),
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timeout);
+      }
 
       if (response.ok) {
         const data = await response.json().catch(() => ({})) as { warnings?: string[] };

@@ -77,7 +77,7 @@ async function installApiMocks(
   page: Page,
   options: {
     staffCurrentSessionStatus: 200 | 404;
-    healthStatus?: 200 | 503;
+    healthStatus?: 200 | 503 | (() => 200 | 503);
     listOpenStatus?: 200 | 503;
     openSessionStatus?: 409 | 503;
     posCurrentSessionStatus?: 200 | 503;
@@ -110,8 +110,14 @@ async function installApiMocks(
 
     if (path === "/api/staff/list-for-pos") {
       return json(route, [
-        { staff_id: "staff-chris", full_name: "Chris G", cashier_code: "1234" },
         {
+          id: "staff-chris",
+          staff_id: "staff-chris",
+          full_name: "Chris G",
+          cashier_code: "1234",
+        },
+        {
+          id: "staff-anthony",
           staff_id: "staff-anthony",
           full_name: registerSession.cashier_name,
           cashier_code: registerSession.cashier_code,
@@ -124,10 +130,14 @@ async function installApiMocks(
     }
 
     if (path === "/api/health") {
+      const healthStatus =
+        typeof options.healthStatus === "function"
+          ? options.healthStatus()
+          : options.healthStatus;
       return json(
         route,
-        options.healthStatus === 503 ? { status: "offline" } : { status: "ok" },
-        options.healthStatus ?? 200,
+        healthStatus === 503 ? { status: "offline" } : { status: "ok" },
+        healthStatus ?? 200,
       );
     }
 
@@ -278,6 +288,31 @@ test.describe("register state stability", () => {
     });
     await expect(posShell).toHaveAttribute("data-register-open", "true");
     await expect(page.getByRole("dialog", { name: "Open Register" })).toHaveCount(0);
+  });
+
+  test("Main Hub outage banner clears after manual recheck succeeds", async ({
+    page,
+  }) => {
+    let healthStatus: 200 | 503 = 503;
+    await seedBackofficeSession(page, "Register #1", { posSession: true });
+    await installApiMocks(page, {
+      staffCurrentSessionStatus: 200,
+      healthStatus: () => healthStatus,
+    });
+
+    await page.goto("/pos", { waitUntil: "domcontentloaded" });
+
+    const banner = page.getByTestId("server-connection-lost-banner");
+    await expect(banner).toBeVisible({ timeout: 20_000 });
+
+    healthStatus = 200;
+    await banner.getByRole("button", { name: /recheck/i }).click();
+
+    await expect(banner).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByTestId("pos-shell-root")).toHaveAttribute(
+      "data-register-open",
+      "true",
+    );
   });
 
   test("Register #1 open during Main Hub outage keeps operator on the recovery screen", async ({
