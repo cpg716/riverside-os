@@ -68,7 +68,7 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 
 1. Select **Register** in the left POS sidebar.
 2. Click in the **product search** field at the top of the sale. The field should auto-focus when the register opens.
-3. **Scan a barcode** or **type a SKU**, then press **Enter**.
+3. **Scan a barcode** or **type a SKU**, then press **Enter**. SKU-style entries such as `B-1626170`, `I-103881`, `CP-100001`, or `ROS-1001` must match exactly; if the SKU is missing, the Register shows **SKU NOT FOUND** instead of offering similar SKUs.
 4. If the system asks you to choose a size or variation, pick the correct line and confirm.
 5. Repeat for each item. The cart lists each line with quantity and price.
 

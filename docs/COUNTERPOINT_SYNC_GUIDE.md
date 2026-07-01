@@ -22,6 +22,8 @@ The Counterpoint screen in **Settings → Integrations → Counterpoint** is the
 
 The Command Center shows a business-area ingest path for Customers, Inventory, Ticket History / Sales Movement, Open Orders, Gift Cards, and Loyalty Points. Each one follows the same control pattern: Bridge extraction → ROS import/proof → staff review/fix → PostgreSQL.
 
+Counterpoint SQL is the source authority for cutover customer profiles, open orders, gift cards, loyalty balances, catalog identity, and inventory quantities. ROS may add deterministic `CP-*` recovery SKUs only when Counterpoint provides a valid item/cell key without a usable `B-*` barcode/SKU. That recovery identity is additive; imports must preserve Counterpoint keys, barcode aliases, balances, quantities, and provenance rather than replacing source data with ROS-generated values.
+
 Advancement is proof-gated. Bridge-reported row counts alone do not unlock cutover. If the Bridge reports suspiciously low ticket or open-doc counts, a wrong ROS base URL, empty required SQL mappings, or a history floor other than January 1, 2024, ROS records a failed preflight and the Bridge blocks the import.
 
 During a direct Bridge run, ROS records source-count proof, raw rows, provenance links to landed ROS rows, exceptions, and landed-row proof for the current import run. Ticket and open-doc line/payment proof is counted from the landed source payload child rows for that import run, so repeat proof stays tied to the Bridge input instead of whatever child rows were rewritten in PostgreSQL. Rows that fail validation remain visible as import exceptions until staff fixes them and reruns the affected import area or ROS can prove the source row landed.
@@ -337,6 +339,8 @@ Default runtime inventory mapping pulls `IM_INV` rows and `IM_INV_CELL` rows for
 **Provenance:** Products created by this sync get `data_source = 'counterpoint'` (migration 85). Products that already exist (matched via their variants' `counterpoint_item_key`) are updated but their `data_source` is not overwritten.
 
 **Default catalog:** the runtime mapper sends Counterpoint parent products that are active now or have evidence since `CP_IMPORT_SINCE` (default January 1, 2024): recent sales, active open docs, receiving activity, or nonzero inventory. It also sends `IM_INV_CELL` matrix cells with their Counterpoint cell keys and quantity fields when that table is visible.
+
+**Matrix family rule:** Counterpoint `I-XXXXX` values are item numbers and act as the ROS product/family key. Every visible `IM_INV_CELL` row for the same `I-XXXXX` must land as a variant under that product. Real Counterpoint `B-XXXXX` barcode/SKU values are source data and must be preserved as scan aliases; imports may add missing `B-XXXXX` aliases or generated `CP-*` recovery SKUs, but must not remove existing Counterpoint barcode data.
 
 **Category mapping:** The bridge sends a `category` string from `CATEG_COD`. ROS looks up `counterpoint_category_map` first (admin-configurable), then falls back to a case-insensitive name match in `categories`. Unmapped categories result in `category_id = NULL` on the product.
 

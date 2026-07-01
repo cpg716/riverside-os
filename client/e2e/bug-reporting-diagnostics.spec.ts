@@ -5,6 +5,7 @@ import {
   openBackofficeSidebarTab,
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
+import { apiBase, staffHeaders } from "./helpers/rmsCharge";
 
 const SENSITIVE_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyaXZlcnNpZGUtc3RhZmYifQ.sensitiveSignature";
@@ -310,7 +311,48 @@ test.describe("bug reporting diagnostics hardening", () => {
 
   test("Support Center keeps useful diagnostics visible when one feed fails", async ({
     page,
+    request,
   }) => {
+    const now = Date.now();
+    const stationRows = [
+      {
+        station_key: "station-online",
+        station_label: "Register 1",
+        app_version: "0.70.0",
+        git_sha: "58088e9f",
+        tailscale_node: null,
+        lan_ip: "127.0.0.1",
+        last_seen_at: new Date(now).toISOString(),
+      },
+      {
+        station_key: "station-actionable-offline",
+        station_label: "Register 2",
+        app_version: "0.70.0",
+        git_sha: "58088e9f",
+        tailscale_node: null,
+        lan_ip: "127.0.0.2",
+        last_seen_at: new Date(now - 60 * 60 * 1000).toISOString(),
+      },
+      {
+        station_key: "station-stale",
+        station_label: "Old Register",
+        app_version: "0.50.0",
+        git_sha: "0a93200d",
+        tailscale_node: null,
+        lan_ip: "127.0.0.3",
+        last_seen_at: new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+    ];
+    const stationSeed = await request.post(`${apiBase()}/api/test-support/ops/seed-stations`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: { rows: stationRows },
+      failOnStatusCode: false,
+    });
+    const stationSeedText = await stationSeed.text();
+    expect(stationSeed.status(), stationSeedText.slice(0, 1000)).toBe(200);
     await page.route("**/api/ops/overview", async (route) => {
       await route.fulfill({
         status: 200,
@@ -332,60 +374,15 @@ test.describe("bug reporting diagnostics hardening", () => {
     await page.route("**/api/ops/runtime-diagnostics", async (route) => {
       await route.fulfill({ status: 503, body: "unavailable" });
     });
-    await page.route("**/api/ops/stations", async (route) => {
+    await page.route("**/api/notifications/health", async (route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify([
-          {
-            station_key: "station-online",
-            station_label: "Register 1",
-            app_version: "0.70.0",
-            git_sha: "58088e9f",
-            tailscale_node: null,
-            lan_ip: "127.0.0.1",
-            last_sync_at: null,
-            last_update_check_at: null,
-            last_update_install_at: null,
-            last_seen_at: "2026-05-19T13:55:00Z",
-            updated_at: "2026-05-19T13:55:00Z",
-            online: true,
-            station_lifecycle: "online",
-            actionable: true,
-          },
-          {
-            station_key: "station-actionable-offline",
-            station_label: "Register 2",
-            app_version: "0.70.0",
-            git_sha: "58088e9f",
-            tailscale_node: null,
-            lan_ip: "127.0.0.2",
-            last_sync_at: null,
-            last_update_check_at: null,
-            last_update_install_at: null,
-            last_seen_at: "2026-05-19T12:55:00Z",
-            updated_at: "2026-05-19T12:55:00Z",
-            online: false,
-            station_lifecycle: "recently_offline",
-            actionable: true,
-          },
-          {
-            station_key: "station-stale",
-            station_label: "Old Register",
-            app_version: "0.50.0",
-            git_sha: "0a93200d",
-            tailscale_node: null,
-            lan_ip: "127.0.0.3",
-            last_sync_at: null,
-            last_update_check_at: null,
-            last_update_install_at: null,
-            last_seen_at: "2026-04-24T12:55:00Z",
-            updated_at: "2026-04-24T12:55:00Z",
-            online: false,
-            station_lifecycle: "stale",
-            actionable: false,
-          },
-        ]),
+        body: JSON.stringify({
+          unread_count: 0,
+          recent_error_count: 0,
+          last_checked_at: "2026-05-19T13:55:00Z",
+        }),
       });
     });
     await page.route("**/api/ops/alerts", async (route) => {
@@ -423,6 +420,9 @@ test.describe("bug reporting diagnostics hardening", () => {
     await expect(page.getByText(/warning|caution/i).first()).toBeVisible();
     await expect(page.getByText("Stations Fleet")).toBeVisible();
     await page.getByRole("button", { name: "Stations Fleet" }).click();
+    await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByText("Register 2")).toBeVisible();
     await expect(page.getByText("Offline", { exact: true })).toBeVisible();
     await expect(page.getByText("Old Register")).toHaveCount(0);

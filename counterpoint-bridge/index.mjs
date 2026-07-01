@@ -858,7 +858,6 @@ function envFlag(name, defaultValue) {
 
 const ALLOW_SQL_ENV_OVERRIDES = envFlag("CP_SQL_ENV_OVERRIDES", false);
 const IMPORT_FIRST_MODE = envFlag("CP_IMPORT_FIRST_MODE", true);
-const ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS = envFlag("CP_ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS", false);
 function configuredSql(name) {
   return ALLOW_SQL_ENV_OVERRIDES ? process.env[name] ?? "" : "";
 }
@@ -3026,7 +3025,7 @@ async function runImportFirstSourcePreflight(pool) {
       metadata: {
         actual_import_since: CP_IMPORT_SINCE,
         required_history_start: REQUIRED_CP_IMPORT_SINCE,
-        allow_import_with_preflight_blockers: ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS,
+        allow_import_with_preflight_blockers: false,
       },
     },
     "POST",
@@ -3040,10 +3039,7 @@ async function runImportFirstSourcePreflight(pool) {
       .map((b) => `${b.entity_key ? `${b.entity_key}: ` : ""}${b.message ?? b.reason_code ?? "blocked"}`)
       .join(" | ");
     const message = blockerText || "Bridge source-count preflight failed.";
-    if (!ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS) {
-      throw new Error(`[preflight] Import needs review: ${message}`);
-    }
-    console.warn(`[preflight] Import review issues ignored by CP_ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS=1: ${message}`);
+    throw new Error(`[preflight] Import needs review: ${message}`);
   } else {
     console.info(`[preflight] Import-first source-count preflight passed (${summary.import_run_id}).`);
   }
@@ -3070,7 +3066,7 @@ async function startImportFirstRun(preflightSummary, options = {}) {
       bridge_version: BRIDGE_VERSION,
       ros_base_url: ROS_BASE_URL,
       source_fingerprint: preflightSummary?.source_fingerprint ?? null,
-      allow_import_with_preflight_blockers: ALLOW_IMPORT_WITH_PREFLIGHT_BLOCKERS,
+      allow_import_with_preflight_blockers: false,
     },
     "POST",
     bridgeIngestHeaders(),
@@ -3457,7 +3453,7 @@ function printAliasPersistReport(csvPath, payloadRows, report) {
   console.log("");
   console.log("Persistence summary:");
   console.log(`- dry run: ${summary.dry_run ? "yes" : "no"}`);
-  console.log(`- replace existing counterpoint_b_sku aliases: ${summary.replace ? "yes" : "no"}`);
+  console.log(`- preserve existing counterpoint_b_sku aliases: yes`);
   console.log(`- total rows checked: ${summary.total_rows ?? 0}`);
   console.log(`- mappable aliases: ${summary.mappable_aliases ?? 0}`);
   console.log(`- would insert aliases: ${summary.would_insert_aliases ?? 0}`);

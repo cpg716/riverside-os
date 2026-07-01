@@ -20,6 +20,7 @@ import {
 type WalkthroughParty = {
   label: string;
   partyId: string;
+  eventDate: string;
   expectedStatus: ReadinessStatus;
   expectedBlocker?: string;
 };
@@ -58,6 +59,7 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
     parties.push({
       label: "safe wedding",
       partyId: safeMember.wedding_party_id,
+      eventDate: addDays(45),
       expectedStatus: "safe",
     });
 
@@ -86,6 +88,7 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
     parties.push({
       label: "critical NTBO wedding",
       partyId: criticalMember.wedding_party_id,
+      eventDate: addDays(10),
       expectedStatus: "critical",
       expectedBlocker: "Needs vendor order",
     });
@@ -124,6 +127,7 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
     parties.push({
       label: "delayed vendor wedding",
       partyId: vendorMember.wedding_party_id,
+      eventDate: addDays(45),
       expectedStatus: "critical",
       expectedBlocker: "Vendor delay risk",
     });
@@ -170,6 +174,7 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
     parties.push({
       label: "partial-ready wedding",
       partyId: partialMember.wedding_party_id,
+      eventDate: addDays(60),
       expectedStatus: "at_risk",
       expectedBlocker: "Partial party readiness",
     });
@@ -209,6 +214,7 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
     parties.push({
       label: "balance-blocked pickup wedding",
       partyId: balanceMember.wedding_party_id,
+      eventDate: addDays(60),
       expectedStatus: "at_risk",
       expectedBlocker: "Pickup blocked until balance is cleared",
     });
@@ -249,22 +255,23 @@ test.describe("Phase 4 wedding readiness walkthrough harness", () => {
     parties.push({
       label: "fully complete wedding",
       partyId: completeMember.wedding_party_id,
+      eventDate: addDays(75),
       expectedStatus: "complete",
     });
 
-    const dashboardRes = await request.get(
-      `${apiBase()}/api/weddings/readiness-dashboard?start_date=${addDays(0)}&end_date=${addDays(120)}&limit=200`,
-      {
-        headers: staffHeaders(),
-        failOnStatusCode: false,
-      },
-    );
-    const dashboardText = await dashboardRes.text();
-    expect(dashboardRes.status(), dashboardText.slice(0, 1000)).toBe(200);
-    const dashboard = JSON.parse(dashboardText) as {
-      parties: Array<{ wedding_party_id: string; status: ReadinessStatus }>;
-    };
     for (const party of parties) {
+      const dashboardRes = await request.get(
+        `${apiBase()}/api/weddings/readiness-dashboard?start_date=${party.eventDate}&end_date=${party.eventDate}&limit=1000`,
+        {
+          headers: staffHeaders(),
+          failOnStatusCode: false,
+        },
+      );
+      const dashboardText = await dashboardRes.text();
+      expect(dashboardRes.status(), dashboardText.slice(0, 1000)).toBe(200);
+      const dashboard = JSON.parse(dashboardText) as {
+        parties: Array<{ wedding_party_id: string; status: ReadinessStatus }>;
+      };
       const dashboardParty = dashboard.parties.find((row) => row.wedding_party_id === party.partyId);
       expect(dashboardParty, `${party.label} missing from readiness dashboard`).toBeTruthy();
       expect(dashboardParty!.status, party.label).toBe(party.expectedStatus);

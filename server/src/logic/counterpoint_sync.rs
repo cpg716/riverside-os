@@ -837,7 +837,7 @@ impl CounterpointIdentityPreflightSeverity {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CounterpointIdentityPreflightRow {
     reference: CounterpointIdentityPreflightReference,
     normalized_sku: Option<String>,
@@ -1098,6 +1098,41 @@ fn grouped_issue(args: GroupedIssueArgs<'_, '_>) -> CounterpointIdentityPrefligh
         values: limited_values(&args.values),
         all_references: all_refs(args.rows),
     }
+}
+
+fn refresh_identity_preflight_summary(report: &mut CounterpointIdentityPreflightReport) {
+    let affected_refs = report
+        .issues
+        .iter()
+        .flat_map(|issue| issue.all_references.iter())
+        .map(|reference| (reference.row_number, reference.cell_number))
+        .collect::<BTreeSet<_>>();
+    report.summary.has_errors = !report.issues.is_empty();
+    report.summary.issue_count = report.issues.len();
+    report.summary.affected_row_count = affected_refs.len();
+    report.summary.info_count = report
+        .issues
+        .iter()
+        .filter(|issue| issue.severity == CounterpointIdentityPreflightSeverity::Info.as_str())
+        .count();
+    report.summary.warning_count = report
+        .issues
+        .iter()
+        .filter(|issue| issue.severity == CounterpointIdentityPreflightSeverity::Warning.as_str())
+        .count();
+    report.summary.quarantine_count = report
+        .issues
+        .iter()
+        .filter(|issue| {
+            issue.severity == CounterpointIdentityPreflightSeverity::Quarantine.as_str()
+        })
+        .count();
+    report.summary.blocking_count = report
+        .issues
+        .iter()
+        .filter(|issue| issue.severity == CounterpointIdentityPreflightSeverity::Blocking.as_str())
+        .count();
+    report.summary.has_blocking_issues = report.summary.blocking_count > 0;
 }
 
 fn build_counterpoint_identity_preflight_report(
@@ -1948,7 +1983,9 @@ async fn evaluate_counterpoint_barcode_aliases(
             .as_deref()
             .and_then(normalize_identity_key)
         {
-            if existing_barcode != normalized_sku {
+            let same_counterpoint_barcode_family = is_valid_counterpoint_b_sku(&existing_barcode)
+                && is_valid_counterpoint_b_sku(&normalized_sku);
+            if existing_barcode != normalized_sku && !same_counterpoint_barcode_family {
                 summary.ambiguous_variant_match += 1;
                 summary.existing_barcode_conflict += 1;
                 push_alias_preflight_example(
@@ -2080,10 +2117,6 @@ pub async fn persist_counterpoint_barcode_aliases(
     let mut to_insert = Vec::new();
     for row in &evaluation.mappable_rows {
         if let Some(existing) = existing_by_alias.get(&row.normalized_alias) {
-            if payload.replace && existing.alias_type == "counterpoint_b_sku" {
-                to_insert.push(row);
-                continue;
-            }
             let identical = existing.variant_id == row.variant_id
                 && existing.alias_type == "counterpoint_b_sku"
                 && existing.source_system == "counterpoint_csv"
@@ -2115,18 +2148,10 @@ pub async fn persist_counterpoint_barcode_aliases(
 
     let would_insert_aliases = to_insert.len();
     let mut inserted_aliases = 0usize;
-    let mut deleted_existing_counterpoint_b_sku_aliases = 0u64;
+    let deleted_existing_counterpoint_b_sku_aliases = 0u64;
 
-    if !payload.dry_run && (payload.replace || !to_insert.is_empty()) {
+    if !payload.dry_run && !to_insert.is_empty() {
         let mut tx = pool.begin().await?;
-        if payload.replace {
-            deleted_existing_counterpoint_b_sku_aliases = sqlx::query(
-                "DELETE FROM product_variant_barcode_aliases WHERE alias_type = 'counterpoint_b_sku'",
-            )
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-        }
         for chunk in to_insert.chunks(5_000) {
             let mut builder = QueryBuilder::<Postgres>::new(
                 r#"
@@ -5218,16 +5243,9 @@ pub async fn start_counterpoint_import_run(
         )
     })?;
 
-    let override_preflight_blockers = payload.allow_import_with_preflight_blockers
-        && preflight.run_kind == "preflight"
-        && preflight
-            .preflight_blockers
-            .as_array()
-            .map(|blockers| !blockers.is_empty())
-            .unwrap_or(false);
     if preflight.run_kind != "preflight"
-        || (!override_preflight_blockers
-            && (preflight.status != "preflight_passed" || !preflight.preflight_passed))
+        || preflight.status != "preflight_passed"
+        || !preflight.preflight_passed
     {
         return Err(CounterpointSyncError::InvalidPayload(
             "latest Counterpoint source-count preflight has issues that need review; import cannot start"
@@ -5249,7 +5267,7 @@ pub async fn start_counterpoint_import_run(
             COALESCE($5, $6),
             COALESCE($7, $8),
             COALESCE($9, $10),
-            TRUE, $11, '{}'::jsonb,
+            $16, $11, '{}'::jsonb,
             jsonb_build_object(
                 'preflight_import_run_id', $12::uuid,
                 'requested_entity', NULLIF(BTRIM($13), ''),
@@ -5275,6 +5293,7 @@ pub async fn start_counterpoint_import_run(
     .bind(payload.requested_entity.as_deref())
     .bind(payload.trigger.as_deref())
     .bind(payload.allow_import_with_preflight_blockers)
+    .bind(preflight.preflight_passed)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -10874,11 +10893,29 @@ pub fn validate_counterpoint_catalog_identity_preflight(
     }
 
     let mut rows = Vec::new();
+    let mut matrix_parent_missing_cell_rows = Vec::new();
+    let mut matrix_cell_family_mismatch_rows = Vec::new();
+    let mut matrix_cell_family_mismatch_values = BTreeSet::new();
     for (row_idx, row) in payload.rows.iter().enumerate() {
         let item_no = normalize_identity_key(&row.item_no);
         let is_grid = row.is_grid.unwrap_or(!row.cells.is_empty());
+        if is_grid && row.cells.is_empty() {
+            matrix_parent_missing_cell_rows.push(CounterpointIdentityPreflightRow {
+                reference: CounterpointIdentityPreflightReference {
+                    row_number: row_idx + 1,
+                    cell_number: None,
+                },
+                normalized_sku: normalize_identity_key(&row.item_no),
+                counterpoint_item_key: item_no.clone(),
+                family_key: item_no.clone(),
+                option_values: Vec::new(),
+            });
+            continue;
+        }
         if !is_grid || row.cells.is_empty() {
-            let sku = trim_opt(&row.barcode).unwrap_or_else(|| row.item_no.trim().to_string());
+            let sku = trim_opt(&row.barcode)
+                .or_else(|| deterministic_counterpoint_recovery_sku(&row.item_no))
+                .unwrap_or_else(|| row.item_no.trim().to_string());
             rows.push(CounterpointIdentityPreflightRow {
                 reference: CounterpointIdentityPreflightReference {
                     row_number: row_idx + 1,
@@ -10894,6 +10931,9 @@ pub fn validate_counterpoint_catalog_identity_preflight(
 
         for (cell_idx, cell) in row.cells.iter().enumerate() {
             let counterpoint_item_key = normalize_identity_key(&cell.counterpoint_item_key);
+            let cell_family_key = counterpoint_item_key
+                .as_deref()
+                .and_then(normalize_counterpoint_family_key);
             let mut option_values =
                 option_values_from_variation_values(cell.variation_values.as_ref());
             if option_values.is_empty() {
@@ -10903,7 +10943,7 @@ pub fn validate_counterpoint_catalog_identity_preflight(
                 option_values =
                     option_values_from_counterpoint_item_key(counterpoint_item_key.as_deref());
             }
-            rows.push(CounterpointIdentityPreflightRow {
+            let identity_row = CounterpointIdentityPreflightRow {
                 reference: CounterpointIdentityPreflightReference {
                     row_number: row_idx + 1,
                     cell_number: Some(cell_idx + 1),
@@ -10912,15 +10952,59 @@ pub fn validate_counterpoint_catalog_identity_preflight(
                 family_key: item_no.clone(),
                 counterpoint_item_key,
                 option_values,
-            });
+            };
+            if cell_family_key.is_some() && item_no.is_some() && cell_family_key != item_no {
+                if let Some(cell_family_key) = cell_family_key {
+                    matrix_cell_family_mismatch_values.insert(cell_family_key);
+                }
+                if let Some(item_no) = item_no.clone() {
+                    matrix_cell_family_mismatch_values.insert(item_no);
+                }
+                matrix_cell_family_mismatch_rows.push(identity_row.clone());
+            }
+            rows.push(identity_row);
         }
     }
 
-    Ok(build_counterpoint_identity_preflight_report(
-        "catalog",
-        payload.rows.len(),
-        rows,
-    ))
+    let mut report =
+        build_counterpoint_identity_preflight_report("catalog", payload.rows.len(), rows);
+
+    if !matrix_parent_missing_cell_rows.is_empty() {
+        let issue_rows = matrix_parent_missing_cell_rows.iter().collect::<Vec<_>>();
+        report.issues.push(grouped_issue(GroupedIssueArgs {
+            issue_type: "matrix_parent_missing_cells",
+            severity: CounterpointIdentityPreflightSeverity::Blocking,
+            message: "Counterpoint grid parent rows must include their IM_INV_CELL variants before catalog import.".into(),
+            rows: &issue_rows,
+            normalized_sku: None,
+            counterpoint_item_key: None,
+            family_key: None,
+            values: BTreeSet::new(),
+            affects_ingest_rows: true,
+            should_quarantine: true,
+            safe_to_continue_other_rows: true,
+        }));
+    }
+
+    if !matrix_cell_family_mismatch_rows.is_empty() {
+        let issue_rows = matrix_cell_family_mismatch_rows.iter().collect::<Vec<_>>();
+        report.issues.push(grouped_issue(GroupedIssueArgs {
+            issue_type: "matrix_cell_family_mismatch",
+            severity: CounterpointIdentityPreflightSeverity::Blocking,
+            message: "Counterpoint matrix cell keys must belong to the same I- item family as the parent product row.".into(),
+            rows: &issue_rows,
+            normalized_sku: None,
+            counterpoint_item_key: None,
+            family_key: None,
+            values: matrix_cell_family_mismatch_values,
+            affects_ingest_rows: true,
+            should_quarantine: true,
+            safe_to_continue_other_rows: true,
+        }));
+    }
+
+    refresh_identity_preflight_summary(&mut report);
+    Ok(report)
 }
 
 fn build_catalog_quarantine_records(
@@ -14844,6 +14928,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn counterpoint_import_run_cannot_override_preflight_blockers() {
+        let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
+        let pool = connect_test_db().await;
+        ensure_counterpoint_import_first_tables(&pool).await;
+
+        let summary = record_counterpoint_import_preflight(
+            &pool,
+            CounterpointImportPreflightPayload {
+                history_start: Some("2026-06-30".into()),
+                bridge_hostname: Some("test-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some("test-blocked-override".into()),
+                import_first: true,
+                staging_enabled: false,
+                dry_run: false,
+                startup_issues: vec!["SYNC_CUSTOMERS is disabled.".into()],
+                counts: Vec::new(),
+                metadata: serde_json::json!({ "test": true }),
+            },
+        )
+        .await
+        .expect("record blocked preflight");
+        assert!(!summary.preflight_passed);
+        assert!(!summary.blockers.is_empty());
+
+        let start = start_counterpoint_import_run(
+            &pool,
+            CounterpointImportRunStartPayload {
+                preflight_import_run_id: Some(summary.import_run_id),
+                run_kind: Some("full_import".into()),
+                requested_entity: Some("full".into()),
+                trigger: Some("test".into()),
+                bridge_hostname: Some("test-bridge".into()),
+                bridge_version: Some("test".into()),
+                ros_base_url: Some("http://127.0.0.1:3000".into()),
+                source_fingerprint: Some("test-blocked-override".into()),
+                allow_import_with_preflight_blockers: true,
+            },
+        )
+        .await;
+        assert!(start.is_err());
+
+        sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = $1")
+            .bind(summary.import_run_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup blocked preflight run");
+    }
+
+    #[tokio::test]
     async fn counterpoint_import_preflight_blocks_low_ticket_headers_when_details_are_implausibly_high(
     ) {
         let _guard = SNAPSHOT_RECONCILIATION_TEST_LOCK.lock().await;
@@ -16448,23 +16583,28 @@ mod tests {
         .await
         .expect("insert alias preflight product fixture");
 
-        for (variant_id, key) in [
-            (mappable_variant_id, &mappable_key),
-            (wildcard_variant_id, &wildcard_key),
-            (different_order_variant_id, &different_order_key),
+        for (variant_id, key, barcode) in [
+            (
+                mappable_variant_id,
+                &mappable_key,
+                Some(format!("B-{suffix}0")),
+            ),
+            (wildcard_variant_id, &wildcard_key, None),
+            (different_order_variant_id, &different_order_key, None),
         ] {
             sqlx::query(
                 r#"
                 INSERT INTO product_variants (
-                    id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+                    id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key, barcode
                 )
-                VALUES ($1, $2, $3, '{}'::jsonb, 0, $4)
+                VALUES ($1, $2, $3, '{}'::jsonb, 0, $4, $5)
                 "#,
             )
             .bind(variant_id)
             .bind(product_id)
             .bind(key)
             .bind(key)
+            .bind(barcode)
             .execute(&pool)
             .await
             .expect("insert alias preflight variant fixture");
@@ -16805,10 +16945,14 @@ mod tests {
             },
         )
         .await
-        .expect("replace counterpoint b-sku aliases");
-        assert_eq!(replaced.summary.would_insert_aliases, 1);
-        assert_eq!(replaced.summary.inserted_aliases, 1);
-        assert!(replaced.summary.deleted_existing_counterpoint_b_sku_aliases >= 1);
+        .expect("preserve existing counterpoint b-sku aliases");
+        assert_eq!(replaced.summary.would_insert_aliases, 0);
+        assert_eq!(replaced.summary.inserted_aliases, 0);
+        assert_eq!(replaced.summary.already_existing_identical_aliases, 1);
+        assert_eq!(
+            replaced.summary.deleted_existing_counterpoint_b_sku_aliases,
+            0
+        );
 
         let conflict = persist_counterpoint_barcode_aliases(
             &pool,
@@ -17061,6 +17205,8 @@ mod tests {
 
     #[test]
     fn counterpoint_catalog_identity_preflight_reports_variant_identity_conflicts() {
+        let mut missing_cells_row = catalog_row("I-500", None, Vec::new());
+        missing_cells_row.is_grid = Some(true);
         let payload = CounterpointCatalogPayload {
             rows: vec![
                 catalog_row(
@@ -17074,6 +17220,7 @@ mod tests {
                 catalog_row("I-200", None, vec![catalog_cell("I-200|RED", "B-500")]),
                 catalog_row("I-300", None, Vec::new()),
                 catalog_row("I-400", None, vec![catalog_cell("I-100|RED", "B-501")]),
+                missing_cells_row,
             ],
             sync: None,
         };
@@ -17083,7 +17230,7 @@ mod tests {
         let issue_types = preflight_issue_types(&report);
 
         assert_eq!(report.summary.entity, "catalog");
-        assert_eq!(report.summary.total_rows, 4);
+        assert_eq!(report.summary.total_rows, 5);
         assert_eq!(report.summary.variant_rows_checked, 5);
         assert!(report.summary.has_errors);
         assert_eq!(report.summary.invalid_sku_rows, 0);
@@ -17097,12 +17244,14 @@ mod tests {
         assert_eq!(report.summary.info_count, 0);
         assert_eq!(report.summary.warning_count, 0);
         assert_eq!(report.summary.quarantine_count, 0);
-        assert_eq!(report.summary.blocking_count, 4);
+        assert_eq!(report.summary.blocking_count, 6);
         assert!(report.summary.has_blocking_issues);
         assert!(issue_types.contains("duplicate_normalized_b_sku"));
         assert!(issue_types.contains("duplicate_counterpoint_item_key"));
         assert!(issue_types.contains("conflicting_sku_family_mapping"));
         assert!(issue_types.contains("conflicting_sku_counterpoint_item_key_mapping"));
+        assert!(issue_types.contains("matrix_parent_missing_cells"));
+        assert!(issue_types.contains("matrix_cell_family_mismatch"));
 
         let duplicate_sku = preflight_issue(&report, "duplicate_normalized_b_sku");
         assert_eq!(duplicate_sku.severity, "BLOCKING");

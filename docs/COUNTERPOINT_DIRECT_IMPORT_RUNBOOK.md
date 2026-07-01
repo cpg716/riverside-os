@@ -4,6 +4,10 @@ This records the go-live import path used on June 25-26, 2026. It avoids the ret
 
 Do not store live SQL passwords or sync tokens in this document.
 
+## Source Authority
+
+Counterpoint SQL is the source of truth for cutover customer profiles, open orders, gift cards, loyalty point balances, catalog identity, and inventory quantities. ROS must land those records into the correct operational tables with Counterpoint keys/provenance intact so daily store operations can continue from the imported state. The only ROS-created inventory identity allowed during import is a deterministic `CP-*` recovery SKU when Counterpoint provides a valid item/cell key but no usable `B-*` barcode/SKU; this is additive and must not remove or replace Counterpoint source data.
+
 ## Proven Path
 
 1. Reset only from the ROS Counterpoint command center when the current landed proof must be discarded.
@@ -39,6 +43,7 @@ Do not store live SQL passwords or sync tokens in this document.
 - Counterpoint ticket headers with no matching line rows must be excluded from closed-ticket import. They are not valid ROS sale records.
 - Counterpoint zero-sale positive-payment ticket artifacts must not be surfaced as customer purchases. Those rows represent payment/deposit activity, not fulfilled merchandise sales.
 - Open-doc payments imported from Counterpoint are deposits on the order even when they do not carry POS checkout `applied_deposit_amount` metadata.
+- Every Counterpoint `I-XXXXX` parent item must be treated as the matrix family key. All visible `IM_INV_CELL` rows for that `I-XXXXX` must land as variants under the same ROS product, using their real `B-XXXXX` barcode aliases when Counterpoint provides them. Never remove or replace real Counterpoint `B-XXXXX` barcode data during import.
 - If a Counterpoint item/cell has no usable `B-XXXXX` barcode, the importer must generate and reuse a deterministic `CP-*` recovery SKU from the Counterpoint item key. Catalog, inventory, ticket lines, and open-doc lines must all derive the same recovery SKU for the same key, and matrix-cell recovery SKUs must be collision-resistant across the full historical catalog.
 - Catalog must create recovery variants before inventory, ticket history, or open docs are posted. If inventory/ticket proof shows unresolved `CP-*` rows, rerun catalog first.
 - Rerunning ticket history must rebuild existing Counterpoint-imported ticket rows, not skip them. Existing imported lines and Counterpoint-tagged payments are safe to replace from source.

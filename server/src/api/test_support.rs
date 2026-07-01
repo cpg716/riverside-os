@@ -143,6 +143,25 @@ struct SeedFixtureRequest {
     customer_label: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct SeedStationHeartbeatRequest {
+    rows: Vec<SeedStationHeartbeatRow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeedStationHeartbeatRow {
+    station_key: String,
+    station_label: String,
+    app_version: String,
+    #[serde(default)]
+    git_sha: Option<String>,
+    #[serde(default)]
+    tailscale_node: Option<String>,
+    #[serde(default)]
+    lan_ip: Option<String>,
+    last_seen_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Serialize)]
 struct SeedCustomerSummary {
     id: Uuid,
@@ -2026,6 +2045,65 @@ async fn get_parked_sale_status(
     }))
 }
 
+async fn post_seed_station_heartbeats(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<SeedStationHeartbeatRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+    if payload.rows.is_empty() || payload.rows.len() > 10 {
+        return Err(TestSupportError::BadRequest(
+            "rows must contain 1-10 station fixtures".to_string(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+    sqlx::query("DELETE FROM ops_station_heartbeat")
+        .execute(&mut *tx)
+        .await?;
+    for row in &payload.rows {
+        let station_key = row.station_key.trim();
+        let station_label = row.station_label.trim();
+        let app_version = row.app_version.trim();
+        if station_key.is_empty() || station_label.is_empty() || app_version.is_empty() {
+            return Err(TestSupportError::BadRequest(
+                "station_key, station_label, and app_version are required".to_string(),
+            ));
+        }
+        sqlx::query(
+            r#"
+            INSERT INTO ops_station_heartbeat (
+                station_key, station_label, app_version, git_sha, tailscale_node, lan_ip,
+                last_seen_at, updated_at, created_at, meta
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $7, NOW(), '{"source":"e2e"}'::jsonb)
+            ON CONFLICT (station_key)
+            DO UPDATE SET
+                station_label = EXCLUDED.station_label,
+                app_version = EXCLUDED.app_version,
+                git_sha = EXCLUDED.git_sha,
+                tailscale_node = EXCLUDED.tailscale_node,
+                lan_ip = EXCLUDED.lan_ip,
+                last_seen_at = EXCLUDED.last_seen_at,
+                updated_at = EXCLUDED.updated_at,
+                meta = EXCLUDED.meta
+            "#,
+        )
+        .bind(station_key)
+        .bind(station_label)
+        .bind(app_version)
+        .bind(row.git_sha.as_deref())
+        .bind(row.tailscale_node.as_deref())
+        .bind(row.lan_ip.as_deref())
+        .bind(row.last_seen_at)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(Json(json!({ "seeded": payload.rows.len() })))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/rms/seed-fixture", post(post_seed_fixture))
@@ -2076,6 +2154,7 @@ pub fn router() -> Router<AppState> {
             post(post_assign_qbo_shipping_recognition),
         )
         .route("/shipping/seed-quote", post(post_seed_shipping_quote))
+        .route("/ops/seed-stations", post(post_seed_station_heartbeats))
         .route(
             "/parked-sales/{parked_sale_id}",
             get(get_parked_sale_status),

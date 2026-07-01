@@ -8,6 +8,15 @@ function shouldAttemptExactSkuScan(query: string): boolean {
   return /\d/.test(query) || /^[a-z]{1,6}[-_/]/i.test(query);
 }
 
+function isExactSkuLookup(query: string): boolean {
+  const normalized = query.trim();
+  if (!normalized || /\s/.test(normalized)) return false;
+  if (/^(B|I)-\d+$/i.test(normalized)) return true;
+  if (/^CP-[a-z0-9]+$/i.test(normalized)) return true;
+  if (/^ROS-[a-z0-9]+$/i.test(normalized)) return true;
+  return false;
+}
+
 export function safeSearchResultLabel(item: Partial<SearchResult> | undefined | null): string {
   if (!item) return "";
   const name = typeof item.name === "string" ? item.name.trim() : "";
@@ -95,6 +104,7 @@ export function usePosSearch({
 
     const requests: Promise<void>[] = [];
     const collected: SearchResult[] = [];
+    const exactSkuOnly = isExactSkuLookup(q);
 
     // 1. Direct SKU/Scan resolution. Skip plain name searches so expected misses do not
     // surface as noisy 404s while staff are searching customers or product names.
@@ -120,9 +130,24 @@ export function usePosSearch({
               sku,
               name,
             });
+          } else if (exactSkuOnly && res.status === 404) {
+            toast(`SKU NOT FOUND: ${q}`, "error");
           }
         }),
       );
+    }
+
+    if (exactSkuOnly) {
+      try {
+        await Promise.all(requests);
+        setSearchResults(collected);
+        return collected;
+      } catch (e) {
+        console.error("POS SKU Scan Error", e);
+        setSearchResults([]);
+        toast(`SKU NOT FOUND: ${q}`, "error");
+        return [];
+      }
     }
 
     // 2. Control Board Fuzzy Search

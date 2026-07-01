@@ -1336,6 +1336,13 @@ async fn helcim_terminal_routing_status(
     pool: &PgPool,
     config: &helcim::HelcimConfig,
 ) -> Result<HelcimTerminalRoutingStatus, PaymentError> {
+    for terminal_id in ["terminal_1", "terminal_2"]
+        .into_iter()
+        .filter_map(|key| config.device_code_for_terminal_key(key))
+    {
+        expire_stale_helcim_terminal_attempts(pool, terminal_id).await?;
+    }
+
     let pending_rows: Vec<(Option<String>, Option<i16>, Uuid)> = sqlx::query_as(
         r#"
         SELECT selected_terminal_key, rs.register_lane, ppa.id
@@ -7944,7 +7951,9 @@ async fn release_helcim_terminal_attempt(
         .begin()
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
-    lock_register_session_open_for_payment(&mut tx, attempt.register_session_id).await?;
+    if session_id.is_some() {
+        lock_register_session_open_for_payment(&mut tx, attempt.register_session_id).await?;
+    }
     let result = sqlx::query(
         r#"
         UPDATE payment_provider_attempts
