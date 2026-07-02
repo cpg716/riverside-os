@@ -260,6 +260,53 @@ function Add-MeilisearchBinary([string]$PackageRoot) {
   Write-Host "Packaged meilisearch/meilisearch.exe"
 }
 
+function Convert-FileLineEndings([string]$Path, [ValidateSet("LF", "CRLF")][string]$Mode) {
+  $bytes = [System.IO.File]::ReadAllBytes($Path)
+  $lfBytes = New-Object System.Collections.Generic.List[byte]
+  for ($i = 0; $i -lt $bytes.Length; $i++) {
+    if ($bytes[$i] -eq 13) {
+      if (($i + 1) -lt $bytes.Length -and $bytes[$i + 1] -eq 10) {
+        $lfBytes.Add(10)
+        $i++
+      } else {
+        $lfBytes.Add(10)
+      }
+    } else {
+      $lfBytes.Add($bytes[$i])
+    }
+  }
+
+  if ($Mode -eq "LF") {
+    [System.IO.File]::WriteAllBytes($Path, $lfBytes.ToArray())
+    return
+  }
+
+  $crlfBytes = New-Object System.Collections.Generic.List[byte]
+  foreach ($byte in $lfBytes) {
+    if ($byte -eq 10) {
+      $crlfBytes.Add(13)
+      $crlfBytes.Add(10)
+    } else {
+      $crlfBytes.Add($byte)
+    }
+  }
+  [System.IO.File]::WriteAllBytes($Path, $crlfBytes.ToArray())
+}
+
+function Set-PackagedMigrationLineEndings([string]$MigrationDir) {
+  Get-ChildItem $MigrationDir -Filter "*.sql" | ForEach-Object {
+    if ($_.BaseName -match '^(\d+)_') {
+      $migrationNumber = [int]$Matches[1]
+      if ($migrationNumber -le 101) {
+        Convert-FileLineEndings $_.FullName "CRLF"
+      } else {
+        Convert-FileLineEndings $_.FullName "LF"
+      }
+    }
+  }
+  Write-Host "Packaged migration line endings normalized: 001-101 CRLF, 102+ LF"
+}
+
 $repoRoot = Resolve-FullPath "$PSScriptRoot\..\.."
 $gitShort = Get-GitShort $repoRoot
 $gitFull = Get-GitFull $repoRoot
@@ -351,6 +398,7 @@ Copy-Item "$PSScriptRoot\riverside-deployment.config.example.json" $packageRoot 
 Copy-Item $ServerBinaryPath "$packageRoot\server\riverside-server.exe" -Force
 Copy-Item "$ClientDistPath\*" "$packageRoot\client-dist" -Recurse -Force
 Copy-Item "$repoRoot\migrations\*.sql" "$packageRoot\migrations" -Force
+Set-PackagedMigrationLineEndings "$packageRoot\migrations"
 Copy-Item "$repoRoot\scripts\seeds\seed_core_required.sql" "$packageRoot\seeds" -Force
 Copy-Item "$repoRoot\scripts\seeds\seed_rbac.sql" "$packageRoot\seeds" -Force
 

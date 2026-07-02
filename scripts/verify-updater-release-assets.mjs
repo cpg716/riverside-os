@@ -59,8 +59,34 @@ if (token) {
   apiHeaders.Authorization = `Bearer ${token}`;
 }
 
+const transientHttpStatuses = new Set([408, 429, 500, 502, 503, 504]);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url, options, label) {
+  const maxAttempts = 4;
+  let lastResponse;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const response = await fetch(url, options);
+    if (response.ok || !transientHttpStatuses.has(response.status)) {
+      return response;
+    }
+    lastResponse = response;
+    if (attempt < maxAttempts) {
+      const delayMs = attempt * 1_000;
+      console.warn(
+        `${label} returned HTTP ${response.status}; retrying in ${delayMs}ms (${attempt}/${maxAttempts})`,
+      );
+      await sleep(delayMs);
+    }
+  }
+  return lastResponse;
+}
+
 async function fetchJson(url) {
-  const response = await fetch(url, { headers: apiHeaders });
+  const response = await fetchWithRetry(url, { headers: apiHeaders }, url);
   if (!response.ok) {
     throw new Error(`${url} returned HTTP ${response.status}`);
   }
@@ -68,12 +94,16 @@ async function fetchJson(url) {
 }
 
 async function fetchAssetText(asset) {
-  const response = await fetch(asset.url, {
-    headers: {
-      ...apiHeaders,
-      Accept: "application/octet-stream",
+  const response = await fetchWithRetry(
+    asset.url,
+    {
+      headers: {
+        ...apiHeaders,
+        Accept: "application/octet-stream",
+      },
     },
-  });
+    `Asset ${asset.name}`,
+  );
   if (!response.ok) {
     throw new Error(`Asset ${asset.name} returned HTTP ${response.status}`);
   }

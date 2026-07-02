@@ -47,6 +47,8 @@ From a Windows release machine after building the server, client, and Tauri bund
 .\deployment\windows\build-deployment-package.ps1 -Version "0.90.0"
 ```
 
+The package builder normalizes packaged migration file line endings to match the live migration ledger checksum history: migrations `001-101` are packaged as CRLF, and migrations `102+` are packaged as LF. The server and deployment scripts treat CRLF/LF-only checksum differences as equivalent while still failing real SQL drift. Do not hand-edit packaged migration files after the ZIP is built; rerun the package builder so the checksum-compatible rule is applied consistently.
+
 If the Tauri register bundle is coming from GitHub Actions instead of the local machine, copy the downloaded MSI into the package's `register/` folder before running `install-register.ps1`. For v0.80.0 and later, do not mix the `server/`, `client-dist/`, or `register/` folders from different release zips. Updater manifests, signatures, and standalone updater installers are published as GitHub release assets instead of being duplicated inside the deployment ZIP.
 
 ## Configure the package

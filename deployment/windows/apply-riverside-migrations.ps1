@@ -89,6 +89,54 @@ function Get-FileSha256([string]$Path) {
   return $hash.Hash.ToLower()
 }
 
+function Get-Sha256ForBytes([byte[]]$Bytes) {
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $hash = $sha.ComputeHash($Bytes)
+    return -join ($hash | ForEach-Object { $_.ToString("x2") })
+  } finally {
+    $sha.Dispose()
+  }
+}
+
+function Get-FileSha256Variants([string]$Path) {
+  $bytes = [System.IO.File]::ReadAllBytes($Path)
+  $lfBytes = New-Object System.Collections.Generic.List[byte]
+  for ($i = 0; $i -lt $bytes.Length; $i++) {
+    if ($bytes[$i] -eq 13) {
+      if (($i + 1) -lt $bytes.Length -and $bytes[$i + 1] -eq 10) {
+        $lfBytes.Add(10)
+        $i++
+      } else {
+        $lfBytes.Add(10)
+      }
+    } else {
+      $lfBytes.Add($bytes[$i])
+    }
+  }
+
+  $crlfBytes = New-Object System.Collections.Generic.List[byte]
+  foreach ($byte in $lfBytes) {
+    if ($byte -eq 10) {
+      $crlfBytes.Add(13)
+      $crlfBytes.Add(10)
+    } else {
+      $crlfBytes.Add($byte)
+    }
+  }
+
+  return @(
+    Get-Sha256ForBytes $bytes
+    Get-Sha256ForBytes $lfBytes.ToArray()
+    Get-Sha256ForBytes $crlfBytes.ToArray()
+  ) | Select-Object -Unique
+}
+
+function Test-MigrationChecksumMatch([string]$StoredSha, [string[]]$AllowedShas) {
+  $normalizedStoredSha = $StoredSha.Trim().ToLower()
+  return ($AllowedShas -contains $normalizedStoredSha)
+}
+
 function Get-StoredChecksum([string]$PsqlPath, [string]$DatabaseUrl, [string]$Version) {
   $migrationVersion = Escape-SqlLiteral $Version
   return Invoke-PsqlText $PsqlPath $DatabaseUrl "SELECT COALESCE(file_sha256, '') FROM ros_schema_migrations WHERE version = '$migrationVersion';"
@@ -155,6 +203,7 @@ function Apply-Migrations([string]$PsqlPath, [string]$DatabaseUrl, [string]$Dir)
 
   foreach ($file in $files) {
     $currentSha = Get-FileSha256 $file.FullName
+    $currentShaVariants = Get-FileSha256Variants $file.FullName
 
     if (Get-MigrationLedgerExists $PsqlPath $DatabaseUrl) {
       if (Get-MigrationApplied $PsqlPath $DatabaseUrl $file.Name) {
@@ -162,10 +211,12 @@ function Apply-Migrations([string]$PsqlPath, [string]$DatabaseUrl, [string]$Dir)
         if ([string]::IsNullOrWhiteSpace($storedSha)) {
           Update-StoredChecksum $PsqlPath $DatabaseUrl $file.Name $currentSha
           Write-Host "Skip migration $($file.Name) (checksum recorded)"
-        } elseif ($storedSha -ne $currentSha) {
+        } elseif (-not (Test-MigrationChecksumMatch $storedSha $currentShaVariants)) {
           Write-Warning "DRIFT: $($file.Name) has changed since it was applied! (stored=$storedSha current=$currentSha)"
           Write-Warning "  This file was modified after being applied. You may need a new migration to reconcile."
           $driftCount++
+        } elseif ($storedSha -ne $currentSha) {
+          Write-Host "Skip migration $($file.Name) (line-ending checksum compatible)"
         } else {
           Write-Host "Skip migration $($file.Name)"
         }

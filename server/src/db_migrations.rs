@@ -22,6 +22,29 @@ fn migration_sha256(sql_content: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+fn normalize_migration_lf(sql_content: &str) -> String {
+    sql_content.replace("\r\n", "\n").replace('\r', "\n")
+}
+
+fn normalize_migration_crlf(sql_content: &str) -> String {
+    normalize_migration_lf(sql_content).replace('\n', "\r\n")
+}
+
+fn migration_sha256_variants(sql_content: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+    for content in [
+        sql_content.to_string(),
+        normalize_migration_lf(sql_content),
+        normalize_migration_crlf(sql_content),
+    ] {
+        let sha = migration_sha256(&content);
+        if !variants.contains(&sha) {
+            variants.push(sha);
+        }
+    }
+    variants
+}
+
 async fn repair_public_serial_sequences(pool: &PgPool) -> Result<(), anyhow::Error> {
     sqlx::query(
         r#"
@@ -125,15 +148,24 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), anyhow::Error> {
         };
 
         let current_sha = migration_sha256(sql_content);
+        let current_sha_variants = migration_sha256_variants(sql_content);
         match stored_sha
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            Some(stored_sha) if stored_sha != current_sha => {
+            Some(stored_sha) if !current_sha_variants.iter().any(|sha| sha == stored_sha) => {
                 return Err(anyhow::anyhow!(
                     "Migration checksum drift detected for {file_name}. Expected ledger SHA {stored_sha}, current file SHA {current_sha}."
                 ));
+            }
+            Some(stored_sha) if stored_sha != current_sha => {
+                tracing::warn!(
+                    migration = file_name,
+                    stored_sha,
+                    current_sha,
+                    "Unified Engine: Migration checksum differs only by line endings; accepting legacy ledger checksum"
+                );
             }
             Some(_) => {}
             None if strict_production => {
@@ -403,7 +435,10 @@ fn is_ignored_pg_dump_statement(statement: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_ignored_pg_dump_statement, migration_sha256, split_postgres_statements};
+    use super::{
+        is_ignored_pg_dump_statement, migration_sha256, migration_sha256_variants,
+        split_postgres_statements,
+    };
 
     #[test]
     fn split_postgres_statements_preserves_plpgsql_body() {
@@ -478,5 +513,16 @@ mod tests {
             migration_sha256("SELECT 1;\n"),
             migration_sha256("SELECT 2;\n")
         );
+    }
+
+    #[test]
+    fn migration_sha256_variants_accept_line_ending_only_changes() {
+        let lf = "SELECT 1;\nSELECT 2;\n";
+        let crlf = "SELECT 1;\r\nSELECT 2;\r\n";
+        let variants = migration_sha256_variants(lf);
+
+        assert!(variants.contains(&migration_sha256(lf)));
+        assert!(variants.contains(&migration_sha256(crlf)));
+        assert!(!variants.contains(&migration_sha256("SELECT 3;\n")));
     }
 }

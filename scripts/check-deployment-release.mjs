@@ -178,8 +178,48 @@ const expectedCounterpointTender092Sha =
 assertIncludes(
   ".gitattributes",
   "*.sql text eol=lf",
-  "database migrations must retain byte-stable LF line endings in Windows release packages",
+  "database migration source files must keep stable LF line endings before package normalization",
 );
+assertIncludes(
+  "deployment/windows/build-deployment-package.ps1",
+  "function Set-PackagedMigrationLineEndings",
+  "Windows deployment package must normalize migration line endings to live-ledger-compatible checksums",
+);
+assertIncludes(
+  "deployment/windows/build-deployment-package.ps1",
+  "if ($migrationNumber -le 101)",
+  "Windows deployment package must preserve legacy CRLF checksums for migrations 001-101",
+);
+assertIncludes(
+  "deployment/windows/build-deployment-package.ps1",
+  "Packaged migration line endings normalized: 001-101 CRLF, 102+ LF",
+  "Windows deployment package must log the migration checksum compatibility rule",
+);
+assertIncludes(
+  "server/src/db_migrations.rs",
+  "fn migration_sha256_variants",
+  "server startup migration verifier must accept line-ending-equivalent migration checksums",
+);
+assertIncludes(
+  "server/src/db_migrations.rs",
+  "Migration checksum differs only by line endings",
+  "server startup migration verifier must log line-ending-only checksum compatibility",
+);
+for (const migrationScript of [
+  "deployment/windows/install-server.ps1",
+  "deployment/windows/apply-riverside-migrations.ps1",
+]) {
+  assertIncludes(
+    migrationScript,
+    "function Get-FileSha256Variants",
+    `${migrationScript} must compute migration checksum line-ending variants`,
+  );
+  assertIncludes(
+    migrationScript,
+    "line-ending checksum compatible",
+    `${migrationScript} must accept CRLF/LF-only checksum drift`,
+  );
+}
 if (sha256(counterpointTender092) !== expectedCounterpointTender092Sha) {
   fail(
     `${counterpointTender092}: applied migration checksum changed; add a new numbered migration instead`,

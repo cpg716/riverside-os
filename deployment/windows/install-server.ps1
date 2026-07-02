@@ -1318,6 +1318,54 @@ function Get-FileSha256([string]$Path) {
   return $hash.Hash.ToLower()
 }
 
+function Get-Sha256ForBytes([byte[]]$Bytes) {
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $hash = $sha.ComputeHash($Bytes)
+    return -join ($hash | ForEach-Object { $_.ToString("x2") })
+  } finally {
+    $sha.Dispose()
+  }
+}
+
+function Get-FileSha256Variants([string]$Path) {
+  $bytes = [System.IO.File]::ReadAllBytes($Path)
+  $lfBytes = New-Object System.Collections.Generic.List[byte]
+  for ($i = 0; $i -lt $bytes.Length; $i++) {
+    if ($bytes[$i] -eq 13) {
+      if (($i + 1) -lt $bytes.Length -and $bytes[$i + 1] -eq 10) {
+        $lfBytes.Add(10)
+        $i++
+      } else {
+        $lfBytes.Add(10)
+      }
+    } else {
+      $lfBytes.Add($bytes[$i])
+    }
+  }
+
+  $crlfBytes = New-Object System.Collections.Generic.List[byte]
+  foreach ($byte in $lfBytes) {
+    if ($byte -eq 10) {
+      $crlfBytes.Add(13)
+      $crlfBytes.Add(10)
+    } else {
+      $crlfBytes.Add($byte)
+    }
+  }
+
+  return @(
+    Get-Sha256ForBytes $bytes
+    Get-Sha256ForBytes $lfBytes.ToArray()
+    Get-Sha256ForBytes $crlfBytes.ToArray()
+  ) | Select-Object -Unique
+}
+
+function Test-MigrationChecksumMatch([string]$StoredSha, [string[]]$AllowedShas) {
+  $normalizedStoredSha = $StoredSha.Trim().ToLower()
+  return ($AllowedShas -contains $normalizedStoredSha)
+}
+
 function Get-MigrationLedgerExists($PsqlPath, $DatabaseUrl) {
   $ledgerCheck = & $PsqlPath $DatabaseUrl -w -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ros_schema_migrations');"
   if ($LASTEXITCODE -ne 0) {
@@ -1423,14 +1471,17 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
 
   foreach ($file in $files) {
     $currentSha = Get-FileSha256 $file.FullName
+    $currentShaVariants = Get-FileSha256Variants $file.FullName
     if (Get-MigrationLedgerExists $PsqlPath $DatabaseUrl) {
       if (Get-MigrationApplied $PsqlPath $DatabaseUrl $file.Name) {
         $storedSha = Get-StoredMigrationChecksum $PsqlPath $DatabaseUrl $file.Name
         if ([string]::IsNullOrWhiteSpace($storedSha)) {
           Update-StoredMigrationChecksum $PsqlPath $DatabaseUrl $file.Name $currentSha
           Write-Host "Skip migration $($file.Name) (checksum recorded)"
-        } elseif ($storedSha -ne $currentSha) {
+        } elseif (-not (Test-MigrationChecksumMatch $storedSha $currentShaVariants)) {
           throw "Migration checksum drift detected for $($file.Name). Stored=$storedSha Current=$currentSha. Create a new numbered migration to reconcile."
+        } elseif ($storedSha -ne $currentSha) {
+          Write-Host "Skip migration $($file.Name) (line-ending checksum compatible)"
         } else {
           Write-Host "Skip migration $($file.Name)"
         }

@@ -4,6 +4,7 @@
 *.cmd text eol=crlf
 *.bat text eol=crlf
 
-# Database migrations are checksummed byte-for-byte in ROS. Keep packaged SQL
-# line endings stable across Windows release runners and Main Hub installs.
+# Database migration source files stay LF in Git. Windows release packages
+# normalize packaged migration copies by historical checksum compatibility:
+# migrations 001-101 ship CRLF, and 102+ ship LF.
 *.sql text eol=lf
