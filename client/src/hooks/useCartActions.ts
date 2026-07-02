@@ -536,6 +536,7 @@ export function useCartActions({
     const exactSkuMatch = search.trim().toLowerCase() === item.sku.toLowerCase();
 
     if (siblings.length > 1 && !exactSkuMatch) {
+       setSearchResults([]);
        setActiveVariationSelection({
          product_id: item.product_id,
          name: item.name,
@@ -550,7 +551,7 @@ export function useCartActions({
     } else {
        addItem(item);
     }
-  }, [ensureSaleCashier, addItem]);
+  }, [ensureSaleCashier, addItem, setSearchResults]);
 
   const removeLine = useCallback((rowId: string) => {
     setLines((prev) => prev.filter((l) => l.cart_row_id !== rowId));

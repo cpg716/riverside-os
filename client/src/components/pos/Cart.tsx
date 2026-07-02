@@ -2416,7 +2416,16 @@ export default function Cart({
           ) : null}
 
           {/* Product search */}
-          <div className="relative w-full rounded-2xl border border-app-border bg-app-surface p-1.5 shadow-sm">
+          <div
+            className="relative w-full rounded-2xl border border-app-border bg-app-surface p-1.5 shadow-sm"
+            onBlur={(event) => {
+              const nextFocus = event.relatedTarget;
+              if (nextFocus instanceof Node && event.currentTarget.contains(nextFocus)) {
+                return;
+              }
+              setSearchResults([]);
+            }}
+          >
             <Search
               className="absolute left-5 top-1/2 size-[22px] -translate-y-1/2 text-app-accent"
               aria-hidden
