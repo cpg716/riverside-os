@@ -175,6 +175,11 @@ const counterpointTender092 = "migrations/092_counterpoint_live_tender_aliases.s
 const counterpointSquare093 = "migrations/093_counterpoint_square_tender_alias.sql";
 const expectedCounterpointTender092Sha =
   "def5b71eb0e7bcbb8bcf80341afc29dc0bfcbb6b46563a14b7e79ecc1eb968b4";
+assertIncludes(
+  ".gitattributes",
+  "*.sql text eol=lf",
+  "database migrations must retain byte-stable LF line endings in Windows release packages",
+);
 if (sha256(counterpointTender092) !== expectedCounterpointTender092Sha) {
   fail(
     `${counterpointTender092}: applied migration checksum changed; add a new numbered migration instead`,
