@@ -91,43 +91,59 @@ fn spawn_meilisearch_appointment_upsert(state: &AppState, appt_id: Uuid) {
     });
 }
 
-async fn get_or_create_wedding_import_customer(
+async fn get_or_create_wedding_customer(
     pool: &PgPool,
     first: &str,
     last: &str,
     phone: Option<&str>,
+    customer_created_source: &str,
+    created_is_verified: bool,
 ) -> Result<(Uuid, bool), sqlx::Error> {
     let phone = phone.map(str::trim).filter(|s| !s.is_empty());
     if let Some(phone) = phone {
         let phone_digits = digits_only(phone);
-        if let Some(existing_id) = sqlx::query_scalar::<_, Uuid>(
+        if let Some((existing_id, match_count)) = sqlx::query_as::<_, (Uuid, i64)>(
             r#"
-            SELECT id
-            FROM customers
-            WHERE phone = $1
-               OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') = $2
-               OR (
-                    LENGTH($2) = 10
-                    AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = $2
-               )
-               OR (
-                    LENGTH($2) = 7
-                    AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 7) = $2
-               )
-               OR (
-                    LENGTH($2) = 7
-                    AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = CONCAT('716', $2)
-               )
+            WITH phone_matches AS (
+                SELECT id, first_name, last_name, created_at
+                FROM customers
+                WHERE phone = $1
+                   OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') = $2
+                   OR (
+                        LENGTH($2) = 10
+                        AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = $2
+                   )
+                   OR (
+                        LENGTH($2) = 7
+                        AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 7) = $2
+                   )
+                   OR (
+                        LENGTH($2) = 7
+                        AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = CONCAT('716', $2)
+                   )
+            ),
+            name_matches AS (
+                SELECT id, created_at
+                FROM phone_matches
+                WHERE LOWER(TRIM(COALESCE(first_name, ''))) = LOWER(TRIM($3))
+                  AND LOWER(TRIM(COALESCE(last_name, ''))) = LOWER(TRIM($4))
+            )
+            SELECT id, COUNT(*) OVER () AS match_count
+            FROM name_matches
             ORDER BY created_at DESC
             LIMIT 1
             "#,
         )
         .bind(phone)
         .bind(&phone_digits)
+        .bind(first)
+        .bind(last)
         .fetch_optional(pool)
         .await?
         {
-            return Ok((existing_id, true));
+            if match_count == 1 {
+                return Ok((existing_id, true));
+            }
         }
     }
 
@@ -137,7 +153,7 @@ async fn get_or_create_wedding_import_customer(
         INSERT INTO customers (
             id, first_name, last_name, phone, customer_code, customer_created_source, created_at
         )
-        VALUES ($1, $2, $3, $4, $5, 'wedding_import', NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
         RETURNING id
         "#,
     )
@@ -146,10 +162,11 @@ async fn get_or_create_wedding_import_customer(
     .bind(last)
     .bind(phone)
     .bind(format!("Wedding-{}", &customer_id.to_string()[..8]))
+    .bind(customer_created_source)
     .fetch_one(pool)
     .await?;
 
-    Ok((inserted_id, false))
+    Ok((inserted_id, created_is_verified))
 }
 
 pub use crate::logic::wedding_api_types::{
@@ -1039,9 +1056,15 @@ async fn insert_party_and_respond(
 
     let party_type = body.party_type.as_deref().unwrap_or("Wedding").to_string();
     let cutover_review_status = normalize_cutover_status(body.cutover_review_status.clone())?;
+    let is_cutover_import = cutover_review_status == "needs_review";
+    let simple_customer_source = if is_cutover_import {
+        "wedding_import"
+    } else {
+        "store"
+    };
 
     // Handle groom and bride customer creation/linking
-    let groom_customer_id = if let Some(gcid) = body.groom_customer_id {
+    let (groom_customer_id, groom_customer_verified) = if let Some(gcid) = body.groom_customer_id {
         // Link to existing customer
         let exists: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
@@ -1051,7 +1074,7 @@ async fn insert_party_and_respond(
         if !exists {
             return Err(WeddingError::BadRequest("groom customer not found".into()));
         }
-        Some(gcid)
+        (Some(gcid), true)
     } else if !gp.is_empty() || !groom.is_empty() {
         // Create or reuse an imported groom customer by normalized phone.
         let first = groom.split_whitespace().next().unwrap_or(groom);
@@ -1067,11 +1090,18 @@ async fn insert_party_and_respond(
         };
         let _phone_clean = gpc.clone();
 
-        let (cid, _) =
-            get_or_create_wedding_import_customer(&state.db, first, &last, Some(gp)).await?;
-        Some(cid)
+        let (cid, verified) = get_or_create_wedding_customer(
+            &state.db,
+            first,
+            &last,
+            Some(gp),
+            simple_customer_source,
+            !is_cutover_import,
+        )
+        .await?;
+        (Some(cid), verified)
     } else {
-        None
+        (None, true)
     };
 
     let bride_customer_id = if let Some(bcid) = body.bride_customer_id {
@@ -1106,8 +1136,15 @@ async fn insert_party_and_respond(
             last
         };
 
-        let (cid, _) =
-            get_or_create_wedding_import_customer(&state.db, first, &last, Some(bp)).await?;
+        let (cid, _) = get_or_create_wedding_customer(
+            &state.db,
+            first,
+            &last,
+            Some(bp),
+            simple_customer_source,
+            !is_cutover_import,
+        )
+        .await?;
         Some(cid)
     } else {
         None
@@ -1180,14 +1217,17 @@ async fn insert_party_and_respond(
         let next_idx = max_idx.unwrap_or(0) + 1;
         let _: Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO wedding_members (wedding_party_id, customer_id, role, status, member_index)
-            VALUES ($1, $2, 'Groom', 'active', $3)
+            INSERT INTO wedding_members (
+                wedding_party_id, customer_id, role, status, member_index, customer_verified
+            )
+            VALUES ($1, $2, 'Groom', 'active', $3, $4)
             RETURNING id
             "#,
         )
         .bind(id)
         .bind(gcid)
         .bind(next_idx)
+        .bind(groom_customer_verified)
         .fetch_one(&state.db)
         .await?;
     }
@@ -1490,121 +1530,156 @@ async fn add_member(
         return Err(WeddingError::PartyNotFound);
     }
 
-    let (customer_id, role, notes, log_actor, import_name, import_phone) = match body {
-        CreateMemberRequest::LinkExisting {
-            customer_id,
-            role,
-            notes,
-            actor_name,
-        } => {
-            let cust: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
-                    .bind(customer_id)
-                    .fetch_one(&state.db)
-                    .await?;
-            if !cust {
-                return Err(WeddingError::BadRequest("customer not found".into()));
-            }
-            // Linked existing customers are verified
-            (customer_id, role, notes, actor_name, None, None)
-        }
-        CreateMemberRequest::SimpleCreate {
-            first_name,
-            last_name,
-            phone,
-            role,
-            notes,
-            import_customer_name,
-            import_customer_phone,
-        } => {
-            let first = first_name.trim();
-            let last = last_name.trim();
-            if first.is_empty() || last.is_empty() {
-                return Err(WeddingError::BadRequest(
-                    "first_name and last_name are required".into(),
-                ));
-            }
-            let phone = phone
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(ToOwned::to_owned);
-            let (cid, _is_verified) =
-                get_or_create_wedding_import_customer(&state.db, first, last, phone.as_deref())
-                    .await?;
-
-            // Store import tracking info
-            let import_name = import_customer_name.or_else(|| Some(format!("{first} {last}")));
-            let import_phone = import_customer_phone.or_else(|| phone.clone());
-
-            (cid, role, notes, None, import_name, import_phone)
-        }
-        CreateMemberRequest::QuickCreateCustomer(boxed) => {
-            let QuickCreateMemberBody {
-                first_name,
-                last_name,
-                email,
-                phone,
-                address_line1,
-                address_line2,
-                city,
-                state: region,
-                postal_code,
-                marketing_email_opt_in,
-                marketing_sms_opt_in,
-                transactional_sms_opt_in,
-                transactional_email_opt_in,
+    let (customer_id, role, notes, log_actor, import_name, import_phone, customer_verified) =
+        match body {
+            CreateMemberRequest::LinkExisting {
+                customer_id,
                 role,
                 notes,
                 actor_name,
-            } = *boxed;
-            let first = first_name.trim();
-            let last = last_name.trim();
-            if first.is_empty() || last.is_empty() {
-                return Err(WeddingError::BadRequest(
-                    "first_name and last_name are required".into(),
-                ));
+            } => {
+                let cust: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
+                        .bind(customer_id)
+                        .fetch_one(&state.db)
+                        .await?;
+                if !cust {
+                    return Err(WeddingError::BadRequest("customer not found".into()));
+                }
+                // Linked existing customers are verified
+                (customer_id, role, notes, actor_name, None, None, true)
             }
-            let email = email
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(ToOwned::to_owned);
-            let phone = phone
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(ToOwned::to_owned);
-            let line1 = address_line1
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(ToOwned::to_owned);
-            let line2 = address_line2
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(ToOwned::to_owned);
-            let city_v = city
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(ToOwned::to_owned);
-            let state_v = region
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(ToOwned::to_owned);
-            let postal = postal_code
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(ToOwned::to_owned);
-            let m_sms = marketing_sms_opt_in.unwrap_or(false);
-            let t_sms = transactional_sms_opt_in.unwrap_or(m_sms);
-            let m_email = marketing_email_opt_in.unwrap_or(false);
-            let t_email = transactional_email_opt_in.unwrap_or(m_email);
-            let cid = insert_customer(
+            CreateMemberRequest::SimpleCreate {
+                first_name,
+                last_name,
+                phone,
+                role,
+                notes,
+                import_customer_name,
+                import_customer_phone,
+            } => {
+                let first = first_name.trim();
+                let last = last_name.trim();
+                if first.is_empty() || last.is_empty() {
+                    return Err(WeddingError::BadRequest(
+                        "first_name and last_name are required".into(),
+                    ));
+                }
+                let phone = phone
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                let import_name = import_customer_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                let import_phone = import_customer_phone
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                let is_import = import_name.is_some() || import_phone.is_some();
+                let source = if is_import { "wedding_import" } else { "store" };
+                let (cid, is_verified) = get_or_create_wedding_customer(
+                    &state.db,
+                    first,
+                    last,
+                    phone.as_deref(),
+                    source,
+                    !is_import,
+                )
+                .await?;
+
+                // Store import tracking info
+                let import_name = if is_import {
+                    import_name.or_else(|| Some(format!("{first} {last}")))
+                } else {
+                    None
+                };
+                let import_phone = if is_import {
+                    import_phone.or_else(|| phone.clone())
+                } else {
+                    None
+                };
+
+                (
+                    cid,
+                    role,
+                    notes,
+                    None,
+                    import_name,
+                    import_phone,
+                    is_verified,
+                )
+            }
+            CreateMemberRequest::QuickCreateCustomer(boxed) => {
+                let QuickCreateMemberBody {
+                    first_name,
+                    last_name,
+                    email,
+                    phone,
+                    address_line1,
+                    address_line2,
+                    city,
+                    state: region,
+                    postal_code,
+                    marketing_email_opt_in,
+                    marketing_sms_opt_in,
+                    transactional_sms_opt_in,
+                    transactional_email_opt_in,
+                    role,
+                    notes,
+                    actor_name,
+                } = *boxed;
+                let first = first_name.trim();
+                let last = last_name.trim();
+                if first.is_empty() || last.is_empty() {
+                    return Err(WeddingError::BadRequest(
+                        "first_name and last_name are required".into(),
+                    ));
+                }
+                let email = email
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                let phone = phone
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                let line1 = address_line1
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                let line2 = address_line2
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                let city_v = city
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                let state_v = region
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                let postal = postal_code
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned);
+                let m_sms = marketing_sms_opt_in.unwrap_or(false);
+                let t_sms = transactional_sms_opt_in.unwrap_or(m_sms);
+                let m_email = marketing_email_opt_in.unwrap_or(false);
+                let t_email = transactional_email_opt_in.unwrap_or(m_email);
+                let cid = insert_customer(
                 &state.db,
                 InsertCustomerParams {
                     customer_code: None,
@@ -1649,10 +1724,10 @@ async fn add_member(
                 }
                 WeddingError::Database(e)
             })?;
-            // QuickCreateCustomer - assume verified when creating full profile
-            (cid, role, notes, actor_name, None, None)
-        }
-    };
+                // QuickCreateCustomer - assume verified when creating full profile
+                (cid, role, notes, actor_name, None, None, true)
+            }
+        };
 
     let max_idx: Option<i32> = sqlx::query_scalar(
         "SELECT MAX(member_index) FROM wedding_members WHERE wedding_party_id = $1",
@@ -1667,9 +1742,6 @@ async fn add_member(
         .filter(|s| !s.is_empty())
         .unwrap_or("Member")
         .to_string();
-
-    // Determine if verified based on import info
-    let is_verified = import_name.is_none() && import_phone.is_none();
 
     let member_id: Uuid = match sqlx::query_scalar(
         r#"
@@ -1686,7 +1758,7 @@ async fn add_member(
     .bind(&role)
     .bind(&notes)
     .bind(next_idx)
-    .bind(is_verified)
+    .bind(customer_verified)
     .bind(&import_name)
     .bind(&import_phone)
     .fetch_one(&state.db)
