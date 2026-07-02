@@ -578,6 +578,7 @@ impl TransactionDetailResponse {
                     original_unit_price: it.receipt_original_unit_price,
                     discount_event_label: it.discount_event_label.clone(),
                     custom_order_details: it.custom_order_details.clone(),
+                    custom_item_type: it.custom_item_type.clone(),
                     is_fulfilled: it.is_fulfilled,
                 })
                 .collect(),

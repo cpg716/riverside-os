@@ -89,6 +89,17 @@ function textValue(value: string | number | null | undefined): string {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
+function isVisibleAuditItem(item: ZReportAuditItem): boolean {
+  return !item.is_internal || item.line_kind === "rms_charge_payment";
+}
+
+function auditItemKindLabel(item: ZReportAuditItem): string | null {
+  if (item.line_kind === "rms_charge_payment") return "RMS Payment";
+  if (item.line_kind === "alteration_service") return "Alteration";
+  if (item.line_kind === "pos_gift_card_load") return "Gift Card";
+  return null;
+}
+
 function notifyPrintDialogFailure(error: unknown): void {
   console.error("Print failed:", error);
   dispatchAppToast("Report could not be printed. Please check the Reports printer setup.", "error");
@@ -288,20 +299,20 @@ export async function openProfessionalZReportPrint(opts: {
               hour: "2-digit",
               minute: "2-digit",
             });
-            const visibleItems = (t.items ?? []).filter((item) => !item.is_internal).slice(0, 4);
+            const visibleItems = (t.items ?? []).filter(isVisibleAuditItem).slice(0, 4);
             const internalItems = (t.items ?? []).filter((item) => item.is_internal);
             const giftCardIssued = internalItems.find((item) => item.line_kind === "pos_gift_card_load");
 
             const itemsHtml = visibleItems.map(item => `
               <div class="print-item-row">
-                <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${item.fulfillment ? ` · ${fulfillmentLabel(item.fulfillment)}` : ""}</span></span>
+                <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${auditItemKindLabel(item) ? ` · ${auditItemKindLabel(item)}` : ""}${item.fulfillment ? ` · ${fulfillmentLabel(item.fulfillment)}` : ""}</span></span>
                 <span style="font-family: monospace;">
                   ${formatReportMoney(item.unit_price)}
                 </span>
               </div>
             `).join("");
 
-            const extraCount = Math.max(0, (t.items ?? []).filter((item) => !item.is_internal).length - visibleItems.length);
+            const extraCount = Math.max(0, (t.items ?? []).filter(isVisibleAuditItem).length - visibleItems.length);
             const notes = [
               extraCount > 0 ? `+${extraCount} more line${extraCount === 1 ? "" : "s"}` : null,
               giftCardIssued ? "Gift card issued on this sale" : null,
@@ -519,10 +530,10 @@ export async function openProfessionalZReportPrint(opts: {
               tx.transaction_display_id ? ` | #${tx.transaction_display_id}` : ""
             }`;
             const items = (tx.items ?? [])
-              .filter((item) => !item.is_internal)
+              .filter(isVisibleAuditItem)
               .map(
                 (item) =>
-                  `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)} | ${fulfillmentLabel(
+                  `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)}${auditItemKindLabel(item) ? ` | ${auditItemKindLabel(item)}` : ""} | ${fulfillmentLabel(
                     item.fulfillment,
                   )} | ${formatReportMoney(item.unit_price)}`,
               );

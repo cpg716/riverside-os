@@ -350,11 +350,13 @@ export function useCartActions({
       };
 
       if (rmsPaymentMeta && item.sku === rmsPaymentMeta.sku) {
+        newLine.custom_item_type = "rms_charge_payment";
+        newLine.variation_label = "Payment on RMS Charge";
         newLine.standard_retail_price = "0.00";
         newLine.state_tax = "0.00";
         newLine.local_tax = "0.00";
         newLine.original_unit_price = undefined;
-        newLine.price_override_reason = undefined;
+        newLine.price_override_reason = "rms_charge_payment";
       }
 
       const cartUsesEmployeePrice =

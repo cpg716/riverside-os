@@ -1534,13 +1534,16 @@ export default function Cart({
     };
   }, [updateActionRibbonScrollState]);
 
-  const handleTransactionBarcode = useCallback(async (shortId: string) => {
+  const handleTransactionBarcode = useCallback(async (receiptCode: string) => {
     try {
-      const res = await fetch(`${baseUrl}/api/transactions?search=${encodeURIComponent(shortId)}&limit=5`, { headers: apiAuth() as Record<string, string> });
+      const normalizedCode = receiptCode.trim();
+      const shortId = normalizedCode.replace(/^TXN-/i, "");
+      const res = await fetch(`${baseUrl}/api/transactions?search=${encodeURIComponent(normalizedCode)}&limit=5`, { headers: apiAuth() as Record<string, string> });
       if (!res.ok) throw new Error("API error");
       const data = await res.json();
       const items = Array.isArray(data.items) ? data.items : [];
       const txn = items.find((i: { transaction_id: string; display_id: string; status: string; customer_id?: string }) =>
+        (i.display_id || "").toLowerCase() === normalizedCode.toLowerCase() ||
         (i.transaction_id || "").toLowerCase().startsWith(shortId.toLowerCase()) ||
         (i.display_id || "").toLowerCase().includes(shortId.toLowerCase())
       );
@@ -2159,9 +2162,9 @@ export default function Cart({
   useScanner({
     onScan: (code) => {
       const trimmed = code.trim();
-      const txnMatch = trimmed.match(/^TXN-([0-9A-Fa-f]{8})$/i);
+      const txnMatch = trimmed.match(/^TXN-[A-Za-z0-9][A-Za-z0-9-]{2,}$/i);
       if (txnMatch) {
-         void handleTransactionBarcode(txnMatch[1]);
+         void handleTransactionBarcode(trimmed);
       } else {
          handleLaserScan(code, runSearch);
       }
@@ -4134,8 +4137,27 @@ export default function Cart({
             return;
           }
           const original = searchResults.find((r) => r.variant_id === v.variant_id);
-          if (original) addItem(original, priceOverride);
-          setActiveVariationSelection(null);
+          if (original) {
+            addItem(original, priceOverride);
+            setActiveVariationSelection(null);
+            return;
+          }
+          void (async () => {
+            try {
+              const res = await fetch(
+                `${baseUrl}/api/inventory/scan/${encodeURIComponent(v.sku)}`,
+                { headers: apiAuth() },
+              );
+              if (!res.ok) {
+                toast("Could not resolve that SKU. Scan it directly or search again.", "error");
+                return;
+              }
+              addItem(scanPayloadToResolvedItem((await res.json()) as Record<string, unknown>), priceOverride);
+              setActiveVariationSelection(null);
+            } catch {
+              toast("Could not add that variation to the sale.", "error");
+            }
+          })();
         }}
       />
       <ConfirmationModal

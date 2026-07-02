@@ -1,5 +1,6 @@
 //! Helcim payment provider endpoints.
 
+use crate::api::settings::ReceiptConfig;
 use crate::api::webhooks;
 use crate::auth::permissions::{
     self, staff_has_permission, CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, SETTINGS_ADMIN,
@@ -35,6 +36,7 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::middleware;
+use base64::Engine;
 
 const PAYMENTS_RECONCILE: &str = "payments.reconcile";
 const PAYMENTS_VIEW: &str = "payments.view";
@@ -458,6 +460,323 @@ pub fn router() -> Router<AppState> {
             "/providers/helcim/attempts/{id}/simulate",
             post(simulate_helcim_attempt),
         )
+        .route(
+            "/allocations/{allocation_id}/receipt.escpos",
+            get(get_payment_allocation_receipt_escpos),
+        )
+}
+
+#[derive(sqlx::FromRow)]
+struct PaymentAllocationReceiptRow {
+    payment_id: Uuid,
+    allocation_id: Uuid,
+    created_at: DateTime<Utc>,
+    payment_method: String,
+    amount: Decimal,
+    status: Option<String>,
+    card_brand: Option<String>,
+    card_last4: Option<String>,
+    check_number: Option<String>,
+    payment_provider: Option<String>,
+    provider_auth_code: Option<String>,
+    provider_transaction_id: Option<String>,
+    customer_first: Option<String>,
+    customer_last: Option<String>,
+    customer_code: Option<String>,
+    customer_phone: Option<String>,
+    customer_email: Option<String>,
+    target_transaction_id: Option<Uuid>,
+    target_display_id: Option<String>,
+    target_total: Decimal,
+    target_paid: Decimal,
+    target_balance_due: Decimal,
+}
+
+fn payment_receipt_clean(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            if c.is_ascii() && !c.is_control() {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn payment_receipt_money(value: Decimal) -> String {
+    format!("${}", value.round_dp(2))
+}
+
+fn payment_receipt_push_line(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(payment_receipt_clean(value).as_bytes());
+    out.push(b'\n');
+}
+
+fn payment_receipt_pair(left: &str, right: &str) -> String {
+    const CPL: usize = 48;
+    let l = payment_receipt_clean(left);
+    let r = payment_receipt_clean(right);
+    if l.len() + r.len() >= CPL {
+        return format!("{l} {r}");
+    }
+    format!("{l}{}{r}", " ".repeat(CPL - l.len() - r.len()))
+}
+
+fn payment_receipt_customer_name(row: &PaymentAllocationReceiptRow) -> Option<String> {
+    let first = row
+        .customer_first
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let last = row
+        .customer_last
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    match (first, last) {
+        (Some(f), Some(l)) => Some(format!("{f} {l}")),
+        (Some(f), None) => Some(f.to_string()),
+        (None, Some(l)) => Some(l.to_string()),
+        (None, None) => row.customer_code.clone(),
+    }
+}
+
+fn build_payment_receipt_escpos(row: &PaymentAllocationReceiptRow, cfg: &ReceiptConfig) -> Vec<u8> {
+    let tz: chrono_tz::Tz = cfg.timezone.parse().unwrap_or_else(|_| {
+        tracing::warn!(
+            timezone = %cfg.timezone,
+            "Payment receipt timezone invalid; falling back to UTC"
+        );
+        chrono_tz::UTC
+    });
+    let local_time = row.created_at.with_timezone(&tz);
+    let mut out = Vec::new();
+    out.extend_from_slice(&[0x1b, 0x40]);
+    out.extend_from_slice(&[0x1b, 0x61, 0x01]);
+    out.extend_from_slice(&[0x1b, 0x45, 0x01]);
+    payment_receipt_push_line(&mut out, &cfg.store_name);
+    out.extend_from_slice(&[0x1b, 0x45, 0x00]);
+    for header in &cfg.header_lines {
+        let header = header.trim();
+        if !header.is_empty() {
+            payment_receipt_push_line(&mut out, header);
+        }
+    }
+    payment_receipt_push_line(&mut out, "");
+    out.extend_from_slice(&[0x1b, 0x45, 0x01]);
+    payment_receipt_push_line(&mut out, "PAYMENT RECEIPT");
+    out.extend_from_slice(&[0x1b, 0x45, 0x00]);
+    out.extend_from_slice(&[0x1b, 0x61, 0x00]);
+    payment_receipt_push_line(&mut out, "------------------------------------------");
+    payment_receipt_push_line(
+        &mut out,
+        &payment_receipt_pair("Date", &local_time.format("%m/%d/%Y %I:%M %p").to_string()),
+    );
+    payment_receipt_push_line(
+        &mut out,
+        &payment_receipt_pair("Payment", &row.payment_id.to_string()[..8]),
+    );
+    if let Some(status) = row
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        payment_receipt_push_line(&mut out, &payment_receipt_pair("Status", status));
+    }
+    payment_receipt_push_line(&mut out, "------------------------------------------");
+    if let Some(name) = payment_receipt_customer_name(row) {
+        payment_receipt_push_line(&mut out, &format!("Customer: {name}"));
+    }
+    if let Some(code) = row
+        .customer_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        payment_receipt_push_line(&mut out, &format!("Customer #: {code}"));
+    }
+    if let Some(phone) = row
+        .customer_phone
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        payment_receipt_push_line(&mut out, &format!("Phone: {phone}"));
+    }
+    if let Some(email) = row
+        .customer_email
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        payment_receipt_push_line(&mut out, &format!("Email: {email}"));
+    }
+    payment_receipt_push_line(&mut out, "------------------------------------------");
+    let applied_to = row
+        .target_display_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| row.target_transaction_id.map(|id| id.to_string()))
+        .unwrap_or_else(|| "Unapplied".to_string());
+    payment_receipt_push_line(&mut out, &format!("Applied to: {applied_to}"));
+    payment_receipt_push_line(
+        &mut out,
+        &payment_receipt_pair("Method", &row.payment_method),
+    );
+    if let Some(provider) = row
+        .payment_provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        payment_receipt_push_line(&mut out, &payment_receipt_pair("Provider", provider));
+    }
+    let card = match (
+        row.card_brand
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+        row.card_last4
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    ) {
+        (Some(brand), Some(last4)) => Some(format!("{brand} ending {last4}")),
+        (None, Some(last4)) => Some(format!("Card ending {last4}")),
+        (Some(brand), None) => Some(brand.to_string()),
+        (None, None) => None,
+    };
+    if let Some(card) = card {
+        payment_receipt_push_line(&mut out, &payment_receipt_pair("Card", &card));
+    }
+    if let Some(check_number) = row
+        .check_number
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        payment_receipt_push_line(&mut out, &payment_receipt_pair("Check #", check_number));
+    }
+    if let Some(auth_code) = row
+        .provider_auth_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        payment_receipt_push_line(&mut out, &payment_receipt_pair("Auth", auth_code));
+    }
+    if let Some(provider_txn) = row
+        .provider_transaction_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        payment_receipt_push_line(&mut out, &payment_receipt_pair("Ref", provider_txn));
+    }
+    payment_receipt_push_line(&mut out, "------------------------------------------");
+    out.extend_from_slice(&[0x1b, 0x45, 0x01]);
+    payment_receipt_push_line(
+        &mut out,
+        &payment_receipt_pair("Amount Paid", &payment_receipt_money(row.amount)),
+    );
+    out.extend_from_slice(&[0x1b, 0x45, 0x00]);
+    payment_receipt_push_line(
+        &mut out,
+        &payment_receipt_pair(
+            "Transaction Total",
+            &payment_receipt_money(row.target_total),
+        ),
+    );
+    payment_receipt_push_line(
+        &mut out,
+        &payment_receipt_pair("Paid To Date", &payment_receipt_money(row.target_paid)),
+    );
+    payment_receipt_push_line(
+        &mut out,
+        &payment_receipt_pair(
+            "Balance Due",
+            &payment_receipt_money(row.target_balance_due.max(Decimal::ZERO)),
+        ),
+    );
+    payment_receipt_push_line(&mut out, "------------------------------------------");
+    out.extend_from_slice(&[0x1b, 0x61, 0x01]);
+    payment_receipt_push_line(&mut out, "Thank you");
+    out.extend_from_slice(&[0x0a, 0x0a, 0x0a, 0x1d, 0x56, 0x41, 0x00]);
+    out
+}
+
+async fn get_payment_allocation_receipt_escpos(
+    State(state): State<AppState>,
+    Path(allocation_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, PaymentError> {
+    require_payment_permission_or_pos_staff(&state, &headers, PAYMENTS_VIEW, &[]).await?;
+
+    let row: PaymentAllocationReceiptRow = sqlx::query_as(
+        r#"
+        SELECT
+            pt.id AS payment_id,
+            pa.id AS allocation_id,
+            pt.created_at,
+            pt.payment_method,
+            pa.amount_allocated AS amount,
+            pt.status,
+            pt.card_brand,
+            pt.card_last4,
+            COALESCE(NULLIF(TRIM(pa.check_number), ''), NULLIF(TRIM(pt.check_number), '')) AS check_number,
+            pt.payment_provider,
+            pt.provider_auth_code,
+            pt.provider_transaction_id,
+            c.first_name AS customer_first,
+            c.last_name AS customer_last,
+            c.customer_code,
+            c.phone AS customer_phone,
+            c.email AS customer_email,
+            pa.target_transaction_id,
+            COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS target_display_id,
+            o.total_price AS target_total,
+            o.amount_paid AS target_paid,
+            o.balance_due AS target_balance_due
+        FROM payment_allocations pa
+        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+        INNER JOIN transactions o ON o.id = pa.target_transaction_id
+        LEFT JOIN customers c ON c.id = COALESCE(pt.payer_id, o.customer_id)
+        WHERE pa.id = $1
+        "#,
+    )
+    .bind(allocation_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .ok_or_else(|| PaymentError::InvalidPayload("Payment receipt not found.".to_string()))?;
+
+    let receipt_cfg: ReceiptConfig = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT receipt_config FROM store_settings WHERE id = 1",
+    )
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?
+    .and_then(|v| serde_json::from_value::<ReceiptConfig>(v).ok())
+    .unwrap_or_default()
+    .normalize_runtime();
+
+    let bytes = build_payment_receipt_escpos(&row, &receipt_cfg);
+    let escpos_base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(Json(json!({
+        "escpos_base64": escpos_base64,
+        "printer_language": "escpos",
+        "printer_family": "epson_tm_m30iii",
+        "payment_id": row.payment_id,
+        "payment_allocation_id": row.allocation_id,
+    })))
 }
 
 #[derive(Debug, Clone, Serialize)]

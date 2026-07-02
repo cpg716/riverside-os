@@ -1,4 +1,4 @@
-import { Edit3, Gift, Scissors, Trash2, Tag } from "lucide-react";
+import { CreditCard, Edit3, Gift, Scissors, Trash2, Tag } from "lucide-react";
 import { type CartLineItem, type FulfillmentKind, type PosStaffRow } from "../types";
 import { centsToFixed2, parseMoneyToCents } from "../../../lib/money";
 import StaffMiniSelector from "../../ui/StaffMiniSelector";
@@ -36,6 +36,14 @@ function discountDisplayLabel(reason?: string): string | null {
   return null;
 }
 
+function isRmsChargePaymentLine(line: CartLineItem): boolean {
+  return (
+    line.custom_item_type === "rms_charge_payment" ||
+    line.sku === "ROS-RMS-CHARGE-PAYMENT" ||
+    line.name.trim().toUpperCase() === "RMS CHARGE PAYMENT"
+  );
+}
+
 export function CartItemRow({
   line,
   orderLaterFulfillment,
@@ -58,6 +66,7 @@ export function CartItemRow({
   const lk = cartLineKey(line);
   const isSelected = selectedLineKey === lk;
   const isAlterationLine = line.line_type === "alteration_service";
+  const isRmsPaymentLine = isRmsChargePaymentLine(line);
   const regCents = parseMoneyToCents(
     line.original_unit_price ?? line.standard_retail_price,
   );
@@ -120,9 +129,19 @@ export function CartItemRow({
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="flex items-center gap-1 rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] font-bold text-app-text-muted ring-1 ring-app-border/70">
-              {isAlterationLine ? <Scissors size={10} /> : <Tag size={10} />}
+              {isRmsPaymentLine ? <CreditCard size={10} /> : isAlterationLine ? <Scissors size={10} /> : <Tag size={10} />}
               {line.sku}
             </span>
+            {isRmsPaymentLine ? (
+              <span className="rounded bg-app-info/12 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-info ring-1 ring-app-info/15">
+                RMS Payment
+              </span>
+            ) : null}
+            {isAlterationLine ? (
+              <span className="rounded bg-app-accent/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-accent ring-1 ring-app-accent/20">
+                Alteration
+              </span>
+            ) : null}
             {line.variation_label ? (
               <span className="rounded bg-app-success/12 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-tight text-app-success ring-1 ring-app-success/15">
                 {line.variation_label}
@@ -177,7 +196,7 @@ export function CartItemRow({
       </div>
 
       {/* 2. Fulfillment Toggle (Middle) */}
-      {!isAlterationLine ? (
+      {!isAlterationLine && !isRmsPaymentLine ? (
         isPickupLine ? (
           <div className="flex shrink-0 items-center rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-600">
             Pickup
@@ -224,8 +243,12 @@ export function CartItemRow({
           </div>
         )
       ) : (
-        <div className="flex shrink-0 items-center rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent">
-          Work order
+        <div className={`flex shrink-0 items-center rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-widest ${
+          isRmsPaymentLine
+            ? "border-app-info/25 bg-app-info/10 text-app-info"
+            : "border-app-accent/25 bg-app-accent/10 text-app-accent"
+        }`}>
+          {isRmsPaymentLine ? "Payment" : "Work order"}
         </div>
       )}
 
@@ -234,7 +257,7 @@ export function CartItemRow({
         className="flex shrink-0 items-center gap-2"
         onClick={(e) => e.stopPropagation()}
       >
-        {!isAlterationLine ? (
+        {!isAlterationLine && !isRmsPaymentLine ? (
         <button
           type="button"
           disabled={isPickupLine}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronsUpDown, X } from "lucide-react";
+import { ChevronsUpDown, Eye, X } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { VariationsWorkspace, type HubVariant } from "./VariationsWorkspace";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -109,6 +109,7 @@ interface HubApiVariant {
   web_published?: boolean;
   web_price_override?: string | null;
   web_gallery_order?: number;
+  hidden_from_inventory?: boolean;
 }
 
 interface ProductPoSummaryLine {
@@ -457,6 +458,36 @@ export default function ProductHubDrawer({
   const [cleanupSuggestionError, setCleanupSuggestionError] = useState<string | null>(null);
   const [cleanupApplyingKey, setCleanupApplyingKey] = useState<string | null>(null);
   const [reprintPrompt, setReprintPrompt] = useState<ProductModelPriceChangeVariant[] | null>(null);
+
+  const showVariantInInventory = useCallback(
+    async (variant: HubApiVariant) => {
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/products/variants/${variant.id}/show-in-inventory`,
+          {
+            method: "PATCH",
+            headers: apiAuth(),
+          },
+        );
+        if (!res.ok) throw new Error(await res.text());
+        setHub((current) =>
+          current
+            ? {
+                ...current,
+                variants: current.variants.map((row) =>
+                  row.id === variant.id ? { ...row, hidden_from_inventory: false } : row,
+                ),
+              }
+            : current,
+        );
+        onHubMutated?.();
+        toast("Variant is visible in Inventory Find.", "success");
+      } catch {
+        toast("Could not show variant in Inventory Find.", "error");
+      }
+    },
+    [apiAuth, baseUrl, onHubMutated, toast],
+  );
 
   const loadHub = useCallback(async () => {
     if (!productId) return;
@@ -1744,7 +1775,16 @@ export default function ProductHubDrawer({
                             {variant.sku}
                           </td>
                           <td className="px-3 py-3 text-app-text">
-                            {variant.variation_label ?? "Standard"}
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="truncate">
+                                {variant.variation_label ?? "Standard"}
+                              </span>
+                              {variant.hidden_from_inventory ? (
+                                <span className="rounded-full border border-app-warning/20 bg-app-warning/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-app-warning">
+                                  Hidden
+                                </span>
+                              ) : null}
+                            </div>
                           </td>
                           {isNonStockSaleProduct ? (
                             <td className="px-3 py-3 text-xs font-semibold text-app-text-muted">
@@ -1770,7 +1810,19 @@ export default function ProductHubDrawer({
                           ) : null}
                           {!isNonStockSaleProduct ? (
                             <td className="px-3 py-3 text-xs text-app-text-muted">
-                              {formatDateTime(variant.last_physical_count_at)}
+                              <div className="flex items-center justify-between gap-2">
+                                <span>{formatDateTime(variant.last_physical_count_at)}</span>
+                                {variant.hidden_from_inventory ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void showVariantInInventory(variant)}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-app-success/25 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:border-app-success/45 hover:bg-app-success/15"
+                                  >
+                                    <Eye size={12} />
+                                    Show
+                                  </button>
+                                ) : null}
+                              </div>
                             </td>
                           ) : null}
                         </tr>

@@ -101,6 +101,7 @@ async fn ensure_variant_index_settings_for_uid(
                 "web_published",
                 "is_clothing_footwear",
                 "is_active",
+                "hidden_from_inventory",
                 "stock_status",
                 "stock_on_hand",
                 "available_stock",

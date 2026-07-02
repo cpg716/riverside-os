@@ -168,6 +168,14 @@ function normalizedShortcutQuery(q: string): string {
     .replace(/\s+/g, " ");
 }
 
+function isReceiptBarcodeQuery(q: string): boolean {
+  return /^TXN-[A-Za-z0-9][A-Za-z0-9-]{2,}$/i.test(q.trim());
+}
+
+function normalizeReceiptBarcodeQuery(q: string): string {
+  return q.trim().toLowerCase();
+}
+
 interface UniversalSearchResponse {
   sources_failed?: string[];
   customers?: Customer[];
@@ -756,6 +764,18 @@ export default function GlobalCommandSearch({
         setOperationalHits(data.operational_hits ?? []);
         setBackendShortcutIds((data.shortcuts ?? []).map((shortcut) => shortcut.intent));
         setFailedSources(data.sources_failed ?? []);
+
+        if (isReceiptBarcodeQuery(q) && onSearchOpenOrder) {
+          const needle = normalizeReceiptBarcodeQuery(q);
+          const exactOrder = (data.orders ?? []).find(
+            (order) => order.display_id.trim().toLowerCase() === needle,
+          );
+          if (exactOrder) {
+            closePalette();
+            onSearchOpenOrder(exactOrder.transaction_id);
+            return;
+          }
+        }
       }
 
       if (q.length >= 3 && activeSearchQueryRef.current === q) {
@@ -787,7 +807,7 @@ export default function GlobalCommandSearch({
         setLoading(false);
       }
     }
-  }, [apiAuth]);
+  }, [apiAuth, closePalette, onSearchOpenOrder]);
 
   const openPalette = useCallback((seed = "") => {
     setOpen(true);

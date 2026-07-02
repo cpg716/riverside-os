@@ -10,7 +10,10 @@ import {
 const CUSTOMER_NAME = "E2E Visibility Customer";
 const PRODUCT_NAME = "E2E VISIBILITY SUIT";
 
-async function mockDropdownSearches(page: Page): Promise<void> {
+async function mockDropdownSearches(
+  page: Page,
+  options: { multiVariantProduct?: boolean } = {},
+): Promise<void> {
   await page.route("**/api/customers/search?*", async (route) => {
     await route.fulfill({
       status: 200,
@@ -29,11 +32,36 @@ async function mockDropdownSearches(page: Page): Promise<void> {
   });
 
   await page.route("**/api/products/control-board?*", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        rows: [
+    const productRows = options.multiVariantProduct
+      ? [
+          {
+            product_id: "22222222-2222-4222-8222-222222222222",
+            variant_id: "33333333-3333-4333-8333-333333333333",
+            sku: "E2E-VIS-SUIT-40R",
+            product_name: PRODUCT_NAME,
+            variation_label: "40R",
+            retail_price: "199.00",
+            cost_price: "90.00",
+            stock_on_hand: 5,
+            state_tax: "0.00",
+            local_tax: "0.00",
+            tax_category: "clothing",
+          },
+          {
+            product_id: "22222222-2222-4222-8222-222222222222",
+            variant_id: "44444444-4444-4444-8444-444444444444",
+            sku: "E2E-VIS-SUIT-42R",
+            product_name: PRODUCT_NAME,
+            variation_label: "42R",
+            retail_price: "209.00",
+            cost_price: "95.00",
+            stock_on_hand: 3,
+            state_tax: "0.00",
+            local_tax: "0.00",
+            tax_category: "clothing",
+          },
+        ]
+      : [
           {
             product_id: "22222222-2222-4222-8222-222222222222",
             variant_id: "33333333-3333-4333-8333-333333333333",
@@ -47,7 +75,13 @@ async function mockDropdownSearches(page: Page): Promise<void> {
             local_tax: "0.00",
             tax_category: "clothing",
           },
-        ],
+        ];
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        rows: productRows,
       }),
     });
   });
@@ -188,4 +222,48 @@ test("POS dropdowns stay visible near bottom of scrollable cart", async ({ page 
     .first();
   await expectLocatorUsable(productResult);
   await productResult.click({ force: true });
+});
+
+test("POS variation picker adds selected SKU after search results close", async ({ page }) => {
+  test.setTimeout(90_000);
+
+  let scanResolutionCount = 0;
+  await mockDropdownSearches(page, { multiVariantProduct: true });
+  await page.route("**/api/inventory/scan/E2E-VIS-SUIT-40R", async (route) => {
+    scanResolutionCount += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        product_id: "22222222-2222-4222-8222-222222222222",
+        variant_id: "33333333-3333-4333-8333-333333333333",
+        sku: "E2E-VIS-SUIT-40R",
+        name: PRODUCT_NAME,
+        variation_label: "40R",
+        standard_retail_price: "199.00",
+        unit_cost: "90.00",
+        stock_on_hand: 5,
+        state_tax: "0.00",
+        local_tax: "0.00",
+        tax_category: "clothing",
+      }),
+    });
+  });
+
+  await openPosRegisterSurface(page);
+
+  const productInput = page.getByTestId("pos-product-search");
+  await productInput.fill("visibility suit");
+  const productResult = page
+    .getByRole("button", { name: new RegExp(PRODUCT_NAME, "i") })
+    .first();
+  await expectLocatorUsable(productResult);
+  await productResult.click({ force: true });
+
+  await page.getByRole("button", { name: "40R", exact: true }).click();
+  await page.getByRole("button", { name: /add to sale/i }).click();
+
+  await expect(page.getByText("E2E-VIS-SUIT-40R")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(PRODUCT_NAME)).toBeVisible();
+  expect(scanResolutionCount).toBe(1);
 });

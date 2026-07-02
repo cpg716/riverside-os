@@ -34,6 +34,10 @@ pub struct ActivityItemDetail {
     pub product_id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fulfillment: Option<String>,
+    #[serde(default)]
+    pub is_internal: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_kind: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -46,6 +50,10 @@ pub struct RegisterActivityItem {
     pub subtitle: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment_allocation_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wedding_party_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -576,6 +584,11 @@ pub async fn fetch_register_day_summary(
               AND o.fulfilled_at IS NOT NULL
               AND o.fulfilled_at >= $1
               AND o.fulfilled_at < $2
+              AND EXISTS (
+                  SELECT 1
+                  FROM transaction_lines tl_pickup
+                  WHERE tl_pickup.transaction_id = o.id
+              )
             {ORDER_SESSION_FILTER}
             "#
         );
@@ -743,6 +756,26 @@ pub async fn fetch_register_day_summary(
         amount_paid_in_window: Option<Decimal>,
         fulfillment_type: Option<String>,
         balance_due: Decimal,
+        has_rms_charge_payment_line: bool,
+        has_alteration_service_line: bool,
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct PaymentAct {
+        payment_id: Uuid,
+        payment_allocation_id: Uuid,
+        target_transaction_id: Option<Uuid>,
+        created_at: chrono::DateTime<Utc>,
+        amount: Decimal,
+        payment_method: String,
+        customer_first: Option<String>,
+        customer_last: Option<String>,
+        customer_code: Option<String>,
+        customer_phone: Option<String>,
+        customer_email: Option<String>,
+        merchant_fee: Option<Decimal>,
+        net_amount: Option<Decimal>,
+        target_display_id: Option<String>,
     }
 
     let sale_ts = match basis {
@@ -814,6 +847,26 @@ pub async fn fetch_register_day_summary(
                 WHERE oi2.transaction_id = o.id
             ) AS fulfillment_type,
             o.balance_due,
+            EXISTS (
+                SELECT 1
+                FROM transaction_lines tl_rms
+                INNER JOIN products p_rms ON p_rms.id = tl_rms.product_id
+                WHERE tl_rms.transaction_id = o.id
+                  AND (
+                    p_rms.pos_line_kind = 'rms_charge_payment'
+                    OR tl_rms.custom_item_type = 'rms_charge_payment'
+                  )
+            ) AS has_rms_charge_payment_line,
+            EXISTS (
+                SELECT 1
+                FROM transaction_lines tl_alt
+                INNER JOIN products p_alt ON p_alt.id = tl_alt.product_id
+                WHERE tl_alt.transaction_id = o.id
+                  AND (
+                    p_alt.pos_line_kind = 'alteration_service'
+                    OR tl_alt.custom_item_type = 'alteration_service'
+                  )
+            ) AS has_alteration_service_line,
             (
                 SELECT jsonb_agg(jsonb_build_object(
                     'name', px.name,
@@ -822,7 +875,9 @@ pub async fn fetch_register_day_summary(
                     'price', oix.unit_price::text,
                     'reg_price', COALESCE(pvx.retail_price_override, px.base_retail_price)::text,
                     'product_id', px.id,
-                    'fulfillment', oix.fulfillment::text
+                    'fulfillment', oix.fulfillment::text,
+                    'is_internal', COALESCE(oix.is_internal, false),
+                    'line_kind', COALESCE(NULLIF(TRIM(px.pos_line_kind), ''), NULLIF(TRIM(oix.custom_item_type), ''))
                 ))
                 FROM transaction_lines oix
                 INNER JOIN products px ON px.id = oix.product_id
@@ -840,6 +895,11 @@ pub async fn fetch_register_day_summary(
             GROUP BY transaction_line_id
         ) orl ON orl.transaction_line_id = oi.id
         WHERE {order_in_range}
+          AND EXISTS (
+              SELECT 1
+              FROM transaction_lines tl_activity
+              WHERE tl_activity.transaction_id = o.id
+          )
         {ORDER_SESSION_FILTER}
         GROUP BY o.id, {sale_ts}, o.total_price, o.balance_due, wp.id, wp.party_name, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
         ORDER BY {sale_order_by}
@@ -852,6 +912,50 @@ pub async fn fetch_register_day_summary(
         .bind(register_session_id)
         .fetch_all(pool)
         .await?;
+
+    let payments: Vec<PaymentAct> = sqlx::query_as(
+        r#"
+        SELECT
+            pt.id AS payment_id,
+            pa.id AS payment_allocation_id,
+            pa.target_transaction_id,
+            pt.created_at,
+            pa.amount_allocated AS amount,
+            pt.payment_method,
+            c.first_name AS customer_first,
+            c.last_name AS customer_last,
+            c.customer_code,
+            c.phone AS customer_phone,
+            c.email AS customer_email,
+            pt.merchant_fee,
+            pt.net_amount,
+            COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS target_display_id
+        FROM payment_transactions pt
+        INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
+        INNER JOIN transactions o ON o.id = pa.target_transaction_id
+        LEFT JOIN customers c ON c.id = COALESCE(pt.payer_id, o.customer_id)
+        WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+          AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+          AND pt.status = 'success'
+          AND ($3::uuid IS NULL OR pt.session_id = $3)
+          AND NOT (
+              COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+              AND COALESCE(o.business_date, (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+              AND EXISTS (
+                  SELECT 1
+                  FROM transaction_lines tl_same_day_sale
+                  WHERE tl_same_day_sale.transaction_id = o.id
+              )
+          )
+        ORDER BY pt.created_at DESC
+        LIMIT 120
+        "#,
+    )
+    .bind(start_utc)
+    .bind(end_utc)
+    .bind(register_session_id)
+    .fetch_all(pool)
+    .await?;
 
     let mut activities: Vec<RegisterActivityItem> = Vec::new();
 
@@ -875,23 +979,32 @@ pub async fn fetch_register_day_summary(
     }
 
     for s in sales {
-        let title = match basis {
-            ReportBasis::Completed => {
-                if s.is_takeaway {
-                    "POS Retail Sale (Completed)".to_string()
-                } else {
-                    "Order Taken (Fulfilled)".to_string()
+        let is_rms_payment_activity = s.has_rms_charge_payment_line;
+        let title = if is_rms_payment_activity {
+            "RMS Charge Payment".to_string()
+        } else if s.has_alteration_service_line && s.is_takeaway {
+            "Alteration Sale".to_string()
+        } else {
+            match basis {
+                ReportBasis::Completed => {
+                    if s.is_takeaway {
+                        "POS Retail Sale (Completed)".to_string()
+                    } else {
+                        "Order Taken (Fulfilled)".to_string()
+                    }
                 }
-            }
-            ReportBasis::Booked => {
-                if s.is_takeaway {
-                    "POS Retail Sale".to_string()
-                } else {
-                    "Order Booked (Sale)".to_string()
+                ReportBasis::Booked => {
+                    if s.is_takeaway {
+                        "POS Retail Sale".to_string()
+                    } else {
+                        "Order Booked (Sale)".to_string()
+                    }
                 }
             }
         };
-        let sale_kind = if matches!(basis, ReportBasis::Completed) {
+        let sale_kind = if is_rms_payment_activity {
+            "payment"
+        } else if matches!(basis, ReportBasis::Completed) {
             "completed"
         } else {
             "sale"
@@ -944,6 +1057,8 @@ pub async fn fetch_register_day_summary(
                 s.customer_last.as_deref(),
             ),
             transaction_id: Some(s.transaction_id),
+            payment_id: None,
+            payment_allocation_id: None,
             wedding_party_id: s.wedding_party_id,
             amount_label: Some(format!("${}", money_label(s.sales_total_booked))),
             payment_summary: s.pay,
@@ -963,6 +1078,57 @@ pub async fn fetch_register_day_summary(
             balance_due: balance,
             fulfillment_type: s.fulfillment_type,
             transaction_total: s.amount_paid_in_window.map(money_label),
+        });
+    }
+
+    for p in payments {
+        let customer_full = match (
+            p.customer_first
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+            p.customer_last
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+        ) {
+            (Some(f), Some(l)) => Some(format!("{f} {l}")),
+            (Some(f), None) => Some(f.to_string()),
+            (None, Some(l)) => Some(l.to_string()),
+            _ => p.customer_code.clone(),
+        };
+
+        activities.push(RegisterActivityItem {
+            id: format!("payment:{}", p.payment_id),
+            kind: "payment".to_string(),
+            occurred_at: p.created_at,
+            title: "Payment Recorded".to_string(),
+            subtitle: p
+                .target_display_id
+                .as_deref()
+                .map(|display_id| format!("Applied to {display_id}")),
+            transaction_id: p.target_transaction_id,
+            payment_id: Some(p.payment_id),
+            payment_allocation_id: Some(p.payment_allocation_id),
+            wedding_party_id: None,
+            amount_label: Some(format!("${}", money_label(p.amount))),
+            payment_summary: Some(p.payment_method),
+            sales_total: None,
+            tax_total: None,
+            is_takeaway: None,
+            channel: None,
+            wedding_party_name: None,
+            items: None,
+            merchant_fees_total: p.merchant_fee.map(money_label),
+            net_amount: p.net_amount.map(money_label),
+            customer_name: customer_full,
+            customer_code: p.customer_code,
+            customer_phone: p.customer_phone,
+            customer_email: p.customer_email,
+            deposits_paid: Some(money_label(p.amount)),
+            balance_due: None,
+            fulfillment_type: Some("payment".to_string()),
+            transaction_total: Some(money_label(p.amount)),
         });
     }
 

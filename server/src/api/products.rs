@@ -514,6 +514,8 @@ pub struct InventoryBoardQuery {
     pub negative_stock_only: Option<bool>,
     /// Text search only: rank rows where the **product** (name / brand / handle) matches the query
     pub parent_rank_first: Option<bool>,
+    /// Include variants hidden from default Inventory Find because they are zero-stock with no recent sales.
+    pub include_hidden: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -593,6 +595,7 @@ pub struct InventoryControlRow {
     pub web_price_override: Option<Decimal>,
     pub web_gallery_order: i32,
     pub available_stock: i32,
+    pub hidden_from_inventory: bool,
     /// Parent-product gross units sold in the trailing search window (all variants of the product); text search only.
     #[serde(skip_serializing)]
     pub units_sold_trailing: i64,
@@ -769,6 +772,7 @@ pub struct HubVariantRow {
     pub web_published: bool,
     pub web_price_override: Option<Decimal>,
     pub web_gallery_order: i32,
+    pub hidden_from_inventory: bool,
 }
 
 #[derive(Debug, FromRow)]
@@ -792,6 +796,7 @@ struct HubVariantJoinRow {
     web_published: bool,
     web_price_override: Option<Decimal>,
     web_gallery_order: i32,
+    hidden_from_inventory: bool,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -998,6 +1003,10 @@ pub fn router() -> Router<AppState> {
             post(bulk_mark_shelf_labeled),
         )
         .route("/variants/bulk-web-publish", post(bulk_web_publish))
+        .route(
+            "/variants/{variant_id}/show-in-inventory",
+            patch(show_variant_in_inventory),
+        )
         .route("/import", post(import_catalog))
         .route("/matrix/generate", post(generate_matrix))
         .route(
@@ -1348,6 +1357,7 @@ pub async fn list_control_board(
     let default_limit = if has_search { 5_000i64 } else { 25_000i64 };
     let limit = query.limit.unwrap_or(default_limit).clamp(1, 50_000);
     let offset = query.offset.unwrap_or(0).max(0);
+    let include_hidden = query.include_hidden.unwrap_or(false);
 
     let meili_variant_ids: Option<Vec<Uuid>> = if has_search {
         if let Some(ref c) = state.meilisearch {
@@ -1362,6 +1372,7 @@ pub async fn list_control_board(
                 query.filter.as_deref(),
                 query.oos_only,
                 query.negative_stock_only,
+                include_hidden,
             )
             .await
             {
@@ -1408,6 +1419,7 @@ pub async fn list_control_board(
             COALESCE(pv.web_published, false) AS web_published,
             pv.web_price_override,
             pv.web_gallery_order,
+            COALESCE(pv.hidden_from_inventory, false) AS hidden_from_inventory,
             p.primary_vendor_id,
             pvendor.name AS primary_vendor_name,
             lv.id AS last_vendor_id,
@@ -1431,6 +1443,13 @@ pub async fn list_control_board(
             SELECT COUNT(*)::bigint AS total_variant_count
             FROM product_variants pv_total
             WHERE pv_total.product_id = p.id
+        "#,
+    );
+    if !include_hidden {
+        qb.push(" AND COALESCE(pv_total.hidden_from_inventory, false) = false ");
+    }
+    qb.push(
+        r#"
         ) variant_totals ON true
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN vendors pvendor ON pvendor.id = p.primary_vendor_id
@@ -1488,6 +1507,9 @@ pub async fn list_control_board(
         );
     }
     qb.push(" WHERE p.is_active = true ");
+    if !include_hidden {
+        qb.push(" AND COALESCE(pv.hidden_from_inventory, false) = false ");
+    }
 
     if let Some(ids) = &meili_variant_ids {
         if ids.is_empty() {
@@ -1633,6 +1655,7 @@ pub async fn list_control_board(
                     JOIN products p2 ON p2.id = pv2.product_id
                     WHERE p2.is_active = true
                       AND p2.primary_vendor_id = $1
+                      AND ($2 OR COALESCE(pv2.hidden_from_inventory, false) = false)
                       AND pv2.stock_on_hand <= 0
                       AND EXISTS (
                           SELECT 1
@@ -1647,9 +1670,11 @@ pub async fn list_control_board(
             JOIN products p ON p.id = pv.product_id
             WHERE p.is_active = true
               AND p.primary_vendor_id = $1
+              AND ($2 OR COALESCE(pv.hidden_from_inventory, false) = false)
             "#,
         )
         .bind(vid)
+        .bind(include_hidden)
         .fetch_one(&state.db)
         .await?
     } else {
@@ -1665,6 +1690,7 @@ pub async fn list_control_board(
                     FROM product_variants pv2
                     JOIN products p2 ON p2.id = pv2.product_id
                     WHERE p2.is_active = true
+                      AND ($1 OR COALESCE(pv2.hidden_from_inventory, false) = false)
                       AND pv2.stock_on_hand <= 0
                       AND EXISTS (
                           SELECT 1
@@ -1678,8 +1704,10 @@ pub async fn list_control_board(
             FROM product_variants pv
             JOIN products p ON p.id = pv.product_id
             WHERE p.is_active = true
+              AND ($1 OR COALESCE(pv.hidden_from_inventory, false) = false)
             "#,
         )
+        .bind(include_hidden)
         .fetch_one(&state.db)
         .await?
     };
@@ -3222,7 +3250,8 @@ async fn fetch_product_hub(
             p.base_retail_price,
             COALESCE(pv.web_published, false) AS web_published,
             pv.web_price_override,
-            pv.web_gallery_order
+            pv.web_gallery_order,
+            COALESCE(pv.hidden_from_inventory, false) AS hidden_from_inventory
         FROM product_variants pv
         INNER JOIN products p ON p.id = pv.product_id
         LEFT JOIN LATERAL (
@@ -3268,6 +3297,7 @@ async fn fetch_product_hub(
             web_published: r.web_published,
             web_price_override: r.web_price_override,
             web_gallery_order: r.web_gallery_order,
+            hidden_from_inventory: r.hidden_from_inventory,
         })
         .collect();
 
@@ -4057,7 +4087,12 @@ async fn adjust_variant_stock(
     sqlx::query(
         r#"
         UPDATE product_variants
-        SET stock_on_hand = stock_on_hand + $1
+        SET
+            stock_on_hand = stock_on_hand + $1,
+            hidden_from_inventory = CASE
+                WHEN stock_on_hand + $1 > 0 THEN false
+                ELSE hidden_from_inventory
+            END
         WHERE id = $2
         "#,
     )
@@ -4086,6 +4121,43 @@ async fn adjust_variant_stock(
 
     spawn_meilisearch_variant_resync(&state, variant_id);
     Ok(Json(json!({ "stock_on_hand": new_stock })))
+}
+
+async fn show_variant_in_inventory(
+    State(state): State<AppState>,
+    Path(variant_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ProductError> {
+    require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
+
+    let updated = sqlx::query(
+        r#"
+        UPDATE product_variants
+        SET hidden_from_inventory = false
+        WHERE id = $1
+        RETURNING product_id, sku, hidden_from_inventory
+        "#,
+    )
+    .bind(variant_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let Some(row) = updated else {
+        return Err(ProductError::VariantNotFound);
+    };
+    use sqlx::Row;
+    let product_id = row.get::<Uuid, _>("product_id");
+    let sku = row.get::<String, _>("sku");
+    let hidden = row.get::<bool, _>("hidden_from_inventory");
+
+    spawn_meilisearch_variant_resync(&state, variant_id);
+    spawn_meilisearch_product_resync(&state, product_id);
+    Ok(Json(json!({
+        "status": "updated",
+        "variant_id": variant_id,
+        "sku": sku,
+        "hidden_from_inventory": hidden
+    })))
 }
 
 async fn list_variants(

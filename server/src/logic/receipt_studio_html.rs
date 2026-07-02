@@ -408,6 +408,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
                 original_unit_price: None,
                 discount_event_label: None,
                 custom_order_details: None,
+                custom_item_type: None,
                 is_fulfilled: true,
             },
             crate::logic::receipt_shared::ReceiptLine {
@@ -421,6 +422,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
                 original_unit_price: None,
                 discount_event_label: None,
                 custom_order_details: None,
+                custom_item_type: None,
                 is_fulfilled: true,
             },
         ],

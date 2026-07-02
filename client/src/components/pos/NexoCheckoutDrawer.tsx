@@ -162,8 +162,8 @@ function helcimAttemptNeedsAttention(attempt: HelcimAttempt): boolean {
 }
 
 function helcimAttemptStatusLabel(status: HelcimAttempt["status"]): string {
-  if (status === "pending") return "Terminal Waiting";
-  if (status === "approved" || status === "captured") return "Card Approved";
+  if (status === "pending") return "Waiting for Card";
+  if (status === "approved" || status === "captured") return "Approved";
   if (status === "failed") return "Declined";
   if (status === "canceled") return "Canceled";
   return "Needs Review";
@@ -187,28 +187,19 @@ function helcimAttemptAgeLabel(attempt: HelcimAttempt): string {
   return remainingMinutes > 0 ? `${elapsedHours} hr ${remainingMinutes} min` : `${elapsedHours} hr`;
 }
 
-function helcimAttemptSafeNextAction(attempt: HelcimAttempt): string {
-  if (attempt.status === "pending") return "Watch the terminal. Refresh only if the customer is done or canceled.";
-  if (attempt.status === "approved" || attempt.status === "captured") {
-    return "Card approved. Finish checkout.";
-  }
-  if (attempt.status === "failed") return "Declined. Try again only if the customer asks.";
-  if (attempt.status === "canceled") return "Canceled. Start another card attempt only if needed.";
-  return HELCIM_UNVERIFIED_OUTCOME_MESSAGE;
-}
-
 function helcimAttemptDetail(attempt: HelcimAttempt): string {
   if (attempt.status === "pending") {
-    return `Sent to ${helcimAttemptTerminalName(attempt)}. Waiting for approved, declined, or canceled.`;
+    return "Waiting for card info.";
   }
 
   if (attempt.status === "approved" || attempt.status === "captured") {
-    return "Card approved by processor.";
+    return "Ready to record sale.";
   }
 
-  if (attempt.status === "expired") return HELCIM_UNVERIFIED_OUTCOME_MESSAGE;
+  if (attempt.status === "expired") return "Needs review.";
+  if (attempt.status === "canceled") return "Canceled.";
 
-  return attempt.error_message ?? "Card attempt was not approved.";
+  return "Not approved.";
 }
 
 function paymentMetadataText(line: AppliedPaymentLine, key: string): string {
@@ -1038,19 +1029,11 @@ export default function NexoCheckoutDrawer({
       setHelcimAttempt(attempt);
       setHelcimUnverifiedNotice(null);
       if (attempt.status === "approved" || attempt.status === "captured") {
-        const addedPayment = addApprovedHelcimAttempt(
+        addApprovedHelcimAttempt(
           attempt,
           pendingHelcimTenderRef.current.method,
           pendingHelcimTenderRef.current.label,
         );
-        if (!options.quietFinal) {
-          toast(
-            addedPayment
-              ? "Card approved. Finish checkout so ROS records the payment."
-              : "Card approval is already applied to this checkout.",
-            addedPayment ? "success" : "info",
-          );
-        }
       } else if (["failed", "canceled", "expired"].includes(attempt.status)) {
         pendingHelcimCentsRef.current = 0;
         pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
@@ -1331,7 +1314,6 @@ export default function NexoCheckoutDrawer({
         if (body.status === "approved" || body.status === "captured") {
           pendingHelcimCentsRef.current = amtCents;
           addApprovedHelcimAttempt(body, "card_saved", "HELCIM VAULT");
-          toast("Card approved. Finish checkout so ROS records the payment.", "success");
         } else {
           toast(body.error_message ?? "Helcim saved card was not approved.", "error");
         }
@@ -2045,7 +2027,7 @@ export default function NexoCheckoutDrawer({
                     : "bg-app-success/10 text-app-success",
               ].join(" ")}
             >
-              {helcimAttemptSafeNextAction(helcimAttempt)}
+              {helcimAttemptDetail(helcimAttempt)}
             </p>
           )}
 
@@ -2957,7 +2939,7 @@ export default function NexoCheckoutDrawer({
                    {helcimAttempt && (
                      <div
                        className={[
-                         "rounded-xl border p-3",
+                         "rounded-xl border p-2.5",
                          helcimAttempt.status === "pending"
                            ? "border-sky-400/20 bg-sky-400/10"
                            : ["failed", "canceled", "expired"].includes(helcimAttempt.status)
@@ -2987,17 +2969,10 @@ export default function NexoCheckoutDrawer({
                              <p className="mt-1 text-[11px] font-semibold leading-snug text-zinc-300">
                                {helcimAttemptDetail(helcimAttempt)}
                              </p>
-                             <p className="mt-2 text-[10px] font-semibold leading-snug text-zinc-400">
-                               ${centsToFixed2(helcimAttempt.amount_cents)} · {helcimAttemptTerminalName(helcimAttempt)} · Age {helcimAttemptAgeLabel(helcimAttempt)}
+                             <p className="mt-1 text-[10px] font-semibold leading-snug text-zinc-400">
+                               ${centsToFixed2(helcimAttempt.amount_cents)} · {helcimAttemptTerminalName(helcimAttempt)}
+                               {pendingHelcimAttemptNeedsAttention ? ` · ${helcimAttemptAgeLabel(helcimAttempt)}` : ""}
                              </p>
-                             <p className="mt-2 rounded-lg bg-black/20 p-2 text-[11px] font-bold leading-snug text-zinc-200">
-                               {helcimAttemptSafeNextAction(helcimAttempt)}
-                             </p>
-                             {helcimAttempt.status === "pending" && (
-                               <p className="mt-2 text-[9px] font-black uppercase tracking-widest text-sky-200">
-                                 Listening for Helcim update
-                               </p>
-                             )}
                              {helcimAttempt.error_code && (
                                <p className="mt-1 truncate font-mono text-[10px] font-bold text-zinc-400">
                                  Error code: {helcimAttempt.error_code}

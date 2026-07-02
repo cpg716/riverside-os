@@ -231,6 +231,12 @@ fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: b
 
 fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
     for it in &d.items {
+        if is_rms_charge_payment_line(it) || is_alteration_service_line(it) {
+            let label = receipt_item_section_label(d, it);
+            set_bold(out, true);
+            push_line(out, label);
+            set_bold(out, false);
+        }
         let var = it
             .variation_label
             .as_deref()
@@ -262,11 +268,17 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
                 }
             }
         }
-        let status_label = match it.fulfillment {
-            DbFulfillmentType::Takeaway => "Taken home today",
-            DbFulfillmentType::WeddingOrder => "Wedding order",
-            DbFulfillmentType::SpecialOrder | DbFulfillmentType::Custom => "Order",
-            DbFulfillmentType::Layaway => "Layaway",
+        let status_label = if is_rms_charge_payment_line(it) {
+            "Payment on RMS Charge"
+        } else if is_alteration_service_line(it) {
+            "Alteration service"
+        } else {
+            match it.fulfillment {
+                DbFulfillmentType::Takeaway => "Taken home today",
+                DbFulfillmentType::WeddingOrder => "Wedding order",
+                DbFulfillmentType::SpecialOrder | DbFulfillmentType::Custom => "Order",
+                DbFulfillmentType::Layaway => "Layaway",
+            }
         };
         push_line(out, status_label);
         out.push(b'\n');
@@ -379,6 +391,8 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
     let mut out_lines = Vec::new();
 
     let labels = [
+        "PAYMENT",
+        "Alterations",
         "Taken Today",
         "PICKED UP",
         "SHIPPED",
@@ -392,29 +406,7 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
         let items: Vec<_> = d
             .items
             .iter()
-            .filter(|it| {
-                let it_label = if it.is_fulfilled {
-                    match d.fulfillment_method {
-                        DbOrderFulfillmentMethod::Ship => "SHIPPED",
-                        DbOrderFulfillmentMethod::Pickup => {
-                            if it.fulfillment == DbFulfillmentType::Takeaway {
-                                "Taken Today"
-                            } else {
-                                "PICKED UP"
-                            }
-                        }
-                    }
-                } else {
-                    match it.fulfillment {
-                        DbFulfillmentType::Takeaway => "Taken Today",
-                        DbFulfillmentType::SpecialOrder => "Special Order",
-                        DbFulfillmentType::Custom => "Custom Order",
-                        DbFulfillmentType::WeddingOrder => "Wedding Order",
-                        DbFulfillmentType::Layaway => "Layaway",
-                    }
-                };
-                it_label == label
-            })
+            .filter(|it| receipt_item_section_label(d, it) == label)
             .collect();
 
         if items.is_empty() {
@@ -490,6 +482,51 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
     }
 
     out_lines.join("\n")
+}
+
+fn is_rms_charge_payment_line(it: &crate::logic::receipt_shared::ReceiptLine) -> bool {
+    it.custom_item_type.as_deref() == Some("rms_charge_payment")
+        || it.sku.trim().eq_ignore_ascii_case("ROS-RMS-CHARGE-PAYMENT")
+        || it
+            .product_name
+            .trim()
+            .eq_ignore_ascii_case("RMS CHARGE PAYMENT")
+}
+
+fn is_alteration_service_line(it: &crate::logic::receipt_shared::ReceiptLine) -> bool {
+    it.custom_item_type.as_deref() == Some("alteration_service")
+}
+
+fn receipt_item_section_label(
+    d: &ReceiptOrder,
+    it: &crate::logic::receipt_shared::ReceiptLine,
+) -> &'static str {
+    if is_rms_charge_payment_line(it) {
+        return "PAYMENT";
+    }
+    if is_alteration_service_line(it) {
+        return "Alterations";
+    }
+    if it.is_fulfilled {
+        match d.fulfillment_method {
+            DbOrderFulfillmentMethod::Ship => "SHIPPED",
+            DbOrderFulfillmentMethod::Pickup => {
+                if it.fulfillment == DbFulfillmentType::Takeaway {
+                    "Taken Today"
+                } else {
+                    "PICKED UP"
+                }
+            }
+        }
+    } else {
+        match it.fulfillment {
+            DbFulfillmentType::Takeaway => "Taken Today",
+            DbFulfillmentType::SpecialOrder => "Special Order",
+            DbFulfillmentType::Custom => "Custom Order",
+            DbFulfillmentType::WeddingOrder => "Wedding Order",
+            DbFulfillmentType::Layaway => "Layaway",
+        }
+    }
 }
 
 fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
@@ -754,6 +791,76 @@ pub fn build_receipt_escpos(
     out.extend_from_slice(b"\n\n\n\n");
     out.extend_from_slice(&[0x1d, 0x56, 0x41, 0x00]);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::logic::receipt_shared::{ReceiptLine, ReceiptOrder};
+    use crate::models::DbOrderStatus;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    fn receipt_order_with(items: Vec<ReceiptLine>) -> ReceiptOrder {
+        ReceiptOrder {
+            transaction_id: Uuid::nil(),
+            transaction_display_id: "TXN-TEST".to_string(),
+            booked_at: Utc::now(),
+            status: DbOrderStatus::Fulfilled,
+            subtotal_price: Decimal::ZERO,
+            tax_total: Decimal::ZERO,
+            total_price: Decimal::ZERO,
+            total_savings: Decimal::ZERO,
+            amount_paid: Decimal::ZERO,
+            balance_due: Decimal::ZERO,
+            payment_methods_summary: "Cash".to_string(),
+            payment_applications: Vec::new(),
+            customer: None,
+            items,
+            is_tax_exempt: false,
+            tax_exempt_reason: None,
+            fulfillment_method: DbOrderFulfillmentMethod::Pickup,
+            cashier_name: None,
+            salesperson_display_name: None,
+            payments: Vec::new(),
+        }
+    }
+
+    fn receipt_line(name: &str, sku: &str, custom_item_type: Option<&str>) -> ReceiptLine {
+        ReceiptLine {
+            product_name: name.to_string(),
+            sku: sku.to_string(),
+            quantity: 1,
+            unit_price: Decimal::new(2500, 2),
+            fulfillment: DbFulfillmentType::Takeaway,
+            salesperson_name: None,
+            variation_label: None,
+            original_unit_price: None,
+            discount_event_label: None,
+            custom_order_details: None,
+            custom_item_type: custom_item_type.map(str::to_string),
+            is_fulfilled: true,
+        }
+    }
+
+    #[test]
+    fn receiptline_groups_rms_payments_and_alterations() {
+        let order = receipt_order_with(vec![
+            receipt_line("RMS CHARGE PAYMENT", "ROS-RMS-CHARGE-PAYMENT", None),
+            receipt_line(
+                "Alteration: Hem Pants",
+                "ALT-001",
+                Some("alteration_service"),
+            ),
+        ]);
+
+        let lines = receiptline_item_lines(&order, false);
+
+        assert!(lines.contains("^^^PAYMENT"));
+        assert!(lines.contains("RMS CHARGE PAYMENT"));
+        assert!(lines.contains("^^^Alterations"));
+        assert!(lines.contains("Alteration: Hem Pants"));
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -40,6 +40,13 @@ const isBookedToday = (occurredAtStr?: string | null) => {
   return occurredDate === todayDate;
 };
 
+function registerLineKindLabel(kind?: string | null): string | null {
+  if (kind === "rms_charge_payment") return "RMS Payment";
+  if (kind === "alteration_service") return "Alteration";
+  if (kind === "pos_gift_card_load") return "Gift Card";
+  return null;
+}
+
 const isBeforeBatchCloseout = () => {
   const now = new Date();
   const hours = now.getHours();
@@ -58,6 +65,8 @@ interface ActivityItemDetail {
   price: string;
   product_id: string;
   fulfillment?: string | null;
+  is_internal?: boolean;
+  line_kind?: string | null;
 }
 
 interface TransactionPayment {
@@ -72,6 +81,8 @@ interface RegisterActivityItem {
   title: string;
   subtitle?: string | null;
   transaction_id?: string | null;
+  payment_id?: string | null;
+  payment_allocation_id?: string | null;
   order_id?: string | null;
   wedding_party_id?: string | null;
   amount_label?: string | null;
@@ -238,6 +249,8 @@ const PRESETS: { id: PresetId; label: string }[] = [
 
 function kindPill(kind: string): string {
   switch (kind) {
+    case "payment":
+      return "bg-app-success/10 text-app-success ring-app-success/25";
     case "pickup":
       return "bg-app-info/10 text-app-info ring-app-info/25";
     default:
@@ -474,6 +487,7 @@ export default function RegisterReports({
   const [zLoading, setZLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
+  const [printingPaymentReceiptId, setPrintingPaymentReceiptId] = useState<string | null>(null);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [hubProductId, setHubProductId] = useState<string | null>(null);
   const [zPreset, setZPreset] = useState<ZPresetId>("recent");
@@ -783,6 +797,36 @@ export default function RegisterReports({
       { name: "CSV", extensions: ["csv"] },
     ]);
   };
+
+  const printPaymentReceipt = useCallback(
+    async (row: RegisterActivityItem) => {
+      const allocationId = row.payment_allocation_id;
+      if (!allocationId) {
+        toast("Payment receipt is unavailable for this row.", "error");
+        return;
+      }
+      setPrintingPaymentReceiptId(allocationId);
+      try {
+        const res = await fetch(`${baseUrl}/api/payments/allocations/${allocationId}/receipt.escpos`, {
+          headers: apiAuth(),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(payload.error || "Payment receipt could not be loaded.");
+        }
+        const payload = (await res.json()) as { escpos_base64?: string | null };
+        const { printReceiptBase64 } = await import("../../lib/receiptPrint");
+        await printReceiptBase64(payload.escpos_base64 ?? "");
+        toast("Payment receipt sent to printer.", "success");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Payment receipt could not be printed.";
+        toast(message, "error");
+      } finally {
+        setPrintingPaymentReceiptId(null);
+      }
+    },
+    [apiAuth, toast],
+  );
 
   const submitVoidTransaction = useCallback(
     async (args: { managerStaffId: string; managerPin: string; reason: string }) => {
@@ -1224,10 +1268,19 @@ export default function RegisterReports({
 
                           <div className="mt-4 grid gap-2 border-t border-app-border/40 pt-4">
 	                             <button type="button" onClick={() => {
+                                if (row.kind === "payment") {
+                                  void printPaymentReceipt(row);
+                                  return;
+                                }
                                 const transactionId = activityTransactionId(row);
                                 if (transactionId) setReceiptOrderId(transactionId);
-                              }} className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white">
-                                <Receipt size={14} /> Receipt
+                              }} disabled={row.kind === "payment" && printingPaymentReceiptId === row.payment_allocation_id} className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-wait disabled:opacity-60">
+                                {row.kind === "payment" && printingPaymentReceiptId === row.payment_allocation_id ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <Receipt size={14} />
+                                )}
+                                Receipt
                              </button>
                              <button
                                type="button"
@@ -1242,6 +1295,7 @@ export default function RegisterReports({
                              </button>
                              {(() => {
                                 const transactionId = activityTransactionId(row);
+                                if (row.kind === "payment") return null;
                                 const canVoid = isBookedToday(row.occurred_at) && isBeforeBatchCloseout();
                                 return canVoid ? (
                                   <button
@@ -1290,11 +1344,20 @@ export default function RegisterReports({
                                  </tr>
                               </thead>
                               <tbody className="divide-y divide-app-border/20">
-                                 {row.items?.map((it, i) => (
+                                 {row.items?.map((it, i) => {
+                                  const lineKindLabel = registerLineKindLabel(it.line_kind);
+                                  return (
                                     <tr key={i} className="text-[11px] hover:bg-app-surface-2/30 transition-colors">
                                        <td className="py-2.5 pr-4">
                                           <div className="font-black text-app-text leading-snug">{it.name}</div>
-	                                          <div className="mt-0.5 font-mono text-xs text-app-text-muted opacity-70">{it.sku}</div>
+	                                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-xs text-app-text-muted opacity-70">
+                                            <span>{it.sku}</span>
+                                            {lineKindLabel ? (
+                                              <span className="rounded bg-app-info/10 px-1.5 py-0.5 font-sans text-[9px] font-black uppercase tracking-widest text-app-info">
+                                                {lineKindLabel}
+                                              </span>
+                                            ) : null}
+                                          </div>
                                        </td>
                                        <td className="py-2.5 text-center align-top font-bold text-app-text">{it.quantity}</td>
                                        <td className="py-2.5 text-center align-top text-app-text-muted/60 line-through font-medium tracking-tighter tabular-nums">${it.reg_price}</td>
@@ -1310,7 +1373,8 @@ export default function RegisterReports({
                                           </span>
                                        </td>
                                     </tr>
-                                 ))}
+                                  );
+                                 })}
                                  {!row.items?.length && (
                                    <tr>
                                       <td colSpan={5} className="py-8 text-center text-xs italic text-app-text-muted opacity-40">No item details recorded for this transaction</td>

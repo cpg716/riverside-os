@@ -9,6 +9,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import type { CustomerProfile } from "./customerProfileTypes";
+import { formatPhone } from "../../lib/utils";
 
 const baseUrl = getBaseUrl();
 
@@ -161,7 +162,7 @@ export default function CustomerProfileCompletionModal({
             Phone *
             <input
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => setPhone(formatPhone(e.target.value) ?? e.target.value)}
               className="ui-input mt-1 w-full text-sm"
             />
           </label>

@@ -2031,7 +2031,9 @@ const STATE_ABBREVIATIONS: Record<string, string> = {
 };
 
 function formatPhoneInput(raw: string): string {
-  const d = raw.replace(/\D/g, "").slice(0, 10);
+  const digits = raw.replace(/\D/g, "");
+  const d = (digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits).slice(0, 10);
+  if (d.length === 7) return `(716) ${d.slice(0, 3)}-${d.slice(3)}`;
   if (d.length <= 3) return d;
   if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;

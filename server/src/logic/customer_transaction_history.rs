@@ -85,9 +85,24 @@ pub async fn query_customer_transaction_history(
                 ELSE o.status
             END AS status,
             o.sale_channel,
-            o.total_price,
             CASE
-                WHEN o.counterpoint_ticket_ref IS NOT NULL THEN o.total_price
+                WHEN o.counterpoint_ticket_ref IS NOT NULL THEN COALESCE(
+                    NULLIF(o.total_price, 0),
+                    COALESCE(SUM(
+                        GREATEST(COALESCE(oi.quantity, 0), 0)::numeric
+                        * (COALESCE(oi.unit_price, 0) + COALESCE(oi.state_tax, 0) + COALESCE(oi.local_tax, 0))
+                    ), 0::numeric)
+                )
+                ELSE o.total_price
+            END AS total_price,
+            CASE
+                WHEN o.counterpoint_ticket_ref IS NOT NULL THEN COALESCE(
+                    NULLIF(o.total_price, 0),
+                    COALESCE(SUM(
+                        GREATEST(COALESCE(oi.quantity, 0), 0)::numeric
+                        * (COALESCE(oi.unit_price, 0) + COALESCE(oi.state_tax, 0) + COALESCE(oi.local_tax, 0))
+                    ), 0::numeric)
+                )
                 ELSE o.amount_paid
             END AS amount_paid,
             CASE
@@ -144,6 +159,21 @@ pub async fn query_customer_transaction_history(
             // Payment/deposit-only Counterpoint ticket artifacts are not purchases.
             qb.push(
                 r#" AND o.counterpoint_doc_ref IS NULL
+                AND NOT (
+                    COALESCE(o.total_price, 0) = 0
+                    AND COALESCE(o.amount_paid, 0) = 0
+                    AND COALESCE(o.balance_due, 0) = 0
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM transaction_lines tl_payment_shell
+                        WHERE tl_payment_shell.transaction_id = o.id
+                    )
+                    AND EXISTS (
+                        SELECT 1
+                        FROM payment_transactions pt_payment_shell
+                        WHERE pt_payment_shell.metadata->>'checkout_transaction_id' = o.id::text
+                    )
+                )
                 AND NOT (
                     COALESCE(o.is_counterpoint_import, false)
                     AND o.counterpoint_ticket_ref IS NOT NULL

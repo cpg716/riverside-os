@@ -4885,6 +4885,28 @@ type NormalizedCustomerInput = (
     bool,
 );
 
+fn canonical_customer_phone_input(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let digits: String = trimmed.chars().filter(|c| c.is_ascii_digit()).collect();
+    let normalized = match digits.len() {
+        7 => format!("716{digits}"),
+        10 => digits,
+        11 if digits.starts_with('1') => digits[1..].to_string(),
+        _ => return Some(trimmed.to_string()),
+    };
+
+    Some(format!(
+        "({}) {}-{}",
+        &normalized[0..3],
+        &normalized[3..6],
+        &normalized[6..10]
+    ))
+}
+
 fn normalize_customer_input(
     payload: &CreateCustomerRequest,
 ) -> Result<NormalizedCustomerInput, CustomerError> {
@@ -4903,9 +4925,7 @@ fn normalize_customer_input(
     let phone = payload
         .phone
         .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned);
+        .and_then(canonical_customer_phone_input);
 
     let line1 = payload
         .address_line1
@@ -5120,12 +5140,7 @@ async fn update_customer(
         n += 1;
     }
     if let Some(phone_raw) = body.phone {
-        let t = phone_raw.trim();
-        let bind: Option<String> = if t.is_empty() {
-            None
-        } else {
-            Some(t.to_string())
-        };
+        let bind = canonical_customer_phone_input(&phone_raw);
         sep.push("phone = ").push_bind_unseparated(bind);
         n += 1;
     }
@@ -6445,9 +6460,24 @@ async fn build_customer_timeline(
                 )
                   AND o.booked_at >= crp.linked_at
                   AND (crp.unlinked_at IS NULL OR o.booked_at <= crp.unlinked_at)
-                  AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+                AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
             )
         )
+          AND NOT (
+              COALESCE(o.total_price, 0) = 0
+              AND COALESCE(o.amount_paid, 0) = 0
+              AND COALESCE(o.balance_due, 0) = 0
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM transaction_lines tl_payment_shell
+                  WHERE tl_payment_shell.transaction_id = o.id
+              )
+              AND EXISTS (
+                  SELECT 1
+                  FROM payment_transactions pt_payment_shell
+                  WHERE pt_payment_shell.metadata->>'checkout_transaction_id' = o.id::text
+              )
+          )
         GROUP BY o.id, o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.booked_at
         ORDER BY o.booked_at DESC
         LIMIT 25
@@ -6462,6 +6492,27 @@ async fn build_customer_timeline(
         SELECT id, created_at, payment_method, amount
         FROM payment_transactions p
         WHERE p.payer_id = $1
+           OR EXISTS (
+               SELECT 1
+               FROM payment_allocations pa
+               INNER JOIN transactions target ON target.id = pa.target_transaction_id
+               WHERE pa.transaction_id = p.id
+                 AND (
+                     target.customer_id = $1
+                     OR EXISTS (
+                         SELECT 1
+                         FROM customer_relationship_periods crp
+                         WHERE (
+                             (crp.parent_customer_id = $1 AND crp.child_customer_id = target.customer_id)
+                             OR
+                             (crp.child_customer_id = $1 AND crp.parent_customer_id = target.customer_id)
+                         )
+                           AND p.created_at >= crp.linked_at
+                           AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
+                           AND (crp.unlinked_at IS NULL OR crp.parent_customer_id = $1)
+                     )
+                 )
+           )
            OR EXISTS (
                SELECT 1
                FROM customer_relationship_periods crp

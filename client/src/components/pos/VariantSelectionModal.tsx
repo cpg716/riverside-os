@@ -30,8 +30,11 @@ export interface VariantSelectionModalProps {
   onSelect: (variant: VariantOption, priceOverride?: string) => void;
 }
 
-function parseAttributes(label: string): string[] {
-  return label.split(/[ \t]*[/|,][ \t]*/).map(s => s.trim()).filter(Boolean);
+function parseVariantAttributes(label: string): string[] {
+  return label
+    .split(/[ \t]+\/[ \t]+|[|,]/)
+    .map(s => s.trim())
+    .filter((s) => s && s !== "*" && s !== "_");
 }
 
 // --- Logical Size Sorting Utility ---
@@ -68,14 +71,14 @@ export default function VariantSelectionModal({
 
   const attributeSteps = useMemo(() => {
     if (!product) return [];
-    const maxDepth = Math.max(...product.variants.map(v => parseAttributes(v.variation_label).length));
+    const maxDepth = Math.max(...product.variants.map(v => parseVariantAttributes(v.variation_label).length));
     return Array.from({ length: maxDepth }, (_, i) => `Option ${i + 1}`);
   }, [product]);
 
   const matchingVariants = useMemo(() => {
     if (!product) return [];
     return product.variants.filter(v => {
-      const attrs = parseAttributes(v.variation_label);
+      const attrs = parseVariantAttributes(v.variation_label);
       return selections.every((sel, i) => attrs[i] === sel);
     });
   }, [product, selections]);
@@ -88,7 +91,7 @@ export default function VariantSelectionModal({
     const seen = new Set<string>();
     const result: string[] = [];
     matchingVariants.forEach(v => {
-      const attrs = parseAttributes(v.variation_label);
+      const attrs = parseVariantAttributes(v.variation_label);
       const val = attrs[currentStepIndex];
       if (val && !seen.has(val)) {
         seen.add(val);

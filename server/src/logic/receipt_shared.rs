@@ -69,6 +69,7 @@ pub struct ReceiptLine {
     /// Discount event label from `size_specs`, when set.
     pub discount_event_label: Option<String>,
     pub custom_order_details: Option<serde_json::Value>,
+    pub custom_item_type: Option<String>,
     pub is_fulfilled: bool,
 }
 

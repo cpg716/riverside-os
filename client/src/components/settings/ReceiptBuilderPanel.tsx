@@ -91,10 +91,7 @@ function linesToText(lines: string[]) {
 }
 
 function textToLines(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  return value.split(/\r?\n/);
 }
 
 function escapeReceiptlineText(value: string) {
@@ -264,7 +261,14 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replaceAll("{{RECEIPT_TITLE}}", activeTab === "standard" ? "| ^^^RECEIPT |" : "| ^^^PICKED UP RECEIPT |")
       .replaceAll("{{RECEIPT_ID}}", "| Receipt TXN-66736 |")
       .replaceAll("{{RECEIPT_DATE}}", "| 04/26/2026 02:14 AM |")
-      .replaceAll("{{CUSTOMER_LINE}}", "Customer: Chris Garcia")
+      .replaceAll(
+        "{{CUSTOMER_LINE}}",
+        [
+          "Customer: Chris Garcia",
+          "Phone: (716) 555-0199",
+          "Customer #: CHRIS-42DF",
+        ].join("\n"),
+      )
       .replaceAll("{{SALESPERSON_LINE}}", "Salesperson: Taylor M.")
       .replaceAll("{{CASHIER_LINE}}", "Staff: Alex B.")
       .replaceAll(
@@ -273,35 +277,51 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           ? [
               "^^^Taken Today",
               "1x 100% Lambswool Sweater",
+              "Variation: Medium / Navy",
               "SKU I-1003713601 | $83.80",
               "Reg $104.75 Sale $83.80 (20% Discount)",
               "",
               "^^^PICKED UP",
               "1x Tuxedo Shirt",
+              "Variation: 16.5 / 34-35 / White",
               "SKU I-40092182 | $65.00",
               "",
               "^^^SHIPPED",
               "1x Silk Tie",
+              "Variation: Burgundy",
               "SKU I-50012345 | $45.00",
               "",
               "^^^Special Order",
               "NOTICE: Size 42R requested",
               "1x Custom Navy Blazer",
+              "Variation: 42R / Navy",
               "SKU I-2004829302 | $295.00",
+              "",
+              "^^^Wedding Order",
+              "1x Groomsman Suit",
+              "Variation: 40R / Charcoal",
+              "SKU I-30088420 | $260.00",
             ]
               .filter(Boolean)
               .join("\n")
           : [
               "1x Tuxedo Jacket (PICKED UP)",
+              "Variation: 42R / Black",
               "SKU I-40092180 | $350.00",
               "",
               "1x Tuxedo Pants (PICKED UP)",
+              "Variation: 34 / Black",
               "SKU I-40092181 | $150.00",
             ].join("\n")
       )
       .replaceAll("{{LOYALTY_EARNED}}", cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
       .replaceAll("{{LOYALTY_BALANCE}}", cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "")
-      .replaceAll("{{PAYMENT_BLOCK}}", "")
+      .replaceAll(
+        "{{PAYMENT_BLOCK}}",
+        activeTab === "standard"
+          ? ["---", "Applied payments:", "Payment on TXN-566027 | $140.00", "Remaining | $120.00"].join("\n")
+          : "",
+      )
       .replaceAll(
         "{{PAYMENT_HISTORY_BLOCK}}",
         [
@@ -592,8 +612,11 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   {[
                     ["Logo", "{{LOGO_IMAGE}}"],
                     ["Header", "{{HEADER_LINES}}"],
+                    ["Customer", "{{CUSTOMER_LINE}}"],
+                    ["Staff", "{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}"],
                     ["Items", "{{ITEM_LINES}}"],
                     ["Totals", "{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}"],
+                    activeTab === "standard" ? ["Payments", "{{PAYMENT_BLOCK}}"] : null,
                     ["Barcode", "{{BARCODE_IMAGE}}"],
                     ["Cut", "{{CUT}}"],
                     activeTab === "pickup" ? ["Payment History", "{{PAYMENT_HISTORY_BLOCK}}"] : null,

@@ -969,7 +969,7 @@ fn reserve_unique_counterpoint_recovery_sku(
 fn option_values_from_variation_label(variation_label: Option<&str>) -> Vec<String> {
     variation_label
         .into_iter()
-        .flat_map(|label| label.split('/'))
+        .flat_map(|label| label.split(" / "))
         .filter_map(normalize_identity_key)
         .collect()
 }
@@ -1010,7 +1010,7 @@ fn normalized_alias_option_values(values: &[String]) -> Vec<String> {
     values
         .iter()
         .filter_map(|value| normalize_identity_key(value))
-        .filter(|value| value != "_" && value != "*")
+        .filter(|value| !value.chars().all(|ch| ch == '*' || ch == '_'))
         .collect()
 }
 
@@ -1027,6 +1027,18 @@ fn normalized_counterpoint_variant_option_values(
         option_values = option_values_from_variation_label(variation_label);
     }
     normalized_alias_option_values(&option_values)
+}
+
+fn clean_counterpoint_variation_label(
+    cp_key: &str,
+    variation_label: Option<&str>,
+) -> Option<String> {
+    let mut values = option_values_from_counterpoint_item_key(Some(cp_key));
+    if values.is_empty() {
+        values = option_values_from_variation_label(variation_label);
+    }
+    let values = normalized_alias_option_values(&values);
+    (!values.is_empty()).then(|| values.join(" / "))
 }
 
 fn limited_refs(
@@ -11446,6 +11458,7 @@ async fn upsert_variant(
         return Ok(());
     }
     let import_sku = counterpoint_catalog_variant_sku(cp_key, sku);
+    let clean_variation_label = clean_counterpoint_variation_label(cp_key, variation_label);
 
     let mut existing: Option<(Uuid, String)> =
         sqlx::query_as("SELECT id, sku FROM product_variants WHERE counterpoint_item_key = $1")
@@ -11487,7 +11500,7 @@ async fn upsert_variant(
         .bind(vid)
         .bind(&import_sku)
         .bind(barcode)
-        .bind(variation_label)
+        .bind(clean_variation_label.as_deref())
         .bind(override_retail)
         .bind(override_cost)
         .bind(counterpoint_prc_2)
@@ -11529,7 +11542,7 @@ async fn upsert_variant(
         .bind(barcode)
         .bind(cp_key)
         .bind(vv)
-        .bind(variation_label)
+        .bind(clean_variation_label.as_deref())
         .bind(override_retail)
         .bind(override_cost)
         .bind(counterpoint_prc_2)
@@ -12932,6 +12945,77 @@ fn dedupe_counterpoint_open_doc_payments(payments: Vec<TicketPaymentRow>) -> Vec
         .collect()
 }
 
+fn counterpoint_open_doc_line_subtotal(lines: &[TicketLineRow]) -> Decimal {
+    lines
+        .iter()
+        .map(|line| Decimal::from(line.quantity) * line.unit_price)
+        .sum()
+}
+
+fn counterpoint_open_doc_plausible_tax(subtotal: Decimal, candidate_tax: Decimal) -> bool {
+    if subtotal <= Decimal::ZERO || candidate_tax <= Decimal::ZERO {
+        return false;
+    }
+
+    let rate = candidate_tax / subtotal;
+    rate >= Decimal::new(3, 2) && rate <= Decimal::new(12, 2)
+}
+
+fn rounded_counterpoint_money(amount: Decimal) -> Decimal {
+    amount.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
+}
+
+fn infer_counterpoint_open_doc_tax(
+    total_price: Decimal,
+    amount_paid: Decimal,
+    lines: &[TicketLineRow],
+) -> Option<(Decimal, Vec<(Decimal, Decimal)>)> {
+    let subtotal = rounded_counterpoint_money(counterpoint_open_doc_line_subtotal(lines));
+    if subtotal <= Decimal::ZERO {
+        return None;
+    }
+
+    let header_tax = rounded_counterpoint_money(total_price - subtotal);
+    let tender_tax = rounded_counterpoint_money(amount_paid - subtotal);
+    let inferred_tax = if counterpoint_open_doc_plausible_tax(subtotal, header_tax) {
+        header_tax
+    } else if total_price <= subtotal + Decimal::new(1, 2)
+        && counterpoint_open_doc_plausible_tax(subtotal, tender_tax)
+    {
+        tender_tax
+    } else {
+        return None;
+    };
+
+    let mut taxes = Vec::with_capacity(lines.len());
+    let mut allocated_tax = Decimal::ZERO;
+    for (index, line) in lines.iter().enumerate() {
+        let quantity = Decimal::from(line.quantity);
+        if quantity <= Decimal::ZERO {
+            taxes.push((Decimal::ZERO, Decimal::ZERO));
+            continue;
+        }
+
+        let extended_subtotal = Decimal::from(line.quantity) * line.unit_price;
+        let extended_tax = if index + 1 == lines.len() {
+            rounded_counterpoint_money(inferred_tax - allocated_tax)
+        } else {
+            rounded_counterpoint_money(inferred_tax * extended_subtotal / subtotal)
+        };
+        allocated_tax += extended_tax;
+
+        let extended_state_tax =
+            rounded_counterpoint_money((extended_subtotal * Decimal::new(4, 2)).min(extended_tax));
+        let extended_local_tax = rounded_counterpoint_money(extended_tax - extended_state_tax);
+        taxes.push((
+            rounded_counterpoint_money(extended_state_tax / quantity),
+            rounded_counterpoint_money(extended_local_tax / quantity),
+        ));
+    }
+
+    Some((rounded_counterpoint_money(subtotal + inferred_tax), taxes))
+}
+
 async fn counterpoint_open_doc_matches_existing_ticket_transaction(
     tx: &mut Transaction<'_, Postgres>,
     customer_id: Option<Uuid>,
@@ -13244,10 +13328,18 @@ pub async fn execute_counterpoint_open_doc_batch(
 
         let normalized_amount_paid =
             sum_counterpoint_open_doc_tenders(&doc.payments).unwrap_or(doc.amount_paid);
-        let balance = doc.total_price - normalized_amount_paid;
+        let (effective_total_price, inferred_line_taxes) =
+            infer_counterpoint_open_doc_tax(doc.total_price, normalized_amount_paid, &doc.lines)
+                .unwrap_or_else(|| {
+                    (
+                        doc.total_price,
+                        vec![(Decimal::ZERO, Decimal::ZERO); doc.lines.len()],
+                    )
+                });
+        let balance = effective_total_price - normalized_amount_paid;
         let status = order_status_for_cp_open_doc(
             doc.cp_status.as_deref(),
-            doc.total_price,
+            effective_total_price,
             normalized_amount_paid,
         );
 
@@ -13309,7 +13401,7 @@ pub async fn execute_counterpoint_open_doc_batch(
                 &mut tx,
                 customer_id,
                 booked_at,
-                doc.total_price,
+                effective_total_price,
                 normalized_amount_paid,
                 &doc.lines,
             )
@@ -13403,7 +13495,7 @@ pub async fn execute_counterpoint_open_doc_batch(
             .bind(customer_id)
             .bind(status)
             .bind(booked_at)
-            .bind(doc.total_price)
+            .bind(effective_total_price)
             .bind(normalized_amount_paid)
             .bind(balance)
             .bind(processed_by)
@@ -13462,7 +13554,7 @@ pub async fn execute_counterpoint_open_doc_batch(
             .bind(doc_ref)
             .bind(status)
             .bind(booked_at)
-            .bind(doc.total_price)
+            .bind(effective_total_price)
             .bind(normalized_amount_paid)
             .bind(balance)
             .bind(processed_by)
@@ -13478,10 +13570,12 @@ pub async fn execute_counterpoint_open_doc_batch(
         };
         let fulfillment = fulfillment_type_for_cp_doc_typ(doc.doc_typ.as_deref());
 
-        for (((variant_id, product_id), line), vendor_ref) in resolved_lines
-            .iter()
-            .zip(doc.lines.iter())
-            .zip(line_vendor_refs.iter())
+        for ((((variant_id, product_id), line), vendor_ref), (state_tax, local_tax)) in
+            resolved_lines
+                .iter()
+                .zip(doc.lines.iter())
+                .zip(line_vendor_refs.iter())
+                .zip(inferred_line_taxes.iter())
         {
             let cost = line.unit_cost.unwrap_or(Decimal::ZERO);
 
@@ -13495,8 +13589,8 @@ pub async fn execute_counterpoint_open_doc_batch(
                     order_lifecycle_status, ready_for_pickup_at, ready_for_pickup_by, booked_at
                 )
                 VALUES (
-                    $1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, 0, 0, 0, 0,
-                    $9, $10, $11, 'ready_for_pickup'::order_item_lifecycle_status, $12, $13, $14
+                    $1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, $9, $10, 0, 0,
+                    $11, $12, $13, 'ready_for_pickup'::order_item_lifecycle_status, $14, $15, $16
                 )
                 "#,
             )
@@ -13508,6 +13602,8 @@ pub async fn execute_counterpoint_open_doc_batch(
             .bind(line.quantity)
             .bind(line.unit_price)
             .bind(cost)
+            .bind(state_tax)
+            .bind(local_tax)
             .bind(line.reason_code.as_deref())
             .bind(serde_json::json!({
                 "counterpoint_description": line.description.as_deref(),
@@ -14723,6 +14819,32 @@ mod tests {
         assert_eq!(
             counterpoint_catalog_variant_sku("40901/1", "40901/1"),
             "40901/1"
+        );
+    }
+
+    #[test]
+    fn counterpoint_variation_labels_skip_placeholders_and_preserve_slash_sizes() {
+        assert_eq!(
+            clean_counterpoint_variation_label("I-101583|BLACK||", Some("BLACK / * / *")),
+            Some("BLACK".into())
+        );
+        assert_eq!(
+            clean_counterpoint_variation_label(
+                "I-100201|4630-414 SEAFOA|19.5|32/33",
+                Some("4630-414 SEAFOA / 19.5 / 32/33")
+            ),
+            Some("4630-414 SEAFOA / 19.5 / 32/33".into())
+        );
+        assert_eq!(
+            clean_counterpoint_variation_label(
+                "I-100161|385-473430 717|36 R|**",
+                Some("385-473430 717 / 36 R / **")
+            ),
+            Some("385-473430 717 / 36 R".into())
+        );
+        assert_eq!(
+            option_values_from_variation_label(Some("4630-414 SEAFOA / 19.5 / 32/33")),
+            vec!["4630-414 SEAFOA", "19.5", "32/33"]
         );
     }
 
@@ -17717,6 +17839,27 @@ mod tests {
             .expect("explicit payments should produce a paid total");
 
         assert_eq!(paid, Decimal::new(2750, 2));
+    }
+
+    #[test]
+    fn open_doc_tax_inference_treats_tender_subtotal_gap_as_tax() {
+        let lines = vec![TicketLineRow {
+            sku: Some("B-1350103".into()),
+            counterpoint_item_key: Some("I-102118|46306/2|42 R|J BOND".into()),
+            lin_seq_no: Some(1),
+            quantity: 1,
+            unit_price: Decimal::new(26000, 2),
+            unit_cost: Some(Decimal::ZERO),
+            description: Some("Gruppo Bravo Suit (46306)".into()),
+            reason_code: None,
+        }];
+
+        let (total, taxes) =
+            infer_counterpoint_open_doc_tax(Decimal::new(26000, 2), Decimal::new(28275, 2), &lines)
+                .expect("infer open-doc tax from tender subtotal gap");
+
+        assert_eq!(total, Decimal::new(28275, 2));
+        assert_eq!(taxes, vec![(Decimal::new(1040, 2), Decimal::new(1235, 2))]);
     }
 
     #[tokio::test]

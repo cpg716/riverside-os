@@ -102,4 +102,11 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("099_transaction_line_shipping_release.sql", include_str!("../../migrations/099_transaction_line_shipping_release.sql")),
     ("100_allow_wedding_import_customer_source.sql", include_str!("../../migrations/100_allow_wedding_import_customer_source.sql")),
     ("101_register_open_lane_uniqueness_guard.sql", include_str!("../../migrations/101_register_open_lane_uniqueness_guard.sql")),
+    ("102_counterpoint_open_doc_tax_repair.sql", include_str!("../../migrations/102_counterpoint_open_doc_tax_repair.sql")),
+    ("103_counterpoint_open_doc_tax_header_repair.sql", include_str!("../../migrations/103_counterpoint_open_doc_tax_header_repair.sql")),
+    ("104_wedding_import_customer_identity_repair.sql", include_str!("../../migrations/104_wedding_import_customer_identity_repair.sql")),
+    ("105_wedding_import_duplicate_customer_repair.sql", include_str!("../../migrations/105_wedding_import_duplicate_customer_repair.sql")),
+    ("106_counterpoint_variation_label_cleanup.sql", include_str!("../../migrations/106_counterpoint_variation_label_cleanup.sql")),
+    ("107_counterpoint_variation_all_star_cleanup.sql", include_str!("../../migrations/107_counterpoint_variation_all_star_cleanup.sql")),
+    ("108_inventory_hide_stale_zero_stock.sql", include_str!("../../migrations/108_inventory_hide_stale_zero_stock.sql")),
 ];

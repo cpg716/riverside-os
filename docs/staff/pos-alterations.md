@@ -12,7 +12,7 @@
 
 Use **Alterations** from POS when you are **at the register** with a customer and need to **check status**, **intake a standalone tailoring job**, or **move a job** without walking to the back-office queue on another machine.
 
-This screen shares the same alterations queue as Back Office. It can record the garment/source, work requested, optional SKU/reference text, and whether a charge was noted. Alterations started from the Register toolbar now appear as editable **Alteration** cart lines: free/included work shows **$0.00**, and charged work shows the entered service amount. The source garment is tracked separately and is not sold again.
+This screen shares the same alterations queue as Back Office. It can record the garment/source, work requested, optional SKU/reference text, and whether a charge was noted. Alterations started from the Register toolbar now appear as editable **Alteration** cart lines: free/included work shows **$0.00**, and charged work shows the entered service amount. The source garment is tracked separately and is not sold again. Charged alteration lines stay labeled as **Alteration** on the cart, receipt, Daily Sales, and printed audit reports.
 
 ## How to use this screen
 

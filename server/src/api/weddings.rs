@@ -99,16 +99,23 @@ async fn get_or_create_wedding_customer(
     customer_created_source: &str,
     created_is_verified: bool,
 ) -> Result<(Uuid, bool), sqlx::Error> {
-    let is_cutover_import = customer_created_source == "wedding_import";
     let phone = phone.map(str::trim).filter(|s| !s.is_empty());
+    let canonical_phone = phone.and_then(canonical_customer_phone);
     if let Some(phone) = phone {
         let phone_digits = digits_only(phone);
-        let phone_digits_for_match = if is_cutover_import && phone_digits.len() < 10 {
-            None
-        } else {
-            Some(phone_digits.as_str())
+        let normalized_match_digits = match phone_digits.len() {
+            11 if phone_digits.starts_with('1') => Some(phone_digits[1..].to_string()),
+            10 => Some(phone_digits.clone()),
+            7 => Some(phone_digits.clone()),
+            _ => None,
         };
-        if let Some(match_digits) = phone_digits_for_match {
+        if let Some(match_digits) = normalized_match_digits.as_deref() {
+            let local_match_digits = if match_digits.len() == 7 {
+                Some(format!("716{match_digits}"))
+            } else {
+                None
+            };
+            let formatted_match_phone = canonical_phone.as_deref().unwrap_or(phone);
             if let Some((existing_id, match_count)) = sqlx::query_as::<_, (Uuid, i64)>(
                 r#"
                 WITH phone_matches AS (
@@ -116,6 +123,10 @@ async fn get_or_create_wedding_customer(
                     FROM customers
                     WHERE phone = $1
                        OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') = $2
+                       OR (
+                            $3::text IS NOT NULL
+                            AND REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') = $3
+                       )
                        OR (
                             LENGTH($2) = 10
                             AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = $2
@@ -125,15 +136,15 @@ async fn get_or_create_wedding_customer(
                             AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 7) = $2
                        )
                        OR (
-                            LENGTH($2) = 7
-                            AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = CONCAT('716', $2)
+                            $3::text IS NOT NULL
+                            AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = $3
                        )
                 ),
                 name_matches AS (
                     SELECT id, created_at
                     FROM phone_matches
-                    WHERE LOWER(TRIM(COALESCE(first_name, ''))) = LOWER(TRIM($3))
-                      AND LOWER(TRIM(COALESCE(last_name, ''))) = LOWER(TRIM($4))
+                    WHERE LOWER(TRIM(COALESCE(first_name, ''))) = LOWER(TRIM($4))
+                      AND LOWER(TRIM(COALESCE(last_name, ''))) = LOWER(TRIM($5))
                 )
                 SELECT id, COUNT(*) OVER () AS match_count
                 FROM name_matches
@@ -141,8 +152,9 @@ async fn get_or_create_wedding_customer(
                 LIMIT 1
                 "#,
             )
-            .bind(phone)
+            .bind(formatted_match_phone)
             .bind(match_digits)
+            .bind(local_match_digits.as_deref())
             .bind(first)
             .bind(last)
             .fetch_optional(pool)
@@ -157,14 +169,6 @@ async fn get_or_create_wedding_customer(
 
     let customer_id = Uuid::new_v4();
     let customer_code = next_customer_code(pool).await?;
-    let created_phone = phone.and_then(|value| {
-        let digits = digits_only(value);
-        if is_cutover_import && digits.len() < 10 {
-            None
-        } else {
-            Some(value)
-        }
-    });
     let inserted_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO customers (
@@ -177,13 +181,30 @@ async fn get_or_create_wedding_customer(
     .bind(customer_id)
     .bind(first)
     .bind(last)
-    .bind(created_phone)
+    .bind(canonical_phone)
     .bind(customer_code)
     .bind(customer_created_source)
     .fetch_one(pool)
     .await?;
 
     Ok((inserted_id, created_is_verified))
+}
+
+fn canonical_customer_phone(phone: &str) -> Option<String> {
+    let digits = digits_only(phone);
+    let normalized = match digits.len() {
+        11 if digits.starts_with('1') => digits[1..].to_string(),
+        10 => digits,
+        7 => format!("716{digits}"),
+        _ => return None,
+    };
+
+    Some(format!(
+        "({}) {}-{}",
+        &normalized[0..3],
+        &normalized[3..6],
+        &normalized[6..10]
+    ))
 }
 
 pub use crate::logic::wedding_api_types::{

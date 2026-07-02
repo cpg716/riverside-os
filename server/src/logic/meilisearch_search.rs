@@ -38,6 +38,7 @@ struct ControlBoardMeiliFilters<'a> {
     filter_flag: Option<&'a str>,
     oos_only: Option<bool>,
     negative_stock_only: Option<bool>,
+    include_hidden: bool,
 }
 
 fn parse_hit_ids(hits: &[meilisearch_sdk::search::SearchResult<IdHit>]) -> Vec<Uuid> {
@@ -75,6 +76,9 @@ fn control_board_meili_filter_parts(filters: &ControlBoardMeiliFilters<'_>) -> O
     if filters.negative_stock_only == Some(true) {
         parts.push("stock_status = \"negative\"".to_string());
     }
+    if !filters.include_hidden {
+        parts.push("hidden_from_inventory = false".to_string());
+    }
     if parts.is_empty() {
         None
     } else {
@@ -95,6 +99,7 @@ pub async fn control_board_search_variant_ids(
     filter_flag: Option<&str>,
     oos_only: Option<bool>,
     negative_stock_only: Option<bool>,
+    include_hidden: bool,
 ) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
     let index = client.index(INDEX_VARIANTS);
     let filter = control_board_meili_filter_parts(&ControlBoardMeiliFilters {
@@ -106,6 +111,7 @@ pub async fn control_board_search_variant_ids(
         filter_flag,
         oos_only,
         negative_stock_only,
+        include_hidden,
     });
     let mut sq = index.search();
     sq.with_query(query_text)

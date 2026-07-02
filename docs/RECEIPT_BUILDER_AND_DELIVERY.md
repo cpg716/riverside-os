@@ -46,9 +46,13 @@ The top logo uses ReceiptLine's image property (`{image: base64-png}`) through t
 
 **Financial tokens:** Customer receipts must keep `{{SUBTOTAL_LINE}}`, `{{TAX_LINE}}`, `{{TOTAL_SAVINGS_LINE}}`, and `{{TOTAL_LINE}}` in that order so staff and customers can distinguish item subtotal, taxes, savings from discounts, and final total. `{{TOTAL_SAVINGS_LINE}}` is omitted when no line-level savings are present.
 
+**Receipt barcode:** When **Order Barcode** is enabled and `{{BARCODE_IMAGE}}` is present, the receipt prints a Code128 barcode containing the Transaction Record display ID such as `TXN-566056`. Scanning that code in the Register opens the correct Transaction Record workflow for returns/exchanges or open-order work. Scanning/typing it in Universal Search opens the Transaction Hub for that receipt.
+
 **ReceiptLine print preference:** The ESC/POS endpoint returns both `receiptline_markdown` (template-based) and `escpos_base64` (legacy structured fallback). The POS client prefers the ReceiptLine path, transforming it client-side for printing. The raw ESC/POS fallback uses a fixed layout and does not honor the operator's template customizations, logo image, or loyalty tokens — it exists solely as a safety net when the client-side ReceiptLine transform fails.
 
 **Thermal ESC/POS:** **`GET /api/transactions/{transaction_id}/receipt.escpos`** supports the same **`gift`** and **`order_item_ids`** query parameters (full Transaction Record is the default when omitted).
+
+**Payment receipts:** Daily Sales payment-only activity uses **`GET /api/payments/allocations/{allocation_id}/receipt.escpos`** to print a payment receipt without merchandise lines. It includes customer name, Customer #, phone, applied Transaction Record, method details, amount paid, paid-to-date, and remaining balance.
 
 **Customer-facing privacy:**
 - **Staff and Customer Privacy**: All participant names on customer receipts use **`receipt_privacy::mask_name_for_receipt`** to return **First Name + Last Initial** (e.g. "Christopher G."). Full names are strictly reserved for internal screens, analytical reports, and authenticated API contexts.

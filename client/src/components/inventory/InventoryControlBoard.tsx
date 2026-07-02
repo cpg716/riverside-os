@@ -115,6 +115,7 @@ interface BoardRow {
   web_published?: boolean;
   web_price_override?: string | null;
   barcode?: string | null;
+  hidden_from_inventory?: boolean;
 }
 
 interface BoardStats {
@@ -153,6 +154,7 @@ interface ProductListRow {
   /** Sum of variant available_stock (walk-in + web alloc). */
   available_stock_total: number;
   web_published_count: number;
+  hidden_variant_count: number;
   is_non_stock_sale_item: boolean;
 }
 
@@ -432,6 +434,7 @@ export default function InventoryControlBoard({
   const [vendorId, setVendorId] = useState("");
   const [groupByPrimaryVendor, setGroupByPrimaryVendor] = useState(false);
   const [webOnly, setWebOnly] = useState(false);
+  const [includeHidden, setIncludeHidden] = useState(false);
   const [readinessFilter, setReadinessFilter] =
     useState<ReadinessFilter | null>(null);
   const [showCleanupDiagnostics, setShowCleanupDiagnostics] = useState(true);
@@ -588,6 +591,7 @@ export default function InventoryControlBoard({
     if (categoryId) params.set("category_id", categoryId);
     if (vendorId) params.set("vendor_id", vendorId);
     if (webOnly) params.set("web_published_only", "true");
+    if (includeHidden) params.set("include_hidden", "true");
     params.set("limit", String(boardPageLimit));
     params.set("offset", "0");
 
@@ -627,6 +631,7 @@ export default function InventoryControlBoard({
     categoryId,
     vendorId,
     webOnly,
+    includeHidden,
     boardPageLimit,
     apiAuth,
     toast,
@@ -665,6 +670,7 @@ export default function InventoryControlBoard({
     if (categoryId) params.set("category_id", categoryId);
     if (vendorId) params.set("vendor_id", vendorId);
     if (webOnly) params.set("web_published_only", "true");
+    if (includeHidden) params.set("include_hidden", "true");
     params.set("limit", String(boardPageLimit));
     params.set("offset", String(rows.length));
 
@@ -704,6 +710,7 @@ export default function InventoryControlBoard({
     categoryId,
     vendorId,
     webOnly,
+    includeHidden,
     boardPageLimit,
     rows.length,
     apiAuth,
@@ -734,6 +741,7 @@ export default function InventoryControlBoard({
       let extCents = 0;
       let availSum = 0;
       let webPub = 0;
+      let hiddenCount = 0;
       const isNonStockSaleItem =
         isInternalPosCategory(first.category_name) ||
         variants.every((variant) => isCustomOrderSku(variant.sku));
@@ -744,6 +752,7 @@ export default function InventoryControlBoard({
             ? v.available_stock
             : v.stock_on_hand;
         if (v.web_published) webPub += 1;
+        if (v.hidden_from_inventory) hiddenCount += 1;
         const retailC = parseMoneyToCents(v.retail_price || "0");
         const costC = parseMoneyToCents(v.cost_price || "0");
         extCents += v.stock_on_hand * costC;
@@ -775,6 +784,7 @@ export default function InventoryControlBoard({
         variant_rows: variants,
         available_stock_total: availSum,
         web_published_count: webPub,
+        hidden_variant_count: hiddenCount,
         is_non_stock_sale_item: isNonStockSaleItem,
       };
     });
@@ -977,6 +987,30 @@ export default function InventoryControlBoard({
     }
     const applied = await applyStockDelta(adjustRow, quantityDelta, "adjustment", note);
     if (applied) setQuickAdjustNote("");
+  };
+
+  const showVariantInInventory = async (variant: BoardRow) => {
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/products/variants/${variant.variant_id}/show-in-inventory`,
+        { method: "PATCH", headers: apiAuth() },
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? "Could not show item in inventory.");
+      }
+      setRows((prev) =>
+        prev.map((row) =>
+          row.variant_id === variant.variant_id
+            ? { ...row, hidden_from_inventory: false }
+            : row,
+        ),
+      );
+      await refreshBoard();
+      toast(`${variant.sku} is visible in Inventory Find.`, "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not show item in inventory.", "error");
+    }
   };
 
   const openScannedProduct = useCallback(() => {
@@ -1328,6 +1362,7 @@ export default function InventoryControlBoard({
     const primaryVariant = directVariant ?? row.variant_rows?.[0];
     const singleVariant = row.variant_count === 1;
     const showVariantIdentity = Boolean(directVariant);
+    const hiddenPrimaryVariant = singleVariant && primaryVariant?.hidden_from_inventory;
 
     return (
       <div
@@ -1470,6 +1505,11 @@ export default function InventoryControlBoard({
            {row.unlabeled_count > 0 && (
              <div className="rounded-lg border border-app-danger/16 bg-app-danger/8 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-app-danger">Needs tag</div>
            )}
+           {row.hidden_variant_count > 0 && (
+             <div className="rounded-lg border border-app-warning/20 bg-app-warning/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-app-warning">
+               Hidden {row.hidden_variant_count}
+             </div>
+           )}
         </div>
 
         {/* Quick Actions */}
@@ -1510,6 +1550,19 @@ export default function InventoryControlBoard({
                 <BarChart3 size={16} />
               </button>
             )}
+            {!isPosSurface && hiddenPrimaryVariant && primaryVariant ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void showVariantInInventory(primaryVariant);
+                }}
+                className="rounded-xl border border-app-success/25 bg-app-success/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-success transition-all hover:border-app-success/45 hover:bg-app-success/15"
+                title="Show this item in normal Inventory Find"
+              >
+                Show
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={(e) => {
@@ -1614,6 +1667,9 @@ export default function InventoryControlBoard({
             setHighValueOnly(!highValueOnly),
           )}
           {discoveryBtn(webOnly, "On web", () => setWebOnly(!webOnly))}
+          {!isPosSurface
+            ? discoveryBtn(includeHidden, "Hidden", () => setIncludeHidden(!includeHidden))
+            : null}
           <div className="w-full pb-1 sm:w-auto sm:pb-0">
             <div className="flex flex-wrap items-center gap-2">
               <div className="mx-1 h-6 w-px shrink-0 bg-app-border" />
@@ -1661,6 +1717,9 @@ export default function InventoryControlBoard({
           )}
           {webOnly && (
             <FilterChip label="On web" onRemove={() => setWebOnly(false)} />
+          )}
+          {includeHidden && (
+            <FilterChip label="Hidden included" onRemove={() => setIncludeHidden(false)} />
           )}
           {oosLowOnly && (
             <FilterChip label="Low Stock" onRemove={() => setOosLowOnly(false)} />
