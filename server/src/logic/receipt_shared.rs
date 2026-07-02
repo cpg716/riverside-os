@@ -20,6 +20,39 @@ pub fn order_status_label(s: DbOrderStatus) -> &'static str {
 #[derive(Debug, Clone)]
 pub struct ReceiptCustomerLine {
     pub display_name: String,
+    pub phone: Option<String>,
+    pub customer_code: Option<String>,
+}
+
+impl ReceiptCustomerLine {
+    pub fn identity_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        let name = self.display_name.trim();
+        if !name.is_empty() {
+            lines.push(format!("Customer: {name}"));
+        }
+        if let Some(phone) = self
+            .phone
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            lines.push(format!("Phone: {phone}"));
+        }
+        if let Some(code) = self
+            .customer_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            lines.push(format!("Customer #: {code}"));
+        }
+        lines
+    }
+
+    pub fn identity_summary(&self) -> String {
+        self.identity_lines().join(" | ")
+    }
 }
 
 #[derive(Debug, Clone)]

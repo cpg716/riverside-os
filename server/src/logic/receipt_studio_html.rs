@@ -106,6 +106,21 @@ fn build_payment_applications(order: &ReceiptOrder) -> String {
     format!("<div style=\"margin-top:8px;font-size:12px\"><strong>Applied payments</strong>{rows}</div>")
 }
 
+fn customer_identity_html(order: &ReceiptOrder) -> String {
+    order
+        .customer
+        .as_ref()
+        .map(|c| {
+            c.identity_lines()
+                .into_iter()
+                .map(|line| format!("<div>{}</div>", html_escape(&line)))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "<div>Customer: Walk-in</div>".to_string())
+}
+
 pub fn render_standard_receipt_html(
     order: &ReceiptOrder,
     cfg: &ReceiptConfig,
@@ -114,12 +129,7 @@ pub fn render_standard_receipt_html(
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
     let order_ref = receipt_display_ref(order);
-    let customer = order
-        .customer
-        .as_ref()
-        .map(|c| c.display_name.clone())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "Walk-in".to_string());
+    let customer = customer_identity_html(order);
     let header_lines = cfg
         .header_lines
         .iter()
@@ -189,7 +199,7 @@ pub fn render_standard_receipt_html(
       <div class="muted">{date}</div>
     </div>
     <div class="rule"></div>
-    <div class="muted">Customer: {customer}</div>
+    <div class="muted">{customer}</div>
     <div class="rule"></div>
     {items_html}
     <div class="rule"></div>
@@ -202,7 +212,7 @@ pub fn render_standard_receipt_html(
         store = html_escape(&cfg.store_name),
         title = if gift { "Gift receipt" } else { "Receipt" },
         date = local_time.format("%m/%d/%Y %I:%M %p"),
-        customer = html_escape(&customer),
+        customer = customer,
     )
 }
 
@@ -224,9 +234,30 @@ pub fn merge_receipt_studio_html(
     let customer = order
         .customer
         .as_ref()
+        .map(|c| c.identity_summary())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "—".to_string());
+    let customer_name = order
+        .customer
+        .as_ref()
         .map(|c| c.display_name.clone())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "—".to_string());
+    let customer_phone = order
+        .customer
+        .as_ref()
+        .and_then(|c| c.phone.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+        .unwrap_or("—");
+    let customer_code = order
+        .customer
+        .as_ref()
+        .and_then(|c| {
+            c.customer_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or("—");
 
     let items_html = if gift {
         build_items_table_gift(order)
@@ -263,6 +294,21 @@ pub fn merge_receipt_studio_html(
         &local_time.format("%m/%d/%Y %I:%M %p").to_string(),
     );
     replace_all(&mut out, "{{ROS_CUSTOMER_NAME}}", &html_escape(&customer));
+    replace_all(
+        &mut out,
+        "{{ROS_CUSTOMER_FULL_NAME}}",
+        &html_escape(&customer_name),
+    );
+    replace_all(
+        &mut out,
+        "{{ROS_CUSTOMER_PHONE}}",
+        &html_escape(customer_phone),
+    );
+    replace_all(
+        &mut out,
+        "{{ROS_CUSTOMER_CODE}}",
+        &html_escape(customer_code),
+    );
     let title = if gift { "Gift receipt" } else { "" };
     replace_all(&mut out, "{{ROS_RECEIPT_TITLE}}", title);
 
@@ -346,7 +392,9 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
         payment_methods_summary: "VISA ••••4242".to_string(),
         payment_applications: Vec::new(),
         customer: Some(crate::logic::receipt_shared::ReceiptCustomerLine {
-            display_name: "Alex R.".to_string(),
+            display_name: "Alex Rivera".to_string(),
+            phone: Some("716-555-0199".to_string()),
+            customer_code: Some("ROS-00066736".to_string()),
         }),
         items: vec![
             crate::logic::receipt_shared::ReceiptLine {

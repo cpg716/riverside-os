@@ -19,7 +19,7 @@ pub fn format_pos_gift_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptC
     lines.push(String::from("---"));
 
     if let Some(c) = &order.customer {
-        lines.push(c.display_name.clone());
+        lines.extend(c.identity_lines());
     }
 
     for it in &order.items {
@@ -65,7 +65,7 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
     lines.push(String::from("---"));
 
     if let Some(c) = &order.customer {
-        lines.push(c.display_name.clone());
+        lines.extend(c.identity_lines());
     }
 
     for it in &order.items {

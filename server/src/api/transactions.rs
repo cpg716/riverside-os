@@ -200,6 +200,7 @@ pub use crate::logic::transaction_list::{
 #[derive(Debug, Serialize)]
 pub struct TransactionCustomerSummary {
     pub id: Uuid,
+    pub customer_code: String,
     pub first_name: String,
     pub last_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -549,11 +550,17 @@ impl TransactionDetailResponse {
                 self.primary_salesperson_name.as_deref(),
             ),
             customer: self.customer.as_ref().map(|c| {
-                let full = format!("{} {}", c.first_name, c.last_name);
-                let masked = crate::logic::receipt_privacy::mask_name_for_receipt(Some(&full))
-                    .unwrap_or_else(|| "—".to_string());
+                let full = format!("{} {}", c.first_name.trim(), c.last_name.trim())
+                    .trim()
+                    .to_string();
                 receipt_shared::ReceiptCustomerLine {
-                    display_name: masked,
+                    display_name: if full.is_empty() {
+                        "—".to_string()
+                    } else {
+                        full
+                    },
+                    phone: c.phone.clone(),
+                    customer_code: Some(c.customer_code.clone()),
                 }
             }),
             items: selected
@@ -1424,6 +1431,7 @@ struct OrderHeaderRow {
     shipping_label_url: Option<String>,
     exchange_group_id: Option<Uuid>,
     customer_id: Option<Uuid>,
+    customer_code: Option<String>,
     customer_first_name: Option<String>,
     customer_last_name: Option<String>,
     customer_phone: Option<String>,
@@ -6385,6 +6393,7 @@ pub(crate) async fn load_transaction_detail(
             o.shipping_label_url,
             o.exchange_group_id,
             c.id AS customer_id,
+            c.customer_code AS customer_code,
             c.first_name AS customer_first_name,
             c.last_name AS customer_last_name,
             c.phone AS customer_phone,
@@ -6624,6 +6633,7 @@ pub(crate) async fn load_transaction_detail(
     let customer = match (h.customer_id, h.customer_first_name, h.customer_last_name) {
         (Some(id), Some(first_name), Some(last_name)) => Some(TransactionCustomerSummary {
             id,
+            customer_code: h.customer_code.unwrap_or_default(),
             first_name,
             last_name,
             phone: h.customer_phone,

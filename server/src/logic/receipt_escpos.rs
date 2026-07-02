@@ -222,7 +222,9 @@ fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: b
     push_line(out, &local_time.format("%m/%d/%Y %I:%M %p").to_string());
     set_align(out, 0);
     if let Some(c) = &d.customer {
-        push_line(out, &format!("Customer: {}", c.display_name));
+        for line in c.identity_lines() {
+            push_line(out, &line);
+        }
     }
     divider(out);
 }
@@ -573,7 +575,13 @@ pub fn build_receiptline_markdown(
     let customer_line = d
         .customer
         .as_ref()
-        .map(|c| format!("Customer: {}", receiptline_escape(&c.display_name)))
+        .map(|c| {
+            c.identity_lines()
+                .into_iter()
+                .map(|line| receiptline_escape(&line))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
         .unwrap_or_default();
     let cashier_line = d
         .cashier_name

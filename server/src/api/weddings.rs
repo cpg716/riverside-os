@@ -31,7 +31,7 @@ use crate::auth::permissions::{
     effective_permissions_for_staff, staff_has_permission, STAFF_MANAGE_ACCESS, TASKS_MANAGE,
     WEDDINGS_MUTATE, WEDDINGS_VIEW,
 };
-use crate::logic::customers::{insert_customer, InsertCustomerParams};
+use crate::logic::customers::{insert_customer, next_customer_code, InsertCustomerParams};
 use crate::logic::messaging::MessagingService;
 use crate::logic::staff_schedule;
 use crate::logic::wedding_api_types::build_party_bundle;
@@ -156,6 +156,7 @@ async fn get_or_create_wedding_customer(
     }
 
     let customer_id = Uuid::new_v4();
+    let customer_code = next_customer_code(pool).await?;
     let created_phone = phone.and_then(|value| {
         let digits = digits_only(value);
         if is_cutover_import && digits.len() < 10 {
@@ -177,7 +178,7 @@ async fn get_or_create_wedding_customer(
     .bind(first)
     .bind(last)
     .bind(created_phone)
-    .bind(format!("Wedding-{}", &customer_id.to_string()[..8]))
+    .bind(customer_code)
     .bind(customer_created_source)
     .fetch_one(pool)
     .await?;
