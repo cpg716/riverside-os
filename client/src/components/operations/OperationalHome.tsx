@@ -1812,6 +1812,7 @@ export default function OperationalHome({
             <RegisterReports
               sessionId={null}
               onOpenWeddingParty={onOpenWeddingParty}
+              onOpenCustomerHub={onOpenInboxCustomer}
               deepLinkTransactionId={registerReportsDeepLinkTxnId}
               onDeepLinkConsumed={onRegisterReportsDeepLinkTxnConsumed}
             />

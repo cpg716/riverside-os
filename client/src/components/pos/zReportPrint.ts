@@ -115,6 +115,7 @@ async function finishPrintDocument(
   target: { doc: Document },
   filename: string,
   directReportText?: string,
+  opts?: { preferFormattedPreview?: boolean },
 ): Promise<boolean> {
   target.doc.close();
   if (!directReportText?.trim()) {
@@ -129,6 +130,7 @@ async function finishPrintDocument(
       text: directReportText,
       width: 950,
       height: 950,
+      preferFormattedPreview: opts?.preferFormattedPreview,
     });
     return true;
   } catch (error) {
@@ -1044,7 +1046,9 @@ export async function openProfessionalDailySalesPrint(opts: {
     <p class="muted" style="font-size: 10px;">End of Summary Audit · Riverside Men's Shop · Generated: ${generatedAt}</p>
   </div>
   </body></html>`);
-  return finishPrintDocument(target, "daily-sales-report.html", dailyReportTextLines.join("\n"));
+  return finishPrintDocument(target, "daily-sales-report.html", dailyReportTextLines.join("\n"), {
+    preferFormattedPreview: true,
+  });
 }
 
 export async function openProfessionalTablePrint(opts: {

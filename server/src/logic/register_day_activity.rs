@@ -80,6 +80,12 @@ pub struct RegisterActivityItem {
     pub net_amount: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_first_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_last_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_code: Option<String>,
@@ -473,9 +479,10 @@ pub fn resolve_register_day_range(
     Ok((f, t, None))
 }
 
-const ORDER_SESSION_FILTER: &str = r#"
+const ORDER_BOOKED_SESSION_FILTER: &str = r#"
           AND (
             $3::uuid IS NULL
+            OR o.register_session_id = $3
             OR EXISTS (
               SELECT 1
               FROM payment_allocations pa
@@ -485,6 +492,46 @@ const ORDER_SESSION_FILTER: &str = r#"
                 AND pa.amount_allocated > 0
             )
           )"#;
+
+const ORDER_COMPLETED_SESSION_FILTER: &str = r#"
+          AND (
+            $3::uuid IS NULL
+            OR o.register_session_id = $3
+            OR EXISTS (
+              SELECT 1
+              FROM payment_allocations pa
+              INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+              WHERE pa.target_transaction_id = o.id
+                AND pt.session_id = $3
+                AND pa.amount_allocated > 0
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM transaction_lines tl_session
+              INNER JOIN transaction_line_lifecycle_events le_session
+                ON le_session.transaction_line_id = tl_session.id
+              LEFT JOIN register_sessions rs_session ON rs_session.id = $3
+              WHERE tl_session.transaction_id = o.id
+                AND le_session.source_workflow = 'pickup'
+                AND le_session.new_status::text = 'picked_up'
+                AND (
+                  le_session.metadata->>'register_session_id' = $3::text
+                  OR (
+                    o.register_session_id IS NULL
+                    AND COALESCE(NULLIF(le_session.metadata->>'register_session_id', ''), '') = ''
+                    AND le_session.created_at >= rs_session.opened_at
+                    AND le_session.created_at < COALESCE(rs_session.closed_at, CURRENT_TIMESTAMP)
+                  )
+                )
+            )
+          )"#;
+
+fn order_session_filter_sql(basis: ReportBasis) -> &'static str {
+    match basis {
+        ReportBasis::Booked => ORDER_BOOKED_SESSION_FILTER,
+        ReportBasis::Completed => ORDER_COMPLETED_SESSION_FILTER,
+    }
+}
 
 pub async fn fetch_register_day_summary(
     pool: &PgPool,
@@ -525,6 +572,7 @@ pub async fn fetch_register_day_summary(
     }
 
     let order_in_range = crate::logic::report_basis::order_date_filter_sql(basis);
+    let order_session_filter = order_session_filter_sql(basis);
 
     let agg_sql = format!(
         r#"
@@ -558,7 +606,7 @@ pub async fn fetch_register_day_summary(
             GROUP BY transaction_id
         ) ln ON ln.transaction_id = o.id
         WHERE {order_in_range}
-        {ORDER_SESSION_FILTER}
+        {order_session_filter}
         "#,
     );
 
@@ -584,12 +632,12 @@ pub async fn fetch_register_day_summary(
               AND o.fulfilled_at IS NOT NULL
               AND o.fulfilled_at >= $1
               AND o.fulfilled_at < $2
-              AND EXISTS (
+            AND EXISTS (
                   SELECT 1
                   FROM transaction_lines tl_pickup
                   WHERE tl_pickup.transaction_id = o.id
               )
-            {ORDER_SESSION_FILTER}
+            {order_session_filter}
             "#
         );
         let pickup_row: (i64,) = sqlx::query_as(&pickup_sql)
@@ -616,7 +664,7 @@ pub async fn fetch_register_day_summary(
         INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
         WHERE {order_in_range}
           AND oi.fulfillment::text IN ('special_order', 'custom')
-        {ORDER_SESSION_FILTER}
+        {order_session_filter}
         "#
     );
     let special_row: (i64,) = sqlx::query_as(&special_sql)
@@ -742,6 +790,7 @@ pub async fn fetch_register_day_summary(
         tax_total: Decimal,
         wedding_party_id: Option<Uuid>,
         party_name: Option<String>,
+        customer_id: Option<Uuid>,
         customer_first: Option<String>,
         customer_last: Option<String>,
         customer_code: Option<String>,
@@ -768,6 +817,7 @@ pub async fn fetch_register_day_summary(
         created_at: chrono::DateTime<Utc>,
         amount: Decimal,
         payment_method: String,
+        customer_id: Option<Uuid>,
         customer_first: Option<String>,
         customer_last: Option<String>,
         customer_code: Option<String>,
@@ -803,6 +853,7 @@ pub async fn fetch_register_day_summary(
             ), 0)::numeric(14,2) AS tax_total,
             wp.id AS wedding_party_id,
             wp.party_name,
+            c.id AS customer_id,
             c.first_name AS customer_first,
             c.last_name AS customer_last,
             c.customer_code,
@@ -900,8 +951,8 @@ pub async fn fetch_register_day_summary(
               FROM transaction_lines tl_activity
               WHERE tl_activity.transaction_id = o.id
           )
-        {ORDER_SESSION_FILTER}
-        GROUP BY o.id, {sale_ts}, o.total_price, o.balance_due, wp.id, wp.party_name, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
+        {order_session_filter}
+        GROUP BY o.id, {sale_ts}, o.total_price, o.balance_due, wp.id, wp.party_name, c.id, c.first_name, c.last_name, c.customer_code, c.phone, c.email, o.sale_channel::text
         ORDER BY {sale_order_by}
         LIMIT 120
         "#
@@ -922,6 +973,7 @@ pub async fn fetch_register_day_summary(
             pt.created_at,
             pa.amount_allocated AS amount,
             pt.payment_method,
+            c.id AS customer_id,
             c.first_name AS customer_first,
             c.last_name AS customer_last,
             c.customer_code,
@@ -980,6 +1032,8 @@ pub async fn fetch_register_day_summary(
 
     for s in sales {
         let is_rms_payment_activity = s.has_rms_charge_payment_line;
+        let is_pickup_activity =
+            matches!(basis, ReportBasis::Completed) && !s.is_takeaway && !is_rms_payment_activity;
         let title = if is_rms_payment_activity {
             "RMS Charge Payment".to_string()
         } else if s.has_alteration_service_line && s.is_takeaway {
@@ -990,7 +1044,7 @@ pub async fn fetch_register_day_summary(
                     if s.is_takeaway {
                         "POS Retail Sale (Completed)".to_string()
                     } else {
-                        "Order Taken (Fulfilled)".to_string()
+                        "Order Pickup".to_string()
                     }
                 }
                 ReportBasis::Booked => {
@@ -1004,6 +1058,8 @@ pub async fn fetch_register_day_summary(
         };
         let sale_kind = if is_rms_payment_activity {
             "payment"
+        } else if is_pickup_activity {
+            "pickup"
         } else if matches!(basis, ReportBasis::Completed) {
             "completed"
         } else {
@@ -1070,13 +1126,20 @@ pub async fn fetch_register_day_summary(
             items,
             merchant_fees_total: s.merchant_fees.map(money_label),
             net_amount: s.net_amount.map(money_label),
+            customer_id: s.customer_id,
+            customer_first_name: s.customer_first,
+            customer_last_name: s.customer_last,
             customer_name: customer_full,
             customer_code: s.customer_code,
             customer_phone: s.customer_phone,
             customer_email: s.customer_email,
             deposits_paid: deposits,
             balance_due: balance,
-            fulfillment_type: s.fulfillment_type,
+            fulfillment_type: if is_pickup_activity {
+                Some("pickup".to_string())
+            } else {
+                s.fulfillment_type
+            },
             transaction_total: s.amount_paid_in_window.map(money_label),
         });
     }
@@ -1121,6 +1184,9 @@ pub async fn fetch_register_day_summary(
             items: None,
             merchant_fees_total: p.merchant_fee.map(money_label),
             net_amount: p.net_amount.map(money_label),
+            customer_id: p.customer_id,
+            customer_first_name: p.customer_first,
+            customer_last_name: p.customer_last,
             customer_name: customer_full,
             customer_code: p.customer_code,
             customer_phone: p.customer_phone,

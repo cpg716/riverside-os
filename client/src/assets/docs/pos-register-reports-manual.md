@@ -26,8 +26,8 @@ Use this screen to review the current register session, void a completed sale wi
 ## How to use it
 
 1. Open **POS → Reports** while the register session is still active.
-2. Review the sales timeline and summary cards for the current lane or till group.
-3. Open individual entries when you need receipt or tender detail.
+2. Review **Booked** for what was rung during the drawer/session and **Completed** for recognized revenue and pickup activity.
+3. Open individual entries when you need receipt or tender detail. Click the customer name or Customer # to open CustomerHub for that customer.
 4. Use **Void** on a completed sale only after a manager confirms the transaction, reason, tender reversal, and inventory impact.
 5. Use **Print Report (Full Page)** when the shift needs a professional audit printout.
 6. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
@@ -37,7 +37,7 @@ The **Daily Sales** view shows a chronological timeline of every transaction. Ta
 - Verifying the status of recent sales.
 - Correcting tender types by reviewing the audit log.
 - Monitoring mid-shift velocity without closing the drawer.
-- Confirming whether the activity was **Takeaway**, **Special Order**, **Custom Order**, **Wedding Order**, **Layaway**, or mixed fulfillment.
+- Confirming whether the activity was **Takeaway**, **Pickup**, **Special Order**, **Custom Order**, **Wedding Order**, **Layaway**, or mixed fulfillment.
 
 ## Void a completed sale
 
@@ -58,10 +58,10 @@ Use the refund workflow to finish cash, card, gift card, store credit, or split-
 You can now generate a professional, full-page **Daily Sales Report** that includes:
 - **Tender Breakdown**: Totals for Cash, Card, Gift Card, and R2S charges.
 - **Transaction Audit**: A complete list of all ticket numbers and amounts.
-- **Activity Cards**: Printed activity mirrors the on-screen grouped list with customer context, fulfillment chips, line items, and amount details.
+- **Activity Cards**: Printed activity mirrors the on-screen grouped list with customer context, fulfillment chips, line items, payment/pickup context, and amount details.
 - **Reporting Station**: The report header identifies the assigned printer for accountability.
 
-To print, tap **Print Report (Full Page)**. This will route the document to your **Report Station** (System Printer), not the thermal receipt printer.
+To print, tap **Print Report (Full Page)**. Daily Sales opens as the formatted full-page report so the activity cards, customer context, pickup rows, line items, and totals stay readable on office paper.
 
 ## Performance Metrics
 The summary cards at the top of the screen provide instant visibility into:

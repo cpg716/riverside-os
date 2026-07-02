@@ -47,7 +47,7 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 ## Daily Sales
 
 1. **Operations** → **Daily Sales**.
-2. Requires **register.reports**. Use this for store-wide register totals, lane activity, and transaction drill-down.
+2. Requires **register.reports**. Use this for store-wide register totals, booked vs completed pickup/takeaway revenue, lane activity, customer drill-down, and transaction drill-down.
 3. The dashboard includes captured weather for the selected store day or date range when weather snapshots are available.
 4. This is a reporting surface, not the same thing as the live POS register.
 

@@ -307,9 +307,7 @@ export default function CustomersWorkspace({
           email: c.email ?? null,
           phone: c.phone ?? null,
         });
-        if (messagingFocusHubTab === "messages") {
-          setHubInitialTab("messages");
-        }
+        setHubInitialTab(messagingFocusHubTab === "messages" ? "messages" : null);
         onMessagingFocusConsumed?.();
       } catch {
         onMessagingFocusConsumed?.();

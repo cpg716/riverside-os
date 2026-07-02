@@ -30,6 +30,7 @@ import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
 import { openProfessionalDailySalesPrint, openProfessionalZReportPrint } from "./zReportPrint";
 import { useToast } from "../ui/ToastProviderLogic";
 import { downloadTextFile } from "../../lib/desktopFileBridge";
+import type { Customer } from "./CustomerSelector";
 
 const baseUrl = getBaseUrl();
 
@@ -93,6 +94,9 @@ interface RegisterActivityItem {
   channel?: string | null;
   wedding_party_name?: string | null;
   items?: ActivityItemDetail[] | null;
+  customer_id?: string | null;
+  customer_first_name?: string | null;
+  customer_last_name?: string | null;
   customer_name?: string | null;
   customer_code?: string | null;
   customer_phone?: string | null;
@@ -460,15 +464,34 @@ function openZReportFromSession(session: RegisterSessionRow): void {
   });
 }
 
+function activityCustomer(row: RegisterActivityItem): Customer | null {
+  const id = row.customer_id?.trim();
+  if (!id) return null;
+  const fallbackLabel = row.customer_name?.trim() || row.customer_code?.trim() || "Customer";
+  const fallbackParts = fallbackLabel.split(/\s+/).filter(Boolean);
+  const firstName = row.customer_first_name?.trim() || fallbackParts[0] || fallbackLabel;
+  const lastName = row.customer_last_name?.trim() || fallbackParts.slice(1).join(" ");
+  return {
+    id,
+    customer_code: row.customer_code ?? "",
+    first_name: firstName,
+    last_name: lastName,
+    email: row.customer_email ?? null,
+    phone: row.customer_phone ?? null,
+  };
+}
+
 export default function RegisterReports({
   sessionId,
   onOpenWeddingParty,
+  onOpenCustomerHub,
   deepLinkTransactionId,
   onDeepLinkConsumed,
   onOpenRefundInRegister,
 }: {
   sessionId: string | null;
   onOpenWeddingParty?: (partyId: string) => void;
+  onOpenCustomerHub?: (customer: Customer) => void;
   deepLinkTransactionId?: string | null;
   onDeepLinkConsumed?: () => void;
   onOpenRefundInRegister?: (transactionId: string) => void;
@@ -487,7 +510,6 @@ export default function RegisterReports({
   const [zLoading, setZLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
-  const [printingPaymentReceiptId, setPrintingPaymentReceiptId] = useState<string | null>(null);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [hubProductId, setHubProductId] = useState<string | null>(null);
   const [zPreset, setZPreset] = useState<ZPresetId>("recent");
@@ -696,9 +718,13 @@ export default function RegisterReports({
   const handlePrint = () => {
     const printSummary = selectedSummary;
     if (!printSummary) return;
+    const printRangeLabel =
+      printSummary.from_local === printSummary.to_local
+        ? printSummary.from_local
+        : `${printSummary.from_local} → ${printSummary.to_local}`;
     void openProfessionalDailySalesPrint({
-      title: `Daily Sales - ${rangeLabel}`,
-      rangeLabel,
+      title: `Daily Sales - ${printRangeLabel}`,
+      rangeLabel: printRangeLabel,
       summary: {
         sales_count: printSummary.sales_count,
         sales_subtotal_no_tax: printSummary.sales_subtotal_no_tax,
@@ -797,36 +823,6 @@ export default function RegisterReports({
       { name: "CSV", extensions: ["csv"] },
     ]);
   };
-
-  const printPaymentReceipt = useCallback(
-    async (row: RegisterActivityItem) => {
-      const allocationId = row.payment_allocation_id;
-      if (!allocationId) {
-        toast("Payment receipt is unavailable for this row.", "error");
-        return;
-      }
-      setPrintingPaymentReceiptId(allocationId);
-      try {
-        const res = await fetch(`${baseUrl}/api/payments/allocations/${allocationId}/receipt.escpos`, {
-          headers: apiAuth(),
-        });
-        if (!res.ok) {
-          const payload = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(payload.error || "Payment receipt could not be loaded.");
-        }
-        const payload = (await res.json()) as { escpos_base64?: string | null };
-        const { printReceiptBase64 } = await import("../../lib/receiptPrint");
-        await printReceiptBase64(payload.escpos_base64 ?? "");
-        toast("Payment receipt sent to printer.", "success");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Payment receipt could not be printed.";
-        toast(message, "error");
-      } finally {
-        setPrintingPaymentReceiptId(null);
-      }
-    },
-    [apiAuth, toast],
-  );
 
   const submitVoidTransaction = useCallback(
     async (args: { managerStaffId: string; managerPin: string; reason: string }) => {
@@ -1235,12 +1231,43 @@ export default function RegisterReports({
                                </span>
                             </div>
                             <div className="flex flex-col gap-1">
-                               <h4 className="text-base font-black text-app-text tracking-tight flex items-start gap-2">
-                                 <User size={16} className="text-app-text-muted opacity-30 mt-0.5 shrink-0" />
-                                 <span className="truncate">{row.customer_name || "Walk-in Customer"}</span>
-                               </h4>
+                               {activityCustomer(row) && onOpenCustomerHub ? (
+                                 <button
+                                   type="button"
+                                   onClick={(e) => {
+                                     e.stopPropagation();
+                                     const customer = activityCustomer(row);
+                                     if (customer) onOpenCustomerHub(customer);
+                                   }}
+                                   className="group/customer flex min-w-0 items-start gap-2 text-left text-base font-black tracking-tight text-app-text transition-colors hover:text-app-accent"
+                                 >
+                                   <User size={16} className="mt-0.5 shrink-0 text-app-text-muted opacity-30" />
+                                   <span className="truncate underline-offset-4 group-hover/customer:underline">
+                                     {row.customer_name || "Walk-in Customer"}
+                                   </span>
+                                 </button>
+                               ) : (
+                                 <h4 className="text-base font-black text-app-text tracking-tight flex items-start gap-2">
+                                   <User size={16} className="text-app-text-muted opacity-30 mt-0.5 shrink-0" />
+                                   <span className="truncate">{row.customer_name || "Walk-in Customer"}</span>
+                                 </h4>
+                               )}
                                <div className="flex flex-wrap items-center gap-1.5 mt-1">
-	                                 {row.customer_code && <span className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted">#{row.customer_code}</span>}
+	                                 {row.customer_code && (activityCustomer(row) && onOpenCustomerHub ? (
+                                     <button
+                                       type="button"
+                                       onClick={(e) => {
+                                         e.stopPropagation();
+                                         const customer = activityCustomer(row);
+                                         if (customer) onOpenCustomerHub(customer);
+                                       }}
+                                       className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted transition-colors hover:bg-app-accent/10 hover:text-app-accent"
+                                     >
+                                       #{row.customer_code}
+                                     </button>
+                                   ) : (
+                                     <span className="ui-pill bg-app-surface-3 text-xs font-bold text-app-text-muted">#{row.customer_code}</span>
+                                   ))}
                                  {row.wedding_party_name && (
                                    <button
                                      type="button"
@@ -1268,18 +1295,10 @@ export default function RegisterReports({
 
                           <div className="mt-4 grid gap-2 border-t border-app-border/40 pt-4">
 	                             <button type="button" onClick={() => {
-                                if (row.kind === "payment") {
-                                  void printPaymentReceipt(row);
-                                  return;
-                                }
                                 const transactionId = activityTransactionId(row);
                                 if (transactionId) setReceiptOrderId(transactionId);
-                              }} disabled={row.kind === "payment" && printingPaymentReceiptId === row.payment_allocation_id} className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-wait disabled:opacity-60">
-                                {row.kind === "payment" && printingPaymentReceiptId === row.payment_allocation_id ? (
-                                  <Loader2 size={14} className="animate-spin" />
-                                ) : (
-                                  <Receipt size={14} />
-                                )}
+                              }} disabled={!activityTransactionId(row)} className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40">
+                                <Receipt size={14} />
                                 Receipt
                              </button>
                              <button

@@ -537,6 +537,12 @@ export default function PosShell({
           {activePosTab === "reports" && (
             <RegisterReports
               sessionId={sessionId}
+              onOpenCustomerHub={(customer) => {
+                onSubSectionChange("all");
+                setPosMessagingFocusCustomerId(customer.id);
+                setPosMessagingFocusHubTab(null);
+                setActivePosTab("customers");
+              }}
               onOpenRefundInRegister={(transactionId) => {
                 setPendingPosTransactionId(transactionId);
                 setPendingPosTransactionForRefund(true);

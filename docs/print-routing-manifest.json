@@ -275,16 +275,6 @@
       "previewReason": "Receipt copy view is a full-page preview document."
     },
     {
-      "id": "register-reports-payment-receipt",
-      "file": "client/src/components/pos/RegisterReports.tsx",
-      "callee": "printReceiptBase64",
-      "occurrences": 1,
-      "kind": "payment-receipt",
-      "route": "direct",
-      "printer": "receipt",
-      "proof": "Daily Sales payment receipt reprints use the central receipt station service."
-    },
-    {
       "id": "register-reports-void-drawer",
       "file": "client/src/components/pos/RegisterReports.tsx",
       "callee": "printReceiptBase64",

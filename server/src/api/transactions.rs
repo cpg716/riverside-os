@@ -2978,7 +2978,10 @@ async fn mark_transaction_pickup(
             actor_staff_id,
             "pickup",
             Some("Fulfilled through pickup workflow"),
-            json!({ "transaction_id": transaction_id }),
+            json!({
+                "transaction_id": transaction_id,
+                "register_session_id": register_session_id,
+            }),
         )
         .await?;
     }

@@ -16,7 +16,7 @@ Required permission: `register.reports`
 
 ### 1. Dashboard Tab
 
-The default view showing high-level metrics for the selected period.
+The dashboard opens on the existing **Booked** basis for the selected period. Use the **Booked** and **Completed** basis controls to switch between what was rung and what is financially recognized.
 
 **Metrics Displayed:**
 - **Fulfilled (Pickup/Shipped)** section:
@@ -40,7 +40,7 @@ The default view showing high-level metrics for the selected period.
 **Controls:**
 - Date presets: Today, Yesterday, This week, This month, This year, Custom
 - Custom date range with Apply button
-- Print button (full page report)
+- Print button (full page report for the currently selected basis)
 - Export CSV button (includes grand total row with summed Transaction Total, Sales Total, Tax, and Net Total)
 
 **CSV Export Features:**
@@ -77,10 +77,10 @@ Detailed transaction listing grouped by date.
 **Transaction Details:**
 Each transaction shows:
 - Kind (Sale, Fulfilled, Pickup, Wedding Party, Appointment)
-- **Labels**: "Transaction Booked (Sale)" (Sale Date) vs "Transaction Taken (Fulfilled)" (Pickup Date)
+- **Labels**: "Order Booked (Sale)" (Sale Date) vs "Order Pickup" (Pickup Date)
 - Takeaway flag
 - Fulfillment type (Pickup, Ship)
-- Customer Name, Customer #, and **Wedding Party** (when applicable)
+- Customer Name and Customer #, which open CustomerHub when a customer is linked, plus **Wedding Party** when applicable
 - Deposits Paid and Balance Due
 - Time of transaction
 - Payment method (including **Check #** for check transactions)
@@ -100,7 +100,7 @@ Transactions are grouped by date with:
 Displayed at bottom with transaction count and totals.
 
 **Controls:**
-- View Mode toggle (Fulfilled/Booked)
+- View Mode toggle (Completed/Booked)
 - Date presets
 - Print button
 - Export CSV button
@@ -141,7 +141,7 @@ The Back Office Reports library uses the same staff-facing **Booked (sale date)*
 - Includes deposits on open transactions
 - Matches register-day selling activity
 
-### Fulfilled (Pickup/Shipped)
+### Completed (Pickup/Shipped)
 - Uses recognition clock: pickup/takeaway by fulfillment time, ship when label purchased or in transit/delivered
 - Matches tax and commission recognition
 - Use for financial reporting (revenue recognition)
