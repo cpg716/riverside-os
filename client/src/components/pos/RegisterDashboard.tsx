@@ -314,7 +314,7 @@ export default function RegisterDashboard({
               Register command center
             </p>
             <h1 className="truncate text-3xl font-black tracking-tight text-app-text lg:text-4xl">
-              {headline} <span className="text-app-text-muted font-medium mx-2">·</span> <span className="text-app-accent">{cashierName?.trim() || staffDisplayName.trim() || "User"}</span>
+              {headline} <span className="text-app-text-muted font-medium mx-2">·</span> <span className="text-app-accent">{staffDisplayName.trim() || cashierName?.trim() || "User"}</span>
             </h1>
             <div className="flex items-center gap-2">
                <div className="h-2 w-2 rounded-full bg-app-success" />

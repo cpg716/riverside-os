@@ -1217,6 +1217,18 @@ export default function NexoCheckoutDrawer({
     toast(`Cancel on ${label}, then tap Check. Riverside will release the terminal when Helcim reports the cancel.`, "info");
   }, [helcimAttempt, providerSettings?.helcim.simulator_enabled, selectedTerminalKey, simulateHelcimAttempt, toast]);
 
+  const retryFinalHelcimAttempt = useCallback(() => {
+    if (!helcimAttempt || !["failed", "canceled"].includes(helcimAttempt.status)) return;
+    const retryCents = Math.min(Math.abs(helcimAttempt.amount_cents), Math.abs(remainingCents));
+    setHelcimAttempt(null);
+    setHelcimUnverifiedNotice(null);
+    pendingHelcimCentsRef.current = 0;
+    pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+    setTab("card_terminal");
+    setKeypad(retryCents > 0 ? centsToFixed2(retryCents) : "");
+    toast("Ready to retry card. Send a new request to the terminal when the customer is ready.", "info");
+  }, [helcimAttempt, remainingCents, toast]);
+
   const releasePendingTerminalAttempt = useCallback(async () => {
     const attemptId =
       helcimAttempt?.status === "pending"
@@ -2993,11 +3005,14 @@ export default function NexoCheckoutDrawer({
                              )}
                            </div>
                          </div>
-                         {helcimAttempt.status === "pending" && (
+                         {["pending", "failed"].includes(helcimAttempt.status) && (
                            <div
                              className={[
                                "mt-3 grid gap-2",
-                               providerSettings?.helcim.simulator_enabled ? "grid-cols-2" : "grid-cols-1",
+                               (providerSettings?.helcim.simulator_enabled && helcimAttempt.status === "pending") ||
+                               helcimAttempt.status === "failed"
+                                 ? "grid-cols-2"
+                                 : "grid-cols-1",
                              ].join(" ")}
                            >
                              <button
@@ -3008,7 +3023,17 @@ export default function NexoCheckoutDrawer({
                              >
                                {helcimAttemptLoading ? "Checking" : "Recover payment"}
                              </button>
-                             {providerSettings?.helcim.simulator_enabled && (
+                             {helcimAttempt.status === "failed" && (
+                               <button
+                                 type="button"
+                                 disabled={helcimAttemptLoading}
+                                 onClick={retryFinalHelcimAttempt}
+                                 className="min-h-9 rounded-lg border border-sky-400/25 bg-sky-400/10 px-2.5 text-[9px] font-black uppercase tracking-widest text-sky-100 transition-colors hover:bg-sky-400/15 disabled:opacity-50"
+                               >
+                                 Retry card
+                               </button>
+                             )}
+                             {providerSettings?.helcim.simulator_enabled && helcimAttempt.status === "pending" && (
                                <button
                                  type="button"
                                  disabled={helcimAttemptLoading}

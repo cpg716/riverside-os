@@ -8190,10 +8190,8 @@ async fn load_helcim_attempt(
         }
     }
 
-    if attempt.status == "pending" {
-        if let Some(refreshed) =
-            refresh_pending_helcim_attempt_from_provider(state, &attempt).await?
-        {
+    if attempt.status == "pending" || attempt.status == "failed" {
+        if let Some(refreshed) = refresh_helcim_attempt_from_provider(state, &attempt).await? {
             attempt = refreshed;
         }
     }
@@ -8240,7 +8238,7 @@ async fn load_helcim_attempt(
     ))
 }
 
-async fn refresh_pending_helcim_attempt_from_provider(
+async fn refresh_helcim_attempt_from_provider(
     state: &AppState,
     attempt: &HelcimAttemptRow,
 ) -> Result<Option<HelcimAttemptRow>, PaymentError> {
@@ -8255,7 +8253,7 @@ async fn refresh_pending_helcim_attempt_from_provider(
         .map(str::trim)
         .filter(|value| !value.is_empty() && !value.starts_with("helcim-sim-"))
     else {
-        return recover_pending_helcim_attempt_by_invoice(state, attempt, &config).await;
+        return recover_helcim_attempt_by_invoice(state, attempt, &config).await;
     };
 
     let transaction =
@@ -8315,7 +8313,10 @@ async fn refresh_pending_helcim_attempt_from_provider(
             completed_at = now()
         WHERE id = $1
           AND provider = 'helcim'
-          AND status = 'pending'
+          AND (
+              status = 'pending'
+              OR ($6::boolean AND status = 'failed' AND $2 IN ('approved', 'captured'))
+          )
         "#,
     )
     .bind(attempt.id)
@@ -8323,6 +8324,7 @@ async fn refresh_pending_helcim_attempt_from_provider(
     .bind(provider_transaction_id)
     .bind(raw_audit_reference)
     .bind(warning)
+    .bind(attempt.status == "failed")
     .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -8338,7 +8340,7 @@ async fn refresh_pending_helcim_attempt_from_provider(
     load_helcim_attempt_row(state, attempt.id).await.map(Some)
 }
 
-async fn recover_pending_helcim_attempt_by_invoice(
+async fn recover_helcim_attempt_by_invoice(
     state: &AppState,
     attempt: &HelcimAttemptRow,
     config: &helcim::HelcimConfig,
@@ -8366,20 +8368,56 @@ async fn recover_pending_helcim_attempt_by_invoice(
                 attempt_id = %attempt.id,
                 invoice_number = %invoice_number,
                 error = %error,
-                "could not recover pending Helcim attempt by invoice number"
+                "could not recover Helcim attempt by invoice number"
             );
             return Ok(None);
         }
     };
 
-    let matched = rows.into_iter().find(|row| {
-        let row_invoice = helcim::invoice_number_from_payload(&row.raw_payload);
-        if row_invoice.as_deref() != Some(invoice_number.as_str()) {
-            return false;
+    let matches: Vec<_> = rows
+        .into_iter()
+        .filter(|row| {
+            let row_invoice = helcim::invoice_number_from_payload(&row.raw_payload);
+            if row_invoice.as_deref() != Some(invoice_number.as_str()) {
+                return false;
+            }
+            let row_amount_cents = row.gross_amount.and_then(decimal_to_cents);
+            row_amount_cents == Some(attempt.amount_cents)
+        })
+        .collect();
+
+    let approved_matches: Vec<_> = matches
+        .iter()
+        .filter(|row| {
+            matches!(
+                final_helcim_attempt_status(
+                    &row.status
+                        .clone()
+                        .unwrap_or_default()
+                        .trim()
+                        .to_ascii_lowercase()
+                ),
+                Some("approved" | "captured")
+            )
+        })
+        .collect();
+
+    let matched = if attempt.status == "failed" {
+        if approved_matches.len() != 1 {
+            return Ok(None);
         }
-        let row_amount_cents = row.gross_amount.and_then(decimal_to_cents);
-        row_amount_cents == Some(attempt.amount_cents)
-    });
+        Some((*approved_matches[0]).clone())
+    } else {
+        matches.into_iter().find(|row| {
+            let provider_status = row
+                .status
+                .clone()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+            final_helcim_attempt_status(&provider_status).is_some()
+        })
+    };
 
     let Some(row) = matched else {
         return Ok(None);
@@ -8419,14 +8457,21 @@ async fn recover_pending_helcim_attempt_by_invoice(
             completed_at = now()
         WHERE id = $1
           AND provider = 'helcim'
-          AND status = 'pending'
-          AND provider_transaction_id IS NULL
+          AND (
+              status = 'pending'
+              OR ($5::boolean AND status = 'failed' AND $2 IN ('approved', 'captured'))
+          )
+          AND (
+              provider_transaction_id IS NULL
+              OR ($5::boolean AND status = 'failed')
+          )
         "#,
     )
     .bind(attempt.id)
     .bind(status)
     .bind(provider_transaction_id)
     .bind(raw_audit_reference)
+    .bind(attempt.status == "failed")
     .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;

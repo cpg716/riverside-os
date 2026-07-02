@@ -395,49 +395,7 @@ export default function RegisterOverlay({
     void hydratePrinterConfigFromServer(baseUrl, registerLane);
   }, [registerLane, baseUrl]);
 
-  const tryResumeOrBypass = useCallback(async () => {
-    setBooting(true);
-    setError(null);
-    try {
-      const posHeaders = posRegisterAuthHeaders();
-      if (posHeaders["x-riverside-pos-session-id"]) {
-        let cur: Response;
-        try {
-          cur = await fetch(`${baseUrl}/api/sessions/current`, {
-            headers: posHeaders,
-          });
-        } catch {
-          setError(MAIN_HUB_UNAVAILABLE_MESSAGE);
-          return;
-        }
-        if (cur.ok) {
-          const data = (await cur.json()) as CurrentSessionJson;
-          const auth = getPosRegisterAuth();
-          if (!auth?.token) {
-            throw new Error(
-              "Register session is active but this browser has no POS token. Close the session from Back Office or open the register again with your 4-digit code.",
-            );
-          }
-          onOpenedRef.current(payloadFromSessionJson(data, auth.token));
-          return;
-        }
-        if (isTransientMainHubStatus(cur.status)) {
-          setError(MAIN_HUB_UNAVAILABLE_MESSAGE);
-          return;
-        }
-      }
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Could not restore register session";
-      setError(message);
-    } finally {
-      setBooting(false);
-    }
-  }, [baseUrl]);
-
-  const attachOpenLane = async (lane: number): Promise<boolean> => {
+  const attachOpenLane = useCallback(async (lane: number): Promise<boolean> => {
     let listRes: Response;
     try {
       listRes = await fetch(`${baseUrl}/api/sessions/list-open`, {
@@ -512,7 +470,52 @@ export default function RegisterOverlay({
       lane,
     );
     return true;
-  };
+  }, [baseUrl, backofficeHeaders, jsonAuthHeaders]);
+
+  const tryResumeOrBypass = useCallback(async () => {
+    setBooting(true);
+    setError(null);
+    try {
+      const posHeaders = posRegisterAuthHeaders();
+      if (posHeaders["x-riverside-pos-session-id"]) {
+        let cur: Response;
+        try {
+          cur = await fetch(`${baseUrl}/api/sessions/current`, {
+            headers: posHeaders,
+          });
+        } catch {
+          setError(MAIN_HUB_UNAVAILABLE_MESSAGE);
+          return;
+        }
+        if (cur.ok) {
+          const data = (await cur.json()) as CurrentSessionJson;
+          const auth = getPosRegisterAuth();
+          if (!auth?.token) {
+            throw new Error(
+              "Register session is active but this browser has no POS token. Close the session from Back Office or open the register again with your 4-digit code.",
+            );
+          }
+          onOpenedRef.current(payloadFromSessionJson(data, auth.token));
+          return;
+        }
+        if (isTransientMainHubStatus(cur.status)) {
+          setError(MAIN_HUB_UNAVAILABLE_MESSAGE);
+          return;
+        }
+      }
+      if (await attachOpenLane(registerLaneRef.current)) {
+        return;
+      }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Could not restore register session";
+      setError(message);
+    } finally {
+      setBooting(false);
+    }
+  }, [baseUrl, attachOpenLane]);
 
   useEffect(() => {
     void tryResumeOrBypass();

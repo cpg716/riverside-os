@@ -1753,7 +1753,12 @@ export default function Cart({
   }, [initialCustomer, onInitialCustomerConsumed, setSelectedCustomer]);
 
   const loadTransactionIntoRegister = useCallback(
-    async (transactionId: string, forPickup: boolean = false, forRefund: boolean = false) => {
+    async (
+      transactionId: string,
+      forPickup: boolean = false,
+      forRefund: boolean = false,
+      pickupLineIds?: string[],
+    ) => {
       const res = await fetch(`${baseUrl}/api/transactions/${transactionId}`, {
         headers: apiAuth(),
       });
@@ -1832,8 +1837,15 @@ export default function Cart({
         return true;
       }
 
+      const requestedPickupLineIds = new Set(
+        forPickup ? (pickupLineIds ?? []).filter(Boolean) : [],
+      );
       const unfulfilled = (detail.items ?? []).filter(
-        (item) => !item.is_fulfilled && !item.is_internal,
+        (item) =>
+          !item.is_fulfilled &&
+          !item.is_internal &&
+          (requestedPickupLineIds.size === 0 ||
+            requestedPickupLineIds.has(item.transaction_line_id)),
       );
 
       if (unfulfilled.length === 0) {
@@ -1944,7 +1956,7 @@ export default function Cart({
         }
 
         toast(
-          `Loaded ${unfulfilled.length} item(s) from ${detail.transaction_display_id ?? "transaction"} for pickup. ${balanceDueCents > 0 ? "Balance due added to cart." : "No balance due."}`,
+          `Loaded ${unfulfilled.length} pickup item(s) from ${detail.transaction_display_id ?? "transaction"}. ${balanceDueCents > 0 ? "Balance due added to cart." : "No balance due."}`,
           "success",
         );
         return true;
@@ -4580,6 +4592,12 @@ export default function Cart({
             onAddItemToOrder={addItemToExistingOrder}
             onUpdateOrderItem={updateExistingOrderItem}
             onDeleteOrderItem={deleteExistingOrderItem}
+            onPickupToCart={async (order, items) => {
+              const ids = items
+                .map((item) => item.transaction_line_id)
+                .filter((id): id is string => Boolean(id));
+              return loadTransactionIntoRegister(order.id, true, false, ids);
+            }}
           />
 
           <OrderReviewModal

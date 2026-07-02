@@ -1039,7 +1039,7 @@ function App() {
 
   return (
     <TopBarProvider>
-      <BackofficeAuthProvider initialCode={cashierCode}>
+      <BackofficeAuthProvider initialCode={null}>
       <RegisterGateProvider goToOpenRegister={goToOpenRegister}>
         <RegisterSessionBootstrap
           baseUrl={baseUrl}

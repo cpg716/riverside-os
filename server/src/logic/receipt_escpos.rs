@@ -51,40 +51,6 @@ fn receiptline_escape(s: &str) -> String {
         .replace('}', "\\}")
 }
 
-/// Truncate a product name so it fits the left column of a two-column
-/// receiptline row (`name | price`).  The receiptline library wraps the
-/// left column independently; at CPL = 48 the left column is effectively
-/// limited to ~34 chars before the price column (" | $999.99" ≈ 10 chars)
-/// and the separator eat the rest. Hard-clipping here prevents a single
-/// trailing character from being pushed to a second line.
-fn clip_item_name(name: &str, max_chars: usize) -> String {
-    let cleaned = ascii_clean(name);
-    if cleaned.len() <= max_chars {
-        return cleaned;
-    }
-    // Find the last word boundary before max_chars
-    // Use max_chars - 2 to leave room for the ellipsis
-    let clip_limit = max_chars.saturating_sub(2);
-    if clip_limit < 5 {
-        // If max_chars is too small, just hard clip
-        return format!(
-            "{}…",
-            &cleaned[..max_chars.min(cleaned.len()).saturating_sub(1)]
-        );
-    }
-    let clipped = &cleaned[..clip_limit];
-    let boundary = clipped.rfind(' ');
-
-    // Only use word boundary if it leaves at least 3 characters
-    // Otherwise hard clip to avoid tiny fragments
-    let end_idx = match boundary {
-        Some(idx) if idx >= 3 => idx,
-        _ => clip_limit,
-    };
-
-    format!("{}…", &cleaned[..end_idx])
-}
-
 fn receiptline_logo_image() -> String {
     let Ok(img) = image::load_from_memory(RECEIPT_LOGO_IMAGE) else {
         return String::new();
@@ -475,20 +441,30 @@ fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
                 }
             }
 
-            let var = it
+            let name_raw = format!("{}x {}", it.quantity, it.product_name.trim());
+            let name = receiptline_escape(&name_raw);
+            let variation = it
                 .variation_label
                 .as_deref()
-                .map(|v| format!(" ({v})"))
-                .unwrap_or_default();
-            let name_raw = format!("{}x {}{var}", it.quantity, it.product_name);
-            let name = receiptline_escape(&clip_item_name(&name_raw, 34));
+                .map(str::trim)
+                .filter(|v| !v.is_empty());
 
             if gift {
                 out_lines.push(name);
+                if let Some(v) = variation {
+                    out_lines.push(format!("Variation: {}", receiptline_escape(v)));
+                }
                 out_lines.push(format!("SKU {}", receiptline_escape(&it.sku)));
             } else {
-                out_lines.push(format!("{} | {}", name, money(it.unit_price)));
-                out_lines.push(format!("SKU {}", receiptline_escape(&it.sku)));
+                out_lines.push(name);
+                if let Some(v) = variation {
+                    out_lines.push(format!("Variation: {}", receiptline_escape(v)));
+                }
+                out_lines.push(format!(
+                    "SKU {} | {}",
+                    receiptline_escape(&it.sku),
+                    money(it.unit_price)
+                ));
                 if let Some(orig) = it.original_unit_price {
                     if orig > it.unit_price && orig > Decimal::ZERO {
                         let diff = orig - it.unit_price;

@@ -85,6 +85,7 @@ interface OrderLoadModalProps {
     order: CustomerOrder,
     item: OrderItem,
   ) => Promise<boolean>;
+  onPickupToCart?: (order: CustomerOrder, items: OrderItem[]) => Promise<boolean>;
 }
 
 const fulfillmentLabel = (fulfillment: string) => {
@@ -124,6 +125,7 @@ export default function OrderLoadModal({
   onAddItemToOrder,
   onUpdateOrderItem,
   onDeleteOrderItem,
+  onPickupToCart,
 }: OrderLoadModalProps) {
   const { toast } = useToast();
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
@@ -352,6 +354,15 @@ export default function OrderLoadModal({
     overrideReadiness: boolean,
     mode: ReleaseMode = orderReleaseMode(order),
   ) => {
+    if (mode === "pickup" && onPickupToCart) {
+      const loaded = await onPickupToCart(order, items);
+      if (loaded) {
+        setPickupConfirm(null);
+        onClose();
+      }
+      return;
+    }
+
     const ids = items
       .map((item) => item.transaction_line_id)
       .filter((id): id is string => Boolean(id));

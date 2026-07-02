@@ -165,7 +165,7 @@ pub async fn merge_customers(
     .execute(&mut *tx)
     .await?;
 
-    repoint_customer_fk(&mut tx, "orders", master, slave).await?;
+    repoint_customer_fk(&mut tx, "transactions", master, slave).await?;
     repoint_customer_fk(&mut tx, "wedding_members", master, slave).await?;
     repoint_customer_fk(&mut tx, "wedding_appointments", master, slave).await?;
     repoint_customer_fk(&mut tx, "gift_cards", master, slave).await?;

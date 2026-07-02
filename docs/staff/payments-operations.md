@@ -63,7 +63,7 @@ Use the POS checkout drawer for live card collection.
 
 Terminal selection is in the checkout drawer header. Register #1 defaults to **Terminal 1**, Register #2 defaults to **Terminal 2**, and Register #3/#4 must choose an available terminal. A green dot means the selected terminal path is ready; a red dot means configuration, routing, or terminal availability needs attention.
 
-The **Payment Status** panel shows whether a terminal transaction was sent, is waiting for approval, approved, declined, canceled, expired, or returned an error code. If the terminal approved but ROS has not attached the payment yet, use **Recover payment** before retrying the card. Do not complete the sale until the Helcim attempt is approved and appears as an applied payment.
+The **Payment Status** panel shows whether a terminal transaction was sent, is waiting for approval, approved, declined, canceled, expired, or returned an error code. If the terminal approved but ROS has not attached the payment yet, use **Recover payment** before retrying the card or changing tender. If the card was truly declined, use **Retry card** to clear the declined attempt and send a new ROS-tracked request to the terminal. If a same-amount card attempt is declined as a possible duplicate and the customer then uses a different card that approves on the terminal, recover the Helcim approval in ROS before completing the sale. Do not complete the sale until the Helcim attempt is approved and appears as an applied payment.
 
 Customer receipts come from ROS. If the Helcim terminal prints its own receipt, keep the ROS checkout visible, alert a manager, and correct the Helcim terminal/device receipt setting before live card processing continues.
 

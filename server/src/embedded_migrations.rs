@@ -101,4 +101,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("098_transaction_line_booked_at.sql", include_str!("../../migrations/098_transaction_line_booked_at.sql")),
     ("099_transaction_line_shipping_release.sql", include_str!("../../migrations/099_transaction_line_shipping_release.sql")),
     ("100_allow_wedding_import_customer_source.sql", include_str!("../../migrations/100_allow_wedding_import_customer_source.sql")),
+    ("101_register_open_lane_uniqueness_guard.sql", include_str!("../../migrations/101_register_open_lane_uniqueness_guard.sql")),
 ];

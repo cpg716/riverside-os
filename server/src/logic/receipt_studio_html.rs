@@ -45,14 +45,14 @@ fn build_items_table(order: &ReceiptOrder) -> String {
             .unwrap_or_default();
         rows.push_str(&format!(
             "<tr>\
-               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:55%\">{}{}</td>\
-               <td style=\"text-align:right;padding-left:8px;width:25%\">{} \u{00d7} {}</td>\
-               <td style=\"text-align:right;padding-left:8px;width:20%\">{}</td>\
+               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:58%\"><strong>{}</strong>{}<br><span style=\"font-size:11px;color:#666\">SKU {}</span></td>\
+               <td style=\"text-align:center;padding-left:8px;width:14%\">{}</td>\
+               <td style=\"text-align:right;padding-left:8px;width:28%\">{}</td>\
              </tr>{}",
             html_escape(&it.product_name),
             var,
-            it.quantity,
             html_escape(&it.sku),
+            it.quantity,
             it.unit_price,
             discount_row
         ));
@@ -72,13 +72,13 @@ fn build_items_table_gift(order: &ReceiptOrder) -> String {
             .unwrap_or_default();
         rows.push_str(&format!(
             "<tr>\
-               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:65%\">{}{}</td>\
-               <td style=\"text-align:right;padding-left:8px;width:35%\">{} \u{00d7} {}</td>\
+               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:72%\"><strong>{}</strong>{}<br><span style=\"font-size:11px;color:#666\">SKU {}</span></td>\
+               <td style=\"text-align:right;padding-left:8px;width:28%\">Qty {}</td>\
              </tr>",
             html_escape(&it.product_name),
             var,
-            it.quantity,
             html_escape(&it.sku),
+            it.quantity,
         ));
     }
     format!(

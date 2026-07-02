@@ -2,7 +2,7 @@
 id: pos-order-load-modal
 title: "Customer Orders"
 order: 1070
-summary: "Review a customer's open Special, Custom, or Wedding order work in POS, check balance and lifecycle status, add or edit open lines, collect payments, and copy unfulfilled lines only when starting a new sale."
+summary: "Review a customer's open Special, Custom, or Wedding order work in POS, check balance and lifecycle status, add or edit open lines, collect payments, and load selected pickup lines into the register cart."
 source: client/src/components/pos/OrderLoadModal.tsx
 last_scanned: 2026-04-21
 tags: pos, orders, pickup, fulfillment
@@ -37,14 +37,14 @@ Use this window when a customer already has open Special, Custom, or Wedding wor
 4. Use **Add to Order** when the customer is adding another item to the same original fulfillment work.
 5. Use **Save Line** only when correcting quantity or price on an unfulfilled line.
 6. Use **Add Payment** when the customer is paying an existing balance.
-7. If you need to rebuild the items as a new register sale, use **Copy Unfulfilled Items**.
+7. For pickup, select the lines leaving with the customer and use **Pick Up Selected**. ROS loads those lines into the register cart so staff can add new purchases before completing pickup.
 
 ## Important
 
 - **Add to Order** and **Save Line** update the original fulfillment work and refresh the linked Transaction Record totals.
 - Payment taken later remains a new payment movement, but it is attached to the original Transaction Record.
-- **Copy Unfulfilled Items** starts a **new** register sale.
-- It does **not** collect payment on the original Transaction Record.
+- **Pick Up Selected** does not finish inside this window. It moves the selected pickup lines to the register cart, keeps their original Transaction Record links, and finishes from **Complete Pickup** so the Sale Complete receipt screen opens.
+- New merchandise added after loading pickup lines becomes a new sale line in the same register flow.
 - Use the balance and lifecycle note to confirm whether the order still needs payment, receiving follow-up, measurement follow-up, or pickup follow-up.
 - When the order has linked alterations marked **Ready**, loading the order for pickup shows those alteration pickups in the Register. Completing the order pickup also marks those ready alterations **Picked Up**.
 

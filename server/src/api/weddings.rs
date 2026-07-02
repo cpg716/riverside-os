@@ -99,55 +99,71 @@ async fn get_or_create_wedding_customer(
     customer_created_source: &str,
     created_is_verified: bool,
 ) -> Result<(Uuid, bool), sqlx::Error> {
+    let is_cutover_import = customer_created_source == "wedding_import";
     let phone = phone.map(str::trim).filter(|s| !s.is_empty());
     if let Some(phone) = phone {
         let phone_digits = digits_only(phone);
-        if let Some((existing_id, match_count)) = sqlx::query_as::<_, (Uuid, i64)>(
-            r#"
-            WITH phone_matches AS (
-                SELECT id, first_name, last_name, created_at
-                FROM customers
-                WHERE phone = $1
-                   OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') = $2
-                   OR (
-                        LENGTH($2) = 10
-                        AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = $2
-                   )
-                   OR (
-                        LENGTH($2) = 7
-                        AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 7) = $2
-                   )
-                   OR (
-                        LENGTH($2) = 7
-                        AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = CONCAT('716', $2)
-                   )
-            ),
-            name_matches AS (
-                SELECT id, created_at
-                FROM phone_matches
-                WHERE LOWER(TRIM(COALESCE(first_name, ''))) = LOWER(TRIM($3))
-                  AND LOWER(TRIM(COALESCE(last_name, ''))) = LOWER(TRIM($4))
+        let phone_digits_for_match = if is_cutover_import && phone_digits.len() < 10 {
+            None
+        } else {
+            Some(phone_digits.as_str())
+        };
+        if let Some(match_digits) = phone_digits_for_match {
+            if let Some((existing_id, match_count)) = sqlx::query_as::<_, (Uuid, i64)>(
+                r#"
+                WITH phone_matches AS (
+                    SELECT id, first_name, last_name, created_at
+                    FROM customers
+                    WHERE phone = $1
+                       OR REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') = $2
+                       OR (
+                            LENGTH($2) = 10
+                            AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = $2
+                       )
+                       OR (
+                            LENGTH($2) = 7
+                            AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 7) = $2
+                       )
+                       OR (
+                            LENGTH($2) = 7
+                            AND RIGHT(REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) = CONCAT('716', $2)
+                       )
+                ),
+                name_matches AS (
+                    SELECT id, created_at
+                    FROM phone_matches
+                    WHERE LOWER(TRIM(COALESCE(first_name, ''))) = LOWER(TRIM($3))
+                      AND LOWER(TRIM(COALESCE(last_name, ''))) = LOWER(TRIM($4))
+                )
+                SELECT id, COUNT(*) OVER () AS match_count
+                FROM name_matches
+                ORDER BY created_at DESC
+                LIMIT 1
+                "#,
             )
-            SELECT id, COUNT(*) OVER () AS match_count
-            FROM name_matches
-            ORDER BY created_at DESC
-            LIMIT 1
-            "#,
-        )
-        .bind(phone)
-        .bind(&phone_digits)
-        .bind(first)
-        .bind(last)
-        .fetch_optional(pool)
-        .await?
-        {
-            if match_count == 1 {
-                return Ok((existing_id, true));
+            .bind(phone)
+            .bind(match_digits)
+            .bind(first)
+            .bind(last)
+            .fetch_optional(pool)
+            .await?
+            {
+                if match_count == 1 {
+                    return Ok((existing_id, true));
+                }
             }
         }
     }
 
     let customer_id = Uuid::new_v4();
+    let created_phone = phone.and_then(|value| {
+        let digits = digits_only(value);
+        if is_cutover_import && digits.len() < 10 {
+            None
+        } else {
+            Some(value)
+        }
+    });
     let inserted_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO customers (
@@ -160,7 +176,7 @@ async fn get_or_create_wedding_customer(
     .bind(customer_id)
     .bind(first)
     .bind(last)
-    .bind(phone)
+    .bind(created_phone)
     .bind(format!("Wedding-{}", &customer_id.to_string()[..8]))
     .bind(customer_created_source)
     .fetch_one(pool)

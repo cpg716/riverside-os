@@ -955,6 +955,7 @@ async fn handle_helcim_card_transaction(
             &terminal_id,
             Some(amount_cents),
             Some(&currency),
+            matches!(normalized_status.as_str(), "approved" | "captured"),
         )
         .await?
         {
@@ -965,8 +966,8 @@ async fn handle_helcim_card_transaction(
                 provider_transaction_id = $2,
                 provider_payment_id = $3,
                 raw_audit_reference = $4,
-                error_code = CASE WHEN $1 = 'failed' THEN COALESCE($5, 'declined') ELSE error_code END,
-                error_message = CASE WHEN $1 = 'failed' THEN COALESCE($6, 'Helcim payment was declined.') ELSE error_message END,
+                error_code = CASE WHEN $1 = 'failed' THEN COALESCE($5, 'declined') ELSE NULL END,
+                error_message = CASE WHEN $1 = 'failed' THEN COALESCE($6, 'Helcim payment was declined.') ELSE NULL END,
                 completed_at = now()
             WHERE id = $7
             RETURNING id, checkout_client_id
@@ -1181,6 +1182,7 @@ async fn handle_helcim_terminal_cancel(
             &device_code,
             amount_cents,
             currency.as_deref(),
+            false,
         )
         .await?
     {
@@ -1226,8 +1228,9 @@ async fn find_safe_helcim_terminal_fallback_candidate(
     terminal_id: &str,
     amount_cents: Option<i64>,
     currency: Option<&str>,
+    allow_failed_recovery: bool,
 ) -> Result<Option<Uuid>, sqlx::Error> {
-    let candidates: Vec<Uuid> = sqlx::query_scalar(
+    let pending_candidates: Vec<Uuid> = sqlx::query_scalar(
         r#"
         SELECT id
         FROM payment_provider_attempts
@@ -1247,6 +1250,31 @@ async fn find_safe_helcim_terminal_fallback_candidate(
     .bind(HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES)
     .fetch_all(&mut **tx)
     .await?;
+
+    let candidates = if pending_candidates.is_empty() && allow_failed_recovery {
+        sqlx::query_scalar(
+            r#"
+            SELECT id
+            FROM payment_provider_attempts
+            WHERE provider = 'helcim'
+              AND status = 'failed'
+              AND terminal_id = $1
+              AND ($2::bigint IS NULL OR amount_cents = $2)
+              AND ($3::text IS NULL OR currency = $3)
+              AND created_at >= now() - ($4::bigint * interval '1 minute')
+            ORDER BY created_at DESC
+            LIMIT 2
+            "#,
+        )
+        .bind(terminal_id)
+        .bind(amount_cents)
+        .bind(currency)
+        .bind(HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES)
+        .fetch_all(&mut **tx)
+        .await?
+    } else {
+        pending_candidates
+    };
 
     let Some(candidate_id) = candidates.first().copied() else {
         return Ok(None);
